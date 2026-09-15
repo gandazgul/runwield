@@ -5,9 +5,6 @@ import { withProcessGlobalTestLock } from "../testing/process-global-lock.js";
 import { persistImageAttachment } from "../shared/session/image-attachments.js";
 import { createSeeImageTool, DEFAULT_SEE_IMAGE_PROMPT, extractAssistantText } from "./see-image.ts";
 
-/** @typedef {import("@earendil-works/pi-ai/compat").Api} Api */
-/** @typedef {import("@earendil-works/pi-ai/compat").Model<Api>} VisionTestModel */
-
 const TEST_COST = Object.freeze({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 });
 const TEST_USAGE = Object.freeze({
     input: 0,
@@ -18,25 +15,6 @@ const TEST_USAGE = Object.freeze({
     cost: TEST_COST,
 });
 
-/**
- * @param {string} [provider]
- * @returns {VisionTestModel}
- */
-function makeVisionTestModel(provider = "vision") {
-    return {
-        id: "model",
-        name: "model",
-        api: "openai-completions",
-        provider,
-        baseUrl: "https://example.invalid/v1",
-        reasoning: false,
-        input: ["text", "image"],
-        cost: TEST_COST,
-        contextWindow: 128000,
-        maxTokens: 2048,
-    };
-}
-
 Deno.test("extractAssistantText joins text blocks", () => {
     assertEquals(
         extractAssistantText([{ type: "text", text: "one" }, { type: "image", data: "x" }, {
@@ -46,6 +24,17 @@ Deno.test("extractAssistantText joins text blocks", () => {
         "one\ntwo",
     );
 });
+
+/** @param {string} cwd */
+async function writeVisionFallbackSetting(cwd) {
+    await Deno.mkdir(join(cwd, ".wld"), { recursive: true });
+    await Deno.writeTextFile(
+        join(cwd, ".wld", "settings.json"),
+        JSON.stringify({
+            visionFallback: { model: "vision/model" },
+        }),
+    );
+}
 
 /** @param {string} tempHome */
 async function writeVisionModelConfig(tempHome) {
@@ -74,13 +63,12 @@ Deno.test("see_image invokes fallback model with local image and default prompt"
         try {
             Deno.env.set("HOME", tempHome);
             await writeVisionModelConfig(tempHome);
+            await writeVisionFallbackSetting(cwd);
             await Deno.writeFile(join(cwd, "shot.png"), new Uint8Array([1, 2, 3]));
             /** @type {any[]} */
             const calls = [];
-            const fallbackModel = makeVisionTestModel();
             const tool = /** @type {any} */ (createSeeImageTool({
                 cwd,
-                fallbackModel,
                 completeSimpleFn: (model, context, options) => {
                     calls.push({ model, context, options });
                     return Promise.resolve({
@@ -118,15 +106,37 @@ Deno.test("see_image returns tool error on auth failure", async () => {
         const cwd = await Deno.makeTempDir({ prefix: "runwield-see-image-" });
         try {
             Deno.env.set("HOME", tempHome);
+            await Deno.mkdir(join(tempHome, ".wld"), { recursive: true });
+            await Deno.writeTextFile(
+                join(tempHome, ".wld", "models.json"),
+                JSON.stringify({
+                    providers: {
+                        "missing-vision": {
+                            baseUrl: "https://example.invalid/v1",
+                            api: "openai-completions",
+                            models: [{ id: "model", input: ["text", "image"] }],
+                        },
+                    },
+                }),
+            );
+            await Deno.mkdir(join(cwd, ".wld"), { recursive: true });
+            await Deno.writeTextFile(
+                join(cwd, ".wld", "settings.json"),
+                JSON.stringify({
+                    visionFallback: { model: "missing-vision/model" },
+                }),
+            );
             await Deno.writeFile(join(cwd, "shot.png"), new Uint8Array([1]));
             const tool = /** @type {any} */ (createSeeImageTool({
                 cwd,
-                fallbackModel: makeVisionTestModel("missing-vision"),
                 completeSimpleFn: () => Promise.reject(new Error("should not call")),
             }));
             const result = await tool.execute("1", { imageRef: "shot.png" }, undefined, undefined, {});
             assertEquals(result.isError, true);
-            assertEquals(result.content[0].text, "No configured auth for provider missing-vision");
+            assertEquals(
+                result.content[0].text,
+                "No API key configured for visionFallback.model: missing-vision/model",
+            );
         } finally {
             Deno.env.set("HOME", originalHome);
             await Deno.remove(tempHome, { recursive: true });
@@ -143,6 +153,7 @@ Deno.test("see_image resolves attachment refs from the session image directory",
         try {
             Deno.env.set("HOME", tempHome);
             await writeVisionModelConfig(tempHome);
+            await writeVisionFallbackSetting(cwd);
             const sessionManager = /** @type {any} */ ({ getSessionId: () => "session-abc" });
             const attachment = await persistImageAttachment(
                 { base64: btoa("img"), mimeType: "image/png" },
@@ -154,7 +165,6 @@ Deno.test("see_image resolves attachment refs from the session image directory",
             const tool = /** @type {any} */ (createSeeImageTool({
                 cwd,
                 sessionManager,
-                fallbackModel: makeVisionTestModel(),
                 completeSimpleFn: (_model, context) => {
                     calls.push(context.messages[0].content[1]);
                     return Promise.resolve({

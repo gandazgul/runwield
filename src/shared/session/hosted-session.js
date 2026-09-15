@@ -717,6 +717,14 @@ export class HostedSession {
         return steering.map((entry) => ({ text: entry.text, images: entry.images.map((image) => ({ ...image })) }));
     }
 
+    /** @param {AgentTransitionSteering[]} entries */
+    restoreAgentTransitionSteering(entries) {
+        this.agentTransitionSteering = [
+            ...entries.map((entry) => ({ text: entry.text, images: entry.images.map((image) => ({ ...image })) })),
+            ...this.agentTransitionSteering,
+        ];
+    }
+
     /**
      * @param {"read" | "write"} mode
      * @returns {() => void}

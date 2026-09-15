@@ -994,3 +994,66 @@ Deno.test("Workspace opens an interrupted Session directly from its saved conver
         }
     });
 });
+
+Deno.test("Workspace new image Session deduplicates concurrent prepared requests", async () => {
+    let releasePreflight = () => {};
+    const preflightStarted = new Promise((resolve) => {
+        releasePreflight = resolve;
+    });
+    let shellCount = 0;
+    const submittedModels = [];
+    const service = new WorkspaceSessionContinuationService({
+        store: {
+            getProjectById: () => ({ id: "project-1", lifecycle: "enabled", currentRoot: "/tmp/project" }),
+            requireEnabledProjectRoot: () => "/tmp/project",
+        },
+    });
+    service.listSessionOptions = () =>
+        Promise.resolve({
+            agents: [{ name: AGENTS.ROUTER }],
+            models: [],
+            thinkingLevels: ["off"],
+        });
+    service.runtime = {
+        createInteractiveSession: () => {
+            shellCount += 1;
+            return Promise.resolve({ sessionId: `shell-${shellCount}` });
+        },
+        preflightUserTurnImages: async () => {
+            await preflightStarted;
+            return { ok: true, mode: "direct", preparedModelOverride: "runtime-command-fixture/fixture-model" };
+        },
+        closeSessionWhenIdle: () => {},
+        getSessionSnapshot: () => ({ managed: { runwieldSessionId: "rw-1" } }),
+        setInteractionAdapter: () => {},
+        subscribeSessionEvents: () => () => {},
+        promptUserTurn: (_sessionId, options) => {
+            submittedModels.push(options.preparedModelOverride || "");
+            return Promise.resolve({ ok: true });
+        },
+    };
+
+    const first = service.createSession({
+        projectId: "project-1",
+        requestId: "request-1",
+        deviceId: "device-1",
+        text: "look",
+        images: [{ base64: btoa("img"), mimeType: "image/png" }],
+    });
+    const second = service.createSession({
+        projectId: "project-1",
+        requestId: "request-1",
+        deviceId: "device-1",
+        text: "look",
+        images: [{ base64: btoa("img"), mimeType: "image/png" }],
+    });
+    releasePreflight();
+    const [firstResult, secondResult] = await Promise.all([first, second]);
+
+    for (let index = 0; index < 20 && submittedModels.length === 0; index += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    assertEquals(firstResult.operationId, secondResult.operationId);
+    assertEquals(shellCount, 2);
+    assertEquals(submittedModels, ["runtime-command-fixture/fixture-model"]);
+});

@@ -18,7 +18,7 @@ import {
     resolveResumeAgentName,
 } from "./active-agent-session.js";
 import { resolveActiveWorkflowRuntimeAgent, resolvePlanExecutionRuntimeAgent } from "../workflow/execution-agent.ts";
-import { getAgentDisplayName } from "./agents.js";
+import { getAgentDisplayName, loadAgentDef } from "./agents.js";
 import { runActiveAgentTurn, switchActiveAgent } from "./agent-switching.js";
 import {
     abortActiveSession as abortActiveSessionFn,
@@ -31,6 +31,7 @@ import {
     listLoadedAgentMdFiles,
     listPromptTemplates,
     listSkills,
+    resolveModel,
     runIsolatedAgentSession,
     steerActiveSessionWithTarget,
     steerAgentSessionWithTarget,
@@ -220,6 +221,8 @@ async function resolvePersistedRootConfiguration(agentName, sessionManager, cwd)
  * @property {boolean} [emitInitialEvents]
  * @property {boolean} [suppressEpicContinuation]
  * @property {string} [modelRequest]
+ * @property {string} [modelOverride]
+ * @property {string} [preparedModelOverride]
  * @property {import('./named-invocation.ts').NamedInvocationPayload} [namedInvocationPayload]
  * @property {AbortSignal} [signal]
  */
@@ -1008,13 +1011,21 @@ export class SessionRuntime {
         const managedRejection = this.#rejectManagedPublicMutation(hostedSession, "steerSession", capability);
         if (managedRejection) return { ...managedRejection, queued: false };
         if (hostedSession.isAgentTransitioning?.()) {
-            hostedSession.queueAgentTransitionSteering(text, images);
-            return { ok: true, queued: true };
+            const activeTarget = /** @type {any} */ (hostedSession.getActiveSteeringTargetSession?.());
+            const imagePreflight = await this.#preflightImagesForAgentSession(
+                hostedSession,
+                images,
+                activeTarget || hostedSession.getRootAgentSession(),
+            );
+            if (!imagePreflight.ok) throw new Error(imagePreflight.message);
+            if (hostedSession.queueAgentTransitionSteering(text, images)) return { ok: true, queued: true };
         }
         const activeTarget = /** @type {any} */ (hostedSession.getActiveSteeringTargetSession?.());
         const rootSession = /** @type {any} */ (hostedSession.getRootAgentSession());
         const expectedTarget = activeTarget?.isStreaming ? activeTarget : rootSession;
         if (!expectedTarget?.isStreaming) return { ok: true, queued: false, reason: "not_streaming" };
+        const imagePreflight = await this.#preflightImagesForAgentSession(hostedSession, images, expectedTarget);
+        if (!imagePreflight.ok) throw new Error(imagePreflight.message);
 
         this.#ensureQueueSourceSubscription(hostedSession, expectedTarget);
         const sourceSession = await steerActiveSessionWithTarget(hostedSession, text, images);
@@ -2081,20 +2092,135 @@ export class SessionRuntime {
     async preflightSessionImages(sessionId, images) {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) return { ok: false, message: "Runtime session not found." };
-        const rootAgentSession = /** @type {any} */ (session.getRootAgentSession());
+        return await this.#preflightImagesForAgentSession(session, images, session.getRootAgentSession());
+    }
+
+    /**
+     * @param {import('./hosted-session.js').HostedSession} session
+     * @param {import('./types.js').ImageAttachment[]} images
+     * @param {any} agentSession
+     */
+    async #preflightImagesForAgentSession(session, images, agentSession) {
         const modelState = session.getActiveModelState();
         const managed = session.getManagedMetadata?.();
         const modelProvider = modelState.provider || managed?.provider || "";
         const modelId = modelState.model || managed?.model || "";
-        const modelRegistry = rootAgentSession?.modelRegistry || getModelRegistry();
-        const activeModel = rootAgentSession?.model ||
+        const modelRegistry = agentSession?.modelRegistry || getModelRegistry();
+        const activeModel = agentSession?.model ||
             (modelProvider && modelId ? modelRegistry.find(modelProvider, modelId) : undefined);
+        return await this.#preflightImagesForModel(session, images, activeModel, modelRegistry);
+    }
+
+    /**
+     * @param {unknown} activeModel
+     * @returns {string | undefined}
+     */
+    #modelReference(activeModel) {
+        const model = /** @type {{ provider?: string, id?: string, model?: string }} */ (activeModel || {});
+        if (model.provider && model.id) return `${model.provider}/${model.id}`;
+        if (model.provider && model.model) return `${model.provider}/${model.model}`;
+        return undefined;
+    }
+
+    /**
+     * @param {import('./hosted-session.js').HostedSession} session
+     * @param {import('./types.js').ImageAttachment[]} images
+     * @param {unknown} activeModel
+     * @param {any} modelRegistry
+     */
+    async #preflightImagesForModel(session, images, activeModel, modelRegistry) {
+        if (!images || images.length === 0) return { ok: true, mode: "none" };
+        const modelProvider =
+            /** @type {{ provider?: string, executionBackend?: string }} */ (activeModel || {}).provider;
+        const executionBackend = /** @type {{ executionBackend?: string }} */ (activeModel || {}).executionBackend;
+        if (modelProvider === "agy-cli" || executionBackend === "agy-cli") {
+            return { ok: false, message: "Antigravity CLI sessions do not support image attachments." };
+        }
         let fallbackModelRef;
-        if (images.length > 0 && !modelSupportsImageInput(activeModel)) {
-            fallbackModelRef = (await resolveVisionFallbackModel(modelRegistry, SYSTEM_MODEL_DISCOVERY_NETWORK))
-                ?.modelRef;
+        if (!modelSupportsImageInput(activeModel)) {
+            try {
+                fallbackModelRef = (await resolveVisionFallbackModel(
+                    modelRegistry,
+                    SYSTEM_MODEL_DISCOVERY_NETWORK,
+                    session.cwd,
+                ))?.modelRef;
+            } catch (error) {
+                return { ok: false, message: error instanceof Error ? error.message : String(error) };
+            }
         }
         return preflightImageAttachments(images, { activeModel, fallbackModelRef });
+    }
+
+    /**
+     * @param {string} sessionId
+     * @param {PromptSessionOptions} options
+     */
+    async preflightUserTurnImages(sessionId, options) {
+        const session = this.#sessionHost.getSession(sessionId);
+        if (!session) return { ok: false, message: "Runtime session not found." };
+        const images = options.initialImages || [];
+        if (images.length === 0) return { ok: true, mode: "none" };
+        const namedInvocation = await resolveNamedInvocation({
+            cwd: session.cwd,
+            text: options.initialRequest,
+            images,
+        });
+        const activeAgentInfo = session.getActiveAgentInfo?.() || null;
+        const agentName = namedInvocation.kind === "prompt_template"
+            ? namedInvocation.agentName
+            : options.agentName || activeAgentInfo?.agentName || session.getRootAgentName?.() || AGENTS.ROUTER;
+        const modelOverride = namedInvocation.kind === "prompt_template"
+            ? options.preparedModelOverride || namedInvocation.model
+            : options.preparedModelOverride || options.modelOverride;
+        const ignoreManualModelOverride = namedInvocation.kind === "prompt_template";
+        const agentDef = await loadAgentDef(agentName, session.cwd);
+        const modelRegistry = getModelRegistry();
+        let sessionManager = /** @type {import('@earendil-works/pi-coding-agent').SessionManager | null} */ (
+            session.getRootSessionManager?.() || null
+        );
+        let openedSessionManager = /** @type {DisposableSessionManager | null} */ (null);
+        try {
+            if (!sessionManager) {
+                const managed = session.getManagedMetadata?.();
+                if (managed?.transcriptPath && managed?.piSessionId) {
+                    const opened = await openPersistedRootSession({
+                        cwd: session.cwd,
+                        sessionId: managed.piSessionId,
+                        sessionPath: managed.transcriptPath,
+                    });
+                    sessionManager = opened.sessionManager;
+                    openedSessionManager = /** @type {DisposableSessionManager} */ (opened.sessionManager);
+                }
+            }
+            let effectiveModelOverride = modelOverride;
+            if (!ignoreManualModelOverride && !effectiveModelOverride && sessionManager) {
+                const resumeAgent = await resolveResumeAgentName(sessionManager);
+                const persistedManualModel = readPersistedManualModelState(sessionManager, agentName || resumeAgent);
+                const persistedModel = agentName === resumeAgent
+                    ? resolvePersistedResumeModel(sessionManager)
+                    : undefined;
+                effectiveModelOverride = persistedManualModel
+                    ? persistedManualModel.provider
+                        ? `${persistedManualModel.provider}/${persistedManualModel.model}`
+                        : persistedManualModel.model
+                    : persistedModel;
+            }
+            const activeModel = await resolveModel(
+                effectiveModelOverride,
+                agentDef,
+                agentName,
+                modelRegistry,
+                session,
+                session.cwd,
+                { ignoreManualModelOverride },
+            );
+            const result = await this.#preflightImagesForModel(session, images, activeModel, modelRegistry);
+            return result.ok ? { ...result, preparedModelOverride: this.#modelReference(activeModel) } : result;
+        } catch (error) {
+            return { ok: false, message: error instanceof Error ? error.message : String(error) };
+        } finally {
+            openedSessionManager?.dispose?.();
+        }
     }
 
     /**
@@ -3643,6 +3769,14 @@ export class SessionRuntime {
                     let result = null;
                     if (!hostedSession.beginTurn(turnId)) throw new SessionTurnInProgressError(hostedSession.id);
                     try {
+                        const imagePreflight = await this.preflightUserTurnImages(hostedSession.id, {
+                            initialRequest: invocation.payload.compactInvocation,
+                            initialImages: options.initialImages || [],
+                            agentName: invocation.agentName,
+                            preparedModelOverride: options.preparedModelOverride,
+                            modelOverride: invocation.model,
+                        });
+                        if (!imagePreflight.ok) throw new Error(imagePreflight.message);
                         const images = await this.#persistPendingPromptImages(
                             hostedSession,
                             options.initialImages || [],
@@ -3677,7 +3811,7 @@ export class SessionRuntime {
                                     images,
                                     sessionManager,
                                     cwd,
-                                    modelOverride: invocation.model,
+                                    modelOverride: options.preparedModelOverride || invocation.model,
                                     thinkingLevelOverride: invocation.thinkingLevel,
                                     workflowAuthority: false,
                                     ignoreManualModelOverride: true,
@@ -3765,23 +3899,34 @@ export class SessionRuntime {
         let displayRequest = submittedRequest;
         if (namedInvocation.kind === "prompt_template") displayRequest = namedInvocation.expandedRequest;
         if (namedInvocation.kind === "skill") displayRequest = namedInvocation.payload.compactInvocation;
+        let preparedModelOverride = options.preparedModelOverride;
+        if ((options.initialImages || []).length > 0) {
+            const imagePreflight = await this.preflightUserTurnImages(sessionId, options);
+            if (!imagePreflight.ok) throw new Error(imagePreflight.message);
+            if ("preparedModelOverride" in imagePreflight) {
+                preparedModelOverride ||= imagePreflight.preparedModelOverride;
+            }
+        }
         let managed = hostedSession.getManagedMetadata?.() || null;
         const isDeferredFirstTurn = !managed && this.#pendingManagedCreationProjects.has(sessionId);
         const deferredFirstTurnId = isDeferredFirstTurn ? crypto.randomUUID() : "";
         let deferredBusyStarted = false;
         if (isDeferredFirstTurn) {
-            this.#emitSessionEvent(hostedSession.id, {
-                type: RuntimeEventTypes.USER_MESSAGE,
-                turnId: deferredFirstTurnId,
-                text: displayRequest,
-                images: (options.initialImages || []).map((image) => ({ ...image })),
-            });
-            this.#emitSessionEvent(hostedSession.id, {
-                type: RuntimeEventTypes.TURN_START,
-                turnId: deferredFirstTurnId,
-            });
-            this.#beginBusyOperation(sessionId, deferredFirstTurnId);
-            deferredBusyStarted = true;
+            const hasInitialImages = (options.initialImages || []).length > 0;
+            if (!hasInitialImages) {
+                this.#emitSessionEvent(hostedSession.id, {
+                    type: RuntimeEventTypes.USER_MESSAGE,
+                    turnId: deferredFirstTurnId,
+                    text: displayRequest,
+                    images: (options.initialImages || []).map((image) => ({ ...image })),
+                });
+                this.#emitSessionEvent(hostedSession.id, {
+                    type: RuntimeEventTypes.TURN_START,
+                    turnId: deferredFirstTurnId,
+                });
+                this.#beginBusyOperation(sessionId, deferredFirstTurnId);
+                deferredBusyStarted = true;
+            }
             const activeAgentInfo = hostedSession.getActiveAgentInfo?.() || null;
             const agentName = options.agentName || activeAgentInfo?.agentName || AGENTS.ROUTER;
             hostedSession.mergePendingManagedTurnIntent?.({ agentName });
@@ -3809,8 +3954,14 @@ export class SessionRuntime {
             managed = hostedSession.getManagedMetadata() || managed;
         }
         const requestOptions = deferredFirstTurnId
-            ? { ...options, initialRequest: displayRequest, turnId: deferredFirstTurnId, emitInitialEvents: false }
-            : { ...options, initialRequest: displayRequest };
+            ? {
+                ...options,
+                initialRequest: displayRequest,
+                preparedModelOverride,
+                turnId: deferredFirstTurnId,
+                emitInitialEvents: (options.initialImages || []).length > 0 ? undefined : false,
+            }
+            : { ...options, initialRequest: displayRequest, preparedModelOverride };
         const buildResult = (
             /** @type {{ ok: boolean, turns: number, error?: string }} */ result,
         ) => ({
@@ -4030,11 +4181,16 @@ export class SessionRuntime {
                 managedSegmentCwd: managedProjectSessionDir ? generationSegment?.transcriptCwd : undefined,
             });
             hostedSession.setRootSessionManager(/** @type {any} */ (sessionManager), capability);
-            const pendingModel = pendingIntent.model || pendingIntent.provider
-                ? pendingIntent.provider && pendingIntent.model
-                    ? `${pendingIntent.provider}/${pendingIntent.model}`
-                    : pendingIntent.model || undefined
+            const preparedModelOverride = "preparedModelOverride" in options &&
+                    typeof options.preparedModelOverride === "string"
+                ? options.preparedModelOverride
                 : undefined;
+            const pendingModel = preparedModelOverride ||
+                (pendingIntent.model || pendingIntent.provider
+                    ? pendingIntent.provider && pendingIntent.model
+                        ? `${pendingIntent.provider}/${pendingIntent.model}`
+                        : pendingIntent.model || undefined
+                    : undefined);
             if (pendingIntent.model || pendingIntent.provider) {
                 hostedSession.setActiveModelState(pendingIntent.model || "", pendingIntent.provider || "", true);
             }
@@ -4187,15 +4343,30 @@ export class SessionRuntime {
         if (!hostedSession) throw new Error("SessionRuntime.promptManagedSession: session not found");
         const managed = hostedSession.getManagedMetadata?.();
         if (!managed) throw new Error("SessionRuntime.promptManagedSession: segmented Session metadata is unavailable");
+        let operationOptions = options;
+        if ((options.initialImages || []).length > 0 && !options.preparedModelOverride) {
+            const imagePreflight = await this.preflightUserTurnImages(sessionId, options);
+            if (!imagePreflight.ok) throw new Error(imagePreflight.message);
+            operationOptions = {
+                ...options,
+                preparedModelOverride: "preparedModelOverride" in imagePreflight
+                    ? imagePreflight.preparedModelOverride
+                    : undefined,
+            };
+        }
         const result = await this.#runManagedOperation(
             sessionId,
-            { name: "prompt", options, emitPromptEvents: options.emitInitialEvents === false ? false : undefined },
+            {
+                name: "prompt",
+                options: operationOptions,
+                emitPromptEvents: operationOptions.emitInitialEvents === false ? false : undefined,
+            },
             async ({ acceptedTurnId, hasPendingImages, capability }) =>
                 await this.promptSession(sessionId, {
-                    ...options,
+                    ...operationOptions,
                     turnId: acceptedTurnId,
                     onTurnStarted: undefined,
-                    emitInitialEvents: options.emitInitialEvents === false ? false : hasPendingImages,
+                    emitInitialEvents: operationOptions.emitInitialEvents === false ? false : hasPendingImages,
                     suppressEpicContinuation: true,
                     signal: capability.signal,
                 }, capability),
@@ -5090,6 +5261,8 @@ export class SessionRuntime {
             /** @type {{ ok: boolean, turns: number, error?: string, replacementSessionId?: string } | null} */ (null);
 
         try {
+            const imagePreflight = await this.preflightSessionImages(sessionId, images);
+            if (!imagePreflight.ok) throw new Error(imagePreflight.message);
             const cleanup = options.onTurnStarted?.({ turnId });
             if (typeof cleanup === "function") cleanupTurn = cleanup;
             images = await this.#persistPendingPromptImages(hostedSession, images);

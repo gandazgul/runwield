@@ -558,8 +558,8 @@ not inherit it. Future Session deletion also removes its images. See
 
 - When compaction finishes and the Session resumes, its goal, decisions, constraints, and useful progress survive;
   failure or cancellation never claims successful compaction.
-- Given a text-only model and no suitable vision fallback, when the user tries to send an image, setup guidance
-  preserves the typed message and image preview.
+- Given a text-only destination model and no suitable vision fallback, when the user tries to send an image or changes
+  model before Send, setup guidance preserves the typed message and image preview.
 - When the user resumes a Session with saved images, those attachments remain available without exposing images from
   unrelated Sessions.
 

@@ -185,10 +185,11 @@ export function preflightImageAttachments(images, opts) {
 /**
  * @param {any} modelRegistry
  * @param {import('../models/model-registry.ts').ModelDiscoveryNetworkPort} network
+ * @param {string} projectRoot
  * @returns {Promise<{ model: any, modelRef: string } | undefined>}
  */
-export async function resolveVisionFallbackModel(modelRegistry, network) {
-    const configured = getResolvedVisionFallbackModelSetting();
+export async function resolveVisionFallbackModel(modelRegistry, network, projectRoot) {
+    const configured = getResolvedVisionFallbackModelSetting(projectRoot);
     if (!configured) return undefined;
 
     const parsed = parseProviderModel(configured);

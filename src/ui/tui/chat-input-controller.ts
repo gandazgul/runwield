@@ -18,6 +18,7 @@ type ThinkingLevel = Parameters<typeof persistThinkingLevel>[0];
 export interface QueuedInput {
     text: string;
     images: ImageAttachment[];
+    preparedModelOverride?: string;
 }
 export interface PromptTemplateMeta {
     name: string;
@@ -92,6 +93,27 @@ export function createChatInputController(options: ChatInputControllerOptions): 
     let pendingThinkingLevelTimer: ReturnType<typeof setTimeout> | null = null;
     let thinkingLevelPersistenceQueue: Promise<void> = Promise.resolve();
     let originalHandleInput: (data: string) => void | Promise<void> = (data: string) => editor.handleInput(data);
+    let latestEditorText = "";
+    let editorTextBeforeSubmitClear: string | null = null;
+    interface ExpandedTextReader {
+        getExpandedText?: () => string;
+    }
+    function readEditorText(fallback: string): string {
+        const expandedEditor = editor as typeof editor & ExpandedTextReader;
+        return expandedEditor.getExpandedText?.() ?? fallback;
+    }
+    const originalOnChange = editor.onChange;
+    editor.onChange = (text: string) => {
+        const nextText = readEditorText(text);
+        if (nextText === "" && latestEditorText !== "") {
+            editorTextBeforeSubmitClear = latestEditorText;
+            queueMicrotask(() => {
+                editorTextBeforeSubmitClear = null;
+            });
+        }
+        latestEditorText = nextText;
+        originalOnChange?.(text);
+    };
 
     function flushPendingThinkingLevelPersistence(): Promise<void> {
         const level = pendingThinkingLevel;
@@ -166,13 +188,18 @@ export function createChatInputController(options: ChatInputControllerOptions): 
         else void processSubmissions();
         view.requestRender();
     }
-    async function submitToActiveRoot(userRequest: string, savedImages: ImageAttachment[]): Promise<void> {
+    async function submitToActiveRoot(
+        userRequest: string,
+        savedImages: ImageAttachment[],
+        preparedModelOverride?: string,
+    ): Promise<void> {
         const thisGen = generationGuard.bump();
         try {
             await options.managedSyncController.pause();
             const result = await runtime.promptUserTurn(options.getSessionId(), {
                 initialRequest: userRequest,
                 initialImages: savedImages,
+                preparedModelOverride,
             });
             if (result?.error === "refresh_required") {
                 await runtime.synchronizeManagedSession(options.getSessionId());
@@ -199,7 +226,11 @@ export function createChatInputController(options: ChatInputControllerOptions): 
             options.managedSyncController.resume();
         }
     }
-    async function executeUserRequest(text: string, savedImages: ImageAttachment[]): Promise<void> {
+    async function executeUserRequest(
+        text: string,
+        savedImages: ImageAttachment[],
+        preparedModelOverride?: string,
+    ): Promise<void> {
         const userRequest = text.trim();
         if (!userRequest && savedImages.length === 0) return;
         if (userRequest.startsWith("/")) recordUserInputHistory(editor, userRequest);
@@ -219,13 +250,14 @@ export function createChatInputController(options: ChatInputControllerOptions): 
                 skills: options.getSkills(),
                 chatPromptAgentName: options.chatPromptAgentName,
                 resolveTemplateModel,
-                dispatchExpandedUserRequest: submitToActiveRoot,
+                dispatchExpandedUserRequest: (request, images) =>
+                    submitToActiveRoot(request, images, preparedModelOverride),
                 replaceRuntimeSession: options.replaceRuntimeSession,
                 generationGuard,
             })
             : false;
         if (handledSlash) return;
-        await submitToActiveRoot(text, savedImages);
+        await submitToActiveRoot(text, savedImages, preparedModelOverride);
     }
     async function processSubmissions(initialItem: QueuedInput | null = null): Promise<void> {
         if (isProcessingSubmission) return;
@@ -234,7 +266,11 @@ export function createChatInputController(options: ChatInputControllerOptions): 
             await flushPendingThinkingLevelPersistence();
             let item = initialItem || runtime.takeNextTurnMessage(options.getSessionId()).message;
             while (item) {
-                await executeUserRequest(item.text, item.images);
+                await executeUserRequest(
+                    item.text,
+                    item.images,
+                    "preparedModelOverride" in item ? item.preparedModelOverride : undefined,
+                );
                 item = runtime.takeNextTurnMessage(options.getSessionId()).message;
             }
         } finally {
@@ -246,8 +282,11 @@ export function createChatInputController(options: ChatInputControllerOptions): 
             }
         }
     }
-    async function preflightCurrentImages(images: ImageAttachment[]) {
-        return await runtime.preflightSessionImages(options.getSessionId(), images);
+    async function preflightCurrentImages(text: string, images: ImageAttachment[]) {
+        return await runtime.preflightUserTurnImages(options.getSessionId(), {
+            initialRequest: text,
+            initialImages: images,
+        });
     }
     async function awaitPendingImagePastes(images: ImageAttachment[]): Promise<void> {
         const pending = images.flatMap((image) => {
@@ -267,9 +306,9 @@ export function createChatInputController(options: ChatInputControllerOptions): 
                 const message = error instanceof Error ? error.message : String(error);
                 if (!message.includes("no active session is available")) throw error;
             }
-            const preflight = await preflightCurrentImages([image]);
+            const preflight = await preflightCurrentImages("", [image]);
             if (!preflight.ok) {
-                uiAPI.appendSystemMessage(preflight.message);
+                uiAPI.appendSystemMessage(preflight.message || "Cannot attach image.");
                 return null;
             }
             preflightedImageRefs.add(imageWarningKey(image));
@@ -288,8 +327,11 @@ export function createChatInputController(options: ChatInputControllerOptions): 
         return task;
     }
     editor.onSubmit = async (text: string) => {
+        const restoreText = latestEditorText || editorTextBeforeSubmitClear || text;
+        editorTextBeforeSubmitClear = null;
         const userRequest = text.trim();
         let images = [...pastedImages];
+        let preparedModelOverride: string | undefined;
         uiAPI.hideKeyboardHelp?.();
         if (!userRequest && images.length === 0) return;
         if (
@@ -301,7 +343,7 @@ export function createChatInputController(options: ChatInputControllerOptions): 
                 true,
                 "RunWield",
             );
-            editor.setText(text);
+            editor.setText(restoreText);
             forceResetUI();
             return;
         }
@@ -313,31 +355,28 @@ export function createChatInputController(options: ChatInputControllerOptions): 
             !(userRequest.startsWith("/") && options.isModelSetupRecoveryCommand(userRequest))
         ) {
             uiAPI.appendSystemMessage(managedBlockMessage, true, "RunWield");
-            editor.setText(text);
+            editor.setText(restoreText);
             forceResetUI();
             return;
         }
-        if (images.length > 0) {
+        if (images.length > 0 && !isProcessingSubmission) {
             await awaitPendingImagePastes(images);
             images = images.filter((image) => pastedImages.includes(image));
             if (!userRequest && images.length === 0) return;
-            const imagesNeedingPreflight = images.filter((image) => !preflightedImageRefs.has(imageWarningKey(image)));
-            if (imagesNeedingPreflight.length > 0) {
-                const preflight = await preflightCurrentImages(imagesNeedingPreflight);
-                if (!preflight.ok) {
-                    uiAPI.appendSystemMessage(preflight.message);
-                    view.requestRender();
-                    return;
-                }
-                for (const image of imagesNeedingPreflight) preflightedImageRefs.add(imageWarningKey(image));
-                const unwarnedImages = imagesNeedingPreflight.filter((image) =>
-                    !warnedImageRefs.has(imageWarningKey(image))
-                );
-                const submitWarning = getPreflightWarning(preflight);
-                if (submitWarning && unwarnedImages.length > 0) {
-                    uiAPI.appendSystemMessage(submitWarning);
-                    for (const image of unwarnedImages) warnedImageRefs.add(imageWarningKey(image));
-                }
+            const preflight = await preflightCurrentImages(text, images);
+            if (!preflight.ok) {
+                uiAPI.appendSystemMessage(preflight.message || "Cannot attach image.");
+                editor.setText(restoreText);
+                forceResetUI();
+                return;
+            }
+            preparedModelOverride = "preparedModelOverride" in preflight ? preflight.preparedModelOverride : undefined;
+            for (const image of images) preflightedImageRefs.add(imageWarningKey(image));
+            const unwarnedImages = images.filter((image) => !warnedImageRefs.has(imageWarningKey(image)));
+            const submitWarning = getPreflightWarning(preflight);
+            if (submitWarning && unwarnedImages.length > 0) {
+                uiAPI.appendSystemMessage(submitWarning);
+                for (const image of unwarnedImages) warnedImageRefs.add(imageWarningKey(image));
             }
         }
         endBlink();
@@ -348,7 +387,7 @@ export function createChatInputController(options: ChatInputControllerOptions): 
                 deliverWhenAvailable: true,
             });
             if (!queued.queued) {
-                restoreQueuedItemToEditor({ text, images });
+                restoreQueuedItemToEditor({ text: restoreText, images });
                 uiAPI.appendSystemMessage(
                     `Unable to queue message: ${queued.error || queued.reason || "unknown error"}`,
                     true,
@@ -385,10 +424,15 @@ export function createChatInputController(options: ChatInputControllerOptions): 
             runtime.steerSession(options.getSessionId(), userRequest, images).then((result) => {
                 if (!result.queued) queueForNextTurn(userRequest, images);
                 view.requestRender();
-            }).catch(() => queueForNextTurn(userRequest, images));
+            }).catch((error) => {
+                restoreQueuedItemToEditor({ text: restoreText, images });
+                const message = userTurnFailureMessage(error instanceof Error ? error : String(error));
+                if (message) uiAPI.appendSystemMessage(message, true, "RunWield");
+                forceResetUI();
+            });
             return;
         }
-        await processSubmissions({ text, images });
+        await processSubmissions({ text, images, preparedModelOverride });
     };
     function cycleThinkingLevel(): void {
         const result = runtime.cycleSessionThinkingLevel(options.getSessionId());
@@ -422,6 +466,7 @@ export function createChatInputController(options: ChatInputControllerOptions): 
         restoreQueuedItemToEditor,
         processSubmissions,
         dispose: async () => {
+            editor.onChange = originalOnChange;
             await flushPendingThinkingLevelPersistence();
         },
     };
