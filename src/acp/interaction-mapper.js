@@ -100,7 +100,16 @@ async function requestBrowserQuestion(options) {
     });
     origin = new URL(question.url).origin;
     const questionUrl = question.url;
-    const pageResponse = await fetch(questionUrl);
+    let pageResponse;
+    try {
+        pageResponse = await fetch(questionUrl, { signal: options.signal });
+    } catch (error) {
+        await question.shutdown();
+        if (options.signal?.aborted) {
+            return { outcome: RuntimeInteractionOutcomes.CANCELED, message: "Interaction canceled." };
+        }
+        throw error;
+    }
     if (!pageResponse.ok) {
         await question.shutdown();
         return {

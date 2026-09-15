@@ -1054,6 +1054,6 @@ Deno.test("Workspace new image Session deduplicates concurrent prepared requests
         await new Promise((resolve) => setTimeout(resolve, 10));
     }
     assertEquals(firstResult.operationId, secondResult.operationId);
-    assertEquals(shellCount, 2);
+    assertEquals(shellCount, 1);
     assertEquals(submittedModels, ["runtime-command-fixture/fixture-model"]);
 });

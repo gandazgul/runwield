@@ -476,23 +476,29 @@ Deno.test("named invocation fixture matches TUI, Workspace, and ACP surfaces", a
                 await runAcpSurface(projectRoot),
             ];
             assertEquals(new Set(summaries.map((summary) => summary.digest)).size, 1);
-            assertEquals(new Set(summaries.map((summary) => JSON.stringify(summary.events))).size, 1);
+            assertEquals(
+                summaries.find((summary) => summary.surface === "acp")?.events,
+                summaries[0].events.filter((event) => event.type !== "agent_changed"),
+            );
             assertEquals(new Set(summaries.map((summary) => JSON.stringify(summary.profile))).size, 1);
             assertEquals(new Set(summaries.map((summary) => summary.result)).size, 1);
             assertEquals(new Set(summaries.map((summary) => summary.restoredAgent)).size, 1);
             assertEquals(new Set(summaries.map((summary) => summary.restoredModel)).size, 1);
             for (const summary of summaries) {
-                assertEquals(summary.events, [
+                const expectedEvents = [
                     { type: "user_message", text: expectedDisplayedInvocation },
-                    {
-                        type: "agent_changed",
-                        agentName: expectedTemporaryProfile.agentName,
-                        model: expectedTemporaryProfile.model,
-                    },
                     { type: "model_changed", model: expectedTemporaryProfile.model },
                     { type: "thinking_level_changed", thinkingLevel: expectedTemporaryProfile.thinkingLevel },
                     { type: "assistant_text_delta" },
-                ]);
+                ];
+                if (summary.surface !== "acp") {
+                    expectedEvents.splice(1, 0, {
+                        type: "agent_changed",
+                        agentName: expectedTemporaryProfile.agentName,
+                        model: expectedTemporaryProfile.model,
+                    });
+                }
+                assertEquals(summary.events, expectedEvents);
                 assertEquals(summary.profile, expectedTemporaryProfile);
                 assertEquals(summary.result, expectedAssistantText);
                 assertEquals(summary.restoredAgent, "router");

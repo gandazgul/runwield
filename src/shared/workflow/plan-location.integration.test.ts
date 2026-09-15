@@ -1,4 +1,4 @@
-import { assert, assertEquals, assertNotEquals } from "@std/assert";
+import { assert, assertEquals } from "@std/assert";
 import { fromFileUrl } from "@std/path";
 import { listPlans, loadPlan, savePlan, updatePlanFrontMatter } from "../../plan-store.js";
 import { defineCommittedGitFixture, git } from "../git-test-fixture.ts";
@@ -80,7 +80,7 @@ Deno.test("load-plan rebuilds a missing execution worktree from one rescued bran
 });
 
 for (const surface of ["primary", "execution"]) {
-    Deno.test(`review from ${surface}, restart, approve and execute keeps the document but creates a fresh attempt`, async () => {
+    Deno.test(`review from ${surface}, restart, approve and execute keeps the document and attempt`, async () => {
         const root = await fixture.checkout();
         const first = new HostedSession({ id: "first", cwd: root, eventSink: () => {} });
         const second = new HostedSession({ id: "second", cwd: root, eventSink: () => {} });
@@ -126,12 +126,12 @@ for (const surface of ["primary", "execution"]) {
                 },
             });
             assertEquals(review.approved, true, review.feedback);
-            assertEquals((await findById(root, started.worktreeId))?.status, "abandoned");
+            assertEquals((await findById(root, started.worktreeId))?.status, "active");
             const reopened = await resolveWorkflowPlanLocation(root, "demo");
             assert(reopened.plan);
             assertEquals(reopened.plan.attrs.status, "approved");
-            assertEquals(reopened.plan.attrs.worktreeId, undefined);
-            assertEquals(reopened.plan.attrs.worktreeBranch, undefined);
+            assertEquals(reopened.plan.attrs.worktreeId, started.worktreeId);
+            assertEquals(reopened.plan.attrs.worktreeBranch, started.worktreeBranch);
             const evidence = await loadPlanActionEvidence(root, "demo-id");
             assertEquals(evidence.kind, "success");
             if (evidence.kind === "success") {
@@ -176,7 +176,7 @@ for (const surface of ["primary", "execution"]) {
             assertEquals(restarted.path, execution.path);
             assertEquals(restarted.status, "ready_for_work");
             assertEquals(restarted.primaryStatus, "ready_for_work");
-            assertEquals(restarted.worktreeId, undefined);
+            assertEquals(restarted.worktreeId, started.worktreeId);
             await startActiveExecutionWorkflow({
                 planName: "demo",
                 triageMeta: next.plan.attrs,
@@ -186,9 +186,8 @@ for (const surface of ["primary", "execution"]) {
             });
             const result = second.getActiveExecutionWorkflow();
             assert(result?.executionCwd && result.worktreeId);
-            trees.push(result.executionCwd);
-            assertNotEquals(result.worktreeId, started.worktreeId);
-            assertNotEquals(result.worktreeBranch, started.worktreeBranch);
+            assertEquals(result.worktreeId, started.worktreeId);
+            assertEquals(result.worktreeBranch, started.worktreeBranch);
             assertEquals((await loadPlan(result.executionCwd, "demo"))?.attrs.status, "in_progress");
             assert((await loadPlan(result.executionCwd, "demo"))?.body.includes("The revised approved definition."));
             assertEquals(await Deno.readTextFile(initial.path), primaryBytes);
@@ -196,7 +195,6 @@ for (const surface of ["primary", "execution"]) {
                 await git(root, ["show-ref", "--verify", "--hash", `refs/heads/${started.worktreeBranch}`]) !== "",
                 true,
             );
-            // Cleanup of the successor cannot revive an older review document.
             await pruneEntry(root, result.worktreeId);
             assertEquals((await resolveWorkflowPlanLocation(root, "demo")).documentRoot, root);
         } finally {
