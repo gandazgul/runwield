@@ -12,6 +12,7 @@ import {
     listPersistedRootSessions,
     openPersistedRootSession,
     readCatalogSafeRootSessionLocator,
+    resolveCreatedRootSessionPath,
 } from "./root-session.js";
 
 Deno.test("root-session path containment accepts children but rejects sibling prefixes", () => {
@@ -19,6 +20,31 @@ Deno.test("root-session path containment accepts children but rejects sibling pr
     assertEquals(isPathInside(base, base), true);
     assertEquals(isPathInside(join(base, "session.jsonl"), base), true);
     assertEquals(isPathInside(`${base}-other`, base), false);
+});
+
+Deno.test("root-session persists a new transcript without Pi's private rewrite method", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const previousHome = Deno.env.get("HOME");
+        const home = await Deno.makeTempDir();
+        const cwd = join(home, "repo");
+        Deno.env.set("HOME", home);
+        await Deno.mkdir(cwd);
+        try {
+            const manager = await createRootSessionManager("new", cwd);
+            Object.defineProperty(manager, "_rewriteFile", {
+                value: () => {
+                    throw new Error("private rewrite must not be used");
+                },
+            });
+            const transcriptPath = await resolveCreatedRootSessionPath(cwd, manager);
+            const firstLine = (await Deno.readTextFile(transcriptPath)).split("\n")[0];
+            assertEquals(JSON.parse(firstLine).id, manager.getSessionId());
+        } finally {
+            if (previousHome === undefined) Deno.env.delete("HOME");
+            else Deno.env.set("HOME", previousHome);
+            await Deno.remove(home, { recursive: true });
+        }
+    });
 });
 
 Deno.test("root-session cwd directory encoding stays inside filename limits for long worktree paths", () => {

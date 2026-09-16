@@ -117,10 +117,13 @@ async function ensureCreatedSessionTranscriptFile(sessionManager, transcriptPath
     } catch (error) {
         if (!(error instanceof Deno.errors.NotFound)) throw error;
     }
-    if (typeof sessionManager?._rewriteFile !== "function") {
+    const header = sessionManager.getHeader?.();
+    const entries = sessionManager.getEntries?.();
+    if (!header || !Array.isArray(entries)) {
         throw new Error(`Created Session transcript was not persisted: ${transcriptPath}`);
     }
-    sessionManager._rewriteFile();
+    const contents = [header, ...entries].map((entry) => `${JSON.stringify(entry)}\n`).join("");
+    await Deno.writeTextFile(transcriptPath, contents, { createNew: true });
     if ("flushed" in sessionManager) sessionManager.flushed = true;
     const stat = await Deno.stat(transcriptPath);
     if (!stat.isFile) throw new Error(`Created Session transcript was not persisted: ${transcriptPath}`);
