@@ -1,4 +1,5 @@
 import { assertEquals, assertRejects } from "@std/assert";
+import { join } from "@std/path";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import {
     createRootSessionManager,
@@ -6,11 +7,19 @@ import {
     getRootSessionBranchEntries,
     getRunWieldSessionDir,
     getRunWieldSessionMemoryBackupDir,
+    isPathInside,
     listCatalogSafeRootSessionLocators,
     listPersistedRootSessions,
     openPersistedRootSession,
     readCatalogSafeRootSessionLocator,
 } from "./root-session.js";
+
+Deno.test("root-session path containment accepts children but rejects sibling prefixes", () => {
+    const base = join("root", "sessions");
+    assertEquals(isPathInside(base, base), true);
+    assertEquals(isPathInside(join(base, "session.jsonl"), base), true);
+    assertEquals(isPathInside(`${base}-other`, base), false);
+});
 
 Deno.test("root-session cwd directory encoding stays inside filename limits for long worktree paths", () => {
     const longWorktreeCwd = `/tmp/${"deep-directory-name-".repeat(12)}/.wld/worktrees/${

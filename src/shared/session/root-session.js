@@ -3,7 +3,7 @@
  * Root interactive session lifecycle helpers (persisted in ~/.wld/sessions).
  */
 
-import { basename, dirname, isAbsolute, join, resolve } from "@std/path";
+import { basename, dirname, isAbsolute, join, relative, resolve, SEPARATOR } from "@std/path";
 import { createHash } from "node:crypto";
 import { getHomeDir } from "../../constants.js";
 
@@ -177,9 +177,8 @@ export async function resolveCreatedRootSessionPath(cwd, sessionManager) {
 
 /** @param {string} path @param {string} baseDir */
 export function isPathInside(path, baseDir) {
-    const resolvedPath = resolve(path);
-    const resolvedBase = resolve(baseDir);
-    return resolvedPath === resolvedBase || resolvedPath.startsWith(`${resolvedBase}/`);
+    const child = relative(resolve(baseDir), resolve(path));
+    return child === "" || (child !== ".." && !child.startsWith(`..${SEPARATOR}`) && !isAbsolute(child));
 }
 
 /** @param {string} path @param {string} baseDir */
