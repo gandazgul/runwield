@@ -16,9 +16,9 @@ machine-owned state.
 
 The runtime paths do not all use the same checkout. The worktree registry and controller records are shared through the
 primary checkout. Plan document locks and some transition journals belong to the selected document checkout. Publication
-staging, registry migration reports, and project collaboration secrets currently depend too much on the supplied working
-directory and need explicit primary ownership. Publication records can also name an unfinished checkout by absolute
-path. These ownership rules and corrections must survive a storage-layout change.
+staging, registry migration reports, and project collaboration secrets require explicit primary ownership. Publication
+records can also name an unfinished checkout by absolute path. These ownership rules and corrections must survive a
+storage-layout change.
 
 ## Decision
 
@@ -39,9 +39,7 @@ User-derived project files remain outside this directory. This includes `.wld/se
 The location does not change authority:
 
 - Primary-checkout runtime state includes controller records, the worktree registry and its lock, publication staging,
-  registry migration reports, the project collaboration secret store, and project-wide migration metadata. Project
-  secrets, publication staging, and registry migration reports become primary-owned in this change; current code does
-  not enforce that consistently.
+  registry migration reports, the project collaboration secret store, and project-wide migration metadata.
 - Selected-checkout runtime state includes Plan document locks, transition journals, and the Work Record supersession
   and supersession-recovery locks that protect a document or checkout-local operation.
 - Home-directory state under `~/.wld/` is not part of this decision. Normal execution worktrees remain under
@@ -57,6 +55,9 @@ access. Migration preflight can read legacy registry, lock, publication, and Git
 Protocol sessions, headless flows, Init, and direct Plan and collaboration commands use this same operation. Commands
 that do not enter a project, such as help and version, do not migrate. A new empty TUI remains in memory until the first
 submitted message.
+
+Doctor can inspect the same preflight policy without locks or writes. Inspection reports blocked, pending, or adopted
+facts; pending inspection is not adoption. Repair still enters through guarded migration and repeats preflight.
 
 The migration adopts inactive legacy runtime data, writes a versioned layout marker, and then reconciles `.gitignore`.
 The primary marker records the selected checkout roots included in the completed adoption. Registered execution

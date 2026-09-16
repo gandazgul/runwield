@@ -27,12 +27,12 @@ live under RunWield's home-directory worktree area, grouped by project, with a u
 
 ### Separate document and controller ownership
 
-| Data                                                                                                                    | Authority                                  |
-| ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
-| Plan definition, identity, human lifecycle status, `targetBranch`, relationships, archive and user-verification history | Plan Markdown                              |
-| Validation checkpoints and counters, review decisions, execution mode, runtime timestamps and delivery evidence         | `<primary-project>/.wld/controller/plans/` |
-| Attempt ID, branch, path, base ref/commit/tree, execution status and publication receipts                               | `<primary-project>/.wld/worktrees.json`    |
-| Commit contents, ancestry, checked-out branches and remote target                                                       | Git                                        |
+| Data                                                                                                                    | Authority                                           |
+| ----------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| Plan definition, identity, human lifecycle status, `targetBranch`, relationships, archive and user-verification history | Plan Markdown                                       |
+| Validation checkpoints and counters, review decisions, execution mode, runtime timestamps and delivery evidence         | `<primary-project>/.wld/internal/controller/plans/` |
+| Attempt ID, branch, path, base ref/commit/tree, execution status and publication receipts                               | `<primary-project>/.wld/internal/worktrees.json`    |
+| Commit contents, ancestry, checked-out branches and remote target                                                       | Git                                                 |
 
 The summary shown in lists is derived from the Plan's Context section. It is not a second stored definition in YAML.
 Runtime fields may appear in an in-memory joined Plan view for consumers, but saving Markdown does not serialize them.

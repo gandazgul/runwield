@@ -122,7 +122,8 @@ Runtime State. _Avoid_: project settings, project config, all of `.wld/`
 **Project Runtime Entry**: The shared migration-or-verification operation that runs before normal Project Runtime State
 access. It can adopt eligible legacy state, confirm the selected and primary checkout layout, or refuse access with a
 retryable reason and safe paths. It is not Session activation, path resolution, Workspace registration, or a
-command-only check. _Avoid_: startup, activation, registration, path getter
+command-only check. Doctor inspection can report pending adoption without performing Project Runtime Entry. _Avoid_:
+startup, activation, registration, path getter
 
 **Project Internal Root**: The `.wld/internal/` directory in the checkout that owns a Project Runtime State item. It is
 a path contract only; it does not mean migration or writer cutover is complete. _Avoid_: `.wld`, runtime directory when

@@ -5,47 +5,47 @@
 
 import { parseArgs } from "@std/cli/parse-args";
 import { join } from "@std/path";
+import { CLI_BIN, getCwd, isPlannedChangeClassification, WORKTREE_BRANCH_PREFIX } from "../../constants.js";
 import {
-    CLI_BIN,
-    getCwd,
-    isPlannedChangeClassification,
-    RUNWIELD_DIR_NAME,
-    WORKTREE_BRANCH_PREFIX,
-    WORKTREE_REGISTRY_FILE,
-} from "../../constants.js";
-import {
+    ensurePlanIdentity,
+    getPlanDocumentRoot,
     getPlansDir,
-    listArchivedPlans,
-    listPlanResources,
-    loadPlanFileStrict,
-    loadPlanStrict,
+    inspectPlanFileStrict,
+    isProjectPlan,
 } from "../../plan-store.js";
-import { ProjectRuntimeEntryRefusedError, resolveProjectRuntimeLayout } from "../../shared/project-runtime-layout.ts";
+import {
+    enterProjectRuntime,
+    inspectProjectRuntimeLayout,
+    ProjectRuntimeEntryRefusedError,
+    type ProjectRuntimeLayout,
+    type ProjectRuntimeMigrationBlockedReason,
+    type ProjectRuntimeMigrationBlockedResult,
+    resolveProjectRuntimeLayout,
+} from "../../shared/project-runtime-layout.ts";
+import { inspectRunWieldGitignore } from "../../shared/runwield-owned-paths.ts";
+import { readLockFileSnapshot, removeLockFileIfSnapshotMatches } from "../../shared/lock-file-snapshot.ts";
 import { inspectPlanIdentityDocuments } from "../../shared/workflow/plan-diagnostic-evidence.ts";
 import {
     getTransitionJournalDir,
     reconcileTransitionRecoveryRecords,
     type TransitionReconciliation,
 } from "../../shared/workflow/state-transition.ts";
-import {
-    buildEffectProver,
-    isGitAncestor,
-    listGitWorktreePaths,
-    runGitLines,
-} from "../../shared/workflow/transition-recovery.ts";
+import { buildEffectProver, listGitWorktreePaths, runGitLines } from "../../shared/workflow/transition-recovery.ts";
 import { isLockHolderGone, isLockHolderUnattributable } from "../../shared/process-liveness.ts";
 import { doctorCheckMessage, doctorCleanMessage, doctorNeedsHelpMessage } from "./doctor-messages.ts";
 import {
-    inspectWorktreeRegistry,
+    inspectWorktreeRegistryAtPath,
     listEntries,
     pruneEntry,
     reconcileEntryIdentity,
 } from "../../shared/worktree-registry.js";
 import { isEpicArtifactPlanName } from "../../shared/epic-artifacts.ts";
 import { isCommitPublishedToTarget } from "../../shared/isolated-publication.ts";
+import { inspectTargetBranchPlansByParent } from "../../shared/workflow/planning-worktree.ts";
+import { readControllerRecordAtPath } from "../../shared/workflow/controller-registry.ts";
 
 /** A registry attempt as stored, before doctor proves anything about it. */
-type RegistryEntry = Awaited<ReturnType<typeof inspectWorktreeRegistry>>["entries"][number];
+type RegistryEntry = Awaited<ReturnType<typeof inspectWorktreeRegistryAtPath>>["entries"][number];
 
 /** Delivery Evidence as read from Plan Front Matter, before any field is proven. */
 interface DeliveryEvidenceSnapshot {
@@ -81,6 +81,71 @@ type PlansDoctorCommandOptions = Record<never, never>;
 
 const READ_ONLY_DOCTOR_FLAG = "--check";
 
+function migrationRefusalGuidance(reason: ProjectRuntimeMigrationBlockedReason): string[] {
+    switch (reason) {
+        case "newer_layout":
+            return [
+                "Use the RunWield version that created this layout, or a newer version. Do not downgrade the marker.",
+            ];
+        case "malformed_migration_evidence":
+            return ["Preserve the named migration files. Restore valid RunWield evidence, then retry."];
+        case "authority_conflict":
+            return [
+                "Keep both old and new authorities. Decide which copy is authoritative before retrying; RunWield will not choose or delete one.",
+            ];
+        case "active_legacy_writer":
+            return [
+                "Finish or stop the named pre-0.10 RunWield process, then retry. Do not delete its lock while it can still be live.",
+            ];
+        case "malformed_registry":
+            return [
+                "Preserve the registry and its worktrees. Repair the malformed bookkeeping with the RunWield version that wrote it, then retry.",
+            ];
+        case "unfinished_publication":
+            return [
+                "Use pre-0.10 RunWield to finish publication or deliberately abandon it. Preserve its registry, branch, worktree, and publication record.",
+            ];
+        case "saved_repair_root":
+            return [
+                "Use pre-0.10 RunWield to finish or deliberately abandon the saved repair. Preserve the repair checkout and registry until then.",
+            ];
+        case "tracked_runtime":
+            return [
+                "Remove the named runtime paths from the Git index without deleting local files, commit that change, then retry.",
+            ];
+        case "tracked_secret":
+            return [
+                "Untrack the named secret path, remove it from repository history, and rotate every exposed capability. The secret value is not shown.",
+            ];
+        case "symlink":
+            return [
+                "Replace the named runtime symlink with a real local path after preserving its target. RunWield stopped before reading through it.",
+            ];
+        case "invalid_registered_checkout":
+            return [
+                "Repair or remove the invalid Git worktree registration only after preserving its branch and local work, then retry.",
+            ];
+        case "unsupported_filesystem_move":
+            return [
+                "Move the project or runtime authority onto one supported filesystem, or complete the upgrade with a supported RunWield version.",
+            ];
+        default: {
+            const exhaustive: never = reason;
+            return [exhaustive];
+        }
+    }
+}
+
+function migrationBlockedIssue(blocked: ProjectRuntimeMigrationBlockedResult): DoctorIssue {
+    return {
+        kind: "runtime_migration_blocked",
+        message: `Migration refusal (${blocked.reason}): ${blocked.message}${
+            blocked.paths.length ? ` Paths: ${blocked.paths.join(", ")}.` : ""
+        }${blocked.securityAction ? ` Security action: ${blocked.securityAction.message}` : ""}`,
+        commands: migrationRefusalGuidance(blocked.reason),
+    };
+}
+
 function printHelp() {
     console.log(`Usage:
   ${CLI_BIN} plans doctor [${READ_ONLY_DOCTOR_FLAG}]
@@ -90,6 +155,28 @@ Fixes safe Plan problems. Use ${READ_ONLY_DOCTOR_FLAG} to only look. --repair is
 
 function getIssueGuidance(issue: DoctorIssue): IssueGuidance {
     switch (issue.kind) {
+        case "runtime_migration_blocked":
+            return {
+                category: "Project runtime adoption",
+                severity: "Critical",
+                diagnosis:
+                    "RunWield stopped before changing project runtime state because safe adoption is not proven.",
+                nextSteps: ["Follow the specific action below, preserve every named path, then run Doctor again."],
+            };
+        case "runtime_adoption_pending":
+            return {
+                category: "Project runtime adoption",
+                severity: "Needs attention",
+                diagnosis: "This project still uses the pre-0.10 runtime layout.",
+                nextSteps: [`Run ${CLI_BIN} plans doctor --repair to adopt it after you review this report.`],
+            };
+        case "broad_wld_ignore":
+            return {
+                category: "Git protection",
+                severity: "Needs attention",
+                diagnosis: "A user-owned ignore rule hides more than RunWield runtime state.",
+                nextSteps: ["Keep or narrow this rule yourself. Doctor will never remove a user-owned rule."],
+            };
         case "malformed_plan":
         case "malformed_archived_plan":
         case "non_regular_plan_path":
@@ -116,6 +203,7 @@ function getIssueGuidance(issue: DoctorIssue): IssueGuidance {
             };
         case "verified_without_evidence":
         case "uncertain_publication":
+        case "publication_inspection_error":
             return {
                 category: "Delivery evidence",
                 severity: "Needs attention",
@@ -124,6 +212,17 @@ function getIssueGuidance(issue: DoctorIssue): IssueGuidance {
                 nextSteps: [
                     "Inspect the Plan, worktree branch, and transition journal before trusting the verified status.",
                     "If the work was published, capture or restore the missing evidence; otherwise reopen/recover the Plan through RunWield.",
+                ],
+            };
+        case "target_branch_inspection_error":
+            return {
+                category: "Target branch inspection",
+                severity: "Critical",
+                diagnosis:
+                    "RunWield could not inspect the authoritative target branch, so child Plan state is unknown.",
+                nextSteps: [
+                    "Restore remote access and run Doctor again.",
+                    "Do not treat a clean local target branch as proof while remote inspection is unavailable.",
                 ],
             };
         case "unresolved_transition":
@@ -157,9 +256,8 @@ function getIssueGuidance(issue: DoctorIssue): IssueGuidance {
                 diagnosis:
                     "RunWield's own worktree registry file is unreadable, so attempt state is hidden until it is restored.",
                 nextSteps: [
-                    "This file is RunWield's bookkeeping, not your work: no Plan content or Git commit depends on it.",
-                    "It is normally committed, so checking out the last good copy is the fastest fix; git worktree list shows what actually exists if you need to rebuild it.",
-                    "Attempts RunWield forgets are still recoverable from their branches and directories, which are untouched.",
+                    "Preserve this machine-owned file and inspect git worktree list before repair.",
+                    "Attempts remain recoverable from their branches and directories, which are untouched.",
                 ],
             };
         case "unsupported_schema_version":
@@ -352,7 +450,7 @@ async function collectPlanIssues(
             }
             if (!isPlanPath) continue;
             if (isEpicArtifactPlanName(planName)) continue;
-            const result = await loadPlanStrict(projectRoot, planName);
+            const result = await inspectPlanFileStrict(entryPath);
             if (result.kind === "malformed") {
                 issues.push({
                     kind: "malformed_plan",
@@ -371,11 +469,39 @@ async function collectPlanIssues(
                         : entryPath,
                 });
             } else {
-                collectPlanAttributeIssues({ name: planName, attrs: result.attrs }, issues, planIds);
+                collectPendingControllerIssues(planName, result.pendingControllerRepairs, issues);
             }
         }
     } catch (error) {
         if (!(error instanceof Deno.errors.NotFound)) throw error;
+    }
+}
+
+function collectPendingControllerIssues(
+    planName: string,
+    pendingRepairs: readonly string[] | undefined,
+    issues: DoctorIssue[],
+) {
+    for (const repair of pendingRepairs || []) {
+        const kind = repair === "import_legacy_state" ? "controller_import_pending" : "obsolete_controller_recovery";
+        if (issues.some((issue) => issue.kind === kind && issue.planName === planName)) continue;
+        issues.push(
+            repair === "import_legacy_state"
+                ? {
+                    kind,
+                    planName,
+                    message:
+                        `${planName} has legacy runtime fields that the controller can import on the next normal Plan load. Doctor left them unchanged.`,
+                    commands: [`${CLI_BIN} load-plan ${planName}`, `${CLI_BIN} plans doctor --check`],
+                }
+                : {
+                    kind,
+                    planName,
+                    message:
+                        `${planName} has an obsolete controller recovery hint because the worktree registry now owns its attempt. Doctor left it unchanged.`,
+                    commands: [`${CLI_BIN} load-plan ${planName}`, `${CLI_BIN} plans doctor --check`],
+                },
+        );
     }
 }
 
@@ -387,7 +513,15 @@ function collectPlanAttributeIssues(
 ) {
     const planName = options.archived ? `archived/${plan.name}` : plan.name;
     const planId = typeof plan.attrs.planId === "string" ? plan.attrs.planId : "";
-    if (planId) {
+    if (!planId) {
+        issues.push({
+            kind: "missing_plan_id",
+            planName,
+            repairable: !options.archived,
+            message: `Plan ${planName} has no stable planId.`,
+            commands: options.archived ? [] : [`${CLI_BIN} plans doctor --repair`],
+        });
+    } else {
         const existing = planIds.get(planId);
         if (existing) {
             issues.push({
@@ -427,6 +561,7 @@ async function collectArchivedPlanParseIssues(
     planIds: Map<string, string>,
 ) {
     const archivedRoot = join(getPlansDir(projectRoot), "archived");
+    const plans: Array<{ name: string; attrs: Record<string, unknown> }> = [];
 
     async function visit(prefix: string[]) {
         try {
@@ -441,7 +576,7 @@ async function collectArchivedPlanParseIssues(
                 const planName = [...prefix, entry.name.replace(/\.md$/, "")].join("/");
                 if (isEpicArtifactPlanName(planName)) continue;
                 try {
-                    const parsed = await loadPlanFileStrict(entryPath);
+                    const parsed = await inspectPlanFileStrict(entryPath);
                     if (parsed.kind !== "loaded") {
                         if (parsed.kind === "malformed") throw parsed.error;
                         throw new Error("Archived Plan could not be read.");
@@ -449,6 +584,8 @@ async function collectArchivedPlanParseIssues(
                     collectPlanAttributeIssues({ name: planName, attrs: parsed.attrs }, issues, planIds, {
                         archived: true,
                     });
+                    collectPendingControllerIssues(`archived/${planName}`, parsed.pendingControllerRepairs, issues);
+                    plans.push({ name: planName, attrs: parsed.attrs });
                 } catch (error) {
                     issues.push({
                         kind: "malformed_archived_plan",
@@ -464,6 +601,7 @@ async function collectArchivedPlanParseIssues(
         }
     }
     await visit([]);
+    return plans;
 }
 
 /**
@@ -472,9 +610,9 @@ async function collectArchivedPlanParseIssues(
  * The record is RunWield's own bookkeeping, so "unresolved_transition
  * 4f2a-…: worktree_registry_updated" is not a report, it is a receipt for a
  * problem the user did not cause. Name the Plan, say which effect lacks evidence
- * and why, and give the commands that either resolve it or show them what to look
- * at — including, as the last resort, the exact file to delete once they have
- * decided.
+ * and why, and give the commands that either resolve it or show what to inspect.
+ * Uncertain records stay intact until Plan Recovery closes them with evidence or
+ * explicit user attestation.
  */
 function capitalize(text: string): string {
     return text ? `${text[0].toUpperCase()}${text.slice(1)}` : text;
@@ -500,12 +638,7 @@ function describeUnresolvedTransition(reconciliation: TransitionReconciliation):
                 commands.push(`git log --oneline ${proof.targetBranch} -5`);
             }
         }
-        // Listed last and only here: deleting the record is the escape hatch for a user
-        // who has checked the state themselves, not a first move.
-        if (reconciliation.path) {
-            commands.push(`cat ${reconciliation.path}`);
-            commands.push(`rm ${reconciliation.path}`);
-        }
+        if (reconciliation.path) commands.push(`cat ${reconciliation.path}`);
     }
     const detail = reconciliation.resolvable
         ? `Everything it recorded is accounted for: ${reconciliation.reason}.`
@@ -524,7 +657,7 @@ function describeUnresolvedTransition(reconciliation: TransitionReconciliation):
         repairSummary: reconciliation.resolvable
             ? "--repair closes this record; the repository already proves it is finished."
             : "Left in place on purpose: closing it without proof could hide unpublished or unsaved work. " +
-                "Resolve it through load-plan, or delete the record above once you have confirmed the state yourself.",
+                "Resolve it through load-plan; Plan Recovery can record an explicit user attestation when proof is unavailable.",
     };
 }
 
@@ -547,12 +680,10 @@ async function collectWorktreeJournalIssues(
         if (entry.path === projectRoot) continue;
         const journalDir = getTransitionJournalDir(entry.path);
         if (!(await Deno.stat(journalDir).then((stat) => stat.isDirectory).catch(() => false))) continue;
-        const reconciliations = await reconcileTransitionRecoveryRecords(entry.path, { apply: repair }).catch(
-            (error) => {
-                if (error instanceof ProjectRuntimeEntryRefusedError) throw error;
-                return [];
-            },
-        );
+        const reconciliations = await reconcileTransitionRecoveryRecords(entry.path, {
+            apply: repair,
+            diagnostic: !repair,
+        }).catch(() => []);
         for (const reconciliation of reconciliations) {
             if (reconciliation.resolved) {
                 results.push({ repaired: true });
@@ -588,41 +719,28 @@ async function collectStalePlanLockIssues(
     repair: boolean,
 ): Promise<Array<{ issue?: DoctorIssue; repaired?: boolean }>> {
     const lockDir = resolveProjectRuntimeLayout(projectRoot).selected.planLocksDir;
-    const STALE_AFTER_MS = 10 * 60_000;
     const results: Array<{ issue?: DoctorIssue; repaired?: boolean }> = [];
     try {
         for await (const entry of Deno.readDir(lockDir)) {
             if (!entry.isFile || !entry.name.endsWith(".lock")) continue;
             const path = join(lockDir, entry.name);
-            const stat = await Deno.stat(path).catch(() => null);
-            const ageMs = stat?.mtime ? Date.now() - stat.mtime.getTime() : Number.POSITIVE_INFINITY;
-            // A lock whose process is gone is abandoned no matter how recent it is.
-            // Waiting for it to look old enough is what leaves a Plan unusable after a
-            // crash, which is the case this check exists for.
-            const contents = await Deno.readTextFile(path).catch(() => "");
-            const holderGone = await isLockHolderGone(contents);
-            // An unattributable lock names no process to check, so it can never prove
-            // itself dead. Explicit repair is the only thing that clears it.
-            const unattributable = isLockHolderUnattributable(contents);
-            if (!holderGone && !unattributable && ageMs < STALE_AFTER_MS) continue;
+            const snapshot = await readLockFileSnapshot(path);
+            if (!snapshot) continue;
+            if (isLockHolderUnattributable(snapshot.text)) continue;
+            if (!await isLockHolderGone(snapshot.text)) continue;
             if (repair) {
-                await Deno.remove(path).catch(() => {});
-                results.push({ repaired: true });
+                const current = await readLockFileSnapshot(path);
+                if (!current || !await isLockHolderGone(current.text)) continue;
+                if (await removeLockFileIfSnapshotMatches(path, snapshot)) results.push({ repaired: true });
                 continue;
             }
             results.push({
                 issue: {
                     kind: "stale_plan_lock",
                     repairable: true,
-                    message: unattributable
-                        ? `Plan lock ${path} records no process that can be checked, so nothing will ever release it automatically. It predates holder tracking or was truncated by a crash.`
-                        : holderGone
-                        ? `Plan lock ${path} was left by a RunWield process that is no longer running. Operations on that Plan reclaim it automatically now, so this is leftover cleanup.`
-                        : `Plan lock ${path} has not been refreshed in ${
-                            Math.round(ageMs / 60_000)
-                        } minutes, so the process that held it is gone. Until it is cleared, operations on that Plan wait before failing.`,
-                    commands: [`${CLI_BIN} plans doctor --repair`, `rm ${path}`],
-                    repairSummary: "--repair deletes the abandoned lock file. No Plan or Git state is touched.",
+                    message: `Plan lock ${path} was left by a recorded holder that is proven gone.`,
+                    commands: [`${CLI_BIN} plans doctor --repair`],
+                    repairSummary: "--repair rechecks and removes only this unchanged, proven-dead lock.",
                 },
             });
         }
@@ -632,9 +750,15 @@ async function collectStalePlanLockIssues(
     return results;
 }
 
-async function runPlansDoctorPass(projectRoot: string, repair: boolean) {
+async function runPlansDoctorPass(projectRoot: string, repair: boolean, layout: ProjectRuntimeLayout) {
     const issues: DoctorIssue[] = [];
     let repaired = 0;
+
+    for (const warning of await inspectRunWieldGitignore(layout.primary.checkoutRoot)) {
+        if (warning.kind === "broad_wld_ignore") {
+            issues.push({ kind: warning.kind, message: warning.message });
+        }
+    }
 
     // Abandoned locks are cleared before anything else, because much of the scan
     // below acquires those same locks. Diagnosing lock trouble after taking a lock
@@ -647,22 +771,18 @@ async function runPlansDoctorPass(projectRoot: string, repair: boolean) {
 
     const discoveredPlanIds = new Map<string, string>();
     await collectPlanIssues(projectRoot, getPlansDir(projectRoot), [], issues, discoveredPlanIds);
-    await collectArchivedPlanParseIssues(projectRoot, issues, discoveredPlanIds);
+    const archivedPlans = await collectArchivedPlanParseIssues(projectRoot, issues, discoveredPlanIds);
 
     // Read the registry without enforcing invariants first. A violated invariant
     // must not blind the report: the per-entry facts below are what the user needs
     // in order to act, and they are exactly what a throwing read would discard.
-    const inspection = await inspectWorktreeRegistry(projectRoot);
+    const inspection = await inspectWorktreeRegistryAtPath(layout.primary.worktreeRegistryPath);
     const gitWorktreePaths = await listGitWorktreePaths(projectRoot);
     if (inspection.readError) {
         issues.push({
             kind: "registry_integrity_error",
             message: `Worktree registry file could not be read: ${inspection.readError.message}`,
-            commands: [
-                `git diff -- ${join(RUNWIELD_DIR_NAME, WORKTREE_REGISTRY_FILE)}`,
-                `git checkout -- ${join(RUNWIELD_DIR_NAME, WORKTREE_REGISTRY_FILE)}`,
-                "git worktree list --porcelain",
-            ],
+            commands: ["git worktree list --porcelain"],
         });
     }
     for (const integrityIssue of inspection.integrityIssues) {
@@ -687,8 +807,16 @@ async function runPlansDoctorPass(projectRoot: string, repair: boolean) {
     // one is cleared it blocks every later transition on its Plan, so leaving a
     // provably-settled record in place would strand the Plan over RunWield's own
     // bookkeeping.
-    const proveEffect = buildEffectProver(projectRoot, { registryEntries: entries, gitWorktreePaths });
-    const reconciliations = await reconcileTransitionRecoveryRecords(projectRoot, { apply: repair, proveEffect });
+    const proveEffect = buildEffectProver(
+        projectRoot,
+        { registryEntries: entries, gitWorktreePaths },
+        { diagnostic: !repair },
+    );
+    const reconciliations = await reconcileTransitionRecoveryRecords(projectRoot, {
+        apply: repair,
+        proveEffect,
+        diagnostic: !repair,
+    });
     for (const reconciliation of reconciliations) {
         if (reconciliation.resolved) {
             repaired += 1;
@@ -748,22 +876,107 @@ async function runPlansDoctorPass(projectRoot: string, repair: boolean) {
         }
     }
 
-    const planResources = await listPlanResources(projectRoot, { backfillMissing: repair }).catch(() => []);
-    const identityDocuments = await inspectPlanIdentityDocuments(projectRoot, entries);
-    const archivedPlans = await listArchivedPlans(projectRoot).catch(() => []);
+    const diagnosticEntries = await Promise.all(entries.map(async (entry) => {
+        if (entry.status !== "abandoned") return entry;
+        const controller = await readControllerRecordAtPath(layout.primary.controllerPlansDir, {
+            planId: entry.planId,
+            planName: entry.planName,
+        });
+        return controller?.state.documentWorktreeId === entry.id ? { ...entry, documentSelected: true } : entry;
+    }));
+    const identityDocuments = await inspectPlanIdentityDocuments(projectRoot, diagnosticEntries);
+    for (const parent of [...identityDocuments]) {
+        const targetBranch = typeof parent.attrs.targetBranch === "string" ? parent.attrs.targetBranch.trim() : "";
+        if (!targetBranch || !isProjectPlan(parent.attrs)) continue;
+        let children: Awaited<ReturnType<typeof inspectTargetBranchPlansByParent>>;
+        try {
+            children = await inspectTargetBranchPlansByParent(projectRoot, targetBranch, parent.name);
+        } catch {
+            issues.push({
+                kind: "target_branch_inspection_error",
+                planName: parent.name,
+                message:
+                    `Could not inspect authoritative target branch ${targetBranch} for child Plans of ${parent.name}. Child state is unknown; the local branch is not a safe substitute.`,
+                commands: [
+                    `git ls-remote --heads origin refs/heads/${targetBranch.replace(/^origin\//, "")}`,
+                    `${CLI_BIN} plans doctor --check`,
+                ],
+            });
+            continue;
+        }
+        for (const child of children) {
+            const existing = identityDocuments.findIndex((plan) =>
+                plan.name === child.name || Boolean(child.attrs.planId && plan.attrs.planId === child.attrs.planId)
+            );
+            if (existing >= 0) identityDocuments.splice(existing, 1, child);
+            else identityDocuments.push(child);
+        }
+    }
+    if (repair) {
+        for (const plan of identityDocuments) {
+            if (plan.attrs.planId) continue;
+            const exists = await Deno.stat(plan.path).then((stat) => stat.isFile).catch(() => false);
+            if (!exists) continue;
+            const documentRoot = getPlanDocumentRoot(plan.path);
+            const lockDir = resolveProjectRuntimeLayout(documentRoot).selected.planLocksDir;
+            const hasLock = await Array.fromAsync(Deno.readDir(lockDir))
+                .then((locks) => locks.some((lock) => lock.isFile && lock.name.endsWith(".lock")))
+                .catch((error) => {
+                    if (error instanceof Deno.errors.NotFound) return false;
+                    throw error;
+                });
+            if (hasLock) continue;
+            const inspected = await inspectPlanFileStrict(plan.path);
+            if (inspected.kind !== "loaded" || inspected.pendingControllerRepairs.length > 0) continue;
+            const resource = await ensurePlanIdentity(documentRoot, plan.name);
+            if (!resource.planId) continue;
+            plan.attrs = resource.attrs;
+            repaired += 1;
+        }
+    }
+    const inspectedIdentityDocuments = await Promise.all(identityDocuments.map(async (plan) => {
+        const inspected = await inspectPlanFileStrict(plan.path);
+        return inspected.kind === "loaded" && "attrs" in inspected
+            ? { ...plan, attrs: inspected.attrs, pendingControllerRepairs: inspected.pendingControllerRepairs }
+            : { ...plan, pendingControllerRepairs: [] };
+    }));
+    for (const plan of inspectedIdentityDocuments) {
+        collectPlanAttributeIssues(plan, issues, discoveredPlanIds);
+        collectPendingControllerIssues(plan.name, plan.pendingControllerRepairs, issues);
+    }
     for (
         const plan of [
-            ...planResources,
+            ...inspectedIdentityDocuments,
             ...archivedPlans.map((plan) => ({ ...plan, name: `archived/${plan.name}` })),
         ]
     ) {
-        const evidence = plan.attrs.deliveryEvidence;
-        if (evidence?.mode === "worktree_merge" && evidence.executionCommit && evidence.targetBranch) {
-            const published = await isCommitPublishedToTarget({
-                projectRoot,
-                targetBranch: evidence.targetBranch,
-                commit: evidence.executionCommit,
-            }).catch(() => isGitAncestor(projectRoot, evidence.executionCommit, evidence.targetBranch));
+        const evidence = plan.attrs.deliveryEvidence as DeliveryEvidenceSnapshot | undefined;
+        const executionCommit = typeof evidence?.executionCommit === "string" ? evidence.executionCommit : "";
+        const targetBranch = typeof evidence?.targetBranch === "string" ? evidence.targetBranch : "";
+        if (evidence?.mode === "worktree_merge" && executionCommit && targetBranch) {
+            let published: boolean;
+            try {
+                published = await isCommitPublishedToTarget({
+                    projectRoot,
+                    targetBranch,
+                    commit: executionCommit,
+                });
+            } catch {
+                issues.push({
+                    kind: "publication_inspection_error",
+                    planName: plan.name,
+                    message:
+                        `${plan.name} records publication to ${targetBranch}, but RunWield could not inspect that authority. Publication is unknown; local ancestry is not proof.`,
+                    commands: [
+                        "git remote -v",
+                        `git branch -vv --list ${targetBranch.replace(/^origin\//, "")}`,
+                        `git show --stat ${executionCommit}`,
+                        `${CLI_BIN} plans doctor --check`,
+                    ],
+                    repairSummary: "Not repaired automatically: restore remote access, then run Doctor again.",
+                });
+                continue;
+            }
             if (!published) {
                 issues.push({
                     kind: "uncertain_publication",
@@ -931,7 +1144,7 @@ async function runPlansDoctorPass(projectRoot: string, repair: boolean) {
     }
 
     for (const archived of archivedPlans) {
-        const status = archived.attrs.worktreeStatus;
+        const status = typeof archived.attrs.worktreeStatus === "string" ? archived.attrs.worktreeStatus : "";
         if (status && !["none", "merged", "abandoned"].includes(status)) {
             issues.push({
                 kind: "archived_plan_with_recoverable_attempt",
@@ -946,13 +1159,44 @@ async function runPlansDoctorPass(projectRoot: string, repair: boolean) {
 }
 
 export async function runPlansDoctor(projectRoot: string, repair = true) {
-    if (!repair) return await runPlansDoctorPass(projectRoot, false);
+    const inspected = await inspectProjectRuntimeLayout(projectRoot);
+    if (inspected.kind === "blocked") return { issues: [migrationBlockedIssue(inspected)], repaired: 0 };
+    if (inspected.kind === "pending" && !repair) {
+        const ignoreIssues: DoctorIssue[] = (await inspectRunWieldGitignore(inspected.layout.primary.checkoutRoot))
+            .filter((warning) => warning.kind === "broad_wld_ignore")
+            .map((warning) => ({ kind: warning.kind, message: warning.message }));
+        return {
+            issues: [{
+                kind: "runtime_adoption_pending",
+                message:
+                    `Safe adoption is pending for ${inspected.layout.primary.internalRoot}. No runtime files were changed or scanned.`,
+            }, ...ignoreIssues],
+            repaired: 0,
+        };
+    }
+    let layout: ProjectRuntimeLayout;
+    try {
+        layout = repair ? await enterProjectRuntime(projectRoot) : inspected.layout;
+    } catch (error) {
+        if (!(error instanceof ProjectRuntimeEntryRefusedError)) throw error;
+        return {
+            issues: [migrationBlockedIssue({
+                kind: "blocked",
+                reason: error.reason,
+                message: error.message,
+                paths: [],
+                ...(error.securityAction ? { securityAction: error.securityAction } : {}),
+            })],
+            repaired: 0,
+        };
+    }
+    if (!repair) return await runPlansDoctorPass(projectRoot, false, layout);
     let repaired = 0;
     let lastIssueKey = "";
     for (let pass = 0; pass < 8; pass += 1) {
-        const result = await runPlansDoctorPass(projectRoot, true);
+        const result = await runPlansDoctorPass(projectRoot, true, layout);
         repaired += result.repaired;
-        const remaining = await runPlansDoctorPass(projectRoot, false);
+        const remaining = await runPlansDoctorPass(projectRoot, false, layout);
         if (remaining.issues.length === 0) return { issues: [], repaired };
         const issueKey = remaining.issues.map((issue) =>
             `${issue.kind}:${issue.planName || ""}:${issue.worktreeId || ""}`
@@ -960,7 +1204,7 @@ export async function runPlansDoctor(projectRoot: string, repair = true) {
         if (result.repaired === 0 || issueKey === lastIssueKey) return { issues: remaining.issues, repaired };
         lastIssueKey = issueKey;
     }
-    const remaining = await runPlansDoctorPass(projectRoot, false);
+    const remaining = await runPlansDoctorPass(projectRoot, false, layout);
     return { issues: remaining.issues, repaired };
 }
 
@@ -984,9 +1228,14 @@ export async function runPlansDoctorCommand(
         );
         return;
     }
+    const adoptionIssue = result.issues.some((issue) =>
+        issue.kind === "runtime_migration_blocked" || issue.kind === "runtime_adoption_pending"
+    );
     console.log(
         result.issues.length === 0
             ? doctorCleanMessage(result.repaired)
+            : adoptionIssue
+            ? _formatDoctorReport(result.issues)
             : doctorNeedsHelpMessage(result.repaired, result.issues.length),
     );
 }

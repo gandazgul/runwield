@@ -753,6 +753,9 @@ Future/open requirements:
 **Scope and maturity:** Prepared Homebrew and Windows WinGet support; public package availability is pending owner
 publication/submission. Shell install remains current baseline for macOS/Linux.
 
+Upgrades that change project runtime layout follow [Work protection](#work-protection). Installation must not bypass
+safe adoption or blocked-layout preservation.
+
 **Requirement: Install required local runtime pieces without hiding package ownership.**
 
 Users can install RunWield as a standalone binary with the shell installer or, after owner publication, with the
@@ -843,6 +846,14 @@ Open product questions:
   to checkpoint or publish, it refuses with safe paths and preserves the worktree, index, files, and target refs.
 - Given a broad `.wld/` ignore rule, when Core reconciles ignore rules, it leaves the rule in place and reports that it
   hides settings, Agents, Skills, and prompts.
+- Given eligible pre-0.10 runtime state, when Doctor checks the project, it reports pending adoption without locks,
+  migration, ignore writes, controller imports, catalog backfills, journal cleanup, or project-local Git fetches.
+- Given the same eligible state, when Doctor repairs it, guarded Project Runtime Entry adopts it once before normal
+  diagnostics run.
+- Given an unsafe legacy layout, unfinished publication, or saved repair, when Doctor checks or repairs, it stops,
+  preserves all named paths, and explains how to finish or deliberately abandon pre-0.10 work.
+- Given a tracked collaboration secret, when Doctor reports the refusal, it names only the path and explains untracking,
+  history removal, and capability rotation without printing secret bytes.
 - When recovery would reset working changes or delete unmerged work, the user must confirm the destructive action.
 - When a local browser surface is opened, it does not silently authorize other users or broaden project access.
 - Given an unclaimed worktree, when cleanup runs without proof its contents are disposable, the worktree remains

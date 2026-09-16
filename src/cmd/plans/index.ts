@@ -91,7 +91,6 @@ export async function runPlansCommand(argv: string[]): Promise<void> {
         return;
     }
     if (subcommand === "doctor") {
-        await enterUnlessHelp(argv.slice(1));
         await runPlansDoctorCommand(argv.slice(1));
         return;
     }

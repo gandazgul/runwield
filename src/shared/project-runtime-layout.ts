@@ -97,6 +97,23 @@ export type ProjectRuntimeMigrationResult =
     | ProjectRuntimeMigrationReadyResult
     | ProjectRuntimeMigrationBlockedResult;
 
+export interface ProjectRuntimeLayoutAdoptedInspection {
+    kind: "adopted";
+    layout: ProjectRuntimeLayout;
+    adoptedSelectedCheckoutRoots: string[];
+}
+
+export interface ProjectRuntimeLayoutPendingInspection {
+    kind: "pending";
+    layout: ProjectRuntimeLayout;
+    selectedCheckoutRoots: string[];
+}
+
+export type ProjectRuntimeLayoutInspection =
+    | ProjectRuntimeLayoutAdoptedInspection
+    | ProjectRuntimeLayoutPendingInspection
+    | ProjectRuntimeMigrationBlockedResult;
+
 export class ProjectRuntimeEntryRefusedError extends Error {
     reason: ProjectRuntimeMigrationBlockedReason;
     paths: string[];
@@ -122,6 +139,11 @@ type MigrationRenameOperation = {
 };
 
 type LockSnapshot = LockFileSnapshot;
+
+interface ProcessLockOwner {
+    pid?: number;
+    hostname?: string;
+}
 
 type MigrationRetireOperation = {
     action: "retire";
@@ -254,6 +276,34 @@ export function resolveProjectRuntimeLayout(selectedCheckoutRoot: string): Proje
             ),
         },
     };
+}
+
+/** Inspect adoption with migration's exact preflight policy, without writes or locks. */
+export async function inspectProjectRuntimeLayout(
+    selectedCheckoutRoot: string,
+): Promise<ProjectRuntimeLayoutInspection> {
+    const layout = resolveProjectRuntimeLayout(selectedCheckoutRoot);
+    const primaryCheckoutRoot = await canonicalExistingRoot(layout.primary.checkoutRoot);
+    const earlySymlink = await findSymlinkBlocker(layout, primaryCheckoutRoot, [layout.selected.checkoutRoot]);
+    if (earlySymlink.length > 0) {
+        return block(
+            "symlink",
+            earlySymlink,
+            "A runtime authority uses a symlink. Inspection stopped before reading it.",
+        );
+    }
+    const marker = await readLayoutMarker(layout);
+    if (isBlocked(marker)) return marker;
+    const inspected = await preflight(layout, primaryCheckoutRoot, marker.marker);
+    if (isBlocked(inspected)) return inspected;
+    if (marker.marker && await completeMarkerNeedsNoWork(layout, marker.marker, inspected)) {
+        return {
+            kind: "adopted",
+            layout,
+            adoptedSelectedCheckoutRoots: marker.marker.adoptedSelectedCheckoutRoots,
+        };
+    }
+    return { kind: "pending", layout, selectedCheckoutRoots: inspected.selectedCheckoutRoots };
 }
 
 export async function enterProjectRuntime(selectedCheckoutRoot: string): Promise<ProjectRuntimeLayout> {
@@ -561,7 +611,10 @@ async function preflight(
         );
     }
 
-    const legacyLocks = await inspectLegacyLocks(primaryCheckoutRoot, selectedRoots.roots, options);
+    const legacyLocks = await inspectLegacyLocks(primaryCheckoutRoot, selectedRoots.roots, {
+        ...options,
+        migrationLockPath: layout.primary.layoutMigrationLockPath,
+    });
     if (legacyLocks.active.length > 0) {
         return block(
             "active_legacy_writer",
@@ -881,7 +934,9 @@ async function collectSymlinks(path: string, symlinks: string[]): Promise<void> 
         return;
     }
     if (!info.isDirectory) return;
-    for await (const entry of Deno.readDir(path)) {
+    const entries = await safeReadDir(path);
+    if (!entries) return;
+    for (const entry of entries) {
         await collectSymlinks(join(path, entry.name), symlinks);
     }
 }
@@ -897,7 +952,9 @@ async function collectSpecialFiles(path: string, kind: PathKind, specialFiles: s
         specialFiles.push(path);
         return;
     }
-    for await (const entry of Deno.readDir(path)) {
+    const entries = await safeReadDir(path);
+    if (!entries) return;
+    for (const entry of entries) {
         const child = join(path, entry.name);
         const childInfo = await lstatOrNull(child);
         if (!childInfo) continue;
@@ -971,14 +1028,17 @@ async function currentConflictsInRoot(
 async function inspectLegacyLocks(
     primaryCheckoutRoot: string,
     selectedRoots: string[],
-    options: { legacyRegistryLockHeld?: boolean } = {},
+    options: { legacyRegistryLockHeld?: boolean; migrationLockPath?: string } = {},
 ): Promise<LegacyLockStatus> {
     const active: string[] = [];
     const retire: MigrationRetireOperation[] = [];
     const registryLock = legacyWorktreeRegistryLockPath(primaryCheckoutRoot);
     if (!options.legacyRegistryLockHeld) {
         const registryStatus = await classifyProcessLock(registryLock, 30_000);
-        if (registryStatus.status === "active") active.push(registryLock);
+        const currentMigrationOwnsRegistry = registryStatus.status === "active" && options.migrationLockPath
+            ? await lockOwnersMatch(options.migrationLockPath, registryStatus.snapshot)
+            : false;
+        if (registryStatus.status === "active" && !currentMigrationOwnsRegistry) active.push(registryLock);
         if (registryStatus.status === "stale") retire.push(retireLockOperation(registryLock, registryStatus.snapshot));
     }
 
@@ -1010,6 +1070,19 @@ async function inspectLegacyLocks(
         if (!(await canTakeControllerLock(lockPath))) active.push(lockPath);
     }
     return { active, retire };
+}
+
+async function lockOwnersMatch(migrationLockPath: string, registrySnapshot: LockFileSnapshot): Promise<boolean> {
+    const migrationSnapshot = await readLockFileSnapshot(migrationLockPath);
+    if (!migrationSnapshot) return false;
+    try {
+        const migrationOwner = JSON.parse(migrationSnapshot.text) as ProcessLockOwner;
+        const registryOwner = JSON.parse(registrySnapshot.text) as ProcessLockOwner;
+        return Number.isInteger(migrationOwner.pid) && migrationOwner.pid === registryOwner.pid &&
+            Boolean(migrationOwner.hostname) && migrationOwner.hostname === registryOwner.hostname;
+    } catch {
+        return false;
+    }
 }
 
 type LegacyLockClassification =

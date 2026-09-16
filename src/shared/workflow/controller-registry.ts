@@ -3,7 +3,7 @@ import { dirname, join, resolve } from "@std/path";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { resolvePrimaryCheckoutRoot } from "../primary-checkout.ts";
 import { enterProjectRuntime, resolveProjectRuntimeLayout } from "../project-runtime-layout.ts";
-import { inspectWorktreeRegistry } from "../worktree-registry.js";
+import { inspectWorktreeRegistry, inspectWorktreeRegistryAtPath } from "../worktree-registry.js";
 import {
     CONTROLLER_STATE_FIELDS,
     pickControllerState,
@@ -114,10 +114,14 @@ async function enteredControllerRecordPath(cwd: string, identity: WorkflowIdenti
     );
 }
 
-export async function readControllerRecord(cwd: string, identity: WorkflowIdentity): Promise<ControllerRecord | null> {
+export async function readControllerRecordAtPath(
+    controllerPlansDir: string,
+    identity: WorkflowIdentity,
+): Promise<ControllerRecord | null> {
+    const key = identity.planId || `name:${identity.planName}`;
     try {
         const record: ControllerRecord = JSON.parse(
-            await Deno.readTextFile(await enteredControllerRecordPath(cwd, identity)),
+            await Deno.readTextFile(join(controllerPlansDir, `${encodeURIComponent(key)}.json`)),
         );
         if (record.version !== 1 || !Number.isInteger(record.revision) || !record.state) {
             throw new Error(
@@ -129,6 +133,14 @@ export async function readControllerRecord(cwd: string, identity: WorkflowIdenti
         if (error instanceof Deno.errors.NotFound) return null;
         throw error;
     }
+}
+
+export async function readControllerRecord(cwd: string, identity: WorkflowIdentity): Promise<ControllerRecord | null> {
+    await enterProjectRuntime(selectedRoot(cwd));
+    return await readControllerRecordAtPath(
+        resolveProjectRuntimeLayout(projectRoot(cwd)).primary.controllerPlansDir,
+        identity,
+    );
 }
 
 async function atomicWrite(path: string, record: ControllerRecord): Promise<void> {
@@ -272,6 +284,83 @@ export async function listControllerDocumentWorktrees(cwd: string) {
         selected.add(entry.planName);
     }
     return live;
+}
+
+export type PendingControllerRepair = "import_legacy_state" | "clear_obsolete_recovery";
+
+/** Build the joined controller view without importing or cleaning controller state. */
+export async function inspectControllerView(
+    cwd: string,
+    identity: WorkflowIdentity,
+    legacy: WorkflowControllerState & WorkflowWorktreeContext,
+) {
+    const layout = resolveProjectRuntimeLayout(projectRoot(cwd));
+    const registry = await inspectWorktreeRegistryAtPath(layout.primary.worktreeRegistryPath);
+    const candidates = registry.readError
+        ? []
+        : registry.entries.filter((entry) =>
+            identity.planId && entry.planId ? entry.planId === identity.planId : entry.planName === identity.planName
+        );
+    const live = candidates.filter((entry) => entry.status !== "abandoned");
+    const lookup = registry.readError || live.length > 1
+        ? { kind: "uncertain" as const }
+        : live[0]
+        ? { kind: "live" as const, entry: live[0] }
+        : candidates.at(-1)
+        ? { kind: "retired" as const, entry: candidates.at(-1)! }
+        : { kind: "absent" as const };
+    const liveEntry = lookup.kind === "live" ? lookup.entry : null;
+    const attempt = liveEntry?.status === "planning" ? null : liveEntry;
+    const documentEntry = liveEntry?.status === "planning"
+        ? null
+        : liveEntry || (lookup.kind === "retired" ? lookup.entry : null);
+    const record = await readControllerRecordAtPath(layout.primary.controllerPlansDir, identity);
+    const pendingRepairs: PendingControllerRepair[] = [];
+    if ((attempt || lookup.kind === "retired") && record?.recovery) {
+        pendingRepairs.push("clear_obsolete_recovery");
+    }
+    const legacyState = pickControllerState(legacy);
+    const mayImport = lookup.kind === "absent" ||
+        (attempt && canonicalPath(attempt.path) === canonicalPath(cwd));
+    const importsLegacy = !record && Boolean(
+        mayImport && (Object.values(legacyState).some((value) => value != null) || legacy.worktreeId),
+    );
+    if (importsLegacy) pendingRepairs.push("import_legacy_state");
+    const recovery = importsLegacy && !attempt && legacy.worktreeId
+        ? {
+            worktreeId: legacy.worktreeId,
+            worktreePath: legacy.worktreePath,
+            worktreeBranch: legacy.worktreeBranch,
+            worktreeBaseBranch: legacy.worktreeBaseBranch,
+            worktreeStatus: legacy.worktreeStatus,
+            executionBaselineTree: legacy.executionBaselineTree,
+        }
+        : undefined;
+    const worktree: WorkflowWorktreeContext = documentEntry && documentEntry.status !== "abandoned"
+        ? {
+            worktreeId: documentEntry.id,
+            worktreePath: documentEntry.path,
+            worktreeBranch: documentEntry.branch,
+            worktreeBaseBranch: documentEntry.baseBranch,
+            worktreeStatus: documentEntry.status === "validated" ? "completed" : documentEntry.status,
+            executionBaselineTree: documentEntry.status === "planning"
+                ? undefined
+                : documentEntry.executionBaselineTree || documentEntry.baseTree,
+        }
+        : lookup.kind === "retired"
+        ? { worktreeStatus: "abandoned" }
+        : lookup.kind === "uncertain"
+        ? {}
+        : record?.recovery || recovery || {};
+    return {
+        state: {
+            ...(record?.state || (importsLegacy ? legacyState : {})),
+            ...(attempt && attempt.status !== "abandoned" ? { executionMode: "worktree" as const } : {}),
+            ...worktree,
+        },
+        revision: record?.revision || 0,
+        pendingRepairs,
+    };
 }
 
 export async function loadControllerView(

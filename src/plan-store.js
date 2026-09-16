@@ -37,6 +37,7 @@ import { enterProjectRuntime, ProjectRuntimeEntryRefusedError } from "./shared/p
 import {
     bindControllerPlanIdentity,
     finishControllerPlanIdentity,
+    inspectControllerView,
     listControllerDocumentWorktrees,
     loadControllerView,
     writeControllerState,
@@ -1565,7 +1566,6 @@ function lockSafeSegment(value) {
 }
 
 const PLAN_LOCK_WAIT_TIMEOUT_MS = 5 * 60_000;
-const PLAN_LOCK_STALE_MS = 10 * 60_000;
 const PLAN_LOCK_HEARTBEAT_MS = 10_000;
 
 /** @param {string} lockPath */
@@ -1626,7 +1626,7 @@ async function acquireSimpleLock(lockPath) {
             // legitimate work, so waiting it out made a killed process block every
             // operation on this Plan for the whole stale window — RunWield's own
             // bookkeeping locking the user out of their Plan.
-            const stale = await isLockHolderGone(snapshot.text) || Date.now() - snapshot.mtime > PLAN_LOCK_STALE_MS;
+            const stale = await isLockHolderGone(snapshot.text);
             if (stale && await removeLockFileIfSnapshotMatches(lockPath, snapshot)) {
                 continue;
             }
@@ -1699,11 +1699,33 @@ export async function withPlanCatalogLock(cwd, fn) {
     );
 }
 
+/** Read one Plan document without controller imports or writes.
+ * @param {string} filePath
+ */
+export async function inspectPlanFileStrict(filePath) {
+    const result = await loadPlanFileStrict(filePath, true);
+    if (result.kind !== "loaded" || !("attrs" in result)) return result;
+    const location = planControllerLocation(filePath);
+    if (!location) return { ...result, pendingControllerRepairs: [] };
+    const view = await inspectControllerView(
+        location.cwd,
+        { planId: result.attrs.planId, planName: location.planName },
+        result.attrs,
+    );
+    return {
+        ...result,
+        attrs: { ...stripRuntimeFields(result.attrs), ...view.state },
+        controllerRevision: view.revision,
+        pendingControllerRepairs: view.pendingRepairs,
+    };
+}
+
 /**
  * @param {string} filePath
+ * @param {boolean} [documentOnly]
  * @returns {Promise<{ kind: "loaded", path: string, markdown: string, attrs: PlanFrontMatter, controllerRevision: number, body: string, revision: string, frontMatterRevision: string|undefined, hasFrontMatter: boolean } | { kind: "not_found", path: string } | { kind: "malformed", path: string, markdown: string, error: PlanFrontMatterParseError, revision: string } | { kind: "not_file", path: string, message: string } | { kind: "unreadable", path: string, error: Error }>}
  */
-export async function loadPlanFileStrict(filePath) {
+export async function loadPlanFileStrict(filePath, documentOnly = false) {
     let stat;
     try {
         stat = await Deno.lstat(filePath);
@@ -1740,7 +1762,7 @@ export async function loadPlanFileStrict(filePath) {
             kind: "loaded",
             path: filePath,
             markdown,
-            ...await withControllerMetadata(filePath, attrs),
+            ...(documentOnly ? { attrs, controllerRevision: 0 } : await withControllerMetadata(filePath, attrs)),
             body,
             revision,
             frontMatterRevision,
@@ -1810,6 +1832,16 @@ export async function loadPlanStrict(cwd, planName) {
     const { name, filePath } = getStoredPlanLocation(cwd, planName);
     if (isEpicArtifactPlanName(name)) return { kind: "not_found", path: filePath };
     return await loadPlanFileStrict(filePath);
+}
+
+/** Read raw Plan facts without controller imports or cleanup.
+ * @param {string} cwd
+ * @param {string} planName
+ */
+export async function inspectPlanStrict(cwd, planName) {
+    const { name, filePath } = getStoredPlanLocation(cwd, planName);
+    if (isEpicArtifactPlanName(name)) return { kind: "not_found", path: filePath };
+    return await inspectPlanFileStrict(filePath);
 }
 
 /**

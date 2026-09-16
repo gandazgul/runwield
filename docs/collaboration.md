@@ -283,14 +283,14 @@ By default, maintainer secrets are stored in:
 ~/.wld/collaboration-secrets.json
 ```
 
-With `--project-secrets`, RunWield uses the ignored project-local file:
+With `--project-secrets`, RunWield uses the machine-owned project-local file:
 
 ```text
-.wld/collaboration-secrets.json
+.wld/internal/collaboration-secrets.json
 ```
 
-The project-local secret store is ignored by this repository's `.gitignore`. Do not remove that ignore rule. Anyone with
-a maintainer URL can import maintainer capability material and then pull, push, or unshare the Shared Space.
+The project-local secret store is covered by the managed `.wld/internal/` ignore rule. Anyone with a maintainer URL can
+import maintainer capability material and then pull, push, or unshare the Shared Space.
 
 ## Recovery cases
 
