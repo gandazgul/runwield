@@ -11,10 +11,12 @@ affectedPaths:
     - "src/shared/runtime-preflight.ts"
     - "docs/releasing.md"
 createdAt: "2026-09-11"
-status: "ready_for_work"
+status: "validated"
 origin: "internal"
 userVerifiedAt: null
-userVerificationNote: null
+epicCompletionMode: "done_enough"
+epicDoneEnoughAt: "2026-09-16T03:55:16.220Z"
+epicDoneEnoughSummary: "All 2 child plans are completed after package-manager-distribution/02-windows-winget-readiness."
 ---
 
 # Prepare Homebrew and WinGet Distribution
