@@ -14,18 +14,34 @@ function requiredEnv(name: string): string {
 }
 
 async function run(command: string, args: string[], options: { cwd?: string; env?: Record<string, string> } = {}) {
-    const result = await new Deno.Command(command, {
+    console.log(`[RunWield package smoke] ${command} ${args.join(" ")}`);
+    const child = new Deno.Command(command, {
         args,
         cwd: options.cwd,
         env: options.env,
         stdout: "piped",
         stderr: "piped",
-    }).output();
-    const decoder = new TextDecoder();
-    const stdout = decoder.decode(result.stdout);
-    const stderr = decoder.decode(result.stderr);
-    if (!result.success) throw new Error(`${command} ${args.join(" ")} failed\n${stdout}${stderr}`);
-    return { stdout, stderr };
+    }).spawn();
+    let timedOut = false;
+    const timeout = setTimeout(() => {
+        timedOut = true;
+        try {
+            child.kill();
+        } catch {
+            // Process already exited.
+        }
+    }, 300_000);
+    try {
+        const result = await child.output();
+        const decoder = new TextDecoder();
+        const stdout = decoder.decode(result.stdout);
+        const stderr = decoder.decode(result.stderr);
+        if (timedOut) throw new Error(`${command} ${args.join(" ")} timed out\n${stdout}${stderr}`);
+        if (!result.success) throw new Error(`${command} ${args.join(" ")} failed\n${stdout}${stderr}`);
+        return { stdout, stderr };
+    } finally {
+        clearTimeout(timeout);
+    }
 }
 
 async function checkCoreHelperFlows(env: Record<string, string>): Promise<void> {
