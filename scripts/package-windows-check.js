@@ -196,7 +196,7 @@ async function checkProviderSetupLaunch(exe, env) {
         stderr: "piped",
     }).spawn();
     const writer = child.stdin.getWriter();
-    await writer.write(new TextEncoder().encode("sk-runwield-package-smoke\n"));
+    await writer.write(new TextEncoder().encode("sk-runwield-package-smoke\r"));
     await writer.close();
     const timeout = setTimeout(() => {
         try {
