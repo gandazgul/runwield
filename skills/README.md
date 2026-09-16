@@ -11,6 +11,11 @@ npx skills@latest add gandazgul/runwield
 | [`ideator`](./ideator/SKILL.md) | `src/agent-definitions/ideator.md` |
 | [`guide`](./guide/SKILL.md)     | `src/agent-definitions/guide.md`   |
 
+## License
+
+The [MIT License](./LICENSE) applies only to the files in `skills/`. It does not apply to any other part of this
+repository. All other files keep their existing license terms.
+
 The Agent Definition owns the wording. A skill is the same document with the parts that only make sense inside RunWield
 removed: the product name, Agent handoffs, RunWield tool names, prompt template variables, and RunWield-only artifacts.
 Nothing else changes. When the skill needs a capability the Agent calls a tool for, it describes the capability instead
