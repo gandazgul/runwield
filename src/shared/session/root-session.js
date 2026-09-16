@@ -122,6 +122,7 @@ function getSessionManagerFileContents(sessionManager) {
  * @returns {import('@earendil-works/pi-coding-agent').SessionManager}
  */
 function installDenoSessionPersistence(sessionManager) {
+    console.error(`[RunWield diagnostic] installed Deno persistence for ${sessionManager.getSessionId()}`);
     function rewriteFile() {
         const transcriptPath = sessionManager.getSessionFile?.();
         const contents = getSessionManagerFileContents(sessionManager);
@@ -131,6 +132,7 @@ function installDenoSessionPersistence(sessionManager) {
 
     /** @param {import('@earendil-works/pi-coding-agent').SessionEntry} entry */
     function persist(entry) {
+        console.error(`[RunWield diagnostic] Deno persistence handled ${entry.type}`);
         const transcriptPath = sessionManager.getSessionFile?.();
         if (!transcriptPath) return;
         try {
