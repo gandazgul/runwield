@@ -103,10 +103,48 @@ export async function createRootSessionManager(mode, cwd) {
     const sessionDir = getRunWieldSessionDir(canonicalCwd);
     ensureDir(sessionDir);
 
-    if (mode === "continue") {
-        return SessionManager.continueRecent(canonicalCwd, sessionDir);
+    const manager = mode === "continue"
+        ? SessionManager.continueRecent(canonicalCwd, sessionDir)
+        : SessionManager.create(canonicalCwd, sessionDir);
+    installDenoSessionPersistence(manager);
+    return manager;
+}
+
+/** @param {import('@earendil-works/pi-coding-agent').SessionManager} sessionManager */
+function getSessionManagerFileContents(sessionManager) {
+    const header = sessionManager.getHeader?.();
+    const entries = sessionManager.getEntries?.();
+    if (!header || !Array.isArray(entries)) return null;
+    return [header, ...entries].map((entry) => `${JSON.stringify(entry)}\n`).join("");
+}
+
+/** @param {import('@earendil-works/pi-coding-agent').SessionManager} sessionManager */
+function installDenoSessionPersistence(sessionManager) {
+    function rewriteFile() {
+        const transcriptPath = sessionManager.getSessionFile?.();
+        const contents = getSessionManagerFileContents(sessionManager);
+        if (!transcriptPath || contents === null) return;
+        Deno.writeTextFileSync(transcriptPath, contents);
     }
-    return SessionManager.create(canonicalCwd, sessionDir);
+
+    /** @param {import('@earendil-works/pi-coding-agent').SessionEntry} entry */
+    function persist(entry) {
+        const transcriptPath = sessionManager.getSessionFile?.();
+        if (!transcriptPath) return;
+        try {
+            Deno.statSync(transcriptPath);
+            Deno.writeTextFileSync(transcriptPath, `${JSON.stringify(entry)}\n`, { append: true });
+        } catch (error) {
+            if (!(error instanceof Deno.errors.NotFound)) throw error;
+            const contents = getSessionManagerFileContents(sessionManager);
+            if (contents === null) return;
+            Deno.writeTextFileSync(transcriptPath, contents, { createNew: true });
+        }
+        Reflect.set(sessionManager, "flushed", true);
+    }
+
+    Object.defineProperty(sessionManager, "_rewriteFile", { configurable: true, value: rewriteFile });
+    Object.defineProperty(sessionManager, "_persist", { configurable: true, value: persist });
 }
 
 /** @param {any} sessionManager @param {string} transcriptPath */
