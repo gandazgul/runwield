@@ -25,6 +25,14 @@ async function run(command: string, args: string[], options: { cwd?: string; env
     let timedOut = false;
     const timeout = setTimeout(() => {
         timedOut = true;
+        if (Deno.build.os === "windows") {
+            new Deno.Command("taskkill", {
+                args: ["/PID", String(child.pid), "/T", "/F"],
+                stdout: "null",
+                stderr: "null",
+            }).output().catch(() => {});
+            return;
+        }
         try {
             child.kill();
         } catch {
