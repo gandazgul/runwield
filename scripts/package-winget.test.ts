@@ -1,6 +1,7 @@
 import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
 import { packageWinget } from "./package-winget.js";
+import { sha256 } from "./package-windows.js";
 
 async function run(command: string, args: string[], cwd?: string): Promise<void> {
     const result = await new Deno.Command(command, { args, cwd, stdout: "piped", stderr: "piped" }).output();
@@ -10,11 +11,30 @@ async function run(command: string, args: string[], cwd?: string): Promise<void>
 
 async function makeReleaseZip(root: string, tag = "v1.2.3") {
     const dir = join(root, "zip-root");
-    await Deno.mkdir(dir, { recursive: true });
-    await Deno.writeTextFile(join(dir, "wld.exe"), "binary");
-    await Deno.writeTextFile(join(dir, "runwield-install.json"), JSON.stringify({ packageManager: "winget" }));
+    await Deno.mkdir(join(dir, "runtime", "helpers"), { recursive: true });
+    await Deno.mkdir(join(dir, "licenses"), { recursive: true });
+    await Deno.writeTextFile(join(dir, "wld.exe"), `runwield ${tag} binary`);
+    await Deno.writeTextFile(
+        join(dir, "runwield-install.json"),
+        JSON.stringify({
+            schemaVersion: 1,
+            packageManager: "winget",
+            packageIdentifier: "Gandazgul.RunWield",
+            updateCommand: "winget upgrade --id Gandazgul.RunWield --exact",
+            repairCommand: "winget repair --id Gandazgul.RunWield --exact",
+            installDirectory: ".",
+            version: tag,
+        }),
+    );
+    for (const helper of ["mnemoteca", "cymbal", "ketch", "agent-browser"]) {
+        await Deno.writeTextFile(join(dir, "runtime", "helpers", `${helper}.exe`), `${helper} helper`);
+        await Deno.writeTextFile(join(dir, "licenses", `${helper}-LICENSE.txt`), `${helper} license`);
+    }
+    await Deno.writeTextFile(join(dir, "licenses", "RUNWIELD-LICENSE.txt"), "runwield license");
     const zip = join(root, `wld-${tag}-windows-x64.zip`);
     await run("zip", ["-qr", zip, "."], dir);
+    const checksum = await sha256(await Deno.readFile(zip));
+    await Deno.writeTextFile(`${zip}.sha256`, `${checksum}  wld-${tag}-windows-x64.zip\n`);
     return zip;
 }
 
@@ -52,6 +72,7 @@ Deno.test("package:winget renders standard manifests from published ZIP bytes", 
         const locale = await Deno.readTextFile(join(manifestDir, "Gandazgul.RunWield.locale.en-US.yaml"));
         assertStringIncludes(installer, "InstallerType: zip");
         assertStringIncludes(installer, "NestedInstallerType: portable");
+        assertStringIncludes(installer, "ArchiveBinariesDependOnPath: true");
         assertStringIncludes(installer, "PortableCommandAlias: wld");
         assertStringIncludes(installer, "PackageIdentifier: Git.Git");
         assertStringIncludes(locale, "License: Free Use License");
@@ -69,6 +90,33 @@ Deno.test("package:winget rejects RC tags", async () => {
         Error,
         "Stable tag",
     );
+});
+
+Deno.test("package:winget rejects ZIPs with incomplete package metadata", async () => {
+    const root = await Deno.makeTempDir({ prefix: "runwield-winget-bad-metadata-" });
+    const server = serve(root);
+    try {
+        const zip = await makeReleaseZip(root);
+        const work = join(root, "rewrite");
+        await Deno.mkdir(work, { recursive: true });
+        await run("unzip", ["-q", zip, "-d", work]);
+        await Deno.writeTextFile(
+            join(work, "runwield-install.json"),
+            JSON.stringify({ packageManager: "winget", packageIdentifier: "Gandazgul.RunWield", version: "v1.2.3" }),
+        );
+        await Deno.remove(zip);
+        await run("zip", ["-qr", zip, "."], work);
+        const checksum = await sha256(await Deno.readFile(zip));
+        await Deno.writeTextFile(`${zip}.sha256`, `${checksum}  wld-v1.2.3-windows-x64.zip\n`);
+        await assertRejects(
+            () => packageWinget({ tag: "v1.2.3", output: join(root, "out"), baseUrl: server.baseUrl, testOnly: true }),
+            Error,
+            "invalid schemaVersion",
+        );
+    } finally {
+        await server.close();
+        await Deno.remove(root, { recursive: true });
+    }
 });
 
 Deno.test("package:winget rejects releases without the Windows ZIP", async () => {
@@ -93,11 +141,14 @@ Deno.test("package:winget rejects ZIPs without package metadata", async () => {
         const dir = join(root, "zip-root");
         await Deno.mkdir(dir, { recursive: true });
         await Deno.writeTextFile(join(dir, "wld.exe"), "binary");
-        await run("zip", ["-qr", join(root, "wld-v1.2.3-windows-x64.zip"), "."], dir);
+        const zip = join(root, "wld-v1.2.3-windows-x64.zip");
+        await run("zip", ["-qr", zip, "."], dir);
+        const checksum = await sha256(await Deno.readFile(zip));
+        await Deno.writeTextFile(`${zip}.sha256`, `${checksum}  wld-v1.2.3-windows-x64.zip\n`);
         await assertRejects(
             () => packageWinget({ tag: "v1.2.3", output: join(root, "out"), baseUrl: server.baseUrl, testOnly: true }),
             Error,
-            "missing package metadata",
+            "missing runwield-install.json",
         );
     } finally {
         await server.close();

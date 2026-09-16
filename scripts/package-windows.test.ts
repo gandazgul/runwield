@@ -1,6 +1,6 @@
 import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
-import { join } from "@std/path";
-import { packageWindows, sha256 } from "./package-windows.js";
+import { join, toFileUrl } from "@std/path";
+import { normalizeGitHubBlobUrl, packageWindows, sha256 } from "./package-windows.js";
 
 async function run(command: string, args: string[], cwd?: string): Promise<string> {
     const result = await new Deno.Command(command, { args, cwd, stdout: "piped", stderr: "piped" }).output();
@@ -17,18 +17,20 @@ async function makeZip(root: string, name: string, entryName: string): Promise<{
     const zip = join(root, `${name}.zip`);
     await run("zip", ["-qr", zip, "."], dir);
     const bytes = await Deno.readFile(zip);
-    return { url: new URL(zip, "file://").href, sha256: await sha256(bytes) };
+    return { url: toFileUrl(zip).href, sha256: await sha256(bytes) };
 }
 
 async function makeFixture() {
     const root = await Deno.makeTempDir({ prefix: "runwield-windows-package-test-" });
     const binary = join(root, "wld.exe");
-    await Deno.writeTextFile(binary, "runwield windows binary");
+    await Deno.writeTextFile(binary, "runwield v1.2.3 (windows-x64) binary");
     const mnemoteca = await makeZip(root, "mnemoteca", "mnemoteca.exe");
     const cymbal = await makeZip(root, "cymbal", "cymbal.exe");
     const ketch = await makeZip(root, "ketch", "ketch.exe");
     const agentBrowser = join(root, "agent-browser.exe");
     await Deno.writeTextFile(agentBrowser, "agent browser exe");
+    const licensePath = join(root, "LICENSE.txt");
+    await Deno.writeTextFile(licensePath, "fixture license text");
     const agentBrowserBytes = await Deno.readFile(agentBrowser);
     const inputsPath = join(root, "inputs.json");
     await Deno.writeTextFile(
@@ -41,7 +43,7 @@ async function makeFixture() {
                     version: "v1",
                     ...mnemoteca,
                     license: "MIT",
-                    licenseUrl: "https://example.test/m",
+                    licenseUrl: toFileUrl(licensePath).href,
                     requiredFiles: ["mnemoteca.exe"],
                 },
                 {
@@ -49,7 +51,7 @@ async function makeFixture() {
                     version: "v1",
                     ...cymbal,
                     license: "MIT",
-                    licenseUrl: "https://example.test/c",
+                    licenseUrl: toFileUrl(licensePath).href,
                     requiredFiles: ["cymbal.exe"],
                 },
                 {
@@ -57,16 +59,16 @@ async function makeFixture() {
                     version: "v1",
                     ...ketch,
                     license: "MIT",
-                    licenseUrl: "https://example.test/k",
+                    licenseUrl: toFileUrl(licensePath).href,
                     requiredFiles: ["ketch.exe"],
                 },
                 {
                     name: "agent-browser",
                     version: "v1",
-                    url: new URL(agentBrowser, "file://").href,
+                    url: toFileUrl(agentBrowser).href,
                     sha256: await sha256(agentBrowserBytes),
                     license: "Apache-2.0",
-                    licenseUrl: "https://example.test/a",
+                    licenseUrl: toFileUrl(licensePath).href,
                     requiredFiles: ["agent-browser.exe"],
                 },
             ],
@@ -87,8 +89,36 @@ Deno.test("package:windows creates a complete ZIP with helpers, notices and meta
         assertStringIncludes(listing, "runtime/helpers/mnemoteca.exe");
         assertStringIncludes(listing, "runtime/helpers/agent-browser.exe");
         assertStringIncludes(listing, "licenses/RUNWIELD-LICENSE.txt");
+        assertStringIncludes(listing, "licenses/mnemoteca-LICENSE.txt");
         const checksum = await Deno.readTextFile(`${zipPath}.sha256`);
         assertStringIncludes(checksum, "wld-v1.2.3-windows-x64.zip");
+    } finally {
+        await fixture.close();
+    }
+});
+
+Deno.test("package:windows resolves GitHub blob license URLs to raw upstream files", () => {
+    assertEquals(
+        normalizeGitHubBlobUrl("https://github.com/gandazgul/mnemoteca/blob/v0.3.1/LICENSE"),
+        "https://raw.githubusercontent.com/gandazgul/mnemoteca/v0.3.1/LICENSE",
+    );
+});
+
+Deno.test("package:windows rejects non-exact binary release identity", async () => {
+    const fixture = await makeFixture();
+    try {
+        await Deno.writeTextFile(fixture.binary, "runwield v1.2.30 (windows-x64) binary");
+        await assertRejects(
+            () =>
+                packageWindows({
+                    tag: "v1.2.3",
+                    binary: fixture.binary,
+                    output: join(fixture.root, "out"),
+                    inputsPath: fixture.inputsPath,
+                }),
+            Error,
+            "exact RunWield v1.2.3 release identity",
+        );
     } finally {
         await fixture.close();
     }

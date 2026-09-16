@@ -95,6 +95,12 @@ async function main(): Promise<void> {
         return;
     }
 
+    if (normalizedArgs[0] === "package-smoke" && Deno.env.get("WLD_INTERNAL_PACKAGE_CHECK") === "1") {
+        const { runPackageSmokeCommand } = await import("./cmd/package-smoke/index.ts");
+        await runPackageSmokeCommand(normalizedArgs.slice(1));
+        return;
+    }
+
     if (normalizedArgs[0] === "mcp") {
         const { runMcpCommand } = await import("./cmd/mcp/index.ts");
         await runMcpCommand(normalizedArgs.slice(1));

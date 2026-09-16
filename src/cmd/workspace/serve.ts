@@ -78,7 +78,7 @@ export function printWorkspaceServeHelp(): void {
 
 function installShutdownHandlers(controller: AbortController): () => void {
     const handler = () => controller.abort();
-    const signals: Deno.Signal[] = ["SIGINT", "SIGTERM"];
+    const signals: Deno.Signal[] = Deno.build.os === "windows" ? ["SIGINT"] : ["SIGINT", "SIGTERM"];
     for (const signal of signals) Deno.addSignalListener(signal, handler);
     return () => {
         for (const signal of signals) Deno.removeSignalListener(signal, handler);

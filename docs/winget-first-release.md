@@ -73,11 +73,16 @@ Never submit test-only manifests.
 
 ## 4. Validate and install locally
 
-On Windows:
+On Windows, open PowerShell as Administrator to enable local manifests once:
+
+```powershell
+winget settings --enable LocalManifestFiles
+```
+
+Then use a normal PowerShell window:
 
 ```powershell
 winget validate --manifest C:\path\to\Gandazgul.RunWield\X.Y.Z
-winget settings --enable LocalManifestFiles
 winget install --manifest C:\path\to\Gandazgul.RunWield\X.Y.Z
 wld --version
 wld update
@@ -94,20 +99,46 @@ bundled helper programs, not tools already on `PATH`.
 
 ## 5. Upgrade test
 
-Use a controlled local WinGet source or other documented WinGet test setup with two local manifests.
+Use two local manifests. This proves WinGet upgrade and uninstall behavior before the public submission.
 
-Checklist:
+Prerequisites:
 
-- [ ] Install older test version.
-- [ ] Create a Session and memory entry.
-- [ ] Upgrade to `vX.Y.Z` with WinGet.
-- [ ] Confirm new `wld --version`.
-- [ ] Confirm Sessions and memory data survive.
-- [ ] Uninstall.
-- [ ] Confirm package private helper files are removed.
-- [ ] Confirm separately installed tools are untouched.
+- An older test ZIP and manifest directory for `vA.B.C`.
+- The new ZIP and manifest directory for `vX.Y.Z`.
+- Local manifests enabled from section 4.
 
-Manual ZIP replacement is not upgrade proof.
+Commands:
+
+```powershell
+winget install --manifest C:\path\to\Gandazgul.RunWield\A.B.C
+wld --version
+wld "create a short test session, then stop before changing files"
+$wldExe = (Get-Command wld -ErrorAction Stop).Source
+$helperDir = Join-Path (Split-Path -Parent $wldExe) "runtime\helpers"
+& (Join-Path $helperDir "mnemoteca.exe") add "runwield winget upgrade smoke" --tag runwield-winget-smoke
+winget upgrade --manifest C:\path\to\Gandazgul.RunWield\X.Y.Z
+wld --version
+$wldExe = (Get-Command wld -ErrorAction Stop).Source
+$helperDir = Join-Path (Split-Path -Parent $wldExe) "runtime\helpers"
+& (Join-Path $helperDir "mnemoteca.exe") search "runwield winget upgrade smoke"
+winget uninstall --id Gandazgul.RunWield --exact
+```
+
+Expected results:
+
+- The first `wld --version` prints `vA.B.C`.
+- The second `wld --version` prints `vX.Y.Z`.
+- The Session and memory entry still exist after upgrade.
+- Uninstall removes the WinGet-installed `wld.exe` and bundled helper directory.
+- Uninstall does not remove separately installed Git, mnemoteca, cymbal, ketch, or agent-browser.
+
+Failure and retry:
+
+- If install or upgrade fails, run `winget uninstall --id Gandazgul.RunWield --exact`, delete the local test manifests,
+  regenerate them, and retry on a clean Windows user profile.
+- If data does not survive, stop the release. Fix package metadata or install location handling, then publish a new
+  Stable ZIP.
+- Manual ZIP replacement is not upgrade proof.
 
 ## 6. Submit
 

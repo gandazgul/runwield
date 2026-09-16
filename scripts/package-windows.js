@@ -2,7 +2,7 @@
  * Build the Windows x64 portable package ZIP from a compiled wld.exe and pinned helper assets.
  */
 
-import { basename, fromFileUrl, join } from "@std/path";
+import { basename, fromFileUrl, join, resolve } from "@std/path";
 import { parseReleaseTag } from "./release.js";
 
 const DEFAULT_INPUTS_PATH = "packaging/windows/tested-dependencies.json";
@@ -47,11 +47,35 @@ export async function sha256(bytes) {
 }
 
 /** @param {string} url */
+export function normalizeGitHubBlobUrl(url) {
+    const parsed = new URL(url);
+    if (parsed.hostname !== "github.com") return url;
+    const parts = parsed.pathname.split("/").filter(Boolean);
+    if (parts.length < 5 || parts[2] !== "blob") return url;
+    const [owner, repo, , ref, ...pathParts] = parts;
+    return `https://raw.githubusercontent.com/${owner}/${repo}/${ref}/${pathParts.join("/")}`;
+}
+
+/** @param {string} url */
 async function readUrlBytes(url) {
     if (url.startsWith("file://")) return await Deno.readFile(fromFileUrl(url));
-    const response = await fetch(url);
+    const response = await fetch(normalizeGitHubBlobUrl(url));
     if (!response.ok) throw new Error(`Download failed ${response.status}: ${url}`);
     return new Uint8Array(await response.arrayBuffer());
+}
+
+/** @param {string} name */
+function sanitizeLicenseFileName(name) {
+    return name.replace(/[^A-Za-z0-9._-]/g, "-");
+}
+
+/** @param {string} binary @param {string} tag */
+async function assertBinaryReleaseIdentity(binary, tag) {
+    const bytes = await Deno.readFile(binary);
+    const text = new TextDecoder().decode(bytes);
+    if (!text.includes(`runwield ${tag} (`)) {
+        throw new Error(`Compiled Windows binary does not contain the exact RunWield ${tag} release identity.`);
+    }
 }
 
 /** @param {string} command @param {string[]} args @param {string} [cwd] */
@@ -117,6 +141,8 @@ async function installHelper(helper, helpersDir, licensesDir, downloadDir) {
         if (!found) throw new Error(`Helper ${helper.name} asset is missing ${required}.`);
         await Deno.copyFile(found, join(helpersDir, required));
     }
+    const licenseBytes = await readUrlBytes(helper.licenseUrl);
+    await Deno.writeFile(join(licensesDir, `${sanitizeLicenseFileName(helper.name)}-LICENSE.txt`), licenseBytes);
     await Deno.writeTextFile(join(licensesDir, `${helper.name}.NOTICE.txt`), renderNotice(helper));
 }
 
@@ -144,6 +170,10 @@ async function assertPackageComplete(packageDir) {
             "runtime/helpers/ketch.exe",
             "runtime/helpers/agent-browser.exe",
             "licenses/RUNWIELD-LICENSE.txt",
+            "licenses/mnemoteca-LICENSE.txt",
+            "licenses/cymbal-LICENSE.txt",
+            "licenses/ketch-LICENSE.txt",
+            "licenses/agent-browser-LICENSE.txt",
         ]
     ) {
         const stat = await Deno.stat(join(packageDir, path)).catch(() => null);
@@ -156,6 +186,7 @@ export async function packageWindows(options) {
     const parsed = parseReleaseTag(options.tag);
     const binaryStat = await Deno.stat(options.binary).catch(() => null);
     if (!binaryStat?.isFile) throw new Error(`Compiled Windows binary not found: ${options.binary}`);
+    await assertBinaryReleaseIdentity(options.binary, parsed.tag);
     const inputs = /** @type {{ packageIdentifier?: string, helpers?: WindowsHelperInput[] }} */ (JSON.parse(
         await Deno.readTextFile(options.inputsPath),
     ));
@@ -164,7 +195,8 @@ export async function packageWindows(options) {
         throw new Error("Windows helper inventory is empty.");
     }
 
-    await Deno.mkdir(options.output, { recursive: true });
+    const output = resolve(options.output);
+    await Deno.mkdir(output, { recursive: true });
     const work = await Deno.makeTempDir({ prefix: "runwield-windows-package-" });
     try {
         const packageDir = join(work, "package");
@@ -186,14 +218,14 @@ export async function packageWindows(options) {
         await assertPackageComplete(packageDir);
 
         const zipName = `wld-${parsed.tag}-windows-x64.zip`;
-        const zipPath = join(options.output, zipName);
+        const zipPath = join(output, zipName);
         await Deno.remove(zipPath).catch(() => {});
         await run("zip", ["-qr", zipPath, "."], packageDir);
         const zipBytes = await Deno.readFile(zipPath);
         const sum = await sha256(zipBytes);
-        await Deno.writeTextFile(join(options.output, `${zipName}.sha256`), `${sum}  ${zipName}\n`);
+        await Deno.writeTextFile(join(output, `${zipName}.sha256`), `${sum}  ${zipName}\n`);
         await Deno.writeTextFile(
-            join(options.output, "runwield-windows-package.json"),
+            join(output, "runwield-windows-package.json"),
             `${
                 JSON.stringify({ tag: parsed.tag, asset: zipName, sha256: sum, packageIdentifier: PACKAGE_ID }, null, 4)
             }\n`,

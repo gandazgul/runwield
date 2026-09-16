@@ -96,6 +96,7 @@ Installers:
   InstallerUrl: ${url}
   InstallerSha256: ${checksum.toUpperCase()}
   NestedInstallerType: portable
+  ArchiveBinariesDependOnPath: true
   NestedInstallerFiles:
   - RelativeFilePath: wld.exe
     PortableCommandAlias: wld
@@ -104,11 +105,72 @@ ManifestVersion: 1.10.0
 `;
 }
 
-/** @param {Uint8Array} bytes */
-function assertZipHasPackageMetadata(bytes) {
-    const text = new TextDecoder().decode(bytes);
-    if (!text.includes("runwield-install.json") || !text.includes("wld.exe")) {
-        throw new Error("Published Windows ZIP is missing package metadata or wld.exe.");
+/** @param {string} command @param {string[]} args @param {string} [cwd] */
+async function run(command, args, cwd) {
+    const result = await new Deno.Command(command, { args, cwd, stdout: "piped", stderr: "piped" }).output();
+    if (result.success) return;
+    const decoder = new TextDecoder();
+    throw new Error(
+        `${command} ${args.join(" ")} failed:\n${decoder.decode(result.stdout)}${decoder.decode(result.stderr)}`,
+    );
+}
+
+/** @param {string} url */
+async function readPublishedChecksum(url) {
+    const bytes = await readUrlBytes(`${url}.sha256`);
+    const text = new TextDecoder().decode(bytes).trim();
+    const checksum = text.split(/\s+/)[0]?.toLowerCase() || "";
+    if (!/^[0-9a-f]{64}$/.test(checksum)) throw new Error("Published Windows ZIP checksum file is invalid.");
+    return checksum;
+}
+
+/** @param {string} root @param {string} path */
+async function assertFile(root, path) {
+    const stat = await Deno.stat(join(root, path)).catch(() => null);
+    if (!stat?.isFile) throw new Error(`Published Windows ZIP is missing ${path}.`);
+}
+
+/** @param {Uint8Array} bytes @param {string} versionTag */
+async function assertZipHasPackageMetadata(bytes, versionTag) {
+    const work = await Deno.makeTempDir({ prefix: "runwield-winget-zip-" });
+    try {
+        const zipPath = join(work, "package.zip");
+        const extractDir = join(work, "extract");
+        await Deno.writeFile(zipPath, bytes);
+        await Deno.mkdir(extractDir, { recursive: true });
+        await run("unzip", ["-q", zipPath, "-d", extractDir]);
+        for (
+            const path of [
+                "wld.exe",
+                "runwield-install.json",
+                "runtime/helpers/mnemoteca.exe",
+                "runtime/helpers/cymbal.exe",
+                "runtime/helpers/ketch.exe",
+                "runtime/helpers/agent-browser.exe",
+                "licenses/RUNWIELD-LICENSE.txt",
+                "licenses/mnemoteca-LICENSE.txt",
+                "licenses/cymbal-LICENSE.txt",
+                "licenses/ketch-LICENSE.txt",
+                "licenses/agent-browser-LICENSE.txt",
+            ]
+        ) await assertFile(extractDir, path);
+        const metadata = JSON.parse(await Deno.readTextFile(join(extractDir, "runwield-install.json")));
+        const expectedMetadata = {
+            schemaVersion: 1,
+            packageManager: "winget",
+            packageIdentifier: PACKAGE_ID,
+            updateCommand: `winget upgrade --id ${PACKAGE_ID} --exact`,
+            repairCommand: `winget repair --id ${PACKAGE_ID} --exact`,
+            installDirectory: ".",
+            version: versionTag,
+        };
+        for (const [key, expected] of Object.entries(expectedMetadata)) {
+            if (metadata[key] !== expected) {
+                throw new Error(`Published Windows ZIP package metadata has invalid ${key}.`);
+            }
+        }
+    } finally {
+        await Deno.remove(work, { recursive: true }).catch(() => {});
     }
 }
 
@@ -120,8 +182,12 @@ export async function packageWinget(options) {
     const assetName = `wld-${parsed.tag}-windows-x64.zip`;
     const url = `${assetBaseUrl(parsed.tag, options.baseUrl).replace(/\/$/, "")}/${assetName}`;
     const bytes = await readUrlBytes(url);
-    assertZipHasPackageMetadata(bytes);
+    await assertZipHasPackageMetadata(bytes, parsed.tag);
     const checksum = await sha256(bytes);
+    const publishedChecksum = await readPublishedChecksum(url);
+    if (checksum !== publishedChecksum) {
+        throw new Error(`Published Windows ZIP checksum mismatch: expected ${publishedChecksum}, got ${checksum}`);
+    }
 
     const manifestDir = join(options.output, PACKAGE_ID, version);
     await Deno.remove(manifestDir, { recursive: true }).catch(() => {});

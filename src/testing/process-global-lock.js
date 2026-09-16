@@ -18,7 +18,8 @@ import { join } from "@std/path";
 // The lock path must be identical for every realm in this process, and nothing
 // in the repo mutates these temporary-directory variables.
 // deno-lint-ignore runwield/no-module-scope-process-state
-const LOCK_ROOT = Deno.env.get("TMPDIR") || Deno.env.get("TEMP") || Deno.env.get("TMP") || Deno.cwd();
+const LOCK_ROOT = Deno.env.get("TMPDIR") || Deno.env.get("TEMP") || Deno.env.get("TMP") ||
+    (Deno.build.os === "windows" ? "C:\\Windows\\Temp" : "/tmp");
 const LOCK_PREFIX = "runwield-process-global-test-pid-";
 const LOCK_SUFFIX = ".lock";
 export const LOCK_DIR = join(LOCK_ROOT, `${LOCK_PREFIX}${Deno.pid}${LOCK_SUFFIX}`);
