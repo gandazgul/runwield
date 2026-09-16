@@ -23,7 +23,7 @@ async function makeZip(root: string, name: string, entryName: string): Promise<{
 async function makeFixture() {
     const root = await Deno.makeTempDir({ prefix: "runwield-windows-package-test-" });
     const binary = join(root, "wld.exe");
-    await Deno.writeTextFile(binary, "runwield v1.2.3 (windows-x64) binary");
+    await Deno.writeTextFile(binary, 'compiledVersion="v1.2.3"; runwield binary');
     const mnemoteca = await makeZip(root, "mnemoteca", "mnemoteca.exe");
     const cymbal = await makeZip(root, "cymbal", "cymbal.exe");
     const ketch = await makeZip(root, "ketch", "ketch.exe");
@@ -107,7 +107,7 @@ Deno.test("package:windows resolves GitHub blob license URLs to raw upstream fil
 Deno.test("package:windows rejects non-exact binary release identity", async () => {
     const fixture = await makeFixture();
     try {
-        await Deno.writeTextFile(fixture.binary, "runwield v1.2.30 (windows-x64) binary");
+        await Deno.writeTextFile(fixture.binary, 'compiledVersion="v1.2.30"; runwield binary');
         await assertRejects(
             () =>
                 packageWindows({

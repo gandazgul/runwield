@@ -73,7 +73,7 @@ function sanitizeLicenseFileName(name) {
 async function assertBinaryReleaseIdentity(binary, tag) {
     const bytes = await Deno.readFile(binary);
     const text = new TextDecoder().decode(bytes);
-    if (!text.includes(`runwield ${tag} (`)) {
+    if (!text.includes(`"${tag}"`)) {
         throw new Error(`Compiled Windows binary does not contain the exact RunWield ${tag} release identity.`);
     }
 }
