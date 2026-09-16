@@ -98,7 +98,8 @@ Deno.test("ACP interaction adapter browser fallback cancels with the request sig
 });
 
 Deno.test("ACP browser fallback rejects answer submissions without same-origin proof", async () => {
-    let questionUrl = "";
+    /** @type {PromiseWithResolvers<string>} */
+    const notified = Promise.withResolvers();
     const adapter = createAcpInteractionAdapter({
         acpSessionId: "acp-session-1",
         clientCapabilities: {},
@@ -107,7 +108,7 @@ Deno.test("ACP browser fallback rejects answer submissions without same-origin p
                 /** @type {string} */ _method,
                 /** @type {{ update: { _meta: { runwield: { questionUrl: string } } } }} */ params,
             ) => {
-                questionUrl = params.update._meta.runwield.questionUrl;
+                notified.resolve(params.update._meta.runwield.questionUrl);
             },
         },
     });
@@ -117,7 +118,15 @@ Deno.test("ACP browser fallback rejects answer submissions without same-origin p
         type: "text",
         prompt: "Name?",
     }, controller.signal);
-    while (!questionUrl) await new Promise((resolve) => setTimeout(resolve, 5));
+    const ready = await Promise.race([
+        notified.promise.then((questionUrl) => ({ questionUrl })),
+        Promise.resolve(pending).then((response) => ({ response })),
+    ]);
+    if ("response" in ready) {
+        assertEquals(ready.response.outcome, "unsupported");
+        return;
+    }
+    const questionUrl = ready.questionUrl;
 
     const noOrigin = await fetch(questionUrl.replace("/session-question", "/api/session-question/answer"), {
         method: "POST",

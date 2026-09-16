@@ -100,6 +100,25 @@ async function requestBrowserQuestion(options) {
     });
     origin = new URL(question.url).origin;
     const questionUrl = question.url;
+    let pageResponse;
+    try {
+        pageResponse = await fetch(questionUrl, { signal: options.signal });
+    } catch (error) {
+        await question.shutdown();
+        if (options.signal?.aborted) {
+            return { outcome: RuntimeInteractionOutcomes.CANCELED, message: "Interaction canceled." };
+        }
+        throw error;
+    }
+    await pageResponse.body?.cancel();
+    if (!pageResponse.ok) {
+        await question.shutdown();
+        return {
+            outcome: RuntimeInteractionOutcomes.UNSUPPORTED,
+            message:
+                `RunWield could not open the browser question page (${pageResponse.status}). Use an ACP client with form elicitation or rebuild Workspace assets.`,
+        };
+    }
     const abort = () =>
         answered.resolve({ outcome: RuntimeInteractionOutcomes.CANCELED, message: "Interaction canceled." });
     if (options.signal?.aborted) abort();
