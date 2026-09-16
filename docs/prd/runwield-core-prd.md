@@ -83,6 +83,19 @@ Acceptance scenarios:
   to checkpoint or publish, then it refuses with safe paths and preserves the worktree, index, files, and target refs.
 - Given a broad `.wld/` ignore rule, when Core reconciles ignore rules, then it leaves the rule in place and reports
   that it hides settings, Agents, Skills, and prompts.
+- Given eligible pre-0.10 runtime state, when Doctor checks the project, then it reports pending adoption without locks,
+  migration, ignore writes, controller imports, catalog backfills, journal cleanup, or project-local Git fetches.
+- Given the same eligible state, when Doctor repairs it, then guarded Project Runtime Entry adopts it once before normal
+  diagnostics run.
+- Given an unsafe legacy layout, unfinished publication, or saved repair, when Doctor checks or repairs, then it stops,
+  preserves all named paths, and explains how to finish or deliberately abandon pre-0.10 work.
+- Given a tracked collaboration secret, when Doctor reports the refusal, then it names only the path and explains
+  untracking, history removal, and capability rotation without printing secret bytes.
+
+### Installation and updates
+
+Upgrades that change project runtime layout follow [Work protection](#work-protection). Installation must not bypass
+safe adoption or blocked-layout preservation.
 
 ### 3.1 TUI Shell and Root Agent Behavior
 

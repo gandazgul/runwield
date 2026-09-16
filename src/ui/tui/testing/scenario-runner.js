@@ -33,6 +33,8 @@ import { normalizeScreenText, VirtualTerminal } from "./virtual-terminal.js";
 import { NO_OPEN_BROWSER_PORT } from "../../../shared/browser-port.ts";
 import { getCwd } from "../../../constants.js";
 import { getWorktreeRegistryPath } from "../../../shared/worktree-registry.js";
+import { enterProjectRuntime } from "../../../shared/project-runtime-layout.ts";
+import { isCurrentProjectRuntimePath } from "../../../shared/runwield-owned-paths.ts";
 import { PLAN_STATUSES } from "../../../shared/workflow/plan-lifecycle.js";
 
 /**
@@ -243,16 +245,25 @@ async function snapshotProjectRoot(projectRoot) {
     const snapshot = {};
     /** @param {string} directory */
     async function visit(directory) {
-        for await (const entry of Deno.readDir(directory)) {
-            if (entry.name === ".git") continue;
-            const path = join(directory, entry.name);
-            const relativePath = relative(projectRoot, path);
-            if (entry.isDirectory) {
-                snapshot[relativePath] = { kind: "dir" };
-                await visit(path);
-            } else if (entry.isFile) {
-                snapshot[relativePath] = { kind: "file", hash: await sha256Hex(await Deno.readFile(path)) };
+        try {
+            for await (const entry of Deno.readDir(directory)) {
+                if (entry.name === ".git") continue;
+                const path = join(directory, entry.name);
+                const relativePath = relative(projectRoot, path);
+                if (isCurrentProjectRuntimePath(relativePath)) continue;
+                if (entry.isDirectory) {
+                    snapshot[relativePath] = { kind: "dir" };
+                    await visit(path);
+                } else if (entry.isFile) {
+                    const bytes = await Deno.readFile(path).catch((error) => {
+                        if (error instanceof Deno.errors.NotFound) return null;
+                        throw error;
+                    });
+                    if (bytes) snapshot[relativePath] = { kind: "file", hash: await sha256Hex(bytes) };
+                }
             }
+        } catch (error) {
+            if (!(error instanceof Deno.errors.NotFound)) throw error;
         }
     }
     await visit(projectRoot);
@@ -765,6 +776,9 @@ async function runComposedTuiScenario(scenario, options) {
                 }),
             );
         }
+        // Runtime entry is startup state, not a scenario mutation. Complete it
+        // before concurrent UI reads begin and before the project baseline is saved.
+        await enterProjectRuntime(Deno.cwd());
         const projectSnapshotBefore = await snapshotProjectRoot(Deno.cwd());
         const fauxProvider = scenario.modelSetup === "none" || scenario.modelSetup === "provider-without-models"
             ? null

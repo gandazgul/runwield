@@ -20,6 +20,7 @@ import {
     getPlanDocumentRoot,
     getRecordedPlanWriteFrontMatterRevision,
     getRecordedPlanWriteRevision,
+    inspectPlanStrict,
     loadArchivedPlan,
     loadPlan,
     loadPlanStrict,
@@ -1299,8 +1300,13 @@ export async function writePlanDocumentAndController(opts: PlanDocumentUpdate) {
 }
 
 /** Return unresolved transition journal records for diagnostics. */
-export async function listTransitionRecoveryRecords(projectRoot: string) {
-    const dir = await enteredTransitionJournalDir(projectRoot);
+export async function listTransitionRecoveryRecords(
+    projectRoot: string,
+    options: { diagnostic?: boolean } = {},
+) {
+    const dir = options.diagnostic
+        ? getTransitionJournalDir(projectRoot)
+        : await enteredTransitionJournalDir(projectRoot);
     /** @type {Array<Record<string, unknown>>} */
     const records = [];
     try {
@@ -1442,9 +1448,14 @@ export interface TransitionReconciliation {
  */
 export async function reconcileTransitionRecoveryRecords(
     projectRoot: string,
-    { apply = false, proveEffect, planName }: { apply?: boolean; proveEffect?: EffectProver; planName?: string } = {},
+    { apply = false, proveEffect, planName, diagnostic = false }: {
+        apply?: boolean;
+        proveEffect?: EffectProver;
+        planName?: string;
+        diagnostic?: boolean;
+    } = {},
 ): Promise<TransitionReconciliation[]> {
-    let records = await listTransitionRecoveryRecords(projectRoot);
+    let records = await listTransitionRecoveryRecords(projectRoot, { diagnostic });
     if (planName !== undefined) {
         records = records.filter((record) => record.planName === planName);
     }
@@ -1520,7 +1531,9 @@ export async function reconcileTransitionRecoveryRecords(
         };
         const journaledPlan = beforeFacts.plan || beforeFacts;
         const journaledRevision = typeof journaledPlan.revision === "string" ? journaledPlan.revision : undefined;
-        const current = await loadPlan(projectRoot, planName).catch(() => null);
+        const current = diagnostic
+            ? await inspectPlanStrict(projectRoot, planName).then((result) => result.kind === "loaded" ? result : null)
+            : await loadPlan(projectRoot, planName).catch(() => null);
         if (journaledRevision === undefined && journaledPlan.missing !== true) {
             // No before-revision to compare, and no effect was ever marked. Completed
             // effects are the only ledger of durable change, so nothing here is known to
@@ -1541,7 +1554,7 @@ export async function reconcileTransitionRecoveryRecords(
         // time, so a record whose Front Matter still matches describes no
         // outstanding RunWield work even though the file bytes differ.
         const unchanged = journaledPlan.missing === true ? !current : Boolean(
-            current &&
+            current && "attrs" in current && "revision" in current &&
                 (!journaledPlan.controllerState ||
                     controllerStatesEqual(journaledPlan.controllerState, current.attrs)) &&
                 (current.revision === journaledRevision ||

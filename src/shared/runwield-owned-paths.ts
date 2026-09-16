@@ -150,6 +150,19 @@ function isObsoleteRunWieldLine(line: string): boolean {
     return OBSOLETE_GITIGNORE_LINES.has(line);
 }
 
+export function analyzeRunWieldGitignore(existing: string): RunWieldGitignoreWarning[] {
+    return reconcileGitignore(existing).warnings;
+}
+
+export async function inspectRunWieldGitignore(projectRoot: string): Promise<RunWieldGitignoreWarning[]> {
+    try {
+        return analyzeRunWieldGitignore(await Deno.readTextFile(join(projectRoot, ".gitignore")));
+    } catch (error) {
+        if (error instanceof Deno.errors.NotFound) return [];
+        throw error;
+    }
+}
+
 function reconcileGitignore(existing: string): { content: string; warnings: RunWieldGitignoreWarning[] } {
     const eol = preferredEol(existing);
     const lines = splitLines(existing);

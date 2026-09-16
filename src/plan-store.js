@@ -33,12 +33,17 @@ import { resolvePrimaryCheckoutRoot } from "./shared/primary-checkout.ts";
 import { writePlanDocumentAndController } from "./shared/workflow/state-transition.ts";
 import { escapeYamlDoubleQuoted } from "./shared/yaml-scalar.ts";
 import { pickControllerState, PLAN_RUNTIME_FIELDS, stripRuntimeFields } from "./shared/workflow/controller-state.ts";
-import { enterProjectRuntime, ProjectRuntimeEntryRefusedError } from "./shared/project-runtime-layout.ts";
+import {
+    enterProjectRuntime,
+    ProjectRuntimeEntryRefusedError,
+    resolveProjectRuntimeLayout,
+} from "./shared/project-runtime-layout.ts";
 import {
     bindControllerPlanIdentity,
     finishControllerPlanIdentity,
     listControllerDocumentWorktrees,
     loadControllerView,
+    readControllerRecordAtPath,
     writeControllerState,
 } from "./shared/workflow/controller-registry.ts";
 import {
@@ -1697,11 +1702,33 @@ export async function withPlanCatalogLock(cwd, fn) {
     );
 }
 
+/** Read one Plan document without controller imports or writes.
+ * @param {string} filePath
+ * @returns {ReturnType<typeof loadPlanFileStrict>}
+ */
+export async function inspectPlanFileStrict(filePath) {
+    const result = await loadPlanFileStrict(filePath, true);
+    if (result.kind !== "loaded" || !("attrs" in result)) return result;
+    const location = planControllerLocation(filePath);
+    if (!location) return result;
+    const record = await readControllerRecordAtPath(
+        resolveProjectRuntimeLayout(location.cwd).primary.controllerPlansDir,
+        { planId: result.attrs.planId, planName: location.planName },
+    );
+    if (!record) return result;
+    return {
+        ...result,
+        attrs: { ...stripRuntimeFields(result.attrs), ...record.state },
+        controllerRevision: record.revision,
+    };
+}
+
 /**
  * @param {string} filePath
+ * @param {boolean} [documentOnly]
  * @returns {Promise<{ kind: "loaded", path: string, markdown: string, attrs: PlanFrontMatter, controllerRevision: number, body: string, revision: string, frontMatterRevision: string|undefined, hasFrontMatter: boolean } | { kind: "not_found", path: string } | { kind: "malformed", path: string, markdown: string, error: PlanFrontMatterParseError, revision: string } | { kind: "not_file", path: string, message: string } | { kind: "unreadable", path: string, error: Error }>}
  */
-export async function loadPlanFileStrict(filePath) {
+export async function loadPlanFileStrict(filePath, documentOnly = false) {
     let stat;
     try {
         stat = await Deno.lstat(filePath);
@@ -1738,7 +1765,7 @@ export async function loadPlanFileStrict(filePath) {
             kind: "loaded",
             path: filePath,
             markdown,
-            ...await withControllerMetadata(filePath, attrs),
+            ...(documentOnly ? { attrs, controllerRevision: 0 } : await withControllerMetadata(filePath, attrs)),
             body,
             revision,
             frontMatterRevision,
@@ -1808,6 +1835,16 @@ export async function loadPlanStrict(cwd, planName) {
     const { name, filePath } = getStoredPlanLocation(cwd, planName);
     if (isEpicArtifactPlanName(name)) return { kind: "not_found", path: filePath };
     return await loadPlanFileStrict(filePath);
+}
+
+/** Read raw Plan facts without controller imports or cleanup.
+ * @param {string} cwd
+ * @param {string} planName
+ */
+export async function inspectPlanStrict(cwd, planName) {
+    const { name, filePath } = getStoredPlanLocation(cwd, planName);
+    if (isEpicArtifactPlanName(name)) return { kind: "not_found", path: filePath };
+    return await inspectPlanFileStrict(filePath);
 }
 
 /**

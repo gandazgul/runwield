@@ -152,6 +152,45 @@ export async function findTargetBranchPlan(cwd: string, targetBranch: string, pl
     return await loadTargetPlan(projectRoot, canonicalizeStoredPlanName(planName).name, target.baseRef);
 }
 
+/** Read remote target children in disposable Git storage without changing project refs or objects. */
+export async function inspectTargetBranchPlansByParent(cwd: string, targetBranch: string, parentPlanName: string) {
+    const projectRoot = resolvePrimaryCheckoutRoot(cwd);
+    const branch = targetBranch.trim().replace(/^origin\//, "");
+    if (!branch || branch === "HEAD" || branch.startsWith("refs/")) {
+        throw new Error(`Invalid target branch name: ${targetBranch}`);
+    }
+    const remoteUrl = (await runGit(projectRoot, ["remote", "get-url", "origin"]).catch(() => "")).trim();
+    if (!remoteUrl) {
+        const localRef = await gitRefExists(projectRoot, `refs/heads/${branch}`) ? `refs/heads/${branch}` : "";
+        if (!localRef) throw new Error(`Target branch does not exist: ${targetBranch}. Create it before planning.`);
+        return await readTargetChildren(projectRoot, localRef, parentPlanName);
+    }
+    const scratch = await Deno.makeTempDir({ prefix: "runwield-target-inspect-" });
+    try {
+        await runGit(projectRoot, ["clone", "--no-hardlinks", projectRoot, scratch]);
+        await runGit(scratch, ["remote", "add", "publication", remoteUrl]);
+        await runGit(scratch, ["fetch", "publication", `refs/heads/${branch}:refs/runwield/target`]);
+        return await readTargetChildren(scratch, "refs/runwield/target", parentPlanName);
+    } finally {
+        await Deno.remove(scratch, { recursive: true }).catch(() => {});
+    }
+}
+
+async function readTargetChildren(projectRoot: string, ref: string, parentPlanName: string) {
+    const listed = await runGit(projectRoot, ["ls-tree", "-r", "--name-only", ref, "docs/plans"]);
+    const parentName = canonicalizeStoredPlanName(parentPlanName).name;
+    const children: Array<{ name: string; path: string; attrs: ReturnType<typeof parsePlanFrontMatter>["attrs"] }> = [];
+    for (const relativePath of listed.split(/\r?\n/).filter((line) => line.endsWith(".md"))) {
+        const planName = relativePath.slice("docs/plans/".length, -".md".length);
+        const source = await readTargetPlanMarkdown(projectRoot, planName, ref);
+        if (!source) continue;
+        const parsed = parsePlanFrontMatter(source.markdown);
+        if (parsed.attrs.parentPlan !== parentName) continue;
+        children.push({ name: planName, path: `${ref}:${source.relativePath}`, attrs: parsed.attrs });
+    }
+    return children;
+}
+
 export async function findTargetBranchPlansByParent(cwd: string, targetBranch: string, parentPlanName: string) {
     const projectRoot = resolvePrimaryCheckoutRoot(cwd);
     const target = await resolveExistingTargetSnapshot(projectRoot, targetBranch);

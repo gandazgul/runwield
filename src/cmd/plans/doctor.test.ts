@@ -9,9 +9,13 @@ import {
     runValidationOutcomeTransition,
 } from "../../shared/workflow/state-transition.ts";
 import { runPlansDoctor, runPlansDoctorCommand } from "./doctor.ts";
+import { runPlansCommand } from "./index.ts";
 import { defineGitFixture, git } from "../../shared/git-test-fixture.ts";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import { enterProjectRuntime } from "../../shared/project-runtime-layout.ts";
+import { getLockHostname } from "../../shared/process-liveness.ts";
+import { inspectTargetBranchPlansByParent } from "../../shared/workflow/planning-worktree.ts";
+import { writeControllerState } from "../../shared/workflow/controller-registry.ts";
 
 type WorktreeRegistryEntry = import("../../shared/worktree-registry.js").WorktreeRegistryEntry;
 type WorktreeDeliveryEvidence = import("../../plan-store.js").WorktreeDeliveryEvidence;
@@ -77,6 +81,25 @@ async function captureConsoleLog(run: () => Promise<void>): Promise<string> {
         console.log = originalLog;
     }
     return logs.join("\n");
+}
+
+async function captureConsoleOutput(run: () => Promise<void>): Promise<string> {
+    const originalLog = console.log;
+    const originalWarn = console.warn;
+    const originalError = console.error;
+    const lines: string[] = [];
+    const capture = (message = "") => lines.push(String(message));
+    console.log = capture;
+    console.warn = capture;
+    console.error = capture;
+    try {
+        await run();
+    } finally {
+        console.log = originalLog;
+        console.warn = originalWarn;
+        console.error = originalError;
+    }
+    return lines.join("\n");
 }
 
 async function seedMissingSettledWorktree(projectRoot: string, worktreeId: string): Promise<void> {
@@ -203,6 +226,69 @@ Deno.test("plans doctor is report-only without repair", async () => {
     }
 });
 
+Deno.test("plans doctor check preserves controller recovery, Plan identity, and catalog locks", async () => {
+    const cwd = await ancestryRepo.checkout({ prefix: "runwield-plans-doctor-controller-check-" });
+    try {
+        const layout = await enterProjectRuntime(cwd);
+        await savePlan(cwd, "controller-check", "# Controller check\n", {
+            planId: "plan-controller-check",
+            classification: "FEATURE",
+            status: "in_progress",
+            summary: "Controller inspection fixture.",
+            affectedPaths: [],
+        });
+        await writeControllerState(
+            cwd,
+            { planId: "plan-controller-check", planName: "controller-check" },
+            { executionReport: "preserve this report" },
+            {
+                recovery: {
+                    worktreeId: "controller-check-attempt",
+                    worktreePath: cwd,
+                    worktreeBranch: "runwield/worktree/controller-check",
+                    worktreeBaseBranch: "main",
+                    worktreeStatus: "active",
+                },
+            },
+        );
+        await addEntry(cwd, {
+            id: "controller-check-attempt",
+            planName: "controller-check",
+            planId: "plan-controller-check",
+            baseBranch: "main",
+            baseRef: "HEAD",
+            baseCommit: await git(cwd, ["rev-parse", "HEAD"]),
+            branch: "runwield/worktree/controller-check",
+            path: cwd,
+            status: "active",
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+        });
+        const missingIdPath = join(cwd, "docs", "plans", "missing-id-check.md");
+        await Deno.writeTextFile(
+            missingIdPath,
+            "---\nclassification: FEATURE\nstatus: ready_for_work\n---\n# Missing ID\n",
+        );
+        const controllerPath = join(layout.primary.controllerPlansDir, "plan-controller-check.json");
+        const beforeController = await Deno.readTextFile(controllerPath);
+        const beforePlan = await Deno.readTextFile(missingIdPath);
+        const beforeMtime = (await Deno.stat(missingIdPath)).mtime?.getTime();
+
+        await runPlansDoctor(cwd, false);
+
+        assertEquals(await Deno.readTextFile(controllerPath), beforeController);
+        assertEquals(JSON.parse(beforeController).recovery.worktreeId, "controller-check-attempt");
+        assertEquals(await Deno.readTextFile(missingIdPath), beforePlan);
+        assertEquals((await Deno.stat(missingIdPath)).mtime?.getTime(), beforeMtime);
+        assertEquals(
+            await Deno.stat(layout.selected.planCatalogLockPath).then(() => true).catch(() => false),
+            false,
+        );
+    } finally {
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
+});
+
 Deno.test("plans doctor ignores Epic manual QA artifacts", async () => {
     const cwd = await Deno.makeTempDir({ prefix: "runwield-plans-doctor-manual-qa-" });
     try {
@@ -218,7 +304,7 @@ Deno.test("plans doctor ignores Epic manual QA artifacts", async () => {
         );
 
         const report = await runPlansDoctor(cwd, false);
-        assertEquals(report.issues, []);
+        assertEquals(report.issues.map((issue) => issue.kind), ["runtime_adoption_pending"]);
     } finally {
         await Deno.remove(cwd, { recursive: true }).catch(() => {});
     }
@@ -297,6 +383,119 @@ Deno.test("plans doctor command --check reports without changing files", async (
         assertEquals(output.includes("Next steps:"), true);
         assertEquals(output.includes("No files changed"), true);
     });
+});
+
+Deno.test("plans doctor dispatch check and help never adopt raw legacy state", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const cwd = await ancestryRepo.checkout({ prefix: "runwield-plans-doctor-dispatch-check-" });
+        const previousCwd = Deno.cwd();
+        try {
+            Deno.chdir(cwd);
+            const legacyRegistry = join(cwd, ".wld", "worktrees.json");
+            await Deno.mkdir(dirname(legacyRegistry), { recursive: true });
+            await Deno.writeTextFile(legacyRegistry, `${JSON.stringify({ version: 1, entries: [] })}\n`);
+            await Deno.writeTextFile(join(cwd, ".gitignore"), "custom-rule\n");
+            const beforeRegistry = await Deno.readTextFile(legacyRegistry);
+            const beforeIgnore = await Deno.readTextFile(join(cwd, ".gitignore"));
+            const beforeRefs = await git(cwd, ["show-ref"]);
+            const beforeIndex = await git(cwd, ["write-tree"]);
+
+            const checkOutput = await captureConsoleLog(async () => {
+                await runPlansCommand(["doctor", "--check", "--repair"]);
+            });
+            assertEquals(checkOutput.includes("runtime_adoption_pending"), true);
+            assertEquals(checkOutput.includes("No files changed"), true);
+            assertEquals(await Deno.readTextFile(legacyRegistry), beforeRegistry);
+            assertEquals(await Deno.readTextFile(join(cwd, ".gitignore")), beforeIgnore);
+            assertEquals(await git(cwd, ["show-ref"]), beforeRefs);
+            assertEquals(await git(cwd, ["write-tree"]), beforeIndex);
+            assertEquals(
+                await Deno.stat(join(cwd, ".wld", PROJECT_INTERNAL_RUNTIME_DIR_NAME)).then(() => true).catch(() =>
+                    false
+                ),
+                false,
+            );
+
+            await captureConsoleLog(async () => {
+                await runPlansCommand(["doctor", "--help"]);
+            });
+            assertEquals(await Deno.readTextFile(legacyRegistry), beforeRegistry);
+            assertEquals(await Deno.readTextFile(join(cwd, ".gitignore")), beforeIgnore);
+        } finally {
+            Deno.chdir(previousCwd);
+            await Deno.remove(cwd, { recursive: true }).catch(() => {});
+        }
+    });
+});
+
+Deno.test("plans doctor reports broad ignore rules without removing them", async () => {
+    const cwd = await ancestryRepo.checkout({ prefix: "runwield-plans-doctor-broad-ignore-" });
+    try {
+        const ignorePath = join(cwd, ".gitignore");
+        await Deno.writeTextFile(ignorePath, ".wld/\n");
+        const checked = await runPlansDoctor(cwd, false);
+        assertEquals(checked.issues.some((issue) => issue.kind === "broad_wld_ignore"), true);
+        assertEquals(await Deno.readTextFile(ignorePath), ".wld/\n");
+
+        const repaired = await runPlansDoctor(cwd, true);
+        assertEquals(repaired.issues.some((issue) => issue.kind === "broad_wld_ignore"), true);
+        const after = await Deno.readTextFile(ignorePath);
+        assertEquals(after.includes(".wld/\n"), true);
+        assertEquals(after.includes(".wld/internal/"), true);
+    } finally {
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("plans doctor tracked-secret refusal never prints secret contents", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const cwd = await ancestryRepo.checkout({ prefix: "runwield-plans-doctor-secret-" });
+        const previousCwd = Deno.cwd();
+        const sentinel = "DO_NOT_PRINT_THIS_SECRET";
+        try {
+            Deno.chdir(cwd);
+            const secretPath = join(cwd, ".wld", "collaboration-secrets.json");
+            await Deno.mkdir(dirname(secretPath), { recursive: true });
+            await Deno.writeTextFile(secretPath, `${JSON.stringify({ token: sentinel })}\n`);
+            await git(cwd, ["add", ".wld/collaboration-secrets.json"]);
+            const output = await captureConsoleOutput(async () => {
+                await runPlansCommand(["doctor", "--check"]);
+            });
+            assertEquals(output.includes(sentinel), false);
+            assertEquals(output.includes("remove it from repository history"), true);
+            assertEquals(output.includes("rotate"), true);
+            assertEquals(output.includes("collaboration-secrets.json"), true);
+            assertEquals(await Deno.readTextFile(secretPath), `${JSON.stringify({ token: sentinel })}\n`);
+        } finally {
+            Deno.chdir(previousCwd);
+            await Deno.remove(cwd, { recursive: true }).catch(() => {});
+        }
+    });
+});
+
+Deno.test("plans doctor preserves old live and unattributable Plan locks", async () => {
+    const cwd = await ancestryRepo.checkout({ prefix: "runwield-plans-doctor-lock-preserve-" });
+    try {
+        const layout = await enterProjectRuntime(cwd);
+        await Deno.mkdir(layout.selected.planLocksDir, { recursive: true });
+        const livePath = join(layout.selected.planLocksDir, "live.lock");
+        const uncertainPath = join(layout.selected.planLocksDir, "uncertain.lock");
+        await Deno.writeTextFile(
+            livePath,
+            JSON.stringify({ pid: Deno.pid, hostname: getLockHostname(), updatedAtMs: 0 }),
+        );
+        await Deno.writeTextFile(uncertainPath, "truncated");
+        const old = new Date(Date.now() - 60 * 60_000);
+        await Deno.utime(livePath, old, old);
+        await Deno.utime(uncertainPath, old, old);
+
+        const report = await runPlansDoctor(cwd, true);
+        assertEquals(report.issues.some((issue) => issue.kind === "stale_plan_lock"), false);
+        assertEquals(await Deno.readTextFile(livePath).then(() => true).catch(() => false), true);
+        assertEquals(await Deno.readTextFile(uncertainPath).then(() => true).catch(() => false), true);
+    } finally {
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
 });
 
 Deno.test("plans doctor command --repair applies safe repairs through the real doctor", async () => {
@@ -506,7 +705,7 @@ Deno.test("plans doctor diagnoses a registry conflict instead of going blind on 
 
         // Read-only mode names the conflict. Repair mode can bind the attempt named
         // by the Plan and leave every other worktree untouched.
-        for (const repair of [false]) {
+        for (const repair of [false, true]) {
             const report = await runPlansDoctor(cwd, repair);
             const kinds = report.issues.map((issue) => issue.kind);
             assertEquals(
@@ -630,7 +829,10 @@ Deno.test("plans doctor clears an abandoned Plan lock", async () => {
         const lockPath = join(lockDir, "demo.lock");
         const legacyLockPath = join(getRunWieldRuntimeDir(resolvedCwd), "plan-locks", "demo.lock");
         await Deno.mkdir(lockDir, { recursive: true });
-        await Deno.writeTextFile(lockPath, JSON.stringify({ pid: 999999, updatedAtMs: 0 }));
+        await Deno.writeTextFile(
+            lockPath,
+            JSON.stringify({ pid: 999999, hostname: getLockHostname(), updatedAtMs: 0 }),
+        );
         const old = new Date(Date.now() - 60 * 60_000);
         await Deno.utime(lockPath, old, old);
 
@@ -698,6 +900,122 @@ Deno.test("doctor proves publication from real Git ancestry in both directions",
         assertEquals(uncertain[0].planName, "unpublished");
     } finally {
         await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("doctor discovers remote children while local target is behind and reports inspection failure", async () => {
+    const cwd = await ancestryRepo.checkout({ prefix: "runwield-plans-doctor-remote-child-" });
+    const remoteRoot = await Deno.makeTempDir({ prefix: "runwield-plans-doctor-remote-child-origin-" });
+    try {
+        await git(remoteRoot, ["init", "--bare"]);
+        await git(cwd, ["remote", "add", "origin", remoteRoot]);
+        await git(cwd, ["push", "-u", "origin", "main"]);
+        await savePlan(cwd, "project", "# Project\n", {
+            planId: "plan-project",
+            classification: "PROJECT",
+            status: "in_progress",
+            summary: "Remote child fixture.",
+            affectedPaths: [],
+            targetBranch: "main",
+        });
+        await git(cwd, ["add", "docs/plans/project.md"]);
+        await git(cwd, ["commit", "-m", "Add project Plan"]);
+        await git(cwd, ["push", "origin", "main"]);
+        const localTarget = await git(cwd, ["rev-parse", "main"]);
+        const unpublishedCommit = await git(cwd, ["rev-parse", "side"]);
+
+        await git(cwd, ["checkout", "-b", "remote-child"]);
+        await savePlan(cwd, "remote-child", "# Remote child\n", {
+            planId: "plan-remote-child",
+            parentPlan: "project",
+            classification: "FEATURE",
+            status: "verified",
+            summary: "Only the authoritative remote contains this child.",
+            affectedPaths: [],
+            deliveryEvidence: {
+                version: 1,
+                mode: "worktree_merge",
+                executionCommit: unpublishedCommit,
+                targetBranch: "main",
+                targetHeadBeforeMerge: localTarget,
+            },
+        });
+        const childPath = join(cwd, "docs/plans/remote-child.md");
+        await Deno.writeTextFile(
+            childPath,
+            injectFrontMatter(await Deno.readTextFile(childPath), {
+                deliveryEvidence: {
+                    version: 1,
+                    mode: "worktree_merge",
+                    executionCommit: unpublishedCommit,
+                    targetBranch: "main",
+                    targetHeadBeforeMerge: localTarget,
+                },
+            }),
+        );
+        await git(cwd, ["add", "docs/plans/remote-child.md"]);
+        await git(cwd, ["commit", "-m", "Add remote child"]);
+        await git(cwd, ["push", "origin", "HEAD:main"]);
+        await git(cwd, ["checkout", "main"]);
+        assertEquals(
+            await Deno.stat(join(cwd, "docs/plans/remote-child.md")).then(() => true).catch(() => false),
+            false,
+        );
+
+        const fetchHeadPath = join(cwd, ".git", "FETCH_HEAD");
+        const gitSnapshot = async () => ({
+            refs: await git(cwd, ["show-ref"]),
+            index: await git(cwd, ["write-tree"]),
+            objects: await git(cwd, ["cat-file", "--batch-check", "--batch-all-objects"]),
+            fetchHead: await Deno.readTextFile(fetchHeadPath).catch(() => null),
+        });
+        const beforeInspection = await gitSnapshot();
+        const remoteChildren = await inspectTargetBranchPlansByParent(cwd, "main", "project");
+        assertEquals(remoteChildren.map((plan) => plan.name), ["remote-child"]);
+        assertEquals(remoteChildren[0].attrs.deliveryEvidence, {
+            version: 1,
+            mode: "worktree_merge",
+            executionCommit: unpublishedCommit,
+            targetBranch: "main",
+            targetHeadBeforeMerge: localTarget,
+        });
+        const discovered = await runPlansDoctor(cwd, false);
+        assertEquals(await gitSnapshot(), beforeInspection, "remote inspection must not mutate primary Git storage");
+        assertEquals(
+            discovered.issues.some((issue) =>
+                issue.kind === "uncertain_publication" && issue.planName === "remote-child"
+            ),
+            true,
+            "Doctor inspects children from the authoritative remote, not the behind local branch",
+        );
+
+        await savePlan(cwd, "local-publication-claim", "# Local claim\n", {
+            planId: "plan-local-claim",
+            classification: "FEATURE",
+            status: "verified",
+            summary: "Remote inspection must remain authoritative.",
+            affectedPaths: [],
+            deliveryEvidence: {
+                version: 1,
+                mode: "worktree_merge",
+                executionCommit: localTarget,
+                targetBranch: "main",
+                targetHeadBeforeMerge: localTarget,
+            },
+        });
+        await git(cwd, ["remote", "set-url", "origin", join(remoteRoot, "missing")]);
+        const failed = await runPlansDoctor(cwd, false);
+        assertEquals(failed.issues.some((issue) => issue.kind === "target_branch_inspection_error"), true);
+        assertEquals(
+            failed.issues.some((issue) =>
+                issue.kind === "publication_inspection_error" && issue.planName === "local-publication-claim"
+            ),
+            true,
+            "local ancestry must not hide a remote inspection failure",
+        );
+    } finally {
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+        await Deno.remove(remoteRoot, { recursive: true }).catch(() => {});
     }
 });
 

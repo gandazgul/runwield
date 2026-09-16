@@ -255,16 +255,15 @@ export async function isExecutionCommitPublishedUpstream(
 export async function isCommitPublishedToTarget(
     args: TargetPublicationInspectionArgs,
 ): Promise<boolean> {
-    const localResult = await runGitResult(args.projectRoot, [
-        "merge-base",
-        "--is-ancestor",
-        args.commit,
-        `refs/heads/${args.targetBranch}`,
-    ]);
-    if (localResult.code === 0) return true;
     const upstream = await resolveUpstream(args.projectRoot, args.targetBranch);
     if (!upstream) {
-        return false;
+        const localResult = await runGitResult(args.projectRoot, [
+            "merge-base",
+            "--is-ancestor",
+            args.commit,
+            `refs/heads/${args.targetBranch}`,
+        ]);
+        return localResult.code === 0;
     }
     const inspectionRoot = await Deno.makeTempDir({ prefix: `runwield-inspect-${basename(args.projectRoot)}-` });
     try {

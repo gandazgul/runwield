@@ -366,20 +366,23 @@ On first use, RunWield imports some Pi config files into `~/.wld/` when the RunW
 
 ## Plan recovery and doctor
 
-Use `wld plans doctor` to inspect Plan/worktree lifecycle drift:
+Use `wld plans doctor` to repair safe Plan/worktree lifecycle drift. Use `--check` for a report-only inspection.
+`--repair` is an explicit alias for the default behavior.
 
 ```bash
+wld plans doctor --check
 wld plans doctor
 wld plans doctor --repair
 ```
 
-The default command reports issues without changing the project. `--repair` applies only safe metadata repairs, such as
-marking a registry entry abandoned when its recorded worktree path is missing. Destructive actions like deleting a
-branch, deleting a directory, or abandoning ambiguous work require an explicit recovery choice or a manual command.
+Doctor reports blocked runtime adoption with safe paths and does not enter normal stores. A report-only inspection does
+not migrate, create locks, update metadata, or fetch into the project repository. Repair applies only proven-safe
+metadata repairs. Destructive actions, such as deleting a branch, deleting a directory, or abandoning ambiguous work,
+require an explicit recovery choice or a manual command.
 
-If a lifecycle action is interrupted, RunWield may leave a recovery record in `.wld/plan-transitions/`. The next
-`wld load-plan`, validation retry, or doctor run uses that record to decide whether the action was already completed,
-can be rolled back, or needs user confirmation.
+If a lifecycle action is interrupted, RunWield may leave a recovery record in `.wld/internal/plan-transitions/`. The
+next `wld load-plan`, validation retry, or doctor run uses that record to decide whether the action was already
+completed, can be rolled back, or needs user confirmation.
 
 If the main-checkout Plan file is missing or has unreadable front matter, `wld load-plan <name>` can restore it from the
 one matching execution worktree. RunWield verifies the Plan/worktree identity first. An unreadable file is copied to

@@ -114,10 +114,14 @@ async function enteredControllerRecordPath(cwd: string, identity: WorkflowIdenti
     );
 }
 
-export async function readControllerRecord(cwd: string, identity: WorkflowIdentity): Promise<ControllerRecord | null> {
+export async function readControllerRecordAtPath(
+    controllerPlansDir: string,
+    identity: WorkflowIdentity,
+): Promise<ControllerRecord | null> {
+    const key = identity.planId || `name:${identity.planName}`;
     try {
         const record: ControllerRecord = JSON.parse(
-            await Deno.readTextFile(await enteredControllerRecordPath(cwd, identity)),
+            await Deno.readTextFile(join(controllerPlansDir, `${encodeURIComponent(key)}.json`)),
         );
         if (record.version !== 1 || !Number.isInteger(record.revision) || !record.state) {
             throw new Error(
@@ -129,6 +133,14 @@ export async function readControllerRecord(cwd: string, identity: WorkflowIdenti
         if (error instanceof Deno.errors.NotFound) return null;
         throw error;
     }
+}
+
+export async function readControllerRecord(cwd: string, identity: WorkflowIdentity): Promise<ControllerRecord | null> {
+    await enterProjectRuntime(selectedRoot(cwd));
+    return await readControllerRecordAtPath(
+        resolveProjectRuntimeLayout(projectRoot(cwd)).primary.controllerPlansDir,
+        identity,
+    );
 }
 
 async function atomicWrite(path: string, record: ControllerRecord): Promise<void> {
