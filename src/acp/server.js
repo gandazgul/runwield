@@ -742,10 +742,16 @@ function createRunWieldAcpServer(context) {
         const request = validateNewSessionParams(context.params);
         const readiness = getSelectedDefaultModelAvailability(request.cwd);
         if (!readiness.available) throwAuthenticationRequired(request.cwd);
-        const runtimeSessionId = await runtime.createPromptReadySession({
-            cwd: request.cwd,
-            mcpServers: request.runwieldMcpServers,
-        });
+        let runtimeSessionId;
+        try {
+            runtimeSessionId = await runtime.createPromptReadySession({
+                cwd: request.cwd,
+                mcpServers: request.runwieldMcpServers,
+            });
+        } catch (error) {
+            console.error(error);
+            throw error;
+        }
         const snapshot = runtime.getSessionSnapshot(runtimeSessionId);
         if (!snapshot) throwUnknownSession(runtimeSessionId);
         const persistedSessionId = snapshot.sessionManagerId || runtimeSessionId;
