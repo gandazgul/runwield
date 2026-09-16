@@ -40,7 +40,8 @@ run `/init` once to let it explore the repo and build project context, and just 
 
 macOS and Linux, installs to `~/.local/bin`, no root required.
 
-For setup details, including model provider authentication, runtime helpers, and running from source, see the [Quickstart Guide](docs/quickstart.md).
+For setup details, including model provider authentication, runtime helpers, and running from source, see the
+[Quickstart Guide](docs/quickstart.md).
 
 > **I'm looking for five developers to try RunWield on one real, non-trivial change.** I'll personally help you get
 > running, fix anything that blocks you within a day, and give you a direct say in the roadmap.
@@ -137,9 +138,6 @@ Every one of those steps is a place you can interrupt, redirect, or stop. That's
 
 **Yes, if** you work on codebases where a bad change is expensive, you want to steer before code exists instead of
 after, and you're tired of "done!" meaning "the model stopped typing."
-
-**Probably not, if** most of your work is quick one-shot edits. RunWield would be more ceremony than you need —
-[Pi](https://pi.dev) or another lightweight harness will be faster and you'll be happier.
 
 ---
 
