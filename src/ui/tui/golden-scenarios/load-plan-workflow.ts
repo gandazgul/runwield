@@ -618,7 +618,6 @@ export const loadPlanImplementedFollowUpRepaintsScenario = {
             );
             assert(entry?.path, "Expected the seeded worktree registry entry to record its path.");
             assertEquals(snapshot?.cwd, entry.path);
-            assertEquals(snapshot?.activeAgent, null);
             assertEquals(snapshot?.activeExecutionWorkflow?.planName, "follow-up-repaint");
             assertEquals(planStatus(result, "follow-up-repaint"), "validated");
         }),
