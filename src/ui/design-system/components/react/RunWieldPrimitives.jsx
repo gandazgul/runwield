@@ -83,16 +83,18 @@ export function RunWieldCard({ className, children, ...props }) {
 }
 
 /**
- * @param {{ label?: string, className?: string }} props
+ * @typedef {Object} RunWieldThinkingDotsProps
+ * @property {string} [label]
+ * @property {string} [className]
+ * @property {boolean} [showLabel]
+ * @param {RunWieldThinkingDotsProps} props
  */
-export function RunWieldThinkingDots({ label = "Thinking", className }) {
-    return React.createElement(
-        "span",
-        { className: classNames(["rw-thinking-dots", className]), role: "status", "aria-label": label },
-        React.createElement("span", { "aria-hidden": "true" }, label),
-        React.createElement("span", { className: "rw-thinking-dot", "aria-hidden": "true" }),
-        React.createElement("span", { className: "rw-thinking-dot", "aria-hidden": "true" }),
-        React.createElement("span", { className: "rw-thinking-dot", "aria-hidden": "true" }),
+export function RunWieldThinkingDots({ label = "Thinking", className, showLabel = true }) {
+    return (
+        <span className={classNames(["rw-thinking-dots", className])} role="status" aria-label={label}>
+            <span className="rw-thinking-glyph" aria-hidden="true" />
+            {showLabel && <span aria-hidden="true">{label}</span>}
+        </span>
     );
 }
 

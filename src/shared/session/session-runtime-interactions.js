@@ -40,6 +40,7 @@ export const RuntimeInteractionOutcomes = Object.freeze({
  * @property {"select"|"text"|"approval"|"link"|"plan_review"|"artifact_review"|"code_review"|"pair_checkpoint"|"plan_deviation_confirmation"} type
  * @property {string} prompt
  * @property {RuntimeInteractionOption[]} [options]
+ * @property {string} [otherOptionValue] Choice whose answer can be supplied as free text in the same form.
  * @property {string} [defaultValue]
  * @property {string} [placeholder]
  * @property {boolean} [allowEmpty]
@@ -52,6 +53,7 @@ export const RuntimeInteractionOutcomes = Object.freeze({
  * @property {"selected"|"text"|"accepted"|"canceled"|"unsupported"|"blocked"} outcome
  * @property {string|boolean} [value]
  * @property {string} [valueLabel]
+ * @property {string} [otherText] Free text supplied alongside the selected Other choice.
  * @property {string} [message]
  * @property {Record<string, unknown>} [_meta]
  */

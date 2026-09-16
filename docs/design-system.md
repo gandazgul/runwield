@@ -100,13 +100,31 @@ Primitive visual components such as buttons, cards, badges, notices, tabs, input
 RunWield-owned without a headless interaction dependency unless they require non-trivial keyboard, focus, portal, or
 ARIA behavior.
 
+### Phone review layout
+
+Embedded reviews constrain the Workspace grid column to the viewport. At phone widths, header actions and document
+controls wrap; every sidebar-state combination uses one document column, with open sidebars shown as overlays. The
+document scroll area takes the remaining height below the header and controls. Only standalone reviews reserve space for
+a fixed bottom action bar. Long prose and metadata wrap inside the document instead of widening the page.
+
 ### Shared loaders
 
-Use `RunWieldThinkingDots` for short waiting states such as thinking, sending, refreshing, or loading a compact panel.
-It shows a plain label plus three pulsing dots, follows `prefers-reduced-motion`, and uses `--rw-text-muted` by default.
-Do not add separate spinners for Session timeline waits.
+Use `RunWieldThinkingDots` for every browser loading state: navigation, page startup, panels, thinking, and pending
+button actions. It uses the TUI’s Braille dot sequence and 120 ms frame timing, with an accessible status label. Use
+`showLabel={false}` in compact buttons. Astro islands use `LoadingSurface` in their `fallback` slot so the loader
+appears before JavaScript finishes loading. Workspace also shows it while fetching the next page.
+
+The shared `.rw-thinking-glyph` mask in `src/ui/design-system/components.css` is the single browser animation; static
+server HTML and the plain browser shell use that same class. Imported review spinners (`.animate-spin`), including
+portals, and image-loading skeletons receive this artwork through the shared stylesheet. Do not introduce another
+spinner, pulsing dots, or animated loading skeleton. Reduced-motion mode shows a still frame. Labels use
+`--rw-text-muted` by default.
 
 ### Session timeline and control patterns
+
+Core’s `busy_changed` event drives a shared dots loader labelled “Thinking...” at the live end of the Session timeline,
+including before the first assistant output. Idle removes it; saved history never restores it. Pause it while a live
+interaction needs the owner’s answer, matching the TUI. Do not infer this indicator from Plan or activation state.
 
 Session detail surfaces use one ordered timeline for committed history. Live Core waits appear as temporary items and
 must look different from committed transcript entries. If the server process loses that wait, show the plain
@@ -116,6 +134,10 @@ Treat the Session as one continuous work surface. Use dividers, subtle intent ra
 distinguish timeline entries instead of wrapping every message, tool event, workflow stage, and status in a separate
 card. The Session summary, stream, composer, and workflow rail should read as adjacent panes. The Session list follows
 the same rule: one catalog with compact rows, not a grid of raised Session cards.
+
+On mobile, the Session context sidebar covers the full conversation area below the Workspace header. Keep its tabs and
+collapse control visible while the selected panel scrolls. Closing it reveals the conversation and composer in place.
+Use the dynamic viewport height so browser controls do not push the bottom of the Session offscreen.
 
 Mobile Session composers stay in the normal surface stack, preserve drafts, and keep the primary button touch-sized. The
 New Session composer uses a visible screen heading and an empty text field; do not add helper copy or dev/API messages
@@ -131,6 +153,24 @@ response** until it is applied. Thinking changes can show immediately when Core 
 Composers accept images by paste, drag-and-drop, or **Attach image**, including a phone's file picker. Show the image
 before sending with a Remove action, and preserve it in the conversation after sending and reloading. Use the shared
 `.rw-image-previews` treatment. Save image drafts in IndexedDB; browser storage limits must never block Send.
+
+Keep the composer footer in one row, including on phones: a small **+** attachment button on the left, Agent,
+provider/model, Thinking, and an icon-only Send button. Stop and Queue also use labeled icons while working. Preserve
+accessible names and tooltips for icon buttons; model options include their provider. Enabled settings use normal text
+contrast, a visible control background and border, and a pointer cursor; only disabled controls look muted.
+
+The TUI is the behavior reference for Session controls and commands. Agent selection loads that Agent's settings,
+including the active model preset. Displaying these defaults does not create a manual override. Explicit model and
+thinking choices apply to that Agent; selecting a different Agent resets them, including before the first message. Model
+labels use `provider/model` so similarly named models remain distinct.
+
+Typing `/` at the start of the input opens `.rw-command-menu`, an anchored, scrollable command list above the composer.
+Filter as the user types; Up/Down selects, Enter/Tab completes, and Escape dismisses without stopping the Agent. Support
+touch selection and keep keyboard focus in the input. Agent and model commands offer argument choices; prompt templates
+and skills use the same catalog and Runtime expansion as the TUI. Browser actions open their corresponding Workspace
+surface rather than sending commands as messages to the model. Standalone local question pages for ACP use the same
+control hierarchy: clear heading, native form fields, primary submit, secondary cancel, visible focus, and semantic
+`--rw-*` token intent.
 
 Open conversations at the latest messages and offer **Load earlier messages** above the timeline. Loading old history
 must not disable Send. Keep Session generations, locks, and request-delivery details out of the ordinary screen.
@@ -167,6 +207,11 @@ being viewed is active. In the TUI, do not repeat agent, model, thinking, cost, 
 footer; the detailed context breakdown may expand on the footer's compact context percentage. Artifacts lists only
 explicitly registered, Project-relative Markdown artifacts; never infer an artifact by scraping transcript text. Each
 artifact opens in the shared read-only artifact surface and returns to the owning Session.
+
+Embedded artifact readers use Workspace’s header for their title and Back to Session action; the standalone logo/title
+bar is omitted. The document toolbar uses `RunWieldPanelToggle` for Contents, matching review controls. Contents starts
+collapsed at widths of 980 px or less. On phones, opening it fills the document pane; selecting a heading returns to the
+document. The toolbar remains reachable for collapsing or restoring Contents.
 
 Use the `.session-context-*` classes and `--rw-*` semantic tokens for the tab rail, fields, workflow rows, and artifact
 links. The sidebar is a flat adjacent pane with dividers, not a stack of floating cards. At narrow browser widths it
@@ -305,6 +350,9 @@ Use `.rw-toolbar-button` for compact actions inside Workspace toolbars. This cla
 `src/ui/design-system/components.css` so related actions keep the same size, border, text color, hover state, and
 disabled state. Use it for toolbar actions that open side panels, switch helper views, or add comments. Do not make
 one-off local button styles for those actions.
+
+Use `.rw-toolbar-select` for native dropdowns alongside toolbar buttons. It shares the toolbar surface and text tokens,
+with explicit hover, keyboard focus, and disabled states.
 
 Use `.rw-segmented-toggle` for compact toolbar choices such as `Changes` / `Files`, `Side by side` / `Unified`, Plan
 mode choices, and settings choices. Each option must include an icon, a label in a `<span>`, and a `title` that matches
@@ -502,7 +550,8 @@ Plan Detail, Plan Review, and read-only Plan are modes of the same Plan workbenc
 review shell, compact title toolbar, document canvas, and pane boundaries. Change the available controls and side-rail
 content for each mode; do not give one mode a separate dashboard-detail layout.
 
-When Plan Review is embedded in Workspace, the Workspace main header is its only title and decision bar. Show
+When a review or artifact reader is embedded in Workspace, the Workspace main header is its only title and decision bar.
+Code Review puts its options and approval there; an artifact reader puts Back to Session there. For Plan Review, Show
 `Plan Review — [Plan title]` on the left and the execution-policy controls plus approval action on the right. Begin the
 embedded surface directly with the Plan workbench: do not repeat the logo/title/options header or the Project/Session
 breadcrumb strip. Reuse the Session screen's `workspace-main-header` height, title alignment, and shell spacing; do not
@@ -656,7 +705,9 @@ header controls as single-Plan review. Surface Lab includes standalone and embed
 
 ### Workflow transitions in Session history
 
-Every tool in `WORKFLOW_TOOL_NAMES` renders as an expanded `.rw-workflow-block`, separate from routine tool activity.
+Only tools that advance the workflow or record its decisions and completed steps belong in `WORKFLOW_TOOL_NAMES` and
+render as expanded `.rw-workflow-block` entries. Inspection tools such as `review_diff` stay collapsed with routine
+activity. Each workflow entry has one outer container; its Markdown body has no separate border, background, or padding.
 Show its name, running/completed/failed state, full report or decision, and available artifact/review actions. Keep
 routing intent, complexity, plan outcomes, completion summaries, review findings, and checklists visible. Accepted
 workflow records close the block even when a tool stops its own turn before a provider tool result is persisted. Live

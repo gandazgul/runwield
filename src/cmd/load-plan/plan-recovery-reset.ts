@@ -270,6 +270,7 @@ async function recreateRecoveryWorktree(context: RecoveryActionContext): Promise
                         worktreePath: nextWorktree.path,
                         worktreeBranch: nextWorktree.branch,
                         worktreeBaseBranch: nextWorktree.baseBranch,
+                        worktreeBaseCommit: nextWorktree.baseCommit,
                         worktreeStatus: "active",
                         executionBaselineTree: nextWorktree.baseTree,
                     },

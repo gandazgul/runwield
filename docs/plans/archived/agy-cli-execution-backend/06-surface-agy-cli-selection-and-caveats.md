@@ -28,6 +28,9 @@ order: 6
 dependencies:
     - "05-harden-agy-cli-failures-and-continuations"
 userVerifiedAt: null
+archivedAt: "2026-09-15T18:22:33.131Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/agy-cli-execution-backend/06-surface-agy-cli-selection-and-caveats.md"
 targetBranch: "feature/agy-cli-execution-backend"
 ---
 

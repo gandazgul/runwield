@@ -1,11 +1,42 @@
 import { assertEquals } from "@std/assert";
+import { join } from "@std/path";
 import {
     getCliCommandDefinitions,
     getCommandDefinition,
     getSlashCommandDefinition,
     getSlashCommandDefinitions,
+    getSlashCommandInvocationNames,
     hasCommandSurface,
 } from "../registry.js";
+
+Deno.test("importing the registry does not initialize the TUI", async () => {
+    const home = await Deno.makeTempDir({ prefix: "runwield-registry-import-home-" });
+    const script = join(home, "import-registry.ts");
+    const registryUrl = new URL("../registry.js", import.meta.url).href;
+    const tuiUrl = new URL("../../ui/tui/tui.ts", import.meta.url).href;
+    await Deno.writeTextFile(
+        script,
+        [
+            `import "${registryUrl}";`,
+            `import { getTUI } from "${tuiUrl}";`,
+            "try {",
+            "  getTUI();",
+            "  console.log('initialized');",
+            "} catch (error) {",
+            "  if (!(error instanceof Error) || !error.message.includes('TUI not initialized')) throw error;",
+            "}",
+        ].join("\n"),
+    );
+    const result = await new Deno.Command(Deno.execPath(), {
+        args: ["run", "-A", "--config", "deno.json", script],
+        cwd: new URL("../../..", import.meta.url).pathname,
+        env: { HOME: home, WLD_TEST_SANDBOX_HOME: home, MNEMOTECA_DB_PATH: join(home, "mnemoteca.sqlite") },
+        stdout: "piped",
+        stderr: "piped",
+    }).output();
+    assertEquals(result.code, 0, new TextDecoder().decode(result.stderr));
+    assertEquals(new TextDecoder().decode(result.stdout), "");
+});
 
 Deno.test("getCommandDefinition resolves alias", () => {
     const command = getCommandDefinition("agents");
@@ -75,4 +106,44 @@ Deno.test("context command is a slash-only built-in", () => {
     assertEquals(getCliCommandDefinitions().some((definition) => definition.name === "context"), false);
     assertEquals(getSlashCommandDefinition("context")?.name, "context");
     assertEquals(getSlashCommandDefinitions().some((definition) => definition.name === "context"), true);
+});
+
+Deno.test("ACP slash surface exposes TUI built-ins except approved exclusions", () => {
+    const names = getSlashCommandDefinitions("acp").map((command) => command.name).sort();
+    assertEquals(names.includes("agent"), true);
+    assertEquals(names.includes("model"), true);
+    assertEquals(names.includes("load-plan"), true);
+    assertEquals(names.includes("settings"), true);
+    assertEquals(names.includes("reload"), true);
+    for (const excluded of ["copy", "theme", "quit", "exit", "new", "resume", "login"]) {
+        assertEquals(names.includes(excluded), false, excluded);
+        assertEquals(getSlashCommandDefinition(excluded, "acp"), undefined, excluded);
+    }
+    assertEquals(getSlashCommandDefinition("agents", "acp")?.name, "agent");
+    assertEquals(getSlashCommandDefinition("models", "acp")?.name, "model");
+});
+
+Deno.test("Workspace slash surface comes from the registry and keeps current coverage", () => {
+    assertEquals(getSlashCommandDefinitions("workspace").map((command) => command.name), [
+        "agent",
+        "model",
+        "resume",
+        "new",
+        "session",
+        "context",
+        "plans",
+        "help",
+        "settings",
+    ]);
+    for (const excluded of ["theme", "quit", "exit"]) {
+        assertEquals(getSlashCommandDefinition(excluded, "workspace"), undefined, excluded);
+    }
+});
+
+Deno.test("disabled built-ins and aliases are still reserved names on other slash surfaces", () => {
+    assertEquals(getCommandDefinition("login")?.name, "login");
+    assertEquals(getSlashCommandDefinition("login", "acp"), undefined);
+    assertEquals(getSlashCommandDefinition("resume", "acp"), undefined);
+    assertEquals(getSlashCommandInvocationNames("acp").includes("agents"), true);
+    assertEquals(getSlashCommandInvocationNames("acp").includes("login"), false);
 });

@@ -163,6 +163,7 @@ Deno.test("resolveVisionFallbackModel reports unknown, unauthenticated, and non-
                     resolveVisionFallbackModel(
                         { find: () => undefined, hasConfiguredAuth: () => true },
                         NO_MODEL_DISCOVERY_NETWORK,
+                        Deno.cwd(),
                     ),
                 Error,
                 "Unknown visionFallback.model",
@@ -176,6 +177,7 @@ Deno.test("resolveVisionFallbackModel reports unknown, unauthenticated, and non-
                     resolveVisionFallbackModel(
                         { find: () => model, hasConfiguredAuth: () => false },
                         NO_MODEL_DISCOVERY_NETWORK,
+                        Deno.cwd(),
                     ),
                 Error,
                 "No API key configured for visionFallback.model",
@@ -189,6 +191,7 @@ Deno.test("resolveVisionFallbackModel reports unknown, unauthenticated, and non-
                     resolveVisionFallbackModel(
                         { find: () => model, hasConfiguredAuth: () => true },
                         NO_MODEL_DISCOVERY_NETWORK,
+                        Deno.cwd(),
                     ),
                 Error,
                 "not vision-capable",
@@ -235,7 +238,7 @@ Deno.test("resolveVisionFallbackModel discovers configured provider models", asy
                         }),
                     )),
             };
-            const resolved = await resolveVisionFallbackModel(/** @type {any} */ (registry), network);
+            const resolved = await resolveVisionFallbackModel(/** @type {any} */ (registry), network, tempProject);
             assertEquals(resolved?.modelRef, "local/discovered");
             assertEquals(resolved?.model.input, ["text", "image"]);
             assertEquals(Deno.cwd().endsWith(tempProject.replace(/^\/private/, "")), true);

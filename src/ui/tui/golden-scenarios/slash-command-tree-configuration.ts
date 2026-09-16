@@ -561,7 +561,7 @@ export const slashModelScenario = {
         (result: ConfigurationScenarioResult) => assertFooter(result, "Planner", PRESET_MODEL),
         (result: ConfigurationScenarioResult) => {
             assertEquals(result.state.globalSettings?.defaultProvider, GOLDEN_PROVIDER);
-            assertEquals(result.state.globalSettings?.defaultModel, MANUAL_MODEL);
+            assertEquals(result.state.globalSettings?.defaultModel, DEFAULT_MODEL);
         },
     ],
 };
@@ -615,7 +615,7 @@ export const slashModelUnavailableOverrideRecoveryScenario = {
         (result: ConfigurationScenarioResult) => assertFooter(result, "Planner", PRESET_MODEL),
         (result: ConfigurationScenarioResult) => {
             assertEquals(result.state.globalSettings?.defaultProvider, GOLDEN_PROVIDER);
-            assertEquals(result.state.globalSettings?.defaultModel, MANUAL_MODEL);
+            assertEquals(result.state.globalSettings?.defaultModel, DEFAULT_MODEL);
         },
     ],
 };

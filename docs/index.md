@@ -7,6 +7,8 @@ recovery.
 Use these docs for RunWield-specific behavior. When a topic behaves the same as Pi, this index links to the upstream
 [Pi documentation](https://pi.dev/docs/latest) instead of duplicating it.
 
+**Use RunWield in your browser or on your phone:** [Start Workspace and connect with Tailscale](workspace.md).
+
 ## Get Started
 
 ### 1. Install RunWield
@@ -19,6 +21,9 @@ curl -fsSL https://raw.githubusercontent.com/gandazgul/runwield/main/install.sh 
 
 The installer downloads `wld`, required [Mnemoteca]/Cymbal runtime helpers, required agent-browser, and optional Snip,
 then installs missing binaries to `~/.local/bin` by default. Make sure that directory is on your `PATH`.
+
+Mac Homebrew packages are prepared for `gandazgul/homebrew-tap` but are pending owner publication. After publication,
+install with `brew install gandazgul/tap/wld`.
 
 Contributors can also run from source:
 
@@ -196,6 +201,8 @@ graph TD
 ### RunWield basics
 
 - [Quickstart](quickstart.md) - install, authenticate, initialize, and run the first routed request.
+- [Workspace on your computer and phone](workspace.md) - start the browser UI, pair devices, connect with Tailscale, and
+  continue TUI Sessions.
 - [Using RunWield](usage.md) - day-to-day commands, routing, agents, plans, and TUI differences from Pi.
 - [Bundled RunWield usage skill](../src/skills/runwield/SKILL.md) - shipped user-facing answer surface; update it
   alongside docs when user-visible behavior changes.
@@ -217,7 +224,9 @@ graph TD
 - [Plan Lifecycle](plan-lifecycle.md) - durable plan and worktree state machine.
 - [Complete Plan workflow map](plan-workflow-map.md) - source-traced planner-to-merge tree, transition inputs, repair
   and resume branches, with a [dated transition audit](audits/2026-09-07-plan-workflow-transitions.md).
-- [Product Rules](product-rules.md) - owner-stated rules that constrain RunWield's behavior; cite these in review.
+- [Core capability requirements](prd/runwield-core-prd.md#capability-requirements) - lasting product constraints and
+  acceptance scenarios, including Plan ownership, automatic recovery, and workflow completion; cite the owning
+  capability in review. Technical decisions live in ADRs.
 - [ACP Implementation Details and Gaps](acp-implementation-details.md) - current ACP v1 MVP behavior, conformance gaps,
   and optional protocol coverage.
 - [Router Model Selection](router-model-selection.md) - evaluation findings for the Router model choice.

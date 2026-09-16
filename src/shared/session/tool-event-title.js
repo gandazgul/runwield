@@ -105,6 +105,12 @@ function formatToolEventTitle(toolName, args) {
         headerArgs = args?.symbol || "";
     } else if (toolName === "code_importers") {
         headerArgs = args?.target || "";
+    } else if (toolName === "web_search" || toolName === "web_code_search") {
+        headerArgs = args?.query || "";
+    } else if (toolName === "web_docs_search") {
+        headerArgs = [args?.library, args?.query].filter(Boolean).join(" ");
+    } else if (toolName === "web_fetch") {
+        headerArgs = args?.url || "";
     } else if (toolName === "code_structure" || toolName === "code_codebase_info") {
         headerArgs = "";
     } else if (toolName === "plan_written") {
@@ -179,7 +185,8 @@ export function describeRuntimeTool(toolName, args) {
         toolName === "grep" || toolName === "find" || toolName === "code_search" || toolName === "code_refs" ||
         toolName === "code_impact" || toolName === "code_trace" || toolName === "code_impls" ||
         toolName === "code_importers" || toolName === "code_structure" || toolName === "code_codebase_info" ||
-        toolName === "memory_recall" || toolName === "memory_recall_global" || toolName === "work_record_search"
+        toolName === "memory_recall" || toolName === "memory_recall_global" || toolName === "work_record_search" ||
+        toolName === "web_search" || toolName === "web_code_search" || toolName === "web_docs_search"
     ) kind = "search";
     else if (toolName === "memory") {
         if (args?.action === "recall") kind = "search";
@@ -187,6 +194,7 @@ export function describeRuntimeTool(toolName, args) {
     } else if (toolName === "memory_write") kind = args?.action === "delete" ? "delete" : "edit";
     else if (toolName === "work_record_read") kind = "read";
     else if (toolName === "bash") kind = "execute";
+    else if (toolName === "web_fetch") kind = "fetch";
     else if (toolName === "code_investigate" || toolName === "delegate_agent") kind = "think";
     return { toolName, title: formatToolEventTitle(toolName, args), kind };
 }

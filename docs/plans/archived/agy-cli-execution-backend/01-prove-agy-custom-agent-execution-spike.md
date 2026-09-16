@@ -17,6 +17,9 @@ order: 1
 dependencies:
     []
 userVerifiedAt: null
+archivedAt: "2026-09-15T18:22:33.131Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/agy-cli-execution-backend/01-prove-agy-custom-agent-execution-spike.md"
 targetBranch: "main"
 ---
 

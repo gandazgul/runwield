@@ -1,4 +1,4 @@
-import { assert, assertEquals, assertThrows } from "@std/assert";
+import { assert, assertEquals, assertStringIncludes, assertThrows } from "@std/assert";
 import { spawnForegroundProcess, spawnForegroundShell } from "./foreground-process.ts";
 
 const IS_WINDOWS = Deno.build.os === "windows";
@@ -20,6 +20,14 @@ async function readAll(stream: ReadableStream<Uint8Array>): Promise<string> {
 
 /** True while the OS still has a process with this pid. */
 function processAlive(pid: number): boolean {
+    if (IS_WINDOWS) {
+        const result = new Deno.Command("tasklist", {
+            args: ["/FI", `PID eq ${pid}`, "/FO", "CSV", "/NH"],
+            stdout: "piped",
+            stderr: "null",
+        }).outputSync();
+        return new TextDecoder().decode(result.stdout).includes(`\"${pid}\"`);
+    }
     try {
         Deno.kill(pid, "SIGCONT");
         return true;
@@ -369,5 +377,58 @@ Deno.test({
         abortController.abort();
         assertEquals(outcome, { exitCode: 7, terminatedBy: null });
         assertEquals(await shell.done, outcome, "done settles exactly once");
+    },
+});
+
+Deno.test({
+    name: "spawnForegroundShell on Windows abort kills a real descendant tree",
+    ignore: !IS_WINDOWS,
+    fn: async () => {
+        const pidFile = await Deno.makeTempFile({ prefix: "runwield-fg-windows-descendant-" });
+        const abortController = new AbortController();
+        const command = [
+            "powershell",
+            "-NoProfile",
+            "-Command",
+            `\"$p = Start-Process powershell -ArgumentList '-NoProfile','-Command','Start-Sleep -Seconds 30' -PassThru; Set-Content -LiteralPath '${
+                pidFile.replaceAll("'", "''")
+            }' -Value $p.Id; Wait-Process -Id $p.Id\"`,
+        ].join(" ");
+        const shell = spawnForegroundShell({ command, cwd: Deno.cwd(), signal: abortController.signal });
+        let descendantPid = 0;
+        try {
+            const deadline = Date.now() + 10_000;
+            while (Date.now() < deadline) {
+                descendantPid = Number((await Deno.readTextFile(pidFile)).trim()) || 0;
+                if (descendantPid && processAlive(descendantPid)) break;
+                await new Promise((resolve) => setTimeout(resolve, 20));
+            }
+            assert(descendantPid && processAlive(descendantPid), "descendant should be running before abort");
+            abortController.abort();
+            const outcome = await shell.done;
+            assertEquals(outcome, { exitCode: null, terminatedBy: "abort" });
+            assertEquals(await waitForProcessDeath(descendantPid), true);
+        } finally {
+            if (descendantPid && processAlive(descendantPid)) {
+                await new Deno.Command("taskkill", { args: ["/F", "/T", "/PID", String(descendantPid)] }).output();
+            }
+            await Deno.remove(pidFile).catch(() => {});
+        }
+    },
+});
+
+Deno.test({
+    name: "spawnForegroundShell on Windows uses cmd and reports real shell status",
+    ignore: !IS_WINDOWS,
+    fn: async () => {
+        const shell = spawnForegroundShell({ command: "echo out && echo err 1>&2 && exit /b 3", cwd: Deno.cwd() });
+        const [outcome, stdout, stderr] = await Promise.all([
+            shell.done,
+            readAll(shell.stdout),
+            readAll(shell.stderr),
+        ]);
+        assertEquals(outcome, { exitCode: 3, terminatedBy: null });
+        assertStringIncludes(stdout, "out");
+        assertStringIncludes(stderr, "err");
     },
 });

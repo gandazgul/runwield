@@ -32,7 +32,7 @@ Deno.test("wld release policy distinguishes repository-specific policy from gene
     assertStringIncludes(policy, "Do not store a duplicate source commit hash");
     assertStringIncludes(policy, "Promoted-From: <candidate-tag>");
     assertStringIncludes(
-        policy,
+        policy.replace(/\s+/g, " "),
         "must not call `gh release create`, `gh release edit`, `glab release create`, or `glab release edit`",
     );
     assertStringIncludes(policy, "bash install.sh vX.Y.Z-rc.N");

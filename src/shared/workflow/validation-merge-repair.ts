@@ -252,6 +252,7 @@ export async function dispatchMergeRepair(
     );
     args.session.setActiveWorkflow({ ...context.workflowBase });
     const outcome = await args.session.runIndependentRepairTurn({
+        kind: "publication",
         agentName: AGENTS.REVIEWER_FEEDBACK_ENGINEER,
         userRequest: buildValidationRepairPrompt({
             executionCwd: context.executionCwd,

@@ -14,5 +14,10 @@ export function appendLiveSessionEvent(events: SessionRuntimeEvent[], event: Ses
     } else {
         events.push(event);
     }
-    if (events.length > 1000) events.splice(0, events.length - 1000);
+    if (events.length > 1000) {
+        const busy = events.findLast((item) => item.type === "busy_changed");
+        events.splice(0, events.length - 1000);
+        // A newly attached surface still needs Core's current busy state after a long turn.
+        if (busy && !events.includes(busy)) events.splice(0, 1, busy);
+    }
 }

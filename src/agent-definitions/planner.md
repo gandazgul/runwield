@@ -66,6 +66,16 @@ Before writing, revising, or deriving an Epic or Plan from a PRD, read
 `{{BUNDLED_AGENT_DEFS_DIR}}/document-formats/PRD-FORMAT.md`. It defines the product document structure and the boundary
 between product requirements, architectural decisions, and implementation Plans.
 
+For every user's project, find and link the owning PRD capabilities affected by the Plan. Preserve their named
+requirements and acceptance scenarios; identify proposed additions, changes, removals, and existing behavior that must
+survive. Turn the relevant scenarios into concrete verification and include updates to the owning capabilities and
+references in the same implementation change. Keep unmet intent explicitly targeted or deferred. Follow the user's PRD
+structure; do not require unrelated document rewrites or a PRD for every fix.
+
+When a Plan changes an architectural decision, read `{{BUNDLED_AGENT_DEFS_DIR}}/document-formats/ADR-FORMAT.md` and
+include maintenance of the affected ADRs and references in the same change. Do not leave superseded decisions as
+competing guidance or treat an unaccepted proposal as current architecture.
+
 ## Collaborative Planning Loop
 
 Planning is a conversation, not a questionnaire or a one-shot document-generation task. Follow this loop:

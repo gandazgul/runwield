@@ -7,11 +7,13 @@ import { createSessionRuntime } from "../../shared/session/session-runtime.js";
 import { getRunWieldSessionDir } from "../../shared/session/root-session.js";
 import { getSettingsManager } from "../../shared/settings.js";
 import { createInteractiveTuiComposition, type InteractiveTuiComposition } from "./interactive-tui-composition.ts";
+import { createChatInputController } from "./chat-input-controller.ts";
 import { createInteractiveCompositionHarness } from "./testing/interactive-composition-fixture.ts";
 import { VirtualTerminal } from "./testing/virtual-terminal.js";
 import { ClaudeCliBackendError } from "../../shared/session/backends/claude-cli/failure.ts";
 import { AgyCliBackendError } from "../../shared/session/backends/agy-cli/failure.ts";
 import { AgyCliMcpSetupApprovalError } from "../../shared/session/backends/agy-cli/mcp-setup.ts";
+import type { ImageAttachment } from "../../shared/session/types.js";
 
 interface DeferredSignal {
     promise: Promise<void>;
@@ -21,6 +23,11 @@ interface DeferredSignal {
 interface ResumeManagedFixture {
     runwieldSessionId: string;
     projectId: string;
+}
+
+interface ClipboardFixtureCommands {
+    previousPath: string;
+    imageReadMarkerPath: string;
 }
 
 function deferredSignal(): DeferredSignal {
@@ -42,6 +49,22 @@ async function waitFor(
         await new Promise((resolve) => setTimeout(resolve, 20));
     }
     throw new Error(`Timed out waiting for ${description}.`);
+}
+
+async function waitForPath(path: string, description: string, timeoutMs = 5_000): Promise<void> {
+    await waitFor(
+        () => {
+            try {
+                Deno.statSync(path);
+                return true;
+            } catch (error) {
+                if (error instanceof Deno.errors.NotFound) return false;
+                throw error;
+            }
+        },
+        description,
+        timeoutMs,
+    );
 }
 
 async function submitText(terminal: VirtualTerminal, text: string): Promise<void> {
@@ -115,9 +138,10 @@ async function seedActiveElsewhereManagedSession(
     }
 }
 
-async function installFakeClipboardCommands(projectRoot: string): Promise<string> {
+async function installFakeClipboardCommands(projectRoot: string): Promise<ClipboardFixtureCommands> {
     const previousPath = Deno.env.get("PATH") || "";
     const binDir = `${projectRoot}/clipboard-bin`;
+    const imageReadMarkerPath = `${projectRoot}/clipboard-image-read`;
     await Deno.mkdir(binDir, { recursive: true });
     const osascriptPath = `${binDir}/osascript`;
     await Deno.writeTextFile(
@@ -136,8 +160,19 @@ async function installFakeClipboardCommands(projectRoot: string): Promise<string
         ].join("\n"),
     );
     await Deno.chmod(osascriptPath, 0o755);
+    const base64Path = `${binDir}/base64`;
+    await Deno.writeTextFile(
+        base64Path,
+        [
+            "#!/bin/sh",
+            "echo Zml4dHVyZS1wbmc=",
+            `touch "${imageReadMarkerPath}"`,
+            "",
+        ].join("\n"),
+    );
+    await Deno.chmod(base64Path, 0o755);
     Deno.env.set("PATH", `${binDir}:${previousPath}`);
-    return previousPath;
+    return { previousPath, imageReadMarkerPath };
 }
 
 Deno.test("chat input controller sends accepted editor input through the real composed Runtime", async () => {
@@ -426,7 +461,7 @@ Deno.test("chat input controller preflights pasted image attachments through the
         "chat-input-real-image-preflight-",
         async ({ projectRoot, setModelResponseFactory }) => {
             if (Deno.build.os !== "darwin") return;
-            const previousPath = await installFakeClipboardCommands(projectRoot);
+            const clipboard = await installFakeClipboardCommands(projectRoot);
             const modelRequests: string[] = [];
             setModelResponseFactory((context) => {
                 modelRequests.push(JSON.stringify(context.messages));
@@ -435,8 +470,7 @@ Deno.test("chat input controller preflights pasted image attachments through the
             const { composition, terminal } = await startComposition();
             try {
                 terminal.input("\x16");
-                await terminal.flush();
-                await new Promise((resolve) => setTimeout(resolve, 500));
+                await waitForPath(clipboard.imageReadMarkerPath, "clipboard image read");
                 await terminal.flush();
                 await submitText(terminal, "describe pasted image");
                 await waitFor(
@@ -454,7 +488,7 @@ Deno.test("chat input controller preflights pasted image attachments through the
                     ),
                 );
             } finally {
-                Deno.env.set("PATH", previousPath);
+                Deno.env.set("PATH", clipboard.previousPath);
                 await composition.dispose();
             }
         },
@@ -624,4 +658,248 @@ Deno.test("chat input controller connects Ctrl+C pending-exit state through real
             await composition.dispose();
         }
     });
+});
+
+function createControllerHarness(runtimeOverrides: Record<string, unknown> = {}) {
+    const editor = {
+        disableSubmit: false,
+        text: "",
+        expandedText: null as string | null,
+        onSubmit: async (_text: string) => {},
+        handleInput(_data: string) {},
+        onChange: (_text: string) => {},
+        setText(text: string) {
+            this.text = text;
+            this.expandedText = null;
+            this.onChange(text);
+        },
+        setExpandedText(text: string, expandedText: string) {
+            this.text = text;
+            this.expandedText = expandedText;
+            this.onChange(text);
+        },
+        getText() {
+            return this.text;
+        },
+        getExpandedText() {
+            return this.expandedText ?? this.text;
+        },
+        submitValue() {
+            const result = this.getExpandedText().trim();
+            this.text = "";
+            this.expandedText = null;
+            this.onChange("");
+            return this.onSubmit(result);
+        },
+    };
+    const pastedImages: ImageAttachment[] = [];
+    const previewImages = {
+        children: [] as unknown[],
+        addChild(child: unknown) {
+            this.children.push(child);
+        },
+        removeChild(child: unknown) {
+            const index = this.children.indexOf(child);
+            if (index >= 0) this.children.splice(index, 1);
+        },
+    };
+    const messages: string[] = [];
+    const runtime = {
+        preflightUserTurnImages: () => Promise.resolve({ ok: true, mode: "direct" }),
+        persistSessionImage: (_sessionId: string, image: ImageAttachment) => Promise.resolve(image),
+        getSessionSnapshot: () => null,
+        getUserTurnSubmissionBlockMessage: () => null,
+        promptUserTurn: () => Promise.resolve({ ok: true, turns: 1 }),
+        queueNextTurnMessage: () => ({ queued: true }),
+        getQueuedMessages: () => [],
+        takeNextTurnMessage: () => ({ message: null }),
+        dequeueLastQueuedMessage: () => Promise.resolve({ ok: false }),
+        steerSession: () => Promise.resolve({ ok: true, queued: true }),
+        requestSessionHelp: () => ({ ok: true }),
+        cycleSessionThinkingLevel: () => ({ ok: false }),
+        cancelSession: () => ({ aborted: false }),
+        synchronizeManagedSession: () => Promise.resolve(),
+        ...runtimeOverrides,
+    };
+    const view = {
+        editor,
+        pastedImages,
+        previewImages,
+        tui: { requestRender() {} },
+        focusEditor() {},
+        requestRender() {},
+        clearPastedImages() {
+            pastedImages.length = 0;
+            previewImages.children.length = 0;
+        },
+    };
+    const uiAPI = {
+        appendSystemMessage(message: string) {
+            messages.push(message);
+        },
+        hideKeyboardHelp() {},
+        setBusy() {},
+        enableInput() {},
+        abortActivePrompt() {},
+    };
+    const controller = createChatInputController({
+        view: view as never,
+        uiAPI: uiAPI as never,
+        runtime: runtime as never,
+        getSessionId: () => "session-1",
+        getProjectRoot: () => "/tmp/runwield-test",
+        managedSyncController: { pause: () => Promise.resolve(), resume() {} },
+        shouldBlockForModelSetup: () => false,
+        isModelSetupRecoveryCommand: () => false,
+        isInitCommandAvailable: () => false,
+        getPromptTemplateByName: () => new Map(),
+        getSkills: () => [],
+        sessionStartedAt: "2026-01-01T00:00:00.000Z",
+        chatPromptAgentName: "router",
+        replaceRuntimeSession: () => {},
+        markCtrlCPendingExit: () => {},
+        isCtrlCPendingExit: () => false,
+    });
+    return { controller, editor, pastedImages, previewImages, messages, runtime };
+}
+
+Deno.test("chat input controller restores exact draft and previews after image preflight rejection", async () => {
+    let promptCalled = false;
+    const { editor, pastedImages, previewImages, messages } = createControllerHarness({
+        preflightUserTurnImages: () => Promise.resolve({ ok: false, message: "Cannot attach image." }),
+        promptUserTurn: () => {
+            promptCalled = true;
+            return Promise.resolve({ ok: true, turns: 1 });
+        },
+    });
+    pastedImages.push({ base64: btoa("img"), mimeType: "image/png" });
+    previewImages.children.push({});
+
+    editor.setText("  keep exact draft  ");
+    await editor.submitValue();
+
+    assertEquals(promptCalled, false);
+    assertEquals(editor.getText(), "  keep exact draft  ");
+    assertEquals(pastedImages.length, 1);
+    assertEquals(previewImages.children.length, 1);
+    assertEquals(messages, ["Cannot attach image."]);
+});
+
+Deno.test("chat input controller restores an empty draft after an image-only preflight rejection", async () => {
+    const { editor, pastedImages, previewImages } = createControllerHarness({
+        preflightUserTurnImages: () => Promise.resolve({ ok: false, message: "Cannot attach image." }),
+    });
+    editor.setText("stale draft");
+    editor.setText("");
+    await Promise.resolve();
+    pastedImages.push({ base64: btoa("img"), mimeType: "image/png" });
+    previewImages.children.push({});
+
+    await editor.submitValue();
+
+    assertEquals(editor.getText(), "");
+    assertEquals(pastedImages.length, 1);
+});
+
+Deno.test("chat input controller restores expanded pasted content after image preflight rejection", async () => {
+    const { editor, pastedImages } = createControllerHarness({
+        preflightUserTurnImages: () => Promise.resolve({ ok: false, message: "Cannot attach image." }),
+    });
+    pastedImages.push({ base64: btoa("img"), mimeType: "image/png" });
+
+    editor.setExpandedText("before [[paste:1]] after", "before pasted content after");
+    await editor.submitValue();
+
+    assertEquals(editor.getText(), "before pasted content after");
+});
+
+Deno.test("chat input controller restores a whitespace-only image draft after Pi clears the editor", async () => {
+    const { editor, pastedImages } = createControllerHarness({
+        preflightUserTurnImages: () => Promise.resolve({ ok: false, message: "Cannot attach image." }),
+    });
+    pastedImages.push({ base64: btoa("img"), mimeType: "image/png" });
+
+    editor.setText("   \t  ");
+    await editor.submitValue();
+
+    assertEquals(editor.getText(), "   \t  ");
+});
+
+Deno.test("chat input controller sends the model prepared by image preflight", async () => {
+    let submittedModel = "";
+    const { editor, pastedImages } = createControllerHarness({
+        preflightUserTurnImages: () =>
+            Promise.resolve({
+                ok: true,
+                mode: "direct",
+                preparedModelOverride: "runtime-command-fixture/fixture-model",
+            }),
+        promptUserTurn: (_sessionId: string, options: { preparedModelOverride?: string }) => {
+            submittedModel = options.preparedModelOverride || "";
+            return Promise.resolve({ ok: true, turns: 1 });
+        },
+    });
+    pastedImages.push({ base64: btoa("img"), mimeType: "image/png" });
+
+    editor.setText("describe image");
+    await editor.submitValue();
+
+    assertEquals(submittedModel, "runtime-command-fixture/fixture-model");
+});
+
+Deno.test("chat input controller sends one corrected image draft after a rejection", async () => {
+    let preflightCalls = 0;
+    let promptCalls = 0;
+    let submittedImage = "";
+    const { editor, pastedImages } = createControllerHarness({
+        preflightUserTurnImages: () => {
+            preflightCalls += 1;
+            return Promise.resolve(
+                preflightCalls === 1 ? { ok: false, message: "Cannot attach image." } : { ok: true, mode: "direct" },
+            );
+        },
+        promptUserTurn: (_sessionId: string, options: { initialImages?: ImageAttachment[] }) => {
+            promptCalls += 1;
+            submittedImage = options.initialImages?.[0]?.base64 || "";
+            return Promise.resolve({ ok: true, turns: 1 });
+        },
+    });
+    pastedImages.push({ base64: btoa("bad"), mimeType: "image/png" });
+    editor.setText("describe image");
+    await editor.submitValue();
+    pastedImages.length = 0;
+    pastedImages.push({ base64: btoa("good"), mimeType: "image/png" });
+    editor.setText("describe corrected image");
+    await editor.submitValue();
+
+    assertEquals(promptCalls, 1);
+    assertEquals(submittedImage, btoa("good"));
+});
+
+Deno.test("chat input controller does not queue image steering that runtime rejects", async () => {
+    const release = deferredSignal();
+    let queued = false;
+    const { controller, editor, pastedImages, previewImages, messages } = createControllerHarness({
+        promptUserTurn: () => release.promise.then(() => ({ ok: true, turns: 1 })),
+        steerSession: () => Promise.reject(new Error("Cannot attach image.")),
+        queueNextTurnMessage: () => {
+            queued = true;
+            return { queued: true };
+        },
+    });
+
+    const firstSubmit = editor.onSubmit("first turn");
+    await waitFor(() => controller.isProcessingSubmission(), "started first turn");
+    pastedImages.push({ base64: btoa("img"), mimeType: "image/png" });
+    previewImages.children.push({});
+    await editor.onSubmit("steer with image");
+    await waitFor(() => editor.getText().includes("steer with image"), "restored rejected steering");
+    release.resolve();
+    await firstSubmit;
+    await waitFor(() => !controller.isProcessingSubmission(), "finished first turn");
+
+    assertEquals(queued, false);
+    assertEquals(editor.getText(), "steer with image");
+    assertEquals(pastedImages.length, 1);
+    assert(messages.some((message) => message.includes("RunWield could not send that message")));
 });

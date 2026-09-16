@@ -1,3 +1,4 @@
+import { RunWieldThinkingDots } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { RunWieldButton } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 import { PLAN_UI_TOKEN_HEADER, PLAN_UI_TOKEN_QUERY } from "../constants.js";
@@ -216,7 +217,7 @@ export function PlanBodyEditor({ plan, initialEdit = false }) {
                                 disabled={saving || !dirty}
                                 onClick={saveBody}
                             >
-                                {saving ? "Saving…" : "Save"}
+                                {saving ? <RunWieldThinkingDots label="Saving" /> : "Save"}
                             </RunWieldButton>
                             <RunWieldButton type="button" onClick={cancelEdit}>Cancel</RunWieldButton>
                             <span className={dirty ? "dirty-indicator" : "saved-indicator"}>

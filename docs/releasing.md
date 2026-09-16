@@ -84,6 +84,11 @@ deno task release:promote --candidate vX.Y.Z-rc.N [--dry-run]
 deno task release:stable --tag vX.Y.Z [--dry-run]
 deno task release:metadata --tag vX.Y.Z[-rc.N]
 deno task release:check --build-version vX.Y.Z[-rc.N]
+deno task package:homebrew --wld-tag vX.Y.Z --mnemoteca-tag vA.B.C --output <dir>
+deno task package:homebrew:check --tap <dir>
+deno task package:windows --tag vX.Y.Z --binary <path-to-wld.exe> --output <dir>
+deno task package:windows:check --package <dir>/wld-vX.Y.Z-windows-x64.zip
+deno task package:winget --tag vX.Y.Z --output <dir>
 ```
 
 Dry runs perform read-only tag, version, and source preflight and print the proposed tag target and tag push. They must
@@ -124,10 +129,52 @@ Direct Stable is an exceptional path. Use it only when explicitly chosen and app
 follows the same source selection, tag workflow, GitHub Actions qualification, and post-publication notes-editing rules
 as Candidate creation, but the target tag is a Stable tag.
 
+## Homebrew tap preparation
+
+The macOS Homebrew tap is prepared from immutable Stable release assets. Candidate releases never update Stable package
+output.
+
+The release workflow renders a `runwield-homebrew-tap-<tag>` artifact after Stable asset publication succeeds. Before
+pushing that tree to `gandazgul/homebrew-tap`, run the check against the exact rendered output:
+
+```bash
+deno task package:homebrew --wld-tag vX.Y.Z --mnemoteca-tag v0.3.1 --output /tmp/runwield-tap
+deno task package:homebrew:check --tap /tmp/runwield-tap
+```
+
+The first public tap release must use a RunWield Stable that contains package-owner metadata. Do not combine an old
+release's checksum proof with a new local binary's update behavior proof. The checked formula installs metadata beside
+`libexec/wld`; a Homebrew-owned `wld update` prints `brew upgrade gandazgul/tap/wld` and must not run `install.sh`.
+
+`mnemoteca` can be refreshed independently by omitting `--wld-tag` and passing a new `--mnemoteca-tag` against an
+existing tap tree. First update `packaging/homebrew/tested-dependencies.json` with the verified macOS URLs, SHA-256
+values, license, homepage, and tested helper versions. Base URL overrides require `--test-only`; publishable output must
+point at immutable GitHub release URLs. Formula installation does not run Mnemoteca model setup or
+`agent-browser install`; those remain first-use operations.
+
+## Windows ZIP and WinGet preparation
+
+The release workflow builds `wld-vX.Y.Z-windows-x64.zip` from the compiled Windows binary and pinned helper inventory in
+`packaging/windows/tested-dependencies.json`. The ZIP includes `wld.exe`, `runwield-install.json`, bundled helper
+executables under `runtime/helpers/`, and notices under `licenses/`. Native Windows package checks must pass before the
+workflow publishes the ZIP.
+
+Stable releases also render a `runwield-winget-manifests-vX.Y.Z` artifact. You can regenerate it from published Stable
+bytes with:
+
+```bash
+deno task package:winget --tag vX.Y.Z --output /tmp/runwield-winget
+```
+
+Candidate tags are rejected. The generator never submits a PR. For the first public listing, follow
+`docs/winget-first-release.md`. Git for Windows is a WinGet dependency. Browser and model downloads remain first-use
+per-user setup.
+
 ## GitHub workflow ownership
 
-The tag-triggered workflow owns release qualification, builds, GitHub release creation, and asset upload. Local release
-commands validate release metadata, create and push tags, and monitor that workflow. They must not require local
+The tag-triggered workflow owns release qualification, builds, GitHub release creation, asset upload, native Windows
+package checks, Stable-only Homebrew tap artifact rendering, and Stable-only WinGet manifest artifact rendering. Local
+release commands validate release metadata, create and push tags, and monitor that workflow. They must not require local
 qualification and must not call `gh release create`, `gh release edit`, `glab release create`, or `glab release edit`.
 
 The workflow also exposes a required-tag manual dispatch solely for recovery when a tag cannot or should not be

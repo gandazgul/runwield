@@ -1,9 +1,11 @@
-import { assertEquals, assertMatch, assertStringIncludes } from "@std/assert";
+import { assertEquals, assertExists, assertMatch, assertStringIncludes } from "@std/assert";
 import { HostedSession } from "../../shared/session/hosted-session.js";
 import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "../../shared/session/session-runtime-events.js";
 import { SESSION_COMPLETE_GUIDANCE } from "../../shared/workflow/plan-review-recovery.js";
 import { createPlanWrittenTool } from "../plan-written.ts";
-import { loadPlan } from "../../plan-store.js";
+import { getStoredPlanPath, loadPlan } from "../../plan-store.js";
+import { addEntry as addRegistryEntry } from "../../shared/worktree-registry.js";
+import { join } from "@std/path";
 
 /**
  * @param {Object} options
@@ -55,7 +57,8 @@ ${options.parentPlan ? `parentPlan: ${options.parentPlan}\n` : ""}---
             // The reviewed revision has to be the Plan's real one: the transition
             // rejects a stale revision, so a made-up string would fail the write.
             const reviewedName = /** @type {any} */ (request._meta)?.planName || "runtime-boundary";
-            return loadPlan(cwd, reviewedName).then((plan) => {
+            const reviewedCwd = /** @type {any} */ (request._meta)?.cwd || cwd;
+            return loadPlan(reviewedCwd, reviewedName).then((plan) => {
                 const revision = plan?.revision;
                 const scripted = reviewResponses.shift() || options.reviewResponse;
                 if (scripted) {
@@ -376,6 +379,12 @@ Deno.test("plan_written compares a revised Plan with the first reviewed Plan", a
 
     const reviewRequests = interactionRequests.filter((request) => request.type === "plan_review");
     assertEquals(reviewRequests.length, 2);
+    const savedPlan = await loadPlan(cwd, "runtime-boundary");
+    assertExists(savedPlan);
+    assertEquals(reviewRequests[0]._meta.planId, savedPlan.attrs.planId);
+    assertEquals(reviewRequests[1]._meta.planId, savedPlan.attrs.planId);
+    assertEquals(typeof reviewRequests[0]._meta.expectedRevision, "string");
+    assertEquals(reviewRequests[0]._meta.expectedStatus, "approved");
     assertEquals(reviewRequests[0]._meta.previousPlan, undefined);
     assertEquals(reviewRequests[1]._meta.previousPlan, firstPlan);
     assertEquals(reviewRequests[0]._meta.planVersions.length, 1);
@@ -407,6 +416,62 @@ Deno.test("plan_written reopens review when recovery confirmation is accepted", 
 
     assertEquals(result.details.outcome, "approved_execute");
     assertEquals(result.terminate, true);
+});
+
+Deno.test("plan_written opens the active workflow Plan instead of the stale primary copy", async () => {
+    const { tool, cwd, interactionRequests } = await makeHarness({ classification: "PLANNED_CHANGE" });
+    const executionDir = join(cwd, "active-worktree");
+    await Deno.mkdir(join(executionDir, "docs", "plans"), { recursive: true });
+    await Deno.writeTextFile(
+        getStoredPlanPath(cwd, "runtime-boundary"),
+        `---
+classification: PLANNED_CHANGE
+status: approved
+planId: runtime-boundary-id
+summary: Plan the boundary
+affectedPaths: []
+---
+# runtime-boundary
+
+Primary stale copy.
+`,
+    );
+    await Deno.writeTextFile(
+        getStoredPlanPath(executionDir, "runtime-boundary"),
+        `---
+classification: PLANNED_CHANGE
+status: approved
+planId: runtime-boundary-id
+summary: Plan the boundary
+affectedPaths: []
+---
+# runtime-boundary
+
+Live execution copy.
+`,
+    );
+    await addRegistryEntry(cwd, {
+        id: "wt-runtime-boundary",
+        planName: "runtime-boundary",
+        planId: "runtime-boundary-id",
+        baseBranch: "main",
+        baseRef: "refs/heads/main",
+        baseCommit: "base-commit",
+        baseTree: "base-tree",
+        branch: "worktree/runtime-boundary",
+        path: executionDir,
+        status: "active",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    const result = await execute(tool, "runtime-boundary");
+
+    assertEquals(result.details.outcome, "approved_execute");
+    assertEquals(interactionRequests[0]._meta.cwd, executionDir);
+    assertEquals(interactionRequests[0]._meta.planPath, getStoredPlanPath(executionDir, "runtime-boundary"));
+    assertEquals((await loadPlan(executionDir, "runtime-boundary"))?.attrs.status, "ready_for_work");
+    assertEquals((await loadPlan(cwd, "runtime-boundary"))?.attrs.status, "approved");
 });
 
 Deno.test("plan_written feature approval returns execution outcome", async () => {

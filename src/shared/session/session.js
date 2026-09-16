@@ -91,7 +91,13 @@ import {
     resolveAgentDefsDir as _resolveAgentDefsDir,
     resolveSessionToolNames,
 } from "./agents.js";
-import { getCustomSetting, getMergedCustomSetting, getSettingsDir, getSettingsManager } from "../settings.js";
+import {
+    getCustomSetting,
+    getMergedCustomSetting,
+    getResolvedVisionFallbackModelSetting,
+    getSettingsDir,
+    getSettingsManager,
+} from "../settings.js";
 import { modelSupportsImageInput, prepareImagesForModel, resolveVisionFallbackModel } from "./image-attachments.js";
 import { readPersistedActiveAgentName, readPersistedModelState, recordActiveAgent } from "./active-agent-session.js";
 import { extractBundledSkills, getBundledAgentDefsPath } from "./agent-assets.js";
@@ -159,6 +165,14 @@ function sanitizeApiErrorMessage(msg) {
             : `${prefix} — Model not found or endpoint unavailable`;
     }
     return msg;
+}
+
+/**
+ * @param {string | undefined} msg
+ * @returns {boolean}
+ */
+function isAbortSignalMessage(msg) {
+    return String(msg || "").trim().toLowerCase() === "the signal has been aborted";
 }
 
 /**
@@ -292,6 +306,12 @@ function resolveExecutionThinkingLevel(options) {
             : undefined;
         if (resolvedThinkingLevel) {
             thinkingLevelSource = "settings agent thinking level";
+        }
+    }
+    if (!resolvedThinkingLevel && options.agentName === AGENTS.REVIEWER_FEEDBACK_ENGINEER) {
+        resolvedThinkingLevel = getConfiguredAgentThinkingLevel(AGENTS.ENGINEER, options.cwd);
+        if (resolvedThinkingLevel) {
+            thinkingLevelSource = "Engineer fallback thinking level";
         }
     }
     if (!resolvedThinkingLevel) {
@@ -680,11 +700,13 @@ export async function steerAgentSessionWithTarget(session, text, images) {
     if (!session.isStreaming) return null;
     if (typeof session.steer !== "function") return null;
     const activeModel = session.model || { input: ["text", "image"] };
+    const projectRoot = /** @type {any} */ (session).runWieldProjectRoot;
     const fallback = images && images.length > 0 && session.model && !modelSupportsImageInput(session.model)
         ? await resolveVisionFallbackModel(
             /** @type {any} */ (session).runWieldModelRegistry || /** @type {any} */ (session).modelRegistry ||
                 getModelRegistry(),
             SYSTEM_MODEL_DISCOVERY_NETWORK,
+            projectRoot,
         )
         : undefined;
     const prepared = prepareImagesForModel({
@@ -1121,7 +1143,7 @@ function emitAgentModelFallback(hostedSession, agentName, displayName, engineerM
  *
  * @returns {Promise<any>}
  */
-async function resolveModel(
+export async function resolveModel(
     modelOverride,
     agentDef,
     agentName,
@@ -2039,9 +2061,9 @@ export async function buildAgentSession({
     );
     assertModelExecutionBackendSupported(resolvedModel);
     const activeModelSupportsImages = modelSupportsImageInput(resolvedModel);
-    const visionFallback = activeModelSupportsImages
+    const visionFallbackModelRef = activeModelSupportsImages
         ? undefined
-        : await resolveVisionFallbackModel(modelRegistry, SYSTEM_MODEL_DISCOVERY_NETWORK);
+        : getResolvedVisionFallbackModelSetting(sessionCwd);
     const effectiveSessionManager = sessionManager || SessionManager.inMemory(sessionCwd);
 
     const customToolNames = (customTools || []).map((t) => t.name);
@@ -2062,7 +2084,7 @@ export async function buildAgentSession({
             if (!tools.includes(tool.name)) tools.push(tool.name);
         }
     }
-    if (!activeModelSupportsImages && visionFallback && !tools.includes("see_image")) {
+    if (!activeModelSupportsImages && visionFallbackModelRef && !tools.includes("see_image")) {
         tools = [...tools, "see_image"];
     }
 
@@ -2182,11 +2204,12 @@ export async function buildAgentSession({
         finalCustomTools.push(createEditDocsToolDefinition(sessionCwd));
     }
 
-    if (tools.includes("see_image") && visionFallback && !finalCustomTools.find((t) => t.name === "see_image")) {
+    if (
+        tools.includes("see_image") && visionFallbackModelRef && !finalCustomTools.find((t) => t.name === "see_image")
+    ) {
         finalCustomTools.push(createSeeImageTool({
             cwd: sessionCwd,
             sessionManager: effectiveSessionManager,
-            fallbackModel: visionFallback.model,
             completeSimpleFn: completeSimple,
         }));
     }
@@ -2259,6 +2282,7 @@ export async function buildAgentSession({
     });
     applyNamedInvocationExpansionToPiSession(session, effectiveSessionManager);
     /** @type {any} */ (session).runWieldModelRegistry = modelRegistry;
+    /** @type {any} */ (session).runWieldProjectRoot = sessionCwd;
     installEarlySteeringInterruption(/** @type {any} */ (session));
     installEngineerAutoCompactionThreshold(session, agentName);
     installTaskCompletedAutoCompactionExclusion(session);
@@ -2309,7 +2333,7 @@ export async function buildAgentSession({
     // Ensure extension lifecycle hooks (e.g. session_start) are activated for this agent invocation.
     await session.bindExtensions({});
 
-    const imageMode = activeModelSupportsImages ? "direct" : (visionFallback ? "fallback" : "blocked");
+    const imageMode = activeModelSupportsImages ? "direct" : (visionFallbackModelRef ? "fallback" : "blocked");
     await recordWorkflowMetric({
         category: "model_selection",
         event: "session_configured",
@@ -2326,7 +2350,7 @@ export async function buildAgentSession({
                 ? modelSelectionSourceByModel.get(resolvedModel)
                 : undefined,
             imageMode,
-            hasVisionFallback: Boolean(visionFallback),
+            hasVisionFallback: Boolean(visionFallbackModelRef),
             resolvedThinkingLevel,
             thinkingLevelSource,
             temperatureConfigured: resolvedTemperature !== undefined,
@@ -2344,7 +2368,7 @@ export async function buildAgentSession({
         resolvedTemperature,
         contextProjection,
         imageMode,
-        visionFallbackModelRef: visionFallback?.modelRef,
+        visionFallbackModelRef,
     };
 }
 
@@ -2487,6 +2511,15 @@ function assertAgyCliImageInputSupported(images) {
     if (images && images.length > 0) {
         throw new Error("Agy CLI execution backend does not support image attachments in this slice");
     }
+}
+
+/** @param {unknown} error */
+function isImageDispatchRejection(error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return message.includes("Cannot attach image") ||
+        message.includes("visionFallback.model") ||
+        message.includes("image attachments") ||
+        message.includes("Image input");
 }
 
 /**
@@ -3146,7 +3179,7 @@ export function attachSessionEventSubscribers(
 
                 if (
                     event.message.role === "assistant" && event.message.stopReason === "error" &&
-                    !cancellationSignal?.aborted
+                    !cancellationSignal?.aborted && !isAbortSignalMessage(event.message.errorMessage)
                 ) {
                     const message = sanitizeApiErrorMessage(event.message.errorMessage || "Unknown LLM error");
                     emitRuntimeEvent({
@@ -3407,11 +3440,13 @@ export async function runPrompt({
 }) {
     subscriberState.resetTurn();
 
+    const projectRoot = cwd || /** @type {any} */ (session).runWieldProjectRoot;
     const fallback = images && images.length > 0 && !modelSupportsImageInput(session.model)
         ? await resolveVisionFallbackModel(
             /** @type {any} */ (session).runWieldModelRegistry || /** @type {any} */ (session).modelRegistry ||
                 getModelRegistry(),
             SYSTEM_MODEL_DISCOVERY_NETWORK,
+            projectRoot,
         )
         : undefined;
     const preparedImages = prepareImagesForModel({
@@ -3903,17 +3938,18 @@ export async function runRootTurn({
         ...(images || []),
         ...transitionSteering.flatMap((entry) => entry.images || []),
     ];
-    if (backend === "agy-cli") assertAgyCliImageInputSupported(effectiveImages);
-    const dispatch = prepareRequestDispatch(sessionManager, {
-        userRequest: effectiveUserRequest,
-        dispatchKind,
-        backend,
-    });
-    meta.rootTurnCount += 1;
-    const finalRequest = dispatch.promptMode === "continuation"
-        ? dispatch.userRequest
-        : applyAttentionNudge(agentName, dispatch.userRequest, meta.rootTurnCount);
+    let dispatch = null;
     try {
+        if (backend === "agy-cli") assertAgyCliImageInputSupported(effectiveImages);
+        dispatch = prepareRequestDispatch(sessionManager, {
+            userRequest: effectiveUserRequest,
+            dispatchKind,
+            backend,
+        });
+        meta.rootTurnCount += 1;
+        const finalRequest = dispatch.promptMode === "continuation"
+            ? dispatch.userRequest
+            : applyAttentionNudge(agentName, dispatch.userRequest, meta.rootTurnCount);
         let messages;
         if (isExecutionSession(session) && (session.kind === "claude-cli" || session.kind === "agy-cli")) {
             messages = await session.session.runTurn({
@@ -3939,7 +3975,16 @@ export async function runRootTurn({
         completeRequestDispatch(sessionManager, dispatch);
         return messages;
     } catch (error) {
-        failRequestDispatch(sessionManager, dispatch, getRootExecutionMessages(session).length > priorMessages.length);
+        if (transitionSteering.length > 0 && isImageDispatchRejection(error)) {
+            targetHostedSession.restoreAgentTransitionSteering?.(transitionSteering);
+        }
+        if (dispatch) {
+            failRequestDispatch(
+                sessionManager,
+                dispatch,
+                getRootExecutionMessages(session).length > priorMessages.length,
+            );
+        }
         throw error;
     }
 }

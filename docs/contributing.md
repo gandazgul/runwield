@@ -56,8 +56,11 @@ Interactive RunWield sessions expect these helper binaries in `PATH`:
 - [`snip`](https://github.com/edouard-claude/snip) for compact command-output rewriting. Snip is optional at runtime and
   fail-open, but local validation tasks may invoke it when installed by the standard setup path.
 
-The installer is the normal recovery path for missing helper binaries. RunWield also ships bundled Snip filters for Deno
-validation output; install or remove user-level copies with:
+The shell installer is the normal standalone recovery path for missing helper binaries. Package-managed installs should
+be repaired with their package manager instead. The prepared Homebrew formula uses `gandazgul/tap/mnemoteca`,
+`1broseidon/tap/cymbal`, `1broseidon/tap/ketch`, `agent-browser`, and `git`; it does not run helper setup during formula
+installation. RunWield also ships bundled Snip filters for Deno validation output; install or remove user-level copies
+with:
 
 ```bash
 wld snip-filters install

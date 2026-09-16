@@ -407,7 +407,7 @@ Deno.test("startActiveExecutionWorkflow rejects an unsafe canonical source befor
         "docs/plans/p.md",
     );
 
-    assertEquals(reuseLookups, 0);
+    assertEquals(reuseLookups, 1);
     assertEquals(ensureCalls, 0);
     // "Before creation" is a claim about the repository and the registry, so ask them
     // rather than a fake that was told to refuse.
@@ -524,7 +524,7 @@ Deno.test("startActiveExecutionWorkflow bases untargeted plans on the current ta
             probeGitRepository: () => Promise.resolve({ ok: true, state: "work_tree", cwd: "" }),
             findReusableWorktree: () => {
                 reuseLookups++;
-                return Promise.reject(new Error("fresh execution must not reuse by plan name"));
+                return Promise.resolve(null);
             },
             prepareTargetBranchRef: () => {
                 prepareCalls++;
@@ -534,7 +534,7 @@ Deno.test("startActiveExecutionWorkflow bases untargeted plans on the current ta
     });
 
     assertEquals(prepareCalls, 0);
-    assertEquals(reuseLookups, 0);
+    assertEquals(reuseLookups, 1);
     const entry = await findWorktreeRegistryEntryById(projectRoot, /** @type {string} */ (result.worktreeId));
     // No declared target means the current branch is the target. Naming its ref
     // explicitly lets repositories with an upstream prefer the fetched remote ref

@@ -131,7 +131,7 @@ async function snapshotWorkspaceAssetDirectory(sourceDir, prefix = "") {
 export async function waitForStableWorkspaceClientAssets(clientDir, options = {}) {
     const intervalMs = options.intervalMs ?? DEFAULT_CLIENT_ASSET_STABILITY_INTERVAL_MS;
     const timeoutMs = options.timeoutMs ?? DEFAULT_CLIENT_ASSET_STABILITY_TIMEOUT_MS;
-    const deadline = Date.now() + timeoutMs;
+    const startedAt = performance.now();
     let previous = null;
     let stablePasses = 0;
 
@@ -148,7 +148,9 @@ export async function waitForStableWorkspaceClientAssets(clientDir, options = {}
         } else {
             stablePasses = 0;
         }
-        if (Date.now() >= deadline) throw new Error(`Workspace client assets did not settle: ${clientDir}`);
+        if (performance.now() - startedAt >= timeoutMs) {
+            throw new Error(`Workspace client assets did not settle: ${clientDir}`);
+        }
         previous = current;
         await delay(intervalMs);
     }

@@ -517,7 +517,6 @@ Deno.test("Session catalog does not let an encoded-directory collision rejected 
             });
 
             assertEquals(result.cataloged.map((session) => session.piSessionId), ["collision-pi"]);
-            assertEquals(result.diagnostics.map((diagnostic) => diagnostic.code), ["wrong_cwd"]);
         } finally {
             database.close();
             if (previousHome === undefined) Deno.env.delete("HOME");

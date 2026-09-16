@@ -25,6 +25,9 @@ workRecord:
     recordId: "dee1a319-065d-4a51-b87e-8e6bc99e44dd"
     path: "docs/work-records/2026-09-02-code-review-header-shows-plan-title.md"
     lastAttemptAt: "2026-09-02T01:29:41.500Z"
+archivedAt: "2026-09-15T18:28:19.472Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/show-plan-title-in-code-review-header.md"
 targetBranch: "main"
 ---
 

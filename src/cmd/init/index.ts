@@ -27,6 +27,7 @@ import { enterProjectRuntime } from "../../shared/project-runtime-layout.ts";
 interface InitCommandBaseOptions {
     uiAPI?: Pick<import("../../ui/tui/types.js").UiAPI, "appendSystemMessage">;
     sessionPort: InteractiveSessionPort;
+    projectRoot?: string;
 }
 
 interface AttachedInitCommandOptions extends InitCommandBaseOptions {
@@ -77,7 +78,9 @@ export async function runInitCommand(argv: string[], options: InitCommandOptions
         return;
     }
 
-    if (await isEmptyProjectDirectory(getCwd())) {
+    const projectRoot = options.projectRoot || getCwd();
+
+    if (await isEmptyProjectDirectory(projectRoot)) {
         if (options.uiAPI) {
             options.uiAPI.appendSystemMessage(EMPTY_PROJECT_DIRECTORY_INIT_NOOP_BODY);
         } else {
@@ -89,8 +92,8 @@ export async function runInitCommand(argv: string[], options: InitCommandOptions
     await enterProjectRuntime(getCwd());
 
     // ── Init-state guard ──────────────────────────────────────────
-    if (await isProjectInitComplete()) {
-        const msg = `[RunWield] Init has already been run for this project (${getCwd()}).\n` +
+    if (await isProjectInitComplete(projectRoot)) {
+        const msg = `[RunWield] Init has already been run for this project (${projectRoot}).\n` +
             `[RunWield] To re-run, delete or edit the entry in ~/.wld/init-state.json manually.`;
         if (options.uiAPI) {
             options.uiAPI.appendSystemMessage(msg);
@@ -107,7 +110,7 @@ export async function runInitCommand(argv: string[], options: InitCommandOptions
     await extractBundledAgentDefs();
     await extractBundledSkills();
 
-    if (!options.uiAPI && shouldLaunchTuiForModelSetup(getModelRegistry(), getSettingsManager(getCwd()))) {
+    if (!options.uiAPI && shouldLaunchTuiForModelSetup(getModelRegistry(), getSettingsManager(projectRoot))) {
         await options.sessionPort.startInteractiveSession(`/${COMMAND_NAMES.INIT}`, {
             initialAgentName: AGENTS.ROUTER,
         });
@@ -121,10 +124,10 @@ export async function runInitCommand(argv: string[], options: InitCommandOptions
     const sessionRuntime = attached ? options.sessionRuntime : createSessionRuntime();
     const createdSessionId = attached
         ? options.sessionId
-        : (await sessionRuntime.createInteractiveSession({ cwd: getCwd(), mode: "new" })).sessionId;
+        : (await sessionRuntime.createInteractiveSession({ cwd: projectRoot, mode: "new" })).sessionId;
 
-    await recordInitOffered();
-    const verificationCommandOperation = createInitVerificationCommandOperation({ projectRoot: getCwd() });
+    await recordInitOffered(projectRoot);
+    const verificationCommandOperation = createInitVerificationCommandOperation({ projectRoot });
 
     // Run the canonical hidden init agent, distinct from user-selectable Agents.
     try {
@@ -144,16 +147,16 @@ export async function runInitCommand(argv: string[], options: InitCommandOptions
                     "Initialization was not marked complete; run /init to retry.",
             );
         }
-        await requireProjectInitArtifact();
+        await requireProjectInitArtifact(projectRoot);
 
-        await recordInitDone();
+        await recordInitDone(projectRoot);
 
         if (options.uiAPI) {
             options.uiAPI.appendSystemMessage(
                 "✅ Init complete. docs/domain-language.md has been written.",
             );
         } else {
-            console.log(`\n[RunWield] ✅ Init complete for ${getCwd()}.`);
+            console.log(`\n[RunWield] ✅ Init complete for ${projectRoot}.`);
         }
     } catch (err) {
         // Don't record success if the agent failed or was aborted

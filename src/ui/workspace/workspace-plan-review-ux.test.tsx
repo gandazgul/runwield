@@ -14,6 +14,14 @@ Deno.test("Phone Plan review keeps full editing annotations and actions reachabl
     assertStringIncludes(surface, "Edit");
     assertStringIncludes(surface, "Annotations");
     assertStringIncludes(surface, "Feedback");
+    const styles = await Deno.readTextFile("src/ui/workspace/react/plannotator.css");
+    // A base mobile selector loses to desktop selectors with sidebar-state attributes,
+    // leaving a 320px annotations column inside a 390px phone viewport.
+    const phoneStyles = styles.slice(styles.indexOf("@media (max-width: 980px)"));
+    assertStringIncludes(phoneStyles, ".rw-plannotator-plan-layout[data-sidebar-open][data-annotations-open]");
+    assertStringIncludes(phoneStyles, ".rw-plannotator-code-layout[data-file-tree-open][data-annotations-open]");
+    assertStringIncludes(phoneStyles, "grid-template-columns: minmax(0, 1fr)");
+    assertEquals(styles.includes("min-height: 72vh"), false);
 });
 
 Deno.test("Workspace Plan Review uses the owner header and starts directly at the wide workbench", async () => {
@@ -83,6 +91,15 @@ Deno.test("Plan review exposes Workspace recovery when live Plan evidence requir
     assertStringIncludes(surface, "recovery_required");
     assertStringIncludes(surface, "Recover in Workspace");
     assertStringIncludes(surface, "runRecoveryAction");
+});
+
+Deno.test("Plan review stale errors offer a clear reload action", async () => {
+    const surface = await Deno.readTextFile(SURFACE_PATH);
+
+    assertStringIncludes(surface, "staleReviewError");
+    assertStringIncludes(surface, "Review is out of date");
+    assertStringIncludes(surface, "Reload review");
+    assertStringIncludes(surface, "globalThis.location.reload()");
 });
 
 Deno.test("Plan feedback action sits above the annotation list with theme accent styling", async () => {
@@ -159,14 +176,15 @@ Deno.test("Code Review reuses artifact chat and reloads the republished file dif
     assertStringIncludes(surface, 'label="Send Annotations"');
 });
 
-Deno.test("Code Review options menu matches Plan Review header placement", async () => {
+Deno.test("Code Review uses the Workspace header when embedded and preserves standalone controls", async () => {
     const surface = await Deno.readTextFile(CODE_SURFACE_PATH);
     const headingIndex = surface.indexOf('className="rw-plan-review-heading"');
-    const optionsIndex = surface.indexOf("<CodeReviewOptionsMenu", headingIndex);
+    const optionsIndex = surface.indexOf("{reviewOptions}", headingIndex);
     const logoIndex = surface.indexOf('<img src="/brand/logo.svg"', headingIndex);
     const actionsIndex = surface.indexOf('className="rw-plannotator-actions"');
     const approveIndex = surface.indexOf("<ApproveButton", actionsIndex);
-    const misplacedOptionsIndex = surface.indexOf("<CodeReviewOptionsMenu", actionsIndex);
+    assertStringIncludes(surface, "<WorkspaceHeaderActionsPortal>{reviewActions}</WorkspaceHeaderActionsPortal>");
+    assertStringIncludes(surface, '{presentation === "workspace" && reviewOptions}');
 
     assertStringIncludes(surface, "function CodeReviewOptionsMenu({\n    iconOnly = false,");
     assertStringIncludes(surface, "!iconOnly && <span");
@@ -175,8 +193,8 @@ Deno.test("Code Review options menu matches Plan Review header placement", async
     if (headingIndex < 0 || optionsIndex < headingIndex || logoIndex < optionsIndex) {
         throw new Error("Code Review options must be icon-only before the logo, matching Plan Review");
     }
-    if (actionsIndex < 0 || approveIndex < actionsIndex || misplacedOptionsIndex >= 0) {
-        throw new Error("Code Review top-right actions must not contain the options menu");
+    if (actionsIndex < 0 || approveIndex < actionsIndex) {
+        throw new Error("Code Review header actions must retain approval");
     }
 });
 

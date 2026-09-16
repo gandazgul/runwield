@@ -1,4 +1,4 @@
-import { assertEquals, assertNotEquals } from "@std/assert";
+import { assertEquals, assertInstanceOf, assertNotEquals } from "@std/assert";
 import { Spacer } from "@earendil-works/pi-tui";
 import { createFooterOnlyUiApi, createSilentUiApi, createUiApi } from "./api.js";
 import {
@@ -188,12 +188,15 @@ Deno.test("createUiApi keeps workflow tools as single custom blocks", () => {
     ui.startToolExecution("tool-1", "bash", "$ echo before");
     ui.startToolExecution("plan-1", "plan_written", "plan_written docs/plans/example.md");
     ui.startToolExecution("tool-2", "read", "read README.md");
+    const diff = ui.startToolExecution("diff-1", "review_diff", "review_diff README.md");
+    diff.endExecution(false, 1);
     ui.startToolExecution("triage-1", "triage_report", "triage_report FEATURE");
 
     const groups = messageList.children.filter((/** @type {any} */ child) => child instanceof ToolExecutionGroupBlock);
     assertEquals(groups.length, 2);
     assertEquals(groups[0].children.map((/** @type {any} */ child) => child.toolName), ["bash"]);
-    assertEquals(groups[1].children.map((/** @type {any} */ child) => child.toolName), ["read"]);
+    assertEquals(groups[1].children.map((/** @type {any} */ child) => child.toolName), ["read", "review_diff"]);
+    assertEquals(groups[1].expanded, false);
     assertEquals(
         messageList.children.filter((/** @type {any} */ child) => child instanceof ToolExecutionBlock).map(
             (/** @type {any} */ child) => child.toolName,
@@ -459,6 +462,70 @@ Deno.test("createUiApi keeps semantic status messages independent from active to
 
     assertEquals(messageList.children.length, 4);
     assertEquals(messageList.children[2] instanceof SystemMessageBlock, true);
+});
+
+Deno.test("createUiApi leaves a long-open Plan review idle and resumes tool updates after a decision", async () => {
+    const { tui, messageList, renders } = makeTuiHarness();
+    const spinner = new SpinnerBlock();
+    const ui = createUiApi(tui, messageList, spinner);
+    try {
+        ui.setBusy?.(true);
+        const tool = ui.startToolExecution?.("review", "plan_written", "Plan Written");
+        assertInstanceOf(tool, ToolExecutionBlock);
+        // Follow the browser review adapter: the tool remains pending while busy is cleared.
+        ui.setBusy?.(false);
+        tool.startTime -= 8 * 60 * 60 * 1000;
+        const waitingRenders = renders();
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        assertEquals(renders(), waitingRenders);
+        assertEquals(ui.getActiveToolBlock?.("review"), tool);
+
+        ui.setBusy?.(true);
+        // Count tool repaints independently of spinner animation.
+        spinner.setBusy(false);
+        const resumedRenders = renders();
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        assertEquals(renders() > resumedRenders, true);
+        assertEquals(stripAnsi(tool.render(100).join("\n")).includes("Elapsed time: 28800."), true);
+
+        tool.endExecution(false, 28_800_500);
+        ui.setBusy?.(false);
+        const completedRenders = renders();
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        assertEquals(renders(), completedRenders);
+        assertEquals(ui.getActiveToolBlock?.("review"), undefined);
+        assertEquals(stripAnsi(tool.render(100).join("\n")).includes("Took 28800.5s"), true);
+    } finally {
+        ui.dispose?.();
+    }
+});
+
+Deno.test("createUiApi pauses tool timers for terminal prompts, including tools started during the wait", async () => {
+    const { tui, messageList, renders, focus } = makeTuiHarness();
+    const spinner = new SpinnerBlock();
+    const ui = createUiApi(tui, messageList, spinner);
+    try {
+        ui.setBusy?.(true);
+        const tool = ui.startToolExecution?.("review", "plan_written", "Plan Written");
+        assertInstanceOf(tool, ToolExecutionBlock);
+        const prompt = ui.promptText("Review feedback");
+        const secondTool = ui.startToolExecution?.("other", "bash", "Other active work");
+        assertInstanceOf(secondTool, ToolExecutionBlock);
+        const waitingRenders = renders();
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        assertEquals(renders(), waitingRenders);
+        tool.endExecution(false, 100);
+        focus().input.onSubmit("Revise the Plan");
+        assertEquals(await prompt, "Revise the Plan");
+        spinner.setBusy(false);
+        const resumedRenders = renders();
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        assertEquals(renders() > resumedRenders, true);
+        assertEquals(ui.getActiveToolBlock?.("review"), undefined);
+        assertEquals(ui.getActiveToolBlock?.("other"), secondTool);
+    } finally {
+        ui.dispose?.();
+    }
 });
 
 Deno.test("createUiApi setBusy animates while Runtime remains busy and stops when idle", async () => {

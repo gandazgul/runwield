@@ -65,6 +65,82 @@
     opacity: 0.58;
 }
 
+.rw-toolbar-select {
+    min-height: var(--rw-control-height-compact);
+    border: 1px solid var(--rw-border);
+    border-radius: var(--rw-radius-control);
+    background: var(--rw-surface);
+    color: var(--rw-text);
+    padding: 0.25rem 0.3rem;
+    font: inherit;
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    text-overflow: ellipsis;
+}
+
+.rw-toolbar-select:hover:not(:disabled) {
+    border-color: var(--rw-accent);
+}
+
+.rw-toolbar-select:focus-visible {
+    outline: 2px solid var(--rw-accent);
+    outline-offset: 2px;
+}
+
+.rw-toolbar-select:disabled {
+    color: var(--rw-text-dim);
+    cursor: not-allowed;
+    opacity: 0.58;
+}
+
+.rw-command-menu {
+    position: absolute;
+    inset-inline: 0;
+    bottom: calc(100% + 0.35rem);
+    z-index: 10;
+    max-height: min(20rem, 45dvh);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 0.3rem;
+    border: 1px solid var(--rw-border);
+    border-radius: var(--rw-radius-card);
+    background: var(--rw-surface-raised);
+}
+
+.rw-command-menu [role="option"] {
+    display: grid;
+    gap: 0.15rem;
+    width: 100%;
+    min-height: 44px;
+    padding: 0.45rem 0.65rem;
+    border: 0;
+    border-radius: var(--rw-radius-control);
+    background: transparent;
+    color: var(--rw-text);
+    text-align: left;
+    font: inherit;
+    cursor: pointer;
+}
+
+.rw-command-menu [role="option"] span {
+    color: var(--rw-text-muted);
+    font-size: 0.8rem;
+}
+
+.rw-command-menu [role="option"] strong,
+.rw-command-menu [role="option"] span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.rw-command-menu [role="option"]:hover,
+.rw-command-menu [role="option"][aria-selected="true"] {
+    background: var(--rw-surface-muted);
+    color: var(--rw-accent-text);
+}
+
 .rw-segmented-toggle {
     display: inline-flex;
     gap: 0.25rem;
@@ -154,52 +230,73 @@
     opacity: 0.45;
 }
 
+/* TUI Braille frames: ⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏, advancing every 120 ms.
+ * One mask sprite also replaces spinners inside imported review components. */
+:root {
+    --rw-loading-dots: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20154%2018%22%3E%3Ccircle%20cx%3D%224%22%20cy%3D%223%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%224%22%20cy%3D%227%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%2210%22%20cy%3D%223%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%2218%22%20cy%3D%223%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%2224%22%20cy%3D%223%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%2224%22%20cy%3D%227%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%223%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%2238%22%20cy%3D%223%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%2238%22%20cy%3D%227%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%2238%22%20cy%3D%2211%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%2252%22%20cy%3D%223%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%2252%22%20cy%3D%227%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%2252%22%20cy%3D%2211%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%2260%22%20cy%3D%2211%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%2266%22%20cy%3D%223%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%2266%22%20cy%3D%227%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%2266%22%20cy%3D%2211%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%2274%22%20cy%3D%2211%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%2280%22%20cy%3D%227%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%2280%22%20cy%3D%2211%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%2288%22%20cy%3D%227%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%2288%22%20cy%3D%2211%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%2294%22%20cy%3D%2211%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%22102%22%20cy%3D%223%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%22102%22%20cy%3D%227%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%22102%22%20cy%3D%2211%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%22108%22%20cy%3D%2211%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%22116%22%20cy%3D%223%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%22116%22%20cy%3D%227%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%22116%22%20cy%3D%2211%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%22130%22%20cy%3D%223%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%22130%22%20cy%3D%227%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%22130%22%20cy%3D%2211%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%22136%22%20cy%3D%223%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%22144%22%20cy%3D%223%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%22144%22%20cy%3D%227%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%22150%22%20cy%3D%223%22%20r%3D%221.5%22%2F%3E%3C%2Fsvg%3E");
+}
+
 .rw-thinking-dots {
-    align-items: baseline;
+    align-items: center;
     color: var(--rw-text-muted);
     display: inline-flex;
-    gap: 0.14rem;
-    white-space: nowrap;
+    gap: 0.4rem;
 }
 
-.rw-thinking-dot {
-    animation: rw-thinking-dot-pulse 1s infinite ease-in-out;
+.rw-thinking-glyph,
+.animate-spin,
+.group > .absolute.inset-0.animate-pulse::before {
+    animation: rw-loading-dots 1.2s steps(10) infinite;
     background: currentColor;
-    border-radius: 50%;
+    border: 0;
+    border-radius: 0;
     display: inline-block;
-    height: 0.25rem;
-    opacity: 0.35;
-    transform: translateY(-0.08rem);
-    width: 0.25rem;
+    flex: none;
+    height: 1.125em;
+    width: 0.875em;
+    mask-image: var(--rw-loading-dots);
+    mask-size: 1100% 100%;
+    mask-repeat: no-repeat;
+    mask-position: 0% 0;
+    transform: none;
 }
 
-.rw-thinking-dot:nth-child(3) {
-    animation-delay: 160ms;
+/* Imported image previews use a skeleton while the image loads. */
+.group > .absolute.inset-0.animate-pulse {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: none;
+    background: transparent;
 }
 
-.rw-thinking-dot:nth-child(4) {
-    animation-delay: 320ms;
+.group > .absolute.inset-0.animate-pulse::before {
+    content: "";
 }
 
-@keyframes rw-thinking-dot-pulse {
-    0%,
-    80%,
-    100% {
-        opacity: 0.28;
-        transform: translateY(-0.08rem) scale(0.82);
+/* Keep vendor layout and accessible labels, replace only the loading artwork. */
+svg.animate-spin > * {
+    visibility: hidden;
+}
+
+@keyframes rw-loading-dots {
+    to {
+        mask-position: 100% 0;
     }
+}
 
-    40% {
-        opacity: 0.9;
-        transform: translateY(-0.08rem) scale(1);
-    }
+.rw-loading-surface {
+    display: grid;
+    min-height: 10rem;
+    place-items: center;
+    padding: 1.5rem;
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .rw-thinking-dot {
+    .rw-thinking-glyph,
+    .animate-spin,
+    .group > .absolute.inset-0.animate-pulse::before {
         animation: none;
-        opacity: 0.7;
-        transform: translateY(-0.08rem);
     }
 }
 
@@ -1297,6 +1394,13 @@ button.danger-action:disabled {
 .rw-workflow-block > header {
     color: var(--rw-accent-text);
 }
+.rw-workflow-block > .markdown-view {
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    padding: 0;
+}
 .rw-workflow-block > header > span,
 .rw-workflow-block > footer {
     color: var(--rw-text-dim);
@@ -1304,4 +1408,82 @@ button.danger-action:disabled {
 }
 .rw-workflow-block.status-failed {
     border-inline-start-color: var(--rw-error);
+}
+
+.rw-question-fixture {
+    display: grid;
+    justify-items: center;
+    padding: var(--rw-space-panel) 0 2rem;
+}
+
+.rw-question-card {
+    display: grid;
+    gap: 0.85rem;
+    width: min(42rem, 100%);
+    padding: var(--rw-space-panel);
+    border: 1px solid var(--rw-border);
+    border-radius: var(--rw-radius-panel);
+    background: var(--rw-surface-raised);
+}
+
+.rw-question-card h1,
+.rw-question-card p {
+    margin: 0;
+}
+
+.rw-question-help {
+    color: var(--rw-text-muted);
+}
+
+.rw-question-error {
+    color: var(--rw-error);
+}
+
+.rw-question-complete {
+    color: var(--rw-success);
+}
+
+.rw-question-field {
+    display: grid;
+    gap: 0.5rem;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+
+.rw-question-field textarea {
+    min-height: 7rem;
+    border: 1px solid var(--rw-border);
+    border-radius: var(--rw-radius-control);
+    background: var(--rw-surface);
+    color: var(--rw-text);
+    padding: 0.65rem;
+    font: inherit;
+}
+
+.rw-question-option {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    min-height: 2.75rem;
+    padding: 0.65rem;
+    border: 1px solid var(--rw-border);
+    border-radius: var(--rw-radius-control);
+    background: var(--rw-surface);
+}
+
+.rw-question-option:focus-within {
+    border-color: var(--rw-accent);
+}
+
+.rw-question-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.rw-toolbar-button-primary {
+    background: var(--rw-accent);
+    color: var(--rw-page-bg);
 }

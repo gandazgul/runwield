@@ -1,4 +1,5 @@
 ---
+import LoadingSurface from "../../../../../../components/LoadingSurface.astro";
 import WorkspaceLayout from "../../../../../../layouts/WorkspaceLayout.astro";
 import { CodeReviewSurface } from "../../../../../../react/CodeReviewSurface.tsx";
 import { getAstroOwnerWorkspaceSessionContinuation } from "../../../../../../server/astro-owner-data.js";
@@ -24,6 +25,7 @@ const payload = codeReview
         ...codeReview,
         token: `workspace:${operationId}:${interactionId}`,
         mode: "workspace",
+        csrfToken: Astro.cookies.get("rw_owner_csrf")?.value || "",
         projectId,
         runwieldSessionId,
         reviewContext: {
@@ -46,9 +48,16 @@ const payload = codeReview
     }
     : null;
 ---
-<WorkspaceLayout title="Code Review · RunWield Workspace" selectedTab="projects" url={Astro.url.href}>
+<WorkspaceLayout
+    title="Code Review · RunWield Workspace"
+    surfaceTitle={codeReview ? `Code Review — ${codeReview.planTitle || codeReview.planName || "Code changes"}` : "Code Review"}
+    selectedTab="projects"
+    url={Astro.url.href}
+>
     {payload ? (
-        <CodeReviewSurface payload={payload} presentation="workspace" client:only="react" />
+        <CodeReviewSurface payload={payload} presentation="workspace" client:only="react">
+            <div slot="fallback"><LoadingSurface label="Loading code review" /></div>
+        </CodeReviewSurface>
     ) : (
         <section class="error-panel">
             <h1>Code Review is no longer available</h1>

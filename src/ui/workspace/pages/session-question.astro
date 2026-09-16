@@ -1,0 +1,39 @@
+---
+import WorkspaceLayout from "../layouts/WorkspaceLayout.astro";
+import { SessionQuestionForm } from "../components/SessionQuestionForm.tsx";
+
+const payloadHeader = Astro.request.headers.get("x-runwield-question-payload") || "";
+let payload = {};
+try {
+    payload = payloadHeader ? JSON.parse(decodeURIComponent(payloadHeader)) : {};
+} catch {
+    payload = {};
+}
+const data = payload as {
+    mode?: string;
+    prompt?: string;
+    defaultValue?: string;
+    placeholder?: string;
+    allowEmpty?: boolean;
+    action?: string;
+    sessionId?: string;
+    questionId?: string;
+    options?: Array<{ value: string; label: string; description?: string }>;
+};
+---
+<WorkspaceLayout title="RunWield Question" selectedTab="sessions" shell="local" url={Astro.url.href}>
+    <div class="rw-question-fixture">
+        <SessionQuestionForm
+            client:load
+            mode={data.mode || "select"}
+            prompt={data.prompt || "RunWield question"}
+            value={data.defaultValue || ""}
+            placeholder={data.placeholder || ""}
+            allowEmpty={data.allowEmpty === true}
+            action={data.action || ""}
+            sessionId={data.sessionId || ""}
+            questionId={data.questionId || ""}
+            options={data.options || []}
+        />
+    </div>
+</WorkspaceLayout>

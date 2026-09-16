@@ -1,4 +1,5 @@
 ---
+import LoadingSurface from "../../components/LoadingSurface.astro";
 import ReviewLayout from "../../layouts/ReviewLayout.astro";
 import { ReviewDevSurface } from "../../react/ReviewDevSurface.tsx";
 
@@ -8,5 +9,7 @@ if (!import.meta.env.DEV) {
 const variant = Astro.url.searchParams.get("variant") || "feature";
 ---
 <ReviewLayout title="Plan Review Dev · RunWield Workspace">
-    <ReviewDevSurface surface="plan" presentation="standalone" variant={variant} client:only="react" />
+    <ReviewDevSurface surface="plan" presentation="standalone" variant={variant} client:only="react">
+        <div slot="fallback"><LoadingSurface label="Loading review" /></div>
+    </ReviewDevSurface>
 </ReviewLayout>

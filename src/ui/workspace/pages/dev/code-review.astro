@@ -1,4 +1,5 @@
 ---
+import LoadingSurface from "../../components/LoadingSurface.astro";
 import ReviewLayout from "../../layouts/ReviewLayout.astro";
 import { ReviewDevSurface } from "../../react/ReviewDevSurface.tsx";
 
@@ -7,5 +8,7 @@ if (!import.meta.env.DEV) {
 }
 ---
 <ReviewLayout title="Code Review Dev · RunWield Workspace">
-    <ReviewDevSurface surface="code" presentation="standalone" client:only="react" />
+    <ReviewDevSurface surface="code" presentation="standalone" client:only="react">
+        <div slot="fallback"><LoadingSurface label="Loading review" /></div>
+    </ReviewDevSurface>
 </ReviewLayout>

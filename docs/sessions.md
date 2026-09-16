@@ -39,6 +39,8 @@ Inside the TUI:
 
 ## Moving between TUI and Workspace
 
+For first-time setup, follow [Workspace on your computer and phone](workspace.md).
+
 Start `wld workspace serve --no-open`, open its URL, and approve the browser's pairing code with
 `wld workspace pair <code>`. Link the repository in Projects, then open the same Session. Leave the TUI open: a running
 turn appears in Workspace, and an idle Session accepts the next message from either screen.

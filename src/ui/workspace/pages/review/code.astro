@@ -1,4 +1,5 @@
 ---
+import LoadingSurface from "../../components/LoadingSurface.astro";
 import ReviewLayout from "../../layouts/ReviewLayout.astro";
 import { CodeReviewSurface } from "../../react/CodeReviewSurface.tsx";
 import { escapeReviewPayloadJson } from "../../server/review-payload-json.ts";
@@ -17,5 +18,7 @@ const embeddedPayload = escapeReviewPayloadJson(JSON.stringify(payload));
 ---
 <ReviewLayout title="Code Review · RunWield Workspace">
     <script is:inline type="application/json" data-code-review-payload set:html={embeddedPayload} />
-    <CodeReviewSurface payload={payload} client:only="react" />
+    <CodeReviewSurface payload={payload} client:only="react">
+        <div slot="fallback"><LoadingSurface label="Loading code review" /></div>
+    </CodeReviewSurface>
 </ReviewLayout>

@@ -201,30 +201,34 @@ export function createTuiInteractionAdapter(uiAPI, ports) {
             if (request.type === RuntimeInteractionTypes.PLAN_REVIEW) {
                 const meta = /** @type {any} */ (request._meta || {});
                 uiAPI.setBusy?.(false);
-                const result = await submitPlanForReview({
-                    cwd: meta.cwd,
-                    sequenceDocuments: meta.sequenceDocuments,
-                    planName: meta.planName,
-                    planPath: meta.planPath,
-                    previousPlan: typeof meta.previousPlan === "string" ? meta.previousPlan : undefined,
-                    planVersions: Array.isArray(meta.planVersions) ? meta.planVersions : undefined,
-                    reviewConversation: meta.reviewConversation,
-                    agentLabel: typeof meta.agentLabel === "string" ? meta.agentLabel : undefined,
-                    triageMeta: meta.triageMeta,
-                    onOutput: typeof meta.onOutput === "function" ? meta.onOutput : undefined,
-                    onSurfaceReady: typeof meta.onSurfaceReady === "function" ? meta.onSurfaceReady : undefined,
-                    signal,
-                    browser: ports.browser,
-                });
-                if (result.approved && result.approvalAction === "run") uiAPI.setBusy?.(true);
-                return {
-                    outcome: result.canceled
-                        ? RuntimeInteractionOutcomes.CANCELED
-                        : result.approved
-                        ? RuntimeInteractionOutcomes.ACCEPTED
-                        : RuntimeInteractionOutcomes.SELECTED,
-                    _meta: result,
-                };
+                try {
+                    const result = await submitPlanForReview({
+                        cwd: meta.cwd,
+                        sequenceDocuments: meta.sequenceDocuments,
+                        planName: meta.planName,
+                        planPath: meta.planPath,
+                        previousPlan: typeof meta.previousPlan === "string" ? meta.previousPlan : undefined,
+                        planVersions: Array.isArray(meta.planVersions) ? meta.planVersions : undefined,
+                        reviewConversation: meta.reviewConversation,
+                        agentLabel: typeof meta.agentLabel === "string" ? meta.agentLabel : undefined,
+                        triageMeta: meta.triageMeta,
+                        onOutput: typeof meta.onOutput === "function" ? meta.onOutput : undefined,
+                        onSurfaceReady: typeof meta.onSurfaceReady === "function" ? meta.onSurfaceReady : undefined,
+                        signal,
+                        browser: ports.browser,
+                    });
+                    return {
+                        outcome: result.canceled
+                            ? RuntimeInteractionOutcomes.CANCELED
+                            : result.approved
+                            ? RuntimeInteractionOutcomes.ACCEPTED
+                            : RuntimeInteractionOutcomes.SELECTED,
+                        _meta: result,
+                    };
+                } finally {
+                    // Feedback and recoverable failures also return to the active Agent turn.
+                    uiAPI.setBusy?.(true);
+                }
             }
             if (request.type === RuntimeInteractionTypes.CODE_REVIEW) {
                 const meta = /** @type {any} */ (request._meta || {});

@@ -594,6 +594,7 @@ export const loadPlanImplementedFollowUpRepaintsScenario = {
         { type: "waitForEvent", event: "runtime:session-replaced:execution_follow_up", timeoutMs: 30000 },
         { type: "waitForScreen", text: "Plan Engineer", timeoutMs: 30000 },
         { type: "captureProjectState", planNames: ["follow-up-repaint"], key: "afterFollowUpReplacement" },
+        { type: "waitForIdle", timeoutMs: 30000 },
         { type: "type", text: "Please finish the follow-up." },
         { type: "enter" },
         { type: "waitForEvent", event: "runtime:tool:start:task_completed", timeoutMs: 60000 },
@@ -617,7 +618,8 @@ export const loadPlanImplementedFollowUpRepaintsScenario = {
             );
             assert(entry?.path, "Expected the seeded worktree registry entry to record its path.");
             assertEquals(snapshot?.cwd, entry.path);
-            assertEquals(snapshot?.activeAgent, "plan-engineer");
+            assertEquals(snapshot?.activeAgent, null);
+            assertEquals(snapshot?.activeExecutionWorkflow?.planName, "follow-up-repaint");
             assertEquals(planStatus(result, "follow-up-repaint"), "validated");
         }),
         assertsGoldenCoverage("workflow:follow-up-validation", (result: GoldenScenarioResult) => {

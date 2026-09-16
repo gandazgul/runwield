@@ -24,6 +24,9 @@ order: 3
 dependencies:
     - "02-register-agy-cli-backend-models"
 userVerifiedAt: null
+archivedAt: "2026-09-15T18:22:33.131Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/agy-cli-execution-backend/03-add-agy-cli-backend-transcript-tracer-bullet.md"
 targetBranch: "feature/agy-cli-execution-backend"
 ---
 

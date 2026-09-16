@@ -39,7 +39,14 @@ async function copyTree(source: string, destination: string, insideGitDir = fals
         if (entryInsideGitDir && entry.name.endsWith(".lock")) continue;
         if (entry.isDirectory) await copyTree(from, to, entryInsideGitDir);
         else if (entry.isSymlink) await Deno.symlink(await Deno.readLink(from), to);
-        else await Deno.copyFile(from, to);
+        else {
+            try {
+                await Deno.copyFile(from, to);
+            } catch (error) {
+                if (entry.name.endsWith(".lock") && error instanceof Deno.errors.NotFound) continue;
+                throw error;
+            }
+        }
     }
 }
 

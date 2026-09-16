@@ -205,7 +205,10 @@ export async function ownerSessionCreateApi(ctx) {
         return ownerJson(result, 202);
     } catch (error) {
         const message = sanitizeOwnerError(error);
-        return ownerJson({ error: message }, /not enabled|epoch|uncertain|reconcile/.test(message) ? 503 : 409);
+        const status = /visionFallback|Cannot attach image/.test(message)
+            ? 422
+            : (/not enabled|epoch|uncertain|reconcile/.test(message) ? 503 : 409);
+        return ownerJson({ error: message }, status);
     }
 }
 
@@ -228,7 +231,10 @@ export async function ownerSessionContinuationStartApi(ctx) {
         return ownerJson(result, 202);
     } catch (error) {
         const message = sanitizeOwnerError(error);
-        return ownerJson({ error: message }, /not enabled|epoch|uncertain|reconcile/.test(message) ? 503 : 409);
+        const status = /visionFallback|Cannot attach image/.test(message)
+            ? 422
+            : (/not enabled|epoch|uncertain|reconcile/.test(message) ? 503 : 409);
+        return ownerJson({ error: message }, status);
     }
 }
 

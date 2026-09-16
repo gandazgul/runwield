@@ -10,6 +10,9 @@ import {
 interface ScreenTextTerminal {
     getScreenText(): string;
 }
+interface StartedTerminal {
+    started: boolean;
+}
 import type { UiAPI } from "./types.js";
 
 export interface InteractiveTuiComposition {
@@ -85,15 +88,18 @@ export async function createInteractiveTuiComposition(
         tui,
         terminal,
         async waitForIdle(timeoutMs = 2000) {
-            const startedAt = Date.now();
+            const startedAt = performance.now();
             let stableSamples = 0;
             let previousScreen = "";
-            while (Date.now() - startedAt < timeoutMs) {
+            while (performance.now() - startedAt < timeoutMs) {
                 const snapshot = runtime?.getSessionSnapshot(sessionId || "");
                 const screen = terminal && "getScreenText" in terminal
                     ? (terminal as ScreenTextTerminal).getScreenText()
                     : "";
-                if (!snapshot?.busy && screen === previousScreen) {
+                const terminalStarted = terminal && "started" in terminal
+                    ? (terminal as StartedTerminal).started
+                    : true;
+                if (terminalStarted && !snapshot?.busy && screen === previousScreen) {
                     stableSamples += 1;
                     if (stableSamples >= 3) return;
                 } else {

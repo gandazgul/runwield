@@ -6,12 +6,14 @@ import {
     RuntimeInteractionTypes,
 } from "../../../shared/session/session-runtime-interactions.js";
 import { MarkdownView } from "./MarkdownView.jsx";
+import { SessionQuestionForm } from "./SessionQuestionForm.tsx";
 import { RunWieldLink, RunWieldThinkingDots } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 
 const MESSAGE_TYPES = new Set([
     "workflow",
     "message",
     "thinking",
+    "busy",
     "tool",
     "status",
     "usage",
@@ -66,6 +68,7 @@ export function reduceSessionEvents(events, options = {}) {
     const byKey = new Map();
     const source = options.source || "committed";
     const startIndex = options.startIndex || 0;
+    let busy = false;
     let lastSegmentKey = null;
     /** @type {Record<string, any> | null} */
     let lastAssistantMessage = null;
@@ -133,6 +136,10 @@ export function reduceSessionEvents(events, options = {}) {
     events.forEach((raw, index) => {
         const event = asRecord(raw);
         const type = text(event.type);
+        if (type === "busy_changed") {
+            busy = event.busy === true;
+            return;
+        }
         const id = text(event.messageId || event.toolCallId || event.eventId || `${source}:${startIndex + index}`);
         const timestamp = text(event.timestamp);
         const segmentOrdinal = Number.isInteger(event.segmentOrdinal) ? event.segmentOrdinal : null;
@@ -335,7 +342,12 @@ export function reduceSessionEvents(events, options = {}) {
             }
         }
     });
-    return compactCompletedActivity(items.filter((item) => MESSAGE_TYPES.has(item.kind)));
+    const visibleItems = compactCompletedActivity(items.filter((item) => MESSAGE_TYPES.has(item.kind)));
+    // Runtime activity belongs at the live edge, never in saved conversation history.
+    if (source === "transient" && busy) {
+        visibleItems.push({ kind: "busy", key: "runtime-busy", source });
+    }
+    return visibleItems;
 }
 
 /** Full workflow output is never truncated or folded into routine tool activity. */
@@ -485,7 +497,7 @@ function activityRowDetail(activityItem) {
 }
 
 function SessionInteractionCard({ item }) {
-    const [value, setValue] = useState(text(item.request?.defaultValue));
+    const value = text(item.request?.defaultValue);
     const [error, setError] = useState("");
     const [submitting, setSubmitting] = useState(false);
     const requestType = text(item.request?.type || RuntimeInteractionTypes.TEXT);
@@ -499,6 +511,7 @@ function SessionInteractionCard({ item }) {
             await answer(response);
         } catch (caught) {
             setError(caught instanceof Error ? caught.message : String(caught || "Could not send answer."));
+            throw caught;
         } finally {
             setSubmitting(false);
         }
@@ -519,88 +532,31 @@ function SessionInteractionCard({ item }) {
                     </RunWieldLink>
                 )
                 : null}
-            {choices.length
+            {answer
                 ? (
-                    <div className="session-interaction-choice-row">
-                        {choices.map((choice) => {
+                    <SessionQuestionForm
+                        mode={requestType}
+                        state={submitting ? "submitting" : "pending"}
+                        error={error}
+                        prompt=""
+                        value={value}
+                        placeholder={item.request?.placeholder || "Answer…"}
+                        allowEmpty={item.request?.allowEmpty === true}
+                        options={choices.map((choice) => {
                             const choiceRecord = typeof choice === "string" ? { value: choice, label: choice } : choice;
-                            const choiceLabel = text(choiceRecord.label || choiceRecord.value);
-                            const choiceValue = text(choiceRecord.value || choiceLabel);
-                            return (
-                                <button
-                                    key={String(choiceValue)}
-                                    type="button"
-                                    disabled={submitting}
-                                    onClick={() =>
-                                        sendAnswer(
-                                            sessionInteractionChoiceResponse(
-                                                requestType,
-                                                asRecord(item.request),
-                                                choice,
-                                            ),
-                                        )}
-                                >
-                                    {choiceLabel}
-                                </button>
-                            );
+                            return {
+                                value: text(choiceRecord.value || choiceRecord.label),
+                                label: text(choiceRecord.label || choiceRecord.value),
+                                description: text(choiceRecord.description),
+                                ...(choiceRecord._meta && typeof choiceRecord._meta === "object"
+                                    ? { _meta: choiceRecord._meta }
+                                    : {}),
+                            };
                         })}
-                    </div>
+                        onResponse={sendAnswer}
+                    />
                 )
                 : null}
-            {answer && requestType === RuntimeInteractionTypes.APPROVAL && !choices.length
-                ? (
-                    <div className="session-interaction-choice-row">
-                        <button
-                            type="button"
-                            disabled={submitting}
-                            onClick={() => sendAnswer({ outcome: RuntimeInteractionOutcomes.ACCEPTED, value: true })}
-                        >
-                            Approve
-                        </button>
-                        <button
-                            type="button"
-                            disabled={submitting}
-                            onClick={() => sendAnswer({ outcome: RuntimeInteractionOutcomes.CANCELED, value: false })}
-                        >
-                            Decline
-                        </button>
-                    </div>
-                )
-                : null}
-            {answer && requestType !== RuntimeInteractionTypes.APPROVAL
-                ? (
-                    <form
-                        className="session-interaction-answer-form"
-                        onSubmit={(event) => {
-                            event.preventDefault();
-                            const nextValue = item.request?.allowEmpty ? value : value.trim();
-                            if (nextValue || item.request?.allowEmpty) {
-                                sendAnswer(sessionInteractionTypedResponse(requestType, nextValue, choices.length > 0));
-                            }
-                        }}
-                    >
-                        <label>
-                            <span className="sr-only">
-                                {choices.length ? "Other answer" : "Answer"}
-                            </span>
-                            <input
-                                value={value}
-                                onChange={(event) => setValue(event.currentTarget.value)}
-                                placeholder={item.request?.placeholder || (choices.length ? "Other…" : "Answer…")}
-                                disabled={submitting}
-                            />
-                        </label>
-                        <button type="submit" disabled={submitting || (!value.trim() && !item.request?.allowEmpty)}>
-                            {submitting
-                                ? <RunWieldThinkingDots label="Sending" />
-                                : choices.length
-                                ? "Send other"
-                                : "Send"}
-                        </button>
-                    </form>
-                )
-                : null}
-            {error ? <p className="session-interaction-error" role="alert">{error}</p> : null}
         </article>
     );
 }
@@ -621,7 +577,7 @@ export function SessionTimeline({ items, events, emptyMessage = "", sessionPath 
         <ol className="session-timeline" aria-label="Session timeline">
             {timelineItems.map((item, index) => (
                 <li key={item.key || `${item.kind}:${index}`} className={`session-timeline-item item-${item.kind}`}>
-                    {item.kind === "workflow"
+                    {item.kind === "busy" ? <RunWieldThinkingDots label="Thinking..." /> : item.kind === "workflow"
                         ? (
                             <article
                                 className={`rw-workflow-block status-${item.status}`}

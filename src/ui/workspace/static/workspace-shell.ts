@@ -261,7 +261,9 @@ function renderMainHeader(payload, current) {
     if (!header) return;
     header.querySelector("[data-workspace-sidebar-restore]")?.remove();
     header.querySelector("[data-workspace-main-session-name]")?.remove();
-    const title = sessionTitleFromPayload(payload, current);
+    const title = header.querySelector("[data-workspace-surface-title]")
+        ? ""
+        : sessionTitleFromPayload(payload, current);
     const restore = document.createElement("button");
     restore.className = "rw-toolbar-button workspace-sidebar-restore";
     restore.type = "button";
@@ -269,7 +271,7 @@ function renderMainHeader(payload, current) {
     restore.setAttribute("aria-label", "Open Workspace sidebar");
     restore.title = "Open Workspace sidebar";
     restore.innerHTML = panelCollapseIcon("right");
-    header.append(restore);
+    header.prepend(restore);
     if (title) {
         const sessionName = document.createElement("strong");
         sessionName.className = "workspace-main-session-name";
@@ -636,7 +638,13 @@ function installSidebarDelegation() {
             const button = showMore;
             const projectId = button.getAttribute("data-show-more-sessions") || "";
             button.setAttribute("disabled", "true");
-            button.textContent = "Loading...";
+            button.replaceChildren();
+            const loading = document.createElement("span");
+            loading.className = "rw-thinking-glyph";
+            loading.setAttribute("aria-hidden", "true");
+            const label = document.createElement("span");
+            label.textContent = " Loading";
+            button.append(loading, label);
             try {
                 const data = await ownerJson(
                     `/api/owner/projects/${encodeURIComponent(projectId)}/sessions?page=0&pageSize=100`,

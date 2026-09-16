@@ -1,4 +1,5 @@
 // @ts-nocheck: Workspace React islands compile TSX, but progress payloads are server-owned JSON.
+import { RunWieldThinkingDots } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { RunWieldLink } from "../../design-system/components/react/RunWieldPrimitives.jsx";
@@ -275,7 +276,7 @@ export function PlanProgressSurface({
         return (
             <section className="owner-card workflow-progress-card" aria-live="polite">
                 <p className="kicker">Plan progress</p>
-                <h1>Loading progress</h1>
+                <RunWieldThinkingDots label="Loading progress" />
                 <p>RunWield is reading the Plan state.</p>
                 {error ? <p className="session-status-row level-error">{error}</p> : null}
             </section>
@@ -300,7 +301,7 @@ export function PlanProgressSurface({
                     <span className={`rw-status-badge state-${progress.overall.state}`}>
                         {OVERALL_LABELS[progress.overall.state] || progress.overall.state}
                     </span>
-                    {refreshing ? <span className="rw-status-badge state-running">Refreshing</span> : null}
+                    {refreshing ? <RunWieldThinkingDots label="Refreshing" /> : null}
                 </div>
                 {!apiUrl && !initialProgress
                     ? (

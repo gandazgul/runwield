@@ -18,6 +18,58 @@ import { runActiveAgentTurn, switchActiveAgent } from "../session/agent-switchin
 import { __getRootSessionMetadataForTests } from "../session/session.js";
 import { runEpicChildContinuation } from "./epic-continuation.ts";
 
+Deno.test("publication repair completion never creates a validation checkpoint in either checkout", async () => {
+    const projectRoot = await makeRepo();
+    const repairRoot = await Deno.makeTempDir({ prefix: "publication-repair-receipt-" });
+    const hostedSession = new HostedSession({ id: crypto.randomUUID(), cwd: projectRoot });
+    try {
+        await savePlan(projectRoot, "p", "# Publication repair\n", {
+            classification: "PLANNED_CHANGE",
+            status: "validated",
+            planId: "publication-repair-plan",
+        });
+        await runGit(projectRoot, ["add", "docs/plans/p.md"]);
+        await runGit(projectRoot, ["commit", "-m", "Validated source"]);
+        await runGit(projectRoot, ["clone", projectRoot, repairRoot]);
+        hostedSession.setActiveExecutionWorkflow({
+            planName: "p",
+            projectRoot,
+            executionCwd: projectRoot,
+            executionMode: "worktree",
+            executionAgent: "engineer",
+            triageMeta: { classification: "PLANNED_CHANGE", status: "validated" },
+            validationRepairGeneration: "stale-code-review-repair",
+        });
+        const port = createValidationSessionPort(hostedSession, {
+            semanticReviewPort: {
+                runIsolatedAgentSession: async (options) => {
+                    await executeWorkflowTestTools(options, [{
+                        name: "task_completed",
+                        arguments: { message: "Conflicts staged." },
+                    }]);
+                    return [];
+                },
+            },
+        });
+        const outcome = await port.runIndependentRepairTurn({
+            kind: "publication",
+            agentName: "engineer",
+            cwd: repairRoot,
+            userRequest: "Resolve the publication conflict and stage the files.",
+        });
+        assertEquals(outcome, { completed: true, report: "Conflicts staged." });
+        for (const cwd of [projectRoot, repairRoot]) {
+            const plan = await loadPlan(cwd, "p");
+            assertEquals(plan?.attrs.status, "validated");
+            assertEquals(plan?.attrs.validationCheckpoint ?? null, null);
+        }
+    } finally {
+        hostedSession.dispose();
+        await Deno.remove(repairRoot, { recursive: true });
+        await Deno.remove(projectRoot, { recursive: true });
+    }
+});
+
 for (const outcome of ["canceled", "blocked"] as const) {
     Deno.test(`canceling human review (${outcome}) cannot publish through the outer driver`, async () => {
         const projectRoot = await makeValidationProjectRoot("p", {
@@ -387,7 +439,12 @@ Deno.test("accepted completion stops the producer without waiting for natural tu
             },
         },
     });
-    const result = await port.runIndependentRepairTurn({ agentName: "engineer", cwd, userRequest: "Fix it" });
+    const result = await port.runIndependentRepairTurn({
+        kind: "validation",
+        agentName: "engineer",
+        cwd,
+        userRequest: "Fix it",
+    });
     assertEquals(interrupted, true);
     assertEquals(result, { completed: true, report: "Finished." });
     hostedSession.dispose();

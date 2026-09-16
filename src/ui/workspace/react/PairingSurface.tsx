@@ -1,3 +1,4 @@
+import { RunWieldThinkingDots } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { RunWieldButton } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 
@@ -164,7 +165,11 @@ export function PairingSurface() {
                 <div className="owner-pairing-result" aria-live="polite">
                     <p className="pairing-step-label">1 · Copy this code</p>
                     <div className="pairing-code" aria-label="Pairing code">{code}</div>
-                    <p className="pairing-timer">{timerLabel}</p>
+                    <p className="pairing-timer">
+                        {state === "loading" || state === "approved"
+                            ? <RunWieldThinkingDots label={timerLabel} />
+                            : timerLabel}
+                    </p>
                     {message ? <p className="notice danger" role="alert">{message}</p> : null}
                 </div>
                 <div className="pairing-command-box">

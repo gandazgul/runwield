@@ -62,7 +62,7 @@ Important limitations that are not necessarily baseline v1 violations because th
 - no client filesystem or terminal delegation;
 - no standard `plan`, `available_commands_update`, `config_option_update`, `current_mode_update`, or
   `session_info_update` notifications;
-- no rich ACP-native RunWield Plan review, Feedback, or approval flow.
+- no rich ACP-native RunWield Plan review, Feedback, or approval protocol; local review uses RunWield browser pages.
 
 ## Architecture and transport
 
@@ -266,21 +266,22 @@ After the cancelled response is sent, the next prompt can start.
 
 RunWield's ACP interaction adapter maps Runtime interaction requests into client requests when possible.
 
-| Runtime interaction     | ACP behavior                                                                                                                               | Stability                                        |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------ |
-| `select`                | Sends `elicitation/create` with `mode: "form"`, one `answer` string field, and `oneOf` options.                                            | ACP elicitation surface in SDK 1.4.0.            |
-| `text`                  | Sends `elicitation/create` with `mode: "form"`, one `answer` string field, default, and placeholder description.                           | ACP elicitation surface in SDK 1.4.0.            |
-| `approval`              | Sends `elicitation/create` like select, then maps accepted approval values to Runtime acceptance and non-accepted choices to cancellation. | ACP elicitation surface in SDK 1.4.0.            |
-| `plan_review`           | Calls `sharePlanForReview()` and returns an accepted Runtime interaction with a remote review URL in metadata.                             | RunWield product behavior outside stable ACP v1. |
-| Other interaction types | Returns Runtime `unsupported`.                                                                                                             | Adapter limitation.                              |
+| Runtime interaction             | ACP behavior                                                                                                                               | Stability                             |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------- |
+| `select`                        | Sends `elicitation/create` with `mode: "form"`, one `answer` string field, and `oneOf` options.                                            | ACP elicitation surface in SDK 1.4.0. |
+| `text`                          | Sends `elicitation/create` with `mode: "form"`, one `answer` string field, default, and placeholder description.                           | ACP elicitation surface in SDK 1.4.0. |
+| `approval`                      | Sends `elicitation/create` like select, then maps accepted approval values to Runtime acceptance and non-accepted choices to cancellation. | ACP elicitation surface in SDK 1.4.0. |
+| `plan_review` and `code_review` | Opens the local RunWield review surface, sends the review URL to ACP, and waits for the browser review decision.                           | RunWield product behavior.            |
+| `artifact_review`               | Opens the local read-only artifact surface, sends the URL to ACP, then asks for feedback or an empty approval before returning.            | RunWield product behavior.            |
+| Other interaction types         | Returns Runtime `unsupported`.                                                                                                             | Adapter limitation.                   |
 
-The adapter only sends form elicitations when the client advertises `clientCapabilities.elicitation.form`. Without that
-capability, select/text/approval interactions return unsupported. Plan review is special-cased and does not require form
-elicitation support.
+The adapter sends form elicitations when the client advertises `clientCapabilities.elicitation.form`. Without that
+capability, select/text/approval interactions use a loopback browser question page. The page needs its token and rejects
+answers that do not carry the same local Origin. If the browser page is not available, ACP gets an actionable
+unsupported response instead of an unusable link.
 
-RunWield does not currently provide stable ACP-native Plan approval, returned Feedback, Plan body edits, or Workflow
-Validation controls. It can surface a review link through a text message plus `_meta.runwield`, but the actual review UX
-remains RunWield/Plannotator-specific.
+RunWield does not provide an ACP-native Plan edit protocol. Local review decisions still happen in RunWield review
+surfaces, and ACP receives usable text links plus `_meta.runwield` URLs.
 
 ## Error behavior
 
@@ -313,23 +314,23 @@ Unexpected runtime failures propagate through the ACP SDK as internal errors.
 
 These are useful interoperability targets, but they are not baseline violations while unadvertised.
 
-| Area                                           | Current state                                                    | Notes                                                                                         |
-| ---------------------------------------------- | ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `session/list`                                 | Registered as unimplemented and not advertised.                  | Needed for richer IDE session pickers.                                                        |
-| `session/resume`                               | Registered as unimplemented and not advertised.                  | Could reconnect without replaying history once stable id semantics are fixed.                 |
-| `session/delete`                               | Registered as unimplemented and not advertised.                  | Would need careful mapping to RunWield/Pi persisted sessions.                                 |
-| `session/set_mode`                             | Registered as unimplemented and not advertised.                  | ACP session modes are transitional; config options are preferred.                             |
-| `session/set_config_option`                    | Registered as unimplemented and no `configOptions` are returned. | Natural future fit for active Agent, model, and thinking-level controls.                      |
-| Additional directories                         | Explicitly rejected when non-empty and not advertised.           | Could map to future multi-root project context and tool boundaries.                           |
-| Embedded resources                             | Rejected; `embeddedContext` is not advertised.                   | Would allow clients to pass file contents without relying on RunWield file access.            |
-| Image/audio prompt blocks                      | Rejected; `image`/`audio` are not advertised.                    | Could eventually reuse RunWield vision fallback for images.                                   |
-| Client filesystem methods                      | Not used by the Agent.                                           | RunWield currently uses its own tools and local process filesystem.                           |
-| Client terminal methods                        | Not used by the Agent.                                           | RunWield currently runs tools locally and reports tool output through Runtime events.         |
-| Standard `plan` update                         | Not emitted.                                                     | RunWield Plans are durable markdown artifacts and workflow-specific, not ACP PlanEntry lists. |
-| `available_commands_update`                    | Not emitted.                                                     | Slash commands remain TUI/CLI behavior.                                                       |
-| `current_mode_update` / `config_option_update` | Not emitted.                                                     | Related to missing mode/config methods.                                                       |
-| `session_info_update`                          | Not emitted.                                                     | Could expose Session Name, cwd, and metadata to clients.                                      |
-| Tool diffs, terminals, locations               | Not emitted.                                                     | Current tool updates contain content and raw output only.                                     |
+| Area                                           | Current state                                                    | Notes                                                                                           |
+| ---------------------------------------------- | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `session/list`                                 | Registered as unimplemented and not advertised.                  | Needed for richer IDE session pickers.                                                          |
+| `session/resume`                               | Registered as unimplemented and not advertised.                  | Could reconnect without replaying history once stable id semantics are fixed.                   |
+| `session/delete`                               | Registered as unimplemented and not advertised.                  | Would need careful mapping to RunWield/Pi persisted sessions.                                   |
+| `session/set_mode`                             | Registered as unimplemented and not advertised.                  | ACP session modes are transitional; config options are preferred.                               |
+| `session/set_config_option`                    | Registered as unimplemented and no `configOptions` are returned. | Natural future fit for active Agent, model, and thinking-level controls.                        |
+| Additional directories                         | Explicitly rejected when non-empty and not advertised.           | Could map to future multi-root project context and tool boundaries.                             |
+| Embedded resources                             | Rejected; `embeddedContext` is not advertised.                   | Would allow clients to pass file contents without relying on RunWield file access.              |
+| Image/audio prompt blocks                      | Rejected; `image`/`audio` are not advertised.                    | Could eventually reuse RunWield vision fallback for images.                                     |
+| Client filesystem methods                      | Not used by the Agent.                                           | RunWield currently uses its own tools and local process filesystem.                             |
+| Client terminal methods                        | Not used by the Agent.                                           | RunWield currently runs tools locally and reports tool output through Runtime events.           |
+| Standard `plan` update                         | Not emitted.                                                     | RunWield Plans are durable markdown artifacts and workflow-specific, not ACP PlanEntry lists.   |
+| `available_commands_update`                    | Emitted after Session new/load and reload catalog changes.       | ACP advertises enabled built-ins plus prompt templates and Skills, with ACP exclusions applied. |
+| `current_mode_update` / `config_option_update` | Not emitted.                                                     | Related to missing mode/config methods.                                                         |
+| `session_info_update`                          | Not emitted.                                                     | Could expose Session Name, cwd, and metadata to clients.                                        |
+| Tool diffs, terminals, locations               | Not emitted.                                                     | Current tool updates contain content and raw output only.                                       |
 
 ## Experimental or RunWield-specific behavior
 
@@ -340,8 +341,11 @@ RunWield uses ACP extension points in two ways:
 - `elicitation/create` is used for select/text/approval interactions when a client advertises form elicitation. SDK
   1.4.0 keeps the wire method as `elicitation/create`; RunWield still treats the interaction mapping as capability-gated
   ACP behavior, not as a promise that all ACP Clients can answer every RunWield interaction.
+- When a local ACP client has no form support, RunWield can expose a loopback browser question URL for select, text, and
+  approval. The URL is local-process state, requires its per-question token, and does not prove remote browser
+  reachability.
 
-RunWield also surfaces Plan review through remote Plan sharing and Plannotator links. That behavior is valuable for
+RunWield also surfaces Plan, code, and artifact review through local browser review pages. That behavior is valuable for
 RunWield workflows, but it is not a stable ACP v1 Plan or approval protocol.
 
 ## Current automated coverage

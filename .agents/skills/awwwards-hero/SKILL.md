@@ -1,6 +1,8 @@
 ---
 name: awwwards-hero-section
 description: Hero-section pipeline for building Awwwards/FWA-tier hero sections. Extracts design direction from reference images, provides six hero architectures with implementation blueprints, and enforces the fundamentals that separate award-winning heroes from generic AI output — viewport-scale typography, single focal point, extreme whitespace, tight palette. Hero-only. Pair with other skills for full pages.
+metadata:
+    internal: true
 ---
 
 # Awwwards-Tier Hero Section

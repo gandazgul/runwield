@@ -7,7 +7,7 @@ For terminal setup, keybindings, and model-provider background that are inherite
 
 ## Install
 
-On macOS or Linux:
+On macOS or Linux, the shell installer is available:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/gandazgul/runwield/main/install.sh | bash
@@ -15,6 +15,23 @@ curl -fsSL https://raw.githubusercontent.com/gandazgul/runwield/main/install.sh 
 
 The installer installs `wld` plus required [Mnemoteca]/Cymbal/agent-browser helpers and optional Snip to `~/.local/bin`
 by default. If your shell cannot find `wld`, add the install directory to your `PATH`.
+
+Homebrew packages for macOS are prepared but not public until the owner publishes `gandazgul/homebrew-tap`. After that,
+use:
+
+```bash
+brew install gandazgul/tap/wld
+brew install gandazgul/tap/mnemoteca
+```
+
+Windows x64 WinGet packaging is prepared but public catalog availability is pending owner submission and acceptance.
+After acceptance, use:
+
+```powershell
+winget install --id Gandazgul.RunWield --exact
+```
+
+Git for Windows is required and is declared as a package dependency.
 
 To choose a different install directory:
 
@@ -44,6 +61,16 @@ The one-line installer is the complete standalone setup path. It installs missin
 project/global memory, `cymbal` for symbol-aware code search, and `agent-browser` for headed browser inspection) beside
 `wld`, preserving helper binaries you already manage elsewhere on `PATH` or in `WLD_INSTALL_DIR`. It also attempts
 optional `snip` for compact shell-output rewriting; RunWield still starts if Snip is missing.
+
+The prepared Homebrew package uses Homebrew dependencies instead of the shell helper installer:
+`gandazgul/tap/mnemoteca`, `1broseidon/tap/cymbal`, `1broseidon/tap/ketch`, `agent-browser`, and `git`.
+`agent-browser install` and Mnemoteca model setup still run on first use, not during formula installation. A
+Homebrew-owned `wld update` prints `brew upgrade gandazgul/tap/wld` instead of replacing package files.
+
+The prepared Windows package bundles Mnemoteca, Cymbal, Ketch, and agent-browser beside `wld.exe`. It does not require a
+user-installed Deno, Go, Rust, npm helper install, or WSL. A WinGet-owned `wld update` prints
+`winget upgrade --id Gandazgul.RunWield --exact`. Snip remains optional. Windows arm64 and image clipboard parity are
+not part of this package.
 
 [Mnemoteca]'s model payload is not downloaded by the installer. It is fetched lazily by Mnemoteca on first semantic
 memory use.
@@ -107,6 +134,18 @@ for idea sharpening, Operator for direct non-code operations, Engineer for bound
 FEATURE plans, or Architect for PROJECT Epics. PROJECT work becomes an Epic design plan first, then the interactive
 Slicer breaks it into child FEATURE plans after approval.
 
+## Open Workspace in your browser or on your phone
+
+Run this in a separate terminal and leave it running:
+
+```bash
+wld workspace serve
+```
+
+Your browser opens Workspace and shows a pairing code. Follow the [Workspace setup guide](workspace.md) to pair your
+browser, link your repository, and continue a TUI Session. The guide also walks through
+[phone access with Tailscale](workspace.md#connect-from-your-phone-with-tailscale).
+
 ## Common commands
 
 ```bash
@@ -126,6 +165,7 @@ wld version
 
 ## Next steps
 
+- [Workspace on your computer and phone](workspace.md) - browser setup, pairing, and Tailscale access.
 - [Using RunWield](usage.md) - day-to-day workflow and commands.
 - [Plans and workflows](workflows.md) - RunWield planning and validation behavior.
 - [Providers and models](providers.md) - RunWield-specific provider paths.

@@ -1,4 +1,5 @@
 // @ts-nocheck: Workspace React islands compile TSX, but this module uses JSDoc-style JavaScript only.
+import { RunWieldThinkingDots } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 
 import { RunWieldTabs } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -62,6 +63,10 @@ function workspaceNavigate(href, history = "push") {
         if (history === "replace") globalThis.location.replace(href);
         else globalThis.location.assign(href);
     }
+}
+
+function isStaleReviewError(message) {
+    return /Review is out of date|Plan changed while review was open|stale/i.test(message || "");
 }
 
 export function PlanReviewSurface({ payload, presentation = "standalone" }) {
@@ -168,6 +173,7 @@ function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup,
     const [submitted, setSubmitted] = useState(null);
     const [error, setError] = useState("");
     const [recoveryRequest, setRecoveryRequest] = useState(null);
+    const staleReviewError = isStaleReviewError(error);
     const [pendingReviewDraft, setPendingReviewDraft] = useState(null);
     const [reviewDraftReady, setReviewDraftReady] = useState(false);
     const [reviewDraftStorageError, setReviewDraftStorageError] = useState("");
@@ -948,7 +954,22 @@ function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup,
                     {reviewDraftStorageError && (
                         <p className="rw-review-error" role="alert">{reviewDraftStorageError}</p>
                     )}
-                    {error && <p className="rw-review-error" role="alert">{error}</p>}
+                    {error && !staleReviewError && <p className="rw-review-error" role="alert">{error}</p>}
+                    {staleReviewError
+                        ? (
+                            <section className="rw-plan-review-notice state-recovery" role="alert">
+                                <strong>Review is out of date</strong>
+                                <p>{error}</p>
+                                <button
+                                    type="button"
+                                    className="rw-plan-review-recovery-action"
+                                    onClick={() => globalThis.location.reload()}
+                                >
+                                    Reload review
+                                </button>
+                            </section>
+                        )
+                        : null}
                     {recoveryRequest
                         ? (
                             <section className="rw-plan-review-notice state-recovery" role="alert">
@@ -962,7 +983,9 @@ function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup,
                                             disabled={submitting !== null}
                                             onClick={runRecoveryAction}
                                         >
-                                            {submitting === "recovery" ? "Recovering…" : "Recover in Workspace"}
+                                            {submitting === "recovery"
+                                                ? <RunWieldThinkingDots label="Recovering" />
+                                                : "Recover in Workspace"}
                                         </button>
                                     )
                                     : null}
@@ -1289,7 +1312,9 @@ function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup,
                                                             plannerWorking}
                                                         isLoading={submitting === "feedback"}
                                                         label="Send Annotations"
-                                                        loadingLabel="Sending Annotations…"
+                                                        loadingLabel={
+                                                            <RunWieldThinkingDots label="Sending Annotations" />
+                                                        }
                                                         title={!hasReviewFeedback
                                                             ? "Add a Plan or file annotation, attachment, or direct Plan edit before sending annotations"
                                                             : "Send annotations"}
@@ -1552,8 +1577,14 @@ function PlanApprovalSplitButton({ primaryAction, onApprove, disabled, isLoading
                         aria-label={primaryLabel}
                         iconLeft={<CheckIcon />}
                     >
-                        <span className="md:hidden">{isLoading ? "…" : primaryMobileLabel}</span>
-                        <span className="hidden md:inline">{isLoading ? loadingLabel : primaryLabel}</span>
+                        <span className="md:hidden">
+                            {isLoading
+                                ? <RunWieldThinkingDots label="Approving" showLabel={false} />
+                                : primaryMobileLabel}
+                        </span>
+                        <span className="hidden md:inline">
+                            {isLoading ? <RunWieldThinkingDots label={loadingLabel} /> : primaryLabel}
+                        </span>
                     </Button>
                     <Button
                         variant="success"

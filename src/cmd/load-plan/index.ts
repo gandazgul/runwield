@@ -112,15 +112,19 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
     // before offering Plans; the selected Plan must not pay for it a second time.
     let publicationCleanupDone = false;
     if (!planArg) {
-        if (options.uiAPI && options.editor) {
+        if (options.uiAPI) {
+            const clearEditor = () => {
+                if (!options.editor) return;
+                options.editor.setText("");
+                options.editor.disableSubmit = false;
+            };
             if (!sessionRuntime || !runtimeSessionId) {
                 throw new Error("runLoadPlanCommand requires an active runtime session for plan selection");
             }
             const activeSnapshot = sessionRuntime.getSessionSnapshot(runtimeSessionId);
             if (!activeSnapshot) throw new Error("runLoadPlanCommand runtime session is missing");
             if (await finishSavedPublicationCleanup(activeSnapshot.cwd, options.uiAPI)) {
-                options.editor.setText("");
-                options.editor.disableSubmit = false;
+                clearEditor();
                 return;
             }
             publicationCleanupDone = true;
@@ -141,8 +145,7 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                 options.uiAPI.appendSystemMessage(
                     "No plans available, start one by entering a new request",
                 );
-                options.editor.setText("");
-                options.editor.disableSubmit = false;
+                clearEditor();
                 return;
             }
 
@@ -151,8 +154,7 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                 options.uiAPI.appendSystemMessage(
                     "No top-level plans available. Load the parent Epic directly or create a plan.",
                 );
-                options.editor.setText("");
-                options.editor.disableSubmit = false;
+                clearEditor();
                 return;
             }
 
@@ -162,8 +164,7 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                 layout: { maxPrimaryColumnWidth: 96 },
             });
             if (!chosen) {
-                options.editor.setText("");
-                options.editor.disableSubmit = false;
+                clearEditor();
                 return;
             }
 

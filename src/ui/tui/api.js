@@ -141,6 +141,7 @@ export function createUiApi(
     let outputSuppressed = false;
     let runtimeBusy = false;
     let promptActive = false;
+    let toolElapsedTimersPaused = false;
     /** @type {(import('@earendil-works/pi-tui').Component & import('@earendil-works/pi-tui').Focusable) | null} */
     let busyBlurredFocus = null;
     /** @type {import('../../shared/session/session-runtime-events.js').RuntimeValidationProgress | null} */
@@ -284,12 +285,14 @@ export function createUiApi(
         promptActive = true;
         spinner.setBusy(false, spinner.tasks);
         stopBusyFrameTimer();
+        setToolElapsedTimersPaused(true);
         restoreFocusedCursorAfterBusy();
     };
 
     const endPromptWait = () => {
         promptActive = false;
         spinner.setBusy(runtimeBusy, spinner.tasks);
+        setToolElapsedTimersPaused(!runtimeBusy);
         if (runtimeBusy) {
             suppressFocusedCursorForBusy();
             startBusyFrameTimer();
@@ -312,6 +315,7 @@ export function createUiApi(
      */
     const startToolElapsedTimer = (id, block) => {
         clearToolElapsedTimer(id);
+        if (toolElapsedTimersPaused || outputSuppressed || block.ended) return;
         const timer = /** @type {ToolElapsedTimerState} */ ({
             renderTimer: null,
         });
@@ -329,6 +333,21 @@ export function createUiApi(
         };
         toolElapsedTimers.set(id, timer);
         renderElapsedFrame();
+    };
+
+    /**
+     * Human review can leave a tool pending for hours. Stop its repaint loop
+     * along with the spinner; keep the block and start time for continuation.
+     * @param {boolean} paused
+     */
+    const setToolElapsedTimersPaused = (paused) => {
+        if (toolElapsedTimersPaused === paused) return;
+        toolElapsedTimersPaused = paused;
+        if (paused) {
+            for (const id of toolElapsedTimers.keys()) clearToolElapsedTimer(id);
+        } else {
+            for (const [id, block] of activeToolBlocks) startToolElapsedTimer(id, block);
+        }
     };
 
     return {
@@ -651,6 +670,7 @@ export function createUiApi(
             runtimeBusy = busy;
             const displayBusy = busy && !promptActive;
             spinner.setBusy(displayBusy, spinner.tasks);
+            setToolElapsedTimersPaused(!displayBusy);
             if (displayBusy) {
                 suppressFocusedCursorForBusy();
                 startBusyFrameTimer();

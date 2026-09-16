@@ -1,4 +1,5 @@
 ---
+import LoadingSurface from "../../components/LoadingSurface.astro";
 import ReviewLayout from "../../layouts/ReviewLayout.astro";
 import { ArtifactReadSurface } from "../../react/ArtifactReadSurface.tsx";
 import { PlanReviewSurface } from "../../react/PlanReviewSurface.tsx";
@@ -35,6 +36,10 @@ const embeddedPayload = escapeReviewPayloadJson(JSON.stringify(payload));
 <ReviewLayout title={pageTitle}>
     <script is:inline type="application/json" data-review-payload set:html={embeddedPayload} />
     {isArtifactRead
-        ? <ArtifactReadSurface payload={payload} client:only="react" />
-        : <PlanReviewSurface payload={payload} client:only="react" />}
+        ? <ArtifactReadSurface payload={payload} client:only="react">
+            <div slot="fallback"><LoadingSurface label="Loading artifact" /></div>
+        </ArtifactReadSurface>
+        : <PlanReviewSurface payload={payload} client:only="react">
+            <div slot="fallback"><LoadingSurface label="Loading Plan review" /></div>
+        </PlanReviewSurface>}
 </ReviewLayout>

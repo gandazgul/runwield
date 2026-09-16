@@ -163,6 +163,7 @@ export type AgentTurnOutcome = {
 
 /** What the engine asks for when it dispatches an independent completion-gated repair turn. */
 export type IndependentRepairTurnRequest = {
+    kind: "validation" | "publication";
     agentName: string;
     userRequest: string;
     cwd: string;

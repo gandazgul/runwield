@@ -1,4 +1,5 @@
 // @ts-nocheck: Workspace React islands compile TSX, but this module uses JSDoc-style JavaScript only.
+import { RunWieldThinkingDots } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import mermaid from "mermaid";
@@ -19,6 +20,7 @@ import { SectionsPanel } from "../../../../third_party/plannotator/packages/revi
 import { parseDiffToFiles } from "../../../../third_party/plannotator/packages/review-editor/utils/diffParser.ts";
 import { exportReviewFeedback } from "../../../../third_party/plannotator/packages/review-editor/utils/exportFeedback.ts";
 import { PlanReviewSettings } from "./PlanReviewSettings.tsx";
+import { WorkspaceHeaderActionsPortal } from "./WorkspaceHeaderActionsPortal.tsx";
 import { ReviewContextBar } from "./ReviewContextBar.tsx";
 import { ArtifactConversationSidebar } from "./ArtifactConversationSidebar.tsx";
 import { buildArtifactConversationFeedback, collectArtifactConversationReply } from "./artifact-conversation.ts";
@@ -581,7 +583,7 @@ export function CodeReviewSurface({ payload, presentation = "standalone" }) {
         setSubmitting("approve");
         try {
             await submit("feedback", { approved: true, ...buildReviewPayload() });
-            setSubmitted("approved");
+            completeReview("approved");
         } catch {
             // submit() owns the visible error state.
         } finally {
@@ -593,12 +595,25 @@ export function CodeReviewSurface({ payload, presentation = "standalone" }) {
         setSubmitting("feedback");
         try {
             await submit("feedback", { approved: false, ...buildReviewPayload() });
-            setSubmitted("feedback");
+            completeReview("feedback");
         } catch {
             // submit() owns the visible error state.
         } finally {
             setSubmitting(null);
         }
+    }
+
+    function completeReview(result) {
+        const sessionHref = initialPayload.reviewContext?.sessionHref;
+        if (initialPayload.mode === "workspace" && sessionHref) {
+            const event = new CustomEvent("runwield:workspace-navigate", {
+                cancelable: true,
+                detail: { href: sessionHref, history: "replace" },
+            });
+            if (document.dispatchEvent(event)) globalThis.location.replace(sessionHref);
+            return;
+        }
+        setSubmitted(result);
     }
 
     function attachReviewContextToConversation() {
@@ -790,6 +805,30 @@ export function CodeReviewSurface({ payload, presentation = "standalone" }) {
         });
     }
 
+    const reviewOptions = (
+        <CodeReviewOptionsMenu
+            iconOnly
+            annotationsOpen={annotationsOpen}
+            fileTreeOpen={fileTreeOpen}
+            onOpenSettings={() => setSettingsOpen(true)}
+            onToggleAnnotations={() => setAnnotationsOpen((open) => !open)}
+            onToggleFileTree={() => setFileTreeOpen((open) => !open)}
+        />
+    );
+
+    const reviewActions = (
+        <div className="rw-plannotator-actions">
+            {presentation === "workspace" && reviewOptions}
+            <ApproveButton
+                loadingLabel={<RunWieldThinkingDots label="Approving" />}
+                mobileLoadingLabel={<RunWieldThinkingDots label="Approving" showLabel={false} />}
+                onClick={submitApprove}
+                disabled={submitting !== null || agentWorking}
+                isLoading={submitting === "approve"}
+            />
+        </div>
+    );
+
     return (
         <ThemeProvider
             defaultTheme="dark"
@@ -804,33 +843,26 @@ export function CodeReviewSurface({ payload, presentation = "standalone" }) {
                     }`}
                     data-review-mode={initialPayload.mode}
                 >
-                    <header className="rw-plannotator-toolbar">
-                        <div className="rw-plan-review-heading">
-                            <CodeReviewOptionsMenu
-                                iconOnly
-                                annotationsOpen={annotationsOpen}
-                                fileTreeOpen={fileTreeOpen}
-                                onOpenSettings={() => setSettingsOpen(true)}
-                                onToggleAnnotations={() => setAnnotationsOpen((open) => !open)}
-                                onToggleFileTree={() => setFileTreeOpen((open) => !open)}
-                            />
-                            <img src="/brand/logo.svg" alt="" aria-hidden="true" />
-                            <h1 title={codeReviewHeading}>{codeReviewHeading}</h1>
-                            {initialPayload.mode === "dev" && (
-                                <p className="rw-plan-review-dev-notice" role="status">
-                                    DEV MODE — Feedback and approval won’t go anywhere.
-                                </p>
-                            )}
-                        </div>
-                        <div className="rw-plannotator-actions">
-                            <ApproveButton
-                                onClick={submitApprove}
-                                disabled={submitting !== null || agentWorking}
-                                isLoading={submitting === "approve"}
-                            />
-                        </div>
-                    </header>
-                    <ReviewContextBar context={initialPayload.reviewContext} artifactLabel="Code review" />
+                    {presentation === "workspace"
+                        ? <WorkspaceHeaderActionsPortal>{reviewActions}</WorkspaceHeaderActionsPortal>
+                        : (
+                            <>
+                                <header className="rw-plannotator-toolbar">
+                                    <div className="rw-plan-review-heading">
+                                        {reviewOptions}
+                                        <img src="/brand/logo.svg" alt="" aria-hidden="true" />
+                                        <h1 title={codeReviewHeading}>{codeReviewHeading}</h1>
+                                        {initialPayload.mode === "dev" && (
+                                            <p className="rw-plan-review-dev-notice" role="status">
+                                                DEV MODE — Feedback and approval won’t go anywhere.
+                                            </p>
+                                        )}
+                                    </div>
+                                    {reviewActions}
+                                </header>
+                                <ReviewContextBar context={initialPayload.reviewContext} artifactLabel="Code review" />
+                            </>
+                        )}
                     {error && <p className="rw-review-error" role="alert">{error}</p>}
                     <div
                         className="rw-plannotator-code-layout"
@@ -955,7 +987,11 @@ export function CodeReviewSurface({ payload, presentation = "standalone" }) {
                             />
                             <div className="rw-code-diff-stage">
                                 {!highlightingReady
-                                    ? <div className="rw-empty-diff">Preparing syntax highlighting…</div>
+                                    ? (
+                                        <div className="rw-empty-diff">
+                                            <RunWieldThinkingDots label="Preparing syntax highlighting" />
+                                        </div>
+                                    )
                                     : guideOpen && guide
                                     ? (
                                         <GuidedReviewExplainer
@@ -1110,7 +1146,7 @@ export function CodeReviewSurface({ payload, presentation = "standalone" }) {
                                                         agentWorking}
                                                     isLoading={submitting === "feedback"}
                                                     label="Send Annotations"
-                                                    loadingLabel="Sending Annotations…"
+                                                    loadingLabel={<RunWieldThinkingDots label="Sending Annotations" />}
                                                     title={annotations.length === 0
                                                         ? "Add an annotation before sending annotations"
                                                         : "Send annotations"}
@@ -1266,7 +1302,7 @@ function DiffStyleToggle({
                         title="Guided Review generation uses an additional LLM call when backed by an agent provider."
                     >
                         {guideGenerating
-                            ? "Generating guided review…"
+                            ? <RunWieldThinkingDots label="Generating guided review" />
                             : guideReady
                             ? (guideOpen ? "Back to diff" : "Guided Review ready")
                             : "Generate guided review"}

@@ -45,6 +45,7 @@ import { settleWorkflowToolEvent } from "./workflow-tool-events.ts";
 import { switchActiveAgent } from "../session/agent-switching.js";
 import type {
     AgentTurnOutcome,
+    IndependentRepairTurnRequest,
     IsolatedAgentSessionOutcome,
     IsolatedAgentSessionRequest,
     OpaqueToolDefinition,
@@ -361,6 +362,7 @@ async function runIsolatedRequest(
 async function acceptedRepairOutcome(
     hostedSession: HostedSession,
     event: import("./workflow-tool-events.ts").WorkflowToolEvent | null,
+    kind: IndependentRepairTurnRequest["kind"] = "validation",
 ): Promise<AgentTurnOutcome> {
     if (event?.kind !== "task_completed") {
         return {
@@ -371,7 +373,7 @@ async function acceptedRepairOutcome(
     }
     const payload = event.payload as import("./workflow-tool-events.ts").TaskCompletedEventPayload;
     const workflow = event.workflow;
-    if (workflow?.validationRepairGeneration && workflow.executionCwd) {
+    if (kind === "validation" && workflow?.validationRepairGeneration && workflow.executionCwd) {
         await recordValidationRepairCompletion({
             projectRoot: workflow.executionCwd,
             planName: workflow.planName,
@@ -456,10 +458,19 @@ export function createValidationSessionPort(
             ),
         registerActiveInteraction: (id, abortController) => hostedSession.addActiveInteraction(id, { abortController }),
         unregisterActiveInteraction: (id) => hostedSession.removeActiveInteraction(id),
-        runIndependentRepairTurn: async ({ userRequest, cwd }) => {
+        runIndependentRepairTurn: async ({ kind, userRequest, cwd }) => {
             const agentName = SUBAGENTS.REVIEWER_FEEDBACK_ENGINEER;
             const repairManager = getPendingRepairManager(hostedSession, cwd, userRequest);
-            await prepareRepairInvocation(hostedSession, cwd);
+            if (kind === "validation") {
+                await prepareRepairInvocation(hostedSession, cwd);
+            } else {
+                // Publication owns its saved attempt and Git checkout. It must not
+                // manufacture a CI/review checkpoint in that independent clone.
+                const workflow = hostedSession.getActiveExecutionWorkflow();
+                if (workflow) {
+                    hostedSession.setActiveExecutionWorkflow({ ...workflow, validationRepairGeneration: undefined });
+                }
+            }
             const { event } = await runValidationAgentUntilEvent(isolatedSessions, {
                 hostedSession,
                 agentName,
@@ -470,13 +481,15 @@ export function createValidationSessionPort(
                 customTools: pairRepairTools(hostedSession),
                 sessionManager: repairManager,
             }, "task_completed");
-            const completion = await acceptedRepairOutcome(hostedSession, event);
-            lastRepairSessions.set(hostedSession, {
-                manager: repairManager,
-                cwd,
-                agentName,
-                planName: hostedSession.getActiveExecutionWorkflow()?.planName,
-            });
+            const completion = await acceptedRepairOutcome(hostedSession, event, kind);
+            if (kind === "validation") {
+                lastRepairSessions.set(hostedSession, {
+                    manager: repairManager,
+                    cwd,
+                    agentName,
+                    planName: hostedSession.getActiveExecutionWorkflow()?.planName,
+                });
+            }
             if (completion.completed) clearPendingRepairManager(hostedSession, cwd, userRequest);
             return completion;
         },

@@ -1,3 +1,4 @@
+import { RunWieldThinkingDots } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 import { useCallback, useEffect, useState } from "react";
 import { RunWieldButton } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 
@@ -89,7 +90,9 @@ export function DeviceList() {
     if (loading) {
         return (
             <section className="owner-card" aria-busy="true">
-                <p>Loading paired devices…</p>
+                <p>
+                    <RunWieldThinkingDots label="Loading paired devices" />
+                </p>
             </section>
         );
     }
@@ -128,7 +131,7 @@ export function DeviceList() {
                                 disabled={revoking === device.deviceId}
                                 onClick={() => void revoke(device)}
                             >
-                                {revoking === device.deviceId ? "Revoking…" : "Revoke"}
+                                {revoking === device.deviceId ? <RunWieldThinkingDots label="Revoking" /> : "Revoke"}
                             </RunWieldButton>
                         </article>
                     ))

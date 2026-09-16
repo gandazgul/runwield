@@ -189,6 +189,9 @@ used or the process is cancelled.
 
 ## Personal owner Workspace
 
+For step-by-step setup, follow [Workspace on your computer and phone](workspace.md), including local startup, browser
+pairing, and Tailscale access.
+
 Persistent owner Workspace is the paired-device, multi-Project browser surface for personal remote use:
 
 ```bash
@@ -280,7 +283,9 @@ flows.
 
 ## Slash commands
 
-Type `/` in the editor for completion.
+Type `/` in the editor for completion. TUI shows all interactive commands. ACP advertises and runs the same shared
+commands except `/copy`, `/theme`, `/quit`, `/exit`, `/new`, `/resume`, and `/login`. Workspace hides `/theme`, `/quit`,
+and `/exit` and keeps its browser navigation commands.
 
 | Command          | Description                                                                     |
 | ---------------- | ------------------------------------------------------------------------------- |

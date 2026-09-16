@@ -13,6 +13,7 @@ import { join } from "@std/path";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { __resetSettingsForTests } from "../settings.js";
 import { SessionHost } from "./session-host.js";
+import { captureTranscriptEvidence } from "./session-transcript-projection.js";
 import { switchActiveAgent } from "./agent-switching.js";
 import { RuntimeEventTypes } from "./session-runtime-events.js";
 import { RuntimeInteractionTypes } from "./session-runtime-interactions.js";
@@ -20,17 +21,21 @@ import { createSessionRuntime, SessionRuntime, SessionTurnInProgressError } from
 import { getRootSessionRebuildOptions } from "./session.js";
 import { createRootSessionManager, getRunWieldSessionDir, resolveCreatedRootSessionPath } from "./root-session.js";
 import { openFileSessionStore } from "./file-session-store.ts";
+import { sessionDirForRoot } from "./file-session-storage.ts";
 import { openOwnerCoordinationStore } from "../owner-coordination/index.js";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
-import { savePlan } from "../../plan-store.js";
+import { getPlanRevisionForText, savePlan } from "../../plan-store.js";
 import { rememberNonGitExecutionConsent } from "../git.js";
 import { McpToolPool } from "../mcp/pool.ts";
 import { loadPlanActionEvidence } from "../workflow/plan-actions.ts";
+import { buildSemanticRepairSegmentContinuation } from "../workflow/execution-segment-handoff.ts";
 import { getHomeDir, SUBAGENTS } from "../../constants.js";
+import { defineCommittedGitFixture, git } from "../git-test-fixture.ts";
 
 const RUNTIME_TEST_PROVIDER = "session-runtime-test";
 const RUNTIME_TEST_MODEL = "fixture-model";
 const RUNTIME_TEST_API = "session-runtime-faux";
+const RUNTIME_REPAIR_GIT_FIXTURE = defineCommittedGitFixture({ "README.md": "# Runtime repair fixture\n" });
 
 /** @type {ReturnType<typeof registerFauxProvider> | null} */
 let runtimeFauxProvider = null;
@@ -550,6 +555,192 @@ Deno.test("SessionRuntime keeps dormant managed image persistence read-only but 
     });
 });
 
+Deno.test("SessionRuntime uses the model selected by image preflight for submission", async () => {
+    await withRuntimeCommandFixture(
+        "runtime-image-model-agreement-",
+        async ({ projectRoot, settingsPath, setModelResponseFactory }) => {
+            /** @type {string[]} */
+            const requestedModels = [];
+            setModelResponseFactory((_context, _options, _state, model) => {
+                requestedModels.push(model.id);
+                return fauxAssistantMessage(fauxText("SessionRuntime fixture response."));
+            });
+            const runtime = createSessionRuntime();
+            const created = await runtime.createInteractiveSession({
+                cwd: projectRoot,
+                mode: "new",
+                deferManagedActivationUntilAgentReady: true,
+            });
+            try {
+                const image = { base64: btoa("img"), mimeType: "image/png" };
+                const preflight = await runtime.preflightUserTurnImages(created.sessionId, {
+                    initialRequest: "describe this",
+                    initialImages: [image],
+                });
+                assertEquals(preflight.ok, true);
+                const preparedModelOverride = "preparedModelOverride" in preflight
+                    ? preflight.preparedModelOverride
+                    : undefined;
+                assertEquals(preparedModelOverride, "runtime-command-fixture/fixture-model");
+                await Deno.writeTextFile(
+                    settingsPath,
+                    JSON.stringify({
+                        defaultProvider: "runtime-command-fixture",
+                        defaultModel: "alternate-model",
+                        notifications: { enabled: false },
+                    }),
+                );
+                __resetSettingsForTests();
+
+                const result = await runtime.promptUserTurn(created.sessionId, {
+                    initialRequest: "describe this",
+                    initialImages: [image],
+                    preparedModelOverride,
+                });
+
+                assertEquals(result.ok, true);
+                assertEquals(runtime.getSessionSnapshot(created.sessionId)?.activeModel, {
+                    provider: "runtime-command-fixture",
+                    model: "fixture-model",
+                });
+                assertEquals(requestedModels, ["fixture-model"]);
+            } finally {
+                await runtime.closeAllSessionsWhenIdle?.();
+            }
+        },
+        { additionalModels: [{ id: "alternate-model", name: "Alternate" }] },
+    );
+});
+
+Deno.test("SessionRuntime keeps a prepared image model through Prompt Template preflight and provider submission", async () => {
+    await withRuntimeCommandFixture(
+        "runtime-template-image-model-agreement-",
+        async ({ homeDir, projectRoot, settingsPath, setModelResponseFactory }) => {
+            const promptDir = join(projectRoot, ".wld", "prompts");
+            await Deno.mkdir(promptDir, { recursive: true });
+            await Deno.writeTextFile(
+                join(promptDir, "vision-note.md"),
+                ["---", "agent: operator", "---", "Describe this image: {{input}}"].join("\n"),
+            );
+            /** @type {string[]} */
+            const requestedModels = [];
+            setModelResponseFactory((_context, _options, _state, model) => {
+                requestedModels.push(model.id);
+                return fauxAssistantMessage(fauxText("Template image response."));
+            });
+            const runtime = createSessionRuntime();
+            const created = await runtime.createInteractiveSession({
+                cwd: projectRoot,
+                mode: "new",
+                deferManagedActivationUntilAgentReady: true,
+            });
+            try {
+                const image = { base64: btoa("img"), mimeType: "image/png" };
+                const preflight = await runtime.preflightUserTurnImages(created.sessionId, {
+                    initialRequest: "/vision-note carefully",
+                    initialImages: [image],
+                });
+                assertEquals(preflight.ok, true);
+                const preparedModelOverride = "preparedModelOverride" in preflight
+                    ? preflight.preparedModelOverride
+                    : undefined;
+                assertEquals(preparedModelOverride, "runtime-command-fixture/fixture-model");
+                await Deno.writeTextFile(
+                    join(homeDir, ".wld", "models.json"),
+                    JSON.stringify({
+                        providers: {
+                            "runtime-command-fixture": {
+                                name: "Runtime Command Fixture Provider",
+                                baseUrl: "http://127.0.0.1:0",
+                                apiKey: "fixture-key",
+                                api: "runtime-command-faux",
+                                models: [{
+                                    id: "fixture-model",
+                                    name: "Runtime Command Fixture Model",
+                                    api: "runtime-command-faux",
+                                    input: ["text", "image"],
+                                    contextWindow: 128000,
+                                    maxTokens: 4096,
+                                }, {
+                                    id: "text-only-model",
+                                    name: "Text Only",
+                                    api: "runtime-command-faux",
+                                    input: ["text"],
+                                    contextWindow: 128000,
+                                    maxTokens: 4096,
+                                }],
+                            },
+                        },
+                    }),
+                );
+                await Deno.writeTextFile(
+                    settingsPath,
+                    JSON.stringify({
+                        defaultProvider: "runtime-command-fixture",
+                        defaultModel: "text-only-model",
+                        notifications: { enabled: false },
+                    }),
+                );
+                __resetSettingsForTests();
+
+                const result = await runtime.promptUserTurn(created.sessionId, {
+                    initialRequest: "/vision-note carefully",
+                    initialImages: [image],
+                    preparedModelOverride,
+                });
+
+                assertEquals(result.ok, true);
+                assertEquals(requestedModels, ["fixture-model"]);
+            } finally {
+                await runtime.closeAllSessionsWhenIdle?.();
+            }
+        },
+        { additionalModels: [{ id: "text-only-model", name: "Text Only" }] },
+    );
+});
+
+Deno.test("SessionRuntime rejects a persisted image before hydrating a deferred Session", async () => {
+    await withRuntimeCommandFixture(
+        "runtime-persisted-image-preflight-",
+        async ({ homeDir, projectRoot, settingsPath }) => {
+            const modelsPath = `${homeDir}/.wld/models.json`;
+            const modelConfiguration = JSON.parse(await Deno.readTextFile(modelsPath));
+            modelConfiguration.providers["runtime-command-fixture"].models[0].input = ["text"];
+            await Deno.writeTextFile(modelsPath, JSON.stringify(modelConfiguration));
+            await Deno.writeTextFile(
+                settingsPath,
+                JSON.stringify({
+                    defaultProvider: "runtime-command-fixture",
+                    defaultModel: "fixture-model",
+                    notifications: { enabled: false },
+                }),
+            );
+            __resetSettingsForTests();
+            const runtime = createSessionRuntime();
+            const created = await runtime.createInteractiveSession({
+                cwd: projectRoot,
+                mode: "new",
+                deferManagedActivationUntilAgentReady: true,
+            });
+            const imagePath = join(projectRoot, "image.png");
+            await Deno.writeFile(imagePath, new TextEncoder().encode("img"));
+            try {
+                const result = await runtime.preflightUserTurnImages(created.sessionId, {
+                    initialRequest: "describe this",
+                    initialImages: [{ path: imagePath, mimeType: "image/png", base64: "" }],
+                });
+
+                assertEquals(result.ok, false);
+                const message = "message" in result ? result.message || "" : "";
+                assertStringIncludes(message, "image");
+                assertEquals(runtime.getSessionSnapshot(created.sessionId)?.sessionManagerId, null);
+            } finally {
+                await runtime.closeAllSessionsWhenIdle?.();
+            }
+        },
+    );
+});
+
 Deno.test("SessionRuntime persists a newly managed Pi transcript before cataloging it", async () => {
     await withProcessGlobalTestLock(async () => {
         const previousHome = getHomeDir();
@@ -592,6 +783,198 @@ Deno.test("SessionRuntime persists a newly managed Pi transcript before catalogi
             store.close();
             Deno.env.set("HOME", previousHome);
             await removeTempDir(home);
+        }
+    });
+});
+
+Deno.test("SessionRuntime preserves a blocked semantic repair through compaction and follow-up", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const previousHome = getHomeDir();
+        const home = await Deno.makeTempDir({ prefix: "runwield-runtime-worktree-header-" });
+        Deno.env.set("HOME", home);
+        const projectRoot = await RUNTIME_REPAIR_GIT_FIXTURE.checkout({ prefix: "runwield-runtime-project-" });
+        const worktreeRoot = `${home}/worktree`;
+        await git(projectRoot, ["worktree", "add", "-b", "repair-worktree", worktreeRoot]);
+        const store = openFileSessionStore();
+        let manager;
+        try {
+            ensureRuntimeModelFixture();
+            const planBody = "# Repair Follow Up\n\nApproved Plan body";
+            const planId = "runtime-repair-follow-up-plan";
+            await savePlan(worktreeRoot, "repair-follow-up", planBody, {
+                planId,
+                status: "implemented",
+                classification: "PLANNED_CHANGE",
+                executionAgent: "engineer",
+            });
+            const actionEvidence = await loadPlanActionEvidence(worktreeRoot, planId);
+            if (actionEvidence.kind !== "success") throw new Error(actionEvidence.message);
+            const approvedRevision = await getPlanRevisionForText(planBody);
+            const activeWorkflow = {
+                routingIntent: "PLANNED_CHANGE",
+                planName: "repair-follow-up",
+                projectRoot: worktreeRoot,
+                executionCwd: worktreeRoot,
+                executionAgent: "engineer",
+                worktreeId: "29c0436d",
+                worktreeBranch: "repair-worktree",
+                worktreeBaseBranch: "main",
+                triageMeta: {
+                    planId,
+                    planName: "repair-follow-up",
+                    status: "validated_ci",
+                    revision: approvedRevision,
+                    executionAgent: "engineer",
+                },
+            };
+            const project = store.ensureRuntimeProject({ root: projectRoot });
+            const projectSessionDir = sessionDirForRoot(store.path, projectRoot);
+            manager = SessionManager.create(worktreeRoot, projectSessionDir, { id: "worktree-follow-up" });
+            manager.appendMessage({
+                role: "user",
+                timestamp: Date.now(),
+                content: [{ type: "text", text: "Initial repair blocker context" }],
+            });
+            const transcriptPath = manager.getSessionFile?.();
+            if (!transcriptPath) throw new Error("Expected a persisted transcript path");
+            const writableManager = /** @type {any} */ (manager);
+            if (typeof writableManager._rewriteFile === "function") writableManager._rewriteFile();
+
+            const acquired = await store.ensureSessionCatalogRecordAndAcquire({
+                locator: {
+                    projectId: project.projectId,
+                    piSessionId: "worktree-follow-up",
+                    transcriptPath,
+                    transcriptCwd: worktreeRoot,
+                    source: "created",
+                },
+                activation: {
+                    ownerInstanceId: "runtime-test-owner",
+                    ownerProcessKind: "test",
+                    operationId: "fixture-create",
+                },
+            });
+            const evidence = await captureTranscriptEvidence({
+                transcriptPath,
+                transcriptCwd: worktreeRoot,
+            });
+            const hydratedProof = store.changeSessionActivationPhase(acquired.proof, "hydrated");
+            const checkpointProof = store.changeSessionActivationPhase(hydratedProof, "checkpointing");
+            store.publishGenerationAndRelease(checkpointProof, { ...evidence, generation: 0 });
+            const runtime = createSessionRuntime({
+                sessionStore: store,
+                ownerProcessKind: "test",
+                ownerInstanceId: "runtime-test-owner",
+            });
+            const blockerNeedle =
+                "R1-2 blocked: missing reviewer artifact must be restored before this repair can finish.";
+            const blockerText = `${blockerNeedle}\n${"Repair blocker evidence. ".repeat(6000)}`;
+            let promptText = "";
+            let deliveries = 0;
+            try {
+                const adopted = runtime.adoptManagedSession({
+                    session: acquired.session,
+                    generation: 0,
+                    activeAgent: "reviewer-feedback-engineer",
+                });
+                const continuation = buildSemanticRepairSegmentContinuation({
+                    runwieldSessionId: acquired.session.runwieldSessionId,
+                    planId,
+                    planName: "repair-follow-up",
+                    approvedRevision,
+                    approvedStatus: "implemented",
+                    approvedMarkdown: planBody,
+                    preparedEvidence: actionEvidence.evidence,
+                    activeWorkflow,
+                    executionOwner: "plan-engineer",
+                    semanticRound: 2,
+                    repairGeneration: "repair-generation-2",
+                    reviewLedger: { sequence: 1, items: [{ id: "R1-2", title: "Missing blocked repair" }] },
+                    executionState: { executionCwd: worktreeRoot },
+                    ciState: { status: "validated_ci" },
+                    diffText: "diff --git a/file.js b/file.js\n",
+                    findingsSection: "R1-2 — The required blocked-repair regression is still incomplete.",
+                });
+                await runtime.rollManagedSessionSegment(adopted.sessionId, {
+                    kind: "semantic_repair",
+                    continuation,
+                    expectedGeneration: 0,
+                });
+                setRuntimeModelResponseFactories([() => fauxAssistantMessage(fauxText(blockerText))]);
+                const repairResult = await runtime.executePlan(adopted.sessionId, {
+                    planName: "repair-follow-up",
+                    planContent: planBody,
+                    triageMeta: activeWorkflow.triageMeta,
+                });
+                assertEquals(repairResult.kind, "paused");
+                const blockedSegment = store.getCurrentSessionSegment(acquired.session.runwieldSessionId);
+                if (!blockedSegment) throw new Error("Expected a blocked repair segment");
+                assertStringIncludes(await Deno.readTextFile(blockedSegment.transcriptPath), blockerNeedle);
+                assertEquals(
+                    runtime.getRuntimeActiveExecutionWorkflow(adopted.sessionId)?.planName,
+                    "repair-follow-up",
+                );
+
+                setRuntimeModelResponseFactories([
+                    () => fauxAssistantMessage(fauxText(`Compacted repair context keeps: ${blockerNeedle}`)),
+                ]);
+                const compaction = await runtime.compactSession(adopted.sessionId);
+                assertEquals(compaction.error, undefined);
+                setRuntimeModelResponseFactories([(context) => {
+                    deliveries += 1;
+                    promptText = JSON.stringify(context);
+                    return fauxAssistantMessage(fauxText("Follow-up reached the repair Agent."));
+                }]);
+                const result = await runtime.promptUserTurn(adopted.sessionId, {
+                    initialRequest: "Summarize remaining repair work.",
+                });
+                assertEquals(result.ok, true);
+                assertEquals(deliveries, 1);
+                assertStringIncludes(promptText, "Summarize remaining repair work.");
+                assertStringIncludes(promptText, blockerNeedle);
+                assertEquals(runtime.getSessionSnapshot(adopted.sessionId)?.cwd, worktreeRoot);
+                assert((runtime.getSessionSnapshot(adopted.sessionId)?.managed?.generation || 0) >= 2);
+            } finally {
+                await runtime.closeAllSessionsWhenIdle?.();
+            }
+
+            const currentSegment = store.getCurrentSessionSegment(acquired.session.runwieldSessionId);
+            if (!currentSegment) throw new Error("Expected a current repair segment after compaction");
+            assertEquals(currentSegment.kind, "semantic_repair");
+            const reloadedRuntime = createSessionRuntime({
+                sessionStore: store,
+                ownerProcessKind: "test",
+                ownerInstanceId: "runtime-test-owner-reloaded",
+            });
+            setRuntimeModelResponseFactories([(context) => {
+                deliveries += 1;
+                promptText = JSON.stringify(context);
+                return fauxAssistantMessage(fauxText("Reloaded follow-up reached the repair Agent."));
+            }]);
+            try {
+                const loaded = reloadedRuntime.adoptManagedSession({
+                    session: acquired.session,
+                    generation: null,
+                    activeAgent: "reviewer-feedback-engineer",
+                });
+                assertEquals(reloadedRuntime.getRuntimeActiveExecutionWorkflow(loaded.sessionId), null);
+                const result = await reloadedRuntime.promptUserTurn(loaded.sessionId, {
+                    initialRequest: "Continue after disposal.",
+                });
+                assertEquals(result.ok, true);
+                assertEquals(deliveries, 2);
+                assertStringIncludes(promptText, "Continue after disposal.");
+                assertStringIncludes(promptText, blockerNeedle);
+                assertEquals(reloadedRuntime.getSessionSnapshot(loaded.sessionId)?.cwd, worktreeRoot);
+            } finally {
+                await reloadedRuntime.closeAllSessionsWhenIdle?.();
+            }
+        } finally {
+            await Promise.resolve((/** @type {any} */ (manager))?.dispose?.());
+            store.close();
+            Deno.env.set("HOME", previousHome);
+            await removeTempDir(home);
+            await removeTempDir(projectRoot);
         }
     });
 });
@@ -1240,7 +1623,6 @@ Deno.test("SessionRuntime emits the first user message before busy and persisten
         runtime.markPromptReadyAgent(created.sessionId, { agentName: "router" });
         const result = await runtime.promptUserTurn(created.sessionId, {
             initialRequest: "hello",
-            initialImages: [{ base64: btoa("img"), mimeType: "image/png" }],
         });
         assertEquals(result.ok, true);
         await presentationTurn;
@@ -3153,4 +3535,28 @@ Deno.test("user-authorized agent switch releases active workflows", async () => 
     assertEquals(snapshot?.activeExecutionWorkflow, null);
     assertEquals(snapshot?.workflowContext?.planName, "release-plan");
     assertEquals(notices.some((message) => message.includes("/load-plan")), true);
+});
+
+Deno.test("SessionRuntime rejects image user turns before submission events", async () => {
+    const runtime = makeRuntime();
+    const sessionId = await runtime.createPromptReadySession({ cwd: runtimeProjectRoot() });
+    /** @type {string[]} */
+    const events = [];
+    runtime.subscribeSessionEvents(sessionId, (event) => {
+        events.push(event.type);
+    });
+
+    await assertRejects(
+        () =>
+            runtime.promptUserTurn(sessionId, {
+                initialRequest: "look before accepting",
+                initialImages: [{ base64: btoa("img"), mimeType: "image/png" }],
+                modelOverride: "agy-cli/gemini-3.8-flash",
+            }),
+        Error,
+        "Antigravity CLI sessions do not support image attachments.",
+    );
+
+    assertEquals(events.includes(RuntimeEventTypes.USER_MESSAGE), false);
+    assertEquals(events.includes(RuntimeEventTypes.TURN_START), false);
 });

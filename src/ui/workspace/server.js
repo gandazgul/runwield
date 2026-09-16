@@ -114,6 +114,7 @@ const WORKSPACE_PLAN_ADAPTER_URL_KEY = Symbol.for("runwield.workspace.plan-adapt
 /** @typedef {{ handler: () => (request: Request) => Promise<Response> }} WorkspaceApp */
 /** @typedef {WorkspaceApp & { adapter: import("./server/remote-adapter.js").RemoteWorkspaceAdapter }} RemoteWorkspaceApp */
 const REVIEW_PAYLOAD_HEADER = "x-runwield-review-payload";
+const QUESTION_PAYLOAD_HEADER = "x-runwield-question-payload";
 
 /**
  * @typedef {Object} ReviewServerOutput
@@ -356,6 +357,37 @@ function createLocalWorkspaceApp({ cwd, token, skipTokenCheck = false, mnemoteca
 /**
  * @param {{ cwd: string, token: string, reviewPayload: Record<string, unknown>, reviewType: "plan" | "code", reviewConversation?: { id: string, agentLabel: string, revision: number, events: Array<{ type: string, delta: string, messageId: string, agentName: string }> } }} options
  */
+/**
+ * @param {{ cwd: string, token: string, questionPayload: Record<string, unknown>, answerQuestion: (request: Request) => Promise<Response>|Response }} options
+ */
+export function createSessionQuestionWorkspaceApp({ cwd, token, questionPayload, answerQuestion }) {
+    return {
+        handler() {
+            /** @param {Request} request */
+            return async (request) => {
+                const url = new URL(request.url);
+                if (isPublicWorkspaceAsset(url.pathname)) return await handleStaticRoute(url.pathname);
+                if (!hasWorkspaceToken(request, token)) {
+                    return new Response("Question token required.", { status: 401 });
+                }
+                if (request.method === "POST" && url.pathname === "/api/session-question/answer") {
+                    return await answerQuestion(request);
+                }
+                if (request.method === "GET" && url.pathname === "/session-question") {
+                    const payload = {
+                        ...questionPayload,
+                        action: `/api/session-question/answer?${PLAN_UI_TOKEN_QUERY}=${encodeURIComponent(token)}`,
+                    };
+                    const astroResponse = await renderAstroQuestionPage(request, cwd, payload);
+                    if (astroResponse) return astroResponse;
+                    return workspaceBuildUnavailable();
+                }
+                return new Response("Not found", { status: 404 });
+            };
+        },
+    };
+}
+
 export function createReviewWorkspaceApp({ cwd, token, reviewPayload, reviewType, reviewConversation }) {
     const reviewAgentState = reviewType === "code"
         ? createReviewAgentState({ cwd, token, reviewPayload, runGuideCommand: runConfiguredGuideCommand })
@@ -609,6 +641,21 @@ async function renderAstroReviewPage(request, cwd, payload) {
     }
 }
 
+/** @param {Request} request @param {string} cwd @param {Record<string, unknown>} payload */
+async function renderAstroQuestionPage(request, cwd, payload) {
+    const handle = await loadAstroHandle();
+    if (!handle) return null;
+    const headers = new Headers(request.headers);
+    headers.set(WORKSPACE_CWD_HEADER, cwd);
+    headers.set(QUESTION_PAYLOAD_HEADER, encodeURIComponent(JSON.stringify(payload)));
+    try {
+        const response = await handle(rebuildRequestWithHeaders(request, headers));
+        return response.status === 404 ? null : response;
+    } catch {
+        return null;
+    }
+}
+
 /** @param {string} pathname */
 function isLegacyReviewApiPath(pathname) {
     return pathname === "/api/decision" ||
@@ -696,7 +743,7 @@ function ownerHtmlResponse(title, body, status = 200) {
     const html =
         `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${
             escapeHtml(title)
-        }</title><link rel="icon" href="/brand/logo.svg" type="image/svg+xml"><link rel="stylesheet" href="/tokens.css"><link rel="stylesheet" href="/components.css"><link rel="stylesheet" href="/workspace.css"><link rel="stylesheet" href="/theme.css"></head><body class="theme-runwield"><div class="workspace-shell workspace-shell-with-sidebar owner-workspace-shell"><aside class="workspace-sidebar" data-workspace-sidebar aria-label="Workspace navigation"><p class="workspace-sidebar-empty">Loading Workspace…</p></aside><div class="workspace-main-shell"><header class="workspace-main-header"><a class="brand workspace-main-brand" href="/" aria-label="RunWield Workspace home"><img class="brand-logo" src="/brand/logo.svg" alt="" aria-hidden="true"><span>RunWield Workspace</span></a></header><main>${body}</main></div></div><script type="module" src="/workspace-shell.js"></script></body></html>`;
+        }</title><link rel="icon" href="/brand/logo.svg" type="image/svg+xml"><link rel="stylesheet" href="/tokens.css"><link rel="stylesheet" href="/components.css"><link rel="stylesheet" href="/workspace.css"><link rel="stylesheet" href="/theme.css"></head><body class="theme-runwield"><div class="workspace-shell workspace-shell-with-sidebar owner-workspace-shell"><aside class="workspace-sidebar" data-workspace-sidebar aria-label="Workspace navigation"><p class="workspace-sidebar-empty"><span class="rw-thinking-dots" role="status"><span class="rw-thinking-glyph" aria-hidden="true"></span>Loading Workspace</span></p></aside><div class="workspace-main-shell"><header class="workspace-main-header"><a class="brand workspace-main-brand" href="/" aria-label="RunWield Workspace home"><img class="brand-logo" src="/brand/logo.svg" alt="" aria-hidden="true"><span>RunWield Workspace</span></a></header><main>${body}</main></div></div><script type="module" src="/workspace-shell.js"></script></body></html>`;
     return withOwnerSecurityHeaders(
         new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8" } }),
     );
@@ -1142,6 +1189,26 @@ export function startWorkspaceServer(options) {
                 : "dev",
         }),
     );
+}
+
+/**
+ * @param {{ cwd?: string, token: string, questionPayload: Record<string, unknown>, answerQuestion: (request: Request) => Promise<Response>|Response, host?: string, port?: number, signal?: AbortSignal }} options
+ */
+export function startSessionQuestionWorkspaceServer(options) {
+    const host = options.host ?? "127.0.0.1";
+    const app = createSessionQuestionWorkspaceApp({
+        cwd: options.cwd ?? Deno.cwd(),
+        token: options.token,
+        questionPayload: options.questionPayload,
+        answerQuestion: options.answerQuestion,
+    });
+    return Deno.serve({
+        hostname: host,
+        port: options.port ?? 0,
+        signal: options.signal,
+        automaticCompression: true,
+        onListen() {},
+    }, app.handler());
 }
 
 /**

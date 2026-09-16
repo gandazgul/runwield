@@ -93,11 +93,11 @@ function writeStateSync(state: InitState): void {
 }
 
 /**
- * Get the SHA-256 hash of the current working directory.
+ * Get the SHA-256 hash of a project directory.
  * @returns {Promise<string>}
  */
-export async function getCwdHash(): Promise<string> {
-    return await sha256(getCwd());
+export async function getCwdHash(projectRoot = getCwd()): Promise<string> {
+    return await sha256(projectRoot);
 }
 
 /**
@@ -112,8 +112,8 @@ export async function getInitState(): Promise<InitState> {
  * Get the init state entry for the current CWD.
  * @returns {Promise<InitStateEntry | undefined>}
  */
-export async function getCwdInitState(): Promise<InitStateEntry | undefined> {
-    const cwdHash = await getCwdHash();
+export async function getCwdInitState(projectRoot = getCwd()): Promise<InitStateEntry | undefined> {
+    const cwdHash = await getCwdHash(projectRoot);
     const state = await readState();
     return state[cwdHash];
 }
@@ -141,13 +141,12 @@ function newEntry(path: string): InitStateEntry {
  * @param {Record<string, InitStateEntry>} state
  * @returns {Promise<InitStateEntry>}
  */
-async function ensureCwdEntry(state: InitState): Promise<InitStateEntry> {
-    const cwd = getCwd();
-    const cwdHash = await getCwdHash();
+async function ensureCwdEntry(state: InitState, projectRoot = getCwd()): Promise<InitStateEntry> {
+    const cwdHash = await getCwdHash(projectRoot);
     if (!state[cwdHash]) {
-        state[cwdHash] = newEntry(cwd);
+        state[cwdHash] = newEntry(projectRoot);
     } else {
-        state[cwdHash].path = cwd;
+        state[cwdHash].path = projectRoot;
     }
     return state[cwdHash];
 }
@@ -156,9 +155,9 @@ async function ensureCwdEntry(state: InitState): Promise<InitStateEntry> {
  * Record that init was offered for the current CWD.
  * @returns {Promise<void>}
  */
-export async function recordInitOffered(): Promise<void> {
+export async function recordInitOffered(projectRoot = getCwd()): Promise<void> {
     const state = await readState();
-    const entry = await ensureCwdEntry(state);
+    const entry = await ensureCwdEntry(state, projectRoot);
     entry.initOffered = true;
     entry.offeredAt = new Date().toISOString();
     writeStateSync(state);
@@ -169,9 +168,9 @@ export async function recordInitOffered(): Promise<void> {
  * Implicitly marks init as offered as well.
  * @returns {Promise<void>}
  */
-export async function recordInitDone(): Promise<void> {
+export async function recordInitDone(projectRoot = getCwd()): Promise<void> {
     const state = await readState();
-    const entry = await ensureCwdEntry(state);
+    const entry = await ensureCwdEntry(state, projectRoot);
     const now = new Date().toISOString();
     entry.initOffered = true;
     entry.initDone = true;
@@ -184,8 +183,8 @@ export async function recordInitDone(): Promise<void> {
  * Check whether init has been completed for the current CWD.
  * @returns {Promise<boolean>}
  */
-export async function isInitDone(): Promise<boolean> {
-    const entry = await getCwdInitState();
+export async function isInitDone(projectRoot = getCwd()): Promise<boolean> {
+    const entry = await getCwdInitState(projectRoot);
     return entry?.initDone === true;
 }
 

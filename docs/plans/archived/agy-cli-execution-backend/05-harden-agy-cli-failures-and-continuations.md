@@ -23,6 +23,9 @@ order: 5
 dependencies:
     - "04-bridge-agy-workflow-signals-through-mcp"
 userVerifiedAt: null
+archivedAt: "2026-09-15T18:22:33.131Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/agy-cli-execution-backend/05-harden-agy-cli-failures-and-continuations.md"
 targetBranch: "feature/agy-cli-execution-backend"
 ---
 

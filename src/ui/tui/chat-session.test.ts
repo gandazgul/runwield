@@ -42,18 +42,19 @@ Deno.test("resolveTemplateModel validates provider/id lookup and auth", () => {
     assertEquals(resolveTemplateModel("test/model", registry), { ok: true, provider: "test", id: "model" });
 });
 
-Deno.test("setActiveModel delegates reconfiguration to SessionRuntime and persists selection", async () => {
+Deno.test("setActiveModel delegates reconfiguration to SessionRuntime without persisting defaults", async () => {
     await withRuntimeCommandFixture("chat-session-model-persistence-", async ({ projectRoot }) => {
         const runtime = createSessionRuntime();
         try {
             const { sessionId } = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
-            await setActiveModel(runtime, sessionId, "model-a", "provider-a");
+            await runtime.switchAgent(sessionId, { agentName: "router" });
+            await setActiveModel(runtime, sessionId, "fixture-model", "runtime-command-fixture");
             assertEquals(runtime.getSessionSnapshot(sessionId)?.activeModel, {
-                model: "model-a",
-                provider: "provider-a",
+                model: "fixture-model",
+                provider: "runtime-command-fixture",
             });
-            assertEquals(getSettingsManager(projectRoot).getDefaultModel(), "model-a");
-            assertEquals(getSettingsManager(projectRoot).getDefaultProvider(), "provider-a");
+            assertEquals(getSettingsManager(projectRoot).getDefaultModel(), "fixture-model");
+            assertEquals(getSettingsManager(projectRoot).getDefaultProvider(), "runtime-command-fixture");
         } finally {
             runtime.closeAllSessions();
         }

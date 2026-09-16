@@ -22,6 +22,107 @@ Deno.test("root-session cwd directory encoding stays inside filename limits for 
     assertEquals(encoded.endsWith("--"), true);
 });
 
+Deno.test("root-session opens a validated transcript stored under the Project session directory with a worktree cwd", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const previousHome = Deno.env.get("HOME");
+        const home = await Deno.makeTempDir();
+        Deno.env.set("HOME", home);
+        let manager;
+        let opened;
+        try {
+            const { SessionManager } = await import("@earendil-works/pi-coding-agent");
+            const projectRoot = `${home}/repo`;
+            const worktreeRoot = `${home}/worktree`;
+            await Deno.mkdir(projectRoot, { recursive: true });
+            await Deno.mkdir(worktreeRoot, { recursive: true });
+            const projectSessionDir = getRunWieldSessionDir(projectRoot);
+            manager = SessionManager.create(worktreeRoot, projectSessionDir, { id: "worktree-header" });
+            manager.appendMessage(
+                /** @type {any} */ ({
+                    role: "user",
+                    timestamp: Date.now(),
+                    content: [{ type: "text", text: "repair context" }],
+                }),
+            );
+            const transcriptPath = manager.getSessionFile?.();
+            if (!transcriptPath) throw new Error("Expected a persisted transcript path");
+            const writableManager = /** @type {any} */ (manager);
+            if (typeof writableManager._rewriteFile === "function") writableManager._rewriteFile();
+
+            await assertRejects(
+                () =>
+                    openPersistedRootSession({
+                        cwd: worktreeRoot,
+                        sessionId: "worktree-header",
+                        sessionPath: transcriptPath,
+                    }),
+                Error,
+                "outside the RunWield session directory",
+            );
+
+            await assertRejects(
+                () =>
+                    openPersistedRootSession({
+                        cwd: worktreeRoot,
+                        sessionId: "worktree-header",
+                        sessionPath: transcriptPath,
+                        sessionDir: projectSessionDir,
+                    }),
+                Error,
+                "managed Project evidence",
+            );
+
+            await assertRejects(
+                () =>
+                    openPersistedRootSession({
+                        cwd: projectRoot,
+                        sessionId: "worktree-header",
+                        sessionPath: transcriptPath,
+                        sessionDir: projectSessionDir,
+                        managedProjectRoot: projectRoot,
+                        managedSegmentCwd: projectRoot,
+                    }),
+                Error,
+                "Persisted session cwd does not match requested cwd",
+            );
+
+            opened = await openPersistedRootSession({
+                cwd: worktreeRoot,
+                sessionId: "worktree-header",
+                sessionPath: transcriptPath,
+                sessionDir: projectSessionDir,
+                managedProjectRoot: projectRoot,
+                managedSegmentCwd: worktreeRoot,
+            });
+            assertEquals(opened.resolved.cwd, await Deno.realPath(worktreeRoot));
+            assertEquals(opened.resolved.sessionDir, projectSessionDir);
+            assertEquals(opened.resolved.sessionPath, transcriptPath);
+            assertEquals(opened.sessionManager.getSessionId(), "worktree-header");
+            assertEquals(getRootSessionBranchEntries(opened.sessionManager).length, 1);
+
+            await assertRejects(
+                () =>
+                    openPersistedRootSession({
+                        cwd: worktreeRoot,
+                        sessionId: "wrong-session",
+                        sessionPath: transcriptPath,
+                        sessionDir: projectSessionDir,
+                        managedProjectRoot: projectRoot,
+                        managedSegmentCwd: worktreeRoot,
+                    }),
+                Error,
+                "Persisted session not found",
+            );
+        } finally {
+            await Promise.resolve((/** @type {any} */ (opened?.sessionManager))?.dispose?.());
+            await Promise.resolve((/** @type {any} */ (manager))?.dispose?.());
+            if (previousHome === undefined) Deno.env.delete("HOME");
+            else Deno.env.set("HOME", previousHome);
+            await removeTempDirBestEffort(home);
+        }
+    });
+});
+
 Deno.test("root-session persisted helpers list open and guard cwd paths", async () => {
     await withProcessGlobalTestLock(async () => {
         const previousHome = Deno.env.get("HOME");

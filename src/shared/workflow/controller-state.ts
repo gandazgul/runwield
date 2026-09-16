@@ -73,6 +73,7 @@ export type WorkflowWorktreeContext = {
     worktreePath?: string | null;
     worktreeBranch?: string | null;
     worktreeBaseBranch?: string | null;
+    worktreeBaseCommit?: string | null;
     worktreeStatus?:
         | "none"
         | "planning"
@@ -92,6 +93,7 @@ export const WORKTREE_CONTEXT_FIELDS = [
     "worktreePath",
     "worktreeBranch",
     "worktreeBaseBranch",
+    "worktreeBaseCommit",
     "worktreeStatus",
     "executionBaselineTree",
 ] as const satisfies readonly (keyof WorkflowWorktreeContext)[];

@@ -319,6 +319,7 @@ export async function dispatchCiRepair(
         { outcome: "running", stage: "engineer_repair", checks: { ci: "failed" } },
     );
     const outcome = await args.session.runIndependentRepairTurn({
+        kind: "validation",
         agentName: AGENTS.REVIEWER_FEEDBACK_ENGINEER,
         userRequest: buildValidationRepairPrompt({
             executionCwd: context.executionCwd,

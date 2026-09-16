@@ -4,17 +4,26 @@ import { validateSequenceReviewDecision } from "../../../shared/workflow/sequenc
 import { appendLiveSessionEvent } from "../../../shared/session/live-session-events.ts";
 import { readLiveSessionConnection } from "../../../shared/session/live-session-connection.ts";
 import { createHash } from "node:crypto";
-import { AGENTS } from "../../../constants.js";
 import { findPlanEvidenceById } from "../../../plan-store.js";
-import { getModelRegistry } from "../../../shared/models/model-registry.ts";
 import { getMergedCustomSetting, getSettingsManager } from "../../../shared/settings.js";
-import { listAvailableAgents } from "../../../shared/session/agents.js";
+import {
+    applyUserAgentSelection,
+    applyUserModelSelection,
+    getDefaultUserAgentOption,
+    listUserAgentOptions,
+    listUserModelOptions,
+    requireUserAgentOption,
+    requireUserModelOption,
+} from "../../../shared/session/user-selection.ts";
+import { getCommandDefinition, getSlashCommandDefinitions } from "../../../cmd/registry.js";
 import { normalizeBrowserNotificationPolicy } from "../../../shared/session/notification-content.ts";
 import { applySharedPlanReviewDecision } from "../../../shared/workflow/plan-review-actions.ts";
 import { getWorkflowDiff } from "../../../shared/workflow/git-snapshot.js";
 import {
     createSessionRuntime,
     deriveManagedSessionContinuationDecision,
+    listPromptTemplates,
+    listSkills,
 } from "../../../shared/session/session-runtime.js";
 import { getRunWieldSessionDir } from "../../../shared/session/root-session.js";
 import { projectAggregateTranscript } from "../../../shared/session/session-transcript-manifest.ts";
@@ -339,35 +348,40 @@ export class WorkspaceSessionContinuationService {
     async listSessionOptions(projectId) {
         const projectRoot = requireOwnerProjectRoot(this.store, projectId);
         const settings = getSettingsManager(projectRoot);
-        const agents = await listAvailableAgents(projectRoot);
-        const registry = getModelRegistry();
-        const models = registry.getSelectable();
+        const agentOptions = await listUserAgentOptions(projectRoot);
+        const defaultAgent = await getDefaultUserAgentOption(projectRoot);
+        const models = await listUserModelOptions();
         const defaultProvider = settings.getDefaultProvider?.() || "";
         const defaultModel = settings.getDefaultModel?.() || "";
         const defaultThinkingLevel = settings.getDefaultThinkingLevel?.() || "default";
+        const [templates, skills] = await Promise.all([
+            listPromptTemplates({ cwd: projectRoot }),
+            listSkills({ cwd: projectRoot }),
+        ]);
+        const builtins = getSlashCommandDefinitions("workspace");
         return {
             defaults: {
-                agentName: AGENTS.ROUTER,
-                model: defaultModel,
-                provider: defaultProvider,
-                thinkingLevel: defaultThinkingLevel,
+                agentName: defaultAgent.name,
+                model: defaultAgent.defaults.model || defaultModel,
+                provider: defaultAgent.defaults.provider || defaultProvider,
+                thinkingLevel: defaultAgent.defaults.thinkingLevel || defaultThinkingLevel,
             },
-            agents: [
-                { name: AGENTS.ROUTER, displayName: "Router", description: "Choose the first RunWield step." },
-                ...agents.map((agent) => ({
-                    name: agent.name,
-                    displayName: agent.displayName || agent.name,
-                    description: agent.description || "",
-                })).filter((agent) => agent.name !== AGENTS.ROUTER),
+            agents: agentOptions,
+            commands: [
+                ...builtins.map((command) => ({
+                    name: command.name,
+                    description: command.description,
+                    kind: "action",
+                })),
+                ...templates.filter((template) => !getCommandDefinition(template.name))
+                    .map((template) => ({ name: template.name, description: template.description, kind: "prompt" })),
+                ...skills.map((skill) => ({
+                    name: `skill:${skill.name}`,
+                    description: skill.description,
+                    kind: "prompt",
+                })),
             ],
-            models: models.map((model) => ({
-                id: model.id,
-                name: model.name || model.id,
-                provider: model.provider || "",
-                providerName: registry.getProviderDisplayName(model.provider || ""),
-                executionBackend: model.executionBackend || "pi",
-                reasoning: model.reasoning === true,
-            })),
+            models,
             thinkingLevels: ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
         };
     }
@@ -550,26 +564,20 @@ export class WorkspaceSessionContinuationService {
 
     /**
      * @param {string | undefined} agentName
-     * @param {{ agents: Array<{ name: string }> }} sessionOptions
+     * @param {string} projectRoot
      */
-    validateAgentSelection(agentName, sessionOptions) {
+    async validateAgentSelection(agentName, projectRoot) {
         if (typeof agentName !== "string" || !agentName) return;
-        const agentAllowed = sessionOptions.agents.some((agent) => agent.name === agentName);
-        if (!agentAllowed) throw new Error("Selected Agent is not available for this Project.");
+        await requireUserAgentOption(agentName, projectRoot);
     }
 
     /**
      * @param {string | undefined} model
      * @param {string | undefined} provider
-     * @param {{ models: Array<{ id: string, provider?: string }> }} sessionOptions
      */
-    validateModelSelection(model, provider, sessionOptions) {
+    async validateModelSelection(model, provider) {
         if (typeof model !== "string" || !model) return;
-        const selectedProvider = provider || "";
-        const modelAllowed = sessionOptions.models.some((item) =>
-            item.id === model && (item.provider || "") === selectedProvider
-        );
-        if (!modelAllowed) throw new Error("Selected model is not available.");
+        await requireUserModelOption(model, provider || "");
     }
 
     /**
@@ -606,19 +614,21 @@ export class WorkspaceSessionContinuationService {
      */
     async applyPendingConfiguration(runtimeSessionId, pendingConfiguration) {
         if (pendingConfiguration.agentName) {
-            const result = await this.runtime.switchAgent(runtimeSessionId, {
-                agentName: pendingConfiguration.agentName,
-                releaseActiveWorkflow: true,
-            });
-            if (!result?.ok) throw new Error(result?.error || "Selected Agent could not be applied.");
+            const result = await applyUserAgentSelection(
+                this.runtime,
+                runtimeSessionId,
+                pendingConfiguration.agentName,
+            );
+            if (!result.ok) throw new Error(result.error || "Selected Agent could not be applied.");
         }
         if (pendingConfiguration.model) {
-            const result = await this.runtime.reconfigureSessionModel(
+            const result = await applyUserModelSelection(
+                this.runtime,
                 runtimeSessionId,
                 pendingConfiguration.model,
                 pendingConfiguration.provider || "",
             );
-            if (!result?.ok) throw new Error(result?.error || "Selected model could not be applied.");
+            if (!result.ok) throw new Error(result.error || "Selected model could not be applied.");
         }
     }
 
@@ -630,9 +640,10 @@ export class WorkspaceSessionContinuationService {
         if (!session || !sessionBelongsToOwnerProject(this.store, session, options.projectId)) {
             throw new Error("Session not found.");
         }
+        const projectRoot = requireOwnerProjectRoot(this.store, options.projectId);
         const sessionOptions = await this.listSessionOptions(options.projectId);
-        this.validateAgentSelection(options.agentName, sessionOptions);
-        this.validateModelSelection(options.model, options.provider, sessionOptions);
+        await this.validateAgentSelection(options.agentName, projectRoot);
+        await this.validateModelSelection(options.model, options.provider);
         this.validateThinkingSelection(options.thinkingLevel, sessionOptions);
         const activeOperation = this.findActiveWorkspaceOperation(
             options.runwieldSessionId,
@@ -640,7 +651,7 @@ export class WorkspaceSessionContinuationService {
         );
         if (activeOperation) {
             const pendingConfiguration = {
-                ...(activeOperation.record.pendingConfiguration || {}),
+                ...(options.agentName ? {} : activeOperation.record.pendingConfiguration || {}),
                 ...(options.agentName ? { agentName: options.agentName } : {}),
                 ...(options.model ? { model: options.model, provider: options.provider || "" } : {}),
             };
@@ -667,19 +678,17 @@ export class WorkspaceSessionContinuationService {
         const adopted = await this.adoptIdleManagedSession(options.runwieldSessionId, options.expectedGeneration);
         try {
             if (typeof options.agentName === "string" && options.agentName) {
-                const result = await this.runtime.switchAgent(adopted.sessionId, {
-                    agentName: options.agentName,
-                    releaseActiveWorkflow: true,
-                });
-                if (!result?.ok) throw new Error(result?.error || "Selected Agent could not be applied.");
+                const result = await applyUserAgentSelection(this.runtime, adopted.sessionId, options.agentName);
+                if (!result.ok) throw new Error(result.error || "Selected Agent could not be applied.");
             }
             if (typeof options.model === "string" && options.model) {
-                const result = await this.runtime.reconfigureSessionModel(
+                const result = await applyUserModelSelection(
+                    this.runtime,
                     adopted.sessionId,
                     options.model,
                     options.provider || "",
                 );
-                if (!result?.ok) throw new Error(result?.error || "Selected model could not be applied.");
+                if (!result.ok) throw new Error(result.error || "Selected model could not be applied.");
             }
             if (typeof options.thinkingLevel === "string" && options.thinkingLevel) {
                 const thinkingLevel = /** @type {WorkspaceThinkingLevel} */ (options.thinkingLevel);
@@ -926,21 +935,17 @@ export class WorkspaceSessionContinuationService {
         await Promise.resolve();
         const project = this.store.getProjectById(options.projectId);
         if (!project || project.lifecycle !== "enabled") throw new Error("Project not found.");
+        const projectRoot = requireOwnerProjectRoot(this.store, options.projectId);
+        const defaultAgent = await getDefaultUserAgentOption(projectRoot);
         const launch = {
-            agentName: options.agentName || AGENTS.ROUTER,
+            agentName: options.agentName || defaultAgent.name,
             model: options.model || "",
             provider: options.provider || "",
             thinkingLevel: options.thinkingLevel || "default",
         };
         const sessionOptions = await this.listSessionOptions(options.projectId);
-        const agentAllowed = sessionOptions.agents.some((agent) => agent.name === launch.agentName);
-        if (!agentAllowed) throw new Error("Selected Agent is not available for this Project.");
-        if (launch.model) {
-            const modelAllowed = sessionOptions.models.some((model) =>
-                model.id === launch.model && (model.provider || "") === launch.provider
-            );
-            if (!modelAllowed) throw new Error("Selected model is not available.");
-        }
+        await this.validateAgentSelection(launch.agentName, projectRoot);
+        await this.validateModelSelection(launch.model, launch.provider);
         if (launch.thinkingLevel !== "default" && !sessionOptions.thinkingLevels.includes(launch.thinkingLevel)) {
             throw new Error("Selected thinking level is not supported.");
         }
@@ -965,6 +970,57 @@ export class WorkspaceSessionContinuationService {
                 generation: operation?.generation ?? null,
             };
         }
+        let preparedSessionId = "";
+        let preparedModelOverride = "";
+        if ((options.images || []).length > 0) {
+            try {
+                const created = await this.runtime.createInteractiveSession({
+                    cwd: project.currentRoot,
+                    mode: "new",
+                    deferManagedActivationUntilAgentReady: true,
+                });
+                preparedSessionId = created.sessionId;
+                if (launch.model) {
+                    const modelResult = await this.runtime.reconfigureSessionModel(
+                        preparedSessionId,
+                        launch.model,
+                        launch.provider,
+                    );
+                    if (!modelResult?.ok) throw new Error("Selected model could not be applied.");
+                }
+                if (launch.thinkingLevel !== "default") {
+                    const thinkingLevel = /** @type {WorkspaceThinkingLevel} */ (launch.thinkingLevel);
+                    const thinkingResult = await this.runtime.setSessionThinkingLevel(preparedSessionId, thinkingLevel);
+                    if (!thinkingResult?.ok) throw new Error("Selected thinking level could not be applied.");
+                }
+                const preflight = await this.runtime.preflightUserTurnImages(preparedSessionId, {
+                    initialRequest: options.text,
+                    initialImages: options.images || [],
+                    agentName: launch.agentName,
+                });
+                if (!preflight.ok) throw new Error(preflight.message);
+                preparedModelOverride = "preparedModelOverride" in preflight
+                    ? preflight.preparedModelOverride || ""
+                    : "";
+            } catch (error) {
+                if (preparedSessionId) this.runtime.closeSessionWhenIdle(preparedSessionId);
+                throw error;
+            }
+        }
+        const repeated = this.createRequests.get(createKey);
+        if (repeated) {
+            if (preparedSessionId) this.runtime.closeSessionWhenIdle(preparedSessionId);
+            if (repeated.requestHash !== requestHash) {
+                throw new Error("Operation request id was reused with different input");
+            }
+            const operation = this.operations.get(repeated.operationId);
+            return {
+                operationId: repeated.operationId,
+                status: operation?.status || "running",
+                runwieldSessionId: operation?.runwieldSessionId || null,
+                generation: operation?.generation ?? null,
+            };
+        }
         const operationId = crypto.randomUUID();
         this.createRequests.set(createKey, { requestHash, operationId });
         this.setOperation(operationId, {
@@ -974,15 +1030,17 @@ export class WorkspaceSessionContinuationService {
             runwieldSessionId: null,
         });
         queueMicrotask(async () => {
-            let sessionId = "";
+            let sessionId = preparedSessionId;
             let unsubscribe = () => {};
             try {
-                const created = await this.runtime.createInteractiveSession({
-                    cwd: project.currentRoot,
-                    mode: "new",
-                    deferManagedActivationUntilAgentReady: true,
-                });
-                sessionId = created.sessionId;
+                if (!sessionId) {
+                    const created = await this.runtime.createInteractiveSession({
+                        cwd: project.currentRoot,
+                        mode: "new",
+                        deferManagedActivationUntilAgentReady: true,
+                    });
+                    sessionId = created.sessionId;
+                }
                 this.setOperation(operationId, {
                     ...(this.operations.get(operationId) || { projectId: options.projectId, events: [] }),
                     status: "running",
@@ -993,23 +1051,29 @@ export class WorkspaceSessionContinuationService {
                 unsubscribe = this.runtime.subscribeSessionEvents(sessionId, (event) => {
                     this.appendOperationEvent(operationId, event);
                 });
-                if (launch.model) {
-                    const modelResult = await this.runtime.reconfigureSessionModel(
-                        sessionId,
-                        launch.model,
-                        launch.provider,
-                    );
-                    if (!modelResult?.ok) throw new Error("Selected model could not be applied.");
-                }
-                if (launch.thinkingLevel !== "default") {
-                    const thinkingLevel = /** @type {WorkspaceThinkingLevel} */ (launch.thinkingLevel);
-                    const thinkingResult = await this.runtime.setSessionThinkingLevel(sessionId, thinkingLevel);
-                    if (!thinkingResult?.ok) throw new Error("Selected thinking level could not be applied.");
+                if (!preparedSessionId) {
+                    if (launch.model) {
+                        const modelResult = await applyUserModelSelection(
+                            this.runtime,
+                            sessionId,
+                            launch.model,
+                            launch.provider,
+                        );
+                        if (!modelResult.ok) {
+                            throw new Error(modelResult.error || "Selected model could not be applied.");
+                        }
+                    }
+                    if (launch.thinkingLevel !== "default") {
+                        const thinkingLevel = /** @type {WorkspaceThinkingLevel} */ (launch.thinkingLevel);
+                        const thinkingResult = await this.runtime.setSessionThinkingLevel(sessionId, thinkingLevel);
+                        if (!thinkingResult?.ok) throw new Error("Selected thinking level could not be applied.");
+                    }
                 }
                 const result = await this.runtime.promptUserTurn(sessionId, {
                     initialRequest: options.text,
                     initialImages: options.images || [],
                     agentName: launch.agentName,
+                    preparedModelOverride,
                 });
                 const snapshot = this.runtime.getSessionSnapshot(sessionId);
                 const runwieldSessionId = snapshot?.managed?.runwieldSessionId || null;
@@ -1091,22 +1155,91 @@ export class WorkspaceSessionContinuationService {
             expectedGeneration: options.expectedGeneration,
         });
         if (!decision.ok) throw new Error(decision.message);
-        const receipt = requireReceipt(this.store.createOrGetOperationReceipt({
+        let preflightAdopted = null;
+        let preparedModelOverride = "";
+        if ((options.images || []).length > 0) {
+            try {
+                preflightAdopted = this.runtime.adoptManagedSession({
+                    session,
+                    generation: options.expectedGeneration,
+                    activeAgent: committedFacts.activeAgent,
+                    model: committedFacts.model,
+                    provider: committedFacts.provider,
+                    thinkingLevel: committedFacts.thinkingLevel,
+                    workflowContext:
+                        /** @type {import('../../../shared/session/workflow-context-session.js').WorkflowContext | null} */ (committedFacts
+                            .workflowContext || null),
+                });
+                const preflight = await this.runtime.preflightUserTurnImages(preflightAdopted.sessionId, {
+                    initialRequest: options.text,
+                    initialImages: options.images || [],
+                    agentName: decision.agentName,
+                });
+                if (!preflight.ok) throw new Error(preflight.message);
+                preparedModelOverride = "preparedModelOverride" in preflight
+                    ? preflight.preparedModelOverride || ""
+                    : "";
+            } catch (error) {
+                if (preflightAdopted?.sessionId) this.runtime.closeSession(preflightAdopted.sessionId);
+                throw error;
+            }
+        }
+        const matchingReceipt = this.store.findOperationReceiptByRequest({
             deviceId: options.deviceId || null,
             requestId: options.requestId,
             requestHash,
             runwieldSessionId: options.runwieldSessionId,
-            projectId: options.projectId,
-            expectedGeneration: options.expectedGeneration,
-            kind: "continuation",
-        }));
+        });
+        if (matchingReceipt && matchingReceipt.projectId === options.projectId) {
+            if (preflightAdopted?.sessionId) this.runtime.closeSession(preflightAdopted.sessionId);
+            return {
+                operationId: matchingReceipt.operationId,
+                status: this.operations.get(matchingReceipt.operationId)?.status || matchingReceipt.status,
+                generation: matchingReceipt.resultGeneration,
+            };
+        }
+        const currentSession = this.store.getSessionById(options.runwieldSessionId);
+        if (!currentSession || !sessionBelongsToOwnerProject(this.store, currentSession, options.projectId)) {
+            if (preflightAdopted?.sessionId) this.runtime.closeSession(preflightAdopted.sessionId);
+            throw new Error("Session not found.");
+        }
+        const currentState = this.store.inspectSessionActivation(options.runwieldSessionId);
+        if (!currentState.generation || currentState.generation.generation !== options.expectedGeneration) {
+            if (preflightAdopted?.sessionId) this.runtime.closeSession(preflightAdopted.sessionId);
+            throw new Error("Continuation requires the exact committed generation.");
+        }
+        if (currentState.activation?.state === "active") {
+            if (preflightAdopted?.sessionId) this.runtime.closeSession(preflightAdopted.sessionId);
+            throw new Error("This Session is still busy. Keep the message queued in this browser until it finishes.");
+        }
+        if (currentState.activation?.state !== "idle") {
+            if (preflightAdopted?.sessionId) this.runtime.closeSession(preflightAdopted.sessionId);
+            throw new Error("This Session needs recovery before it can accept messages.");
+        }
+        let receipt;
+        try {
+            receipt = requireReceipt(this.store.createOrGetOperationReceipt({
+                deviceId: options.deviceId || null,
+                requestId: options.requestId,
+                requestHash,
+                runwieldSessionId: options.runwieldSessionId,
+                projectId: options.projectId,
+                expectedGeneration: options.expectedGeneration,
+                kind: "continuation",
+            }));
+        } catch (error) {
+            if (preflightAdopted?.sessionId) this.runtime.closeSession(preflightAdopted.sessionId);
+            throw error;
+        }
         if (this.operations.has(receipt.operationId)) {
+            if (preflightAdopted?.sessionId) this.runtime.closeSession(preflightAdopted.sessionId);
             return {
                 operationId: receipt.operationId,
                 status: this.operations.get(receipt.operationId)?.status || "running",
             };
         }
         if (receipt.status !== "accepted") {
+            if (preflightAdopted?.sessionId) this.runtime.closeSession(preflightAdopted.sessionId);
             return { operationId: receipt.operationId, status: receipt.status, generation: receipt.resultGeneration };
         }
         this.store.updateOperationReceipt(receipt.operationId, { status: "running" });
@@ -1117,7 +1250,7 @@ export class WorkspaceSessionContinuationService {
             runwieldSessionId: options.runwieldSessionId,
             expectedGeneration: options.expectedGeneration,
         });
-        const adopted = this.runtime.adoptManagedSession({
+        const adopted = preflightAdopted || this.runtime.adoptManagedSession({
             session,
             generation: options.expectedGeneration,
             activeAgent: committedFacts.activeAgent,
@@ -1146,6 +1279,7 @@ export class WorkspaceSessionContinuationService {
                     initialRequest: options.text,
                     initialImages: options.images || [],
                     agentName: decision.agentName,
+                    preparedModelOverride,
                 });
                 let generation = result.ok ? options.expectedGeneration + 1 : options.expectedGeneration;
                 /** @type {"completed" | "failed"} */
@@ -1566,6 +1700,7 @@ export class WorkspaceSessionContinuationService {
         }
         return {
             operationId,
+            runwieldSessionId: live?.runwieldSessionId || durable.runwieldSessionId,
             status: durable.status,
             generation: durable.resultGeneration,
             error: durable.errorMessage || durable.errorCode,

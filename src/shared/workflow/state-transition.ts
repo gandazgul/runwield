@@ -1133,12 +1133,9 @@ export async function runPlanLifecycleEventTransition<T>(
 /**
  * Semantic boundary for applying a Plan review approval/feedback decision.
  *
- * Reviewing a Plan that has already run detaches it from its execution
- * generation, which is two writes in two places: the Plan's own Front Matter and
- * the worktree registry entry. They commit together or not at all — an approval
- * that landed while the generation stayed live is a Plan the next execution would
- * reuse a worktree it no longer owns. Pass `worktreeId` to bring the registry
- * entry under the same lock and make its abandonment a required effect.
+ * Reapproval preserves the execution attempt while replacing review evidence.
+ * Pass `worktreeId` to lock the same attempt during the Plan decision; review
+ * never retires the registry entry.
  */
 export async function runPlanReviewDecisionTransition<T>(
     opts: TransitionOptionsBase & {
@@ -1179,7 +1176,7 @@ export async function runPlanReviewDecisionTransition<T>(
         operation,
         resources: [{ kind: "plan", id: opts.planName }, { kind: "attempt", id: opts.worktreeId }],
         expectedRevision: opts.expectedRevision,
-        expectedEffects: ["worktree_registry_abandoned"],
+        expectedEffects: [],
         apply: opts.decide,
     });
 }
@@ -1205,7 +1202,7 @@ export async function runSequenceReviewTransition<T>(
 }
 
 /**
- * Semantic boundary for reopening a Plan review and abandoning its recorded execution attempt.
+ * Semantic boundary for reopening review while retaining its execution attempt.
  */
 export async function runReviewReopenTransition<T>(
     opts: TransitionOptionsBase & { worktreeId: string; reopen: (ctx: EffectTransitionContext) => Promise<T> },
@@ -1216,7 +1213,7 @@ export async function runReviewReopenTransition<T>(
         operation: "review_reopened",
         resources: [{ kind: "plan", id: opts.planName }, { kind: "attempt", id: opts.worktreeId }],
         expectedRevision: opts.expectedRevision,
-        expectedEffects: ["worktree_registry_abandoned"],
+        expectedEffects: ["plan_event_recorded"],
         apply: async (ctx) => {
             const value = await opts.reopen(ctx);
             await ctx.markEffect("review_reopened_settled", { planName: opts.planName, worktreeId: opts.worktreeId });

@@ -1,4 +1,5 @@
 ---
+planId: "1e706d9e-56a0-43cc-8c6f-f3984fd7aea6"
 classification: "PLANNED_CHANGE"
 workKind: "BUG_FIX"
 complexity: "MEDIUM"
@@ -12,14 +13,12 @@ affectedPaths:
     - "src/cmd/load-plan/plan-hold.ts"
     - "src/cmd/load-plan/plan-recovery-flow.test.ts"
     - "docs/plan-lifecycle.md"
-devServerCommand: null
-devServerUrl: null
-devServerHmr: null
-createdAt: "2026-09-08T09:29:42-04:00"
-status: "implemented"
-planId: "1e706d9e-56a0-43cc-8c6f-f3984fd7aea6"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
+createdAt: "2026-09-08T09:29:42-04:00"
+status: "feedback"
+origin: "internal"
+userVerifiedAt: null
 ---
 
 # Make Worktree Discard Cleanup Safe and Complete

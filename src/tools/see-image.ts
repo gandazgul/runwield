@@ -7,8 +7,8 @@ import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import type { AgentToolResult, SessionManager } from "@earendil-works/pi-coding-agent";
 import type { Api, AssistantMessage, Context, Model, SimpleStreamOptions } from "@earendil-works/pi-ai/compat";
-import { getModelRegistry } from "../shared/models/model-registry.ts";
-import { resolveImageRef } from "../shared/session/image-attachments.js";
+import { getModelRegistry, SYSTEM_MODEL_DISCOVERY_NETWORK } from "../shared/models/model-registry.ts";
+import { resolveImageRef, resolveVisionFallbackModel } from "../shared/session/image-attachments.js";
 
 export const DEFAULT_SEE_IMAGE_PROMPT =
     "Describe this image in detail for a text-only coding agent. Include all visible UI/content, readable text and error messages, relevant layout, controls, highlighted regions, and visual state. If text or details are unclear, say so explicitly.";
@@ -63,7 +63,6 @@ type CompleteSimpleFunction = (
 interface SeeImageToolOptions {
     cwd: string;
     sessionManager?: SessionManager;
-    fallbackModel: VisionModel;
     completeSimpleFn: CompleteSimpleFunction;
 }
 
@@ -94,11 +93,17 @@ export function createSeeImageTool(opts: SeeImageToolOptions) {
                     cwd: opts.cwd,
                     sessionManager: opts.sessionManager,
                 });
-                const auth = await modelRegistry.getApiKeyAndHeaders(opts.fallbackModel);
+                const fallback = await resolveVisionFallbackModel(
+                    modelRegistry,
+                    SYSTEM_MODEL_DISCOVERY_NETWORK,
+                    opts.cwd,
+                );
+                if (!fallback) throw new Error("visionFallback.model is not configured.");
+                const auth = await modelRegistry.getApiKeyAndHeaders(fallback.model);
                 if (!auth.ok) throw new Error(auth.error || "Unable to resolve auth for visionFallback.model.");
                 if (!auth.apiKey && !auth.headers) {
                     throw new Error(
-                        `No API key configured for visionFallback.model: ${opts.fallbackModel.provider}/${opts.fallbackModel.id}`,
+                        `No API key configured for visionFallback.model: ${fallback.model.provider}/${fallback.model.id}`,
                     );
                 }
 
@@ -108,7 +113,7 @@ export function createSeeImageTool(opts: SeeImageToolOptions) {
                 const base64 = btoa(binary);
                 const question = params.question?.trim() || DEFAULT_SEE_IMAGE_PROMPT;
 
-                const response = await opts.completeSimpleFn(opts.fallbackModel, {
+                const response = await opts.completeSimpleFn(fallback.model, {
                     messages: [{
                         role: "user",
                         content: [

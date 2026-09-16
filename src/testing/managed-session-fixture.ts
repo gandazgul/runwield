@@ -186,6 +186,24 @@ export async function makeManagedSessionFixture(options: ManagedSessionFixtureOp
         openStore,
         openRuntime,
         restartRuntime,
+        registerArtifact(path: string, title: string) {
+            const proof = store["acquireSessionActivation"]({
+                runwieldSessionId: session.runwieldSessionId,
+                projectId: project.projectId,
+                ownerInstanceId: "fixture-artifact",
+                ownerProcessKind: "test",
+                operationId: `fixture-artifact-${title}`,
+                expectedGeneration: 0,
+            });
+            const artifact = store["registerSessionArtifact"](proof, {
+                kind: "plan",
+                path,
+                title,
+                registeredBy: "managed-session-fixture",
+            });
+            store["releaseUnchangedActivation"](proof);
+            return artifact;
+        },
         async readCanonicalFacts() {
             return {
                 activation: store.inspectSessionActivation(session.runwieldSessionId),

@@ -17,6 +17,9 @@ status: "validated"
 origin: "internal"
 userVerifiedAt: null
 routingIntent: "PLANNED_CHANGE"
+archivedAt: "2026-09-15T18:28:50.566Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/fix-published-plan-session-context.md"
 targetBranch: "main"
 ---
 

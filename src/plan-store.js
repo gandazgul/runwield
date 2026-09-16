@@ -240,6 +240,7 @@ export function getStoredPlanPath(cwd, planName) {
  * @property {string|null} [devServerUrl] - Local URL expected for browser verification, if known.
  * @property {boolean|null} [devServerHmr] - Whether the dev server is expected to support hot module reload.
  * @property {string|null} [worktreeBaseBranch] - Target branch this child FEATURE should execute from and merge back into.
+ * @property {string|null} [worktreeBaseCommit] - Recorded base commit for worktree recovery.
  * @property {string} [targetBranch] - User-selected target branch for this child.
  * @property {string[]} dependencies - Sibling child plan names or identifiers required first.
  * @property {import('./shared/ticket-references.js').TicketReference[]} [tickets] - Direct child Ticket References; omitted preserves existing child references, [] clears.
@@ -1243,10 +1244,11 @@ export function summarizePlanBody(body) {
 export function planDocumentMarkdown(markdown) {
     if (!hasFrontMatter(markdown)) return markdown;
     const { attrs } = parsePlanFrontMatter(markdown);
+    const raw = extractYaml(markdown).attrs;
     /** @type {Partial<PlanFrontMatter>} */
     const removed = { summary: undefined };
     for (const field of PLAN_RUNTIME_FIELDS) Object.assign(removed, { [field]: undefined });
-    if (attrs.targetBranch) removed.targetBranch = attrs.targetBranch;
+    if (attrs.targetBranch && raw.targetBranch !== attrs.targetBranch) removed.targetBranch = attrs.targetBranch;
     return mergeFrontMatterText(markdown, removed);
 }
 
@@ -2388,9 +2390,18 @@ export async function updatePlanFrontMatter(
         }
         const attrs = { ...recoveryAttrs, ...updates, updatedAt: updates.updatedAt ?? new Date().toISOString() };
         const normalizedAttrs = parsePlanFrontMatter(injectFrontMatter(result.markdown, attrs)).attrs;
+        const previousValues = new Map(Object.entries(result.attrs));
+        const nextValues = new Map(Object.entries(normalizedAttrs));
         /** @type {Partial<PlanFrontMatter>} */
         const normalizedOverrides = {};
         for (const key of Object.keys(attrs)) {
+            // Recovery attributes often contain the entire loaded Plan. Replacing
+            // unchanged fields reformats YAML lists and invalidates sealed commits
+            // during controller-only operations such as claiming a retry.
+            const unchanged = JSON.stringify(nextValues.get(key)) === JSON.stringify(previousValues.get(key));
+            const normalizesRetiredStatus = key === "status" &&
+                getDeclaredPlanStatus(result.markdown) !== nextValues.get(key);
+            if (unchanged && !normalizesRetiredStatus) continue;
             /** @type {Record<string, unknown>} */ (normalizedOverrides)[key] =
                 /** @type {Record<string, unknown>} */ (normalizedAttrs)[key];
         }
@@ -2403,7 +2414,10 @@ export async function updatePlanFrontMatter(
                 ...(updates.worktreeId === null ? { recovery: null } : {}),
             },
         );
-        const withFm = planDocumentMarkdown(mergeFrontMatterText(result.markdown, normalizedOverrides));
+        const changesDocument = Object.keys(stripRuntimeFields(updates)).some((key) => key !== "summary");
+        const withFm = planDocumentMarkdown(
+            changesDocument ? mergeFrontMatterText(result.markdown, normalizedOverrides) : result.markdown,
+        );
         if (withFm !== result.markdown) await writePlanMarkdownWithRevision(result.path, withFm, result.revision);
         return (await withControllerMetadata(result.path, parsePlanFrontMatter(withFm).attrs)).attrs;
     });
