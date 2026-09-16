@@ -37,7 +37,7 @@ export async function loadOwnerProjects() {
     const store = getAstroOwnerWorkspaceStore();
     if (!store && import.meta.env.DEV) return devOwnerProjects();
     if (!store) throw new Error("Owner Workspace store is not available.");
-    return listOwnerProjects(store);
+    return await listOwnerProjects(store);
 }
 
 /** @param {string} projectId */
