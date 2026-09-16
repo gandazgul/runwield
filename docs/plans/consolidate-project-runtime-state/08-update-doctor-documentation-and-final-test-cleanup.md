@@ -35,7 +35,7 @@ dependencies:
     - "07-enforce-git-and-publication-safety"
 userVerifiedAt: null
 targetBranch: "epic/consolidate-project-runtime-state"
-status: "validated_reviewer"
+status: "validated"
 ---
 
 # Update Doctor Documentation and Final Test Cleanup

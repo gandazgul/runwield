@@ -30,9 +30,12 @@ affectedPaths:
     - "docs/adr/016-proof-bearing-publication-state-machine.md"
     - "docs/adr/017-project-runtime-state-under-wld-internal.md"
 createdAt: "2026-08-28T11:53:52-04:00"
-status: "ready_for_work"
 origin: "internal"
 userVerifiedAt: null
+status: "validated"
+epicCompletionMode: "done_enough"
+epicDoneEnoughAt: "2026-09-16T20:07:59.119Z"
+epicDoneEnoughSummary: "All 8 child plans are completed after consolidate-project-runtime-state/08-update-doctor-documentation-and-final-test-cleanup."
 ---
 
 # Consolidate Project Runtime State Under `.wld/internal/`

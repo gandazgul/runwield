@@ -138,3 +138,23 @@ Manual verification steps for consolidate-project-runtime-state/07-enforce-git-a
       changes.
 
 <!-- runwield:manual-qa:end child="consolidate-project-runtime-state/07-enforce-git-and-publication-safety" -->
+
+<!-- runwield:manual-qa:start child="consolidate-project-runtime-state/08-update-doctor-documentation-and-final-test-cleanup" -->
+
+## Update Doctor Documentation and Final Test Cleanup
+
+Manual verification steps for consolidate-project-runtime-state/08-update-doctor-documentation-and-final-test-cleanup
+
+- [ ] In a disposable Git project with legacy runtime files, run `doctor --check`; confirm it reports pending adoption
+      and changes no files, locks, ignore rules, or Git index entries.
+- [ ] Follow the documented adoption and repair sequence; confirm refusal messages show the affected paths, safe next
+      action, and retry behavior without deleting uncertain state or exposing secret contents.
+- [ ] Run `doctor --check --repair`; confirm it remains report-only, and confirm normal repair removes only proven-safe
+      stale state.
+- [ ] Repeat the checks from a linked worktree; confirm primary-shared and checkout-local runtime paths, settings,
+      Agents, Skills, and prompts remain correct.
+- [ ] Read the updated architecture, lifecycle, collaboration, validation-authority, ADR, glossary, and PRD links;
+      confirm they describe `.wld/internal/` as machine-owned project runtime state and distinguish it from global
+      `~/.wld` data.
+
+<!-- runwield:manual-qa:end child="consolidate-project-runtime-state/08-update-doctor-documentation-and-final-test-cleanup" -->
