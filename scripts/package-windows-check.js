@@ -197,6 +197,7 @@ async function checkProviderSetupLaunch(exe, env) {
     }).spawn();
     const writer = child.stdin.getWriter();
     const encoder = new TextEncoder();
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
     await writer.write(encoder.encode("sk-runwield-package-smoke"));
     await new Promise((resolve) => setTimeout(resolve, 500));
     await writer.write(encoder.encode("\r"));
