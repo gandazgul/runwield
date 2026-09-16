@@ -51,12 +51,74 @@ async function assertFile(path) {
 }
 
 /**
+ * @typedef {Object} AcpRunWieldMetadata
+ * @property {string} [persistedSessionId]
+ * @property {string} [runtimeSessionId]
+ * @property {string} [sessionPath]
+ */
+
+/**
+ * @typedef {Object} AcpResult
+ * @property {number} [protocolVersion]
+ * @property {{ name?: string }} [agentInfo]
+ * @property {{ name?: string }[]} [authMethods]
+ * @property {string} [sessionId]
+ * @property {{ runwield?: AcpRunWieldMetadata }} [_meta]
+ */
+
+/**
+ * @typedef {Object} AcpMessage
+ * @property {string | number} [id]
+ * @property {AcpResult} [result]
+ */
+
+/**
+ * @param {ReadableStream<Uint8Array>} stream
+ * @param {AcpMessage[]} messages
+ */
+async function collectAcpOutput(stream, messages) {
+    const reader = stream.getReader();
+    const decoder = new TextDecoder();
+    let output = "";
+    let pending = "";
+    while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        const text = decoder.decode(value, { stream: true });
+        output += text;
+        pending += text;
+        let newline = pending.indexOf("\n");
+        while (newline >= 0) {
+            const line = pending.slice(0, newline).trim();
+            pending = pending.slice(newline + 1);
+            if (line) messages.push(JSON.parse(line));
+            newline = pending.indexOf("\n");
+        }
+    }
+    const finalText = decoder.decode();
+    output += finalText;
+    pending += finalText;
+    if (pending.trim()) messages.push(JSON.parse(pending));
+    return output;
+}
+
+/** @param {AcpMessage[]} messages @param {string} id */
+async function waitForAcpResponse(messages, id) {
+    const deadline = Date.now() + 30_000;
+    while (Date.now() < deadline) {
+        if (messages.some((message) => message.id === id)) return;
+        await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    throw new Error(`ACP response ${id} timed out.`);
+}
+
+/**
  * @param {string} exe
  * @param {Record<string, string>} env
- * @param {Record<string, unknown>[]} messages
- * @returns {Promise<Record<string, any>[]>}
+ * @param {Record<string, unknown>[]} requests
+ * @returns {Promise<AcpMessage[]>}
  */
-async function runAcpExchange(exe, env, messages) {
+async function runAcpExchange(exe, env, requests) {
     const child = new Deno.Command(exe, {
         args: ["--mode", "acp"],
         env,
@@ -66,123 +128,81 @@ async function runAcpExchange(exe, env, messages) {
     }).spawn();
     const writer = child.stdin.getWriter();
     const encoder = new TextEncoder();
-    await writer.write(
-        encoder.encode(
-            JSON.stringify({
-                jsonrpc: "2.0",
-                id: "initialize",
-                method: "initialize",
-                params: { protocolVersion: 1, clientCapabilities: { _meta: { "terminal-auth": true } } },
-            }) + "\n",
-        ),
-    );
-    await new Promise((resolve) => setTimeout(resolve, 1_000));
-    for (const message of messages) await writer.write(encoder.encode(`${JSON.stringify(message)}\n`));
-    await new Promise((resolve) => setTimeout(resolve, 5_000));
-    await writer.close();
-    const timeout = setTimeout(() => {
+    /** @type {AcpMessage[]} */
+    const messages = [];
+    const stdoutPromise = collectAcpOutput(child.stdout, messages);
+    const stderrPromise = new Response(child.stderr).text();
+    const initialize = {
+        jsonrpc: "2.0",
+        id: "initialize",
+        method: "initialize",
+        params: { protocolVersion: 1, clientCapabilities: { _meta: { "terminal-auth": true } } },
+    };
+    try {
+        await writer.write(encoder.encode(`${JSON.stringify(initialize)}\n`));
+        await waitForAcpResponse(messages, "initialize");
+        for (const request of requests) {
+            await writer.write(encoder.encode(`${JSON.stringify(request)}\n`));
+            if (typeof request.id === "string") await waitForAcpResponse(messages, request.id);
+        }
+        await writer.close();
+        const status = await Promise.race([
+            child.status,
+            new Promise((_, reject) => setTimeout(() => reject(new Error("ACP process exit timed out.")), 10_000)),
+        ]);
+        const stdout = await stdoutPromise;
+        const stderr = await stderrPromise;
+        if (!status.success) throw new Error(`ACP protocol exchange exited with ${status.code}.\n${stdout}${stderr}`);
+        return messages;
+    } catch (error) {
         try {
             child.kill();
         } catch {
             // Process already exited.
         }
-    }, 10_000);
-    try {
-        const output = await child.output();
-        const decoder = new TextDecoder();
-        const stdout = decoder.decode(output.stdout);
-        const stderr = decoder.decode(output.stderr);
-        if (output.code !== 0) throw new Error(`ACP protocol exchange exited with ${output.code}.\n${stdout}${stderr}`);
-        return stdout.trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
-    } finally {
-        clearTimeout(timeout);
+        await writer.close().catch(() => {});
+        const stdout = await stdoutPromise.catch(() => "");
+        const stderr = await stderrPromise.catch(() => "");
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`${message}\n${stdout}${stderr}`);
     }
 }
 
 /** @param {string} exe @param {Record<string, string>} env */
 async function checkAcpProtocolExchange(exe, env) {
-    const child = new Deno.Command(exe, {
-        args: ["--mode", "acp"],
-        env,
-        stdin: "piped",
-        stdout: "piped",
-        stderr: "piped",
-    }).spawn();
-    const writer = child.stdin.getWriter();
-    const encoder = new TextEncoder();
-    await writer.write(
-        encoder.encode(
-            JSON.stringify({
-                jsonrpc: "2.0",
-                id: "initialize",
-                method: "initialize",
-                params: { protocolVersion: 1, clientCapabilities: { _meta: { "terminal-auth": true } } },
-            }) + "\n",
-        ),
-    );
-    await new Promise((resolve) => setTimeout(resolve, 1_000));
-    await writer.write(
-        encoder.encode(
-            JSON.stringify({
-                jsonrpc: "2.0",
-                id: "session-new",
-                method: "session/new",
-                params: { cwd: env.LOCALAPPDATA, mcpServers: [] },
-            }) + "\n",
-        ),
-    );
-    await new Promise((resolve) => setTimeout(resolve, 5_000));
-    await writer.close();
-    const timeout = setTimeout(() => {
-        try {
-            child.kill();
-        } catch {
-            // Process already exited.
-        }
-    }, 10_000);
-    try {
-        const output = await child.output();
-        const decoder = new TextDecoder();
-        const stdout = decoder.decode(output.stdout);
-        const stderr = decoder.decode(output.stderr);
-        if (output.code !== 0) throw new Error(`ACP protocol exchange exited with ${output.code}.`);
-        const messages = stdout.trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
-        const initialized = messages.find((message) => message.id === "initialize");
-        if (initialized?.result?.protocolVersion !== 1 || initialized?.result?.agentInfo?.name !== "RunWield") {
-            throw new Error(`ACP initialize response was incomplete:\n${stdout}${stderr}`);
-        }
-        const authMethods = Array.isArray(initialized.result.authMethods) ? initialized.result.authMethods : [];
-        let hasTerminalLogin = false;
-        for (const method of authMethods) {
-            if (method.name === "RunWield Login") hasTerminalLogin = true;
-        }
-        if (!hasTerminalLogin) {
-            throw new Error(
-                `ACP initialize did not advertise terminal login for a terminal-auth client:\n${stdout}${stderr}`,
-            );
-        }
-        const sessionNew = messages.find((message) => message.id === "session-new");
-        const persistedSessionId = sessionNew?.result?._meta?.runwield?.persistedSessionId;
-        const acpSessionId = sessionNew?.result?.sessionId;
-        if (!acpSessionId || !persistedSessionId) {
-            throw new Error(`ACP session/new did not create a persisted Session:\n${stdout}${stderr}`);
-        }
+    const messages = await runAcpExchange(exe, env, [
+        {
+            jsonrpc: "2.0",
+            id: "session-new",
+            method: "session/new",
+            params: { cwd: env.LOCALAPPDATA, mcpServers: [] },
+        },
+    ]);
+    const initialized = messages.find((message) => message.id === "initialize");
+    if (initialized?.result?.protocolVersion !== 1 || initialized?.result?.agentInfo?.name !== "RunWield") {
+        throw new Error(`ACP initialize response was incomplete:\n${JSON.stringify(messages)}`);
+    }
+    const authMethods = Array.isArray(initialized.result.authMethods) ? initialized.result.authMethods : [];
+    if (!authMethods.some((method) => method.name === "RunWield Login")) {
+        throw new Error(`ACP initialize did not advertise terminal login:\n${JSON.stringify(messages)}`);
+    }
+    const sessionNew = messages.find((message) => message.id === "session-new");
+    const persistedSessionId = sessionNew?.result?._meta?.runwield?.persistedSessionId;
+    if (!sessionNew?.result?.sessionId || !persistedSessionId) {
+        throw new Error(`ACP session/new did not create a persisted Session:\n${JSON.stringify(messages)}`);
+    }
 
-        const loaded = await runAcpExchange(exe, env, [
-            {
-                jsonrpc: "2.0",
-                id: "load-saved-session",
-                method: "session/load",
-                params: { cwd: env.LOCALAPPDATA, sessionId: persistedSessionId, mcpServers: [] },
-            },
-        ]);
-        const loadedSession = loaded.find((message) => message.id === "load-saved-session");
-        const loadedMetadata = loadedSession?.result?._meta?.runwield;
-        if (!loadedMetadata?.persistedSessionId || !loadedMetadata?.runtimeSessionId || !loadedMetadata?.sessionPath) {
-            throw new Error(`ACP session/load did not resume the saved Session:\n${JSON.stringify(loaded)}`);
-        }
-    } finally {
-        clearTimeout(timeout);
+    const loaded = await runAcpExchange(exe, env, [
+        {
+            jsonrpc: "2.0",
+            id: "load-saved-session",
+            method: "session/load",
+            params: { cwd: env.LOCALAPPDATA, sessionId: persistedSessionId, mcpServers: [] },
+        },
+    ]);
+    const loadedMetadata = loaded.find((message) => message.id === "load-saved-session")?.result?._meta?.runwield;
+    if (!loadedMetadata?.persistedSessionId || !loadedMetadata?.runtimeSessionId || !loadedMetadata?.sessionPath) {
+        throw new Error(`ACP session/load did not resume the saved Session:\n${JSON.stringify(loaded)}`);
     }
 }
 
