@@ -44,6 +44,21 @@ Deno.test("root-session persists a new transcript without Pi's private rewrite m
             const lines = (await Deno.readTextFile(transcriptPath)).trim().split("\n").map((line) => JSON.parse(line));
             assertEquals(lines[0].id, manager.getSessionId());
             assertEquals(lines[1].type, "model_change");
+
+            const reopened = await openPersistedRootSession({
+                cwd,
+                sessionId: manager.getSessionId(),
+                sessionPath: transcriptPath,
+            });
+            Object.defineProperty(reopened.sessionManager, "_persist", {
+                configurable: true,
+                value: () => {
+                    throw new Error("private persistence must not be used after reopen");
+                },
+            });
+            reopened.sessionManager.appendModelChange("anthropic", "reopened-model");
+            const reopenedLines = (await Deno.readTextFile(transcriptPath)).trim().split("\n");
+            assertEquals(reopenedLines.length, 3);
         } finally {
             if (previousHome === undefined) Deno.env.delete("HOME");
             else Deno.env.set("HOME", previousHome);

@@ -512,7 +512,7 @@ export async function openPersistedRootSession(options) {
         }
         throw new Error("Persisted session cwd does not match requested cwd");
     }
-    return { sessionManager, resolved };
+    return { sessionManager: installDenoSessionPersistence(sessionManager), resolved };
 }
 
 /**
