@@ -1234,10 +1234,11 @@ export function summarizePlanBody(body) {
 export function planDocumentMarkdown(markdown) {
     if (!hasFrontMatter(markdown)) return markdown;
     const { attrs } = parsePlanFrontMatter(markdown);
+    const raw = extractYaml(markdown).attrs;
     /** @type {Partial<PlanFrontMatter>} */
     const removed = { summary: undefined };
     for (const field of PLAN_RUNTIME_FIELDS) Object.assign(removed, { [field]: undefined });
-    if (attrs.targetBranch) removed.targetBranch = attrs.targetBranch;
+    if (attrs.targetBranch && raw.targetBranch !== attrs.targetBranch) removed.targetBranch = attrs.targetBranch;
     return mergeFrontMatterText(markdown, removed);
 }
 
@@ -2371,9 +2372,15 @@ export async function updatePlanFrontMatter(
         }
         const attrs = { ...recoveryAttrs, ...updates, updatedAt: updates.updatedAt ?? new Date().toISOString() };
         const normalizedAttrs = parsePlanFrontMatter(injectFrontMatter(result.markdown, attrs)).attrs;
+        const previousValues = new Map(Object.entries(result.attrs));
+        const nextValues = new Map(Object.entries(normalizedAttrs));
         /** @type {Partial<PlanFrontMatter>} */
         const normalizedOverrides = {};
         for (const key of Object.keys(attrs)) {
+            // Recovery attributes often contain the entire loaded Plan. Replacing
+            // unchanged fields reformats YAML lists and invalidates sealed commits
+            // during controller-only operations such as claiming a retry.
+            if (JSON.stringify(nextValues.get(key)) === JSON.stringify(previousValues.get(key))) continue;
             /** @type {Record<string, unknown>} */ (normalizedOverrides)[key] =
                 /** @type {Record<string, unknown>} */ (normalizedAttrs)[key];
         }
@@ -2386,7 +2393,10 @@ export async function updatePlanFrontMatter(
                 ...(updates.worktreeId === null ? { recovery: null } : {}),
             },
         );
-        const withFm = planDocumentMarkdown(mergeFrontMatterText(result.markdown, normalizedOverrides));
+        const changesDocument = Object.keys(stripRuntimeFields(updates)).some((key) => key !== "summary");
+        const withFm = planDocumentMarkdown(
+            changesDocument ? mergeFrontMatterText(result.markdown, normalizedOverrides) : result.markdown,
+        );
         if (withFm !== result.markdown) await writePlanMarkdownWithRevision(result.path, withFm, result.revision);
         return (await withControllerMetadata(result.path, parsePlanFrontMatter(withFm).attrs)).attrs;
     });

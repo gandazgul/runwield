@@ -63,6 +63,26 @@ function testWithFs(name, fn) {
     Deno.test({ name, permissions: { read: true, write: true }, fn });
 }
 
+Deno.test("controller-only updates preserve a formatted validated Plan byte for byte", async () => {
+    const cwd = await Deno.makeTempDir({ prefix: "validated-plan-controller-" });
+    try {
+        const path = join(cwd, "docs/plans/p.md");
+        await Deno.mkdir(join(cwd, "docs/plans"), { recursive: true });
+        const markdown =
+            '---\nplanId: "controller-only-plan"\nclassification: "PLANNED_CHANGE"\nstatus: "validated"\naffectedPaths:\n    - "src/example.ts"\ndependencies:\n    - "previous-plan"\ntargetBranch: "main"\n---\n# Already formatted\n';
+        await Deno.writeTextFile(path, markdown);
+        const plan = await loadPlan(cwd, "p");
+        await updatePlanFrontMatter(cwd, "p", { validationCiAttempts: 1 }, plan.attrs, {
+            expectedRevision: plan.revision,
+            expectedControllerRevision: plan.controllerRevision,
+        });
+        assertEquals(await Deno.readTextFile(path), markdown);
+        assertEquals((await loadPlan(cwd, "p"))?.attrs.validationCiAttempts, 1);
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
 /** @param {string} cwd @param {string} planName */
 async function recordActiveAttempt(cwd, planName) {
     await Deno.mkdir(join(cwd, ".wld"), { recursive: true });
