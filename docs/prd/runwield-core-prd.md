@@ -69,6 +69,21 @@ Core enters project runtime state before normal project-local runtime reads, loc
 legacy state or refuses unsafe layouts with a retryable reason and safe paths. Refusal stops normal writes and preserves
 user work. See [ADR-017](../adr/017-project-runtime-state-under-wld-internal.md).
 
+Core keeps Project Runtime State out of repository changes. The managed `.gitignore` block contains only
+`.wld/internal/`; user `.wld/settings.json`, `.wld/agents/`, `.wld/skills/`, and `.wld/prompts/` remain normal
+repository content. If Git already tracks or stages runtime state, Core refuses checkpoint or publication and reports
+safe paths for cleanup instead of deleting files, changing the index, or rewriting history. A broad user-authored
+`.wld/` ignore rule is preserved and reported because it also hides trackable configuration.
+
+Acceptance scenarios:
+
+- Given untracked Project Runtime State and changed user `.wld` configuration, when execution checkpoints or publishes,
+  then runtime state stays out of commits and user configuration can be committed.
+- Given runtime state already tracked, staged, deleted, renamed, or present in newly published history, when Core tries
+  to checkpoint or publish, then it refuses with safe paths and preserves the worktree, index, files, and target refs.
+- Given a broad `.wld/` ignore rule, when Core reconciles ignore rules, then it leaves the rule in place and reports
+  that it hides settings, Agents, Skills, and prompts.
+
 ### 3.1 TUI Shell and Root Agent Behavior
 
 The TUI is currently the primary interactive Core client. It starts a session, renders the conversation, hosts slash

@@ -48,6 +48,7 @@ import { runExecutionPreparationTransition } from "./state-transition.ts";
 import { healSettledTransitionRecords } from "./transition-recovery.ts";
 import { CollaborationStyles, resolveExecutionOwner } from "./execution-collaboration.ts";
 import { ensureRunWieldOwnedGitignoreBlock } from "../runwield-owned-paths.ts";
+import { emitSystemStatus } from "../session/session-runtime-events.js";
 import { resolveWorkflowPlanLocation } from "./plan-location.ts";
 import { resolvePrimaryCheckoutRoot } from "../primary-checkout.ts";
 
@@ -57,11 +58,10 @@ export function normalizeExecutionTargetBranch(value) {
     return target && target !== "HEAD" ? target : undefined;
 }
 
-async function addRunWieldOwnedGitignoreBlock(projectRoot) {
-    try {
-        await ensureRunWieldOwnedGitignoreBlock(projectRoot);
-    } catch {
-        // Defence in depth only. Worktree creation must not fail if the project does not allow writes.
+async function addRunWieldOwnedGitignoreBlock(projectRoot, hostedSession) {
+    const reconciliation = await ensureRunWieldOwnedGitignoreBlock(projectRoot);
+    for (const warning of reconciliation.warnings) {
+        emitSystemStatus(hostedSession, warning.message, { header: "RunWield", level: "warning" });
     }
 }
 
@@ -511,9 +511,9 @@ export async function startActiveExecutionWorkflow(
                     attemptId,
                     ...targetPreparation,
                 };
-                await addRunWieldOwnedGitignoreBlock(projectRoot);
+                await addRunWieldOwnedGitignoreBlock(projectRoot, hostedSession);
                 const worktreeArtifacts = await createWorktreeGitArtifacts(worktreeOptions);
-                await addRunWieldOwnedGitignoreBlock(worktreeArtifacts.path);
+                await addRunWieldOwnedGitignoreBlock(worktreeArtifacts.path, hostedSession);
                 emitCreatedExecutionWorktree(hostedSession, {
                     worktreeBranch: worktreeArtifacts.branch,
                     baseBranch: worktreeArtifacts.baseBranch || worktreeArtifacts.baseRef,
@@ -558,6 +558,7 @@ export async function startActiveExecutionWorkflow(
                     status: worktree.status,
                 });
             }
+            if (reusable) await addRunWieldOwnedGitignoreBlock(worktree.path, hostedSession);
             const worktreeBaseBranch = worktree.baseBranch === "HEAD" ? undefined : worktree.baseBranch;
             emitMaterializingPlanInExecutionWorktree(hostedSession);
             const planFile = await ensurePlanFile({

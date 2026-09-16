@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { dirname, join } from "@std/path";
 import { withProcessGlobalTestLock } from "../testing/process-global-lock.js";
 import { defineCommittedGitFixture } from "./git-test-fixture.ts";
@@ -55,6 +55,37 @@ Deno.test("Project Runtime Entry adopts legacy registry before normal registry r
             assertEquals(markerAfter, markerBefore);
             await assertRejects(() => Deno.lstat(legacyPath), Deno.errors.NotFound);
         } finally {
+            if (originalSandboxHome === undefined) Deno.env.delete("WLD_TEST_SANDBOX_HOME");
+            else Deno.env.set("WLD_TEST_SANDBOX_HOME", originalSandboxHome);
+            await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+        }
+    });
+});
+
+Deno.test("Project Runtime Entry reconciles gitignore and reports broad wld rules", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const originalSandboxHome = Deno.env.get("WLD_TEST_SANDBOX_HOME");
+        const projectRoot = await fixture.checkout({ prefix: "runwield-runtime-entry-gitignore-" });
+        const originalWarn = console.warn;
+        const warnings: string[] = [];
+        try {
+            Deno.env.delete("WLD_TEST_SANDBOX_HOME");
+            console.warn = (message?: unknown) => warnings.push(String(message));
+            await Deno.writeTextFile(join(projectRoot, ".gitignore"), ".wld/\n.wld/plan-locks\n");
+
+            await enterProjectRuntime(projectRoot);
+            const first = await Deno.readTextFile(join(projectRoot, ".gitignore"));
+            await enterProjectRuntime(projectRoot);
+            const second = await Deno.readTextFile(join(projectRoot, ".gitignore"));
+
+            assertEquals(
+                first,
+                ".wld/\n# BEGIN RunWield owned runtime state\n.wld/internal/\n# END RunWield owned runtime state\n",
+            );
+            assertEquals(second, first);
+            assertStringIncludes(warnings[0], ".wld/settings.json");
+        } finally {
+            console.warn = originalWarn;
             if (originalSandboxHome === undefined) Deno.env.delete("WLD_TEST_SANDBOX_HOME");
             else Deno.env.set("WLD_TEST_SANDBOX_HOME", originalSandboxHome);
             await Deno.remove(projectRoot, { recursive: true }).catch(() => {});

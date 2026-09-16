@@ -1,6 +1,8 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
+import { join } from "@std/path";
 import {
     CURRENT_PROJECT_RUNTIME_PATHS,
+    ensureRunWieldOwnedGitignoreBlock,
     isCurrentProjectRuntimePath,
     isLegacyProjectRuntimeHazardPath,
     isRunWieldOwnedRuntimePath,
@@ -16,6 +18,7 @@ Deno.test("RunWield runtime classifiers separate current state from legacy hazar
         { path: "./.wld/internal", current: true, legacy: false, aggregate: true },
         { path: ".wld/internal/controller/plans/a.json", current: true, legacy: false, aggregate: true },
         { path: ".wld/internal/worktrees.json.abc.tmp", current: true, legacy: false, aggregate: true },
+        { path: ".wld/internal/future/new-state.json", current: true, legacy: false, aggregate: true },
         { path: ".wld", current: false, legacy: false, aggregate: false },
         { path: ".wld/internal-other", current: false, legacy: false, aggregate: false },
         { path: ".wldx/internal", current: false, legacy: false, aggregate: false },
@@ -81,11 +84,11 @@ Deno.test("temporary Git safety exports protect current and legacy runtime paths
 
     for (const path of CURRENT_PROJECT_RUNTIME_PATHS) {
         assertEquals(RUNWIELD_OWNED_RUNTIME_PATHS.includes(path), true, path);
-        assertStringIncludes(RUNWIELD_GITIGNORE_BLOCK, path);
+        assertStringIncludes(RUNWIELD_GITIGNORE_BLOCK, `${path}/`);
     }
     for (const path of LEGACY_PROJECT_RUNTIME_HAZARD_PATHS) {
         assertEquals(RUNWIELD_OWNED_RUNTIME_PATHS.includes(path), true, path);
-        assertStringIncludes(RUNWIELD_GITIGNORE_BLOCK, path);
+        assertEquals(RUNWIELD_GITIGNORE_BLOCK.includes(path), false, `${path} is safety-only`);
     }
 
     assertEquals(runwieldOwnedPathspecExclusions.includes(":(exclude).wld/internal/**"), true);
@@ -93,6 +96,120 @@ Deno.test("temporary Git safety exports protect current and legacy runtime paths
     assertEquals(runwieldOwnedPathspecExclusions.includes(":(exclude).wld/worktrees.json"), true);
     assertEquals(runwieldOwnedPathspecExclusions.includes(":(exclude).wld/worktrees.json.*.tmp"), true);
     assertEquals(runwieldOwnedPathspecExclusions.includes(":(exclude).wld/collaboration-secrets.json.*.tmp"), true);
-    assertStringIncludes(RUNWIELD_GITIGNORE_BLOCK, ".wld/worktrees.json.*.tmp");
-    assertStringIncludes(RUNWIELD_GITIGNORE_BLOCK, ".wld/collaboration-secrets.json.*.tmp");
+    assertEquals(
+        RUNWIELD_GITIGNORE_BLOCK,
+        "# BEGIN RunWield owned runtime state\n.wld/internal/\n# END RunWield owned runtime state\n",
+    );
+});
+
+Deno.test("managed gitignore reconciliation replaces old runtime rules and preserves user content", async () => {
+    const projectRoot = await Deno.makeTempDir({ prefix: "runwield-gitignore-reconcile-" });
+    try {
+        const gitignorePath = join(projectRoot, ".gitignore");
+        await Deno.writeTextFile(
+            gitignorePath,
+            [
+                "node_modules",
+                ".wld/plan-locks",
+                "# keep custom",
+                "!important.txt",
+                "# BEGIN RunWield owned runtime state",
+                ".wld/worktrees.json",
+                ".wld/controller/",
+                "# END RunWield owned runtime state",
+                "custom.cache",
+                "# BEGIN RunWield owned runtime state",
+                ".wld/debug",
+                "# END RunWield owned runtime state",
+                ".wld/collaboration-secrets.json.*.tmp",
+                "",
+            ].join("\n"),
+        );
+
+        const first = await ensureRunWieldOwnedGitignoreBlock(projectRoot);
+        const afterFirst = await Deno.readTextFile(gitignorePath);
+        const second = await ensureRunWieldOwnedGitignoreBlock(projectRoot);
+        const afterSecond = await Deno.readTextFile(gitignorePath);
+
+        assertEquals(first.changed, true);
+        assertEquals(second.changed, false);
+        assertEquals(afterFirst, afterSecond);
+        assertEquals(
+            afterFirst,
+            [
+                "node_modules",
+                "# keep custom",
+                "!important.txt",
+                "# BEGIN RunWield owned runtime state",
+                ".wld/internal/",
+                "# END RunWield owned runtime state",
+                "custom.cache",
+                "",
+            ].join("\n"),
+        );
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("managed gitignore reconciliation keeps custom patterns that differ from emitted obsolete rules", async () => {
+    const projectRoot = await Deno.makeTempDir({ prefix: "runwield-gitignore-custom-" });
+    try {
+        const gitignorePath = join(projectRoot, ".gitignore");
+        await Deno.writeTextFile(gitignorePath, " .wld/debug/\n/.wld/debug/\n.wld/debug/\n");
+
+        await ensureRunWieldOwnedGitignoreBlock(projectRoot);
+        const gitignore = await Deno.readTextFile(gitignorePath);
+
+        assertStringIncludes(gitignore, " .wld/debug/\n");
+        assertStringIncludes(gitignore, "/.wld/debug/\n");
+        assertEquals(gitignore.includes("\n.wld/debug/\n"), false);
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("managed gitignore reconciliation preserves broad wld rules and reports hidden configuration", async () => {
+    const projectRoot = await Deno.makeTempDir({ prefix: "runwield-gitignore-broad-" });
+    try {
+        const gitignorePath = join(projectRoot, ".gitignore");
+        await Deno.writeTextFile(gitignorePath, "cache/\r\n.wld/\r\n# END custom\r\n");
+
+        const result = await ensureRunWieldOwnedGitignoreBlock(projectRoot);
+        const gitignore = await Deno.readTextFile(gitignorePath);
+
+        assertEquals(result.warnings.length, 1);
+        assertEquals(result.warnings[0].kind, "broad_wld_ignore");
+        assertStringIncludes(result.warnings[0].message, ".wld/settings.json");
+        assertStringIncludes(gitignore, ".wld/\r\n");
+        assertStringIncludes(
+            gitignore,
+            "# BEGIN RunWield owned runtime state\r\n.wld/internal/\r\n# END RunWield owned runtime state\r\n",
+        );
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("managed gitignore reconciliation leaves unmatched markers untouched", async () => {
+    const projectRoot = await Deno.makeTempDir({ prefix: "runwield-gitignore-unmatched-" });
+    try {
+        const gitignorePath = join(projectRoot, ".gitignore");
+        await Deno.writeTextFile(gitignorePath, "# BEGIN RunWield owned runtime state\nuser-owned\n");
+
+        const result = await ensureRunWieldOwnedGitignoreBlock(projectRoot);
+        const gitignore = await Deno.readTextFile(gitignorePath);
+        const second = await ensureRunWieldOwnedGitignoreBlock(projectRoot);
+        const afterSecond = await Deno.readTextFile(gitignorePath);
+
+        assertEquals(result.warnings[0].kind, "unmatched_managed_marker");
+        assertEquals(second.changed, false);
+        assertEquals(afterSecond, gitignore);
+        assertEquals(
+            gitignore,
+            "# BEGIN RunWield owned runtime state\nuser-owned\n# BEGIN RunWield owned runtime state\n.wld/internal/\n# END RunWield owned runtime state\n",
+        );
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+    }
 });

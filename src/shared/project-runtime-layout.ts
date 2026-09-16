@@ -19,7 +19,7 @@ import {
 } from "./lock-file-snapshot.ts";
 import { getLockHostname, isLockHolderGone } from "./process-liveness.ts";
 import { resolvePrimaryCheckoutRoot } from "./primary-checkout.ts";
-import { LEGACY_PROJECT_RUNTIME_HAZARD_PATHS } from "./runwield-owned-paths.ts";
+import { ensureRunWieldOwnedGitignoreBlock, LEGACY_PROJECT_RUNTIME_HAZARD_PATHS } from "./runwield-owned-paths.ts";
 import {
     assertPublicationAttempt,
     isPublicationAttemptCleanupComplete,
@@ -264,6 +264,10 @@ export async function enterProjectRuntime(selectedCheckoutRoot: string): Promise
     if (rootInfo && !rootInfo.isDirectory) throw new Error("Project root must be a directory");
     const result = await migrateLegacyProjectRuntimeState(selectedCheckoutRoot);
     if (result.kind === "blocked") throw new ProjectRuntimeEntryRefusedError(result);
+    if (rootInfo) {
+        const reconciliation = await ensureRunWieldOwnedGitignoreBlock(result.layout.primary.checkoutRoot);
+        for (const warning of reconciliation.warnings) console.warn(warning.message);
+    }
     return result.layout;
 }
 

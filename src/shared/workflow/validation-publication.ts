@@ -88,6 +88,7 @@ export function publicationFailureKindFromMergeKind(failureKind: string | undefi
         case "content_conflict":
             return "content_conflict";
         case "primary_checkout_dirty":
+        case "runwield_runtime_tracked":
             return "primary_checkout_dirty";
         case "target_branch_advanced":
         case "target_history_rewrite":
@@ -313,11 +314,23 @@ async function runLockedPublicationPhase(
     let agentRepairs = 0;
     // A restarted validation can inherit a repair checkout that is still inside
     // Git's merge transaction. Normalize it before attempting another merge.
-    if (repairMergeWorktreePath) await finalizeMergeRepair(repairMergeWorktreePath);
+    let pendingFinalizeFailure: PublicationFailure | undefined;
+    if (repairMergeWorktreePath) {
+        try {
+            await finalizeMergeRepair(repairMergeWorktreePath);
+        } catch (caught) {
+            pendingFinalizeFailure = normalizePublicationFailure(
+                caught instanceof Error ? caught : new Error(String(caught)),
+            );
+        }
+    }
     let publicationOperationalAttempt = 1;
 
     for (;;) {
-        const attempt = await attemptPublication();
+        const attempt = pendingFinalizeFailure
+            ? { kind: "failed" as const, failure: pendingFinalizeFailure }
+            : await attemptPublication();
+        pendingFinalizeFailure = undefined;
         if (attempt.kind === "published") return attempt.outcome;
 
         const { failure } = attempt;
@@ -369,7 +382,14 @@ async function runLockedPublicationPhase(
         // deterministic recovery, or a user action.
         if (decision.action === "correct" && agentRepairs < MAX_AGENT_MERGE_REPAIRS) {
             agentRepairs += 1;
-            if (await dispatchMergeRepair(args, context, reason, failure)) continue;
+            try {
+                if (await dispatchMergeRepair(args, context, reason, failure)) continue;
+            } catch (caught) {
+                pendingFinalizeFailure = normalizePublicationFailure(
+                    caught instanceof Error ? caught : new Error(String(caught)),
+                );
+                continue;
+            }
         }
 
         if (decision.action === "halt") {
@@ -438,7 +458,16 @@ async function runLockedPublicationPhase(
             // The user may have staged resolutions, left unstaged repair files, or
             // committed some/all of the repair themselves. Normalize every one of
             // those valid states before publication reads the repaired candidate.
-            if (repairMergeWorktreePath && await finalizeMergeRepair(repairMergeWorktreePath)) continue;
+            if (repairMergeWorktreePath) {
+                try {
+                    if (await finalizeMergeRepair(repairMergeWorktreePath)) continue;
+                } catch (caught) {
+                    pendingFinalizeFailure = normalizePublicationFailure(
+                        caught instanceof Error ? caught : new Error(String(caught)),
+                    );
+                    continue;
+                }
+            }
             continue;
         }
         return {
