@@ -31,11 +31,14 @@ Deno.test("root-session persists a new transcript without Pi's private rewrite m
         await Deno.mkdir(cwd);
         try {
             const manager = await createRootSessionManager("new", cwd);
-            Object.defineProperty(manager, "_rewriteFile", {
-                value: () => {
-                    throw new Error("private rewrite must not be used");
-                },
-            });
+            for (const method of ["_rewriteFile", "_persist"]) {
+                Object.defineProperty(manager, method, {
+                    configurable: true,
+                    value: () => {
+                        throw new Error(`private ${method} must not be used`);
+                    },
+                });
+            }
             const transcriptPath = await resolveCreatedRootSessionPath(cwd, manager);
             manager.appendModelChange("anthropic", "test-model");
             const lines = (await Deno.readTextFile(transcriptPath)).trim().split("\n").map((line) => JSON.parse(line));

@@ -106,8 +106,7 @@ export async function createRootSessionManager(mode, cwd) {
     const manager = mode === "continue"
         ? SessionManager.continueRecent(canonicalCwd, sessionDir)
         : SessionManager.create(canonicalCwd, sessionDir);
-    installDenoSessionPersistence(manager);
-    return manager;
+    return installDenoSessionPersistence(manager);
 }
 
 /** @param {import('@earendil-works/pi-coding-agent').SessionManager} sessionManager */
@@ -118,7 +117,10 @@ function getSessionManagerFileContents(sessionManager) {
     return [header, ...entries].map((entry) => `${JSON.stringify(entry)}\n`).join("");
 }
 
-/** @param {import('@earendil-works/pi-coding-agent').SessionManager} sessionManager */
+/**
+ * @param {import('@earendil-works/pi-coding-agent').SessionManager} sessionManager
+ * @returns {import('@earendil-works/pi-coding-agent').SessionManager}
+ */
 function installDenoSessionPersistence(sessionManager) {
     function rewriteFile() {
         const transcriptPath = sessionManager.getSessionFile?.();
@@ -143,8 +145,13 @@ function installDenoSessionPersistence(sessionManager) {
         Reflect.set(sessionManager, "flushed", true);
     }
 
-    Object.defineProperty(sessionManager, "_rewriteFile", { configurable: true, value: rewriteFile });
-    Object.defineProperty(sessionManager, "_persist", { configurable: true, value: persist });
+    return new Proxy(sessionManager, {
+        get(target, property, receiver) {
+            if (property === "_rewriteFile") return rewriteFile;
+            if (property === "_persist") return persist;
+            return Reflect.get(target, property, receiver);
+        },
+    });
 }
 
 /** @param {any} sessionManager @param {string} transcriptPath */
