@@ -105,7 +105,7 @@ Deno.test("load-plan resolves an active Plan by durable planId", async () => {
     }
 });
 
-Deno.test("load-plan repairs retired ready_for_review status to implemented", async () => {
+Deno.test("load-plan maps retired ready_for_review status to implemented without rewriting the Plan", async () => {
     const projectRoot = await makeRepo();
     const planName = "retired-review-status";
     try {
@@ -125,7 +125,7 @@ Deno.test("load-plan repairs retired ready_for_review status to implemented", as
 
         assertEquals(result.recoveredStatus, { from: "ready_for_review", to: "implemented" });
         assertEquals(result.plan.attrs.status, "implemented");
-        assertEquals(getDeclaredPlanStatus(await Deno.readTextFile(path)), "implemented");
+        assertEquals(getDeclaredPlanStatus(await Deno.readTextFile(path)), "ready_for_review");
     } finally {
         await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
     }

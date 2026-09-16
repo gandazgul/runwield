@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects, assertStringIncludes, assertThrows } from "@std/assert";
+import { assert, assertEquals, assertRejects, assertStringIncludes, assertThrows } from "@std/assert";
 import { join } from "@std/path";
 import { readControllerRecord } from "./shared/workflow/controller-registry.ts";
 import {
@@ -72,6 +72,7 @@ Deno.test("controller-only updates preserve a formatted validated Plan byte for 
             '---\nplanId: "controller-only-plan"\nclassification: "PLANNED_CHANGE"\nstatus: "validated"\naffectedPaths:\n    - "src/example.ts"\ndependencies:\n    - "previous-plan"\ntargetBranch: "main"\n---\n# Already formatted\n';
         await Deno.writeTextFile(path, markdown);
         const plan = await loadPlan(cwd, "p");
+        assert(plan);
         await updatePlanFrontMatter(cwd, "p", { validationCiAttempts: 1 }, plan.attrs, {
             expectedRevision: plan.revision,
             expectedControllerRevision: plan.controllerRevision,
