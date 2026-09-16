@@ -7,15 +7,16 @@ import { parseArgs } from "@std/cli/parse-args";
 import { join } from "@std/path";
 import { CLI_BIN, getCwd, isPlannedChangeClassification, WORKTREE_BRANCH_PREFIX } from "../../constants.js";
 import {
+    ensurePlanIdentity,
+    getPlanDocumentRoot,
     getPlansDir,
     inspectPlanFileStrict,
     isProjectPlan,
-    listArchivedPlans,
-    listPlanResources,
 } from "../../plan-store.js";
 import {
     enterProjectRuntime,
     inspectProjectRuntimeLayout,
+    ProjectRuntimeEntryRefusedError,
     type ProjectRuntimeLayout,
     type ProjectRuntimeMigrationBlockedReason,
     type ProjectRuntimeMigrationBlockedResult,
@@ -41,6 +42,7 @@ import {
 import { isEpicArtifactPlanName } from "../../shared/epic-artifacts.ts";
 import { isCommitPublishedToTarget } from "../../shared/isolated-publication.ts";
 import { inspectTargetBranchPlansByParent } from "../../shared/workflow/planning-worktree.ts";
+import { readControllerRecordAtPath } from "../../shared/workflow/controller-registry.ts";
 
 /** A registry attempt as stored, before doctor proves anything about it. */
 type RegistryEntry = Awaited<ReturnType<typeof inspectWorktreeRegistryAtPath>>["entries"][number];
@@ -467,11 +469,39 @@ async function collectPlanIssues(
                         : entryPath,
                 });
             } else {
-                collectPlanAttributeIssues({ name: planName, attrs: result.attrs }, issues, planIds);
+                collectPendingControllerIssues(planName, result.pendingControllerRepairs, issues);
             }
         }
     } catch (error) {
         if (!(error instanceof Deno.errors.NotFound)) throw error;
+    }
+}
+
+function collectPendingControllerIssues(
+    planName: string,
+    pendingRepairs: readonly string[] | undefined,
+    issues: DoctorIssue[],
+) {
+    for (const repair of pendingRepairs || []) {
+        const kind = repair === "import_legacy_state" ? "controller_import_pending" : "obsolete_controller_recovery";
+        if (issues.some((issue) => issue.kind === kind && issue.planName === planName)) continue;
+        issues.push(
+            repair === "import_legacy_state"
+                ? {
+                    kind,
+                    planName,
+                    message:
+                        `${planName} has legacy runtime fields that the controller can import on the next normal Plan load. Doctor left them unchanged.`,
+                    commands: [`${CLI_BIN} load-plan ${planName}`, `${CLI_BIN} plans doctor --check`],
+                }
+                : {
+                    kind,
+                    planName,
+                    message:
+                        `${planName} has an obsolete controller recovery hint because the worktree registry now owns its attempt. Doctor left it unchanged.`,
+                    commands: [`${CLI_BIN} load-plan ${planName}`, `${CLI_BIN} plans doctor --check`],
+                },
+        );
     }
 }
 
@@ -483,7 +513,15 @@ function collectPlanAttributeIssues(
 ) {
     const planName = options.archived ? `archived/${plan.name}` : plan.name;
     const planId = typeof plan.attrs.planId === "string" ? plan.attrs.planId : "";
-    if (planId) {
+    if (!planId) {
+        issues.push({
+            kind: "missing_plan_id",
+            planName,
+            repairable: !options.archived,
+            message: `Plan ${planName} has no stable planId.`,
+            commands: options.archived ? [] : [`${CLI_BIN} plans doctor --repair`],
+        });
+    } else {
         const existing = planIds.get(planId);
         if (existing) {
             issues.push({
@@ -546,6 +584,7 @@ async function collectArchivedPlanParseIssues(
                     collectPlanAttributeIssues({ name: planName, attrs: parsed.attrs }, issues, planIds, {
                         archived: true,
                     });
+                    collectPendingControllerIssues(`archived/${planName}`, parsed.pendingControllerRepairs, issues);
                     plans.push({ name: planName, attrs: parsed.attrs });
                 } catch (error) {
                     issues.push({
@@ -680,7 +719,6 @@ async function collectStalePlanLockIssues(
     repair: boolean,
 ): Promise<Array<{ issue?: DoctorIssue; repaired?: boolean }>> {
     const lockDir = resolveProjectRuntimeLayout(projectRoot).selected.planLocksDir;
-    const STALE_AFTER_MS = 10 * 60_000;
     const results: Array<{ issue?: DoctorIssue; repaired?: boolean }> = [];
     try {
         for await (const entry of Deno.readDir(lockDir)) {
@@ -688,8 +726,7 @@ async function collectStalePlanLockIssues(
             const path = join(lockDir, entry.name);
             const snapshot = await readLockFileSnapshot(path);
             if (!snapshot) continue;
-            const ageMs = Date.now() - snapshot.mtime;
-            if (ageMs < STALE_AFTER_MS || isLockHolderUnattributable(snapshot.text)) continue;
+            if (isLockHolderUnattributable(snapshot.text)) continue;
             if (!await isLockHolderGone(snapshot.text)) continue;
             if (repair) {
                 const current = await readLockFileSnapshot(path);
@@ -701,9 +738,7 @@ async function collectStalePlanLockIssues(
                 issue: {
                     kind: "stale_plan_lock",
                     repairable: true,
-                    message: `Plan lock ${path} is ${
-                        Math.round(ageMs / 60_000)
-                    } minutes old and its recorded holder is proven gone.`,
+                    message: `Plan lock ${path} was left by a recorded holder that is proven gone.`,
                     commands: [`${CLI_BIN} plans doctor --repair`],
                     repairSummary: "--repair rechecks and removes only this unchanged, proven-dead lock.",
                 },
@@ -736,13 +771,7 @@ async function runPlansDoctorPass(projectRoot: string, repair: boolean, layout: 
 
     const discoveredPlanIds = new Map<string, string>();
     await collectPlanIssues(projectRoot, getPlansDir(projectRoot), [], issues, discoveredPlanIds);
-    let archivedPlans = await collectArchivedPlanParseIssues(projectRoot, issues, discoveredPlanIds);
-    const repairedPlanResources = repair
-        ? await listPlanResources(projectRoot, { backfillMissing: true }).catch(() => [])
-        : [];
-    if (repair) {
-        archivedPlans = await listArchivedPlans(projectRoot).catch(() => archivedPlans);
-    }
+    const archivedPlans = await collectArchivedPlanParseIssues(projectRoot, issues, discoveredPlanIds);
 
     // Read the registry without enforcing invariants first. A violated invariant
     // must not blind the report: the per-entry facts below are what the user needs
@@ -847,7 +876,15 @@ async function runPlansDoctorPass(projectRoot: string, repair: boolean, layout: 
         }
     }
 
-    const identityDocuments = await inspectPlanIdentityDocuments(projectRoot, entries);
+    const diagnosticEntries = await Promise.all(entries.map(async (entry) => {
+        if (entry.status !== "abandoned") return entry;
+        const controller = await readControllerRecordAtPath(layout.primary.controllerPlansDir, {
+            planId: entry.planId,
+            planName: entry.planName,
+        });
+        return controller?.state.documentWorktreeId === entry.id ? { ...entry, documentSelected: true } : entry;
+    }));
+    const identityDocuments = await inspectPlanIdentityDocuments(projectRoot, diagnosticEntries);
     for (const parent of [...identityDocuments]) {
         const targetBranch = typeof parent.attrs.targetBranch === "string" ? parent.attrs.targetBranch.trim() : "";
         if (!targetBranch || !isProjectPlan(parent.attrs)) continue;
@@ -868,19 +905,45 @@ async function runPlansDoctorPass(projectRoot: string, repair: boolean, layout: 
             continue;
         }
         for (const child of children) {
-            if (
-                !identityDocuments.some((plan) =>
-                    plan.name === child.name || Boolean(child.attrs.planId && plan.attrs.planId === child.attrs.planId)
-                )
-            ) identityDocuments.push(child);
+            const existing = identityDocuments.findIndex((plan) =>
+                plan.name === child.name || Boolean(child.attrs.planId && plan.attrs.planId === child.attrs.planId)
+            );
+            if (existing >= 0) identityDocuments.splice(existing, 1, child);
+            else identityDocuments.push(child);
         }
     }
-    const inspectedIdentityDocuments = repair
-        ? repairedPlanResources
-        : await Promise.all(identityDocuments.map(async (plan) => {
+    if (repair) {
+        for (const plan of identityDocuments) {
+            if (plan.attrs.planId) continue;
+            const exists = await Deno.stat(plan.path).then((stat) => stat.isFile).catch(() => false);
+            if (!exists) continue;
+            const documentRoot = getPlanDocumentRoot(plan.path);
+            const lockDir = resolveProjectRuntimeLayout(documentRoot).selected.planLocksDir;
+            const hasLock = await Array.fromAsync(Deno.readDir(lockDir))
+                .then((locks) => locks.some((lock) => lock.isFile && lock.name.endsWith(".lock")))
+                .catch((error) => {
+                    if (error instanceof Deno.errors.NotFound) return false;
+                    throw error;
+                });
+            if (hasLock) continue;
             const inspected = await inspectPlanFileStrict(plan.path);
-            return inspected.kind === "loaded" && "attrs" in inspected ? { ...plan, attrs: inspected.attrs } : plan;
-        }));
+            if (inspected.kind !== "loaded" || inspected.pendingControllerRepairs.length > 0) continue;
+            const resource = await ensurePlanIdentity(documentRoot, plan.name);
+            if (!resource.planId) continue;
+            plan.attrs = resource.attrs;
+            repaired += 1;
+        }
+    }
+    const inspectedIdentityDocuments = await Promise.all(identityDocuments.map(async (plan) => {
+        const inspected = await inspectPlanFileStrict(plan.path);
+        return inspected.kind === "loaded" && "attrs" in inspected
+            ? { ...plan, attrs: inspected.attrs, pendingControllerRepairs: inspected.pendingControllerRepairs }
+            : { ...plan, pendingControllerRepairs: [] };
+    }));
+    for (const plan of inspectedIdentityDocuments) {
+        collectPlanAttributeIssues(plan, issues, discoveredPlanIds);
+        collectPendingControllerIssues(plan.name, plan.pendingControllerRepairs, issues);
+    }
     for (
         const plan of [
             ...inspectedIdentityDocuments,
@@ -1111,7 +1174,22 @@ export async function runPlansDoctor(projectRoot: string, repair = true) {
             repaired: 0,
         };
     }
-    const layout = repair ? await enterProjectRuntime(projectRoot) : inspected.layout;
+    let layout: ProjectRuntimeLayout;
+    try {
+        layout = repair ? await enterProjectRuntime(projectRoot) : inspected.layout;
+    } catch (error) {
+        if (!(error instanceof ProjectRuntimeEntryRefusedError)) throw error;
+        return {
+            issues: [migrationBlockedIssue({
+                kind: "blocked",
+                reason: error.reason,
+                message: error.message,
+                paths: [],
+                ...(error.securityAction ? { securityAction: error.securityAction } : {}),
+            })],
+            repaired: 0,
+        };
+    }
     if (!repair) return await runPlansDoctorPass(projectRoot, false, layout);
     let repaired = 0;
     let lastIssueKey = "";

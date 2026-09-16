@@ -274,8 +274,10 @@ Deno.test("plans doctor check preserves controller recovery, Plan identity, and 
         const beforePlan = await Deno.readTextFile(missingIdPath);
         const beforeMtime = (await Deno.stat(missingIdPath)).mtime?.getTime();
 
-        await runPlansDoctor(cwd, false);
+        const report = await runPlansDoctor(cwd, false);
 
+        assertEquals(report.issues.some((issue) => issue.kind === "obsolete_controller_recovery"), true);
+        assertEquals(report.issues.some((issue) => issue.kind === "missing_plan_id"), true);
         assertEquals(await Deno.readTextFile(controllerPath), beforeController);
         assertEquals(JSON.parse(beforeController).recovery.worktreeId, "controller-check-attempt");
         assertEquals(await Deno.readTextFile(missingIdPath), beforePlan);
@@ -347,6 +349,132 @@ Deno.test("plans doctor applies identity and evidence checks to archived Plans",
     }
 });
 
+Deno.test("plans doctor reports archived legacy recovery without importing it", async () => {
+    const cwd = await ancestryRepo.checkout({ prefix: "runwield-plans-doctor-archived-recovery-" });
+    try {
+        const layout = await enterProjectRuntime(cwd);
+        const archivedDir = join(cwd, "docs", "plans", "archived");
+        await Deno.mkdir(archivedDir, { recursive: true });
+        await Deno.writeTextFile(
+            join(archivedDir, "legacy.md"),
+            injectFrontMatter("# Legacy archived\n", {
+                planId: "plan-legacy-archived",
+                classification: "FEATURE",
+                status: "failed",
+                worktreeId: "lost-attempt",
+                worktreeStatus: "active",
+            }),
+        );
+        const controllerPath = join(layout.primary.controllerPlansDir, "plan-legacy-archived.json");
+
+        const report = await runPlansDoctor(cwd, false);
+
+        assertEquals(report.issues.some((issue) => issue.kind === "controller_import_pending"), true);
+        assertEquals(report.issues.some((issue) => issue.kind === "archived_plan_with_recoverable_attempt"), true);
+        assertEquals(await Deno.stat(controllerPath).then(() => true).catch(() => false), false);
+    } finally {
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("plans doctor reports a pending import from the live execution document", async () => {
+    const cwd = await ancestryRepo.checkout({ prefix: "runwield-plans-doctor-execution-import-" });
+    const executionRoot = await Deno.makeTempDir({ prefix: "runwield-plans-doctor-execution-import-worktree-" });
+    try {
+        const layout = await enterProjectRuntime(cwd);
+        const primaryPath = join(cwd, "docs", "plans", "execution-import.md");
+        const executionPath = join(executionRoot, "docs", "plans", "execution-import.md");
+        await Deno.mkdir(dirname(primaryPath), { recursive: true });
+        await Deno.mkdir(dirname(executionPath), { recursive: true });
+        await Deno.writeTextFile(
+            primaryPath,
+            injectFrontMatter("# Primary\n", {
+                planId: "plan-execution-import",
+                classification: "FEATURE",
+            }),
+        );
+        const executionDocument = injectFrontMatter("# Execution\n", {
+            planId: "plan-execution-import",
+            classification: "FEATURE",
+            status: "in_progress",
+        });
+        await Deno.writeTextFile(executionPath, executionDocument);
+        await addEntry(cwd, {
+            id: "live-execution-import",
+            planName: "execution-import",
+            planId: "plan-execution-import",
+            baseBranch: "main",
+            baseRef: "HEAD",
+            baseCommit: await git(cwd, ["rev-parse", "HEAD"]),
+            branch: "runwield/worktree/execution-import",
+            path: executionRoot,
+            status: "active",
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+        });
+        const controllerPath = join(layout.primary.controllerPlansDir, "plan-execution-import.json");
+
+        const report = await runPlansDoctor(cwd, false);
+
+        assertEquals(
+            report.issues.some((issue) =>
+                issue.kind === "controller_import_pending" && issue.planName === "execution-import"
+            ),
+            true,
+        );
+        assertEquals(await Deno.readTextFile(executionPath), executionDocument);
+        assertEquals(await Deno.stat(controllerPath).then(() => true).catch(() => false), false);
+    } finally {
+        await Deno.remove(executionRoot, { recursive: true }).catch(() => {});
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("plans doctor uses a reopened retired execution document", async () => {
+    const cwd = await ancestryRepo.checkout({ prefix: "runwield-plans-doctor-retired-document-" });
+    const executionRoot = await Deno.makeTempDir({ prefix: "runwield-plans-doctor-retired-execution-" });
+    try {
+        await savePlan(cwd, "reopened", "# Primary\n", {
+            planId: "plan-reopened",
+            classification: "FEATURE",
+            status: "ready_for_work",
+        });
+        await savePlan(executionRoot, "reopened", "# Execution\n", {
+            planId: "plan-reopened",
+            classification: "FEATURE",
+            status: "verified",
+        });
+        await addEntry(cwd, {
+            id: "retired-attempt",
+            planName: "reopened",
+            planId: "plan-reopened",
+            baseBranch: "main",
+            baseRef: "HEAD",
+            baseCommit: await git(cwd, ["rev-parse", "HEAD"]),
+            branch: "runwield/worktree/reopened-retired",
+            path: executionRoot,
+            status: "abandoned",
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+        });
+        await writeControllerState(
+            cwd,
+            { planId: "plan-reopened", planName: "reopened" },
+            { documentWorktreeId: "retired-attempt" },
+        );
+
+        const report = await runPlansDoctor(cwd, false);
+
+        assertEquals(
+            report.issues.some((issue) => issue.kind === "verified_without_evidence" && issue.planName === "reopened"),
+            true,
+        );
+    } finally {
+        await Deno.remove(executionRoot, { recursive: true }).catch(() => {});
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
+});
+
 Deno.test("plans doctor repairs every safe issue to a fixed point and preserves protected work", async () => {
     await withDoctorCommandFixture(async ({ projectRoot }) => {
         await seedMissingSettledWorktree(projectRoot, "wt-command-report");
@@ -377,7 +505,7 @@ Deno.test("plans doctor command --check reports without changing files", async (
 
         assertEquals(await Deno.readTextFile(registryPath), before);
         assertEquals((await findById(projectRoot, "wt-command-check"))?.status, "abandoned");
-        assertEquals(output.includes("Plans doctor diagnosis: 1 issue found"), true);
+        assertEquals(output.includes("Plans doctor diagnosis: 2 issues found"), true);
         assertEquals(output.includes("Worktree registry"), true);
         assertEquals(output.includes("wt-command-check"), true);
         assertEquals(output.includes("Next steps:"), true);
@@ -477,6 +605,10 @@ Deno.test("plans doctor preserves old live and unattributable Plan locks", async
     const cwd = await ancestryRepo.checkout({ prefix: "runwield-plans-doctor-lock-preserve-" });
     try {
         const layout = await enterProjectRuntime(cwd);
+        await savePlan(cwd, "live", "# Live lock\n", {
+            classification: "FEATURE",
+            status: "ready_for_work",
+        });
         await Deno.mkdir(layout.selected.planLocksDir, { recursive: true });
         const livePath = join(layout.selected.planLocksDir, "live.lock");
         const uncertainPath = join(layout.selected.planLocksDir, "uncertain.lock");
@@ -491,6 +623,8 @@ Deno.test("plans doctor preserves old live and unattributable Plan locks", async
 
         const report = await runPlansDoctor(cwd, true);
         assertEquals(report.issues.some((issue) => issue.kind === "stale_plan_lock"), false);
+        assertEquals(report.issues.some((issue) => issue.kind === "missing_plan_id"), true);
+        assertEquals((await listPlans(cwd)).find((plan) => plan.name === "live")?.attrs.planId, undefined);
         assertEquals(await Deno.readTextFile(livePath).then(() => true).catch(() => false), true);
         assertEquals(await Deno.readTextFile(uncertainPath).then(() => true).catch(() => false), true);
     } finally {
@@ -820,7 +954,7 @@ Deno.test("plans doctor keeps a journal whose worktree may still hold work", asy
     }
 });
 
-Deno.test("plans doctor clears an abandoned Plan lock", async () => {
+Deno.test("plans doctor clears a recently abandoned Plan lock", async () => {
     const cwd = await Deno.makeTempDir({ prefix: "runwield-plans-doctor-lock-" });
     try {
         await enterProjectRuntime(cwd);
@@ -831,11 +965,8 @@ Deno.test("plans doctor clears an abandoned Plan lock", async () => {
         await Deno.mkdir(lockDir, { recursive: true });
         await Deno.writeTextFile(
             lockPath,
-            JSON.stringify({ pid: 999999, hostname: getLockHostname(), updatedAtMs: 0 }),
+            JSON.stringify({ pid: 2_147_483_647, hostname: getLockHostname(), updatedAtMs: 0 }),
         );
-        const old = new Date(Date.now() - 60 * 60_000);
-        await Deno.utime(lockPath, old, old);
-
         const reported = await runPlansDoctor(cwd, false);
         const stale = reported.issues.find((issue) => issue.kind === "stale_plan_lock");
         assertEquals(Boolean(stale), true);
@@ -961,6 +1092,14 @@ Deno.test("doctor discovers remote children while local target is behind and rep
             await Deno.stat(join(cwd, "docs/plans/remote-child.md")).then(() => true).catch(() => false),
             false,
         );
+        await savePlan(cwd, "remote-child", "# Stale local child\n", {
+            planId: "plan-remote-child",
+            parentPlan: "project",
+            classification: "FEATURE",
+            status: "ready_for_work",
+            summary: "The local child is behind its authoritative target copy.",
+            affectedPaths: [],
+        });
 
         const fetchHeadPath = join(cwd, ".git", "FETCH_HEAD");
         const gitSnapshot = async () => ({

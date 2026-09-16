@@ -33,17 +33,13 @@ import { resolvePrimaryCheckoutRoot } from "./shared/primary-checkout.ts";
 import { writePlanDocumentAndController } from "./shared/workflow/state-transition.ts";
 import { escapeYamlDoubleQuoted } from "./shared/yaml-scalar.ts";
 import { pickControllerState, PLAN_RUNTIME_FIELDS, stripRuntimeFields } from "./shared/workflow/controller-state.ts";
-import {
-    enterProjectRuntime,
-    ProjectRuntimeEntryRefusedError,
-    resolveProjectRuntimeLayout,
-} from "./shared/project-runtime-layout.ts";
+import { enterProjectRuntime, ProjectRuntimeEntryRefusedError } from "./shared/project-runtime-layout.ts";
 import {
     bindControllerPlanIdentity,
     finishControllerPlanIdentity,
+    inspectControllerView,
     listControllerDocumentWorktrees,
     loadControllerView,
-    readControllerRecordAtPath,
     writeControllerState,
 } from "./shared/workflow/controller-registry.ts";
 import {
@@ -1568,7 +1564,6 @@ function lockSafeSegment(value) {
 }
 
 const PLAN_LOCK_WAIT_TIMEOUT_MS = 5 * 60_000;
-const PLAN_LOCK_STALE_MS = 10 * 60_000;
 const PLAN_LOCK_HEARTBEAT_MS = 10_000;
 
 /** @param {string} lockPath */
@@ -1629,7 +1624,7 @@ async function acquireSimpleLock(lockPath) {
             // legitimate work, so waiting it out made a killed process block every
             // operation on this Plan for the whole stale window — RunWield's own
             // bookkeeping locking the user out of their Plan.
-            const stale = await isLockHolderGone(snapshot.text) || Date.now() - snapshot.mtime > PLAN_LOCK_STALE_MS;
+            const stale = await isLockHolderGone(snapshot.text);
             if (stale && await removeLockFileIfSnapshotMatches(lockPath, snapshot)) {
                 continue;
             }
@@ -1704,22 +1699,22 @@ export async function withPlanCatalogLock(cwd, fn) {
 
 /** Read one Plan document without controller imports or writes.
  * @param {string} filePath
- * @returns {ReturnType<typeof loadPlanFileStrict>}
  */
 export async function inspectPlanFileStrict(filePath) {
     const result = await loadPlanFileStrict(filePath, true);
     if (result.kind !== "loaded" || !("attrs" in result)) return result;
     const location = planControllerLocation(filePath);
-    if (!location) return result;
-    const record = await readControllerRecordAtPath(
-        resolveProjectRuntimeLayout(location.cwd).primary.controllerPlansDir,
+    if (!location) return { ...result, pendingControllerRepairs: [] };
+    const view = await inspectControllerView(
+        location.cwd,
         { planId: result.attrs.planId, planName: location.planName },
+        result.attrs,
     );
-    if (!record) return result;
     return {
         ...result,
-        attrs: { ...stripRuntimeFields(result.attrs), ...record.state },
-        controllerRevision: record.revision,
+        attrs: { ...stripRuntimeFields(result.attrs), ...view.state },
+        controllerRevision: view.revision,
+        pendingControllerRepairs: view.pendingRepairs,
     };
 }
 
