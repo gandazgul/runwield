@@ -78,6 +78,7 @@ async function runAcpExchange(exe, env, messages) {
     );
     await new Promise((resolve) => setTimeout(resolve, 1_000));
     for (const message of messages) await writer.write(encoder.encode(`${JSON.stringify(message)}\n`));
+    await new Promise((resolve) => setTimeout(resolve, 5_000));
     await writer.close();
     const timeout = setTimeout(() => {
         try {
@@ -130,6 +131,7 @@ async function checkAcpProtocolExchange(exe, env) {
             }) + "\n",
         ),
     );
+    await new Promise((resolve) => setTimeout(resolve, 5_000));
     await writer.close();
     const timeout = setTimeout(() => {
         try {
