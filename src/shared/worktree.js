@@ -100,6 +100,14 @@ function parseNameOnlyPaths(diffText) {
 }
 
 /**
+ * @param {string} output
+ * @returns {string[]}
+ */
+function parseNulPaths(output) {
+    return output.split("\0").filter((path) => path.length > 0);
+}
+
+/**
  * @param {string} dirtyPath
  * @param {Set<string>} allowedPaths
  */
@@ -903,7 +911,14 @@ async function resolvePlanMergeConflicts(cwd, branch, preservePlanPaths) {
     }
     await runGit(cwd, ["add", "-A", "--", ...unresolvedPaths]);
 
+    const currentHead = (await runGit(cwd, ["rev-parse", "HEAD"])).trim();
+    const mergeHead = (await runGit(cwd, ["rev-parse", "MERGE_HEAD"])).trim();
+    await assertNoTrackedOrIndexedRuntimePaths(cwd);
+    await assertNoRuntimePathsInNewHistory(cwd, currentHead, mergeHead);
     await runGit(cwd, ["-c", "core.editor=true", "merge", "--continue"]);
+    const mergeCommit = (await runGit(cwd, ["rev-parse", "HEAD"])).trim();
+    await assertNoTrackedOrIndexedRuntimePaths(cwd);
+    await assertNoRuntimePathsInNewHistory(cwd, currentHead, mergeCommit);
     return true;
 }
 
@@ -915,7 +930,7 @@ async function resolvePlanMergeConflicts(cwd, branch, preservePlanPaths) {
 async function assertNoOverlappingDirtyPaths(cwd, branch, allowedDirtyPaths) {
     const allowed = new Set(allowedDirtyPaths);
     const branchChangedPaths = new Set(
-        parseNameOnlyPaths(await runGit(cwd, ["diff", "--name-only", `HEAD...${branch}`])),
+        parseNulPaths(await runGit(cwd, ["diff", "--name-only", "-z", `HEAD...${branch}`])),
     );
     const blockingDirtyPaths = filterUserDirtyPaths(await gitStatusPaths(cwd), allowed).filter((path) =>
         overlapsBranchChangedPath(path, branchChangedPaths)
@@ -943,6 +958,10 @@ async function mergeExecutionWorktreeIntoCurrentCheckout(
 ) {
     try {
         if (await isMergeInProgress(projectRoot)) {
+            const currentHead = (await runGit(projectRoot, ["rev-parse", "HEAD"])).trim();
+            const mergeHead = (await runGit(projectRoot, ["rev-parse", "MERGE_HEAD"])).trim();
+            await assertNoTrackedOrIndexedRuntimePaths(projectRoot);
+            await assertNoRuntimePathsInNewHistory(projectRoot, currentHead, mergeHead);
             if (preservePlanPaths.length > 0) {
                 await runGit(projectRoot, [
                     "restore",
@@ -953,7 +972,11 @@ async function mergeExecutionWorktreeIntoCurrentCheckout(
                     ...preservePlanPaths,
                 ]);
             }
+            await assertNoTrackedOrIndexedRuntimePaths(projectRoot);
             await runGit(projectRoot, ["-c", "core.editor=true", "merge", "--continue"]);
+            const mergeCommit = (await runGit(projectRoot, ["rev-parse", "HEAD"])).trim();
+            await assertNoTrackedOrIndexedRuntimePaths(projectRoot);
+            await assertNoRuntimePathsInNewHistory(projectRoot, currentHead, mergeCommit);
             if (preservePlanPaths.length > 0) {
                 await restoreExistingPathsFromHead(projectRoot, preservePlanPaths);
             }
@@ -963,6 +986,9 @@ async function mergeExecutionWorktreeIntoCurrentCheckout(
         const currentHead = (await runGit(projectRoot, ["rev-parse", "HEAD"])).trim();
         await assertNoRuntimePathsInNewHistory(projectRoot, currentHead, branch);
         await runGit(projectRoot, ["merge", "--no-ff", branch]);
+        const mergeCommit = (await runGit(projectRoot, ["rev-parse", "HEAD"])).trim();
+        await assertNoTrackedOrIndexedRuntimePaths(projectRoot);
+        await assertNoRuntimePathsInNewHistory(projectRoot, currentHead, mergeCommit);
         if (preservePlanPaths.length > 0) {
             await restoreExistingPathsFromHead(projectRoot, preservePlanPaths);
         }
@@ -1018,14 +1044,24 @@ async function publishRepairedMergeWorktree(
 
     try {
         if (await isMergeInProgress(mergeWorktreePath)) {
+            const repairHead = (await runGit(mergeWorktreePath, ["rev-parse", "HEAD"])).trim();
+            const mergeHead = (await runGit(mergeWorktreePath, ["rev-parse", "MERGE_HEAD"])).trim();
+            await assertNoTrackedOrIndexedRuntimePaths(mergeWorktreePath);
+            await assertNoRuntimePathsInNewHistory(mergeWorktreePath, repairHead, mergeHead);
             await restorePreservedPlanConflictPaths(mergeWorktreePath, branch, preservePlanPaths);
+            await assertNoTrackedOrIndexedRuntimePaths(mergeWorktreePath);
             await runGit(mergeWorktreePath, ["-c", "core.editor=true", "merge", "--continue"]);
+            const repairedCommit = (await runGit(mergeWorktreePath, ["rev-parse", "HEAD"])).trim();
+            await assertNoTrackedOrIndexedRuntimePaths(mergeWorktreePath);
+            await assertNoRuntimePathsInNewHistory(mergeWorktreePath, repairHead, repairedCommit);
         }
     } catch (error) {
+        const alreadyClassified = /** @type {MergeRepairError} */ (error)?.mergeFailureKind;
         throw attachMergeRepairDetails(error, {
             repairCwd: mergeWorktreePath,
             mergeWorktreePath,
-            mergeFailureKind: "detached_merge_conflict",
+            mergeFailureKind: alreadyClassified || "detached_merge_conflict",
+            blockingPaths: /** @type {MergeRepairError} */ (error)?.blockingPaths,
         });
     }
 
@@ -1084,6 +1120,14 @@ async function publishRepairedMergeWorktree(
         return false;
     }
 
+    await assertPublicationCandidateContainsTarget(
+        projectRoot,
+        oldTargetCommit,
+        mergeCommit,
+        targetBranch,
+    );
+    await assertNoRuntimePathsInNewHistory(mergeWorktreePath, oldTargetCommit, mergeCommit);
+
     if (targetCheckedOutInPrimary) {
         try {
             await runGit(projectRoot, ["merge", "--ff-only", mergeCommit]);
@@ -1091,18 +1135,12 @@ async function publishRepairedMergeWorktree(
             await cleanupDetachedMergeWorktree(projectRoot, mergeWorktreePath);
             return false;
         }
+        await assertNoTrackedOrIndexedRuntimePaths(projectRoot);
         await cleanupDetachedMergeWorktree(projectRoot, mergeWorktreePath);
         return true;
     }
 
     try {
-        await assertPublicationCandidateContainsTarget(
-            projectRoot,
-            oldTargetCommit,
-            mergeCommit,
-            targetBranch,
-        );
-        await assertNoRuntimePathsInNewHistory(mergeWorktreePath, oldTargetCommit, mergeCommit);
         await runGit(projectRoot, ["update-ref", `refs/heads/${targetBranch}`, mergeCommit, oldTargetCommit]);
     } catch {
         await cleanupDetachedMergeWorktree(projectRoot, mergeWorktreePath);
@@ -1215,6 +1253,17 @@ async function mergeExecutionWorktreeIntoTargetBranch({
         try {
             await runGit(projectRoot, ["worktree", "add", "--detach", mergeWorktreePath, oldTargetCommit]);
             try {
+                await assertNoRuntimePathsInNewHistory(mergeWorktreePath, oldTargetCommit, branch);
+            } catch (error) {
+                preserveMergeWorktree = true;
+                throw attachMergeRepairDetails(error, {
+                    repairCwd: mergeWorktreePath,
+                    mergeWorktreePath,
+                    mergeFailureKind: /** @type {MergeRepairError} */ (error)?.mergeFailureKind,
+                    blockingPaths: /** @type {MergeRepairError} */ (error)?.blockingPaths,
+                });
+            }
+            try {
                 await runGit(mergeWorktreePath, ["merge", "--no-ff", branch]);
             } catch (mergeError) {
                 if (!await resolvePlanMergeConflicts(mergeWorktreePath, branch, preservePlanPaths)) {
@@ -1292,12 +1341,11 @@ export async function inspectExecutionWorktreeMergeRisk({ projectRoot, branch, t
     }
 
     try {
-        const statusText = await runGit(projectRoot, ["status", "--porcelain", "--untracked-files=all"]);
         const allowed = new Set(allowedDirtyPaths);
         const branchChangedPaths = new Set(
-            parseNameOnlyPaths(await runGit(projectRoot, ["diff", "--name-only", `${mergeTarget}...${branch}`])),
+            parseNulPaths(await runGit(projectRoot, ["diff", "--name-only", "-z", `${mergeTarget}...${branch}`])),
         );
-        const blockingDirtyPaths = filterUserDirtyPaths(parseStatusPaths(statusText), allowed).filter((path) =>
+        const blockingDirtyPaths = filterUserDirtyPaths(await gitStatusPaths(projectRoot), allowed).filter((path) =>
             overlapsBranchChangedPath(path, branchChangedPaths)
         );
         if (blockingDirtyPaths.length > 0) {

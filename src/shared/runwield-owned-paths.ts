@@ -146,9 +146,8 @@ function isBroadRunWieldIgnoreRule(line: string): boolean {
 }
 
 function isObsoleteRunWieldLine(line: string): boolean {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#") || trimmed.startsWith("!")) return false;
-    return OBSOLETE_GITIGNORE_LINES.has(normalizeGitPath(trimmed));
+    if (!line || line.startsWith("#") || line.startsWith("!")) return false;
+    return OBSOLETE_GITIGNORE_LINES.has(line);
 }
 
 function reconcileGitignore(existing: string): { content: string; warnings: RunWieldGitignoreWarning[] } {
@@ -161,9 +160,15 @@ function reconcileGitignore(existing: string): { content: string; warnings: RunW
     for (let index = 0; index < lines.length; index++) {
         const line = lines[index];
         if (line.text === GITIGNORE_START) {
-            const endIndex = lines.findIndex((candidate, candidateIndex) =>
-                candidateIndex > index && candidate.text === GITIGNORE_END
-            );
+            let endIndex = -1;
+            for (let candidateIndex = index + 1; candidateIndex < lines.length; candidateIndex++) {
+                const candidate = lines[candidateIndex];
+                if (candidate.text === GITIGNORE_START) break;
+                if (candidate.text === GITIGNORE_END) {
+                    endIndex = candidateIndex;
+                    break;
+                }
+            }
             if (endIndex === -1) {
                 warnings.push({
                     kind: "unmatched_managed_marker",

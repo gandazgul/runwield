@@ -2,7 +2,8 @@ import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { dirname, join } from "@std/path";
 import { defineGitFixture, git } from "./git-test-fixture.ts";
 import { getWorktreeRegistryPath } from "./worktree-registry.js";
-import { checkpointExecutionWorktree, mergeExecutionWorktree } from "./worktree.js";
+import { stageGitChangesExcludingRuntime } from "./git-runtime-safety.ts";
+import { checkpointExecutionPreparation, checkpointExecutionWorktree, mergeExecutionWorktree } from "./worktree.js";
 
 const repo = defineGitFixture(async (repoPath) => {
     await Deno.writeTextFile(join(repoPath, "README.md"), "base\n");
@@ -96,15 +97,59 @@ Deno.test("checkpoint preserves removal of a tracked file whose working copy is 
     }
 });
 
+Deno.test("resumed local merge refuses runtime history before continuing", async () => {
+    const cwd = await repo.checkout();
+    const worktreePath = await makeWorktree(cwd, "runtime-resumed-merge");
+    try {
+        await Deno.mkdir(join(cwd, "docs", "plans"), { recursive: true });
+        await Deno.writeTextFile(join(cwd, "docs", "plans", "resume.md"), "base\n");
+        await git(cwd, ["add", "docs/plans/resume.md"]);
+        await git(cwd, ["commit", "-m", "plan base"]);
+        await git(worktreePath, ["merge", "main"]);
+        await Deno.mkdir(join(worktreePath, ".wld", "internal"), { recursive: true });
+        await Deno.writeTextFile(join(worktreePath, ".wld", "internal", "old.json"), "runtime\n");
+        await git(worktreePath, ["add", ".wld/internal/old.json"]);
+        await git(worktreePath, ["commit", "-m", "track runtime"]);
+        await Deno.remove(join(worktreePath, ".wld", "internal", "old.json"));
+        await Deno.writeTextFile(join(worktreePath, "docs", "plans", "resume.md"), "branch\n");
+        await git(worktreePath, ["add", "."]);
+        await git(worktreePath, ["commit", "-m", "remove runtime with plan change"]);
+        await Deno.writeTextFile(join(cwd, "docs", "plans", "resume.md"), "target\n");
+        await git(cwd, ["add", "docs/plans/resume.md"]);
+        await git(cwd, ["commit", "-m", "target plan change"]);
+        const mainBefore = await git(cwd, ["rev-parse", "HEAD"]);
+        await git(cwd, ["merge", "--no-ff", "runtime-resumed-merge"]).catch(() => "");
+
+        const error = await assertRejects(
+            () =>
+                mergeExecutionWorktree({
+                    projectRoot: cwd,
+                    branch: "runtime-resumed-merge",
+                    targetBranch: "main",
+                    preservePlanPaths: ["docs/plans/resume.md"],
+                }),
+            Error,
+            "publication candidate contains RunWield runtime paths",
+        );
+
+        assertStringIncludes(error.message, ".wld/internal/old.json");
+        assertEquals(await git(cwd, ["rev-parse", "HEAD"]), mainBefore);
+    } finally {
+        await git(cwd, ["merge", "--abort"]).catch(() => {});
+        await git(cwd, ["worktree", "remove", "--force", worktreePath]).catch(() => {});
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
+});
+
 Deno.test("publication refuses runtime history even when the final tree is clean", async () => {
     const cwd = await repo.checkout();
     const worktreePath = await makeWorktree(cwd, "runtime-committed-side");
     try {
-        await Deno.mkdir(join(worktreePath, ".wld", "internal", "future"), { recursive: true });
-        await Deno.writeTextFile(join(worktreePath, ".wld", "internal", "future", "old.json"), "{}\n");
-        await git(worktreePath, ["add", ".wld/internal/future/old.json"]);
+        await Deno.mkdir(join(worktreePath, ".wld", "internal"), { recursive: true });
+        await Deno.writeTextFile(join(worktreePath, ".wld", "internal", "collaboration-secrets.json"), "{}\n");
+        await git(worktreePath, ["add", ".wld/internal/collaboration-secrets.json"]);
         await git(worktreePath, ["commit", "-m", "old runtime"]);
-        await Deno.remove(join(worktreePath, ".wld", "internal", "future", "old.json"));
+        await Deno.remove(join(worktreePath, ".wld", "internal", "collaboration-secrets.json"));
         await Deno.writeTextFile(join(worktreePath, "feature.txt"), "work\n");
         await git(worktreePath, ["add", "."]);
         await git(worktreePath, ["commit", "-m", "remove runtime and add feature"]);
@@ -123,10 +168,83 @@ Deno.test("publication refuses runtime history even when the final tree is clean
             "publication candidate contains RunWield runtime paths",
         );
 
-        assertStringIncludes(error.message, ".wld/internal/future/old.json");
+        assertStringIncludes(error.message, ".wld/internal/collaboration-secrets.json");
+        assertStringIncludes(error.message, "rotate any related capability secret");
         assertEquals(await git(cwd, ["rev-parse", "main"]), mainBefore);
         assertEquals(await git(worktreePath, ["rev-parse", "HEAD"]), branchBefore);
         await assertRejects(() => Deno.readTextFile(join(cwd, "feature.txt")));
+    } finally {
+        await git(cwd, ["worktree", "remove", "--force", worktreePath]).catch(() => {});
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("publication refuses runtime history from a merged side branch", async () => {
+    const cwd = await repo.checkout();
+    const worktreePath = await makeWorktree(cwd, "runtime-merged-side");
+    try {
+        await git(worktreePath, ["checkout", "-b", "runtime-source-side"]);
+        await Deno.mkdir(join(worktreePath, ".wld", "internal"), { recursive: true });
+        await Deno.writeTextFile(join(worktreePath, ".wld", "internal", "side.json"), "runtime\n");
+        await git(worktreePath, ["add", ".wld/internal/side.json"]);
+        await git(worktreePath, ["commit", "-m", "track side runtime"]);
+        await Deno.remove(join(worktreePath, ".wld", "internal", "side.json"));
+        await git(worktreePath, ["add", ".wld/internal/side.json"]);
+        await git(worktreePath, ["commit", "-m", "remove side runtime"]);
+        await git(worktreePath, ["checkout", "runtime-merged-side"]);
+        await git(worktreePath, ["merge", "--no-ff", "runtime-source-side", "-m", "Merge side runtime history"]);
+        await Deno.writeTextFile(join(worktreePath, "feature.txt"), "safe final tree\n");
+        await git(worktreePath, ["add", "feature.txt"]);
+        await git(worktreePath, ["commit", "-m", "safe final work"]);
+        const mainBefore = await git(cwd, ["rev-parse", "main"]);
+
+        const error = await assertRejects(
+            () =>
+                mergeExecutionWorktree({
+                    projectRoot: cwd,
+                    branch: "runtime-merged-side",
+                    targetBranch: "main",
+                    worktreePath,
+                }),
+            Error,
+            "publication candidate contains RunWield runtime paths",
+        );
+
+        assertStringIncludes(error.message, ".wld/internal/side.json");
+        assertEquals(await git(cwd, ["rev-parse", "main"]), mainBefore);
+        await assertRejects(() => Deno.readTextFile(join(cwd, "feature.txt")));
+    } finally {
+        await git(cwd, ["worktree", "remove", "--force", worktreePath]).catch(() => {});
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("preparation checkpoint refuses tracked runtime state before committing plan metadata", async () => {
+    const cwd = await repo.checkout();
+    const worktreePath = await makeWorktree(cwd, "runtime-preparation");
+    try {
+        const baseCommit = await git(worktreePath, ["rev-parse", "HEAD"]);
+        await Deno.mkdir(join(worktreePath, "docs", "plans"), { recursive: true });
+        await Deno.writeTextFile(join(worktreePath, "docs", "plans", "runtime-preparation.md"), "plan\n");
+        await Deno.mkdir(join(worktreePath, ".wld", "internal"), { recursive: true });
+        await Deno.writeTextFile(join(worktreePath, ".wld", "internal", "state.json"), "runtime\n");
+        await git(worktreePath, ["add", "-N", ".wld/internal/state.json"]);
+
+        await assertRejects(
+            () =>
+                checkpointExecutionPreparation({
+                    worktreePath,
+                    branch: "runtime-preparation",
+                    baseCommit,
+                    planName: "runtime-preparation",
+                    planRelativePath: "docs/plans/runtime-preparation.md",
+                }),
+            Error,
+            "runtime paths are tracked or staged",
+        );
+
+        assertEquals(await git(worktreePath, ["rev-parse", "HEAD"]), baseCommit);
+        await assertRejects(() => git(worktreePath, ["show", "HEAD:docs/plans/runtime-preparation.md"]));
     } finally {
         await git(cwd, ["worktree", "remove", "--force", worktreePath]).catch(() => {});
         await Deno.remove(cwd, { recursive: true }).catch(() => {});
@@ -229,6 +347,64 @@ Deno.test("checkpoint refuses runtime deletions and rename endpoints", async () 
     }
 });
 
+Deno.test("runtime staging excludes legacy temporary files and Work Record locks while preserving partially staged user content", async () => {
+    const cwd = await repo.checkout();
+    try {
+        await Deno.writeTextFile(join(cwd, "feature.txt"), "one\ntwo\n");
+        await git(cwd, ["add", "feature.txt"]);
+        await git(cwd, ["commit", "-m", "feature base"]);
+        await Deno.writeTextFile(join(cwd, "feature.txt"), "staged\ntwo\n");
+        await git(cwd, ["add", "feature.txt"]);
+        await Deno.writeTextFile(join(cwd, "feature.txt"), "staged\nunstaged\n");
+        await Deno.mkdir(join(cwd, ".wld"), { recursive: true });
+        await Deno.writeTextFile(join(cwd, ".wld", "worktrees.json.token.tmp"), "tmp\n");
+        await Deno.writeTextFile(join(cwd, ".wld", "collaboration-secrets.json.token.tmp"), "secret\n");
+        await Deno.writeTextFile(join(cwd, ".wld", "work-record-supersession.lock"), "lock\n");
+        await Deno.writeTextFile(join(cwd, ".wld", "work-record-supersession-recovery.lock"), "lock\n");
+
+        await stageGitChangesExcludingRuntime(cwd);
+
+        const staged = await git(cwd, ["diff", "--cached", "--name-only"]);
+        assertStringIncludes(staged, "feature.txt");
+        assertEquals(staged.includes(".wld/worktrees.json.token.tmp"), false);
+        assertEquals(staged.includes(".wld/collaboration-secrets.json.token.tmp"), false);
+        assertEquals(staged.includes(".wld/work-record-supersession.lock"), false);
+        assertEquals(staged.includes(".wld/work-record-supersession-recovery.lock"), false);
+        assertStringIncludes(await git(cwd, ["diff", "--cached", "--", "feature.txt"]), "+unstaged");
+    } finally {
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("checkpoint refusal preserves partially staged user content", async () => {
+    const cwd = await repo.checkout();
+    const worktreePath = await makeWorktree(cwd, "runtime-index-preserves-partial");
+    try {
+        await Deno.writeTextFile(join(worktreePath, "feature.txt"), "one\ntwo\n");
+        await git(worktreePath, ["add", "feature.txt"]);
+        await git(worktreePath, ["commit", "-m", "feature base"]);
+        await Deno.writeTextFile(join(worktreePath, "feature.txt"), "staged\ntwo\n");
+        await git(worktreePath, ["add", "feature.txt"]);
+        const stagedBefore = await git(worktreePath, ["diff", "--cached", "--", "feature.txt"]);
+        await Deno.writeTextFile(join(worktreePath, "feature.txt"), "staged\nunstaged\n");
+        await Deno.mkdir(join(worktreePath, ".wld", "internal"), { recursive: true });
+        await Deno.writeTextFile(join(worktreePath, ".wld", "internal", "staged.json"), "runtime\n");
+        await git(worktreePath, ["add", "-N", ".wld/internal/staged.json"]);
+
+        await assertRejects(
+            () => checkpointExecutionWorktree({ worktreePath, branch: "runtime-index-preserves-partial" }),
+            Error,
+            "runtime paths are tracked or staged",
+        );
+
+        assertEquals(await git(worktreePath, ["diff", "--cached", "--", "feature.txt"]), stagedBefore);
+        assertStringIncludes(await git(worktreePath, ["diff", "--", "feature.txt"]), "+unstaged");
+    } finally {
+        await git(cwd, ["worktree", "remove", "--force", worktreePath]).catch(() => {});
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
+});
+
 Deno.test("checkpoint refuses runtime paths already in the index", async () => {
     const cwd = await repo.checkout();
     const worktreePath = await makeWorktree(cwd, "runtime-index-side");
@@ -238,7 +414,8 @@ Deno.test("checkpoint refuses runtime paths already in the index", async () => {
         await Deno.writeTextFile(join(worktreePath, "feature.txt"), "work\n");
         await git(worktreePath, ["add", "-N", ".wld/internal/staged.json"]);
         const headBefore = await git(worktreePath, ["rev-parse", "HEAD"]);
-        const indexBefore = await git(worktreePath, ["diff", "--cached", "--name-only"]).catch(() => "");
+        const indexBefore = await git(worktreePath, ["ls-files", "--stage", "--", ".wld/internal/staged.json"]);
+        assertStringIncludes(indexBefore, ".wld/internal/staged.json");
 
         const error = await assertRejects(
             () => checkpointExecutionWorktree({ worktreePath, branch: "runtime-index-side" }),
@@ -248,7 +425,7 @@ Deno.test("checkpoint refuses runtime paths already in the index", async () => {
 
         assertStringIncludes(error.message, ".wld/internal/staged.json");
         assertEquals(await git(worktreePath, ["rev-parse", "HEAD"]), headBefore);
-        assertEquals(await git(worktreePath, ["diff", "--cached", "--name-only"]).catch(() => ""), indexBefore);
+        assertEquals(await git(worktreePath, ["ls-files", "--stage", "--", ".wld/internal/staged.json"]), indexBefore);
         assertEquals(await Deno.readTextFile(join(worktreePath, "feature.txt")), "work\n");
     } finally {
         await git(cwd, ["worktree", "remove", "--force", worktreePath]).catch(() => {});

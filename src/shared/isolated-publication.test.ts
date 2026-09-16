@@ -206,6 +206,124 @@ Deno.test("remote publication refuses runtime history even when the final tree i
     }
 });
 
+Deno.test("remote publication refuses runtime history from a merged side branch", async () => {
+    const projectRoot = await makeRepo();
+    const remoteRoot = await Deno.makeTempDir({ prefix: "runwield-publication-side-runtime-remote-" });
+    const worktreeRoot = await Deno.makeTempDir({ prefix: "runwield-publication-side-runtime-worktree-" });
+    let worktree: Awaited<ReturnType<typeof createTestWorktreeAttempt>> | undefined;
+    try {
+        await git(remoteRoot, ["init", "--bare"]);
+        await git(projectRoot, ["remote", "add", "origin", remoteRoot]);
+        await git(projectRoot, ["push", "-u", "origin", "main"]);
+        worktree = await createTestWorktreeAttempt({ projectRoot, planName: "runtime-side-history", worktreeRoot });
+        await git(worktree.path, ["checkout", "-b", "runtime-source-side"]);
+        await Deno.mkdir(`${worktree.path}/.wld/internal/future`, { recursive: true });
+        await Deno.writeTextFile(`${worktree.path}/.wld/internal/future/side.json`, "runtime\n");
+        await git(worktree.path, ["add", ".wld/internal/future/side.json"]);
+        await git(worktree.path, ["commit", "-m", "Accidentally track side runtime"]);
+        await Deno.remove(`${worktree.path}/.wld/internal/future/side.json`);
+        await git(worktree.path, ["add", ".wld/internal/future/side.json"]);
+        await git(worktree.path, ["commit", "-m", "Remove side runtime"]);
+        await git(worktree.path, ["checkout", worktree.branch]);
+        await git(worktree.path, ["merge", "--no-ff", "runtime-source-side", "-m", "Merge side runtime history"]);
+        await Deno.writeTextFile(`${worktree.path}/implementation.txt`, "safe final tree\n");
+        await git(worktree.path, ["add", "implementation.txt"]);
+        await git(worktree.path, ["commit", "-m", "Safe final work"]);
+        const sealedCommit = await git(worktree.path, ["rev-parse", "HEAD"]);
+        const remoteHeadBefore = (await git(projectRoot, ["ls-remote", "origin", "refs/heads/main"])).split(/\s+/)[0];
+
+        const failure = await assertRejects(() =>
+            publishExecutionWorktreeIsolated({
+                projectRoot,
+                executionCwd: worktree!.path,
+                executionBranch: worktree!.branch,
+                targetBranch: "main",
+                planName: "runtime-side-history",
+                sealedExecutionCommit: sealedCommit,
+                allowedPlanPaths: [],
+            })
+        );
+
+        assert(failure instanceof IsolatedPublicationError);
+        assertEquals(failure.mergeFailureKind, "runwield_runtime_tracked");
+        assertStringIncludes(failure.message, ".wld/internal/future/side.json");
+        const remoteHeadAfter = (await git(projectRoot, ["ls-remote", "origin", "refs/heads/main"])).split(/\s+/)[0];
+        assertEquals(remoteHeadAfter, remoteHeadBefore);
+    } finally {
+        if (worktree) {
+            await removeWorktreeGitArtifacts({ projectRoot, path: worktree.path, force: true }).catch(() => {});
+        }
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+        await Deno.remove(remoteRoot, { recursive: true }).catch(() => {});
+        await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("saved publication copy refuses deleted runtime history before automatic metadata commits", async () => {
+    const projectRoot = await makeRepo();
+    const remoteRoot = await Deno.makeTempDir({ prefix: "runwield-saved-runtime-remote-" });
+    const publicationRoot = await Deno.makeTempDir({ prefix: "runwield-saved-runtime-publication-" });
+    const worktreeRoot = await Deno.makeTempDir({ prefix: "runwield-saved-runtime-worktree-" });
+    let worktree: Awaited<ReturnType<typeof createTestWorktreeAttempt>> | undefined;
+    try {
+        await git(remoteRoot, ["init", "--bare"]);
+        await git(projectRoot, ["remote", "add", "origin", remoteRoot]);
+        await git(projectRoot, ["push", "-u", "origin", "main"]);
+        worktree = await createTestWorktreeAttempt({ projectRoot, planName: "saved-runtime", worktreeRoot });
+        await Deno.writeTextFile(`${worktree.path}/implementation.txt`, "safe work\n");
+        await git(worktree.path, ["add", "implementation.txt"]);
+        await git(worktree.path, ["commit", "-m", "safe execution"]);
+        const sealedCommit = await git(worktree.path, ["rev-parse", "HEAD"]);
+        await Deno.remove(publicationRoot, { recursive: true });
+        await git(projectRoot, ["clone", "--no-hardlinks", projectRoot, publicationRoot]);
+        await git(publicationRoot, ["config", "user.email", "runwield@example.com"]);
+        await git(publicationRoot, ["config", "user.name", "RunWield Test"]);
+        await git(publicationRoot, ["remote", "rename", "origin", "runwield-source"]);
+        await git(publicationRoot, ["remote", "add", "publication", remoteRoot]);
+        await Deno.mkdir(`${publicationRoot}/.wld/internal`, { recursive: true });
+        await Deno.writeTextFile(`${publicationRoot}/.wld/internal/saved.json`, "runtime\n");
+        await git(publicationRoot, ["add", ".wld/internal/saved.json"]);
+        await git(publicationRoot, ["commit", "-m", "unsafe saved publication state"]);
+        await Deno.remove(`${publicationRoot}/.wld/internal/saved.json`);
+        await Deno.writeTextFile(`${publicationRoot}/saved-repair.txt`, "safe final repair\n");
+        await git(publicationRoot, ["add", "."]);
+        await git(publicationRoot, ["commit", "-m", "delete saved runtime state"]);
+        const savedHeadBefore = await git(publicationRoot, ["rev-parse", "HEAD"]);
+        const remoteHeadBefore = (await git(projectRoot, ["ls-remote", "origin", "refs/heads/main"])).split(/\s+/)[0];
+
+        const failure = await assertRejects(() =>
+            publishExecutionWorktreeIsolated({
+                projectRoot,
+                executionCwd: worktree!.path,
+                executionBranch: worktree!.branch,
+                targetBranch: "main",
+                planName: "saved-runtime",
+                sealedExecutionCommit: sealedCommit,
+                allowedPlanPaths: [],
+                publicationRoot,
+            })
+        ) as IsolatedPublicationError;
+
+        assertEquals(failure.mergeFailureKind, "runwield_runtime_tracked");
+        assertStringIncludes(failure.message, ".wld/internal/saved.json");
+        assertEquals(
+            (await git(publicationRoot, ["log", "--format=%s", "-1"])).startsWith("Record delivery for"),
+            false,
+        );
+        await git(publicationRoot, ["merge-base", "--is-ancestor", savedHeadBefore, "HEAD"]);
+        const remoteHeadAfter = (await git(projectRoot, ["ls-remote", "origin", "refs/heads/main"])).split(/\s+/)[0];
+        assertEquals(remoteHeadAfter, remoteHeadBefore);
+    } finally {
+        if (worktree) {
+            await removeWorktreeGitArtifacts({ projectRoot, path: worktree.path, force: true }).catch(() => {});
+        }
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+        await Deno.remove(remoteRoot, { recursive: true }).catch(() => {});
+        await Deno.remove(publicationRoot, { recursive: true }).catch(() => {});
+        await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
+    }
+});
+
 Deno.test("publication refuses to advance the source branch after the artifact is sealed", async () => {
     const projectRoot = await makeRepo();
     const remoteRoot = await Deno.makeTempDir({ prefix: "runwield-sealed-publication-remote-" });

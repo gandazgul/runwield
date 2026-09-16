@@ -1,3 +1,8 @@
+import {
+    PROJECT_INTERNAL_RUNTIME_DIR_NAME,
+    PROJECT_SECRET_STORE_RELATIVE_PATH,
+    RUNWIELD_DIR_NAME,
+} from "../constants.js";
 import { isRunWieldOwnedRuntimePath } from "./runwield-owned-paths.ts";
 
 interface CommandResult {
@@ -11,10 +16,23 @@ export class RunWieldRuntimeGitSafetyError extends Error {
     blockingPaths: string[];
 
     constructor(message: string, paths: string[]) {
-        super(paths.length > 0 ? `${message} Paths: ${paths.join(", ")}` : message);
+        super(paths.length > 0 ? `${message} ${runtimeRemovalWarning(paths)} Paths: ${paths.join(", ")}` : message);
         this.name = "RunWieldRuntimeGitSafetyError";
         this.blockingPaths = paths;
     }
+}
+
+const CURRENT_PROJECT_SECRET_STORE_PATH =
+    `${RUNWIELD_DIR_NAME}/${PROJECT_INTERNAL_RUNTIME_DIR_NAME}/collaboration-secrets.json`;
+
+function isCollaborationSecretPath(path: string): boolean {
+    return path === PROJECT_SECRET_STORE_RELATIVE_PATH || path.startsWith(`${PROJECT_SECRET_STORE_RELATIVE_PATH}.`) ||
+        path === CURRENT_PROJECT_SECRET_STORE_PATH || path.startsWith(`${CURRENT_PROJECT_SECRET_STORE_PATH}.`);
+}
+
+function runtimeRemovalWarning(paths: string[]): string {
+    if (!paths.some(isCollaborationSecretPath)) return "";
+    return "A collaboration secret was committed or staged. Treat it as exposed, remove it from Git history, and rotate any related capability secret before retrying.";
 }
 
 async function runGitResult(cwd: string, args: string[]): Promise<CommandResult> {
@@ -74,18 +92,25 @@ export async function assertNoTrackedOrIndexedRuntimePaths(cwd: string): Promise
 
 export async function assertNoRuntimePathsInNewHistory(
     cwd: string,
-    baseRef: string,
+    baseRef: string | null,
     candidateRef: string,
 ): Promise<void> {
-    const baseTreePaths = await treeRuntimePaths(cwd, baseRef);
-    if (baseTreePaths.length > 0) {
-        throw new RunWieldRuntimeGitSafetyError(
-            "The publication target already tracks RunWield runtime paths. Remove them from Git before retrying.",
-            baseTreePaths,
-        );
+    if (baseRef) {
+        const baseTreePaths = await treeRuntimePaths(cwd, baseRef);
+        if (baseTreePaths.length > 0) {
+            throw new RunWieldRuntimeGitSafetyError(
+                "The publication target already tracks RunWield runtime paths. Remove them from Git before retrying.",
+                baseTreePaths,
+            );
+        }
     }
 
-    const commits = (await runGit(cwd, ["rev-list", "--topo-order", candidateRef, "--not", baseRef]))
+    const revListArgs = baseRef ? ["rev-list", "--topo-order", candidateRef, "--not", baseRef] : [
+        "rev-list",
+        "--topo-order",
+        candidateRef,
+    ];
+    const commits = (await runGit(cwd, revListArgs))
         .split("\n")
         .filter((commit) => commit.length > 0);
     const paths = new Set<string>();
