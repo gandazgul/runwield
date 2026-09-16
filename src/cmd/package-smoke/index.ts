@@ -42,6 +42,7 @@ async function checkCoreHelperFlows(env: Record<string, string>): Promise<void> 
     const project = join(localAppData, "core-flow-project");
     await Deno.mkdir(join(project, "src"), { recursive: true });
     await Deno.mkdir(join(project, WORK_RECORDS_DIR_NAME), { recursive: true });
+    await run("git", ["init", "-b", "main"], { cwd: project, env });
     await Deno.writeTextFile(
         join(project, "src", "smoke.ts"),
         "export function runwieldWindowsPackageSmoke() { return 1; }\n",
