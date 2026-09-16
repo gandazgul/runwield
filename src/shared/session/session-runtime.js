@@ -4724,9 +4724,9 @@ export class SessionRuntime {
         const originalAgent = this.getRuntimeActiveAgentName(oldSession.id);
         const originalWorkflow = oldSession.getActiveExecutionWorkflow?.() || null;
         try {
-            oldSession.rebindProjectRoot(executionCwd);
             const switched = await this.switchAgent(oldSession.id, {
                 agentName: executionAgent,
+                cwd: executionCwd,
                 mcpRootTools: oldSession.getMcpRootTools?.() || [],
             });
             if (!switched?.ok) throw new Error(switched?.error || "Execution follow-up Agent switch failed");
