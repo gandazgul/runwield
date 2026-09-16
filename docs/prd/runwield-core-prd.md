@@ -367,6 +367,9 @@ Workflow Validation requirements:
 - offer human code review when enabled;
 - repair failed checks or review findings within the execution worktree;
 - give a repair Agent the relevant findings and instructions without unrelated earlier context;
+- keep publication-conflict repairs attached to the publication attempt, not CI or code-review repair checkpoints; an
+  accepted `task_completed` continues Git verification and publication without another user prompt, whether the Agent
+  staged the resolutions or committed them;
 - deliver validated work to its configured target and confirm that outcome before reporting delivery complete;
 - after a normal Plan publication completes, keep follow-up messages with Engineer from the primary checkout, not from
   the removed execution worktree;
