@@ -119,3 +119,22 @@ Manual verification steps for consolidate-project-runtime-state/06-wire-project-
       empty-composer behavior consistently.
 
 <!-- runwield:manual-qa:end child="consolidate-project-runtime-state/06-wire-project-entry-guards" -->
+
+<!-- runwield:manual-qa:start child="consolidate-project-runtime-state/07-enforce-git-and-publication-safety" -->
+
+## Enforce Git and Publication Safety
+
+Manual verification steps for consolidate-project-runtime-state/07-enforce-git-and-publication-safety
+
+- [ ] In a disposable project, enter twice with old and duplicate ignore rules; confirm one `.wld/internal/` block
+      remains and unrelated rules stay unchanged.
+- [ ] Confirm entry reports a broad `.wld/` rule and still leaves `.wld/settings.json`, Agents, Skills, and prompts
+      eligible for staging.
+- [ ] Force-stage a runtime file, then attempt a checkpoint; confirm a clear refusal and verify the staged entries, file
+      bytes, and workflow state remain unchanged.
+- [ ] Attempt local and remote publication with runtime data that was committed and later deleted; confirm publication
+      refuses and target references do not move.
+- [ ] Confirm a safe change with user configuration files publishes successfully without runtime paths in the published
+      changes.
+
+<!-- runwield:manual-qa:end child="consolidate-project-runtime-state/07-enforce-git-and-publication-safety" -->
