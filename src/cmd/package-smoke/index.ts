@@ -31,6 +31,7 @@ async function run(command: string, args: string[], options: { cwd?: string; env
 async function checkCoreHelperFlows(env: Record<string, string>): Promise<void> {
     const localAppData = requiredEnv("LOCALAPPDATA");
     const memoryText = `runwield windows package smoke ${Date.now()}`;
+    await run("mnemoteca", ["setup"], { env });
     await run("mnemoteca", ["init", "--name", "runwield"], { env });
     await run("mnemoteca", ["add", memoryText, "--tag", "runwield-windows-package-smoke"], { env });
     const memorySearch = await run("mnemoteca", ["search", memoryText], { env });
