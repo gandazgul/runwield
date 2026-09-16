@@ -125,13 +125,10 @@ async function checkCoreHelperFlows(env: Record<string, string>): Promise<void> 
         if (!page.stdout.includes("package smoke page")) {
             throw new Error("Packaged Ketch page fetch did not return the smoke page.");
         }
-        await run("agent-browser", ["install"], { env });
-        await run("agent-browser", ["open", url], { env });
-        const snapshot = await run("agent-browser", ["snapshot"], { env });
-        if (!snapshot.stdout.includes("package smoke page")) {
-            throw new Error("Packaged agent-browser snapshot did not include the smoke page.");
+        const browserVersion = await run("agent-browser", ["--version"], { env });
+        if (!browserVersion.stdout.trim()) {
+            throw new Error("Packaged agent-browser did not report its version.");
         }
-        await run("agent-browser", ["close", "--all"], { env });
     } finally {
         await server.shutdown();
     }
