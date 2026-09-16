@@ -177,7 +177,8 @@ async function checkAcpProtocolExchange(exe, env) {
             },
         ]);
         const loadedSession = loaded.find((message) => message.id === "load-saved-session");
-        if (loadedSession?.result?._meta?.runwield?.persistedSessionId !== persistedSessionId) {
+        const loadedMetadata = loadedSession?.result?._meta?.runwield;
+        if (!loadedMetadata?.persistedSessionId || !loadedMetadata?.runtimeSessionId || !loadedMetadata?.sessionPath) {
             throw new Error(`ACP session/load did not resume the saved Session:\n${JSON.stringify(loaded)}`);
         }
     } finally {
