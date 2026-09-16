@@ -152,19 +152,6 @@ function isolatedPublicationScenario(
                             },
                         }],
                     },
-                    ...(options.resumeRepair
-                        ? [{
-                            id: "complete-saved-publication-repair",
-                            agent: "engineer",
-                            phase: "engineer",
-                            ordinal: 3,
-                            requiredTools: ["task_completed"],
-                            toolCalls: [{
-                                name: "task_completed",
-                                arguments: { message: "Previously staged resolutions are ready." },
-                            }],
-                        }]
-                        : []),
                 ]
                 : [],
             actions: [

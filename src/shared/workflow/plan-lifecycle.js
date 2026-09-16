@@ -11,6 +11,7 @@ export { isEpicPlan, isProjectPlan, isSequencePlan } from "../project-plan.ts";
 
 import { isPlannedChangeClassification } from "../../constants.js";
 import {
+    getDeclaredPlanStatus,
     getPlanDocumentRoot,
     isPlanDependencySatisfiedStatus,
     loadPlan,
@@ -1120,7 +1121,17 @@ export async function stageValidationPassedInExecutionWorktree({
     const executionPlan = await loadPlan(executionCwd, planName);
     if (!executionPlan) throw new Error(`Plan not found in its execution worktree: ${planName}`);
     if (executionPlan.attrs.status === "validated") {
-        return { attrs: executionPlan.attrs, planPaths: [planPath] };
+        if (getDeclaredPlanStatus(executionPlan.markdown) === "validated") {
+            return { attrs: executionPlan.attrs, planPaths: [planPath] };
+        }
+        const attrs = await updatePlanFrontMatter(
+            executionCwd,
+            planName,
+            { status: "validated" },
+            executionPlan.attrs,
+            { expectedRevision: executionPlan.revision },
+        );
+        return { attrs, planPaths: [planPath] };
     }
     if (executionPlan.attrs.status === "verified" && executionPlan.attrs.deliveryEvidence?.mode === "worktree_merge") {
         const attrs = await updatePlanFrontMatter(
