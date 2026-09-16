@@ -86,6 +86,9 @@ deno task release:metadata --tag vX.Y.Z[-rc.N]
 deno task release:check --build-version vX.Y.Z[-rc.N]
 deno task package:homebrew --wld-tag vX.Y.Z --mnemoteca-tag vA.B.C --output <dir>
 deno task package:homebrew:check --tap <dir>
+deno task package:windows --tag vX.Y.Z --binary <path-to-wld.exe> --output <dir>
+deno task package:windows:check --package <dir>/wld-vX.Y.Z-windows-x64.zip
+deno task package:winget --tag vX.Y.Z --output <dir>
 ```
 
 Dry runs perform read-only tag, version, and source preflight and print the proposed tag target and tag push. They must
@@ -149,12 +152,30 @@ values, license, homepage, and tested helper versions. Base URL overrides requir
 point at immutable GitHub release URLs. Formula installation does not run Mnemoteca model setup or
 `agent-browser install`; those remain first-use operations.
 
+## Windows ZIP and WinGet preparation
+
+The release workflow builds `wld-vX.Y.Z-windows-x64.zip` from the compiled Windows binary and pinned helper inventory in
+`packaging/windows/tested-dependencies.json`. The ZIP includes `wld.exe`, `runwield-install.json`, bundled helper
+executables under `runtime/helpers/`, and notices under `licenses/`. Native Windows package checks must pass before the
+workflow publishes the ZIP.
+
+Stable releases also render a `runwield-winget-manifests-vX.Y.Z` artifact. You can regenerate it from published Stable
+bytes with:
+
+```bash
+deno task package:winget --tag vX.Y.Z --output /tmp/runwield-winget
+```
+
+Candidate tags are rejected. The generator never submits a PR. For the first public listing, follow
+`docs/winget-first-release.md`. Git for Windows is a WinGet dependency. Browser and model downloads remain first-use
+per-user setup.
+
 ## GitHub workflow ownership
 
-The tag-triggered workflow owns release qualification, builds, GitHub release creation, asset upload, and Stable-only
-Homebrew tap artifact rendering. Local release commands validate release metadata, create and push tags, and monitor
-that workflow. They must not require local qualification. Local release commands must not call `gh release create`,
-`gh release edit`, `glab release create`, or `glab release edit`.
+The tag-triggered workflow owns release qualification, builds, GitHub release creation, asset upload, native Windows
+package checks, Stable-only Homebrew tap artifact rendering, and Stable-only WinGet manifest artifact rendering. Local
+release commands validate release metadata, create and push tags, and monitor that workflow. They must not require local
+qualification and must not call `gh release create`, `gh release edit`, `glab release create`, or `glab release edit`.
 
 The workflow also exposes a required-tag manual dispatch solely for recovery when a tag cannot or should not be
 moved—for example, after its GitHub Release has made it immutable, or when a workflow-only fix on the default branch can

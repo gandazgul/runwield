@@ -25,6 +25,18 @@ brew reinstall 1broseidon/tap/cymbal 1broseidon/tap/ketch agent-browser
 
 The Homebrew command is available only after the owner publishes `gandazgul/homebrew-tap`.
 
+For a WinGet-owned Windows install, repair or reinstall the package instead of running the Unix installer:
+
+```powershell
+winget repair --id Gandazgul.RunWield --exact
+# If repair is not available in your WinGet version:
+winget uninstall --id Gandazgul.RunWield --exact
+winget install --id Gandazgul.RunWield --exact
+```
+
+The WinGet command is available only after Microsoft accepts the public listing. The Windows package keeps helper files
+private to the package and does not modify global `PATH` for them.
+
 If you already have `mnemoteca` and need data from a pre-rename install, run the official [Mnemoteca] installer before
 installing RunWield v0.10.0. The RunWield installer preserves an existing `mnemoteca` executable and does not start the
 upstream migration flow.

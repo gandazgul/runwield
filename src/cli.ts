@@ -17,10 +17,13 @@
 import { createRequire } from "node:module";
 import { parseArgs } from "@std/cli/parse-args";
 import { cleanupAgentBrowserSessionSync, initializeAgentBrowserSession } from "./shared/agent-browser-session.ts";
+import { exposeBundledHelpersSync } from "./shared/package-install.ts";
 
 function isProtocolOnlyStartup(argv: string[]): boolean {
     return argv[0] === "mcp" || (argv[0] === "--mode" && argv[1] === "acp");
 }
+
+exposeBundledHelpersSync();
 
 if (!isProtocolOnlyStartup(Deno.args)) initializeAgentBrowserSession();
 
@@ -89,6 +92,12 @@ async function main(): Promise<void> {
 
     if (parsed.version) {
         await runVersionCommand();
+        return;
+    }
+
+    if (normalizedArgs[0] === "package-smoke" && Deno.env.get("WLD_INTERNAL_PACKAGE_CHECK") === "1") {
+        const { runPackageSmokeCommand } = await import("./cmd/package-smoke/index.ts");
+        await runPackageSmokeCommand(normalizedArgs.slice(1));
         return;
     }
 

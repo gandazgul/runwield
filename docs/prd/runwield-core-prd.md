@@ -746,13 +746,14 @@ Future/open requirements:
 
 ### Installation and updates
 
-**Scope and maturity:** Prepared Homebrew support; public tap availability is pending owner publication. Shell install
-remains current baseline for macOS/Linux.
+**Scope and maturity:** Prepared Homebrew and Windows WinGet support; public package availability is pending owner
+publication/submission. Shell install remains current baseline for macOS/Linux.
 
 **Requirement: Install required local runtime pieces without hiding package ownership.**
 
 Users can install RunWield as a standalone binary with the shell installer or, after owner publication, with the
-`gandazgul/homebrew-tap` macOS tap. A package-managed install must not be overwritten by `wld update`.
+`gandazgul/homebrew-tap` macOS tap and the `Gandazgul.RunWield` WinGet package for Windows x64. A package-managed
+install must not be overwritten by `wld update`.
 
 Homebrew requirements:
 
@@ -765,15 +766,30 @@ Homebrew requirements:
 - keep Candidate and exact-version shell-installer options unavailable for Stable package-managed installs
 - keep public install docs marked pending until the owner publishes the tap
 
+Windows WinGet requirements:
+
+- provide Windows x64 ZIP assets with `wld.exe`, package metadata, helper executables, and license notices
+- use pinned helper URLs and SHA-256 values; no install-time `latest` or global npm install
+- declare Git for Windows as a package dependency
+- expose private bundled helpers to RunWield and child processes without editing global `PATH`
+- keep model and browser payload downloads in per-user first-use locations
+- make `wld update` and `wld upgrade` print `winget upgrade --id Gandazgul.RunWield --exact`
+- reject Candidate tags for Stable WinGet manifest generation
+- keep public install docs marked pending until Microsoft accepts the listing
+
 **Acceptance scenarios:**
 
 - Given a Homebrew-owned `wld`, when the user runs `wld update`, RunWield prints `brew upgrade gandazgul/tap/wld` and
   does not run the shell installer.
+- Given a WinGet-owned `wld`, when the user runs `wld update`, RunWield prints
+  `winget upgrade --id Gandazgul.RunWield --exact` and does not run the shell installer.
 - Given a standalone Unix install, when the user runs `wld update`, RunWield can still use the tag-pinned shell
   installer.
-- Given missing helpers in a Homebrew-owned install, RunWield tells the user to repair Homebrew packages instead of
-  piping the shell installer.
-- Given a prepared but unpublished tap, public docs distinguish preparation from public availability.
+- Given a loose native Windows executable without package metadata, when the user runs `wld update`, RunWield gives
+  Windows package/release guidance and does not invoke Bash.
+- Given missing helpers in a package-owned install, RunWield tells the user to repair packages instead of piping the
+  shell installer.
+- Given prepared but unpublished package output, public docs distinguish preparation from public availability.
 
 <a id="91-current"></a>
 <a id="92-future--open"></a>

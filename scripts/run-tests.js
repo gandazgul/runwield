@@ -45,10 +45,10 @@
  * npm:vite on every run — a large registry download on cold caches. The type
  * gate is `deno task check`, not these sandboxed executions.
  */
-import { join, relative, resolve } from "@std/path";
+import { dirname, fromFileUrl, join, relative, resolve } from "@std/path";
 import { runWithSnip, writeSnipCommandResult } from "./run-with-snip.ts";
 
-const REPO_ROOT = new URL("..", import.meta.url).pathname;
+const REPO_ROOT = dirname(dirname(fromFileUrl(import.meta.url)));
 const TEST_FILE_PATTERN = /(^|\/)(test|.+[._]test)\.(js|mjs|jsx|ts|tsx|mts)$/;
 const SKIP_DIRS = new Set([
     "node_modules",
@@ -86,9 +86,13 @@ async function* findTestFiles(dir) {
  */
 async function createSandboxEnv(sandboxRoot, name, denoDir) {
     const home = join(sandboxRoot, name);
+    const temp = join(sandboxRoot, `tmp-${name}`);
     const snipFiltersDir = join(home, ".config", "snip", "filters");
     await Promise.all([
         Deno.mkdir(join(home, ".wld"), { recursive: true }),
+        Deno.mkdir(join(home, "AppData", "Roaming"), { recursive: true }),
+        Deno.mkdir(join(home, "AppData", "Local"), { recursive: true }),
+        Deno.mkdir(temp, { recursive: true }),
         Deno.mkdir(snipFiltersDir, { recursive: true }),
     ]);
     await Promise.all(
@@ -99,9 +103,15 @@ async function createSandboxEnv(sandboxRoot, name, denoDir) {
     // WLD_TEST_SANDBOX_HOME is the marker src/constants.js refuses to run without.
     return {
         HOME: home,
+        USERPROFILE: home,
+        APPDATA: join(home, "AppData", "Roaming"),
+        LOCALAPPDATA: join(home, "AppData", "Local"),
         WLD_TEST_SANDBOX_HOME: home,
         MNEMOTECA_DB_PATH: join(home, "mnemoteca-test.db"),
         SNIP_DB_PATH: join(home, "snip-tracking.db"),
+        TMPDIR: temp,
+        TEMP: temp,
+        TMP: temp,
         DENO_DIR: denoDir,
     };
 }
@@ -184,7 +194,12 @@ function parseRunnerArguments(args) {
  * @returns {boolean}
  */
 function isExcluded(file, excludedPaths) {
-    return excludedPaths.some((excluded) => file === excluded || file.startsWith(`${excluded}/`));
+    return excludedPaths.some((excluded) => {
+        if (file === excluded) return true;
+        const child = relative(excluded, file);
+        return child !== "" && child !== "." && !child.startsWith("..") && !child.startsWith("/") &&
+            !/^[A-Za-z]:[\\/]/.test(child);
+    });
 }
 
 /**
@@ -228,12 +243,14 @@ async function runIsolatedSuite(sandboxRoot, denoDir, roots = [REPO_ROOT], exclu
 
     /** @param {number} slot */
     const worker = async (slot) => {
-        const env = await createSandboxEnv(sandboxRoot, `slot-${slot}`, denoDir);
+        let slotRuns = 0;
         while (queue.length > 0) {
             const file = queue.shift();
             if (!file) return;
             const name = relative(REPO_ROOT, file);
             console.error(`[tests] start ${name}`);
+            const env = await createSandboxEnv(sandboxRoot, `slot-${slot}-file-${slotRuns}`, denoDir);
+            slotRuns += 1;
             const result = await runWithSnip("deno", ["test", "-A", "--no-check", "--quiet", file], {
                 cwd: REPO_ROOT,
                 env,

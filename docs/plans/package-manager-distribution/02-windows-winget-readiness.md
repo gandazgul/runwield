@@ -19,14 +19,14 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "pair"
 createdAt: "2026-09-11"
-status: "ready_for_work"
+status: "validated"
 origin: "internal"
 parentPlan: "package-manager-distribution"
 order: 2
 dependencies:
     - "01-homebrew-tap"
 userVerifiedAt: null
-userVerificationNote: null
+targetBranch: "main"
 ---
 
 # Prepare Native Windows and the WinGet Release Handoff

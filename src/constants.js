@@ -316,9 +316,21 @@ function assertTestRunIsSandboxed(homeDir) {
  * @returns {string}
  */
 export function getHomeDir() {
-    const homeDir = readOptionalEnv("HOME");
+    const homeDir = readOptionalEnv("HOME") || (Deno.build.os === "windows" ? windowsHomeDir() : "");
     assertTestRunIsSandboxed(homeDir);
     return homeDir;
+}
+
+/** @returns {string} */
+function windowsHomeDir() {
+    const userProfile = readOptionalEnv("USERPROFILE");
+    if (userProfile) return userProfile;
+    const drive = readOptionalEnv("HOMEDRIVE");
+    const path = readOptionalEnv("HOMEPATH");
+    if (drive && path) return `${drive}${path}`;
+    const localAppData = readOptionalEnv("LOCALAPPDATA");
+    if (localAppData) return localAppData;
+    return "";
 }
 
 /**

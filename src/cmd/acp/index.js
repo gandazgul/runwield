@@ -24,8 +24,9 @@ export async function runAcpCommand(_argv = []) {
     });
 
     const abort = () => connection.close();
-    Deno.addSignalListener("SIGINT", abort);
-    Deno.addSignalListener("SIGTERM", abort);
+    /** @type {Deno.Signal[]} */
+    const signals = Deno.build.os === "windows" ? ["SIGINT"] : ["SIGINT", "SIGTERM"];
+    for (const signal of signals) Deno.addSignalListener(signal, abort);
 
     try {
         await connection.closed;
@@ -33,8 +34,7 @@ export async function runAcpCommand(_argv = []) {
         writeDiagnostic(`fatal server error: ${err instanceof Error ? err.message : String(err)}`);
         throw err;
     } finally {
-        Deno.removeSignalListener("SIGINT", abort);
-        Deno.removeSignalListener("SIGTERM", abort);
+        for (const signal of signals) Deno.removeSignalListener(signal, abort);
         connection.close();
     }
 }
