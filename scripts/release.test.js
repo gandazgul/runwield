@@ -1,4 +1,5 @@
 import { assertEquals, assertRejects, assertStringIncludes, assertThrows } from "@std/assert";
+import { defineCommittedGitFixture } from "../src/shared/git-test-fixture.ts";
 
 import {
     createCandidate,
@@ -96,8 +97,13 @@ Deno.test("parseReleaseArgs keeps command contracts explicit", () => {
 function depsForCommands(responses) {
     /** @type {Array<{ command: string, args: string[] }>} */
     const calls = [];
+    /** @type {string[]} */
+    const logs = [];
     const deps = {
-        log() {},
+        /** @param {string} message */
+        log(message) {
+            logs.push(message);
+        },
         makeTempDir: () => Promise.resolve("/tmp/wld-release-test"),
         remove: () => Promise.resolve(),
         /**
@@ -126,7 +132,7 @@ function depsForCommands(responses) {
             });
         },
     };
-    return { calls, deps };
+    return { calls, deps, logs };
 }
 
 /**
@@ -146,17 +152,15 @@ async function runCommand(command, args, options = {}) {
     return decoder.decode(output.stdout);
 }
 
+const releaseRepoFixture = defineCommittedGitFixture({ "file.txt": "initial\n" });
+
 async function createReleaseRepo() {
     const root = await Deno.makeTempDir({ prefix: "wld-release-repo-" });
     const remote = `${root}/remote.git`;
     const repo = `${root}/repo`;
+    const checkout = await releaseRepoFixture.checkout({ prefix: "wld-release-checkout-" });
+    await Deno.rename(checkout, repo);
     await runCommand("git", ["init", "--bare", remote]);
-    await runCommand("git", ["init", "-b", "main", repo]);
-    await runCommand("git", ["config", "user.email", "release-test@example.com"], { cwd: repo });
-    await runCommand("git", ["config", "user.name", "Release Test"], { cwd: repo });
-    await Deno.writeTextFile(`${repo}/file.txt`, "initial\n");
-    await runCommand("git", ["add", "file.txt"], { cwd: repo });
-    await runCommand("git", ["commit", "-m", "initial"], { cwd: repo });
     await runCommand("git", ["remote", "add", "origin", remote], { cwd: repo });
     await runCommand("git", ["push", "-u", "origin", "main"], { cwd: repo });
     return { root, repo, remote };
@@ -166,10 +170,16 @@ async function createReleaseRepo() {
 function repoDeps(repo) {
     /** @type {Array<{ command: string, args: string[] }>} */
     const calls = [];
+    /** @type {string[]} */
+    const logs = [];
     return {
         calls,
+        logs,
         deps: {
-            log() {},
+            /** @param {string} message */
+            log(message) {
+                logs.push(message);
+            },
             error() {},
             /**
              * @param {string} command
@@ -232,8 +242,8 @@ Deno.test("resolveRemoteTagCommit peels annotated remote tags to the source comm
     }
 });
 
-Deno.test("createCandidate dry-run validates source and tags without local qualification or side effects", async () => {
-    const { deps, calls } = depsForCommands({
+Deno.test("createCandidate dry-run reports a new release branch without publication side effects", async () => {
+    const { deps, calls, logs } = depsForCommands({
         "git branch --show-current": { stdout: "main\n" },
         "git status --porcelain": { stdout: "" },
         "git rev-parse HEAD": { stdout: "abc123\n" },
@@ -249,7 +259,12 @@ Deno.test("createCandidate dry-run validates source and tags without local quali
 
     await createCandidate(deps, "v1.2.3-rc.1", true);
 
-    assertEquals(calls[0], { command: "git", args: ["rev-parse", "HEAD"] });
+    assertEquals(
+        calls.some((call) => call.command === "git" && call.args.join(" ") === "rev-parse HEAD"),
+        true,
+    );
+    assertEquals(logs.some((line) => line.includes("release/v1.2.3") && line.includes("abc123")), true);
+    assertEquals(logs.some((line) => line.includes("atomically push")), true);
     assertEquals(calls.some((call) => call.command === "deno"), false);
     assertEquals(
         calls.some((call) => call.command === "git" && call.args[0] === "tag" && call.args.includes("-a")),
@@ -261,7 +276,66 @@ Deno.test("createCandidate dry-run validates source and tags without local quali
     assertEquals(calls.some((call) => call.command === "glab"), false);
 });
 
-Deno.test("createCandidate publishes the resolved HEAD without branch, cleanliness, or local qualification checks", async () => {
+Deno.test("Candidate dry-run preserves real checkout files, index, and refs", async () => {
+    const fixture = await createReleaseRepo();
+    try {
+        await runCommand("git", ["tag", "-a", "v1.2.2", "-m", "stable"], { cwd: fixture.repo });
+        await runCommand("git", ["push", "origin", "refs/tags/v1.2.2"], { cwd: fixture.repo });
+        await Deno.writeTextFile(`${fixture.repo}/staged.txt`, "staged\n");
+        await runCommand("git", ["add", "staged.txt"], { cwd: fixture.repo });
+        await Deno.writeTextFile(`${fixture.repo}/file.txt`, "unstaged\n");
+        await Deno.writeTextFile(`${fixture.repo}/untracked.txt`, "untracked\n");
+        const beforeHead = await runCommand("git", ["rev-parse", "HEAD"], { cwd: fixture.repo });
+        const beforeBranch = await runCommand("git", ["branch", "--show-current"], { cwd: fixture.repo });
+        const beforeStatus = await runCommand("git", ["status", "--porcelain"], { cwd: fixture.repo });
+        const beforeRefs = await runCommand("git", ["show-ref"], { cwd: fixture.repo });
+        const { deps, logs } = repoDeps(fixture.repo);
+
+        await createCandidate(deps, "v1.2.3-rc.1", true);
+
+        assertEquals(await runCommand("git", ["rev-parse", "HEAD"], { cwd: fixture.repo }), beforeHead);
+        assertEquals(await runCommand("git", ["branch", "--show-current"], { cwd: fixture.repo }), beforeBranch);
+        assertEquals(await runCommand("git", ["status", "--porcelain"], { cwd: fixture.repo }), beforeStatus);
+        assertEquals(await runCommand("git", ["show-ref"], { cwd: fixture.repo }), beforeRefs);
+        assertEquals(await Deno.readTextFile(`${fixture.repo}/file.txt`), "unstaged\n");
+        assertEquals(await Deno.readTextFile(`${fixture.repo}/untracked.txt`), "untracked\n");
+        assertEquals(logs.some((line) => line.includes("release/v1.2.3")), true);
+    } finally {
+        await Deno.remove(fixture.root, { recursive: true });
+    }
+});
+
+Deno.test("later Candidate dry-run fetches remote source without moving local refs", async () => {
+    const fixture = await createReleaseRepo();
+    try {
+        await runCommand("git", ["tag", "-a", "v1.2.2", "-m", "stable"], { cwd: fixture.repo });
+        await runCommand("git", ["push", "origin", "refs/tags/v1.2.2"], { cwd: fixture.repo });
+        const { deps } = repoDeps(fixture.repo);
+        await createCandidate(deps, "v1.2.3-rc.1", false);
+
+        const fixer = `${fixture.root}/dry-run-fixer`;
+        await runCommand("git", ["clone", fixture.remote, fixer]);
+        await runCommand("git", ["config", "user.email", "release-test@example.com"], { cwd: fixer });
+        await runCommand("git", ["config", "user.name", "Release Test"], { cwd: fixer });
+        await runCommand("git", ["checkout", "-b", "release/v1.2.3", "origin/release/v1.2.3"], { cwd: fixer });
+        await Deno.writeTextFile(`${fixer}/fix.txt`, "release fix\n");
+        await runCommand("git", ["add", "fix.txt"], { cwd: fixer });
+        await runCommand("git", ["commit", "-m", "release fix"], { cwd: fixer });
+        await runCommand("git", ["push", "origin", "release/v1.2.3"], { cwd: fixer });
+        const beforeRefs = await runCommand("git", ["show-ref"], { cwd: fixture.repo });
+        const beforeStatus = await runCommand("git", ["status", "--porcelain"], { cwd: fixture.repo });
+
+        await createCandidate(deps, "v1.2.3-rc.2", true);
+
+        assertEquals(await runCommand("git", ["show-ref"], { cwd: fixture.repo }), beforeRefs);
+        assertEquals(await runCommand("git", ["status", "--porcelain"], { cwd: fixture.repo }), beforeStatus);
+        assertEquals(await runCommand("git", ["tag", "--list", "v1.2.3-rc.2"], { cwd: fixture.repo }), "");
+    } finally {
+        await Deno.remove(fixture.root, { recursive: true });
+    }
+});
+
+Deno.test("createCandidate atomically publishes RC1 branch and tag without checkout checks", async () => {
     const { deps, calls } = depsForCommands({
         "git rev-parse HEAD": { stdout: "abc123\n" },
         "git tag --list v*": { stdout: "v1.2.2\n" },
@@ -276,7 +350,10 @@ Deno.test("createCandidate publishes the resolved HEAD without branch, cleanline
 
     const tagCall = calls.find((call) => call.command === "git" && call.args[0] === "tag" && call.args.includes("-a"));
     assertEquals(tagCall?.args.includes("abc123"), true);
-    assertEquals(calls.some((call) => call.command === "git" && call.args[0] === "push"), true);
+    const pushCall = calls.find((call) => call.command === "git" && call.args[0] === "push");
+    assertEquals(pushCall?.args.includes("--atomic"), true);
+    assertEquals(pushCall?.args.includes("abc123:refs/heads/release/v1.2.3"), true);
+    assertEquals(pushCall?.args.includes("refs/tags/v1.2.3-rc.1"), true);
     assertEquals(calls.some((call) => call.command === "deno"), false);
     assertEquals(calls.some((call) => call.args[0] === "branch" || call.args[0] === "status"), false);
 });
@@ -338,6 +415,432 @@ Deno.test("createCandidate enforces next RC ordinal from real local and remote t
     }
 });
 
+Deno.test("later Candidates include pushed release fixes and exclude new main features", async () => {
+    const fixture = await createReleaseRepo();
+    try {
+        await runCommand("git", ["tag", "-a", "v1.2.2", "-m", "stable"], { cwd: fixture.repo });
+        await runCommand("git", ["push", "origin", "refs/tags/v1.2.2"], { cwd: fixture.repo });
+        const { deps, logs } = repoDeps(fixture.repo);
+
+        await createCandidate(deps, "v1.2.3-rc.1", false);
+        const initialCommit = (await runCommand("git", ["rev-parse", "HEAD"], { cwd: fixture.repo })).trim();
+        assertEquals(
+            (await runCommand("git", ["ls-remote", "origin", "refs/heads/release/v1.2.3"], {
+                cwd: fixture.repo,
+            })).startsWith(initialCommit),
+            true,
+        );
+
+        const fixer = `${fixture.root}/fixer`;
+        await runCommand("git", ["clone", fixture.remote, fixer]);
+        await runCommand("git", ["config", "user.email", "release-test@example.com"], { cwd: fixer });
+        await runCommand("git", ["config", "user.name", "Release Test"], { cwd: fixer });
+        await runCommand("git", ["checkout", "-b", "release/v1.2.3", "origin/release/v1.2.3"], { cwd: fixer });
+        await Deno.writeTextFile(`${fixer}/fix.txt`, "release fix\n");
+        await runCommand("git", ["add", "fix.txt"], { cwd: fixer });
+        await runCommand("git", ["commit", "-m", "release fix"], { cwd: fixer });
+        await runCommand("git", ["push", "origin", "release/v1.2.3"], { cwd: fixer });
+        const fixCommit = (await runCommand("git", ["rev-parse", "HEAD"], { cwd: fixer })).trim();
+
+        await Deno.writeTextFile(`${fixture.repo}/feature.txt`, "new feature\n");
+        await runCommand("git", ["add", "feature.txt"], { cwd: fixture.repo });
+        await runCommand("git", ["commit", "-m", "new feature"], { cwd: fixture.repo });
+        await runCommand("git", ["push", "origin", "main"], { cwd: fixture.repo });
+        await Deno.writeTextFile(`${fixture.repo}/staged.txt`, "staged\n");
+        await runCommand("git", ["add", "staged.txt"], { cwd: fixture.repo });
+        await Deno.writeTextFile(`${fixture.repo}/file.txt`, "unstaged\n");
+        await Deno.writeTextFile(`${fixture.repo}/untracked.txt`, "untracked\n");
+        const beforeHead = (await runCommand("git", ["rev-parse", "HEAD"], { cwd: fixture.repo })).trim();
+        const beforeStatus = await runCommand("git", ["status", "--porcelain"], { cwd: fixture.repo });
+
+        await createCandidate(deps, "v1.2.3-rc.2", false);
+
+        const candidateCommit = (await runCommand("git", ["rev-parse", "v1.2.3-rc.2^{commit}"], {
+            cwd: fixture.repo,
+        })).trim();
+        const candidateFiles = await runCommand("git", ["ls-tree", "--name-only", "v1.2.3-rc.2^{commit}"], {
+            cwd: fixture.repo,
+        });
+        assertEquals(candidateCommit, fixCommit);
+        assertStringIncludes(candidateFiles, "fix.txt");
+        assertEquals(candidateFiles.includes("feature.txt"), false);
+        assertEquals(await runCommand("git", ["branch", "--show-current"], { cwd: fixture.repo }), "main\n");
+        assertEquals((await runCommand("git", ["rev-parse", "HEAD"], { cwd: fixture.repo })).trim(), beforeHead);
+        assertEquals(await runCommand("git", ["status", "--porcelain"], { cwd: fixture.repo }), beforeStatus);
+        assertEquals(logs.some((line) => line.includes("release/v1.2.3") && line.includes(fixCommit)), true);
+
+        await runCommand("git", ["push", "origin", "--delete", "v1.2.3-rc.2"], { cwd: fixture.repo });
+        await runCommand("git", ["tag", "--delete", "v1.2.3-rc.2"], { cwd: fixture.repo });
+        await Deno.writeTextFile(`${fixer}/fix-two.txt`, "second release fix\n");
+        await runCommand("git", ["add", "fix-two.txt"], { cwd: fixer });
+        await runCommand("git", ["commit", "-m", "second release fix"], { cwd: fixer });
+        await runCommand("git", ["push", "origin", "release/v1.2.3"], { cwd: fixer });
+        const secondFixCommit = (await runCommand("git", ["rev-parse", "HEAD"], { cwd: fixer })).trim();
+
+        await createCandidate(deps, "v1.2.3-rc.2", false);
+
+        assertEquals(
+            (await runCommand("git", ["rev-parse", "v1.2.3-rc.2^{commit}"], { cwd: fixture.repo })).trim(),
+            secondFixCommit,
+        );
+        assertEquals(await runCommand("git", ["status", "--porcelain"], { cwd: fixture.repo }), beforeStatus);
+    } finally {
+        await Deno.remove(fixture.root, { recursive: true });
+    }
+});
+
+Deno.test("later Candidate ignores unpushed commits on a local Release Branch", async () => {
+    const fixture = await createReleaseRepo();
+    try {
+        await runCommand("git", ["tag", "-a", "v1.2.2", "-m", "stable"], { cwd: fixture.repo });
+        await runCommand("git", ["push", "origin", "refs/tags/v1.2.2"], { cwd: fixture.repo });
+        const { deps } = repoDeps(fixture.repo);
+        await createCandidate(deps, "v1.2.3-rc.1", false);
+        await runCommand("git", ["switch", "--create", "release/v1.2.3", "v1.2.3-rc.1"], {
+            cwd: fixture.repo,
+        });
+        await Deno.writeTextFile(`${fixture.repo}/local-only.txt`, "unpushed local work\n");
+        await runCommand("git", ["add", "local-only.txt"], { cwd: fixture.repo });
+        await runCommand("git", ["commit", "-m", "unpushed local work"], { cwd: fixture.repo });
+        const localCommit = (await runCommand("git", ["rev-parse", "HEAD"], { cwd: fixture.repo })).trim();
+
+        const fixer = `${fixture.root}/remote-fixer`;
+        await runCommand("git", ["clone", fixture.remote, fixer]);
+        await runCommand("git", ["config", "user.email", "release-test@example.com"], { cwd: fixer });
+        await runCommand("git", ["config", "user.name", "Release Test"], { cwd: fixer });
+        await runCommand("git", ["checkout", "-b", "release/v1.2.3", "origin/release/v1.2.3"], { cwd: fixer });
+        await Deno.writeTextFile(`${fixer}/remote-fix.txt`, "pushed fix\n");
+        await runCommand("git", ["add", "remote-fix.txt"], { cwd: fixer });
+        await runCommand("git", ["commit", "-m", "pushed fix"], { cwd: fixer });
+        await runCommand("git", ["push", "origin", "release/v1.2.3"], { cwd: fixer });
+        const remoteCommit = (await runCommand("git", ["rev-parse", "HEAD"], { cwd: fixer })).trim();
+
+        await createCandidate(deps, "v1.2.3-rc.2", false);
+
+        assertEquals(
+            (await runCommand("git", ["rev-parse", "v1.2.3-rc.2^{commit}"], { cwd: fixture.repo })).trim(),
+            remoteCommit,
+        );
+        assertEquals(await runCommand("git", ["branch", "--show-current"], { cwd: fixture.repo }), "release/v1.2.3\n");
+        assertEquals((await runCommand("git", ["rev-parse", "HEAD"], { cwd: fixture.repo })).trim(), localCommit);
+        assertEquals(localCommit === remoteCommit, false);
+    } finally {
+        await Deno.remove(fixture.root, { recursive: true });
+    }
+});
+
+Deno.test("RC1 retry uses an existing pushed release branch instead of HEAD", async () => {
+    const fixture = await createReleaseRepo();
+    try {
+        await runCommand("git", ["tag", "-a", "v1.2.2", "-m", "stable"], { cwd: fixture.repo });
+        await runCommand("git", ["push", "origin", "refs/tags/v1.2.2"], { cwd: fixture.repo });
+        const branchCommit = (await runCommand("git", ["rev-parse", "HEAD"], { cwd: fixture.repo })).trim();
+        await runCommand("git", ["push", "origin", `${branchCommit}:refs/heads/release/v1.2.3`], {
+            cwd: fixture.repo,
+        });
+        await Deno.writeTextFile(`${fixture.repo}/feature.txt`, "new feature\n");
+        await runCommand("git", ["add", "feature.txt"], { cwd: fixture.repo });
+        await runCommand("git", ["commit", "-m", "new feature"], { cwd: fixture.repo });
+        const headCommit = (await runCommand("git", ["rev-parse", "HEAD"], { cwd: fixture.repo })).trim();
+        const { deps } = repoDeps(fixture.repo);
+
+        await createCandidate(deps, "v1.2.3-rc.1", false);
+
+        assertEquals(
+            (await runCommand("git", ["rev-parse", "v1.2.3-rc.1^{commit}"], { cwd: fixture.repo })).trim(),
+            branchCommit,
+        );
+        assertEquals(branchCommit === headCommit, false);
+    } finally {
+        await Deno.remove(fixture.root, { recursive: true });
+    }
+});
+
+Deno.test("later Candidate refuses a missing release branch", async () => {
+    const fixture = await createReleaseRepo();
+    try {
+        await runCommand("git", ["tag", "-a", "v1.2.2", "-m", "stable"], { cwd: fixture.repo });
+        await runCommand("git", ["tag", "-a", "v1.2.3-rc.1", "-m", "candidate"], { cwd: fixture.repo });
+        await runCommand("git", ["push", "origin", "refs/tags/v1.2.2", "refs/tags/v1.2.3-rc.1"], {
+            cwd: fixture.repo,
+        });
+        const { deps } = repoDeps(fixture.repo);
+
+        await assertRejects(
+            () => createCandidate(deps, "v1.2.3-rc.2", true),
+            Error,
+            "Remote release branch does not exist",
+        );
+    } finally {
+        await Deno.remove(fixture.root, { recursive: true });
+    }
+});
+
+Deno.test("later Candidate refuses a missing remote predecessor tag", async () => {
+    const fixture = await createReleaseRepo();
+    try {
+        await runCommand("git", ["tag", "-a", "v1.2.2", "-m", "stable"], { cwd: fixture.repo });
+        await runCommand("git", ["tag", "-a", "v1.2.3-rc.1", "-m", "local candidate"], { cwd: fixture.repo });
+        await runCommand(
+            "git",
+            ["push", "origin", "refs/tags/v1.2.2", "HEAD:refs/heads/release/v1.2.3"],
+            { cwd: fixture.repo },
+        );
+        const { deps } = repoDeps(fixture.repo);
+
+        await assertRejects(
+            () => createCandidate(deps, "v1.2.3-rc.2", true),
+            Error,
+            "Previous Candidate tag does not exist on origin",
+        );
+    } finally {
+        await Deno.remove(fixture.root, { recursive: true });
+    }
+});
+
+Deno.test("later Candidate refuses a release branch unrelated to the previous Candidate", async () => {
+    const fixture = await createReleaseRepo();
+    try {
+        await runCommand("git", ["tag", "-a", "v1.2.2", "-m", "stable"], { cwd: fixture.repo });
+        await runCommand("git", ["tag", "-a", "v1.2.3-rc.1", "-m", "candidate"], { cwd: fixture.repo });
+        await runCommand("git", ["push", "origin", "refs/tags/v1.2.2", "refs/tags/v1.2.3-rc.1"], {
+            cwd: fixture.repo,
+        });
+        const unrelated = `${fixture.root}/unrelated`;
+        await runCommand("git", ["clone", fixture.remote, unrelated]);
+        await runCommand("git", ["config", "user.email", "release-test@example.com"], { cwd: unrelated });
+        await runCommand("git", ["config", "user.name", "Release Test"], { cwd: unrelated });
+        await runCommand("git", ["checkout", "--orphan", "release-source"], { cwd: unrelated });
+        await Deno.writeTextFile(`${unrelated}/unrelated.txt`, "unrelated\n");
+        await runCommand("git", ["add", "unrelated.txt"], { cwd: unrelated });
+        await runCommand("git", ["commit", "-m", "unrelated"], { cwd: unrelated });
+        await runCommand("git", ["push", "origin", "HEAD:refs/heads/release/v1.2.3"], { cwd: unrelated });
+        const { deps } = repoDeps(fixture.repo);
+
+        await assertRejects(
+            () => createCandidate(deps, "v1.2.3-rc.2", true),
+            Error,
+            "does not descend",
+        );
+    } finally {
+        await Deno.remove(fixture.root, { recursive: true });
+    }
+});
+
+Deno.test("later Candidate stops when the release branch changes while its source loads", async () => {
+    const fixture = await createReleaseRepo();
+    try {
+        await runCommand("git", ["tag", "-a", "v1.2.2", "-m", "stable"], { cwd: fixture.repo });
+        await runCommand("git", ["push", "origin", "refs/tags/v1.2.2"], { cwd: fixture.repo });
+        const release = repoDeps(fixture.repo);
+        await createCandidate(release.deps, "v1.2.3-rc.1", false);
+
+        const fixer = `${fixture.root}/source-race-fixer`;
+        await runCommand("git", ["clone", fixture.remote, fixer]);
+        await runCommand("git", ["config", "user.email", "release-test@example.com"], { cwd: fixer });
+        await runCommand("git", ["config", "user.name", "Release Test"], { cwd: fixer });
+        await runCommand("git", ["checkout", "-b", "release/v1.2.3", "origin/release/v1.2.3"], { cwd: fixer });
+        await Deno.writeTextFile(`${fixer}/raced.txt`, "raced\n");
+        await runCommand("git", ["add", "raced.txt"], { cwd: fixer });
+        await runCommand("git", ["commit", "-m", "raced fix"], { cwd: fixer });
+
+        const originalRun = release.deps.run;
+        let branchReads = 0;
+        release.deps.run = async (command, args, options = {}) => {
+            if (
+                command === "git" && args.join(" ") ===
+                    "ls-remote --heads origin refs/heads/release/v1.2.3"
+            ) {
+                branchReads += 1;
+                if (branchReads === 2) {
+                    await runCommand("git", ["push", "origin", "release/v1.2.3"], { cwd: fixer });
+                }
+            }
+            return await originalRun(command, args, options);
+        };
+
+        await assertRejects(
+            () => createCandidate(release.deps, "v1.2.3-rc.2", true),
+            Error,
+            "changed during preflight",
+        );
+        assertEquals(await runCommand("git", ["tag", "--list", "v1.2.3-rc.2"], { cwd: fixture.repo }), "");
+    } finally {
+        await Deno.remove(fixture.root, { recursive: true });
+    }
+});
+
+Deno.test("later Candidate stops when the release branch changes during preflight", async () => {
+    const fixture = await createReleaseRepo();
+    try {
+        await runCommand("git", ["tag", "-a", "v1.2.2", "-m", "stable"], { cwd: fixture.repo });
+        await runCommand("git", ["push", "origin", "refs/tags/v1.2.2"], { cwd: fixture.repo });
+        const release = repoDeps(fixture.repo);
+        await createCandidate(release.deps, "v1.2.3-rc.1", false);
+
+        const fixer = `${fixture.root}/race-fixer`;
+        await runCommand("git", ["clone", fixture.remote, fixer]);
+        await runCommand("git", ["config", "user.email", "release-test@example.com"], { cwd: fixer });
+        await runCommand("git", ["config", "user.name", "Release Test"], { cwd: fixer });
+        await runCommand("git", ["checkout", "-b", "release/v1.2.3", "origin/release/v1.2.3"], { cwd: fixer });
+        const originalRun = release.deps.run;
+        let branchReads = 0;
+        release.deps.run = async (command, args, options = {}) => {
+            if (
+                command === "git" && args.join(" ") ===
+                    "ls-remote --heads origin refs/heads/release/v1.2.3"
+            ) {
+                branchReads += 1;
+                if (branchReads === 3) {
+                    await Deno.writeTextFile(`${fixer}/raced.txt`, "raced\n");
+                    await runCommand("git", ["add", "raced.txt"], { cwd: fixer });
+                    await runCommand("git", ["commit", "-m", "raced fix"], { cwd: fixer });
+                    await runCommand("git", ["push", "origin", "release/v1.2.3"], { cwd: fixer });
+                }
+            }
+            return await originalRun(command, args, options);
+        };
+
+        await assertRejects(
+            () => createCandidate(release.deps, "v1.2.3-rc.2", false),
+            Error,
+            "changed during preflight",
+        );
+        assertEquals(
+            await runCommand("git", ["tag", "--list", "v1.2.3-rc.2"], { cwd: fixture.repo }),
+            "",
+        );
+    } finally {
+        await Deno.remove(fixture.root, { recursive: true });
+    }
+});
+
+Deno.test("RC1 does not overwrite a release branch created during preflight", async () => {
+    const fixture = await createReleaseRepo();
+    try {
+        await runCommand("git", ["tag", "-a", "v1.2.2", "-m", "stable"], { cwd: fixture.repo });
+        await runCommand("git", ["push", "origin", "refs/tags/v1.2.2"], { cwd: fixture.repo });
+        const actor = `${fixture.root}/branch-actor`;
+        await runCommand("git", ["clone", fixture.remote, actor]);
+        await runCommand("git", ["config", "user.email", "release-test@example.com"], { cwd: actor });
+        await runCommand("git", ["config", "user.name", "Release Test"], { cwd: actor });
+        await Deno.writeTextFile(`${actor}/actor.txt`, "actor branch\n");
+        await runCommand("git", ["add", "actor.txt"], { cwd: actor });
+        await runCommand("git", ["commit", "-m", "actor branch"], { cwd: actor });
+        const actorCommit = (await runCommand("git", ["rev-parse", "HEAD"], { cwd: actor })).trim();
+        const release = repoDeps(fixture.repo);
+        const originalRun = release.deps.run;
+        let branchReads = 0;
+        release.deps.run = async (command, args, options = {}) => {
+            if (
+                command === "git" && args.join(" ") ===
+                    "ls-remote --heads origin refs/heads/release/v1.2.3"
+            ) {
+                branchReads += 1;
+                if (branchReads === 2) {
+                    await runCommand("git", ["push", "origin", "HEAD:refs/heads/release/v1.2.3"], { cwd: actor });
+                }
+            }
+            return await originalRun(command, args, options);
+        };
+
+        await assertRejects(
+            () => createCandidate(release.deps, "v1.2.3-rc.1", false),
+            Error,
+            "changed during preflight",
+        );
+
+        assertEquals(await runCommand("git", ["tag", "--list", "v1.2.3-rc.1"], { cwd: fixture.repo }), "");
+        assertEquals(
+            (await runCommand("git", ["ls-remote", "origin", "refs/heads/release/v1.2.3"], {
+                cwd: fixture.repo,
+            })).startsWith(actorCommit),
+            true,
+        );
+    } finally {
+        await Deno.remove(fixture.root, { recursive: true });
+    }
+});
+
+Deno.test("RC1 branch and tag publication is atomic when the remote rejects the tag", async () => {
+    const fixture = await createReleaseRepo();
+    try {
+        await runCommand("git", ["tag", "-a", "v1.2.2", "-m", "stable"], { cwd: fixture.repo });
+        await runCommand("git", ["push", "origin", "refs/tags/v1.2.2"], { cwd: fixture.repo });
+        const hook = `${fixture.remote}/hooks/pre-receive`;
+        await Deno.writeTextFile(
+            hook,
+            '#!/bin/sh\nwhile read old new ref; do\n  if [ "$ref" = "refs/tags/v1.2.3-rc.1" ]; then exit 1; fi\ndone\n',
+        );
+        await Deno.chmod(hook, 0o755);
+        const { deps } = repoDeps(fixture.repo);
+
+        const failure = await assertRejects(
+            () => createCandidate(deps, "v1.2.3-rc.1", false),
+            Error,
+            "Push release branch and tag",
+        );
+        assertStringIncludes(failure.message, "local tag v1.2.3-rc.1 remains");
+        assertStringIncludes(failure.message, "origin release/v1.2.3 is absent");
+
+        assertEquals(
+            await runCommand("git", ["ls-remote", "--heads", "origin", "refs/heads/release/v1.2.3"], {
+                cwd: fixture.repo,
+            }),
+            "",
+        );
+        assertEquals(
+            await runCommand("git", ["ls-remote", "--tags", "origin", "refs/tags/v1.2.3-rc.1"], {
+                cwd: fixture.repo,
+            }),
+            "",
+        );
+        assertEquals(
+            (await runCommand("git", ["tag", "--list", "v1.2.3-rc.1"], { cwd: fixture.repo })).trim(),
+            "v1.2.3-rc.1",
+        );
+
+        await Deno.remove(hook);
+        await runCommand("git", ["tag", "--delete", "v1.2.3-rc.1"], { cwd: fixture.repo });
+        await createCandidate(deps, "v1.2.3-rc.1", false);
+        assertEquals(
+            (await runCommand("git", ["ls-remote", "origin", "refs/heads/release/v1.2.3"], {
+                cwd: fixture.repo,
+            })).length > 0,
+            true,
+        );
+        assertEquals(
+            (await runCommand("git", ["ls-remote", "origin", "refs/tags/v1.2.3-rc.1"], {
+                cwd: fixture.repo,
+            })).length > 0,
+            true,
+        );
+    } finally {
+        await Deno.remove(fixture.root, { recursive: true });
+    }
+});
+
+Deno.test("every grandfathered Candidate series retains HEAD selection without a release branch", async () => {
+    const series = ["v0.8.16", "v0.9.0", "v0.9.2", "v0.9.3", "v0.9.4", "v0.9.6", "v0.10.1"];
+    for (const stableTag of series) {
+        const candidate = `${stableTag}-rc.2`;
+        const { deps, calls, logs } = depsForCommands({
+            "git tag --list v*": { stdout: `v0.0.1\n${stableTag}-rc.1\n` },
+            "git ls-remote --tags origin refs/tags/v*": { stdout: "" },
+            [`git rev-parse ${candidate}^{commit}`]: { success: false, code: 1 },
+            [`git ls-remote --tags origin refs/tags/${candidate}*`]: { stdout: "" },
+            [`git rev-parse ${stableTag}^{commit}`]: { success: false, code: 1 },
+            [`git ls-remote --tags origin refs/tags/${stableTag}*`]: { stdout: "" },
+            "git rev-parse HEAD": { stdout: "legacy-head\n" },
+        });
+
+        await createCandidate(deps, candidate, true);
+
+        assertEquals(logs.some((line) => line.includes("HEAD at legacy-head")), true);
+        assertEquals(calls.some((call) => call.args.includes("--heads")), false);
+    }
+});
+
 Deno.test("createStable rejects regressive tags but permits dirty and ahead real checkouts", async () => {
     const fixture = await createReleaseRepo();
     try {
@@ -377,17 +880,62 @@ Deno.test("promoteCandidate tags the Candidate peeled commit instead of HEAD in 
         await runCommand("git", ["commit", "-am", "candidate"], { cwd: fixture.repo });
         const candidateCommit = (await runCommand("git", ["rev-parse", "HEAD"], { cwd: fixture.repo })).trim();
         await runCommand("git", ["tag", "-a", "v1.2.3-rc.1", "-m", "candidate"], { cwd: fixture.repo });
-        await runCommand("git", ["push", "origin", "main", "refs/tags/v1.2.2", "refs/tags/v1.2.3-rc.1"], {
-            cwd: fixture.repo,
-        });
+        await runCommand(
+            "git",
+            [
+                "push",
+                "origin",
+                "main",
+                "refs/tags/v1.2.2",
+                "refs/tags/v1.2.3-rc.1",
+                `${candidateCommit}:refs/heads/release/v1.2.3`,
+            ],
+            { cwd: fixture.repo },
+        );
         await Deno.writeTextFile(`${fixture.repo}/file.txt`, "after candidate\n");
         await runCommand("git", ["commit", "-am", "after candidate"], { cwd: fixture.repo });
         const headCommit = (await runCommand("git", ["rev-parse", "HEAD"], { cwd: fixture.repo })).trim();
+        await runCommand("git", ["push", "origin", "HEAD:refs/heads/release/v1.2.3"], { cwd: fixture.repo });
         const { deps } = repoDeps(fixture.repo);
         await promoteCandidate(deps, "v1.2.3-rc.1", false);
         const stableCommit = (await runCommand("git", ["rev-parse", "v1.2.3^{commit}"], { cwd: fixture.repo })).trim();
         assertEquals(stableCommit, candidateCommit);
         assertEquals(stableCommit === headCommit, false);
+    } finally {
+        await Deno.remove(fixture.root, { recursive: true });
+    }
+});
+
+Deno.test("promotion fetches a remote Candidate source missing from the local object database", async () => {
+    const fixture = await createReleaseRepo();
+    try {
+        await runCommand("git", ["tag", "-a", "v1.2.2", "-m", "stable"], { cwd: fixture.repo });
+        await runCommand("git", ["push", "origin", "refs/tags/v1.2.2"], { cwd: fixture.repo });
+        const publisher = `${fixture.root}/candidate-publisher`;
+        await runCommand("git", ["clone", fixture.remote, publisher]);
+        await runCommand("git", ["config", "user.email", "release-test@example.com"], { cwd: publisher });
+        await runCommand("git", ["config", "user.name", "Release Test"], { cwd: publisher });
+        await Deno.writeTextFile(`${publisher}/remote-candidate.txt`, "remote candidate\n");
+        await runCommand("git", ["add", "remote-candidate.txt"], { cwd: publisher });
+        await runCommand("git", ["commit", "-m", "remote candidate"], { cwd: publisher });
+        const candidateCommit = (await runCommand("git", ["rev-parse", "HEAD"], { cwd: publisher })).trim();
+        await runCommand("git", ["tag", "-a", "v1.2.3-rc.1", "-m", "candidate"], { cwd: publisher });
+        await runCommand("git", ["push", "origin", "refs/tags/v1.2.3-rc.1"], { cwd: publisher });
+        const beforeFetch = await new Deno.Command("git", {
+            args: ["cat-file", "-e", `${candidateCommit}^{commit}`],
+            cwd: fixture.repo,
+            stdout: "null",
+            stderr: "null",
+        }).output();
+        assertEquals(beforeFetch.success, false);
+        const { deps } = repoDeps(fixture.repo);
+
+        await promoteCandidate(deps, "v1.2.3-rc.1", false);
+
+        assertEquals(
+            (await runCommand("git", ["rev-parse", "v1.2.3^{commit}"], { cwd: fixture.repo })).trim(),
+            candidateCommit,
+        );
     } finally {
         await Deno.remove(fixture.root, { recursive: true });
     }

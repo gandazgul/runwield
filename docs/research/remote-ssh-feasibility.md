@@ -79,7 +79,7 @@ Official provider documentation confirms that remote browser login is not the sa
 - Working outside Git is already supported in parts of Core. A remote home directory is not inherently invalid, but
   Git-dependent workflows must retain their existing checks. Sources:
   [`Session prompt tests`](../../src/shared/session/session-prompt.test.js),
-  [`execution start`](../../src/workflow/execution-start.ts).
+  [`execution start`](../../src/shared/workflow/execution-start.ts).
 
 ### Sessions, browser reviews, and disconnects
 
@@ -91,7 +91,7 @@ Official provider documentation confirms that remote browser login is not the sa
   [`live-session-connection.ts`](../../src/shared/session/live-session-connection.ts).
 - Reviews currently bind a server to machine-local loopback. Remote reviews need laptop access and must return decisions
   to the same Session. Sources: [`review server`](../../src/ui/workspace/server.js),
-  [`review launcher tests`](../../src/ui/review-launcher.test.ts).
+  [`review launcher tests`](../../src/ui/review/review-launcher.test.ts).
 - RunWield has process-tree cancellation, but this does not prove cleanup after SSH loss. CLI backends, helpers, and MCP
   subprocesses do not all share the same termination path. Sources:
   [`foreground-process.ts`](../../src/shared/foreground-process.ts),

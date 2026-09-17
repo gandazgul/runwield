@@ -238,8 +238,8 @@ prerequisites remain the user's project environment, not automatic RunWield inst
 
 Handoff: `/agent planner` uses this proposal and the research report. Architecture decisions and implementation work
 remain separate. No Plan or Epic has been created. After delivery, fold lasting requirements into
-[RunWield Core](runwield-core-prd.md#remote-ssh-development), retain unresolved scope explicitly, fix references, and
-remove this transient proposal under project policy.
+[RunWield Core](runwield-core-prd.md), retain unresolved scope explicitly, fix references, and remove this transient
+proposal under project policy.
 
 ## Risks and Mitigations
 
