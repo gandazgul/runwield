@@ -1902,6 +1902,7 @@ async function listSiblingTemps(path: string): Promise<string[]> {
 }
 
 async function syncDirectory(path: string): Promise<void> {
+    if (Deno.build.os === "windows") return;
     const directory = await Deno.open(path, { read: true });
     try {
         await directory.sync();
