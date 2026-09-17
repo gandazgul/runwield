@@ -91,6 +91,11 @@ async function registeredTapPath(tap) {
     const existing = await run("brew", ["--repo", TAP_NAME], tap, true);
     if (!existing.success) return "";
     const existingPath = resolve(existing.stdout.trim());
+    const exists = await Deno.stat(existingPath).then((stat) => stat.isDirectory).catch((error) => {
+        if (error instanceof Deno.errors.NotFound) return false;
+        throw error;
+    });
+    if (!exists) return "";
     if (existingPath !== resolve(tap) && !(await isCloneOfTap(existingPath, tap))) {
         throw new Error(`Homebrew tap ${TAP_NAME} already points at ${existingPath}. Untap it or pass that path.`);
     }
