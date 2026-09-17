@@ -87,6 +87,7 @@ import { getModelRegistry, SYSTEM_MODEL_DISCOVERY_NETWORK } from "../models/mode
 import { parseProviderModel } from "../models/model-validation.ts";
 import { spawnForegroundShell } from "../foreground-process.ts";
 import { openFileSessionStore } from "./file-session-store.ts";
+import { isGitRepository } from "../git.js";
 import { enterProjectRuntime } from "../project-runtime-layout.ts";
 import { sessionDirForRoot } from "./file-session-storage.ts";
 import { FileSessionStoreOwner } from "./file-session-store-owner.ts";
@@ -434,6 +435,11 @@ function normalizeThinkingLevel(value) {
         default:
             return "off";
     }
+}
+
+/** @param {string} cwd */
+async function enterGitProjectRuntime(cwd) {
+    if (await isGitRepository(cwd)) await enterProjectRuntime(cwd);
 }
 
 /**
@@ -3102,7 +3108,7 @@ export class SessionRuntime {
     async #prepareDeferredManagedCreation(hostedSession) {
         const pendingProject = this.#pendingManagedCreationProjects.get(hostedSession.id);
         if (!pendingProject) return null;
-        await enterProjectRuntime(pendingProject.cwd);
+        await enterGitProjectRuntime(pendingProject.cwd);
         const sessionStore = this.#sessionStoreOwner.ensure();
         const managedProject = this.#ensureSessionProjectForCwd(pendingProject.cwd);
         if (!managedProject) throw new Error("Session Manager create is blocked: project_identity_unavailable");
@@ -4438,7 +4444,7 @@ export class SessionRuntime {
         const deferManagedCreation = Boolean(
             (options.mode || "new") === "new" && options.deferManagedActivationUntilAgentReady,
         );
-        if (!deferManagedCreation) await enterProjectRuntime(options.cwd);
+        if (!deferManagedCreation) await enterGitProjectRuntime(options.cwd);
         if (!ownerCoordinationStore && !deferManagedCreation) {
             throw new Error("Session Manager access is blocked: session_store_unavailable");
         }
@@ -4808,7 +4814,7 @@ export class SessionRuntime {
         if (!options.sessionId || typeof options.sessionId !== "string") {
             throw new Error("SessionRuntime.loadSession requires a session id");
         }
-        await enterProjectRuntime(options.cwd);
+        await enterGitProjectRuntime(options.cwd);
         const ownerCoordinationStore = this.#sessionStore;
         if (!ownerCoordinationStore) {
             throw new Error("Session Manager load is blocked: session_store_unavailable");
