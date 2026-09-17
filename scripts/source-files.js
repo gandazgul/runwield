@@ -5,6 +5,10 @@
  * source" means, rather than each carrying its own glob that can drift.
  */
 
+import { dirname, fromFileUrl } from "@std/path";
+import { listCiFiles } from "./ci-files.ts";
+
+const REPO_ROOT = dirname(dirname(fromFileUrl(import.meta.url)));
 const SOURCE_ROOTS = ["src", "scripts"];
 
 /**
@@ -33,23 +37,11 @@ const SOURCE_FILE_PATTERN = /\.(?:jsx?|tsx?|mjs|mts)$/;
  * @returns {Promise<string[]>}
  */
 export async function walkSourceFiles(roots = SOURCE_ROOTS) {
-    /** @type {string[]} */
-    const files = [];
-
-    /** @param {string} directory */
-    async function walk(directory) {
-        for await (const entry of Deno.readDir(directory)) {
-            const path = `${directory}/${entry.name}`;
-            if (entry.isDirectory) {
-                if (SKIP_DIRS.has(entry.name) || SKIP_PATHS.has(path)) continue;
-                await walk(path);
-                continue;
-            }
-            if (!entry.isFile) continue;
-            if (SOURCE_FILE_PATTERN.test(entry.name)) files.push(path);
-        }
-    }
-
-    for (const root of roots) await walk(root);
-    return files.sort();
+    const files = await listCiFiles(REPO_ROOT);
+    return files.filter((path) => {
+        if (!SOURCE_FILE_PATTERN.test(path)) return false;
+        if (!roots.some((root) => path === root || path.startsWith(`${root}/`))) return false;
+        if ([...SKIP_PATHS].some((skipped) => path === skipped || path.startsWith(`${skipped}/`))) return false;
+        return !path.split("/").some((part) => SKIP_DIRS.has(part));
+    });
 }
