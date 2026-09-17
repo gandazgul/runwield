@@ -8,7 +8,7 @@ Disposable guide. Delete this file after the first public WinGet listing is acce
 - GitHub release workflow passed.
 - Windows x64 machine or VM with Git for Windows and WinGet.
 - Owner GitHub account that can submit to `microsoft/winget-pkgs`.
-- No public PR is created by package generation.
+- Repository secret `WINGET_CREATE_GITHUB_TOKEN` with a classic GitHub token that has the `public_repo` scope.
 
 ## 1. Publish the Stable release
 
@@ -140,18 +140,15 @@ Failure and retry:
   Stable ZIP.
 - Manual ZIP replacement is not upgrade proof.
 
-## 6. Submit
+## 6. Confirm automatic submission
 
-Use the current supported submit command:
+After `winget-package` succeeds, confirm the Stable-only `winget-submit` job succeeds and creates a PR in
+`microsoft/winget-pkgs`. Candidate releases do not run either job.
 
-```powershell
-wingetcreate submit C:\path\to\Gandazgul.RunWield\X.Y.Z
-```
-
-Authenticate when prompted. Confirm the PR exists in `microsoft/winget-pkgs`.
-
-If review requests changes, update the generator or docs in this repo, regenerate, and resubmit. Do not hand-edit
-long-term manifest content without copying the fix back to the generator.
+If authentication fails, replace the `WINGET_CREATE_GITHUB_TOKEN` repository secret with a classic GitHub token that has
+the `public_repo` scope, then rerun the failed job. Recovery reruns stop successfully when the same version is already
+in the catalog or has an open PR. If review requests changes, update the generator or docs in this repo and keep the
+submitted manifest consistent with that source. Do not leave a long-term manifest fix only in the external PR.
 
 ## 7. After acceptance
 

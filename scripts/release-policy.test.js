@@ -64,6 +64,24 @@ Deno.test("release workflow keeps tag publication and manual recovery channel-sa
     assertMatch(policy, /Never use manual recovery to bypass a genuine failure in tagged product\s+source/);
 });
 
+Deno.test("Stable releases submit generated WinGet manifests without exposing the token as an argument", async () => {
+    const workflow = await Deno.readTextFile(".github/workflows/release.yml");
+    const submitStart = workflow.indexOf("    winget-submit:");
+    const submitEnd = workflow.indexOf("\n    homebrew-package:", submitStart);
+    const submitJob = workflow.slice(submitStart, submitEnd);
+
+    assertEquals(submitStart >= 0, true);
+    assertEquals(submitEnd > submitStart, true);
+    assertStringIncludes(submitJob, "if: needs.metadata.outputs.kind == 'stable'");
+    assertStringIncludes(submitJob, "- winget-package");
+    assertStringIncludes(submitJob, "WINGET_CREATE_GITHUB_TOKEN: ${{ secrets.WINGET_CREATE_GITHUB_TOKEN }}");
+    assertStringIncludes(submitJob, "wingetcreate.exe");
+    assertStringIncludes(submitJob, "manifests/g/Gandazgul/RunWield/$version");
+    assertStringIncludes(submitJob, "is:pr is:open in:title");
+    assertStringIncludes(submitJob, "submit $manifestPath --prtitle $prTitle --no-open");
+    assertEquals(submitJob.includes("submit $manifestPath --token"), false);
+});
+
 Deno.test("release-tier Golden TUI alias does not run TODO goldens", async () => {
     const config = JSON.parse(await Deno.readTextFile("deno.json"));
     const normalTest = String(config.tasks?.test || "");
