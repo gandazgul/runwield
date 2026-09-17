@@ -1,4 +1,4 @@
-import { basename, dirname, join, resolve } from "@std/path";
+import { basename, dirname, join, resolve, SEPARATOR } from "@std/path";
 import {
     getRunWieldRuntimeDir,
     PLAN_BACKUPS_DIR_NAME,
@@ -1501,7 +1501,7 @@ function isBoundedLegacyLockPath(preflightResult: MigrationPreflight, path: stri
         const planLocksDir = join(base, PLAN_LOCKS_DIR_NAME);
         return path === join(base, "work-record-supersession.lock") ||
             path === join(base, "work-record-supersession-recovery.lock") ||
-            (path.startsWith(`${planLocksDir}/`) && path.endsWith(".lock"));
+            (path.startsWith(`${planLocksDir}${SEPARATOR}`) && path.endsWith(".lock"));
     });
 }
 
