@@ -176,7 +176,8 @@ These checks apply to the finished layout. The earlier child checklists remain h
       registry bytes, index state, and Git registration. Empty fallback directories do not block adoption.
 - [ ] Install `v0.11.0-rc.1` in an isolated user environment and run fresh-project and disposable 0.10 adoption checks.
 - [ ] Run the compiled Candidate publication journey with repository symlinks.
-- [ ] Record native Windows package qualification, Candidate assets and checksums, prerelease status, and unchanged
-      latest Stable.
+- [x] Native Windows package qualification passed for source `a56d754570e7c0ca9b9a43f4fb79c6f3c58ba4fd` in
+      [Windows package diagnostic run 35242972855](https://github.com/gandazgul/runwield/actions/runs/35242972855).
+- [ ] Record Candidate assets and checksums, prerelease status, and unchanged latest Stable.
 - [ ] After Candidate qualification and separate owner approval, promote the exact Candidate commit and verify Stable
       assets, identity, latest-release status, and notes.
