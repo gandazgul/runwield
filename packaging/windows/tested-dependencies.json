@@ -3,11 +3,11 @@
     "helpers": [
         {
             "name": "mnemoteca",
-            "version": "v0.3.1",
-            "url": "https://github.com/gandazgul/mnemoteca/releases/download/v0.3.1/mnemoteca_0.3.1_windows_amd64.zip",
-            "sha256": "a11dbac5b27db341df6570de4dcdc60d5731f4437a4bddd531351ceb3209e12f",
+            "version": "v0.3.3",
+            "url": "https://github.com/gandazgul/mnemoteca/releases/download/v0.3.3/mnemoteca_0.3.3_windows_amd64.zip",
+            "sha256": "f6ed3f2136a8b4b459ff34ba06f46eef9e46faa5d05258794a284ce0bce185c6",
             "license": "MIT",
-            "licenseUrl": "https://github.com/gandazgul/mnemoteca/blob/v0.3.1/LICENSE",
+            "licenseUrl": "https://github.com/gandazgul/mnemoteca/blob/v0.3.3/LICENSE",
             "requiredFiles": ["mnemoteca.exe"]
         },
         {

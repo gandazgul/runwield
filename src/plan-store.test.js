@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects, assertStringIncludes, assertThrows } from "@std/assert";
+import { assert, assertEquals, assertRejects, assertStringIncludes, assertThrows } from "@std/assert";
 import { dirname, join } from "@std/path";
 import { getRunWieldRuntimeDir, PROJECT_INTERNAL_RUNTIME_DIR_NAME } from "./constants.js";
 import { getWorktreeRegistryPath } from "./shared/worktree-registry.js";
@@ -80,7 +80,7 @@ Deno.test("controller-only updates preserve a formatted validated Plan byte for 
             '---\nplanId: "controller-only-plan"\nclassification: "PLANNED_CHANGE"\nstatus: "validated"\naffectedPaths:\n    - "src/example.ts"\ndependencies:\n    - "previous-plan"\ntargetBranch: "main"\n---\n# Already formatted\n';
         await Deno.writeTextFile(path, markdown);
         const plan = await loadPlan(cwd, "p");
-        if (!plan) throw new Error("Expected the saved Plan to load.");
+        assert(plan);
         await updatePlanFrontMatter(cwd, "p", { validationCiAttempts: 1 }, plan.attrs, {
             expectedRevision: plan.revision,
             expectedControllerRevision: plan.controllerRevision,

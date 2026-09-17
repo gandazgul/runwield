@@ -1,4 +1,5 @@
 import { assertEquals, assertRejects } from "@std/assert";
+import { join } from "@std/path";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import {
     createRootSessionManager,
@@ -6,11 +7,65 @@ import {
     getRootSessionBranchEntries,
     getRunWieldSessionDir,
     getRunWieldSessionMemoryBackupDir,
+    isPathInside,
     listCatalogSafeRootSessionLocators,
     listPersistedRootSessions,
     openPersistedRootSession,
     readCatalogSafeRootSessionLocator,
+    resolveCreatedRootSessionPath,
 } from "./root-session.js";
+
+Deno.test("root-session path containment accepts children but rejects sibling prefixes", () => {
+    const base = join("root", "sessions");
+    assertEquals(isPathInside(base, base), true);
+    assertEquals(isPathInside(join(base, "session.jsonl"), base), true);
+    assertEquals(isPathInside(`${base}-other`, base), false);
+});
+
+Deno.test("root-session persists a new transcript without Pi's private rewrite method", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const previousHome = Deno.env.get("HOME");
+        const home = await Deno.makeTempDir();
+        const cwd = join(home, "repo");
+        Deno.env.set("HOME", home);
+        await Deno.mkdir(cwd);
+        try {
+            const manager = await createRootSessionManager("new", cwd);
+            for (const method of ["_rewriteFile", "_persist"]) {
+                Object.defineProperty(manager, method, {
+                    configurable: true,
+                    value: () => {
+                        throw new Error(`private ${method} must not be used`);
+                    },
+                });
+            }
+            const transcriptPath = await resolveCreatedRootSessionPath(cwd, manager);
+            manager.appendModelChange("anthropic", "test-model");
+            const lines = (await Deno.readTextFile(transcriptPath)).trim().split("\n").map((line) => JSON.parse(line));
+            assertEquals(lines[0].id, manager.getSessionId());
+            assertEquals(lines[1].type, "model_change");
+
+            const reopened = await openPersistedRootSession({
+                cwd,
+                sessionId: manager.getSessionId(),
+                sessionPath: transcriptPath,
+            });
+            Object.defineProperty(reopened.sessionManager, "_persist", {
+                configurable: true,
+                value: () => {
+                    throw new Error("private persistence must not be used after reopen");
+                },
+            });
+            reopened.sessionManager.appendModelChange("anthropic", "reopened-model");
+            const reopenedLines = (await Deno.readTextFile(transcriptPath)).trim().split("\n");
+            assertEquals(reopenedLines.length, 3);
+        } finally {
+            if (previousHome === undefined) Deno.env.delete("HOME");
+            else Deno.env.set("HOME", previousHome);
+            await Deno.remove(home, { recursive: true });
+        }
+    });
+});
 
 Deno.test("root-session cwd directory encoding stays inside filename limits for long worktree paths", () => {
     const longWorktreeCwd = `/tmp/${"deep-directory-name-".repeat(12)}/.wld/worktrees/${

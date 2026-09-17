@@ -64,10 +64,10 @@ Owning product capabilities:
 - [Core: Work protection](../../prd/runwield-core-prd.md#work-protection) — preserve user work and deliberate
   destructive actions. Reconcile the Epic's existing runtime-exclusion scenarios here: runtime files stay out of
   commits, tracked runtime files cause refusal without index changes, and broad user ignore rules remain untouched.
-- [Core: Execution, validation, and recovery](../../prd/runwield-core-prd.md#36-execution-worktrees-validation-and-recovery)
-  — preserve repair of RunWield-owned bookkeeping, truthful evidence, and recoverable workflows. Doctor is an optional
+- [Core: Execution, validation, and recovery](../../prd/runwield-core-prd.md#execution-validation-and-recovery) —
+  preserve repair of RunWield-owned bookkeeping, truthful evidence, and recoverable workflows. Doctor is an optional
   diagnostic tool, not a new mandatory user-operated recovery step.
-- [ADR-017: One-way migration](../../adr/017-project-runtime-state-under-wld-internal.md#one-way-0100-migration) —
+- [ADR-017: One-way migration](../../adr/017-project-runtime-state-under-wld-internal.md#one-way-0110-migration) —
   accepted upgrade behavior. Add its user-visible safe-adoption and protected-stop scenarios to Core Work protection.
   Link that guidance from [Core: Installation and updates](../../prd/runwield-core-prd.md#installation-and-updates)
   without duplicating requirements or changing package-manager behavior.

@@ -22,7 +22,9 @@ Deno.test("publication without a remote safely advances the local target branch"
             `node_modules\n${RUNWIELD_GITIGNORE_BLOCK}`,
         );
         await Deno.writeTextFile(`${worktree.path}/implementation.txt`, "local validated implementation\n");
-        await git(worktree.path, ["add", ".gitignore", "implementation.txt"]);
+        await Deno.writeTextFile(`${worktree.path}/AGENTS.md`, "repository guidance\n");
+        await Deno.symlink("AGENTS.md", `${worktree.path}/CLAUDE.md`);
+        await git(worktree.path, ["add", ".gitignore", "implementation.txt", "AGENTS.md", "CLAUDE.md"]);
         await git(worktree.path, ["commit", "-m", "Validated local candidate"]);
         const sealedCommit = await git(worktree.path, ["rev-parse", "HEAD"]);
         const oldMain = await git(projectRoot, ["rev-parse", "main"]);
@@ -44,6 +46,13 @@ Deno.test("publication without a remote safely advances the local target branch"
         assert((await git(projectRoot, ["rev-parse", "main"])) !== oldMain);
         await git(projectRoot, ["merge-base", "--is-ancestor", sealedCommit, "main"]);
         assertEquals(await Deno.readTextFile(`${projectRoot}/implementation.txt`), "local validated implementation\n");
+        assertEquals(await Deno.readTextFile(`${projectRoot}/AGENTS.md`), "repository guidance\n");
+        assert((await Deno.lstat(`${projectRoot}/CLAUDE.md`)).isSymlink);
+        assertEquals(await Deno.readLink(`${projectRoot}/CLAUDE.md`), "AGENTS.md");
+        assertEquals(
+            (await git(projectRoot, ["ls-tree", "main", "CLAUDE.md"])).split(/\s+/)[0],
+            "120000",
+        );
         assertEquals(await Deno.readTextFile(`${projectRoot}/untracked-user-note.txt`), "preserve me\n");
         assertEquals(await Deno.readTextFile(`${projectRoot}/.gitignore`), `node_modules\n${RUNWIELD_GITIGNORE_BLOCK}`);
         assertEquals(

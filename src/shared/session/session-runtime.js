@@ -5027,7 +5027,7 @@ export class SessionRuntime {
             const { resolveEpicContinuation, runEpicChildContinuation } = await import(
                 "../workflow/epic-continuation.ts"
             );
-            const resolution = await resolveEpicContinuation({
+            const resolution = currentContinuation.resolution || await resolveEpicContinuation({
                 cwd: currentContinuation.projectRoot,
                 completedPlanName: currentContinuation.completedPlanName,
             });

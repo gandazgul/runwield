@@ -40,12 +40,15 @@ export {
     validationWorkflowHumanReviewScenarios,
 } from "./validation-workflow-tree-human-review.ts";
 export {
+    validationTreePublicationCommittedRepairCompletionScenario,
     validationTreePublicationDirtyCheckoutScenario,
     validationTreePublicationIsolatedDirtyPrimaryScenario,
     validationTreePublicationLocalOnlyScenario,
     validationTreePublicationMissingTargetBranchScenario,
     validationTreePublicationPrimaryPlanRestoredScenario,
     validationTreePublicationRemoteTargetAdvanceScenario,
+    validationTreePublicationRepairCompletionScenario,
+    validationTreePublicationResumedRepairCompletionScenario,
     validationWorkflowPublicationScenarios,
 } from "./validation-workflow-tree-publication.ts";
 export {

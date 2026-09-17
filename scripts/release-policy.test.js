@@ -64,6 +64,17 @@ Deno.test("release workflow keeps tag publication and manual recovery channel-sa
     assertMatch(policy, /Never use manual recovery to bypass a genuine failure in tagged product\s+source/);
 });
 
+Deno.test("release publication requires native Windows package qualification", async () => {
+    const workflow = await Deno.readTextFile(".github/workflows/release.yml");
+    const windowsJob = workflow.match(/\n[ ]{4}windows-package-check:\n([\s\S]*?)\n[ ]{4}release:/)?.[1] || "";
+    const releaseJob = workflow.match(/\n[ ]{4}release:\n([\s\S]*)$/)?.[1] || "";
+
+    assertEquals(windowsJob.includes("if: ${{ false }}"), false);
+    assertStringIncludes(windowsJob, "runs-on: windows-latest");
+    assertStringIncludes(windowsJob, "deno task package:windows:check --package");
+    assertMatch(releaseJob, /needs:[\s\S]*- windows-package-check/);
+});
+
 Deno.test("release-tier Golden TUI alias does not run TODO goldens", async () => {
     const config = JSON.parse(await Deno.readTextFile("deno.json"));
     const normalTest = String(config.tasks?.test || "");
