@@ -1772,7 +1772,7 @@ async function acquireMigrationLock(lockPath: string): Promise<{ release: () => 
     const token = crypto.randomUUID();
     while (true) {
         try {
-            const file = await createMigrationLockFile(lockPath, token);
+            await createMigrationLockFile(lockPath, token);
             const heartbeat = setInterval(() => {
                 updateMigrationLockFile(lockPath, token).catch(() => {});
             }, MIGRATION_LOCK_HEARTBEAT_MS);
@@ -1780,11 +1780,7 @@ async function acquireMigrationLock(lockPath: string): Promise<{ release: () => 
             return {
                 release: async () => {
                     clearInterval(heartbeat);
-                    try {
-                        await removeMigrationLockIfOwned(lockPath, token);
-                    } finally {
-                        file.close();
-                    }
+                    await removeMigrationLockIfOwned(lockPath, token);
                 },
             };
         } catch (error) {
@@ -1799,10 +1795,9 @@ async function acquireMigrationLock(lockPath: string): Promise<{ release: () => 
     }
 }
 
-async function createMigrationLockFile(lockPath: string, token: string): Promise<Deno.FsFile> {
-    const file = await Deno.open(lockPath, { createNew: true, read: true, write: true, mode: 0o600 });
+async function createMigrationLockFile(lockPath: string, token: string): Promise<void> {
+    const file = await Deno.open(lockPath, { createNew: true, write: true, mode: 0o600 });
     try {
-        file.lockSync(true);
         await file.write(
             new TextEncoder().encode(
                 JSON.stringify({
@@ -1815,10 +1810,8 @@ async function createMigrationLockFile(lockPath: string, token: string): Promise
             ),
         );
         await file.sync();
-        return file;
-    } catch (error) {
+    } finally {
         file.close();
-        throw error;
     }
 }
 
