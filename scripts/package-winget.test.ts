@@ -68,8 +68,12 @@ Deno.test("package:winget renders standard manifests from published ZIP bytes", 
         const output = join(root, "out");
         await packageWinget({ tag: "v1.2.3", output, baseUrl: server.baseUrl, testOnly: true });
         const manifestDir = join(output, "Gandazgul.RunWield", "1.2.3");
+        const version = await Deno.readTextFile(join(manifestDir, "Gandazgul.RunWield.yaml"));
         const installer = await Deno.readTextFile(join(manifestDir, "Gandazgul.RunWield.installer.yaml"));
         const locale = await Deno.readTextFile(join(manifestDir, "Gandazgul.RunWield.locale.en-US.yaml"));
+        assertStringIncludes(version, "$schema=https://aka.ms/winget-manifest.version.1.10.0.schema.json");
+        assertStringIncludes(installer, "$schema=https://aka.ms/winget-manifest.installer.1.10.0.schema.json");
+        assertStringIncludes(locale, "$schema=https://aka.ms/winget-manifest.defaultLocale.1.10.0.schema.json");
         assertStringIncludes(installer, "InstallerType: zip");
         assertStringIncludes(installer, "NestedInstallerType: portable");
         assertStringIncludes(installer, "ArchiveBinariesDependOnPath: true");

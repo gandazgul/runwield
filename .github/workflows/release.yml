@@ -334,7 +334,7 @@ jobs:
             - name: Checkout
               uses: actions/checkout@v5
               with:
-                  ref: ${{ needs.metadata.outputs.tag }}
+                  ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || needs.metadata.outputs.tag }}
 
             - name: Setup Deno
               uses: denoland/setup-deno@v2

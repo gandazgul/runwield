@@ -74,6 +74,10 @@ Deno.test("Stable releases submit generated WinGet manifests without exposing th
 
     assertEquals(submitStart >= 0, true);
     assertEquals(submitEnd > submitStart, true);
+    assertStringIncludes(
+        workflow,
+        "ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || needs.metadata.outputs.tag }}",
+    );
     assertStringIncludes(submitJob, "if: needs.metadata.outputs.kind == 'stable'");
     assertStringIncludes(submitJob, "- winget-package");
     assertStringIncludes(submitJob, "WINGET_CREATE_GITHUB_TOKEN: ${{ secrets.WINGET_CREATE_GITHUB_TOKEN }}");
