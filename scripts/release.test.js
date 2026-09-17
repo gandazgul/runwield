@@ -627,6 +627,49 @@ Deno.test("later Candidate refuses a release branch unrelated to the previous Ca
     }
 });
 
+Deno.test("later Candidate stops when the release branch changes while its source loads", async () => {
+    const fixture = await createReleaseRepo();
+    try {
+        await runCommand("git", ["tag", "-a", "v1.2.2", "-m", "stable"], { cwd: fixture.repo });
+        await runCommand("git", ["push", "origin", "refs/tags/v1.2.2"], { cwd: fixture.repo });
+        const release = repoDeps(fixture.repo);
+        await createCandidate(release.deps, "v1.2.3-rc.1", false);
+
+        const fixer = `${fixture.root}/source-race-fixer`;
+        await runCommand("git", ["clone", fixture.remote, fixer]);
+        await runCommand("git", ["config", "user.email", "release-test@example.com"], { cwd: fixer });
+        await runCommand("git", ["config", "user.name", "Release Test"], { cwd: fixer });
+        await runCommand("git", ["checkout", "-b", "release/v1.2.3", "origin/release/v1.2.3"], { cwd: fixer });
+        await Deno.writeTextFile(`${fixer}/raced.txt`, "raced\n");
+        await runCommand("git", ["add", "raced.txt"], { cwd: fixer });
+        await runCommand("git", ["commit", "-m", "raced fix"], { cwd: fixer });
+
+        const originalRun = release.deps.run;
+        let branchReads = 0;
+        release.deps.run = async (command, args, options = {}) => {
+            if (
+                command === "git" && args.join(" ") ===
+                    "ls-remote --heads origin refs/heads/release/v1.2.3"
+            ) {
+                branchReads += 1;
+                if (branchReads === 2) {
+                    await runCommand("git", ["push", "origin", "release/v1.2.3"], { cwd: fixer });
+                }
+            }
+            return await originalRun(command, args, options);
+        };
+
+        await assertRejects(
+            () => createCandidate(release.deps, "v1.2.3-rc.2", true),
+            Error,
+            "changed during preflight",
+        );
+        assertEquals(await runCommand("git", ["tag", "--list", "v1.2.3-rc.2"], { cwd: fixture.repo }), "");
+    } finally {
+        await Deno.remove(fixture.root, { recursive: true });
+    }
+});
+
 Deno.test("later Candidate stops when the release branch changes during preflight", async () => {
     const fixture = await createReleaseRepo();
     try {

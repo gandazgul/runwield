@@ -352,7 +352,7 @@ async function assertCommitAvailable(deps, commit) {
  * @returns {Promise<string | undefined>}
  */
 async function loadRemoteBranchCommit(deps, branch) {
-    let commit = await resolveRemoteBranchCommit(deps, branch);
+    const commit = await resolveRemoteBranchCommit(deps, branch);
     if (!commit) return undefined;
 
     const ref = `refs/heads/${branch}`;
@@ -360,11 +360,15 @@ async function loadRemoteBranchCommit(deps, branch) {
         await fetchRemoteObjects(deps, ref);
         const current = await resolveRemoteBranchCommit(deps, branch);
         if (!current) throw new Error(`Remote release branch disappeared during preflight: ${branch}`);
-        commit = current;
+        if (current !== commit) {
+            throw new Error(
+                `Remote release branch ${branch} changed during preflight. Expected ${commit}, found ${current}. Run the Candidate preflight again.`,
+            );
+        }
         const available = await deps.run("git", ["cat-file", "-e", `${commit}^{commit}`]);
         if (available.success) return commit;
     }
-    throw new Error(`Remote release branch changed repeatedly during preflight: ${branch}`);
+    throw new Error(`Could not read remote release branch commit during preflight: ${branch} at ${commit}`);
 }
 
 /**

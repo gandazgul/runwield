@@ -17,7 +17,7 @@ createdAt: "2026-09-17"
 origin: "internal"
 userVerifiedAt: null
 targetBranch: "main"
-status: "implemented"
+status: "validated_reviewer"
 ---
 
 # Isolate Release Candidates on Release Branches
