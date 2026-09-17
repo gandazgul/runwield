@@ -781,7 +781,8 @@ Windows WinGet requirements:
 - expose private bundled helpers to RunWield and child processes without editing global `PATH`
 - keep model and browser payload downloads in per-user first-use locations
 - make `wld update` and `wld upgrade` print `winget upgrade --id Gandazgul.RunWield --exact`
-- reject Candidate tags for Stable WinGet manifest generation
+- reject Candidate tags for Stable WinGet manifest generation and external submission
+- submit each Stable manifest to `microsoft/winget-pkgs` from the release workflow with a repository secret
 - keep public install docs marked pending until Microsoft accepts the listing
 
 **Acceptance scenarios:**
@@ -790,6 +791,8 @@ Windows WinGet requirements:
   does not run the shell installer.
 - Given a WinGet-owned `wld`, when the user runs `wld update`, RunWield prints
   `winget upgrade --id Gandazgul.RunWield --exact` and does not run the shell installer.
+- Given a Stable release, when its Windows package and manifest jobs pass, the release workflow submits a PR to
+  `microsoft/winget-pkgs`; given a Candidate release, it does not submit one.
 - Given a standalone Unix install, when the user runs `wld update`, RunWield can still use the tag-pinned shell
   installer.
 - Given a loose native Windows executable without package metadata, when the user runs `wld update`, RunWield gives

@@ -166,16 +166,20 @@ bytes with:
 deno task package:winget --tag vX.Y.Z --output /tmp/runwield-winget
 ```
 
-Candidate tags are rejected. The generator never submits a PR. For the first public listing, follow
-`docs/winget-first-release.md`. Git for Windows is a WinGet dependency. Browser and model downloads remain first-use
-per-user setup.
+Candidate tags are rejected. For each Stable release, the workflow uses WingetCreate to submit the generated manifests
+to `microsoft/winget-pkgs`. The `WINGET_CREATE_GITHUB_TOKEN` repository secret must contain a classic GitHub token with
+the `public_repo` scope. The token is passed through WingetCreate's supported environment variable and is not placed on
+the command line. A recovery rerun skips submission if that exact version is already in the catalog or has an open PR.
+For the first public listing, follow `docs/winget-first-release.md`. Git for Windows is a WinGet dependency. Browser and
+model downloads remain first-use per-user setup.
 
 ## GitHub workflow ownership
 
 The tag-triggered workflow owns release qualification, builds, GitHub release creation, asset upload, native Windows
-package checks, Stable-only Homebrew tap artifact rendering, and Stable-only WinGet manifest artifact rendering. Local
-release commands validate release metadata, create and push tags, and monitor that workflow. They must not require local
-qualification and must not call `gh release create`, `gh release edit`, `glab release create`, or `glab release edit`.
+package checks, Stable-only Homebrew tap artifact rendering, and Stable-only WinGet manifest rendering and submission.
+Local release commands validate release metadata, create and push tags, and monitor that workflow. They must not require
+local qualification and must not call `gh release create`, `gh release edit`, `glab release create`, or
+`glab release edit`.
 
 The workflow also exposes a required-tag manual dispatch solely for recovery when a tag cannot or should not be
 moved—for example, after its GitHub Release has made it immutable, or when a workflow-only fix on the default branch can
