@@ -61,18 +61,34 @@ Release operators need:
 
 ## Release source
 
-Create Candidate and direct Stable operations release the commit resolved by `HEAD` when the operation begins. The
-current branch does not need to be `main`, `HEAD` does not need to match an upstream branch, and the working tree does
-not need to be clean. Staged, unstaged, and untracked changes are not part of the release because they are not part of
-the tagged commit.
+A new Candidate series uses `release/vMAJOR.MINOR.PATCH` as its Release Branch. RC1 resolves current `HEAD`, then
+atomically publishes that commit as both the new Release Branch and the annotated RC1 tag. If the remote branch already
+exists while RC1 is absent, the command treats this as a retry or name conflict: it uses the pushed branch tip, shows
+that source, and never resets the branch from `HEAD`. The current branch does not need to be `main`, `HEAD` does not
+need to match an upstream branch, and the working tree does not need to be clean. Staged, unstaged, and untracked
+changes are not released because they are not part of the selected commit.
 
-Before confirmation, show the resolved `HEAD` commit and target tag so the operator can verify the source. Create the
-annotated tag at that explicit commit, push it, and monitor the tag-triggered GitHub Actions workflow. GitHub Actions is
-the authoritative release qualification environment and runs the remote submodule pin proof, release checks, builds, and
+Later Candidates resolve the live pushed Release Branch from `origin` and tag that exact commit. They do not use current
+`HEAD`, a local branch, a cached remote-tracking branch, or unpushed fixes. The selected commit must descend from the
+previous Candidate. If the Release Branch is missing, changed during preflight, or has unrelated history, stop without
+publishing a tag.
+
+Only release fixes belong on an active Release Branch. Apply each fix there first, push it, create the next Candidate,
+and then explicitly forward-port the fix to `main`. Never merge `main` into an active Release Branch. Git cannot
+classify a commit as a fix; review enforces this scope. A Plan for a release fix must set its target branch to the
+applicable Release Branch. Ordinary feature Plans continue to target `main`.
+
+The grandfathered Candidate series `v0.8.16`, `v0.9.0`, `v0.9.2`, `v0.9.3`, `v0.9.4`, `v0.9.6`, and `v0.10.1` retain the
+old `HEAD` source rule. This fixed list does not grow automatically. A missing branch does not make a new series legacy.
+
+Direct Stable operations continue to release the commit resolved by `HEAD`. Promotion resolves the Candidate tag from
+`origin` and creates the Stable tag at that tag's peeled commit, even if the Release Branch has advanced. It must never
+promote current `HEAD` by accident.
+
+Before confirmation, show the selected source commit, target tag, and Release Branch publication when applicable. The
+release command tags an explicit commit and does not switch branches or alter working files. GitHub Actions is the
+authoritative release qualification environment and runs the remote submodule pin proof, release checks, builds, and
 publication from the tagged commit.
-
-Promotion resolves the Candidate tag from `origin` and creates the Stable tag at that tag's peeled commit. It must never
-promote current `HEAD` by accident. GitHub Actions qualifies the promoted Stable identity from that commit.
 
 ## Commands
 
@@ -98,14 +114,26 @@ releases, or leave repository files behind.
 ## Candidate creation
 
 1. Choose the next Candidate tag.
-2. Generate cumulative release notes from the previous Stable tag to the current source commit. Later Candidates should
-   keep the cumulative upgrade notes and add validation-relevant changes since the previous Candidate when useful.
-3. Run `deno task release:candidate --tag <candidate-tag> --dry-run` and inspect the resolved `HEAD` commit and proposed
-   tag.
-4. Confirm the tag push. The tag remains a retryable release attempt until its GitHub Release is created.
+2. Generate cumulative release notes from the previous Stable tag to the policy-selected source commit. Later Candidates
+   keep the cumulative upgrade notes and add validation-relevant changes since the previous Candidate when useful. Do
+   not derive notes from unrelated current `HEAD` changes.
+3. Run `deno task release:candidate --tag <candidate-tag> --dry-run`. Inspect the source branch, source commit, target
+   tag, and planned remote changes.
+4. Confirm the branch and tag push. The tag remains a retryable release attempt until its GitHub Release is created.
 5. Run `deno task release:candidate --tag <candidate-tag>`.
 6. Wait for the tag-triggered GitHub workflow to publish the prerelease assets.
 7. Edit the published Candidate release with the curated temporary notes and verify they landed.
+
+After RC1, open the pushed branch for release fixes without changing its source:
+
+```bash
+git fetch origin release/vX.Y.Z
+git switch --create release/vX.Y.Z --track origin/release/vX.Y.Z
+```
+
+If that local branch already exists, switch to it and verify it against `origin` instead of recreating it. Push every
+fix before creating the next Candidate. Keep the Release Branch after Stable promotion; cleanup and ongoing patch
+maintenance are separate decisions.
 
 ## Candidate promotion
 
@@ -126,8 +154,8 @@ Promotion creates a Stable tag at the Candidate tag's peeled commit. The Stable 
 ## Direct Stable creation
 
 Direct Stable is an exceptional path. Use it only when explicitly chosen and appropriate for the risk of the change. It
-follows the same source selection, tag workflow, GitHub Actions qualification, and post-publication notes-editing rules
-as Candidate creation, but the target tag is a Stable tag.
+uses the confirmed `HEAD` commit, then follows the same tag workflow, GitHub Actions qualification, and post-publication
+notes-editing rules. It does not create or use a Release Branch.
 
 ## Homebrew tap preparation
 
@@ -138,7 +166,7 @@ The release workflow renders a `runwield-homebrew-tap-<tag>` artifact after Stab
 pushing that tree to `gandazgul/homebrew-tap`, run the check against the exact rendered output:
 
 ```bash
-deno task package:homebrew --wld-tag vX.Y.Z --mnemoteca-tag v0.3.1 --output /tmp/runwield-tap
+deno task package:homebrew --wld-tag vX.Y.Z --mnemoteca-tag v0.3.3 --output /tmp/runwield-tap
 deno task package:homebrew:check --tap /tmp/runwield-tap
 ```
 
@@ -185,8 +213,9 @@ The workflow also exposes a required-tag manual dispatch solely for recovery whe
 moved—for example, after its GitHub Release has made it immutable, or when a workflow-only fix on the default branch can
 safely retry the existing tagged source. In that mode, the source-quality job runs from the default-branch workflow
 revision containing the recovery fix, while metadata validation, release qualification, builds, and publication
-explicitly check out the existing tag. Never use manual recovery to bypass a genuine failure in tagged product source.
-Once a GitHub Release exists, never move its tag to include a later fix.
+explicitly check out the existing tag. A retry replaces the complete asset set so archives and checksum files stay from
+the same build. Never use manual recovery to bypass a genuine failure in tagged product source. Once a GitHub Release
+exists, never move its tag to include a later fix.
 
 After CI publishes a release, Operator edits the release notes from the curated temporary notes file. A release is not
 complete until this notes edit is verified. If assets are published but notes editing fails, report the release as
@@ -198,12 +227,17 @@ gh release edit <tag> --notes-file <notes-file>
 
 ## Recovery
 
+- **Initial atomic branch-and-tag push failed**: the local tag remains. Inspect the remote branch and tag because a
+  transport failure can be reported after the server accepts the push. The atomic push guarantees that its two remote
+  ref updates were both accepted or both rejected. Delete only an unpublished local tag, then rerun. Never replace the
+  atomic push with two separate pushes.
 - **Local tag created but not pushed**: delete the local tag after confirming no remote tag exists, repair the issue,
   and rerun the command.
-- **Remote tag pushed, workflow failed, and no GitHub Release exists**: the tag is mutable. Prefer moving it to the
-  immediate next fix commit. If the user directs another target, state any concern once; if they confirm, verify again
-  that no GitHub Release exists, delete the remote and local tag, and recreate it at the requested commit. Do not refuse
-  merely because CI ran or multiple commits followed the old target.
+- **Remote tag pushed, workflow failed, and no GitHub Release exists**: the tag is mutable. For a branch-based series,
+  apply and push the correction to its Release Branch first. After confirming release absence, delete the remote and
+  local tag and reuse the same Candidate number at the corrected pushed branch tip. Prefer the immediate next fix
+  commit. If the user directs another allowed target, state any concern once; if they confirm, recheck release absence
+  and comply. Never fall back to current `HEAD` automatically.
 - **GitHub Release exists**: the tag is immutable, including when qualification, asset upload, or notes editing later
   fails. Keep the tag at its original commit and recover the existing release. If a workflow fix is required, dispatch
   `release-wld` manually with that tag after the recovery commit reaches the default branch.
@@ -213,8 +247,11 @@ gh release edit <tag> --notes-file <notes-file>
 
 ## Verification expectations
 
+- RC1's tag and new Release Branch identify the same source commit.
+- A later Candidate identifies the pushed Release Branch tip selected during preflight, includes its pushed fixes, and
+  excludes unrelated later `main` changes.
 - Candidate binaries report the Candidate identity, for example `runwield v0.8.12-rc.1 (...)`.
 - Promoted Stable binaries report the Stable identity, for example `runwield v0.8.12 (...)`.
 - Candidate and promoted Stable tags peel to the same source commit.
 - Candidate publication leaves GitHub latest on the prior Stable.
-- Local working-tree changes remain untouched throughout the release operation.
+- Local branches, index, working-tree changes, and untracked files remain untouched throughout the release operation.

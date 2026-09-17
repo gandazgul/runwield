@@ -2,7 +2,9 @@
 
 RunWield is collaborative software planning with AI. Its product family combines a local plan-by-default coding harness,
 plugins for external agent hosts, and a collaborative SaaS Workspace. This glossary defines the project language used by
-agents, docs, plans, and code.
+agents, docs, plans, and code. Entries cover RunWield-specific concepts, named tools and surfaces, and familiar words
+whose meaning here needs disambiguation. Ordinary software terms need no separate entry unless RunWield gives them a
+more specific meaning.
 
 ## Language
 
@@ -28,15 +30,12 @@ while that host retains the conversation and makes every model call. _Avoid_: Pl
 mode
 
 **Attached Mode**: The internal architecture underlying RunWield Connect, in which an External Agent Host makes every
-model call and users invoke RunWield explicitly for individual User Requests. Use RunWield Connect in customer-facing
+model call and users invoke RunWield explicitly for individual user requests. Use RunWield Connect in customer-facing
 product language. _Avoid_: Public product name, RunWield Execution Backend
 
 **Attached Workflow**: The per-request RunWield workflow active inside an External Agent Host through RunWield Connect,
 with RunWield governing durable workflow truth while the host performs agent reasoning and execution. _Avoid_: Attached
 Mode, Managed Mode, RunWield Session
-
-**TUI**: The terminal-based interactive user interface that hosts agent conversations and renders workflow output.
-_Avoid_: Shell, console
 
 **Headless Mode**: The non-interactive RunWield execution surface that emits machine-readable Agent Session events for
 external hosts. _Avoid_: TUI mode, batch wrapper, remote UI
@@ -106,14 +105,8 @@ owner Session, Session owner, planName link
 Only `planning` and `review` on an idle planning segment can make a Session a safe planning resume candidate. _Avoid_:
 Plan status, Session status, ownership reason
 
-**Terminal Title**: The terminal emulator window or tab label RunWield sets for an interactive TUI session. _Avoid_: Tab
-name, shell title
-
-**Session Name**: The persisted short human label for a Session, initially derived from Router Triage for fresh User
-Requests. _Avoid_: Tab title, conversation name
-
-**Empty Project Directory**: A current working directory with no meaningful project files for RunWield to inspect.
-_Avoid_: Empty Workspace, new project, initialized project
+**Session Name**: The persisted short human label for a Session, initially derived from Router Triage for fresh user
+requests. It is distinct from the terminal window or tab title. _Avoid_: Tab title, conversation name
 
 **Project Runtime State**: Machine-owned RunWield state inside a Project checkout. The current reserved root is
 `.wld/internal/`. User-derived `.wld/settings.json`, `.wld/agents/`, `.wld/skills/`, and `.wld/prompts/` are not Project
@@ -139,12 +132,9 @@ runtime state, selected-checkout locks
 Plan catalog lock, transition journals, and Work Record supersession locks. _Avoid_: primary runtime state, shared
 registry state
 
-**User Request**: A natural-language request submitted by the user for triage and execution. _Avoid_: Prompt, input,
-query
-
 ### Triage & Classification
 
-**Triage**: Structured classification of a User Request by workflow type and complexity, usually performed by the
+**Triage**: Structured classification of a user request by workflow type and complexity, usually performed by the
 Router.
 
 **Triage Report**: The structured output of Triage containing routing intent, complexity, summary, and an optional
@@ -178,13 +168,10 @@ Operational, hotfix, patch, feature
 **PLANNED_CHANGE**: The Routing Intent and executable Plan Classification for material code work requiring a reviewed
 Plan, independent of Work Kind. _Avoid_: FEATURE when referring to workflow, planned feature
 
-**Work Kind**: The Plan Front Matter field describing requested work as `BUG_FIX`, `FEATURE`, `REFACTOR`, `MAINTENANCE`,
-or `DOCUMENTATION`, independently from Plan Classification. _Avoid_: Routing Intent, Plan Classification
-
-**BUG_FIX**: A Work Kind for correcting behavior that fails existing intended or specified behavior. _Avoid_: QUICK_FIX,
-PLANNED_CHANGE
-
-**FEATURE Work Kind**: A Work Kind for adding or enhancing functionality. _Avoid_: PLANNED_CHANGE, planned work
+**Work Kind**: The Plan front matter field describing requested work as `BUG_FIX`, `FEATURE`, `REFACTOR`, `MAINTENANCE`,
+or `DOCUMENTATION`, independently from Plan Classification. `BUG_FIX` means restoring intended behavior; `FEATURE` means
+adding or enhancing functionality. Neither determines whether work needs a Plan. _Avoid_: Routing Intent, Plan
+Classification
 
 **DOCUMENTATION Work Kind**: A Work Kind for planned executable work whose primary outcome is documentation creation or
 substantial documentation updates. Use only after `PLANNED_CHANGE` routing has been selected; documentation questions
@@ -211,7 +198,7 @@ _Avoid_: Cross-section, code path
 tracker, Plan store, execution system
 
 **Ticket**: A demand-management item in an External Work Source that may relate to zero or more Plans without
-participating in Plan Lifecycle. _Avoid_: Plan, User Request, Task
+participating in Plan Lifecycle. _Avoid_: Plan, user request, Task
 
 **Ticket Reference**: A structured relation on a Plan or Work Record whose required URL links to a related Ticket
 without synchronizing content, state, or lifecycle. _Avoid_: Ticket copy, status mapping, external Plan
@@ -227,8 +214,16 @@ request by GitHub and a merge request by GitLab. _Avoid_: FEATURE, Plan, Ticket,
 **Repository Participation Declaration**: An upstream-authored, version-controlled policy that explicitly permits
 contributed RunWield artifacts. _Avoid_: RunWield installation detection, inferred consent, contributor preference
 
+**Release Candidate**: A prerelease build for one product version, identified by an `-rc.N` release tag and used to
+validate that version before Stable publication. It is not a Publication Candidate from Planned Change delivery.
+_Avoid_: Publication Candidate, Stable release
+
+**Release Branch**: The version-specific Git branch used to stabilize a new RunWield release series after RC1. Later
+Release Candidates use its pushed tip so unrelated work on `main` does not enter the series. Review limits it to release
+fixes, and fixes are explicitly forward-ported to `main`. _Avoid_: Feature branch, Stable channel, Publication Candidate
+
 **Publication Candidate**: The exact locally validated revision RunWield intends to publish through a Forge Change
-Request. _Avoid_: Execution worktree, unvalidated branch, implementation draft
+Request. _Avoid_: Release Candidate, Execution worktree, unvalidated branch, implementation draft
 
 **Change Request Finalization**: The post-merge RunWield action that proves Forge delivery and records terminal Plan and
 Work Record evidence in the canonical repository. _Avoid_: Forge merge, contributor synchronization, local-only status
@@ -245,8 +240,8 @@ the Forge Change Request. _Avoid_: Semantic Agent Review, duplicate review
 
 ### Plans & Review
 
-**Plan**: A markdown file in `docs/plans/` with YAML Front Matter that describes the implementation strategy for a User
-Request. _Avoid_: Blueprint, spec, design doc
+**Plan**: A markdown file in `docs/plans/` describing the implementation strategy for a user request. Its YAML front
+matter records classification, complexity, status, timestamps, and origin. _Avoid_: Blueprint, spec, design doc
 
 **Work Record**: A small repo-local markdown retrospective planning-memory artifact that distills what completed planned
 work actually produced and what future planning should remember. _Avoid_: Review log, chat transcript, implementation
@@ -262,7 +257,7 @@ default search or Agent retrieval until then. _Avoid_: Draft Work Record, approv
 Record. The successor must exist, and the supersession relation must be confirmed. A pending Supersession Proposal does
 not make the earlier record superseded. _Avoid_: Archived record, deleted record, draft record
 
-**Supersession Proposal**: A Recorder-proposed relation in a successor Work Record's `supersessionProposal` Front Matter
+**Supersession Proposal**: A Recorder-proposed relation in a successor Work Record's `supersessionProposal` front matter
 that requires a separate user decision for each proposed predecessor. While pending, it has no effect on default search
 or Agent retrieval. _Avoid_: Superseded Work Record, automatic replacement, confirmed supersession
 
@@ -275,10 +270,7 @@ after the original Plan was lost. _Avoid_: Draft record, ad hoc note, memory
 **Work Record Provenance**: Source evidence for a Work Record, including source Plans when available and stable
 file-level code evidence when constructed from existing code. _Avoid_: Line references, raw diff log, chat evidence
 
-**Front Matter**: YAML metadata at the top of a Plan containing classification, complexity, status, timestamps, and
-origin. _Avoid_: Metadata, header, YAML block
-
-**Plan Classification**: The Plan Front Matter workflow shape, limited to `PLANNED_CHANGE` and `PROJECT`; legacy
+**Plan Classification**: The Plan front matter workflow shape, limited to `PLANNED_CHANGE` and `PROJECT`; legacy
 `FEATURE` means `PLANNED_CHANGE`. _Avoid_: Routing intent, request type, work kind
 
 **Plan Status**: The lifecycle state of a Plan: `draft`, `feedback`, `approved`, `ready_for_decomposition`,
@@ -311,8 +303,8 @@ while Epics expose their finalized child Plans but remain non-executable. _Avoid
 **Readiness Gate**: The classification-aware lifecycle step after approval that promotes PLANNED_CHANGE Plans to Ready
 For Work and PROJECT Epics to Ready For Decomposition. _Avoid_: Slicer phase, execution check
 
-**Failed Plan**: A Plan that reached Ready For Work but could not complete execution successfully. _Avoid_: Rejected
-plan, invalid plan
+**Failed Plan**: A Plan that reached Ready For Work but could not complete execution successfully, with a durable
+failure explanation. _Avoid_: Rejected plan, invalid plan
 
 **In-Progress Plan**: A Plan whose execution has started and whose worktree may contain partial implementation work. A
 planning worktree for an Epic child does not make the Plan In Progress. _Avoid_: Running plan, active plan
@@ -338,8 +330,6 @@ the held Plan Status. _Avoid_: Workflow Validation, plan validation, verify-and-
 **Plan Recovery**: Choosing how to continue an In-Progress Plan or Failed Plan from the current worktree state. _Avoid_:
 Resume, restart
 
-**Failure Detail**: A durable explanation of why a Failed Plan could not complete work. _Avoid_: Error log, crash dump
-
 **Implemented Plan**: A Plan whose execution work finished and is ready for the Mechanical Validation phase of Workflow
 Validation; CI or review repairs return here for fresh CI. _Avoid_: Completed plan, done plan
 
@@ -359,17 +349,12 @@ Verified plan, archived plan, on-hold plan
 Plannotator. _Avoid_: Feedback loop, approval cycle
 
 **Semantic Code Review**: The internal state-machine term for the Reviewer check during Workflow Validation. It compares
-implementation against the approved Plan. Owner-facing status copy calls this **AI code review**. _Avoid_: Local Human
-Code Review, Forge review, automated tests
-
-**AI code review**: The owner-facing label for Semantic Code Review. Use it in normal TUI and Workspace progress copy
-when the Reviewer checks implementation against the Plan. _Avoid_: human review, tests, CI
+implementation against the approved Plan. TUI and Workspace progress copy calls this **AI code review**. _Avoid_: Local
+Human Code Review, Forge review, automated tests
 
 **Local Human Code Review**: The optional RunWield gate where a person reviews the implementation diff before delivery.
-Owner-facing status copy calls this **human review**. _Avoid_: Semantic Code Review, Forge review, Plan Review Loop
-
-**Human review**: The owner-facing label for Local Human Code Review. Use it when the user reads the implementation diff
-and approves it or sends feedback. _Avoid_: AI code review, Plan Review Loop, Forge review
+The user approves the diff or sends feedback; TUI and Workspace progress copy calls this **human review**. _Avoid_:
+Semantic Code Review, Forge review, Plan Review Loop
 
 **Review Issue Ledger**: The temporary per-attempt record of requirement coverage, Review Issues, repair claims, and
 Reviewer re-verification. _Avoid_: Review log, durable Plan history, Work Record
@@ -422,8 +407,8 @@ _Avoid_: Workspace styles, style guide, UI kit
 **Plan Card**: A Plan Board representation of a top-level Plan or Epic and its lifecycle state. _Avoid_: Task card,
 ticket
 
-**Plan Editor**: The Plan Board surface for editing Plan markdown while workflow-critical Front Matter remains governed
-by structured Plan Lifecycle actions. _Avoid_: Raw Plan file editor, Front Matter editor
+**Plan Editor**: The Plan Board surface for editing Plan markdown while workflow-critical front matter remains governed
+by structured Plan Lifecycle actions. _Avoid_: Raw Plan file editor, front matter editor
 
 **Plan UI Server**: The local server that backs Plan Board access to Plan files in the current checkout. _Avoid_: Hosted
 collaboration service, daemon
@@ -433,10 +418,7 @@ notes
 
 **Revision**: A single planning pass that updates a Plan in response to Feedback.
 
-**Resume**: Re-entering workflow for an existing Plan or session instead of starting from a fresh User Request. _Avoid_:
-Continue, reopen, pick up
-
-**Origin**: A Plan Front Matter value of `internal` for RunWield-created plans or `external` for imported markdown.
+**Origin**: A Plan front matter value of `internal` for RunWield-created plans or `external` for imported markdown.
 _Avoid_: Source, provenance
 
 ### Agents
@@ -490,7 +472,7 @@ _Avoid_: Frontend mode, UI Engineer, Engineer with frontend Skill
 **Tester**: The fresh-context verification Agent for behavioral QA, UI QA, PRD conformance testing, and adversarial
 bug-finding. _Avoid_: Unit test writer, test framework specialist
 
-**Agent Definition**: A markdown file with YAML Front Matter defining an Agent's display name, model, tools, and system
+**Agent Definition**: A markdown file with YAML front matter defining an Agent's display name, model, tools, and system
 prompt. _Avoid_: Agent def, agent prompt, agent config
 
 **Skill**: A reusable instruction package an Agent can load for a specialized technique without changing work owner or
@@ -508,7 +490,7 @@ documentation agent, documenter
 **Agent Name**: The internal identifier for an Agent, derived from its Agent Definition filename without `.md`. _Avoid_:
 Display name, label
 
-**Agent Display Name**: The human-readable name in Agent Definition Front Matter used when rendering agent messages.
+**Agent Display Name**: The human-readable name in Agent Definition front matter used when rendering agent messages.
 _Avoid_: Agent name, file name
 
 **Agent Session**: One invocation of an Agent with merged Agent Definition data, bound tools, extensions, and message
@@ -702,7 +684,7 @@ indexer
 eligible agent shell commands. _Avoid_: Required tool, agent tool, search tool
 
 **Prompt Template**: A layered markdown template that defines a Core-owned named invocation available in TUI, Workspace,
-and ACP Sessions. Its Front Matter can select one auxiliary-turn Agent, model, and thinking level; missing Agent means
+and ACP Sessions. Its front matter can select one auxiliary-turn Agent, model, and thinking level; missing Agent means
 Operator. _Avoid_: TUI command definition, prompt command
 
 **Named Invocation**: A raw user slash request that Core resolves to a Prompt Template or Skill. RunWield displays the
@@ -724,7 +706,7 @@ continuation, database interaction record
 
 ## Relationships
 
-- One **Attached Workflow** governs one **User Request** inside one **External Agent Host**.
+- One **Attached Workflow** governs one user request inside one **External Agent Host**.
 - During an **Attached Workflow**, the **External Agent Host** owns model calls while RunWield owns durable workflow
   truth, review, validation, recovery evidence, Work Records, and organizational memory.
 - An **Attached Workflow** persists structured evidence and durable artifacts without copying the host conversation into
@@ -747,17 +729,17 @@ continuation, database interaction record
 - **Change Request Delivery** can produce a **Verified Plan** only after a proven Forge merge of a revision covered by
   **Workflow Validation**.
 - **Dual Review** adds **Local Human Code Review** to Forge review without replacing **Semantic Code Review**.
-- One **User Request** produces exactly one **Triage Report**.
+- One user request produces exactly one **Triage Report**.
 - A **Triage Report** contains one **Routing Intent**, one **Complexity**, and one summary.
-- A **Plan** lists zero or more **Affected Paths** in its front matter; an **Empty Project Directory** therefore
-  produces none.
+- A **Plan** lists zero or more **Affected Paths** in its front matter; a directory with no meaningful project files
+  therefore produces none.
 - **Diagnostic Triage** remains read-only and produces a normal **Routing Intent**.
 - An **OPERATION** belongs to the **Operator** and creates no **Plan**.
 - A **PLANNED_CHANGE** is planned by the **Planner**, reviewed through a **Review Loop**, and executed after approval by
   **Plan Engineer** or **Frontend Engineer**.
 - A **PROJECT** produces one **Epic**, which the **Slicer** decomposes into zero or more **Child PLANNED_CHANGE Plans**.
 - **Work Kind** describes the nature of planned work independently from **Routing Intent** and **Plan Classification**.
-- A **Plan** has exactly one **Plan Status**, one **Origin**, and one **Front Matter** block.
+- A **Plan** has exactly one **Plan Status**, one **Origin**, and one YAML front matter block.
 - A **Plan Event** is the only input that asks the **Plan Lifecycle** to change **Plan Status**.
 - A **Plan Action Evidence Check** reloads canonical **Plan Status**, Plan revision, and worktree evidence before any
   consequential Plan action mutates lifecycle or worktree state.
@@ -805,7 +787,7 @@ continuation, database interaction record
   Intelligence Search**.
 - A fresh Session receives prior conclusions through explicitly referenced durable artifacts, not another Session's
   transcript.
-- Starting from a PRD, Plan, or Work Record creates a fresh Session; **Resume** re-enters the existing Session.
+- Starting from a PRD, Plan, or Work Record creates a fresh Session; resuming re-enters the existing Session.
 - Once a Session produces a Plan, the Plan becomes its primary durable workflow anchor.
 - **Approve & Run** first passes **Plan Action Evidence Check**, readiness, and preparation, then activates a fresh
   execution Session Transcript Segment; **Approve for Later** creates no execution segment.

@@ -91,6 +91,11 @@ async function registeredTapPath(tap) {
     const existing = await run("brew", ["--repo", TAP_NAME], tap, true);
     if (!existing.success) return "";
     const existingPath = resolve(existing.stdout.trim());
+    const exists = await Deno.stat(existingPath).then((stat) => stat.isDirectory).catch((error) => {
+        if (error instanceof Deno.errors.NotFound) return false;
+        throw error;
+    });
+    if (!exists) return "";
     if (existingPath !== resolve(tap) && !(await isCloneOfTap(existingPath, tap))) {
         throw new Error(`Homebrew tap ${TAP_NAME} already points at ${existingPath}. Untap it or pass that path.`);
     }
@@ -147,7 +152,11 @@ export async function main(args = Deno.args) {
     }
     await ensureGitTap(tap);
     const registeredTap = await registeredTapPath(tap);
-    if (!registeredTap) await run("brew", ["tap", TAP_NAME, `file://${resolve(tap)}`], tap);
+    if (!registeredTap) {
+        const tapUrl = `file://${resolve(tap)}`;
+        await run("brew", ["trust", tapUrl], tap);
+        await run("brew", ["tap", TAP_NAME, tapUrl], tap);
+    }
     await run("brew", ["audit", "--strict", "--formula", "gandazgul/tap/wld", "gandazgul/tap/mnemoteca"], tap);
     await run("brew", ["install", "gandazgul/tap/mnemoteca"], tap);
     await run("brew", ["install", "gandazgul/tap/wld"], tap);

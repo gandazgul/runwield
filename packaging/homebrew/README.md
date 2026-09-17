@@ -5,7 +5,7 @@ This directory prepares `gandazgul/homebrew-tap` output for macOS.
 Generate formulas from immutable Stable release assets:
 
 ```bash
-deno task package:homebrew --wld-tag vX.Y.Z --mnemoteca-tag v0.3.1 --output /tmp/runwield-tap
+deno task package:homebrew --wld-tag vX.Y.Z --mnemoteca-tag v0.3.3 --output /tmp/runwield-tap
 ```
 
 Refresh only Mnemoteca in an existing tap tree:

@@ -750,8 +750,25 @@ Future/open requirements:
 
 ### Installation and updates
 
-**Scope and maturity:** Prepared Homebrew and Windows WinGet support; public package availability is pending owner
-publication/submission. Shell install remains current baseline for macOS/Linux.
+**Scope and maturity:** Current Candidate release isolation and shell installation baseline. Prepared Homebrew and
+Windows WinGet support; public package availability is pending owner publication/submission.
+
+**Requirement: Isolate Candidate stabilization from ongoing feature work.**
+
+For each new release series, maintainers can cut RC1 from an explicitly confirmed commit and stabilize later Candidates
+on that series' Release Branch. Later Candidates use pushed release fixes without including unrelated feature work that
+continued on `main`. Review controls which changes qualify as release fixes. Stable promotion uses the exact selected
+Candidate.
+
+**Acceptance scenarios:**
+
+- Given RC1 for a new version, when the maintainer confirms Candidate creation, the Candidate tag and new Release Branch
+  identify the same committed source without including uncommitted files.
+- Given feature work continued on `main` after RC1 and a fix was pushed to the Release Branch, when the maintainer
+  creates the next Candidate, it includes the fix, excludes the later feature work, and leaves the maintainer's checkout
+  unchanged.
+- Given a tested Candidate and a Release Branch that has advanced, when the maintainer promotes that Candidate, Stable
+  uses the tested Candidate commit rather than the newer branch tip.
 
 Upgrades that change project runtime layout follow [Work protection](#work-protection). Installation must not bypass
 safe adoption or blocked-layout preservation.

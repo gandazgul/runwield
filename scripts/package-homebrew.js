@@ -214,35 +214,33 @@ function renderWldFormula(wld, testOnly) {
 class Wld < Formula
   desc "Plan-first AI coding harness"
   homepage "https://github.com/gandazgul/runwield"
-  version "${wld.version}"
-  license "https://github.com/gandazgul/runwield/blob/v#{version}/LICENSE" => :cannot_represent
+  license :cannot_represent
 
-  on_macos do
-    if Hardware::CPU.arm?
-      url "${wld.assets["darwin-arm64"].url}"
-      sha256 "${wld.assets["darwin-arm64"].sha256}"
-    else
-      url "${wld.assets["darwin-x64"].url}"
-      sha256 "${wld.assets["darwin-x64"].sha256}"
-    end
+  if Hardware::CPU.arm?
+    url "${wld.assets["darwin-arm64"].url}"
+    sha256 "${wld.assets["darwin-arm64"].sha256}"
+  else
+    url "${wld.assets["darwin-x64"].url}"
+    sha256 "${wld.assets["darwin-x64"].sha256}"
   end
 
-  depends_on "gandazgul/tap/mnemoteca"
   depends_on "1broseidon/tap/cymbal"
   depends_on "1broseidon/tap/ketch"
   depends_on "agent-browser"
+  depends_on "gandazgul/tap/mnemoteca"
   depends_on "git"
+  depends_on :macos
 
   def install
     libexec.install "wld"
     (libexec/"runwield-install.json").write JSON.pretty_generate({
-      schemaVersion: 1,
-      packageManager: "homebrew",
+      schemaVersion:     1,
+      packageManager:    "homebrew",
       packageIdentifier: "gandazgul/tap/wld",
-      updateCommand: "brew upgrade gandazgul/tap/wld",
-      repairCommand: "brew reinstall gandazgul/tap/wld",
-      installDirectory: libexec.to_s,
-      version: "v#{version}",
+      updateCommand:     "brew upgrade gandazgul/tap/wld",
+      repairCommand:     "brew reinstall gandazgul/tap/wld",
+      installDirectory:  libexec.to_s,
+      version:           "v#{version}",
     })
     bin.install_symlink libexec/"wld" => "wld"
   end
@@ -261,17 +259,16 @@ function renderMnemotecaFormula(mnemoteca) {
   desc "Local semantic memory CLI"
   homepage "${mnemoteca.homepage}"
   license "${mnemoteca.license}"
-  version "${mnemoteca.version}"
 
-  on_macos do
-    if Hardware::CPU.arm?
-      url "${mnemoteca.assets["darwin-arm64"].url}"
-      sha256 "${mnemoteca.assets["darwin-arm64"].sha256}"
-    else
-      url "${mnemoteca.assets["darwin-x64"].url}"
-      sha256 "${mnemoteca.assets["darwin-x64"].sha256}"
-    end
+  if Hardware::CPU.arm?
+    url "${mnemoteca.assets["darwin-arm64"].url}"
+    sha256 "${mnemoteca.assets["darwin-arm64"].sha256}"
+  else
+    url "${mnemoteca.assets["darwin-x64"].url}"
+    sha256 "${mnemoteca.assets["darwin-x64"].sha256}"
   end
+
+  depends_on :macos
 
   def install
     bin.install "mnemoteca"
@@ -279,8 +276,8 @@ function renderMnemotecaFormula(mnemoteca) {
 
   test do
     ENV["MNEMOTECA_DB_PATH"] = testpath/"mnemoteca.sqlite3"
-    assert_match "mnemoteca", shell_output("#{bin}/mnemoteca --help")
-    system "#{bin}/mnemoteca", "init", "--name", "homebrew-test"
+    assert_match "mnemoteca", shell_output(bin/"mnemoteca")
+    system bin/"mnemoteca", "init", "--name", "homebrew-test"
   end
 end
 `;
@@ -300,7 +297,7 @@ brew install gandazgul/tap/mnemoteca
 
 RunWield license: https://github.com/gandazgul/runwield/blob/main/LICENSE
 
-The RunWield formula links to the versioned project license with Homebrew's \`:cannot_represent\` metadata.
+The RunWield formula uses Homebrew's \`:cannot_represent\` metadata because the project license is not an SPDX license.
 
 Regenerate from this repository with:
 

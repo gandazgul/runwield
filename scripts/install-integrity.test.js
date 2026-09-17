@@ -117,6 +117,31 @@ Deno.test("install.sh rejects missing or corrupt checksum coverage for archive h
     });
 });
 
+Deno.test("install.sh accepts a RunWield archive when GitHub's asset digest repairs a stale manifest", async () => {
+    const fixture = await createFixture({ badChecksumFor: "wld" });
+    try {
+        const result = await runInstaller(fixture);
+        assertEquals(result.code, 0, `${result.stdout}\n${result.stderr}`);
+        assertStringIncludes(result.stdout, "Using GitHub release asset digest for wld-");
+        const stat = await Deno.stat(join(fixture.installDir, "wld"));
+        assertEquals(stat.isFile, true);
+    } finally {
+        await Deno.remove(fixture.root, { recursive: true });
+    }
+});
+
+Deno.test("install.sh rejects a RunWield archive when the manifest and GitHub digest both mismatch", async () => {
+    const fixture = await createFixture({ badChecksumFor: "wld", badDigestFor: "wld" });
+    try {
+        const result = await runInstaller(fixture);
+        assertEquals(result.code, 1);
+        assertStringIncludes(result.stderr, "Checksum verification failed for wld-");
+        await assertRejects(() => Deno.stat(join(fixture.installDir, "wld")), Deno.errors.NotFound);
+    } finally {
+        await Deno.remove(fixture.root, { recursive: true });
+    }
+});
+
 Deno.test("install.sh rejects missing executables in required archive helper archives", async () => {
     const fixture = await createFixture({ missingExecutableFor: "cymbal" });
     try {

@@ -45,7 +45,8 @@
  * npm:vite on every run — a large registry download on cold caches. The type
  * gate is `deno task check`, not these sandboxed executions.
  */
-import { dirname, fromFileUrl, join, relative, resolve } from "@std/path";
+import { basename, dirname, fromFileUrl, join, relative, resolve } from "@std/path";
+import { listCiFiles } from "./ci-files.ts";
 import { runWithSnip, writeSnipCommandResult } from "./run-with-snip.ts";
 
 const REPO_ROOT = dirname(dirname(fromFileUrl(import.meta.url)));
@@ -189,17 +190,24 @@ function parseRunnerArguments(args) {
 }
 
 /**
+ * @param {string} root
+ * @param {string} file
+ * @returns {boolean}
+ */
+function isPathAtOrBelow(root, file) {
+    if (file === root) return true;
+    const child = relative(root, file);
+    return child !== "" && child !== "." && !child.startsWith("..") && !child.startsWith("/") &&
+        !/^[A-Za-z]:[\\/]/.test(child);
+}
+
+/**
  * @param {string} file
  * @param {string[]} excludedPaths
  * @returns {boolean}
  */
 function isExcluded(file, excludedPaths) {
-    return excludedPaths.some((excluded) => {
-        if (file === excluded) return true;
-        const child = relative(excluded, file);
-        return child !== "" && child !== "." && !child.startsWith("..") && !child.startsWith("/") &&
-            !/^[A-Za-z]:[\\/]/.test(child);
-    });
+    return excludedPaths.some((excluded) => isPathAtOrBelow(excluded, file));
 }
 
 /**
@@ -213,11 +221,22 @@ function isExcluded(file, excludedPaths) {
  */
 async function runIsolatedSuite(sandboxRoot, denoDir, roots = [REPO_ROOT], excludedPaths = []) {
     const discovered = new Set();
+    const repositoryFiles = (await listCiFiles(REPO_ROOT)).map((file) => resolve(REPO_ROOT, file));
     for (const root of roots) {
         const path = resolve(REPO_ROOT, root);
         const stat = await Deno.stat(path);
         if (stat.isFile) {
             if (TEST_FILE_PATTERN.test(path)) discovered.add(path);
+            continue;
+        }
+        if (isPathAtOrBelow(REPO_ROOT, path)) {
+            for (const file of repositoryFiles) {
+                if (
+                    isPathAtOrBelow(path, file) && !basename(file).startsWith("__debug") && TEST_FILE_PATTERN.test(file)
+                ) {
+                    discovered.add(file);
+                }
+            }
             continue;
         }
         for await (const file of findTestFiles(path)) discovered.add(file);

@@ -19,6 +19,12 @@ Deno.test("release prompt starts with the three release choices before policy di
     assertStringIncludes(prompt, "shared Candidate source commit");
     assertStringIncludes(prompt, "empty release");
     assertStringIncludes(prompt, "When the repository policy says CI creates the host release");
+    assertStringIncludes(prompt, "source selected by the repository's policy");
+    assertStringIncludes(
+        prompt.replace(/\s+/g, " "),
+        "Do not introduce branch rules that its policy does not define",
+    );
+    assertEquals(prompt.includes("release/vX.Y.Z"), false);
     assertEquals(prompt.includes("tools:"), false);
 });
 
@@ -38,6 +44,11 @@ Deno.test("wld release policy distinguishes repository-specific policy from gene
     assertStringIncludes(policy, "bash install.sh vX.Y.Z-rc.N");
     assertStringIncludes(policy, "gh auth status");
     assertStringIncludes(policy, "permission to read releases before tagging");
+    assertStringIncludes(policy, "`release/vMAJOR.MINOR.PATCH` as its Release Branch");
+    assertStringIncludes(policy, "Later Candidates resolve the live pushed Release Branch from `origin`");
+    assertStringIncludes(policy, "Never merge `main` into an active Release Branch");
+    assertStringIncludes(policy, "explicitly forward-port the fix to `main`");
+    assertStringIncludes(policy, "This fixed list does not grow automatically");
 });
 
 Deno.test("release workflow keeps tag publication and manual recovery channel-safe", async () => {
@@ -54,6 +65,8 @@ Deno.test("release workflow keeps tag publication and manual recovery channel-sa
     assertStringIncludes(workflow, "WLD_BUILD_VERSION");
     assertStringIncludes(workflow, "prerelease: ${{ needs.metadata.outputs.prerelease }}");
     assertStringIncludes(workflow, "make_latest: ${{ needs.metadata.outputs.make_latest }}");
+    assertStringIncludes(workflow, "preserve_order: true");
+    assertStringIncludes(workflow, "overwrite_files: true");
     assertStringIncludes(workflow, "config.schema.json");
     assertStringIncludes(workflow, "release-artifacts/**/*.sha256");
     assertStringIncludes(workflow, "release-artifacts/SHA256SUMS");
@@ -83,6 +96,10 @@ Deno.test("Stable releases submit generated WinGet manifests without exposing th
 
     assertEquals(submitStart >= 0, true);
     assertEquals(submitEnd > submitStart, true);
+    assertStringIncludes(
+        workflow,
+        "ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || needs.metadata.outputs.tag }}",
+    );
     assertStringIncludes(submitJob, "if: needs.metadata.outputs.kind == 'stable'");
     assertStringIncludes(submitJob, "- winget-package");
     assertStringIncludes(submitJob, "WINGET_CREATE_GITHUB_TOKEN: ${{ secrets.WINGET_CREATE_GITHUB_TOKEN }}");

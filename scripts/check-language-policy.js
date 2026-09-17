@@ -1,7 +1,10 @@
-#!/usr/bin/env -S deno run --allow-read --allow-write=scripts/language-policy-baseline.json
+#!/usr/bin/env -S deno run --allow-read --allow-run --allow-write=scripts/language-policy-baseline.json
+
+import { dirname, fromFileUrl } from "@std/path";
+import { listCiFiles } from "./ci-files.ts";
 
 const BASELINE_PATH = new URL("./language-policy-baseline.json", import.meta.url);
-const SOURCE_ROOT = new URL("../src/", import.meta.url);
+const REPO_ROOT = dirname(dirname(fromFileUrl(import.meta.url)));
 const GENERATED_AND_DEPENDENCY_DIRS = new Set([
     ".astro",
     ".vite",
@@ -33,32 +36,8 @@ function isProductionJavaScriptPath(path) {
     return !parts.some((part) => TEST_DIRS.has(part) || GENERATED_AND_DEPENDENCY_DIRS.has(part));
 }
 
-/** @param {URL} [rootUrl] */
-async function collectProductionJavaScriptFiles(rootUrl = SOURCE_ROOT) {
-    /** @type {string[]} */
-    const files = [];
-
-    /**
-     * @param {URL} directoryUrl
-     * @param {string} relativeDirectory
-     */
-    async function walk(directoryUrl, relativeDirectory) {
-        for await (const entry of Deno.readDir(directoryUrl)) {
-            const relativePath = relativeDirectory ? `${relativeDirectory}/${entry.name}` : entry.name;
-            if (entry.isDirectory) {
-                if (GENERATED_AND_DEPENDENCY_DIRS.has(entry.name)) continue;
-                await walk(new URL(`${entry.name}/`, directoryUrl), relativePath);
-                continue;
-            }
-            if (!entry.isFile) continue;
-            const policyPath = `src/${relativePath}`;
-            if (isProductionJavaScriptPath(policyPath)) files.push(policyPath);
-        }
-    }
-
-    await walk(rootUrl, "");
-    files.sort();
-    return files;
+async function collectProductionJavaScriptFiles() {
+    return (await listCiFiles(REPO_ROOT)).filter(isProductionJavaScriptPath);
 }
 
 /** @returns {Promise<string[]>} */

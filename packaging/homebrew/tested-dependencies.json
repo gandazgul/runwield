@@ -1,16 +1,16 @@
 {
     "mnemoteca": {
-        "tag": "v0.3.1",
+        "tag": "v0.3.3",
         "license": "MIT",
         "homepage": "https://github.com/gandazgul/mnemoteca",
         "assets": {
             "darwin-arm64": {
-                "url": "https://github.com/gandazgul/mnemoteca/releases/download/v0.3.1/mnemoteca_0.3.1_darwin_arm64.tar.gz",
-                "sha256": "bc0038b317b2a8ea4abb7fb73b9a88b6562e27c51cd5b5a61c5b13908534bd64"
+                "url": "https://github.com/gandazgul/mnemoteca/releases/download/v0.3.3/mnemoteca_0.3.3_darwin_arm64.tar.gz",
+                "sha256": "1096e08c4269962a215fcb534ef54f6b7602d078580adf558a62a59ed49dcb35"
             },
             "darwin-x64": {
-                "url": "https://github.com/gandazgul/mnemoteca/releases/download/v0.3.1/mnemoteca_0.3.1_darwin_amd64.tar.gz",
-                "sha256": "0366cbf71fc1bfe9fdc9885108e9fbecdbc46ac909a6c48e6abf0f09e9009fc9"
+                "url": "https://github.com/gandazgul/mnemoteca/releases/download/v0.3.3/mnemoteca_0.3.3_darwin_amd64.tar.gz",
+                "sha256": "db0d5d449c3011dab4566201044951d4270d6b9f3cba94db6bcff49cf27d643e"
             }
         }
     },
