@@ -510,6 +510,7 @@ export const validationTreePublicationMissingTargetBranchScenario = withValidati
                 statuses: ["validated_reviewer"],
                 timeoutMs: 30000,
             },
+            { type: "waitForScreen", text: "Target branch main is missing", timeoutMs: 30000 },
             { type: "captureProjectState", planNames: ["publication-missing-target-branch"] },
         ],
         assertions: [],
