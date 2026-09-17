@@ -108,12 +108,11 @@ Deno.test("package:homebrew renders formulas from verified immutable assets", as
         assertStringIncludes(wld, 'depends_on "gandazgul/tap/mnemoteca"');
         assertStringIncludes(wld, "runwield-install.json");
         assertStringIncludes(wld, "brew upgrade gandazgul/tap/wld");
-        assertStringIncludes(
-            wld,
-            'version "1.2.3"\n  license "https://github.com/gandazgul/runwield/blob/v#{version}/LICENSE"',
-        );
+        assertStringIncludes(wld, "license :cannot_represent");
+        assertStringIncludes(wld, "depends_on :macos");
         assertStringIncludes(wld, "# test-only artifact; do not publish this formula");
         assertStringIncludes(mnemoteca, "class Mnemoteca < Formula");
+        assertStringIncludes(mnemoteca, "depends_on :macos");
         assertStringIncludes(mnemoteca, "mnemoteca_0.3.1_darwin_arm64.tar.gz");
         const manifest = JSON.parse(await Deno.readTextFile(join(output, "runwield-homebrew-package.json")));
         assertEquals(manifest.testOnly, true);

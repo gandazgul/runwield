@@ -166,7 +166,7 @@ The release workflow renders a `runwield-homebrew-tap-<tag>` artifact after Stab
 pushing that tree to `gandazgul/homebrew-tap`, run the check against the exact rendered output:
 
 ```bash
-deno task package:homebrew --wld-tag vX.Y.Z --mnemoteca-tag v0.3.1 --output /tmp/runwield-tap
+deno task package:homebrew --wld-tag vX.Y.Z --mnemoteca-tag v0.3.3 --output /tmp/runwield-tap
 deno task package:homebrew:check --tap /tmp/runwield-tap
 ```
 
@@ -213,8 +213,9 @@ The workflow also exposes a required-tag manual dispatch solely for recovery whe
 moved—for example, after its GitHub Release has made it immutable, or when a workflow-only fix on the default branch can
 safely retry the existing tagged source. In that mode, the source-quality job runs from the default-branch workflow
 revision containing the recovery fix, while metadata validation, release qualification, builds, and publication
-explicitly check out the existing tag. Never use manual recovery to bypass a genuine failure in tagged product source.
-Once a GitHub Release exists, never move its tag to include a later fix.
+explicitly check out the existing tag. A retry replaces the complete asset set so archives and checksum files stay from
+the same build. Never use manual recovery to bypass a genuine failure in tagged product source. Once a GitHub Release
+exists, never move its tag to include a later fix.
 
 After CI publishes a release, Operator edits the release notes from the curated temporary notes file. A release is not
 complete until this notes edit is verified. If assets are published but notes editing fails, report the release as

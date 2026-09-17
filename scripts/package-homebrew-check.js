@@ -152,7 +152,11 @@ export async function main(args = Deno.args) {
     }
     await ensureGitTap(tap);
     const registeredTap = await registeredTapPath(tap);
-    if (!registeredTap) await run("brew", ["tap", TAP_NAME, `file://${resolve(tap)}`], tap);
+    if (!registeredTap) {
+        const tapUrl = `file://${resolve(tap)}`;
+        await run("brew", ["trust", tapUrl], tap);
+        await run("brew", ["tap", TAP_NAME, tapUrl], tap);
+    }
     await run("brew", ["audit", "--strict", "--formula", "gandazgul/tap/wld", "gandazgul/tap/mnemoteca"], tap);
     await run("brew", ["install", "gandazgul/tap/mnemoteca"], tap);
     await run("brew", ["install", "gandazgul/tap/wld"], tap);

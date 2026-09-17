@@ -66,7 +66,7 @@ Deno.test("release workflow keeps tag publication and manual recovery channel-sa
     assertStringIncludes(workflow, "prerelease: ${{ needs.metadata.outputs.prerelease }}");
     assertStringIncludes(workflow, "make_latest: ${{ needs.metadata.outputs.make_latest }}");
     assertStringIncludes(workflow, "preserve_order: true");
-    assertStringIncludes(workflow, "overwrite_files: false");
+    assertStringIncludes(workflow, "overwrite_files: true");
     assertStringIncludes(workflow, "config.schema.json");
     assertStringIncludes(workflow, "release-artifacts/**/*.sha256");
     assertStringIncludes(workflow, "release-artifacts/SHA256SUMS");

@@ -11,7 +11,7 @@ on:
                 description: Stable Mnemoteca tag.
                 required: true
                 type: string
-                default: v0.3.1
+                default: v0.3.3
             test_only:
                 description: Mark output as test-only.
                 required: true

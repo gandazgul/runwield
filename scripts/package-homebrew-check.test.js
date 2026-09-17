@@ -25,6 +25,7 @@ if [ "$1" = "--repo" ]; then
     printf '%s\\n' "$MISSING_TAP"
     exit 0
 fi
+if [ "$1" = "trust" ]; then exit 0; fi
 if [ "$1" = "tap" ]; then exit 0; fi
 printf 'intentional stop after tap registration\\n' >&2
 exit 42
@@ -48,8 +49,9 @@ exit 42
 
         assertEquals(output.success, false);
         assertStringIncludes(stderr, "intentional stop after tap registration");
-        assertEquals(calls.slice(0, 2), [
+        assertEquals(calls.slice(0, 3), [
             "--repo gandazgul/tap",
+            `trust file://${tap}`,
             `tap gandazgul/tap file://${tap}`,
         ]);
     } finally {
