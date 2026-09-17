@@ -16,8 +16,8 @@ collaborationRecommendation: "autonomous"
 createdAt: "2026-09-17"
 origin: "internal"
 userVerifiedAt: null
-status: "in_progress"
 targetBranch: "main"
+status: "implemented"
 ---
 
 # Isolate Release Candidates on Release Branches

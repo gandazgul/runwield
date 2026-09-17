@@ -19,6 +19,12 @@ Deno.test("release prompt starts with the three release choices before policy di
     assertStringIncludes(prompt, "shared Candidate source commit");
     assertStringIncludes(prompt, "empty release");
     assertStringIncludes(prompt, "When the repository policy says CI creates the host release");
+    assertStringIncludes(prompt, "source selected by the repository's policy");
+    assertStringIncludes(
+        prompt.replace(/\s+/g, " "),
+        "Do not introduce branch rules that its policy does not define",
+    );
+    assertEquals(prompt.includes("release/vX.Y.Z"), false);
     assertEquals(prompt.includes("tools:"), false);
 });
 
@@ -38,6 +44,11 @@ Deno.test("wld release policy distinguishes repository-specific policy from gene
     assertStringIncludes(policy, "bash install.sh vX.Y.Z-rc.N");
     assertStringIncludes(policy, "gh auth status");
     assertStringIncludes(policy, "permission to read releases before tagging");
+    assertStringIncludes(policy, "`release/vMAJOR.MINOR.PATCH` as its Release Branch");
+    assertStringIncludes(policy, "Later Candidates resolve the live pushed Release Branch from `origin`");
+    assertStringIncludes(policy, "Never merge `main` into an active Release Branch");
+    assertStringIncludes(policy, "explicitly forward-port the fix to `main`");
+    assertStringIncludes(policy, "This fixed list does not grow automatically");
 });
 
 Deno.test("release workflow keeps tag publication and manual recovery channel-safe", async () => {

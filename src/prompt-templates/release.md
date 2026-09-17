@@ -50,10 +50,11 @@ own release policy and automation.
        terms of what a user can now do or what is meaningfully better for them.
      - Then add a concise **Detailed Changelog** grouped into **New Features**, **Bug Fixes and Improvements**, and
        **Breaking Changes** when relevant. Keep every entry user-facing.
-   - Verify each claimed feature by tracing the user-visible behavior to changed production code. A completed Work
-     Record can help identify the change, but is not a substitute for checking the implementation. Commit titles, Plans,
-     ADRs, PRDs, roadmaps, and other documentation can explain intent, but they are not proof that a feature shipped and
-     must never be listed as features themselves.
+   - Generate and verify notes from the source selected by the repository's policy, not automatically from the caller's
+     checkout. Verify each claimed feature by tracing the user-visible behavior to changed production code. A completed
+     Work Record can help identify the change, but is not a substitute for checking the implementation. Commit titles,
+     Plans, ADRs, PRDs, roadmaps, and other documentation can explain intent, but they are not proof that a feature
+     shipped and must never be listed as features themselves.
    - Omit internal architecture, refactors, lifecycle or validation machinery, test-only changes, dependency chores,
      planning work, and documentation changes unless they directly produce a user-visible capability or significant
      improvement. Translate necessary technical detail into plain language about its user impact.
@@ -61,8 +62,10 @@ own release policy and automation.
 
 5. Confirm before network-visible or irreversible side effects.
 
-   - Summarize the chosen operation, source commit/tag, target tag/version, release notes location, and exact
-     repository-owned command(s) to run.
+   - Summarize the chosen operation, policy-selected source commit/tag, target tag/version, release notes location, and
+     exact repository-owned command(s) to run. If that repository's policy defines a source branch or creates one during
+     release, include the branch and planned branch publication. Do not introduce branch rules that its policy does not
+     define.
    - Use `user_interview` for a yes/no confirmation before creating or pushing a tag, publishing a release, or starting
      another network-visible or irreversible operation. Do not describe a tag push as irreversible when repository
      policy says an unreleased tag may be moved.

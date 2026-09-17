@@ -203,8 +203,16 @@ request by GitHub and a merge request by GitLab. _Avoid_: FEATURE, Plan, Ticket,
 **Repository Participation Declaration**: An upstream-authored, version-controlled policy that explicitly permits
 contributed RunWield artifacts. _Avoid_: RunWield installation detection, inferred consent, contributor preference
 
+**Release Candidate**: A prerelease build for one product version, identified by an `-rc.N` release tag and used to
+validate that version before Stable publication. It is not a Publication Candidate from Planned Change delivery.
+_Avoid_: Publication Candidate, Stable release
+
+**Release Branch**: The version-specific Git branch used to stabilize a new RunWield release series after RC1. Later
+Release Candidates use its pushed tip so unrelated work on `main` does not enter the series. Review limits it to release
+fixes, and fixes are explicitly forward-ported to `main`. _Avoid_: Feature branch, Stable channel, Publication Candidate
+
 **Publication Candidate**: The exact locally validated revision RunWield intends to publish through a Forge Change
-Request. _Avoid_: Execution worktree, unvalidated branch, implementation draft
+Request. _Avoid_: Release Candidate, Execution worktree, unvalidated branch, implementation draft
 
 **Change Request Finalization**: The post-merge RunWield action that proves Forge delivery and records terminal Plan and
 Work Record evidence in the canonical repository. _Avoid_: Forge merge, contributor synchronization, local-only status
