@@ -1,15 +1,13 @@
-// @ts-nocheck: Compiled Workspace injects its bundled adapter. Astro dev can fall back to a native dynamic import
-// so both surfaces use the canonical adapter without reimplementing it.
+// @ts-nocheck: Astro dev runs through Vite's SSR loader, which cannot statically resolve Deno JSR imports.
+// Keep Workspace data canonical by dynamically importing the real adapter through Deno instead of reimplementing it.
 
 const ADAPTER_URL_KEY = Symbol.for("runwield.workspace.plan-adapter-url");
-const ADAPTER_MODULE_KEY = Symbol.for("runwield.workspace.plan-adapter-module");
 const DEV_WORKSPACES_KEY = Symbol.for("runwield.workspace.dev-memory-state");
 const runtime = globalThis;
 const ADAPTER_URL = runtime[ADAPTER_URL_KEY] || new URL("./plan-adapter.js", import.meta.url).href;
 const devWorkspaces = runtime[DEV_WORKSPACES_KEY] ||= new Map();
 
 async function workspaceAdapter() {
-    if (runtime[ADAPTER_MODULE_KEY]) return runtime[ADAPTER_MODULE_KEY];
     const nativeImport = Function("specifier", "return import(specifier)");
     try {
         return await nativeImport(await devVersionedAdapterUrl(ADAPTER_URL));
