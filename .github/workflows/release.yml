@@ -312,6 +312,8 @@ jobs:
                   tag_name: ${{ needs.metadata.outputs.tag }}
                   prerelease: ${{ needs.metadata.outputs.prerelease }}
                   make_latest: ${{ needs.metadata.outputs.make_latest }}
+                  preserve_order: true
+                  overwrite_files: false
                   files: |
                       release-artifacts/**/*.tar.gz
                       release-artifacts/**/*.tar.zst
