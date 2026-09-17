@@ -775,6 +775,8 @@ Deno.test("stageValidationPassedInExecutionWorktree validates only the execution
                 now: () => new Date("2026-01-03T00:00:00.000Z"),
             },
         });
+        const firstExecutionMarkdown = (await loadPlan(executionCwd, "feature"))?.markdown || "";
+        assertStringIncludes(firstExecutionMarkdown, 'status: "validated"');
         const second = await stageValidationPassedInExecutionWorktree({
             projectRoot,
             executionCwd,
@@ -790,7 +792,9 @@ Deno.test("stageValidationPassedInExecutionWorktree validates only the execution
         assertEquals(second.attrs.validatedAt, first.attrs.validatedAt);
         assertEquals(first.planPaths, ["docs/plans/feature.md"]);
         assertEquals((await loadPlan(projectRoot, "feature"))?.attrs.status, "implemented");
-        assertStringIncludes((await loadPlan(executionCwd, "feature"))?.markdown || "", "customFlag: true");
+        const executionMarkdown = (await loadPlan(executionCwd, "feature"))?.markdown || "";
+        assertStringIncludes(executionMarkdown, "customFlag: true");
+        assertStringIncludes(executionMarkdown, 'status: "validated"');
     } finally {
         await Deno.remove(projectRoot, { recursive: true });
         await Deno.remove(executionCwd, { recursive: true });

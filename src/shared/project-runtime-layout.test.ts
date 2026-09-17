@@ -140,7 +140,6 @@ Deno.test("legacy migration adopts primary and selected runtime leaves once", as
             JSON.stringify({ version: 1, entries: [project.registryEntry] }, null, 2),
         );
         await writeText(join(primaryBase, "worktree-registry-migration-issues.json"), "issues\n");
-        await writeText(join(primaryBase, "worktrees", "fallback.txt"), "fallback\n");
         await writeText(join(primaryBase, "debug", "trace.txt"), "debug\n");
         const secretPath = join(primaryBase, "collaboration-secrets.json");
         await writeText(
@@ -166,7 +165,6 @@ Deno.test("legacy migration adopts primary and selected runtime leaves once", as
             entries: [project.registryEntry],
         });
         assertEquals(await Deno.readTextFile(layout.primary.worktreeRegistryMigrationIssuesPath), "issues\n");
-        assertEquals(await Deno.readTextFile(join(layout.primary.fallbackWorktreesRoot, "fallback.txt")), "fallback\n");
         assertEquals(await Deno.readTextFile(join(layout.primary.debugRoot, "trace.txt")), "debug\n");
         assertEquals(
             await Deno.readTextFile(layout.primary.projectSecretStorePath),
@@ -181,7 +179,7 @@ Deno.test("legacy migration adopts primary and selected runtime leaves once", as
         const marker = JSON.parse(await Deno.readTextFile(layout.primary.layoutMarkerPath));
         assertEquals(marker.version, 1);
         assertEquals(marker.primaryCheckoutRoot, project.primaryRoot);
-        assertEquals(marker.adoptedSelectedCheckoutRoots, [project.selectedRoot]);
+        assertEquals(marker.adoptedSelectedCheckoutRoots, [project.primaryRoot, project.selectedRoot].sort());
 
         const before = await snapshotTree(layout.primary.internalRoot);
         const again = await migrateLegacyProjectRuntimeState(project.selectedRoot);
@@ -189,6 +187,108 @@ Deno.test("legacy migration adopts primary and selected runtime leaves once", as
         assertEquals(again.migrated, false);
         assertEquals(await snapshotTree(layout.primary.internalRoot), before);
     } finally {
+        await project.cleanup();
+    }
+});
+
+Deno.test("legacy migration adopts primary selected state and a primary-only secret", async () => {
+    const primaryRoot = await fixture.checkout({ prefix: "runwield-runtime-primary-selected-" });
+    try {
+        const resolvedPrimary = await Deno.realPath(primaryRoot);
+        const legacyBase = getRunWieldRuntimeDir(resolvedPrimary);
+        await writeText(join(legacyBase, "plan-transitions", "primary.json"), "primary transition\n");
+        await writeText(join(legacyBase, "collaboration-secrets.json"), "primary secret\n");
+
+        const result = await migrateLegacyProjectRuntimeState(resolvedPrimary);
+        if (result.kind !== "ready") throw new Error(`Expected ready, got ${JSON.stringify(result)}`);
+        assertEquals(result.adoptedSelectedCheckoutRoots, [resolvedPrimary]);
+        assertEquals(await Deno.readTextFile(result.layout.primary.projectSecretStorePath), "primary secret\n");
+        assertEquals(
+            await Deno.readTextFile(join(result.layout.selected.transitionJournalsDir, "primary.json")),
+            "primary transition\n",
+        );
+    } finally {
+        await Deno.remove(primaryRoot, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("legacy migration adopts a linked-only secret into the primary store", async () => {
+    const project = await makeMigrationProject();
+    try {
+        const source = join(getRunWieldRuntimeDir(project.selectedRoot), "collaboration-secrets.json");
+        await writeText(source, "linked secret\n");
+        await Deno.chmod(source, 0o600).catch(() => {});
+        const result = await migrateLegacyProjectRuntimeState(project.selectedRoot);
+        if (result.kind !== "ready") throw new Error(`Expected ready, got ${JSON.stringify(result)}`);
+        assertEquals(await Deno.readTextFile(result.layout.primary.projectSecretStorePath), "linked secret\n");
+        if (Deno.build.os !== "windows") {
+            assertEquals(((await Deno.lstat(result.layout.primary.projectSecretStorePath)).mode ?? 0) & 0o777, 0o600);
+        }
+        await assertMissing(source);
+    } finally {
+        await project.cleanup();
+    }
+});
+
+Deno.test("legacy migration preserves conflicting secret sources", async () => {
+    const project = await makeMigrationProject();
+    try {
+        const primarySource = join(getRunWieldRuntimeDir(project.primaryRoot), "collaboration-secrets.json");
+        const linkedSource = join(getRunWieldRuntimeDir(project.selectedRoot), "collaboration-secrets.json");
+        await writeText(primarySource, "primary bytes\n");
+        await writeText(linkedSource, "linked bytes\n");
+        const result = await migrateLegacyProjectRuntimeState(project.selectedRoot);
+        if (result.kind !== "blocked") throw new Error(`Expected blocked, got ${result.kind}`);
+        assertEquals(result.reason, "authority_conflict");
+        assertEquals(await Deno.readTextFile(primarySource), "primary bytes\n");
+        assertEquals(await Deno.readTextFile(linkedSource), "linked bytes\n");
+    } finally {
+        await project.cleanup();
+    }
+});
+
+Deno.test("legacy migration preserves a legacy secret when the current destination exists", async () => {
+    const project = await makeMigrationProject();
+    try {
+        const layout = resolveProjectRuntimeLayout(project.selectedRoot);
+        const source = join(getRunWieldRuntimeDir(project.selectedRoot), "collaboration-secrets.json");
+        await writeText(source, "legacy bytes\n");
+        await writeText(layout.primary.projectSecretStorePath, "current bytes\n");
+        const result = await migrateLegacyProjectRuntimeState(project.selectedRoot);
+        if (result.kind !== "blocked") throw new Error(`Expected blocked, got ${result.kind}`);
+        assertEquals(result.reason, "authority_conflict");
+        assertEquals(await Deno.readTextFile(source), "legacy bytes\n");
+        assertEquals(await Deno.readTextFile(layout.primary.projectSecretStorePath), "current bytes\n");
+    } finally {
+        await project.cleanup();
+    }
+});
+
+Deno.test("legacy migration adopts a later selected secret after the first marker", async () => {
+    const project = await makeMigrationProject();
+    const laterCheckout = await Deno.makeTempDir({ prefix: "runwield-runtime-later-secret-" });
+    try {
+        const first = await migrateLegacyProjectRuntimeState(project.selectedRoot);
+        if (first.kind !== "ready") throw new Error(`Expected ready, got ${JSON.stringify(first)}`);
+        await git(project.primaryRoot, [
+            "worktree",
+            "add",
+            "-b",
+            `runtime-later-secret-${crypto.randomUUID()}`,
+            laterCheckout,
+        ]);
+        const laterRoot = await Deno.realPath(laterCheckout);
+        const source = join(getRunWieldRuntimeDir(laterRoot), "collaboration-secrets.json");
+        await writeText(source, "later secret\n");
+
+        const result = await migrateLegacyProjectRuntimeState(laterRoot);
+        if (result.kind !== "ready") throw new Error(`Expected ready, got ${JSON.stringify(result)}`);
+        assertEquals(await Deno.readTextFile(result.layout.primary.projectSecretStorePath), "later secret\n");
+        assertEquals(result.adoptedSelectedCheckoutRoots, [...result.adoptedSelectedCheckoutRoots].sort());
+        assert(result.adoptedSelectedCheckoutRoots.includes(laterRoot));
+    } finally {
+        await git(project.primaryRoot, ["worktree", "remove", "--force", laterCheckout]).catch(() => {});
+        await Deno.remove(laterCheckout, { recursive: true }).catch(() => {});
         await project.cleanup();
     }
 });
@@ -237,6 +337,33 @@ Deno.test("legacy migration blocks symlinked authorities before adoption", async
     }
 });
 
+Deno.test("legacy migration refuses symlinked current runtime and publication checkout roots", async () => {
+    for (const authority of ["internal-root", "publication-checkout"] as const) {
+        const project = await makeMigrationProject();
+        const externalRoot = await Deno.makeTempDir({ prefix: "runwield-runtime-symlink-sentinel-" });
+        try {
+            const layout = resolveProjectRuntimeLayout(project.selectedRoot);
+            const sentinel = join(externalRoot, "sentinel.txt");
+            await Deno.writeTextFile(sentinel, "unchanged\n");
+            if (authority === "internal-root") {
+                await Deno.mkdir(dirname(layout.primary.internalRoot), { recursive: true });
+                await Deno.symlink(externalRoot, layout.primary.internalRoot);
+            } else {
+                await Deno.mkdir(layout.primary.publicationStagingRoot, { recursive: true });
+                await Deno.symlink(externalRoot, join(layout.primary.publicationStagingRoot, "attempt-1"));
+            }
+
+            const result = await migrateLegacyProjectRuntimeState(project.selectedRoot);
+            if (result.kind !== "blocked") throw new Error(`Expected blocked, got ${result.kind}`);
+            assertEquals(result.reason, "symlink");
+            assertEquals(await Deno.readTextFile(sentinel), "unchanged\n");
+        } finally {
+            await Deno.remove(externalRoot, { recursive: true }).catch(() => {});
+            await project.cleanup();
+        }
+    }
+});
+
 Deno.test("legacy migration resumes when a journaled rename already reached its destination", async () => {
     const project = await makeMigrationProject();
     try {
@@ -250,7 +377,7 @@ Deno.test("legacy migration resumes when a journaled rename already reached its 
                     {
                         version: 1,
                         primaryCheckoutRoot: project.primaryRoot,
-                        selectedCheckoutRoots: [project.selectedRoot],
+                        selectedCheckoutRoots: [project.primaryRoot, project.selectedRoot].sort(),
                         operations: [{
                             action: "rename",
                             source: join(primaryBase, "controller"),
@@ -274,7 +401,7 @@ Deno.test("legacy migration resumes when a journaled rename already reached its 
         );
         await assertMissing(layout.primary.layoutMigrationJournalPath);
         const marker = JSON.parse(await Deno.readTextFile(layout.primary.layoutMarkerPath));
-        assertEquals(marker.adoptedSelectedCheckoutRoots, [project.selectedRoot]);
+        assertEquals(marker.adoptedSelectedCheckoutRoots, [project.primaryRoot, project.selectedRoot].sort());
     } finally {
         await project.cleanup();
     }
@@ -294,7 +421,7 @@ Deno.test("legacy migration blocks when a completed journal receipt has two auth
                     {
                         version: 1,
                         primaryCheckoutRoot: project.primaryRoot,
-                        selectedCheckoutRoots: [project.selectedRoot],
+                        selectedCheckoutRoots: [project.primaryRoot, project.selectedRoot].sort(),
                         operations: [{
                             action: "rename",
                             source: join(primaryBase, "controller"),
@@ -373,6 +500,31 @@ Deno.test("legacy migration blocks tracked secret temp files with rotation guida
         await assertMissing(resolveProjectRuntimeLayout(project.selectedRoot).primary.internalRoot);
     } finally {
         await project.cleanup();
+    }
+});
+
+Deno.test("legacy migration classifies current secret files and temps as tracked secrets", async () => {
+    for (
+        const relativePath of [
+            ".wld/internal/collaboration-secrets.json",
+            ".wld/internal/collaboration-secrets.json.write.tmp",
+        ]
+    ) {
+        const project = await makeMigrationProject();
+        try {
+            const path = join(project.primaryRoot, relativePath);
+            await writeText(path, "current secret bytes\n");
+            await git(project.primaryRoot, ["add", relativePath]);
+            const result = await migrateLegacyProjectRuntimeState(project.selectedRoot);
+            if (result.kind !== "blocked") throw new Error(`Expected blocked, got ${result.kind}`);
+            assertEquals(result.reason, "tracked_secret");
+            assertEquals(result.paths, [path]);
+            assertExists(result.securityAction);
+            assertEquals(result.securityAction.rotateCapabilities, true);
+            assertEquals(await Deno.readTextFile(path), "current secret bytes\n");
+        } finally {
+            await project.cleanup();
+        }
     }
 });
 
@@ -557,7 +709,7 @@ Deno.test("legacy migration rejects a journal that retires an unbounded lock pat
                     {
                         version: 1,
                         primaryCheckoutRoot: project.primaryRoot,
-                        selectedCheckoutRoots: [project.selectedRoot],
+                        selectedCheckoutRoots: [project.primaryRoot, project.selectedRoot].sort(),
                         operations: [{
                             action: "retire",
                             source: externalLock,
@@ -595,7 +747,7 @@ Deno.test("legacy migration rejects an existing journal that omits required oper
                     {
                         version: 1,
                         primaryCheckoutRoot: project.primaryRoot,
-                        selectedCheckoutRoots: [project.selectedRoot],
+                        selectedCheckoutRoots: [project.primaryRoot, project.selectedRoot].sort(),
                         operations: [],
                         updatedAt: "2026-01-01T00:00:00.000Z",
                     },
@@ -630,7 +782,7 @@ Deno.test("legacy migration cleans completed journal and migration lock after ma
                     {
                         version: 1,
                         primaryCheckoutRoot: project.primaryRoot,
-                        adoptedSelectedCheckoutRoots: [project.selectedRoot],
+                        adoptedSelectedCheckoutRoots: [project.primaryRoot, project.selectedRoot].sort(),
                         completedAt: "2026-01-01T00:00:00.000Z",
                     },
                     null,
@@ -645,7 +797,7 @@ Deno.test("legacy migration cleans completed journal and migration lock after ma
                     {
                         version: 1,
                         primaryCheckoutRoot: project.primaryRoot,
-                        selectedCheckoutRoots: [project.selectedRoot],
+                        selectedCheckoutRoots: [project.primaryRoot, project.selectedRoot].sort(),
                         operations: [],
                         updatedAt: "2026-01-01T00:00:00.000Z",
                     },
@@ -688,7 +840,7 @@ Deno.test("legacy migration resumes selected-root adoption after the registry wa
                     {
                         version: 1,
                         primaryCheckoutRoot: project.primaryRoot,
-                        selectedCheckoutRoots: [project.selectedRoot, laterRoot].sort(),
+                        selectedCheckoutRoots: [project.primaryRoot, project.selectedRoot, laterRoot].sort(),
                         operations: [
                             {
                                 action: "rename",
@@ -756,7 +908,7 @@ Deno.test("legacy migration rejects a stale lock retirement when the lock proof 
                     {
                         version: 1,
                         primaryCheckoutRoot: project.primaryRoot,
-                        selectedCheckoutRoots: [project.selectedRoot],
+                        selectedCheckoutRoots: [project.primaryRoot, project.selectedRoot].sort(),
                         operations: [{
                             action: "retire",
                             source: lockPath,
@@ -808,6 +960,105 @@ Deno.test("legacy migration allows an empty destination directory during adoptio
         const result = await migrateLegacyProjectRuntimeState(project.selectedRoot);
         if (result.kind !== "ready") throw new Error(`Expected ready, got ${result.kind}`);
         assertEquals(await Deno.readTextFile(join(layout.primary.controllerPlansDir, "plan.json")), "x\n");
+    } finally {
+        await project.cleanup();
+    }
+});
+
+Deno.test("legacy migration refuses populated project-local worktrees without effects", async () => {
+    const project = await makeMigrationProject();
+    const fallbackRoot = join(getRunWieldRuntimeDir(project.primaryRoot), "worktrees");
+    const fallbackCheckout = join(fallbackRoot, "legacy-attempt");
+    try {
+        await git(project.primaryRoot, [
+            "worktree",
+            "add",
+            "-b",
+            `legacy-fallback-${crypto.randomUUID()}`,
+            fallbackCheckout,
+        ]);
+        await Deno.writeTextFile(join(fallbackCheckout, "README.md"), "dirty tracked work\n");
+        await Deno.writeTextFile(join(fallbackCheckout, "untracked.txt"), "untracked work\n");
+        const registryPath = join(getRunWieldRuntimeDir(project.primaryRoot), "worktrees.json");
+        await writeText(
+            registryPath,
+            JSON.stringify({
+                version: 1,
+                entries: [{ ...project.registryEntry, id: "legacy-attempt", path: fallbackCheckout }],
+            }),
+        );
+        const layout = resolveProjectRuntimeLayout(project.selectedRoot);
+        const worktreesBefore = await git(project.primaryRoot, ["worktree", "list", "--porcelain"]);
+        const statusBefore = await git(fallbackCheckout, ["status", "--short"]);
+        const primaryStatusBefore = await git(project.primaryRoot, ["status", "--short"]);
+        const indexBefore = await git(project.primaryRoot, ["diff", "--cached", "--binary"]);
+        const registryBefore = await Deno.readTextFile(registryPath);
+
+        const result = await migrateLegacyProjectRuntimeState(project.selectedRoot);
+        if (result.kind !== "blocked") throw new Error(`Expected blocked, got ${result.kind}`);
+        assertEquals(result.reason, "unsupported_filesystem_move");
+        assertEquals(await git(project.primaryRoot, ["worktree", "list", "--porcelain"]), worktreesBefore);
+        assertEquals(await git(fallbackCheckout, ["status", "--short"]), statusBefore);
+        assertEquals(await git(project.primaryRoot, ["status", "--short"]), primaryStatusBefore);
+        assertEquals(await git(project.primaryRoot, ["diff", "--cached", "--binary"]), indexBefore);
+        assertEquals(await Deno.readTextFile(registryPath), registryBefore);
+        assertEquals(await Deno.readTextFile(join(fallbackCheckout, "README.md")), "dirty tracked work\n");
+        assertEquals(await Deno.readTextFile(join(fallbackCheckout, "untracked.txt")), "untracked work\n");
+        await assertMissing(layout.primary.internalRoot);
+    } finally {
+        await git(project.primaryRoot, ["worktree", "remove", "--force", fallbackCheckout]).catch(() => {});
+        await project.cleanup();
+    }
+});
+
+Deno.test("legacy migration allows an empty project-local worktrees directory", async () => {
+    const project = await makeMigrationProject();
+    try {
+        const fallbackRoot = join(getRunWieldRuntimeDir(project.primaryRoot), "worktrees");
+        await Deno.mkdir(fallbackRoot, { recursive: true });
+        const result = await migrateLegacyProjectRuntimeState(project.selectedRoot);
+        if (result.kind !== "ready") throw new Error(`Expected ready, got ${JSON.stringify(result)}`);
+        assertEquals((await Deno.lstat(fallbackRoot)).isDirectory, true);
+        await assertMissing(result.layout.primary.fallbackWorktreesRoot);
+    } finally {
+        await project.cleanup();
+    }
+});
+
+Deno.test("legacy migration rejects an old journaled project-local worktree rename", async () => {
+    const project = await makeMigrationProject();
+    try {
+        const layout = resolveProjectRuntimeLayout(project.selectedRoot);
+        const source = join(getRunWieldRuntimeDir(project.primaryRoot), "worktrees");
+        const file = join(source, "preserve.txt");
+        await writeText(file, "preserve\n");
+        await writeText(
+            layout.primary.layoutMigrationJournalPath,
+            `${
+                JSON.stringify(
+                    {
+                        version: 1,
+                        primaryCheckoutRoot: project.primaryRoot,
+                        selectedCheckoutRoots: [project.primaryRoot, project.selectedRoot].sort(),
+                        operations: [{
+                            action: "rename",
+                            source,
+                            destination: layout.primary.fallbackWorktreesRoot,
+                            kind: "directory",
+                            completed: false,
+                        }],
+                        updatedAt: "2026-01-01T00:00:00.000Z",
+                    },
+                    null,
+                    2,
+                )
+            }\n`,
+        );
+        const result = await migrateLegacyProjectRuntimeState(project.selectedRoot);
+        if (result.kind !== "blocked") throw new Error(`Expected blocked, got ${result.kind}`);
+        assertEquals(result.reason, "malformed_migration_evidence");
+        assertEquals(await Deno.readTextFile(file), "preserve\n");
+        await assertMissing(layout.primary.fallbackWorktreesRoot);
     } finally {
         await project.cleanup();
     }
@@ -910,7 +1161,7 @@ Deno.test("legacy migration rejects a newer completed marker version", async () 
                     {
                         version: 2,
                         primaryCheckoutRoot: project.primaryRoot,
-                        adoptedSelectedCheckoutRoots: [project.selectedRoot],
+                        adoptedSelectedCheckoutRoots: [project.primaryRoot, project.selectedRoot].sort(),
                         completedAt: "2026-01-01T00:00:00.000Z",
                     },
                     null,
@@ -944,7 +1195,7 @@ Deno.test("legacy migration ignores completed retire receipts and rejects normal
                     {
                         version: 1,
                         primaryCheckoutRoot: project.primaryRoot,
-                        selectedCheckoutRoots: [project.selectedRoot],
+                        selectedCheckoutRoots: [project.primaryRoot, project.selectedRoot].sort(),
                         operations: [{
                             action: "retire",
                             source: craftedSource,
@@ -1005,6 +1256,38 @@ Deno.test("legacy migration blocks active Work Record supersession and recovery 
     }
 });
 
+Deno.test("legacy migration blocks primary Work Record locks when entry starts linked", async () => {
+    for (
+        const lock of [
+            { mode: "hold-work-record-lock", name: "work-record-supersession.lock" },
+            { mode: "hold-work-record-recovery-lock", name: "work-record-supersession-recovery.lock" },
+        ] as const
+    ) {
+        const project = await makeMigrationProject();
+        let child: Deno.ChildProcess | undefined;
+        try {
+            const lockPath = join(getRunWieldRuntimeDir(project.primaryRoot), lock.name);
+            child = spawnDriver(lock.mode, project.primaryRoot);
+            await readReadyLine(child.stdout);
+            const result = await migrateLegacyProjectRuntimeState(project.selectedRoot);
+            if (result.kind !== "blocked") throw new Error(`Expected blocked, got ${result.kind}`);
+            assertEquals(result.reason, "active_legacy_writer");
+            assert(result.paths.includes(lockPath));
+            child.kill("SIGKILL");
+            await child.status;
+            child = undefined;
+            await Deno.remove(lockPath);
+            const retry = await migrateLegacyProjectRuntimeState(project.selectedRoot);
+            if (retry.kind !== "ready") throw new Error(`Expected ready, got ${JSON.stringify(retry)}`);
+            assertEquals(retry.adoptedSelectedCheckoutRoots, [project.primaryRoot, project.selectedRoot].sort());
+        } finally {
+            child?.kill("SIGKILL");
+            await child?.status.catch(() => {});
+            await project.cleanup();
+        }
+    }
+});
+
 Deno.test("legacy migration retires stale Work Record supersession under the recovery protocol", async () => {
     const project = await makeMigrationProject();
     try {
@@ -1035,6 +1318,30 @@ Deno.test("legacy migration blocks active Plan locks held by a subprocess", asyn
         if (result.kind !== "blocked") throw new Error(`Expected blocked, got ${result.kind}`);
         assertEquals(result.reason, "active_legacy_writer");
         assert(result.paths.includes(lockPath));
+    } finally {
+        child?.kill("SIGKILL");
+        await child?.status.catch(() => {});
+        await project.cleanup();
+    }
+});
+
+Deno.test("legacy migration blocks active Plan locks in the primary checkout when entry starts linked", async () => {
+    const project = await makeMigrationProject();
+    let child: Deno.ChildProcess | undefined;
+    try {
+        const lockPath = join(getRunWieldRuntimeDir(project.primaryRoot), "plan-locks", "primary.lock");
+        child = spawnDriver("hold-plan-lock", project.primaryRoot, "primary");
+        await readReadyLine(child.stdout);
+        const result = await migrateLegacyProjectRuntimeState(project.selectedRoot);
+        if (result.kind !== "blocked") throw new Error(`Expected blocked, got ${result.kind}`);
+        assertEquals(result.reason, "active_legacy_writer");
+        assert(result.paths.includes(lockPath));
+        child.kill("SIGKILL");
+        await child.status;
+        child = undefined;
+        const retry = await migrateLegacyProjectRuntimeState(project.selectedRoot);
+        if (retry.kind !== "ready") throw new Error(`Expected ready, got ${retry.kind}`);
+        assertEquals(retry.adoptedSelectedCheckoutRoots, [project.primaryRoot, project.selectedRoot].sort());
     } finally {
         child?.kill("SIGKILL");
         await child?.status.catch(() => {});
@@ -1144,6 +1451,7 @@ Deno.test("legacy migration reports EXDEV without retiring the source authority"
 type MigrationInterruptionEffect =
     | "journal-commit"
     | "primary-rename"
+    | "secret-rename"
     | "selected-rename"
     | "stale-lock-retirement"
     | "marker-replacement"
@@ -1152,6 +1460,7 @@ type MigrationInterruptionEffect =
 const MIGRATION_INTERRUPTION_EFFECTS: MigrationInterruptionEffect[] = [
     "journal-commit",
     "primary-rename",
+    "secret-rename",
     "selected-rename",
     "stale-lock-retirement",
     "marker-replacement",
@@ -1214,6 +1523,10 @@ async function arrangeInterruptedMigrationEffect(
 ): Promise<void> {
     const primaryBase = getRunWieldRuntimeDir(project.primaryRoot);
     const selectedBase = getRunWieldRuntimeDir(project.selectedRoot);
+    if (effect === "secret-rename") {
+        await writeText(join(selectedBase, "collaboration-secrets.json"), "linked secret\n");
+        return;
+    }
     if (effect === "selected-rename") {
         await writeText(join(selectedBase, "plan-transitions", "selected.json"), "selected\n");
         return;
@@ -1243,6 +1556,16 @@ async function assertInterruptedMigrationEffect(
         await Deno.lstat(join(layout.primary.internalRoot, "controller", "plans", "plan.json"));
         await assertMissing(join(primaryBase, "controller"));
         await assertMissing(layout.primary.layoutMarkerPath);
+    } else if (effect === "secret-rename") {
+        assertEquals(await Deno.readTextFile(layout.primary.projectSecretStorePath), "linked secret\n");
+        await assertMissing(join(selectedBase, "collaboration-secrets.json"));
+        const journal = JSON.parse(await Deno.readTextFile(layout.primary.layoutMigrationJournalPath));
+        assert(
+            journal.operations.some((operation: { source: string }) =>
+                operation.source === join(selectedBase, "collaboration-secrets.json")
+            ),
+        );
+        await assertMissing(layout.primary.layoutMarkerPath);
     } else if (effect === "selected-rename") {
         await Deno.lstat(join(layout.selected.transitionJournalsDir, "selected.json"));
         await assertMissing(join(selectedBase, "plan-transitions"));
@@ -1268,6 +1591,10 @@ async function assertCompletedMigrationEffect(
     await assertMissing(layout.primary.layoutMigrationJournalPath);
     await assertMissing(layout.primary.layoutMigrationLockPath);
     await assertMissing(join(getRunWieldRuntimeDir(project.primaryRoot), "worktrees.lock"));
+    if (effect === "secret-rename") {
+        assertEquals(await Deno.readTextFile(layout.primary.projectSecretStorePath), "linked secret\n");
+        return;
+    }
     if (effect === "selected-rename") {
         assertEquals(
             await Deno.readTextFile(join(layout.selected.transitionJournalsDir, "selected.json")),

@@ -42,8 +42,9 @@ export async function removeLockFileIfSnapshotMatches(
         if (error instanceof Deno.errors.NotFound) return true;
         throw error;
     }
+    let closed = false;
     try {
-        if (!file.tryLockSync(true)) return false;
+        if (Deno.build.os !== "windows" && !file.tryLockSync(true)) return false;
         const current = await readLockFileSnapshotFromFile(file);
         const pathCurrent = await readLockFileSnapshot(lockPath);
         if (
@@ -52,12 +53,16 @@ export async function removeLockFileIfSnapshotMatches(
         ) {
             return false;
         }
+        if (Deno.build.os === "windows") {
+            file.close();
+            closed = true;
+        }
         await Deno.remove(lockPath).catch((error) => {
             if (!(error instanceof Deno.errors.NotFound)) throw error;
         });
         return true;
     } finally {
-        file.close();
+        if (!closed) file.close();
     }
 }
 

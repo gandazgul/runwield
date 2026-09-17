@@ -24,7 +24,7 @@ storage-layout change.
 
 ### One reserved runtime root
 
-RunWield Core 0.10.0 reserves `.wld/internal/` in each applicable project checkout for machine-owned project runtime
+RunWield Core 0.11.0 reserves `.wld/internal/` in each applicable project checkout for machine-owned project runtime
 state. The project `.gitignore` managed block contains one runtime entry:
 
 ```gitignore
@@ -48,13 +48,13 @@ The location does not change authority:
 A shared path module defines the internal root and named paths. Runtime owners use those definitions instead of
 constructing `.wld` runtime paths independently.
 
-### One-way 0.10.0 migration
+### One-way 0.11.0 migration
 
-The first 0.10.0 project entry performs one serialized, durable, idempotent migration before normal runtime-store
-access. Migration preflight can read legacy registry, lock, publication, and Git evidence. TUI Sessions, Agent Client
-Protocol sessions, headless flows, Init, and direct Plan and collaboration commands use this same operation. Commands
-that do not enter a project, such as help and version, do not migrate. A new empty TUI remains in memory until the first
-submitted message.
+The first 0.11.0 project entry performs one serialized, durable, idempotent migration of eligible 0.10 project state
+before normal runtime-store access. Migration preflight can read legacy registry, lock, publication, and Git evidence.
+TUI Sessions, Agent Client Protocol sessions, headless flows, Init, and direct Plan and collaboration commands use this
+same operation. Commands that do not enter a project, such as help and version, do not migrate. A new empty TUI remains
+in memory until the first submitted message.
 
 Doctor can inspect the same preflight policy without locks or writes. Inspection reports blocked, pending, or adopted
 facts; pending inspection is not adoption. Repair still enters through guarded migration and repeats preflight.
@@ -71,7 +71,7 @@ document-local state. It does not infer or merge two independently populated aut
 stores both exist without matching migration evidence, RunWield stops and reports the conflict without deleting either
 store.
 
-RunWield 0.10.0 does not support downgrade or concurrent use with an older RunWield process after migration. Current
+RunWield 0.11.0 does not support downgrade or concurrent use with an older RunWield process after migration. Current
 processes use one migration lock. The legacy registry lock is held from publication preflight through durable marker
 commit and retirement of legacy authoritative data; it is released before its own obsolete lock file is retired. Each
 other legacy lock is tested with its real protocol: a persistent controller lock file is not evidence of a live writer,
@@ -79,14 +79,17 @@ while registry, Plan, and Work Record locks retain their existing ownership and 
 writer causes a safe stop. Readers reject a layout marker newer than they understand.
 
 An unfinished publication or merge-repair record blocks migration before any files move. The user must finish or cancel
-that recovery with a pre-0.10.0 RunWield version and then retry the upgrade. This case is intentionally not translated:
-validated unpublished work is more important than an automatic upgrade.
+that recovery with the 0.10 RunWield version that created it and then retry the upgrade. This case is intentionally not
+translated: validated unpublished work is more important than an automatic upgrade.
 
-Project collaboration secrets move only after Git tracking, symlink, and destination conflicts are checked. The
-migration does not follow a symlink at the internal root or a legacy authority path; it stops before reading or writing
-outside the applicable checkout. If Git tracks any legacy or current runtime authority, migration stops and requires
-explicit repository cleanup; `.gitignore` cannot untrack it. A tracked secret also requires a security warning and
-capability rotation guidance. The new internal directory and secret file retain restrictive permissions where the
+Project collaboration secrets move only after Git tracking, symlink, source, and destination conflicts are checked.
+Migration discovers the old project-local store in the primary and selected checkouts and moves one source to the
+primary internal store. It refuses multiple populated sources instead of choosing or merging them. The migration does
+not follow a symlink at the internal root or a runtime authority path; it stops before reading or writing outside the
+applicable checkout. Repository payload symlinks inside a real publication checkout remain normal Git content and are
+not traversed during runtime inspection. If Git tracks any legacy or current runtime authority, migration stops and
+requires explicit repository cleanup; `.gitignore` cannot untrack it. A tracked secret also requires a security warning
+and capability rotation guidance. The new internal directory and secret file retain restrictive permissions where the
 platform supports them. The migration never keeps two writable secret stores.
 
 ### Git behavior during and after migration
@@ -94,7 +97,7 @@ platform supports them. The migration never keeps two writable secret stores.
 The current runtime classifier owns `.wld/internal/` and all descendants. Git staging, dirty-path checks, publication,
 and cleanup use that boundary.
 
-A separate legacy-safety classifier continues to recognize known pre-0.10.0 runtime paths. It exists only to migrate old
+A separate legacy-safety classifier continues to recognize known 0.10 runtime paths. It exists only to migrate old
 state, prevent accidental commits, and report unsupported old-writer activity. No normal runtime owner reads or writes a
 legacy path.
 
@@ -114,9 +117,11 @@ credential or capability rotation as applicable.
 - Runtime owners retain their current primary-checkout or selected-checkout semantics.
 - Upgrade is automatic for normal inactive projects and safely stops for unfinished publication recovery or conflicting
   authorities.
-- Downgrade after adoption is unsupported. An older binary can recreate legacy state, but 0.10.0 treats that state as a
+- Downgrade after adoption is unsupported. A 0.10 binary can recreate legacy state, but 0.11 treats that state as a
   conflict or migration hazard rather than a second authority.
-- Documentation and recovery messages must use the new paths while explaining the one-way 0.10.0 boundary.
+- A populated project-local fallback worktree directory is preserved and blocks adoption. RunWield does not move its Git
+  worktrees or rewrite their recorded paths. An absent or empty fallback directory does not block adoption.
+- Documentation and recovery messages must use the new paths while explaining the one-way 0.11.0 boundary.
 
 ## Options Not Taken
 
@@ -139,4 +144,4 @@ risk.
 ### Support old and new versions concurrently
 
 This requires both legacy ignore entries and two compatible lock namespaces. It permits old processes to recreate old
-authorities after migration and defeats the single-root result. Version 0.10.0 is an explicit breaking boundary instead.
+authorities after migration and defeats the single-root result. Version 0.11.0 is an explicit breaking boundary instead.

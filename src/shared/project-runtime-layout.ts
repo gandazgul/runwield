@@ -1,4 +1,4 @@
-import { basename, dirname, join, resolve } from "@std/path";
+import { basename, dirname, join, resolve, SEPARATOR } from "@std/path";
 import {
     getRunWieldRuntimeDir,
     PLAN_BACKUPS_DIR_NAME,
@@ -519,6 +519,18 @@ async function preflight(
 
     const existingJournal = await readJournal(layout.primary.layoutMigrationJournalPath);
     if (isBlocked(existingJournal)) return existingJournal;
+    if (
+        existingJournal.journal?.operations.some((operation) =>
+            operation.action === "rename" &&
+            operation.source === legacyRelativePath(primaryCheckoutRoot, "worktrees")
+        )
+    ) {
+        return block(
+            "malformed_migration_evidence",
+            [layout.primary.layoutMigrationJournalPath],
+            "The runtime migration journal contains an unsupported project-local worktree move.",
+        );
+    }
 
     const symlink = await findSymlinkBlocker(layout, primaryCheckoutRoot, [
         layout.selected.checkoutRoot,
@@ -555,6 +567,7 @@ async function preflight(
     const gitWorktrees = await listGitWorktrees(primaryCheckoutRoot);
     if (isBlocked(gitWorktrees)) return gitWorktrees;
     const selectedRoots = await resolveSelectedRoots(
+        primaryCheckoutRoot,
         layout.selected.checkoutRoot,
         registry.entries,
         gitWorktrees.worktrees,
@@ -563,6 +576,15 @@ async function preflight(
     if (isBlocked(selectedRoots)) return selectedRoots;
     const markerSelectedRoots = await validateMarkerSelectedRoots(layout, marker, gitWorktrees.worktrees);
     if (isBlocked(markerSelectedRoots)) return markerSelectedRoots;
+
+    const fallbackWorktreesRoot = legacyRelativePath(primaryCheckoutRoot, "worktrees");
+    if (!(await isEmptyDirectory(fallbackWorktreesRoot))) {
+        return block(
+            "unsupported_filesystem_move",
+            [fallbackWorktreesRoot],
+            "A populated project-local worktree directory cannot be moved safely. Preserve it and finish or remove its work before retrying.",
+        );
+    }
 
     const selectedSymlink = await findSymlinkBlocker(layout, primaryCheckoutRoot, selectedRoots.roots);
     if (selectedSymlink.length > 0) {
@@ -593,6 +615,15 @@ async function preflight(
             "tracked_runtime",
             tracked.runtimePaths,
             "RunWield runtime paths are tracked or staged by Git. Untrack them before migration.",
+        );
+    }
+
+    const secretConflicts = await findLegacySecretConflicts(primaryCheckoutRoot, selectedRoots.roots);
+    if (secretConflicts.length > 0) {
+        return block(
+            "authority_conflict",
+            secretConflicts,
+            "More than one project collaboration secret authority exists. Migration stopped without choosing or merging them.",
         );
     }
 
@@ -740,6 +771,7 @@ async function listGitWorktrees(
 }
 
 async function resolveSelectedRoots(
+    primaryRoot: string,
     requestedRoot: string,
     entries: LegacyRegistryEntry[],
     gitWorktrees: GitWorktree[],
@@ -754,7 +786,15 @@ async function resolveSelectedRoots(
             "The selected checkout is not an attached Git worktree.",
         );
     }
-    const roots = new Set<string>([requested]);
+    const primary = await canonicalExistingRoot(primaryRoot);
+    if (!byRealPath.has(primary)) {
+        return block(
+            "invalid_registered_checkout",
+            [primaryRoot],
+            "The primary checkout is not an attached Git worktree.",
+        );
+    }
+    const roots = new Set<string>([primary, requested]);
     for (const root of journalSelectedRoots) {
         const canonicalRoot = await canonicalExistingRoot(root);
         if (!byRealPath.has(canonicalRoot)) {
@@ -883,12 +923,17 @@ async function findTrackedRuntimePaths(
 
 function runtimeGitPathspecs(): string[] {
     const legacy = LEGACY_PROJECT_RUNTIME_HAZARD_PATHS.map((path) => path.replace(/^\.\//, ""));
-    return [join(RUNWIELD_DIR_NAME, PROJECT_INTERNAL_RUNTIME_DIR_NAME), ...legacy];
+    return [`${RUNWIELD_DIR_NAME}/${PROJECT_INTERNAL_RUNTIME_DIR_NAME}`, ...legacy];
 }
 
 function isProjectSecretGitPath(path: string): boolean {
-    return path === PROJECT_SECRET_STORE_RELATIVE_PATH ||
-        (path.startsWith(`${PROJECT_SECRET_STORE_RELATIVE_PATH}.`) && path.endsWith(".tmp"));
+    const secretPaths = [
+        PROJECT_SECRET_STORE_RELATIVE_PATH,
+        `${RUNWIELD_DIR_NAME}/${PROJECT_INTERNAL_RUNTIME_DIR_NAME}/collaboration-secrets.json`,
+    ];
+    return secretPaths.some((secretPath) =>
+        path === secretPath || (path.startsWith(`${secretPath}.`) && path.endsWith(".tmp"))
+    );
 }
 
 async function findSymlinkBlocker(
@@ -902,16 +947,23 @@ async function findSymlinkBlocker(
         ...selectedRoots.flatMap((root) => [
             internalRootFor(root),
             ...legacySelectedAuthorities(root).map((entry) => entry.source),
+            legacySecretAuthority(root, primaryCheckoutRoot).source,
             legacyRelativePath(root, "work-record-supersession.lock"),
             legacyRelativePath(root, "work-record-supersession-recovery.lock"),
         ]),
     ];
+    const repositoryContainers = new Set([
+        layout.primary.publicationStagingRoot,
+        layout.primary.fallbackWorktreesRoot,
+        legacyRelativePath(primaryCheckoutRoot, PLAN_STAGING_DIR_NAME),
+        legacyRelativePath(primaryCheckoutRoot, "worktrees"),
+    ]);
     const symlinks: string[] = [];
     for (const root of [legacyRuntimeBase(primaryCheckoutRoot), ...selectedRoots.map(legacyRuntimeBase)]) {
         await collectOnlyThisSymlink(root, symlinks);
     }
     for (const root of authorityRoots) {
-        await collectSymlinks(root, symlinks);
+        await collectSymlinks(root, symlinks, repositoryContainers);
     }
     return symlinks;
 }
@@ -921,14 +973,13 @@ async function collectOnlyThisSymlink(path: string, symlinks: string[]): Promise
     if (info?.isSymlink) symlinks.push(path);
 }
 
-async function collectSymlinks(path: string, symlinks: string[]): Promise<void> {
-    let info: Deno.FileInfo;
-    try {
-        info = await Deno.lstat(path);
-    } catch (error) {
-        if (error instanceof Deno.errors.NotFound) return;
-        throw error;
-    }
+async function collectSymlinks(
+    path: string,
+    symlinks: string[],
+    repositoryContainers: Set<string> = new Set(),
+): Promise<void> {
+    const info = await lstatOrNull(path);
+    if (!info) return;
     if (info.isSymlink) {
         symlinks.push(path);
         return;
@@ -936,8 +987,22 @@ async function collectSymlinks(path: string, symlinks: string[]): Promise<void> 
     if (!info.isDirectory) return;
     const entries = await safeReadDir(path);
     if (!entries) return;
+    if (repositoryContainers.has(path)) {
+        for (const entry of entries) {
+            const checkoutRoot = join(path, entry.name);
+            const checkoutInfo = await lstatOrNull(checkoutRoot);
+            if (!checkoutInfo) continue;
+            if (checkoutInfo.isSymlink) {
+                symlinks.push(checkoutRoot);
+                continue;
+            }
+            if (checkoutInfo.isDirectory && await lstatOrNull(join(checkoutRoot, ".git"))) continue;
+            await collectSymlinks(checkoutRoot, symlinks, repositoryContainers);
+        }
+        return;
+    }
     for (const entry of entries) {
-        await collectSymlinks(join(path, entry.name), symlinks);
+        await collectSymlinks(join(path, entry.name), symlinks, repositoryContainers);
     }
 }
 
@@ -961,6 +1026,23 @@ async function collectSpecialFiles(path: string, kind: PathKind, specialFiles: s
         if (childInfo.isDirectory) await collectSpecialFiles(child, "directory", specialFiles);
         else if (!childInfo.isFile && !childInfo.isSymlink) specialFiles.push(child);
     }
+}
+
+async function findLegacySecretConflicts(
+    primaryCheckoutRoot: string,
+    selectedRoots: string[],
+): Promise<string[]> {
+    const sources: string[] = [];
+    for (const root of selectedRoots) {
+        const source = legacySecretAuthority(root, primaryCheckoutRoot).source;
+        if (await lstatOrNull(source)) sources.push(source);
+    }
+    const destination = legacySecretAuthority(primaryCheckoutRoot, primaryCheckoutRoot).destination;
+    const destinationExists = Boolean(await lstatOrNull(destination));
+    if (sources.length > 1 || (sources.length > 0 && destinationExists)) {
+        return [...sources, ...(destinationExists ? [destination] : [])].sort();
+    }
+    return [];
 }
 
 async function findCurrentAuthorityConflicts(
@@ -1144,9 +1226,11 @@ async function validateLegacyAuthorities(
     primaryCheckoutRoot: string,
     selectedRoots: string[],
 ): Promise<undefined | ProjectRuntimeMigrationBlockedResult> {
-    const secretTemp = await listSiblingTemps(legacyRelativePath(primaryCheckoutRoot, "collaboration-secrets.json"));
-    if (secretTemp.length > 0) {
-        return block("malformed_migration_evidence", secretTemp, "A legacy secret temp file is present.");
+    const secretTemps = (await Promise.all(
+        selectedRoots.map((root) => listSiblingTemps(legacyRelativePath(root, "collaboration-secrets.json"))),
+    )).flat();
+    if (secretTemps.length > 0) {
+        return block("malformed_migration_evidence", secretTemps, "A legacy secret temp file is present.");
     }
     const registryTemp = await listSiblingTemps(legacyWorktreeRegistryPath(primaryCheckoutRoot));
     if (registryTemp.length > 0) {
@@ -1159,6 +1243,7 @@ async function validateLegacyAuthorities(
         const authority of [
             ...legacyPrimaryAuthorities(primaryCheckoutRoot),
             ...selectedRoots.flatMap(legacySelectedAuthorities),
+            ...selectedRoots.map((root) => legacySecretAuthority(root, primaryCheckoutRoot)),
         ]
     ) {
         await collectSymlinks(authority.source, symlinks);
@@ -1184,6 +1269,14 @@ async function buildOperations(
     const operations: MigrationOperation[] = [];
     operations.push(...staleLocks);
     const primaryAuthorities = legacyPrimaryAuthorities(primaryCheckoutRoot);
+    const secretSources: MigrationRenameOperation[] = [];
+    for (const root of selectedRoots) {
+        const authority = legacySecretAuthority(root, primaryCheckoutRoot);
+        if (await lstatOrNull(authority.source)) secretSources.push(authority);
+    }
+    if (secretSources.length > 1) {
+        throw new Error("Legacy secret conflicts must be rejected during preflight.");
+    }
     const registryAuthorities = primaryAuthorities.filter((authority) =>
         basename(authority.source) === WORKTREE_REGISTRY_FILE ||
         basename(authority.source) === "worktree-registry-migration-issues.json"
@@ -1195,6 +1288,7 @@ async function buildOperations(
             }
         }
     }
+    if (secretSources[0]) operations.push({ ...secretSources[0], completed: false });
     const adopted = new Set(marker?.adoptedSelectedCheckoutRoots || []);
     for (const selectedRoot of selectedRoots) {
         if (adopted.has(selectedRoot)) continue;
@@ -1248,26 +1342,22 @@ function legacyPrimaryAuthorities(primaryCheckoutRoot: string): MigrationRenameO
         },
         {
             action: "rename",
-            source: join(base, "worktrees"),
-            destination: join(internal, "worktrees"),
-            kind: "directory",
-            completed: false,
-        },
-        {
-            action: "rename",
             source: join(base, "debug"),
             destination: join(internal, "debug"),
             kind: "directory",
             completed: false,
         },
-        {
-            action: "rename",
-            source: join(base, basename(PROJECT_SECRET_STORE_RELATIVE_PATH)),
-            destination: join(internal, "collaboration-secrets.json"),
-            kind: "file",
-            completed: false,
-        },
     ];
+}
+
+function legacySecretAuthority(sourceRoot: string, primaryCheckoutRoot: string): MigrationRenameOperation {
+    return {
+        action: "rename",
+        source: legacyRelativePath(sourceRoot, basename(PROJECT_SECRET_STORE_RELATIVE_PATH)),
+        destination: join(internalRootFor(primaryCheckoutRoot), "collaboration-secrets.json"),
+        kind: "file",
+        completed: false,
+    };
 }
 
 function legacySelectedAuthorities(selectedRoot: string): MigrationRenameOperation[] {
@@ -1307,6 +1397,7 @@ async function readOrCreateJournal(
     if (existing.journal) {
         if (
             existing.journal.primaryCheckoutRoot !== preflightResult.primaryCheckoutRoot ||
+            !samePaths(existing.journal.selectedCheckoutRoots, preflightResult.selectedCheckoutRoots) ||
             !(await journalOperationsAllowed(preflightResult, existing.journal.operations)) ||
             !journalContainsRequiredOperations(existing.journal, preflightResult)
         ) {
@@ -1392,6 +1483,9 @@ async function isAllowedJournalOperation(
     const authorities = [
         ...legacyPrimaryAuthorities(preflightResult.primaryCheckoutRoot),
         ...preflightResult.selectedCheckoutRoots.flatMap(legacySelectedAuthorities),
+        ...preflightResult.selectedCheckoutRoots.map((root) =>
+            legacySecretAuthority(root, preflightResult.primaryCheckoutRoot)
+        ),
     ];
     return authorities.some((authority) =>
         authority.source === operation.source && authority.destination === operation.destination &&
@@ -1407,8 +1501,12 @@ function isBoundedLegacyLockPath(preflightResult: MigrationPreflight, path: stri
         const planLocksDir = join(base, PLAN_LOCKS_DIR_NAME);
         return path === join(base, "work-record-supersession.lock") ||
             path === join(base, "work-record-supersession-recovery.lock") ||
-            (path.startsWith(`${planLocksDir}/`) && path.endsWith(".lock"));
+            (path.startsWith(`${planLocksDir}${SEPARATOR}`) && path.endsWith(".lock"));
     });
+}
+
+function samePaths(left: string[], right: string[]): boolean {
+    return left.length === right.length && left.every((path, index) => path === right[index]);
 }
 
 function journalContainsRequiredOperations(journal: MigrationJournal, preflightResult: MigrationPreflight): boolean {
@@ -1674,7 +1772,7 @@ async function acquireMigrationLock(lockPath: string): Promise<{ release: () => 
     const token = crypto.randomUUID();
     while (true) {
         try {
-            const file = await createMigrationLockFile(lockPath, token);
+            await createMigrationLockFile(lockPath, token);
             const heartbeat = setInterval(() => {
                 updateMigrationLockFile(lockPath, token).catch(() => {});
             }, MIGRATION_LOCK_HEARTBEAT_MS);
@@ -1682,11 +1780,7 @@ async function acquireMigrationLock(lockPath: string): Promise<{ release: () => 
             return {
                 release: async () => {
                     clearInterval(heartbeat);
-                    try {
-                        await removeMigrationLockIfOwned(lockPath, token);
-                    } finally {
-                        file.close();
-                    }
+                    await removeMigrationLockIfOwned(lockPath, token);
                 },
             };
         } catch (error) {
@@ -1701,10 +1795,9 @@ async function acquireMigrationLock(lockPath: string): Promise<{ release: () => 
     }
 }
 
-async function createMigrationLockFile(lockPath: string, token: string): Promise<Deno.FsFile> {
-    const file = await Deno.open(lockPath, { createNew: true, read: true, write: true, mode: 0o600 });
+async function createMigrationLockFile(lockPath: string, token: string): Promise<void> {
+    const file = await Deno.open(lockPath, { createNew: true, write: true, mode: 0o600 });
     try {
-        file.lockSync(true);
         await file.write(
             new TextEncoder().encode(
                 JSON.stringify({
@@ -1717,10 +1810,8 @@ async function createMigrationLockFile(lockPath: string, token: string): Promise
             ),
         );
         await file.sync();
-        return file;
-    } catch (error) {
+    } finally {
         file.close();
-        throw error;
     }
 }
 
@@ -1811,6 +1902,7 @@ async function listSiblingTemps(path: string): Promise<string[]> {
 }
 
 async function syncDirectory(path: string): Promise<void> {
+    if (Deno.build.os === "windows") return;
     const directory = await Deno.open(path, { read: true });
     try {
         await directory.sync();

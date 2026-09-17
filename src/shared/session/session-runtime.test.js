@@ -1335,6 +1335,19 @@ Deno.test("SessionRuntime keeps first-turn materialization failures retryable", 
     }
 });
 
+Deno.test("SessionRuntime creates persisted Sessions outside Git without project runtime state", async () => {
+    const cwd = await Deno.makeTempDir({ prefix: "runwield-non-git-session-" });
+    const runtime = createSessionRuntime({ ownerProcessKind: "test" });
+    try {
+        const created = await runtime.createInteractiveSession({ cwd, mode: "new" });
+        assert(typeof created.sessionManagerId === "string");
+        await assertRejects(() => Deno.stat(join(cwd, ".wld", "internal")), Deno.errors.NotFound);
+    } finally {
+        await runtime.closeAllSessionsWhenIdle();
+        await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
+});
+
 Deno.test("SessionRuntime can defer managed creation cataloging until Agent readiness", async () => {
     const cwd = join(runtimeProjectRoot(), `deferred-${crypto.randomUUID()}`);
     await Deno.mkdir(cwd, { recursive: true });

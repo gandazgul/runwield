@@ -136,6 +136,44 @@ Deno.test("publication failure and recovery matrix uses real Git and fresh proce
         }
     });
 
+    await test.step("a repository symlink survives publication retry", async () => {
+        const fixture = await makeFixture("repository-symlink");
+        try {
+            await Deno.writeTextFile(`${fixture.projectRoot}/AGENTS.md`, "repository guidance\n");
+            await Deno.mkdir(`${fixture.projectRoot}/docs`);
+            await Deno.writeTextFile(`${fixture.projectRoot}/docs/guide.md`, "guide\n");
+            await Deno.symlink("AGENTS.md", `${fixture.projectRoot}/CLAUDE.md`);
+            await Deno.symlink("docs", `${fixture.projectRoot}/docs-link`);
+            await git(fixture.projectRoot, ["add", "AGENTS.md", "CLAUDE.md", "docs", "docs-link"]);
+            await git(fixture.projectRoot, ["commit", "-m", "Add repository guidance symlink"]);
+            await git(fixture.projectRoot, ["push", "origin", "main"]);
+            await git(fixture.worktree.path, ["merge", "main"]);
+
+            const interrupted = await runDriver(fixture.configPath, "verification_receipt");
+            assertEquals(interrupted.code, 86, `${interrupted.stdout}\n${interrupted.stderr}`);
+            const publicationRoot = publicationRootForAttempt(fixture.projectRoot, "attempt-1");
+            assert((await Deno.lstat(`${publicationRoot}/CLAUDE.md`)).isSymlink);
+
+            assertEquals((await runDriver(fixture.configPath)).code, 0);
+            await assertPublishedOnce(fixture);
+            const remoteHead = (await git(fixture.projectRoot, ["ls-remote", "origin", "refs/heads/main"]))
+                .split(/\s+/)[0];
+            assertEquals(await git(fixture.projectRoot, ["show", `${remoteHead}:AGENTS.md`]), "repository guidance");
+            assertEquals(await git(fixture.projectRoot, ["show", `${remoteHead}:CLAUDE.md`]), "AGENTS.md");
+            assertEquals(await git(fixture.projectRoot, ["show", `${remoteHead}:docs-link`]), "docs");
+            assertEquals(
+                (await git(fixture.projectRoot, ["ls-tree", remoteHead, "CLAUDE.md"])).split(/\s+/)[0],
+                "120000",
+            );
+            await Deno.lstat(publicationRoot).then(
+                () => assert(false, "publication checkout was not removed"),
+                (error) => assert(error instanceof Deno.errors.NotFound),
+            );
+        } finally {
+            await dispose(fixture);
+        }
+    });
+
     for (
         const rejection of [
             {

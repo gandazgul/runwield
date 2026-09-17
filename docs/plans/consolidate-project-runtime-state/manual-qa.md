@@ -158,3 +158,26 @@ Manual verification steps for consolidate-project-runtime-state/08-update-doctor
       `~/.wld` data.
 
 <!-- runwield:manual-qa:end child="consolidate-project-runtime-state/08-update-doctor-documentation-and-final-test-cleanup" -->
+
+## 0.11 final qualification
+
+These checks apply to the finished layout. The earlier child checklists remain historical and unchecked.
+
+- [x] Automated real-Git publication retry preserves `CLAUDE.md -> AGENTS.md` and a directory symlink, advances the
+      remote target once, and removes the saved publication checkout.
+- [x] Automated migration fixtures refuse symlinked runtime roots and publication checkout roots without changing an
+      external sentinel.
+- [x] Automated linked-checkout fixtures adopt one 0.10 project secret into the primary store, preserve conflicts,
+      retain the source identity across an interrupted rename, and use the adopted store in collaboration commands.
+- [x] Automated subprocess fixtures refuse active primary Plan and Work Record locks. Retry succeeds after lock release.
+- [x] Automated Git fixtures classify old and current secret files and temporary files as secret exposure without
+      printing their values.
+- [x] Automated real-Git fixtures preserve a populated project-local fallback worktree, dirty and untracked files,
+      registry bytes, index state, and Git registration. Empty fallback directories do not block adoption.
+- [ ] Install `v0.11.0-rc.1` in an isolated user environment and run fresh-project and disposable 0.10 adoption checks.
+- [ ] Run the compiled Candidate publication journey with repository symlinks.
+- [x] Native Windows package qualification passed for source `a56d754570e7c0ca9b9a43f4fb79c6f3c58ba4fd` in
+      [Windows package diagnostic run 35242972855](https://github.com/gandazgul/runwield/actions/runs/35242972855).
+- [ ] Record Candidate assets and checksums, prerelease status, and unchanged latest Stable.
+- [ ] After Candidate qualification and separate owner approval, promote the exact Candidate commit and verify Stable
+      assets, identity, latest-release status, and notes.

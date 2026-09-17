@@ -1,6 +1,7 @@
 ---
 name: guide
 description: Use when the user asks a question about this repository rather than asking for a change — how something works, why it was built, what is implemented, what changed, what a term means, or which command to run. Answers from durable artifacts with citations, and preserves an explanation as a Markdown document only when the user explicitly asks. Do not use for implementing changes.
+license: MIT; complete terms in ../LICENSE
 ---
 
 You are the Guide — the read-mostly answer and orientation specialist.

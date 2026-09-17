@@ -7,6 +7,7 @@ import { projectPlanType } from "../project-plan.ts";
 import {
     compareChildPlansByOrder,
     findPlansByParent,
+    getDeclaredPlanStatus,
     listPlans,
     loadPlan,
     resolveSiblingChildPlanDependencyStates,
@@ -77,6 +78,7 @@ function actionForStatus(status: string): EpicContinuationResolution["kind"] | n
 export interface ResolveEpicContinuationOptions {
     cwd: string;
     completedPlanName: string;
+    completedStatus?: PlanFrontMatter["status"];
 }
 
 /** What `runEpicChildContinuation` needs to run the child it was given. */
@@ -90,10 +92,12 @@ export interface RunEpicChildContinuationOptions {
  * Resolve the next child action after a verified child FEATURE completes.
  */
 export async function resolveEpicContinuation(
-    { cwd, completedPlanName }: ResolveEpicContinuationOptions,
+    { cwd, completedPlanName, completedStatus: knownCompletedStatus }: ResolveEpicContinuationOptions,
 ): Promise<EpicContinuationResolution> {
     const completedLocation = await resolveWorkflowPlanLocation(cwd, completedPlanName);
     let completedAttrs = completedLocation.plan?.attrs;
+    let completedDeclaredStatus = knownCompletedStatus ||
+        (completedLocation.plan ? getDeclaredPlanStatus(completedLocation.plan.markdown) : undefined);
     if (!completedAttrs) {
         completedAttrs = (await listPlans(cwd)).find((plan) => plan.name === completedPlanName)?.attrs;
     }
@@ -102,7 +106,10 @@ export async function resolveEpicContinuation(
     const completedTargetBranch = typeof completedAttrs.targetBranch === "string"
         ? completedAttrs.targetBranch.trim()
         : "";
-    if (parentPlanName && completedTargetBranch && await isGitRepository(cwd)) {
+    if (
+        !TERMINAL_CHILD_STATUSES.has(completedDeclaredStatus || "") && parentPlanName && completedTargetBranch &&
+        await isGitRepository(cwd)
+    ) {
         const targetCompleted = (await findTargetBranchPlansByParent(cwd, completedTargetBranch, parentPlanName))
             .find((plan) =>
                 plan.name === completedPlanName ||
@@ -110,12 +117,14 @@ export async function resolveEpicContinuation(
             );
         if (targetCompleted) {
             completedAttrs = targetCompleted.attrs;
+            completedDeclaredStatus = targetCompleted.attrs.status;
             parentPlanName = typeof completedAttrs.parentPlan === "string" ? completedAttrs.parentPlan.trim() : "";
         }
     }
+    const completedStatus = (completedDeclaredStatus || completedAttrs.status) as PlanFrontMatter["status"];
     if (
         !isPlannedChangeClassification(completedAttrs.classification) ||
-        !TERMINAL_CHILD_STATUSES.has(completedAttrs.status)
+        !TERMINAL_CHILD_STATUSES.has(completedStatus)
     ) {
         return { kind: "none", reason: "completed_plan_not_completed_child_feature", completedPlanName };
     }
@@ -138,9 +147,11 @@ export async function resolveEpicContinuation(
     const family = targetBranch && await isGitRepository(cwd)
         ? await findTargetBranchPlansByParent(cwd, targetBranch, parentPlanName)
         : await findPlansByParent(cwd, parentPlanName);
-    const siblings = family.filter((plan) => isPlannedChangeClassification(plan.attrs.classification)).sort(
-        compareChildPlansByOrder,
-    );
+    const siblings = family.filter((plan) => isPlannedChangeClassification(plan.attrs.classification)).map((plan) =>
+        plan.name === completedPlanName || Boolean(completedAttrs.planId && plan.attrs.planId === completedAttrs.planId)
+            ? { ...plan, attrs: { ...plan.attrs, status: completedStatus } }
+            : plan
+    ).sort(compareChildPlansByOrder);
     const next = siblings.find((plan) => !TERMINAL_CHILD_STATUSES.has(plan.attrs.status));
     if (!next) return { kind: "none", reason: "no_remaining_children", completedPlanName, parentPlanName };
 

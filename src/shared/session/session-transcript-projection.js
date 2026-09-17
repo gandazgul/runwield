@@ -752,7 +752,7 @@ export function getCommittedTranscriptAuthorityFacts(projection) {
  * @param {string} transcriptPath
  */
 export async function syncTranscriptFileAndParent(transcriptPath) {
-    const file = await Deno.open(transcriptPath, { read: true });
+    const file = await Deno.open(transcriptPath, { write: true });
     try {
         await file.sync();
     } finally {

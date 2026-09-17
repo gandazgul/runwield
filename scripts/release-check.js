@@ -640,7 +640,7 @@ export async function runReleaseCheck(options, port) {
             "Run Golden TUI release gate",
             "deno",
             ["task", "test:golden-tui:extensive"],
-            { cwd: rootDir },
+            { cwd: rootDir, env: { WLD_TEST_CONCURRENCY: "2" } },
             runner,
         );
     } finally {

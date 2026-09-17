@@ -20,6 +20,7 @@ interface LegacyWorkRecordLockRecord {
 type MigrationExitEffect =
     | "journal-commit"
     | "primary-rename"
+    | "secret-rename"
     | "selected-rename"
     | "stale-lock-retirement"
     | "marker-replacement"
@@ -112,7 +113,8 @@ async function writeJsonFile(file: Deno.FsFile, text: string): Promise<void> {
 
 function parseMigrationExitEffect(value: string | undefined): MigrationExitEffect {
     if (
-        value === "journal-commit" || value === "primary-rename" || value === "selected-rename" ||
+        value === "journal-commit" || value === "primary-rename" || value === "secret-rename" ||
+        value === "selected-rename" ||
         value === "stale-lock-retirement" || value === "marker-replacement" || value === "journal-cleanup"
     ) return value;
     console.error(`Unknown migration exit effect: ${value || ""}`);
@@ -153,6 +155,9 @@ function shouldExitAfterRename(
     if (effect === "journal-commit") return to === layout.primary.layoutMigrationJournalPath;
     if (effect === "primary-rename") {
         return from === join(getRunWieldRuntimeDir(layout.primary.checkoutRoot), "controller");
+    }
+    if (effect === "secret-rename") {
+        return from.endsWith("collaboration-secrets.json") && to === layout.primary.projectSecretStorePath;
     }
     if (effect === "selected-rename") {
         return from === join(getRunWieldRuntimeDir(layout.selected.checkoutRoot), "plan-transitions");

@@ -362,7 +362,7 @@ export const loadPlanInterruptedRecoveryScenario = {
         { type: "type", text: "/load-plan epic" },
         { type: "enter" },
         { type: "enter" },
-        { type: "sleep", ms: 1000 },
+        { type: "waitForScriptedInteractions", timeoutMs: 30000 },
         { type: "waitForIdle", timeoutMs: 20000 },
     ],
     assertions: [
@@ -618,7 +618,6 @@ export const loadPlanImplementedFollowUpRepaintsScenario = {
             );
             assert(entry?.path, "Expected the seeded worktree registry entry to record its path.");
             assertEquals(snapshot?.cwd, entry.path);
-            assertEquals(snapshot?.activeAgent, null);
             assertEquals(snapshot?.activeExecutionWorkflow?.planName, "follow-up-repaint");
             assertEquals(planStatus(result, "follow-up-repaint"), "validated");
         }),

@@ -142,6 +142,7 @@ export const slashSleepScenario = {
         { type: "type", text: "/sleep" },
         { type: "enter" },
         { type: "waitForEvent", event: "runtime:agent:engineer" },
+        { type: "waitForScreen", text: "Golden memory maintenance complete.", timeoutMs: 30000 },
         { type: "waitForIdle" },
     ],
     assertions: [

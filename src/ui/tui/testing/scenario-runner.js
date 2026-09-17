@@ -2519,6 +2519,21 @@ async function runComposedTuiScenario(scenario, options) {
                     events.push(`project:plan-absent:${planName}`);
                 } else if (typed.type === "waitForIdle") {
                     await composition.waitForIdle(typed.timeoutMs || scenario.timeoutMs || DEFAULT_WAIT_TIMEOUT_MS);
+                } else if (typed.type === "waitForScriptedInteractions") {
+                    const timeoutMs = typed.timeoutMs || scenario.timeoutMs || DEFAULT_WAIT_TIMEOUT_MS;
+                    const expectedRemaining = Number(typed.remaining || 0);
+                    const startedAt = Date.now();
+                    while ((interactionSurface?.interactions.length || 0) > expectedRemaining) {
+                        if (Date.now() - startedAt > timeoutMs) {
+                            throw new Error(
+                                `Timed out waiting for scripted Runtime interactions; remaining=${
+                                    interactionSurface?.interactions.length || 0
+                                }`,
+                            );
+                        }
+                        await terminal.flush();
+                        await new Promise((resolve) => setTimeout(resolve, 20));
+                    }
                 } else if (typed.type === "setNextModelResponse") {
                     const responseText = String(typed.text || "");
                     const nextAgent = composition?.runtime.getSessionSnapshot(composition.sessionId)?.activeAgent ||

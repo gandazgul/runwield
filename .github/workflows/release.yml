@@ -353,6 +353,82 @@ jobs:
                       runwield-winget-manifests-${{ needs.metadata.outputs.tag }}.tar.gz
                       runwield-winget-manifests-${{ needs.metadata.outputs.tag }}.tar.gz.sha256
 
+    winget-submit:
+        runs-on: windows-latest
+        if: needs.metadata.outputs.kind == 'stable'
+        needs:
+            - metadata
+            - winget-package
+
+        steps:
+            - name: Download WinGet manifest artifact
+              uses: actions/download-artifact@v5
+              with:
+                  name: runwield-winget-manifests-${{ needs.metadata.outputs.tag }}
+                  path: winget-package
+
+            - name: Submit WinGet pull request
+              shell: pwsh
+              env:
+                  WINGET_CREATE_GITHUB_TOKEN: ${{ secrets.WINGET_CREATE_GITHUB_TOKEN }}
+              run: |
+                  if ([string]::IsNullOrWhiteSpace($env:WINGET_CREATE_GITHUB_TOKEN)) {
+                      throw "WINGET_CREATE_GITHUB_TOKEN is not configured"
+                  }
+
+                  $version = "${{ needs.metadata.outputs.build_version }}".TrimStart("v")
+                  $prTitle = "New version: Gandazgul.RunWield version $version"
+                  $headers = @{
+                      Authorization = "Bearer $env:WINGET_CREATE_GITHUB_TOKEN"
+                      Accept = "application/vnd.github+json"
+                      "X-GitHub-Api-Version" = "2022-11-28"
+                  }
+
+                  $catalogUri = "https://api.github.com/repos/microsoft/winget-pkgs/contents/manifests/g/Gandazgul/RunWield/$version"
+                  try {
+                      Invoke-RestMethod $catalogUri -Headers $headers -ErrorAction Stop | Out-Null
+                      Write-Host "Gandazgul.RunWield $version is already in the WinGet catalog; submission is complete."
+                      exit 0
+                  } catch {
+                      if ([int]$_.Exception.Response.StatusCode -ne 404) { throw }
+                  }
+
+                  $query = [uri]::EscapeDataString("repo:microsoft/winget-pkgs is:pr is:open in:title `"$prTitle`"")
+                  $search = Invoke-RestMethod "https://api.github.com/search/issues?q=$query" -Headers $headers
+                  $existingPr = $search.items | Where-Object { $_.title -eq $prTitle } | Select-Object -First 1
+                  if ($existingPr) {
+                      Write-Host "WinGet submission already exists: $($existingPr.html_url)"
+                      exit 0
+                  }
+
+                  $archive = Join-Path $PWD "winget-package/runwield-winget-manifests-${{ needs.metadata.outputs.tag }}.tar.gz"
+                  $checksumFile = "$archive.sha256"
+                  $expectedChecksum = ((Get-Content $checksumFile -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
+                  $actualChecksum = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+                  if ($actualChecksum -ne $expectedChecksum) {
+                      throw "WinGet manifest artifact checksum mismatch"
+                  }
+
+                  $manifestRoot = Join-Path $PWD "winget-manifests"
+                  New-Item -ItemType Directory -Path $manifestRoot | Out-Null
+                  tar -xzf $archive -C $manifestRoot
+
+                  $wingetCreateVersion = "1.12.13.0"
+                  $wingetCreateChecksum = "24042bd37915805615e6cf969ac57c6439124c3fe85823327f5f3fb24bd9ffea"
+                  $wingetCreate = Join-Path $PWD "wingetcreate.exe"
+                  $wingetCreateUrl = "https://github.com/microsoft/winget-create/releases/download/v$wingetCreateVersion/wingetcreate.exe"
+                  Invoke-WebRequest $wingetCreateUrl -OutFile $wingetCreate
+                  $actualToolChecksum = (Get-FileHash $wingetCreate -Algorithm SHA256).Hash.ToLowerInvariant()
+                  if ($actualToolChecksum -ne $wingetCreateChecksum) {
+                      throw "WingetCreate checksum mismatch"
+                  }
+
+                  $manifestPath = Join-Path $manifestRoot "Gandazgul.RunWield/$version"
+                  & $wingetCreate submit $manifestPath --prtitle $prTitle --no-open
+                  if ($LASTEXITCODE -ne 0) {
+                      throw "WingetCreate submission failed with exit code $LASTEXITCODE"
+                  }
+
     homebrew-package:
         runs-on: ubuntu-latest
         if: needs.metadata.outputs.kind == 'stable'

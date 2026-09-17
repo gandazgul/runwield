@@ -781,7 +781,8 @@ Windows WinGet requirements:
 - expose private bundled helpers to RunWield and child processes without editing global `PATH`
 - keep model and browser payload downloads in per-user first-use locations
 - make `wld update` and `wld upgrade` print `winget upgrade --id Gandazgul.RunWield --exact`
-- reject Candidate tags for Stable WinGet manifest generation
+- reject Candidate tags for Stable WinGet manifest generation and external submission
+- submit each Stable manifest to `microsoft/winget-pkgs` from the release workflow with a repository secret
 - keep public install docs marked pending until Microsoft accepts the listing
 
 **Acceptance scenarios:**
@@ -790,6 +791,8 @@ Windows WinGet requirements:
   does not run the shell installer.
 - Given a WinGet-owned `wld`, when the user runs `wld update`, RunWield prints
   `winget upgrade --id Gandazgul.RunWield --exact` and does not run the shell installer.
+- Given a Stable release, when its Windows package and manifest jobs pass, the release workflow submits a PR to
+  `microsoft/winget-pkgs`; given a Candidate release, it does not submit one.
 - Given a standalone Unix install, when the user runs `wld update`, RunWield can still use the tag-pinned shell
   installer.
 - Given a loose native Windows executable without package metadata, when the user runs `wld update`, RunWield gives
@@ -846,14 +849,22 @@ Open product questions:
   to checkpoint or publish, it refuses with safe paths and preserves the worktree, index, files, and target refs.
 - Given a broad `.wld/` ignore rule, when Core reconciles ignore rules, it leaves the rule in place and reports that it
   hides settings, Agents, Skills, and prompts.
-- Given eligible pre-0.10 runtime state, when Doctor checks the project, it reports pending adoption without locks,
+- Given eligible 0.10 runtime state, when Doctor checks the project, it reports pending adoption without locks,
   migration, ignore writes, controller imports, catalog backfills, journal cleanup, or project-local Git fetches.
 - Given the same eligible state, when Doctor repairs it, guarded Project Runtime Entry adopts it once before normal
   diagnostics run.
-- Given an unsafe legacy layout, unfinished publication, or saved repair, when Doctor checks or repairs, it stops,
-  preserves all named paths, and explains how to finish or deliberately abandon pre-0.10 work.
-- Given a tracked collaboration secret, when Doctor reports the refusal, it names only the path and explains untracking,
-  history removal, and capability rotation without printing secret bytes.
+- Given an unsafe 0.10 layout, unfinished publication, or saved repair, when Doctor checks or repairs, it stops,
+  preserves all named paths, and explains how to finish or deliberately abandon the 0.10 work.
+- Given a repository with ordinary file or directory symlinks, when Core publishes and retries delivery, it preserves
+  the links as Git content and still rejects symlinked runtime roots or publication checkout boundaries.
+- Given one legacy project collaboration secret in a linked checkout, when Core enters that checkout, it adopts the
+  secret into the primary internal store and collaboration commands can use it. Multiple populated stores cause a
+  non-destructive conflict.
+- Given Git tracks an old or current collaboration secret or its atomic temporary file, when Doctor reports the refusal,
+  it names only the path and explains untracking, history removal, and capability rotation without printing secret
+  bytes.
+- Given a populated project-local fallback worktree directory, when Core enters the project, it preserves the worktree,
+  registry, Git refs, and files and refuses adoption instead of moving them.
 - When recovery would reset working changes or delete unmerged work, the user must confirm the destructive action.
 - When a local browser surface is opened, it does not silently authorize other users or broaden project access.
 - Given an unclaimed worktree, when cleanup runs without proof its contents are disposable, the worktree remains

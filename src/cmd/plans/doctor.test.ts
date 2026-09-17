@@ -582,10 +582,17 @@ Deno.test("plans doctor tracked-secret refusal never prints secret contents", as
         const sentinel = "DO_NOT_PRINT_THIS_SECRET";
         try {
             Deno.chdir(cwd);
-            const secretPath = join(cwd, ".wld", "collaboration-secrets.json");
+            const secretPath = join(cwd, ".wld", "internal", "collaboration-secrets.json");
+            const tempPath = `${secretPath}.write.tmp`;
             await Deno.mkdir(dirname(secretPath), { recursive: true });
             await Deno.writeTextFile(secretPath, `${JSON.stringify({ token: sentinel })}\n`);
-            await git(cwd, ["add", ".wld/collaboration-secrets.json"]);
+            await Deno.writeTextFile(tempPath, `${JSON.stringify({ token: `${sentinel}_TEMP` })}\n`);
+            await git(cwd, [
+                "add",
+                "-f",
+                ".wld/internal/collaboration-secrets.json",
+                ".wld/internal/collaboration-secrets.json.write.tmp",
+            ]);
             const output = await captureConsoleOutput(async () => {
                 await runPlansCommand(["doctor", "--check"]);
             });
@@ -593,7 +600,9 @@ Deno.test("plans doctor tracked-secret refusal never prints secret contents", as
             assertEquals(output.includes("remove it from repository history"), true);
             assertEquals(output.includes("rotate"), true);
             assertEquals(output.includes("collaboration-secrets.json"), true);
+            assertEquals(output.includes("collaboration-secrets.json.write.tmp"), true);
             assertEquals(await Deno.readTextFile(secretPath), `${JSON.stringify({ token: sentinel })}\n`);
+            assertEquals(await Deno.readTextFile(tempPath), `${JSON.stringify({ token: `${sentinel}_TEMP` })}\n`);
         } finally {
             Deno.chdir(previousCwd);
             await Deno.remove(cwd, { recursive: true }).catch(() => {});

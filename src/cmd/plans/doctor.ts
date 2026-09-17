@@ -95,7 +95,7 @@ function migrationRefusalGuidance(reason: ProjectRuntimeMigrationBlockedReason):
             ];
         case "active_legacy_writer":
             return [
-                "Finish or stop the named pre-0.10 RunWield process, then retry. Do not delete its lock while it can still be live.",
+                "Finish or stop the named 0.10 RunWield process, then retry. Do not delete its lock while it can still be live.",
             ];
         case "malformed_registry":
             return [
@@ -103,11 +103,11 @@ function migrationRefusalGuidance(reason: ProjectRuntimeMigrationBlockedReason):
             ];
         case "unfinished_publication":
             return [
-                "Use pre-0.10 RunWield to finish publication or deliberately abandon it. Preserve its registry, branch, worktree, and publication record.",
+                "Use the 0.10 RunWield version that created this state to finish publication or deliberately abandon it. Preserve its registry, branch, worktree, and publication record.",
             ];
         case "saved_repair_root":
             return [
-                "Use pre-0.10 RunWield to finish or deliberately abandon the saved repair. Preserve the repair checkout and registry until then.",
+                "Use the 0.10 RunWield version that created this state to finish or deliberately abandon the saved repair. Preserve the repair checkout and registry until then.",
             ];
         case "tracked_runtime":
             return [
@@ -167,7 +167,7 @@ function getIssueGuidance(issue: DoctorIssue): IssueGuidance {
             return {
                 category: "Project runtime adoption",
                 severity: "Needs attention",
-                diagnosis: "This project still uses the pre-0.10 runtime layout.",
+                diagnosis: "This project still uses the 0.10 runtime layout.",
                 nextSteps: [`Run ${CLI_BIN} plans doctor --repair to adopt it after you review this report.`],
             };
         case "broad_wld_ignore":

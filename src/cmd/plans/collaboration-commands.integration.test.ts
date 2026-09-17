@@ -217,6 +217,18 @@ Deno.test("project-local collaboration commands share one primary store across l
                 Deno.env.delete("WLD_TEST_SANDBOX_HOME");
                 await seedPlan(projectRoot, "project-secret-plan");
                 await createLinkedCheckout(projectRoot, alternateRoot);
+                const legacyRecord = {
+                    planId: "legacy-plan",
+                    spaceId: "legacy-space",
+                    contentKey: "legacy-content-key",
+                    maintainerCapability: "legacy-capability",
+                    updatedAt: "2026-01-01T00:00:00.000Z",
+                };
+                await Deno.mkdir(join(alternateRoot, ".wld"), { recursive: true });
+                await Deno.writeTextFile(
+                    join(alternateRoot, ".wld", "collaboration-secrets.json"),
+                    `${JSON.stringify({ schemaVersion: 1, records: { "legacy-plan:legacy-space": legacyRecord } })}\n`,
+                );
                 const globalPath = getGlobalSecretStorePath();
                 await Deno.mkdir(dirname(globalPath), { recursive: true });
                 const globalBefore = `${
@@ -251,6 +263,7 @@ Deno.test("project-local collaboration commands share one primary store across l
                     const projectStore = await readSecretStore(await getProjectSecretStoreLocation(alternateRoot));
                     const recordKey = `${shared.planId}:${shared.spaceId}`;
                     assertEquals(projectStore.records[recordKey].contentKey, maintainer.contentKey);
+                    assertEquals(projectStore.records["legacy-plan:legacy-space"], legacyRecord);
                     assertEquals(projectStore.records["global-plan:global-space"], undefined);
                     assertStringIncludes(await Deno.readTextFile(join(projectRoot, ".gitignore")), ".wld/internal");
                     await assertRejects(() => Deno.stat(join(alternateRoot, ".wld", "collaboration-secrets.json")));

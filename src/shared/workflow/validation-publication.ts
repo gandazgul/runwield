@@ -27,6 +27,7 @@ import type {
     ValidationPhaseResult,
 } from "./validation-types.ts";
 import type { OpaqueToolDefinition } from "./validation-ports.ts";
+import type { EpicContinuationResolution } from "./epic-continuation.ts";
 import { MAX_AGENT_MERGE_REPAIRS } from "./validation-types.ts";
 import {
     annotatePublicationStage,
@@ -306,6 +307,7 @@ async function runLockedPublicationPhase(
         : null;
     let publicationAttempt: PublicationAttempt | null = storedAttempt?.publication ||
         await loadPublicationAttempt(context.projectRoot, worktreeId);
+    let epicResolution: EpicContinuationResolution | undefined;
     let repairMergeWorktreePath = publicationAttempt?.failure?.repairRoot;
     if (repairMergeWorktreePath) {
         const exists = await Deno.stat(repairMergeWorktreePath).then((value) => value.isDirectory).catch(() => false);
@@ -609,11 +611,15 @@ async function runLockedPublicationPhase(
         const artifactCommit = publicationAttempt.artifactCommit;
         if (!artifactCommit) throw new Error(`Publication artifacts are missing for ${args.planName}.`);
         const planPaths = publicationAttempt.planPaths || [planPath];
-        const epicResolution = shouldContinueParentEpicAfterValidation(args.triageMeta)
-            ? await import("./epic-continuation.ts").then(({ resolveEpicContinuation }) =>
-                resolveEpicContinuation({ cwd: context.executionCwd, completedPlanName: args.planName })
-            )
-            : undefined;
+        if (!epicResolution && shouldContinueParentEpicAfterValidation(args.triageMeta)) {
+            epicResolution = await import("./epic-continuation.ts").then(({ resolveEpicContinuation }) =>
+                resolveEpicContinuation({
+                    cwd: context.executionCwd,
+                    completedPlanName: args.planName,
+                    completedStatus: "validated",
+                })
+            );
+        }
         if (publicationAttempt.phase !== "publication_verified") {
             await atStage("git_publication", async () =>
                 await publishExecutionWorktreeIsolated({

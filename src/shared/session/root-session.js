@@ -3,7 +3,7 @@
  * Root interactive session lifecycle helpers (persisted in ~/.wld/sessions).
  */
 
-import { basename, dirname, isAbsolute, join, resolve } from "@std/path";
+import { basename, dirname, isAbsolute, join, relative, resolve, SEPARATOR } from "@std/path";
 import { createHash } from "node:crypto";
 import { getHomeDir } from "../../constants.js";
 
@@ -103,10 +103,55 @@ export async function createRootSessionManager(mode, cwd) {
     const sessionDir = getRunWieldSessionDir(canonicalCwd);
     ensureDir(sessionDir);
 
-    if (mode === "continue") {
-        return SessionManager.continueRecent(canonicalCwd, sessionDir);
+    const manager = mode === "continue"
+        ? SessionManager.continueRecent(canonicalCwd, sessionDir)
+        : SessionManager.create(canonicalCwd, sessionDir);
+    return installDenoSessionPersistence(manager);
+}
+
+/** @param {import('@earendil-works/pi-coding-agent').SessionManager} sessionManager */
+function getSessionManagerFileContents(sessionManager) {
+    const header = sessionManager.getHeader?.();
+    const entries = sessionManager.getEntries?.();
+    if (!header || !Array.isArray(entries)) return null;
+    return [header, ...entries].map((entry) => `${JSON.stringify(entry)}\n`).join("");
+}
+
+/**
+ * @param {import('@earendil-works/pi-coding-agent').SessionManager} sessionManager
+ * @returns {import('@earendil-works/pi-coding-agent').SessionManager}
+ */
+function installDenoSessionPersistence(sessionManager) {
+    function rewriteFile() {
+        const transcriptPath = sessionManager.getSessionFile?.();
+        const contents = getSessionManagerFileContents(sessionManager);
+        if (!transcriptPath || contents === null) return;
+        Deno.writeTextFileSync(transcriptPath, contents);
     }
-    return SessionManager.create(canonicalCwd, sessionDir);
+
+    /** @param {import('@earendil-works/pi-coding-agent').SessionEntry} entry */
+    function persist(entry) {
+        const transcriptPath = sessionManager.getSessionFile?.();
+        if (!transcriptPath) return;
+        try {
+            Deno.statSync(transcriptPath);
+            Deno.writeTextFileSync(transcriptPath, `${JSON.stringify(entry)}\n`, { append: true });
+        } catch (error) {
+            if (!(error instanceof Deno.errors.NotFound)) throw error;
+            const contents = getSessionManagerFileContents(sessionManager);
+            if (contents === null) return;
+            Deno.writeTextFileSync(transcriptPath, contents, { createNew: true });
+        }
+        Reflect.set(sessionManager, "flushed", true);
+    }
+
+    return new Proxy(sessionManager, {
+        get(target, property, receiver) {
+            if (property === "_rewriteFile") return rewriteFile;
+            if (property === "_persist") return persist;
+            return Reflect.get(target, property, receiver);
+        },
+    });
 }
 
 /** @param {any} sessionManager @param {string} transcriptPath */
@@ -117,10 +162,13 @@ async function ensureCreatedSessionTranscriptFile(sessionManager, transcriptPath
     } catch (error) {
         if (!(error instanceof Deno.errors.NotFound)) throw error;
     }
-    if (typeof sessionManager?._rewriteFile !== "function") {
+    const header = sessionManager.getHeader?.();
+    const entries = sessionManager.getEntries?.();
+    if (!header || !Array.isArray(entries)) {
         throw new Error(`Created Session transcript was not persisted: ${transcriptPath}`);
     }
-    sessionManager._rewriteFile();
+    const contents = [header, ...entries].map((entry) => `${JSON.stringify(entry)}\n`).join("");
+    await Deno.writeTextFile(transcriptPath, contents, { createNew: true });
     if ("flushed" in sessionManager) sessionManager.flushed = true;
     const stat = await Deno.stat(transcriptPath);
     if (!stat.isFile) throw new Error(`Created Session transcript was not persisted: ${transcriptPath}`);
@@ -177,9 +225,8 @@ export async function resolveCreatedRootSessionPath(cwd, sessionManager) {
 
 /** @param {string} path @param {string} baseDir */
 export function isPathInside(path, baseDir) {
-    const resolvedPath = resolve(path);
-    const resolvedBase = resolve(baseDir);
-    return resolvedPath === resolvedBase || resolvedPath.startsWith(`${resolvedBase}/`);
+    const child = relative(resolve(baseDir), resolve(path));
+    return child === "" || (child !== ".." && !child.startsWith(`..${SEPARATOR}`) && !isAbsolute(child));
 }
 
 /** @param {string} path @param {string} baseDir */
@@ -463,7 +510,7 @@ export async function openPersistedRootSession(options) {
         }
         throw new Error("Persisted session cwd does not match requested cwd");
     }
-    return { sessionManager, resolved };
+    return { sessionManager: installDenoSessionPersistence(sessionManager), resolved };
 }
 
 /**

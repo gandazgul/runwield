@@ -366,6 +366,13 @@ RunWield uses RunWield-owned paths instead of Pi-owned paths:
 | Project agents               | `.wld/agents/`                             |
 | Project prompts              | `.wld/prompts/`                            |
 | Project plans                | `docs/plans/`                              |
+| Project Runtime State        | `.wld/internal/`                           |
+
+RunWield 0.11 adopts eligible 0.10 Project Runtime State into `.wld/internal/` on first project entry. This change is
+one-way. Do not use a 0.10 binary in that Project after adoption. RunWield preserves and refuses unfinished publication,
+conflicting secret stores, active old writers, tracked runtime files, symlinked runtime authorities, and populated
+project-local fallback worktrees. Use `wld plans doctor --check` to inspect a disposable or inactive 0.10 Project before
+upgrade. Normal execution worktrees under `~/.wld/worktrees/` do not move.
 
 On first use, RunWield imports some Pi config files into `~/.wld/` when the RunWield copy does not exist.
 
