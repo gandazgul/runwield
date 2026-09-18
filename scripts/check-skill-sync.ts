@@ -3,8 +3,12 @@
 /**
  * Keeps the installable skills under `skills/` in step with the Agent Definitions they were derived from.
  *
- * Each pair records the hash of both files. When either side changes, this check fails and names the side that moved,
- * so the edit is carried across before the baseline is accepted again with `deno task skills:sync:update`.
+ * A skill derived from an Agent Definition records the hash of both files. When either side changes, this check fails
+ * and names the side that moved, so the edit is carried across before the baseline is accepted again with
+ * `deno task skills:sync:update`. A skill that stands on its own records no source and is held to its own hashes.
+ *
+ * Every Markdown file in a published skill directory is tracked, not only its SKILL.md, and the file list comes from
+ * disk rather than from the baseline. A support file added and never registered is still scanned and still reported.
  *
  * It also holds the skills to their reason for existing: they are installed in projects that have never heard of
  * RunWield, so RunWield names, Agent handoffs, and RunWield tool names must not survive the port.
@@ -18,42 +22,77 @@ import { fromFileUrl } from "@std/path";
 
 const BASELINE_PATH = new URL("./skill-sync-baseline.json", import.meta.url);
 const REPO_ROOT = new URL("../", import.meta.url);
+const REPO_ROOT_PATH = fromFileUrl(REPO_ROOT).replace(/\/$/, "");
 
-export interface SkillSyncPair {
-    /** Repository-relative path of the Agent Definition that owns the wording. */
-    source: string;
-    /** Repository-relative path of the generic skill derived from it. */
+export interface SupportFileHash {
+    /** Repository-relative path of a Markdown file that ships with the skill. */
+    path: string;
+    /** SHA-256 of that file when the entry was last reviewed. */
+    hash: string;
+}
+
+export interface PublishedSkill {
+    /** Repository-relative path of the Agent Definition that owns the wording, when one does. */
+    source?: string;
+    /** Repository-relative path of the published skill's SKILL.md. */
     skill: string;
-    /** SHA-256 of the source file when the pair was last reviewed. */
-    sourceHash: string;
-    /** SHA-256 of the skill file when the pair was last reviewed. */
+    /** SHA-256 of the source file when the entry was last reviewed. */
+    sourceHash?: string;
+    /** SHA-256 of the SKILL.md when the entry was last reviewed. */
     skillHash: string;
+    /** Every other Markdown file in the skill's directory, with its hash when the entry was last reviewed. */
+    supportFiles: SupportFileHash[];
 }
 
 export interface SkillSyncBaseline {
-    pairs: SkillSyncPair[];
+    skills: PublishedSkill[];
 }
 
 export interface SkillSyncDrift {
-    source: string;
+    source?: string;
     skill: string;
     sourceChanged: boolean;
     skillChanged: boolean;
+    /** Support files on disk that the baseline does not record. */
+    supportFilesAdded: string[];
+    /** Support files the baseline records that are no longer on disk. */
+    supportFilesRemoved: string[];
+    /** Support files whose hash moved. */
+    supportFilesChanged: string[];
 }
 
 /**
- * Reports every pair whose recorded hashes no longer match the files on disk.
+ * Reports every published skill whose recorded hashes no longer match the files on disk.
  */
-export function findSkillSyncDrift(recorded: SkillSyncPair[], current: SkillSyncPair[]): SkillSyncDrift[] {
-    const currentBySource = new Map(current.map((pair) => [pair.source, pair]));
+export function findSkillSyncDrift(recorded: PublishedSkill[], current: PublishedSkill[]): SkillSyncDrift[] {
+    const currentBySkill = new Map(current.map((entry) => [entry.skill, entry]));
     const drift: SkillSyncDrift[] = [];
-    for (const pair of recorded) {
-        const actual = currentBySource.get(pair.source);
+    for (const entry of recorded) {
+        const actual = currentBySkill.get(entry.skill);
         if (!actual) continue;
-        const sourceChanged = actual.sourceHash !== pair.sourceHash;
-        const skillChanged = actual.skillHash !== pair.skillHash;
-        if (sourceChanged || skillChanged) {
-            drift.push({ source: pair.source, skill: pair.skill, sourceChanged, skillChanged });
+        const sourceChanged = entry.source !== undefined && actual.sourceHash !== entry.sourceHash;
+        const skillChanged = actual.skillHash !== entry.skillHash;
+
+        const recordedFiles = new Map((entry.supportFiles ?? []).map((file) => [file.path, file.hash]));
+        const actualFiles = new Map((actual.supportFiles ?? []).map((file) => [file.path, file.hash]));
+        const supportFilesAdded = [...actualFiles.keys()].filter((path) => !recordedFiles.has(path));
+        const supportFilesRemoved = [...recordedFiles.keys()].filter((path) => !actualFiles.has(path));
+        const supportFilesChanged = [...actualFiles].filter(([path, hash]) =>
+            recordedFiles.has(path) && recordedFiles.get(path) !== hash
+        ).map(([path]) => path);
+
+        const moved = sourceChanged || skillChanged || supportFilesAdded.length > 0 ||
+            supportFilesRemoved.length > 0 || supportFilesChanged.length > 0;
+        if (moved) {
+            drift.push({
+                source: entry.source,
+                skill: entry.skill,
+                sourceChanged,
+                skillChanged,
+                supportFilesAdded,
+                supportFilesRemoved,
+                supportFilesChanged,
+            });
         }
     }
     return drift;
@@ -63,20 +102,36 @@ export function findSkillSyncDrift(recorded: SkillSyncPair[], current: SkillSync
  * Turns drift into the instruction a reader needs: which file moved, and which file must catch up.
  */
 export function formatDrift(drift: SkillSyncDrift[]): string {
-    const lines = drift.map((entry) => {
-        if (entry.sourceChanged && entry.skillChanged) {
-            return `- ${entry.source} and ${entry.skill} both changed. Confirm the skill still says the same thing.`;
+    const lines: string[] = [];
+    for (const entry of drift) {
+        if (entry.source !== undefined) {
+            if (entry.sourceChanged && entry.skillChanged) {
+                lines.push(
+                    `- ${entry.source} and ${entry.skill} both changed. Confirm the skill still says the same thing.`,
+                );
+            } else if (entry.sourceChanged) {
+                lines.push(`- ${entry.source} changed but ${entry.skill} did not. Carry the change into the skill.`);
+            } else if (entry.skillChanged) {
+                lines.push(
+                    `- ${entry.skill} changed but ${entry.source} did not. Carry the change back into the Agent Definition, unless it only strips project-specific wording.`,
+                );
+            }
+        } else if (entry.skillChanged) {
+            lines.push(`- ${entry.skill} changed.`);
         }
-        if (entry.sourceChanged) {
-            return `- ${entry.source} changed but ${entry.skill} did not. Carry the change into the skill.`;
+        for (const path of entry.supportFilesChanged) lines.push(`- ${path} changed.`);
+        for (const path of entry.supportFilesAdded) {
+            lines.push(`- ${path} ships with ${entry.skill} but the baseline does not record it.`);
         }
-        return `- ${entry.skill} changed but ${entry.source} did not. Carry the change back into the Agent Definition, unless it only strips project-specific wording.`;
-    });
+        for (const path of entry.supportFilesRemoved) {
+            lines.push(`- ${path} is recorded for ${entry.skill} but is no longer on disk.`);
+        }
+    }
     return [
-        "Skill and Agent Definition pairs are out of sync:",
+        "Published skills no longer match the baseline:",
         ...lines,
         "",
-        "After the pair says the same thing again, run: deno task skills:sync:update",
+        "Review each file above, then run: deno task skills:sync:update",
     ].join("\n");
 }
 
@@ -213,43 +268,91 @@ export async function discoverSkillsInContainers(rootPath: string): Promise<Disc
     return discovered;
 }
 
+/**
+ * Every Markdown file a published skill ships, read from disk: its SKILL.md first, then the rest in path order.
+ *
+ * The list comes from the directory rather than from the baseline on purpose. A hand-maintained list would leave the
+ * same hole one level up, where a file nobody registered is a file nobody scans.
+ */
+export async function collectPublishedSkillFiles(rootPath: string, skillPath: string): Promise<string[]> {
+    const skillDir = skillPath.slice(0, skillPath.lastIndexOf("/"));
+    const support: string[] = [];
+
+    const walk = async (relativeDir: string): Promise<void> => {
+        const entries = await Array.fromAsync(Deno.readDir(`${rootPath}/${relativeDir}`));
+        for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+            const path = `${relativeDir}/${entry.name}`;
+            if (entry.isDirectory) await walk(path);
+            else if (entry.name.endsWith(".md") && path !== skillPath) support.push(path);
+        }
+    };
+
+    await walk(skillDir);
+    return [skillPath, ...support];
+}
+
 async function hashFile(relativePath: string): Promise<string> {
     const content = await Deno.readFile(new URL(relativePath, REPO_ROOT));
     const digest = await crypto.subtle.digest("SHA-256", content);
     return Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-export async function readCurrentPairs(pairs: SkillSyncPair[]): Promise<SkillSyncPair[]> {
-    return await Promise.all(pairs.map(async (pair) => ({
-        source: pair.source,
-        skill: pair.skill,
-        sourceHash: await hashFile(pair.source),
-        skillHash: await hashFile(pair.skill),
-    })));
+/**
+ * Rebuilds each recorded entry from the files on disk, discovering support files rather than trusting the baseline.
+ */
+export async function readCurrentSkills(skills: PublishedSkill[]): Promise<PublishedSkill[]> {
+    return await Promise.all(skills.map(async (entry) => {
+        const [, ...supportPaths] = await collectPublishedSkillFiles(REPO_ROOT_PATH, entry.skill);
+        const supportFiles = await Promise.all(
+            supportPaths.map(async (path) => ({ path, hash: await hashFile(path) })),
+        );
+        const current: PublishedSkill = {
+            skill: entry.skill,
+            skillHash: await hashFile(entry.skill),
+            supportFiles,
+        };
+        if (entry.source !== undefined) {
+            current.source = entry.source;
+            current.sourceHash = await hashFile(entry.source);
+        }
+        return current;
+    }));
 }
 
 async function readBaseline(): Promise<SkillSyncBaseline> {
     const parsed = JSON.parse(await Deno.readTextFile(BASELINE_PATH));
-    if (!parsed || !Array.isArray(parsed.pairs)) {
-        throw new Error("skill-sync-baseline.json must contain a `pairs` array");
+    if (!parsed || !Array.isArray(parsed.skills)) {
+        throw new Error("skill-sync-baseline.json must contain a `skills` array");
     }
     return parsed;
 }
 
+/** Orders each entry's keys so an updated baseline stays readable and diffs stay small. */
+function forBaselineFile(entry: PublishedSkill): PublishedSkill {
+    return {
+        ...(entry.source === undefined ? {} : { source: entry.source, sourceHash: entry.sourceHash }),
+        skill: entry.skill,
+        skillHash: entry.skillHash,
+        supportFiles: entry.supportFiles,
+    };
+}
+
 if (import.meta.main) {
     const baseline = await readBaseline();
-    const current = await readCurrentPairs(baseline.pairs);
+    const current = await readCurrentSkills(baseline.skills);
 
     if (Deno.args.includes("--update")) {
-        await Deno.writeTextFile(BASELINE_PATH, `${JSON.stringify({ pairs: current }, null, 4)}\n`);
+        const skills = current.map(forBaselineFile);
+        await Deno.writeTextFile(BASELINE_PATH, `${JSON.stringify({ skills }, null, 4)}\n`);
         console.log("Updated scripts/skill-sync-baseline.json.");
         Deno.exit(0);
     }
 
     const leaks: ProjectSpecificLeak[] = [];
-    for (const pair of baseline.pairs) {
-        const content = await Deno.readTextFile(new URL(pair.skill, REPO_ROOT));
-        leaks.push(...findProjectSpecificLeaks(pair.skill, content));
+    for (const entry of current) {
+        for (const path of [entry.skill, ...entry.supportFiles.map((file) => file.path)]) {
+            leaks.push(...findProjectSpecificLeaks(path, await Deno.readTextFile(new URL(path, REPO_ROOT))));
+        }
     }
     if (leaks.length > 0) {
         console.error(formatLeaks(leaks));
@@ -257,19 +360,19 @@ if (import.meta.main) {
     }
 
     const unpublished = findUnpublishedSkills(
-        await discoverSkillsInContainers(fromFileUrl(REPO_ROOT).replace(/\/$/, "")),
-        baseline.pairs.map((pair) => pair.skill),
+        await discoverSkillsInContainers(REPO_ROOT_PATH),
+        baseline.skills.map((entry) => entry.skill),
     );
     if (unpublished.length > 0) {
         console.error(formatUnpublishedSkills(unpublished));
         Deno.exit(1);
     }
 
-    const drift = findSkillSyncDrift(baseline.pairs, current);
+    const drift = findSkillSyncDrift(baseline.skills, current);
     if (drift.length > 0) {
         console.error(formatDrift(drift));
         Deno.exit(1);
     }
 
-    console.log(`Skill sync baseline matches ${baseline.pairs.length} Agent Definition pairs.`);
+    console.log(`Skill sync baseline matches ${baseline.skills.length} published skills.`);
 }

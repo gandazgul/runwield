@@ -16,10 +16,10 @@ executionAgent: "engineer"
 collaborationRecommendation: "pair"
 createdAt: "2026-09-17"
 origin: "internal"
-status: "ready_for_work"
 userVerifiedAt: null
 routingIntent: "PLANNED_CHANGE"
 targetBranch: "main"
+status: "validated"
 ---
 
 # Publish a `review` Skill for Pull Requests and Arbitrary Diffs
