@@ -112,7 +112,7 @@ Produce a source layout in which:
 - old paths are deleted in the same change that updates their importers, with no compatibility re-export, forwarding
   module, duplicate implementation, or old/new path fallback;
 - resource discovery, release compilation, tests, and documentation use the new canonical paths;
-- the selected TUI theme continues to drive plan review, code review, and the local Workspace.
+- TUI theme behavior stays unchanged; browser themes remain independent, dark by default, and easy to swap later.
 
 ## Non-goals
 
@@ -133,14 +133,13 @@ Move by module, not by file. Each module move is atomic: relocate the implementa
 every importer and resource path, delete the old path, then run the boundary scan and the affected suites before
 starting the next module. Nothing is left at an old path.
 
-Three genuine code edits ride along because the new boundaries cannot be honest without them. Each is small, bounded,
-and named as its own step:
+Two code edits and one theme-preservation step accompany the moves. Each is small, bounded, and named below:
 
 1. **Split `src/ui/theme/theme.js`** into the theme-JSON contract (Core) and terminal chalk styling (CLI consumer).
 2. **Extract `sharePlanForReview`** out of `src/cmd/plans/share.ts` into Core collaboration, so ACP stops importing a
    CLI command.
-3. **Move `loadRunWieldThemeCss`** out of the design system into the Workspace server, so the design system becomes a
-   pure leaf.
+3. **Preserve independent browser themes.** The old loader is already removed. Move the browser theme modules and pure
+   renderer together without restoring TUI settings coupling.
 
 Everything else is a move plus import rewrites.
 
@@ -185,7 +184,7 @@ src/
                               prompt/skill/context discovery, wld-extension-manifest
       themes/                 ← theme-discovery.ts, theme-json policy, catppuccin-mocha.json,
                               DEFAULT_THEME_NAME/JSON, resolveAvailableThemeJsons,
-                              resolveSelectedThemeJson  — the shared theme-selection contract
+                              resolveSelectedThemeJson  — terminal theme-selection policy
 
     tools/                    ← src/tools/  (registry, policy, definitions/)
 
@@ -204,7 +203,7 @@ src/
     review/                   ← src/ui/review/  (plan-review, code-review, review-launcher)
     workspace/                ← src/ui/workspace/  (Astro/React app + server/)
 
-  design-system/              ← src/ui/design-system/  (pure leaf: ThemeJson in, CSS/JSX out)
+  design-system/              ← src/ui/design-system/  (browser themes, pure CSS renderer, primitives)
   extensions/                 unchanged name and location (cymbal, mnemoteca, re-anchor, snip)
   composition/                port wiring currently inline in src/cmd/registry.js
   resources/                  ← src/agent-definitions/, src/prompt-templates/, src/skills/,
@@ -222,10 +221,9 @@ direction must not change without updating this Plan and `docs/architecture.md` 
   `src/ui/tui/model-welcome.ts:11`, `src/ui/tui/boot-banner.ts:4`). That objection only holds while the TUI is a
   separate top-level consumer. The terminal entry, the command registry, and the TUI share a registry and change
   together, so by the reasons-to-change rule they are one module, and those imports become module-internal.
-- **`design-system/` is top-level, not under `consumers/`.** Once `loadRunWieldThemeCss` moves out, it imports nothing
-  from Core or from any consumer: it takes a theme JSON object and returns CSS variables and React primitives. A pure
-  leaf belongs beside the consumers, not inside one. `docs/design-system.md` remains the canonical document and is
-  updated to point at the new path.
+- **`design-system/` is top-level, not under `consumers/`.** It already owns independent browser theme sets and a pure
+  CSS renderer with no Core or consumer imports. Move them together with fonts and primitives. A pure leaf belongs
+  beside the consumers, not inside one. Update `docs/design-system.md` to point at the new path.
 - **`extensions/` keeps its name.** "Integrations" is fuzzier than what the folder holds.
 - **`src/review-workspace-server.js` is deleted, not moved.** It is a 14-line pure forwarder, exactly the shape this
   Plan forbids.
@@ -330,8 +328,8 @@ Configuration, scripts, and documentation:
   paths.
 - `.vscode/launch.json` and `.githooks/` if they name `src/cli.ts`.
 - `docs/architecture.md` (76KB) — rewrite the source guide and dependency diagrams to match the final tree.
-- `docs/design-system.md` — repoint at `src/design-system/` and name the theme-selection contract in
-  `src/core/configuration/themes/`.
+- `docs/design-system.md` — repoint at `src/design-system/`, preserving browser-owned theme sets and their independence
+  from terminal theme selection in `src/core/configuration/themes/`.
 - `docs/contributing.md`, `docs/acp-implementation-details.md`, `docs/plan-lifecycle.md`, `docs/domain-language.md`, and
   `CLAUDE.md` — every `src/shared|src/ui|src/cmd|src/acp|src/tools` reference.
 
@@ -339,13 +337,13 @@ Configuration, scripts, and documentation:
 terms: Core, consumer, and composition are architecture vocabulary and belong in `docs/architecture.md`, not the product
 glossary.
 
-## The three real edits
+## The two code edits and theme-preservation step
 
 ### 1. Split `src/ui/theme/theme.js` (240 lines)
 
-The file is two things bolted together, and the split line is exactly where the browser surfaces already cut it.
+Separate terminal theme-selection policy from terminal chalk styling; browser themes do not consume either half.
 
-**To `src/core/configuration/themes/`** — the shared theme-selection contract:
+**To `src/core/configuration/themes/`** — terminal theme-selection policy:
 
 - `DEFAULT_THEME_NAME`, `DEFAULT_THEME_JSON`, `resolveAvailableThemeJsons`, `resolveSelectedThemeJson`;
 - `theme-discovery.ts` (`loadExternalThemeJsons`);
@@ -361,18 +359,14 @@ The file is two things bolted together, and the split line is exactly where the 
 - the Pi-`Theme` construction half of `theme-json.js`: `createThemeFromJson`, `detectColorMode`, `splitFgBgColors`,
   `BG_TOKEN_NAMES`.
 
-**The carryover invariant this must preserve.** The persisted theme name in RunWield settings is the single source of
-truth. The terminal reads it through `applyPersistedTheme()` and installs a Pi `Theme`; plan review, code review, and
-the local Workspace read it through `resolveSelectedThemeJson()` and render CSS variables. After the split, both paths
-must still resolve the same name through the same discovery and partial-theme merge policy in
-`src/core/configuration/themes/`. This is the behavior an Objective-Failing Check must prove, because a careless split
-that duplicates the merge policy will pass type-check and lint while silently letting the two surfaces drift.
+**The carryover invariant this must preserve.** The persisted theme name controls only terminal appearance. Preserve
+`applyPersistedTheme()`, discovery, and partial-theme merge behavior through the move. Browser surfaces instead use
+`DARK_BROWSER_THEME` and the pure browser renderer, regardless of OS or TUI settings. Keep alternate browser token sets
+swappable without changing component CSS. Objective-Failing Checks must protect both terminal behavior and browser
+independence.
 
-Two literal path references must be updated with the move:
-
-- `src/ui/workspace/pages/theme.css.js:44` embeds the string `"./src/ui/theme/theme.js"` inside a `Deno eval`
-  subprocess. Type-checking cannot catch this.
-- `src/ui/design-system/theme-bridge.js:159` dynamically imports `"../theme/theme.js"` — see edit 3.
+The browser route no longer uses a `Deno eval` theme lookup, and the design system no longer dynamically imports the
+terminal theme module. Do not restore either dependency.
 
 ### 2. Extract `sharePlanForReview` from `src/cmd/plans/share.ts` (441 lines)
 
@@ -391,15 +385,17 @@ The split is clean because the file already has one:
 `src/cmd/plans/collaboration-commands.integration.test.ts` exercises both halves and splits the same way: the
 `sharePlanForReview` cases follow the operation into Core; the argument-parsing cases stay with the command.
 
-### 3. Move `loadRunWieldThemeCss` out of the design system
+### 3. Preserve independent browser themes
 
-`src/ui/design-system/theme-bridge.js:158-161` defines `loadRunWieldThemeCss`, which dynamically imports the theme
-module. That single function is the only reason the design system is not a pure leaf.
+`loadRunWieldThemeCss` and the unused Workspace `server/theme-css.js` compatibility module are already removed. Do not
+recreate or relocate them. Move `themes/dark.ts`, `theme-bridge.js`, `tokens.css`, `fonts.css`, and bundled fonts with
+the design system. `DARK_BROWSER_THEME` keeps its `name`, `colorScheme`, and semantic `colors` shape.
 
-Move it to `src/consumers/workspace/server/theme-css.js`, which already imports the renderer. `renderRunWieldThemeCss`
-stays in `src/design-system/theme-bridge.js` as a pure `ThemeJson → CSS` function. Its only production caller,
-`src/ui/workspace/server.js:37`, moves with the Workspace. `src/ui/workspace/pages/theme.css.js:62` already composes it
-this way, so the two paths converge on one shape.
+`renderRunWieldThemeCss(theme = DARK_BROWSER_THEME)` stays a pure browser renderer with review aliases. Both browser
+`/theme.css` endpoints keep calling it without arguments. Preserve separate color sets for future light/custom themes;
+geometry, typography, and derived Complexity intent stay in `tokens.css`. This move adds no theme picker, light theme,
+or TUI appearance change. Follow
+[Workspace appearance requirements](../prd/runwield-workspace-prd.md#browser-appearance-and-themes).
 
 ## Reuse Opportunities
 
@@ -410,9 +406,8 @@ this way, so the two paths converge on one shape.
   port allowlist the same way rather than inventing a new checker shape.
 - `src/shared/git-test-fixture.ts` (`defineGitFixture`) and `makeValidationProjectRoot` remain the way to fake the
   environment in tests. This Plan adds no injection seams.
-- `src/ui/workspace/pages/theme.css.js` already demonstrates the composed
-  `renderRunWieldThemeCss(await
-  resolveSelectedThemeJson())` shape that edit 3 standardizes.
+- Both browser theme endpoints already call `renderRunWieldThemeCss()` with the browser-owned default. Preserve that
+  shape and the renderer's alternate-theme argument through the move.
 
 ## Implementation Steps
 
@@ -479,8 +474,9 @@ this way, so the two paths converge on one shape.
 - [ ] `src/consumers/review/` and `src/consumers/workspace/` exist; `src/ui/review/`, `src/ui/workspace/`, and
       `src/review-workspace-server.js` do not.
 - [ ] `src/design-system/` exists and every import specifier in it resolves inside `src/design-system/` or to an npm/JSR
-      dependency — no import names `src/core/`, `src/consumers/`, or a theme module. `loadRunWieldThemeCss` is declared
-      in `src/consumers/workspace/server/`, not in the design system.
+      dependency — none names `src/core/`, `src/consumers/`, or terminal theme modules. Browser theme modules remain
+      inside the design system; both endpoints use its pure renderer. `loadRunWieldThemeCss` and the removed Workspace
+      `server/theme-css.js` module stay absent. Future light/custom token sets require no component restyle.
 - [ ] `interactive-session-port.ts` does not exist anywhere in `src/`, and `SYSTEM_INTERACTIVE_SESSION_PORT` appears in
       no file.
 
@@ -526,10 +522,12 @@ module evaluation rather than at call time, the binary breaks and the source-run
 
 **Manual**
 
-- Run `wld` from a project, switch to a non-default theme with `wld theme <name>`, then open plan review, code review,
-  and the local Workspace. Each browser surface renders in the selected theme, not Catppuccin Mocha.
-- Run `deno task workspace:dev` and load `/theme.css`. The Astro dev route resolves the selected theme through its
-  `Deno eval` subprocess, which carries a literal source path that type-checking cannot verify.
+- Run `wld` from a project and switch TUI themes, including a light theme. Confirm terminal selection still works; Plan
+  Review, Code Review, and Workspace retain the approved dark browser identity, even with light OS settings.
+- Run `deno task workspace:dev` and load `/theme.css`; compare the production endpoint. Both return the browser-owned
+  default, without terminal settings lookup. Confirm no browser theme picker or light-mode action appears.
+- Supply an alternate semantic token set to the renderer in a test. Confirm its colors and review aliases change while
+  component CSS, geometry, and typography stay unchanged. This verifies future swapping, not a shipped light theme.
 - Run `wld plans share <plan>` and confirm the reviewer and maintainer URLs print once, then confirm the ACP share path
   still returns a link.
 - Start an ACP session and a TUI session against the same project and confirm both receive identical Runtime events.
@@ -545,8 +543,9 @@ must be rewritten against the new path or the new module shape — never deleted
 - `src/cmd/plans/collaboration-commands.integration.test.ts` splits between the Core operation and the command. The
   `sharePlanForReview` cases — reuse of an already-shared Plan, archived-Plan rejection, stale remote handling, secret
   cleanup on failure — must keep running against the real operation in Core.
-- `src/ui/design-system/design-system.test.js` and `src/ui/workspace/workspace-board.test.js` both assert
-  `renderRunWieldThemeCss` output. Those assertions stay with the pure renderer in `src/design-system/`.
+- Preserve the design-system, theme-bridge, Workspace theme, and board tests with their owning modules. Protect the
+  renderer's dark default, alternate token sets, and review aliases, plus both browser endpoints' independence from
+  terminal settings. Keep compact-workbench assertions intact.
 
 **Behavior expected to stop existing:** only `SYSTEM_INTERACTIVE_SESSION_PORT` and the `InteractiveSessionPort`
 interface. Tests that exist solely to exercise that indirection are removed; tests that exercise _launching the TUI from
@@ -554,17 +553,17 @@ a command_ must be rewritten against the composition root instead.
 
 ## Edge Cases & Considerations
 
-| Risk                                                                      | Mitigation                                                                                                                                                                                                                                                             |
-| ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A tree-wide move rebases badly against three queued Plans                 | `upgrade-pi-0-84-and-latex-rendering` lands and is verified first; `split-and-convert-tui-chat-session` and `flag-test-seam-risks-during-init` do not start until this Plan completes.                                                                                 |
-| Literal source paths survive type-checking                                | `src/ui/workspace/pages/theme.css.js:44` embeds a path inside a `Deno eval` string; compile `--include` arguments and `import.meta.url` resolution are equally invisible to `deno check`. The compiled-binary smoke test and the Workspace dev-route check cover them. |
-| The standalone `createRequire` bootstrap breaks only in the binary        | `deno task compile && ./bin/wld --version` runs as a required verification step, not a spot check.                                                                                                                                                                     |
-| Regenerating the language-policy baseline silently blesses new JavaScript | The entry count must stay at 210 and every change must be a path rewrite. `--update` adding an entry is a failure, not a fix.                                                                                                                                          |
-| A broad `src/core/index.ts` becomes a new grab bag                        | It exports only documented application surfaces, with an explicit export-allowlist assertion in the boundary test.                                                                                                                                                     |
-| `src/consumers/cli/commands/` becomes hidden Core logic                   | Commands parse, present, and dispatch. Durable session and workflow state stays behind Core APIs, enforced by the boundary test.                                                                                                                                       |
-| The theme split forks the merge policy into two copies                    | OC5 asserts the rendered browser CSS reflects the persisted theme name resolved through the single Core policy.                                                                                                                                                        |
-| Old paths return later as "temporary" compatibility                       | OC1 plus the boundary test's re-export rule. No forwarding module is acceptable at any point, including mid-migration.                                                                                                                                                 |
-| `src/shared/types.js` typedefs have no obvious owner                      | Each typedef moves to the module that owns the shape. If one genuinely has no owner, stop and name the module rather than creating a type dump.                                                                                                                        |
+| Risk                                                                      | Mitigation                                                                                                                                                                                                                                   |
+| ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A tree-wide move rebases badly against three queued Plans                 | `upgrade-pi-0-84-and-latex-rendering` lands and is verified first; `split-and-convert-tui-chat-session` and `flag-test-seam-risks-during-init` do not start until this Plan completes.                                                       |
+| Literal source paths survive type-checking                                | Compile `--include` arguments, `import.meta.url` resolution, and bundled browser font URLs need runtime checks. Run the compiled-binary smoke test and verify Workspace theme and font loading; the old `Deno eval` theme lookup is removed. |
+| The standalone `createRequire` bootstrap breaks only in the binary        | `deno task compile && ./bin/wld --version` runs as a required verification step, not a spot check.                                                                                                                                           |
+| Regenerating the language-policy baseline silently blesses new JavaScript | The entry count must stay at 210 and every change must be a path rewrite. `--update` adding an entry is a failure, not a fix.                                                                                                                |
+| A broad `src/core/index.ts` becomes a new grab bag                        | It exports only documented application surfaces, with an explicit export-allowlist assertion in the boundary test.                                                                                                                           |
+| `src/consumers/cli/commands/` becomes hidden Core logic                   | Commands parse, present, and dispatch. Durable session and workflow state stays behind Core APIs, enforced by the boundary test.                                                                                                             |
+| The move reconnects browser colors to terminal settings                   | Verify unchanged terminal theme selection, dark browser defaults despite OS/TUI light settings, and alternate browser token sets without component restyling.                                                                                |
+| Old paths return later as "temporary" compatibility                       | OC1 plus the boundary test's re-export rule. No forwarding module is acceptable at any point, including mid-migration.                                                                                                                       |
+| `src/shared/types.js` typedefs have no obvious owner                      | Each typedef moves to the module that owns the shape. If one genuinely has no owner, stop and name the module rather than creating a type dump.                                                                                              |
 
 **Open assumptions**
 

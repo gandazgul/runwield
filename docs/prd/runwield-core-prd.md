@@ -113,6 +113,11 @@ Users can:
 A leading slash that resolves to an available command is a command, not a User Request. Disabled or unknown commands
 must fail visibly and must not fall through to Router.
 
+**Requirement: Recover stale terminal visuals without disrupting work.**
+
+Returning focus to the terminal repaints the screen. Ctrl+L also forces a full redraw. Both preserve the unsent draft,
+conversation scroll position, active interaction, and running Agent turn.
+
 **Acceptance scenarios:**
 
 - Given a new conversation, when the user submits a request, Router handles initial triage; after a specialist handoff,
@@ -121,6 +126,8 @@ must fail visibly and must not fall through to Router.
   changes again.
 - Given an existing topic, when the user chooses `/new`, a fresh routed conversation opens; `/agent router` instead
   routes within the same Session.
+- Given erased terminal contents while the input still accepts typing, returning focus or pressing Ctrl+L restores the
+  input and conversation without submitting or discarding the draft, scrolling, or interrupting the Agent.
 
 <a id="32-routing-intents"></a>
 <a id="33-triage-experience"></a>
@@ -552,6 +559,9 @@ through a model preset; the preset takes precedence and an unset fallback is dis
 and authentication apply. Users see which model will describe the image. Missing or unsuitable fallback configuration
 explains how to fix setup while preserving typed text and image previews, including after a model change before Send.
 
+Standalone releases include the image resize worker and its image-processing dependencies. Reading or sending an image
+must not print worker-loading errors over the terminal interface or silently disable image resizing.
+
 The Agent can ask `see_image` about a saved Session attachment or an explicitly referenced project image. Descriptions
 include readable text, relevant visual state, and uncertainty. Resuming retains attachment access; unrelated Sessions do
 not inherit it. Future Session deletion also removes its images. See
@@ -565,6 +575,8 @@ not inherit it. Future Session deletion also removes its images. See
   model before Send, setup guidance preserves the typed message and image preview.
 - When the user resumes a Session with saved images, those attachments remain available without exposing images from
   unrelated Sessions.
+- Given a standalone release running outside the source checkout, resizing an image produces a valid image within the
+  requested dimensions without worker-loading errors or stray terminal output.
 
 ### Work records
 

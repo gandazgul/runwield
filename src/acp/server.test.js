@@ -342,6 +342,7 @@ Deno.test("createInitializeResponse advertises only implemented ACP capabilities
         "session/prompt",
         "session/cancel",
         "session/close",
+        "session/set_config_option",
     ]);
     assertEquals(response.authMethods, []);
     assertEquals(response.agentInfo?.name, "RunWield");
@@ -568,6 +569,194 @@ Deno.test("ACP session/new and session/prompt exercise the real Runtime and stre
             await closeTestServer(handle);
         }
     });
+});
+
+Deno.test("ACP model config switches the next turn and survives session/load", async () => {
+    await withRuntimeCommandFixture("runwield-acp-model-config-", async (fixture) => {
+        /** @type {string[]} */
+        const models = [];
+        fixture.setModelResponseFactory((_context, _options, _state, model) => {
+            models.push(model.id);
+            return fauxAssistantMessage(fauxText("Model selected."));
+        });
+        let handle = startTestServer();
+        try {
+            const created = await createSession(handle, fixture.projectRoot);
+            const newResponse = JSON.parse(framesMatching(handle, (message) => message.id === "new")[0]);
+            /** @type {import('@agentclientprotocol/sdk').SessionConfigOption[]} */
+            const configOptions = newResponse.result.configOptions || [];
+            const option = configOptions.find((option) => option.category === "model");
+            assert(option, "session/new must expose model options for OpenAB /models");
+            assert(option.type === "select");
+            assertEquals(option.currentValue, "runtime-command-fixture/fixture-model");
+            assert(
+                option.options.some((option) =>
+                    "value" in option && option.value === "runtime-command-fixture/alternate-model"
+                ),
+            );
+
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "select-model",
+                method: "session/set_config_option",
+                params: {
+                    sessionId: created.sessionId,
+                    configId: option.id,
+                    value: "runtime-command-fixture/alternate-model",
+                },
+            });
+            const switched = await readThroughResponse(handle, "select-model");
+            assert(switched.response.result, JSON.stringify(switched.response));
+            assertAcpSchema("SetSessionConfigOptionResponse", switched.response.result);
+            assertEquals(
+                switched.response.result.configOptions[0].currentValue,
+                "runtime-command-fixture/alternate-model",
+            );
+            assertEquals(models, [], "switching models must not invoke a model");
+            const updates = sessionUpdateFrames(handle, "config_option_update");
+            assert(updates.length > 0);
+            for (const frame of updates) {
+                assertAcpFrameSchema("SessionNotification", frame, (message) => message.params);
+            }
+
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "selected-prompt",
+                method: "session/prompt",
+                params: { sessionId: created.sessionId, prompt: [{ type: "text", text: "Use the selected model." }] },
+            });
+            assertEquals((await readThroughResponse(handle, "selected-prompt")).response.result, {
+                stopReason: "end_turn",
+            });
+            assertEquals(models, ["alternate-model"]);
+
+            await closeTestServer(handle);
+            handle = startTestServer();
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "load-selected",
+                method: "session/load",
+                params: { sessionId: created.sessionId, cwd: fixture.projectRoot, mcpServers: [] },
+            });
+            const loaded = await readThroughResponse(handle, "load-selected");
+            assert(loaded.response.result, JSON.stringify(loaded.response));
+            assertAcpSchema("LoadSessionResponse", loaded.response.result);
+            assertEquals(
+                loaded.response.result.configOptions[0].currentValue,
+                "runtime-command-fixture/alternate-model",
+            );
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "slash-model",
+                method: "session/prompt",
+                params: {
+                    sessionId: created.sessionId,
+                    prompt: [{ type: "text", text: "/model runtime-command-fixture/fixture-model" }],
+                },
+            });
+            const slash = await readThroughResponse(handle, "slash-model");
+            assertEquals(slash.response.result, { stopReason: "end_turn" });
+            assert(slash.messages.some((message) =>
+                message.params?.update?.sessionUpdate === "config_option_update" &&
+                message.params.update.configOptions[0].currentValue === "runtime-command-fixture/fixture-model"
+            ));
+            assertEquals(models, ["alternate-model"], "the model command must not invoke a model");
+        } finally {
+            await closeTestServer(handle);
+        }
+    }, { additionalModels: [{ id: "alternate-model", name: "Alternate Model" }] });
+});
+
+Deno.test("ACP model config can recover after a failed turn and rejects invalid selections", async () => {
+    await withRuntimeCommandFixture("runwield-acp-model-recovery-", async (fixture) => {
+        fixture.setModelResponseFactory(() => {
+            throw new Error("You have hit your session limit");
+        });
+        const handle = startTestServer();
+        try {
+            const created = await createSession(handle, fixture.projectRoot);
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "failed-turn",
+                method: "session/prompt",
+                params: { sessionId: created.sessionId, prompt: [{ type: "text", text: "Try the exhausted model." }] },
+            });
+            const failed = await readThroughResponse(handle, "failed-turn");
+            assertStringIncludes(JSON.stringify(failed), "You have hit your session limit");
+            for (
+                const { id, params, code } of [
+                    {
+                        id: "unknown-session",
+                        params: {
+                            sessionId: "missing",
+                            configId: "model",
+                            value: "runtime-command-fixture/alternate-model",
+                        },
+                        code: -32001,
+                    },
+                    {
+                        id: "unknown-config",
+                        params: {
+                            sessionId: created.sessionId,
+                            configId: "missing",
+                            value: "runtime-command-fixture/alternate-model",
+                        },
+                        code: -32602,
+                    },
+                    {
+                        id: "unknown-model",
+                        params: {
+                            sessionId: created.sessionId,
+                            configId: "model",
+                            value: "runtime-command-fixture/missing",
+                        },
+                        code: -32602,
+                    },
+                    {
+                        id: "boolean-model",
+                        params: { sessionId: created.sessionId, configId: "model", type: "boolean", value: true },
+                        code: -32602,
+                    },
+                ]
+            ) {
+                await sendMessage(handle, { jsonrpc: "2.0", id, method: "session/set_config_option", params });
+                assertEquals((await readThroughResponse(handle, id)).response.error?.code, code);
+            }
+            /** @type {string[]} */
+            const models = [];
+            fixture.setModelResponseFactory((_context, _options, _state, model) => {
+                models.push(model.id);
+                return fauxAssistantMessage(fauxText("Recovered in the same conversation."));
+            });
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "recover-model",
+                method: "session/set_config_option",
+                params: {
+                    sessionId: created.sessionId,
+                    configId: "model",
+                    value: "runtime-command-fixture/alternate-model",
+                },
+            });
+            const recovered = await readThroughResponse(handle, "recover-model");
+            assertEquals(
+                recovered.response.result?.configOptions[0].currentValue,
+                "runtime-command-fixture/alternate-model",
+            );
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "recovered-turn",
+                method: "session/prompt",
+                params: { sessionId: created.sessionId, prompt: [{ type: "text", text: "Continue." }] },
+            });
+            assertEquals((await readThroughResponse(handle, "recovered-turn")).response.result, {
+                stopReason: "end_turn",
+            });
+            assertEquals(models, ["alternate-model"]);
+        } finally {
+            await closeTestServer(handle);
+        }
+    }, { additionalModels: [{ id: "alternate-model", name: "Alternate Model" }] });
 });
 
 Deno.test("ACP session/new and session/prompt can invoke a real MCP fixture tool", async () => {
@@ -1110,6 +1299,18 @@ Deno.test("ACP rejects overlapping prompts and cancels the real in-flight Runtim
             });
             const overlap = await readThroughResponse(handle, "prompt-2");
             assertEquals(overlap.response.error.code, -32002);
+
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "busy-model",
+                method: "session/set_config_option",
+                params: {
+                    sessionId: created.sessionId,
+                    configId: "model",
+                    value: "runtime-command-fixture/fixture-model",
+                },
+            });
+            assertEquals((await readThroughResponse(handle, "busy-model")).response.error?.code, -32002);
 
             await sendMessage(handle, {
                 jsonrpc: "2.0",

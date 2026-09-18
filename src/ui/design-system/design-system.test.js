@@ -2,7 +2,6 @@ import { assertEquals, assertFalse, assertStringIncludes } from "@std/assert";
 import { actionClassName } from "./components/Button.jsx";
 import { Dialog } from "./components/Dialog.jsx";
 import { RunWieldButton, RunWieldLink } from "./components/react/RunWieldPrimitives.jsx";
-import { renderRunWieldThemeCss } from "./theme-bridge.js";
 
 /** @typedef {{ href?: string, className?: string }} LinkProps */
 
@@ -74,42 +73,4 @@ Deno.test("design-system keeps Workspace controls compact and reserves pills for
     assertFalse(components.includes(".action-primary"));
     assertFalse(workspace.includes(".action-primary"));
     assertStringIncludes(docs, "Use `.primary-action`, `.secondary-action`, and `.danger-action`");
-});
-
-Deno.test("renderRunWieldThemeCss renders browser theme variables", () => {
-    const css = renderRunWieldThemeCss({
-        name: "design-system",
-        vars: {
-            overlay1: "#505152",
-            text: "#202122",
-            subtext1: "#303132",
-        },
-        colors: {
-            accent: "#abcdef",
-            borderAccent: "#123456",
-            mdHeading: "accent",
-            borderMuted: "#334455",
-            border: "#445566",
-            success: "#0bad55",
-            error: "#fedcba",
-            warning: "#404142",
-            mdCode: "#708090",
-            selectedBg: "#090807",
-            customMessageBg: "#111111",
-        },
-        export: {
-            pageBg: "#010203",
-            cardBg: "#111213",
-            infoBg: "#141516",
-        },
-    });
-
-    assertStringIncludes(css, '--rw-theme-name: "design-system"');
-    assertStringIncludes(css, "--rw-page-bg: #010203;");
-    assertStringIncludes(css, "--rw-surface: #111213;");
-    assertStringIncludes(css, "--rw-accent-text: #abcdef;");
-    assertStringIncludes(css, "--rw-complexity-high: #fedcba;");
-    assertStringIncludes(css, ".theme-runwield {");
-    assertStringIncludes(css, "--card: var(--rw-surface);");
-    assertStringIncludes(css, "--muted-foreground: var(--rw-text-muted);");
 });

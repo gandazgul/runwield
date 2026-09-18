@@ -71,12 +71,17 @@ export function createTerminalFocusStateOwner(
     return owner;
 }
 
-export function installTerminalFocusState(terminal: FocusReportingTerminal): TerminalFocusStateOwner {
+export function installTerminalFocusState(
+    terminal: FocusReportingTerminal,
+    onFocus?: () => void,
+): TerminalFocusStateOwner {
     const originalStart = terminal.start.bind(terminal);
     const owner = createTerminalFocusStateOwner(terminal);
     terminal.start = (onInput: TerminalInputHandler, onResize?: TerminalResizeHandler): void => {
         originalStart((data: string) => {
+            const previousState = owner.getState();
             const filtered = owner.filterInput(data);
+            if (previousState !== "focused" && owner.getState() === "focused") onFocus?.();
             if (filtered.length > 0) onInput(filtered);
         }, onResize);
     };

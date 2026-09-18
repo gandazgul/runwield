@@ -10,6 +10,7 @@ const KEYBOARD_HELP_ITEMS = Object.freeze([
     Object.freeze({ key: "esc", description: "to interrupt" }),
     Object.freeze({ key: "ctrl+c", description: "to clear input" }),
     Object.freeze({ key: "ctrl+c twice", description: "to exit" }),
+    Object.freeze({ key: "ctrl+l", description: "to redraw the terminal" }),
     Object.freeze({ key: "shift+tab", description: "to cycle thinking level" }),
     Object.freeze({ key: "ctrl+o", description: "to expand/collapse tool groups" }),
     Object.freeze({ key: "ctrl+]", description: "to switch Session sidebar tabs" }),

@@ -20,6 +20,10 @@ const STATIC_INCLUDE_PATHS = [
     "src/skills/",
     "src/snip-filters",
     "src/ui/theme/catppuccin-mocha.json",
+    // Pi resolves this worker beside the compiled bundle. Keep its source
+    // directory intact so Photon can load its module-relative WASM asset.
+    "image-resize-worker.js",
+    "node_modules/@earendil-works/pi-coding-agent/dist/utils/",
 ];
 
 /**

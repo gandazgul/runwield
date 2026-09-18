@@ -12,7 +12,7 @@ The visual direction is dark, focused, compact, and workflow-oriented. Keep the 
 Review as the baseline:
 
 - dark page background with layered slate surfaces;
-- blue accent for navigational emphasis and primary intent;
+- mint sidebar brand rail, with blue for selected working context and primary intent;
 - compact rectangular controls with 6px corners;
 - squared-off cards and panels with 6–8px corners, subtle borders, and restrained shadows;
 - 28px compact toolbar controls and 32px standard controls on desktop;
@@ -55,7 +55,9 @@ The rest of Workspace should reuse that language through these implementation la
 
 - CSS baseline: `src/ui/design-system/tokens.css`, `src/ui/design-system/components.css`, and
   `src/ui/workspace/static/workspace.css`
+- browser colors: `src/ui/design-system/themes/dark.ts`
 - theme bridge: `src/ui/design-system/theme-bridge.js`
+- bundled website fonts: `src/ui/design-system/fonts.css`
 - shell and navigation: `src/ui/workspace/layouts/WorkspaceLayout.astro`
 - shared Plan Board page composition: `src/ui/workspace/components/PlanBoardPage.astro`
 - board patterns: `src/ui/workspace/components/BoardColumn.jsx`, `PlanCard.jsx`, and `EpicCard.jsx`
@@ -67,14 +69,14 @@ and Workspace so they agree again.
 
 ### Canonical density examples
 
-| Pattern                          | Reference                               | Desktop rule                                           |
-| -------------------------------- | --------------------------------------- | ------------------------------------------------------ |
-| Compact icon or segmented option | Review toolbar                          | 28px high, 6px radius, 11–12px label                   |
-| Standard button, input, or tab   | Workspace navigation and review actions | 32px high, 6px radius, 12–14px label                   |
-| Touch-critical control           | Session composer on narrow screens      | 44px minimum height; do not apply this desktop-wide    |
-| Card                             | Plan Card                               | 12px padding, 6px radius                               |
-| Panel or board column            | Review sidebars and Workspace columns   | 8px radius, 10–16px padding                            |
-| Status, count, or short metadata | Review state labels                     | pill radius; never use this shape for ordinary actions |
+| Pattern                          | Reference                               | Desktop rule                                                  |
+| -------------------------------- | --------------------------------------- | ------------------------------------------------------------- |
+| Compact icon or segmented option | Review toolbar                          | 28px high, 6px radius, 11–12px label                          |
+| Standard button, input, or tab   | Workspace navigation and review actions | 32px high, 6px radius, 12–14px label                          |
+| Touch-critical control           | Session composer on narrow screens      | 44px minimum width and height; do not apply this desktop-wide |
+| Card                             | Plan Card                               | 12px padding, 6px radius                                      |
+| Panel or board column            | Review sidebars and Workspace columns   | 8px radius, 10–16px padding                                   |
+| Status, count, or short metadata | Review state labels                     | pill radius; never use this shape for ordinary actions        |
 
 These values are defaults, not a reason to add `!important`. A specialized interaction may differ when its content or
 accessibility behavior requires it.
@@ -235,9 +237,29 @@ same naming and visibility rules in Workspace and the TUI.
 Workspace already exposes semantic CSS custom properties using the `--rw-*` prefix. Keep this as the public browser UI
 token namespace.
 
+### Narrow Code Review
+
+Below 980px, Code Review stacks its file list, diff, and annotations. The file list is bounded; the diff retains a
+readable scroll area instead of shrinking to its toolbar. Diff controls wrap when space is limited. Session context tabs
+and Workspace navigation rows use 44px touch targets on phones.
+
+### Browser themes
+
+Browser surfaces currently use the approved dark identity from `brand/` and the sibling `../runwield.dev/` website,
+regardless of OS color preference or the selected TUI theme. TUI settings and appearance remain independent.
+
+`src/ui/design-system/themes/dark.ts` exports `DARK_BROWSER_THEME` with `name`, `colorScheme`, and semantic `colors`.
+`renderRunWieldThemeCss(theme = DARK_BROWSER_THEME)` in `theme-bridge.js` is a pure browser renderer. It keeps the Radix
+and Plannotator aliases without reading TUI settings. Both browser `/theme.css` endpoints call it without arguments. The
+old `loadRunWieldThemeCss` loader and unused Workspace `server/theme-css.js` module are removed.
+
+Keep browser theme support: a future light or custom theme supplies a separate token set to the same renderer, without
+restyling components or changing spacing and typography. No light theme, theme picker, or OS-following mode is shipped.
+See [Workspace browser appearance requirements](prd/runwield-workspace-prd.md#browser-appearance-and-themes).
+
 ### Color tokens
 
-Use existing tokens before adding new ones.
+Use existing tokens before adding new ones. Literal browser colors belong in the theme module, not component CSS.
 
 | Token                    | Purpose                                                      |
 | ------------------------ | ------------------------------------------------------------ |
@@ -259,9 +281,15 @@ Use existing tokens before adding new ones.
 | `--rw-warning`           | In-progress, implemented, blocked, or caution state.         |
 | `--rw-error`             | Failed, missing, denied, or destructive state.               |
 | `--rw-code`              | Code and editor accent.                                      |
+| `--rw-brand`             | Brand mark and sidebar rail; not an action color.            |
+| `--rw-on-accent`         | Text on accent-filled controls.                              |
 | `--rw-complexity-low`    | LOW Complexity label.                                        |
 | `--rw-complexity-medium` | MEDIUM Complexity label.                                     |
 | `--rw-complexity-high`   | HIGH Complexity label.                                       |
+
+Filled colors have separate text roles: `--rw-on-accent-strong`, `--rw-on-success`, `--rw-on-warning`, `--rw-on-error`,
+and `--rw-on-brand`. A theme must supply these roles. Do not assume the page background is readable on every filled
+control. Primary controls retain contrasting text on hover and keyboard focus.
 
 ### Shape, control, and spacing tokens
 
@@ -280,13 +308,12 @@ Use existing tokens before adding new ones.
 Shared CSS owns a border-box reset so declared control heights include borders and padding. Without it, a nominal 32px
 control can render much taller. Do not override this reset locally.
 
-The browser design system must share the active theme with the TUI. The shared design-system module owns the browser
-theme bridge at `src/ui/design-system/theme-bridge.js`, which maps the active RunWield TUI theme into these variables.
-New browser surfaces should consume the generated variables; they should not read theme JSON directly.
-
 Shared CSS should be split by responsibility rather than kept as one broad `styles.css` file:
 
-- `tokens.css` for base CSS variables, resets, typography defaults, and theme-derived token usage;
+- `themes/dark.ts` for the current browser color set; future themes use separate modules with the same semantic roles;
+- `theme-bridge.js` for browser color variables and shared review aliases;
+- `tokens.css` for non-color typography, geometry, spacing, resets, and derived Complexity intent;
+- `fonts.css` for locally bundled Outfit Variable and IBM Plex Mono, matching the website;
 - `components.css` for reusable design-system primitives such as actions, cards, badges, notices, forms, metadata,
   dialogs, and editor/markdown surfaces;
 - surface-specific CSS, such as `workspace.css`, for layouts and patterns that are not yet shared across browser
@@ -299,7 +326,7 @@ Only add a token when an existing semantic token cannot describe the intended us
 - prefixed with `--rw-`;
 - semantic rather than literal;
 - documented in this file;
-- mapped in `src/ui/design-system/theme-bridge.js` when they should respond to user themes;
+- defined in each browser theme when they represent colors; keep review aliases in `theme-bridge.js`;
 - used by at least one real pattern.
 
 Avoid component-specific tokens until a component genuinely needs stable customization across surfaces.
@@ -599,10 +626,11 @@ Before adding or changing browser UI, check:
 
 ## Non-goals for v1
 
-- No marketing-site design language.
+- No marketing-page layouts or effects; brand colors and website typography are shared.
 - No large-radius, oversized SaaS-dashboard component language.
 - No requirement to extract a full component library immediately.
-- No replacement of RunWield theme files with a separate design-token build system.
+- No generated palette replacing the approved brand or browser theme modules.
+- No browser theme picker or light theme in the current scope; keep future themes easy to swap.
 - No commitment to W3C Design Tokens file format until a real integration needs it.
 
 ## Plannotator component reuse exception

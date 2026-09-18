@@ -203,7 +203,6 @@
     "src/ui/workspace/server/remote-mode.js",
     "src/ui/workspace/server/remote-schema.js",
     "src/ui/workspace/server/session-continuation.js",
-    "src/ui/workspace/server/theme-css.js",
     "src/ui/workspace/vite.config.js",
     "src/ui/workspace/workspace-test-helpers.js"
 ]

@@ -210,6 +210,7 @@ The capabilities below own browser-specific requirements. They reference Core fo
 Session behavior. Scope labels distinguish the existing foundation, the required Personal v1 journey, and later team
 work; they do not claim rollout completion.
 
+- [Browser appearance and themes](#browser-appearance-and-themes)
 - [Local Plan management](#local-plan-management)
 - [Shared Plan collaboration](#shared-plan-collaboration)
 - [Attention dashboard](#attention-dashboard)
@@ -225,6 +226,35 @@ work; they do not claim rollout completion.
 - [Team artifact privacy and authorship](#team-artifact-privacy-and-authorship)
 - [Team planning intelligence](#team-planning-intelligence)
 - [Team code review and delivery](#team-code-review-and-delivery)
+
+### Browser appearance and themes
+
+**Scope and maturity:** Current browser implementation uses the approved dark identity. Light/custom theme delivery and
+a theme picker remain deferred; support for separate browser themes must remain intact.
+
+**Requirement: Keep a consistent dark browser workbench.**
+
+Workspace, Plan Review, and Code Review use the approved RunWield brand colors and website typography. Keep compact
+controls, a mint sidebar brand rail, blue selected context and actions, and distinct semantic status colors. OS color
+preferences and TUI theme choices do not change browser appearance. TUI appearance and Session behavior are unchanged.
+
+**Requirement: Preserve future browser theme choices without a restyle.**
+
+Browser colors remain separate from component layout, spacing, and typography. A future light or custom token set can
+replace the dark set through the same browser theme renderer, including shared review components, without restyling each
+surface or depending on TUI settings. The current UI offers no theme picker, light theme, or OS-following mode.
+
+**Acceptance scenarios:**
+
+- Given light OS settings or a light TUI theme, when the owner opens Workspace, Plan Review, or Code Review, each uses
+  the approved dark browser identity; changing TUI themes does not change browser colors.
+- Given a future alternate browser token set, when it is supplied to the renderer, Workspace and review components use
+  its semantic colors without changes to their layout, typography, or component styles. This does not claim a shipped
+  light/custom theme.
+- When the owner opens browser controls or the Session command menu, no browser theme picker or light-mode action is
+  offered; ordinary Session commands and TUI theme controls keep their existing behavior.
+
+Implementation guidance: [RunWield Design System](../design-system.md#browser-themes).
 
 ### Local Plan management
 
@@ -522,6 +552,8 @@ internal repair procedures.
   approval is accepted.
 - On a phone, the Plan document fits the screen with its controls and approval actions reachable. Opening or closing
   Contents or Annotations does not widen the page, and the owner can scroll to the end of the document.
+- On a phone, Code Review keeps a readable, scrollable diff below its file list. The list cannot squeeze the diff shut;
+  layout controls wrap without widening the page.
 - When the same approval click is delivered twice, the action occurs once; Approve for Later never starts execution.
 - Given an executing Plan, when the owner opens its workflow surface, its review, changes, validation, recovery, and
   resulting record are accessible in context.

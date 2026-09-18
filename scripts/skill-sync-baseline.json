@@ -2,10 +2,15 @@
     "skills": [
         {
             "source": "src/agent-definitions/ideator.md",
-            "sourceHash": "6f1835618b21e147a68c67b805177a48db96085c6022b115cb79d29ae00c9909",
+            "sourceHash": "513e19542da20afb86ba212d8deec2ef65ad7af0f34c9456eb7be7ba195998c6",
             "skill": "skills/ideator/SKILL.md",
-            "skillHash": "15b2019a9601c7d72325bf42b31e87512d8ffcf57cb05a4cbc86e2b74bb46e86",
-            "supportFiles": []
+            "skillHash": "090937d2d4ed0d51dbff8e6b413d001445a861d6e1a7335d4157954a7fb66bd2",
+            "supportFiles": [
+                {
+                    "path": "skills/ideator/PRD-FORMAT.md",
+                    "hash": "f72f9268103f03641efd47b2777b1c1dafd601049cade2bc214a0b0de5707f0a"
+                }
+            ]
         },
         {
             "source": "src/agent-definitions/guide.md",

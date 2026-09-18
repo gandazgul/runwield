@@ -91,6 +91,13 @@ Deno.test("runReleaseCheck propagates build identity to compile and preserves st
                     stages.push("workspace-review-routes");
                     return { success: true, code: 0, stdout: "", stderr: "" };
                 }
+                if (args[0] === "package-smoke") {
+                    assertEquals(args, ["package-smoke", "image-resize"]);
+                    assertEquals(options.cwd, "release-temp");
+                    assertEquals(options.env?.WLD_INTERNAL_PACKAGE_CHECK, "1");
+                    stages.push("image-resize");
+                    return { success: true, code: 0, stdout: "", stderr: "" };
+                }
                 stages.push("version");
                 return {
                     success: true,
@@ -117,6 +124,7 @@ Deno.test("runReleaseCheck propagates build identity to compile and preserves st
             "compile",
             "workspace-review-routes",
             "version",
+            "image-resize",
             "references",
             "plans-ui",
             "review",
@@ -172,6 +180,39 @@ Deno.test("runReleaseCheck short-circuits after compile failure and restores gen
             await Deno.readTextFile(join(root, "src", "shared", "version.js")),
             'export const VERSION = "original";\n',
         );
+    });
+});
+
+Deno.test("release check rejects worker errors even when image fallback exits successfully", async () => {
+    await withTemporaryVersionProject(async (root) => {
+        let laterChecks = 0;
+        const laterCheck = () => {
+            laterChecks++;
+            return Promise.resolve();
+        };
+        await assertRejects(
+            () =>
+                runReleaseCheck({ rootDir: root }, {
+                    makeTempDir: () => Promise.resolve("release-temp"),
+                    remove: () => Promise.resolve(),
+                    run(_command, args) {
+                        return Promise.resolve({
+                            success: true,
+                            code: 0,
+                            stdout: "",
+                            stderr: args[0] === "package-smoke"
+                                ? "error: Uncaught (in worker) Module not found: image-resize-worker.js"
+                                : "",
+                        });
+                    },
+                    smokeTestBundledAgentReferenceExtraction: laterCheck,
+                    smokeTestBinaryPlansUiSurface: laterCheck,
+                    smokeTestBinaryReviewSurface: laterCheck,
+                }),
+            Error,
+            "Packaged image resize wrote unexpected terminal output",
+        );
+        assertEquals(laterChecks, 0);
     });
 });
 

@@ -47,6 +47,8 @@ Deno.test("buildCompileArgs uses Deno compile flags and bundled resource include
     assertStringIncludes(args.join("\n"), "src/skills");
     assertStringIncludes(args.join("\n"), "src/snip-filters");
     assertStringIncludes(args.join("\n"), "src/ui/theme/catppuccin-mocha.json");
+    assertStringIncludes(args.join("\n"), "image-resize-worker.js");
+    assertStringIncludes(args.join("\n"), "node_modules/@earendil-works/pi-coding-agent/dist/utils/");
     assertEquals(args.some((arg) => arg.includes("plannotator-pi-extension-compiled")), false);
 });
 

@@ -9,12 +9,12 @@
 
 :root,
 html[class*="theme-"] {
-    --plannotator-bg: var(--rw-background, #020617);
-    --plannotator-surface: var(--rw-surface, #111827);
-    --plannotator-text: var(--rw-text, #f8fafc);
-    --plannotator-accent: var(--rw-accent, #38bdf8);
-    --success: var(--rw-success, #22c55e);
-    --success-foreground: var(--rw-page-bg, #020617);
+    --plannotator-bg: var(--rw-page-bg);
+    --plannotator-surface: var(--rw-surface);
+    --plannotator-text: var(--rw-text);
+    --plannotator-accent: var(--rw-accent);
+    --success: var(--rw-success);
+    --success-foreground: var(--rw-on-success);
 }
 
 .rw-plannotator-host {
@@ -22,7 +22,7 @@ html[class*="theme-"] {
     display: flex;
     flex-direction: column;
     min-height: calc(100vh - 9rem);
-    border: 1px solid var(--rw-border, #2d3748);
+    border: 1px solid var(--rw-border);
     border-radius: 1rem;
     background: var(--plannotator-bg);
     color: var(--plannotator-text);
@@ -39,7 +39,7 @@ html[class*="theme-"] {
 .rw-code-review.rw-review-embedded {
     height: 100%;
     min-height: 0;
-    border-top: 1px solid var(--rw-border, #2d3748);
+    border-top: 1px solid var(--rw-border);
 }
 
 .rw-plannotator-host.rw-plan-review,
@@ -73,11 +73,11 @@ body:has(.rw-code-review) button.review-toolbar-btn.primary,
     flex: none !important;
     min-height: 2.25rem !important;
     border: 1px solid color-mix(in srgb, var(--primary, var(--rw-accent)) 56%, transparent) !important;
-    border-radius: 0.625rem !important;
+    border-radius: var(--rw-radius-control) !important;
     padding: 0.5rem 0.9rem !important;
     background: color-mix(in srgb, var(--primary, var(--rw-accent)) 84%, var(--rw-surface-raised, transparent))
         !important;
-    color: var(--primary-foreground, var(--rw-accent-contrast)) !important;
+    color: var(--primary-foreground, var(--rw-on-accent)) !important;
     box-shadow: none !important;
     font-size: 0.78rem !important;
     font-weight: 650 !important;
@@ -259,7 +259,7 @@ body:has(.rw-code-review) button.review-toolbar-btn.primary:disabled,
     justify-content: space-between;
     gap: 1rem;
     padding: 1rem;
-    border-bottom: 1px solid var(--rw-border, #2d3748);
+    border-bottom: 1px solid var(--rw-border);
     background: var(--plannotator-surface);
 }
 
@@ -323,9 +323,9 @@ body:has(.rw-code-review) button.review-toolbar-btn.primary:disabled,
     justify-content: space-between;
     gap: 0.75rem;
     padding: 0.65rem 1rem;
-    border-bottom: 1px solid var(--rw-border, #2d3748);
-    background: color-mix(in srgb, var(--rw-surface-raised, #172033) 82%, var(--rw-page-bg, #020617));
-    color: var(--rw-text-muted, #94a3b8);
+    border-bottom: 1px solid var(--rw-border);
+    background: color-mix(in srgb, var(--rw-surface-raised) 82%, var(--rw-page-bg));
+    color: var(--rw-text-muted);
     font-size: 0.82rem;
 }
 
@@ -339,18 +339,18 @@ body:has(.rw-code-review) button.review-toolbar-btn.primary:disabled,
 }
 
 .rw-plan-review-context a {
-    color: var(--rw-accent-text, #7dd3fc);
+    color: var(--rw-accent-text);
     font-weight: 700;
     text-decoration: none;
 }
 
 .rw-plan-review-context span:last-child,
 .rw-plan-review-context div span {
-    border: 1px solid var(--rw-border, #2d3748);
+    border: 1px solid var(--rw-border);
     border-radius: 999px;
     padding: 0.15rem 0.45rem;
-    background: var(--rw-surface-muted, #1e293b);
-    color: var(--rw-text, #f8fafc);
+    background: var(--rw-surface-muted);
+    color: var(--rw-text);
 }
 
 .rw-plan-review-notice {
@@ -358,35 +358,35 @@ body:has(.rw-code-review) button.review-toolbar-btn.primary:disabled,
     gap: 0.25rem;
     margin: 0.75rem 1rem 0;
     padding: 0.75rem 0.9rem;
-    border: 1px solid var(--rw-border, #2d3748);
+    border: 1px solid var(--rw-border);
     border-radius: 0.85rem;
-    background: var(--rw-surface-raised, #172033);
-    color: var(--rw-text, #f8fafc);
+    background: var(--rw-surface-raised);
+    color: var(--rw-text);
 }
 
 .rw-plan-review-notice p {
     margin: 0;
-    color: var(--rw-text-muted, #94a3b8);
+    color: var(--rw-text-muted);
 }
 
 .rw-plan-review-notice a {
-    color: var(--rw-accent-text, #7dd3fc);
+    color: var(--rw-accent-text);
     font-weight: 800;
 }
 
 .rw-plan-review-notice.state-stale {
-    border-color: color-mix(in srgb, var(--rw-warning, #f59e0b) 62%, var(--rw-border, #2d3748));
+    border-color: color-mix(in srgb, var(--rw-warning) 62%, var(--rw-border));
 }
 
 .rw-plan-review-notice.state-recovery,
 .rw-plan-review-notice.state-expired {
-    border-color: color-mix(in srgb, var(--rw-error, #ef4444) 62%, var(--rw-border, #2d3748));
+    border-color: color-mix(in srgb, var(--rw-error) 62%, var(--rw-border));
 }
 
 .rw-plan-review-draft-notice {
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
-    border-color: color-mix(in srgb, var(--rw-accent, #38bdf8) 55%, var(--rw-border, #2d3748));
+    border-color: color-mix(in srgb, var(--rw-accent) 55%, var(--rw-border));
 }
 
 .rw-plan-review-draft-notice > div:first-child {
@@ -413,8 +413,8 @@ body:has(.rw-code-review) button.review-toolbar-btn.primary:disabled,
 .rw-review-error {
     margin: 0;
     padding: 0.75rem 1rem;
-    border-bottom: 1px solid color-mix(in srgb, var(--rw-error, #ef4444) 62%, var(--rw-border, #2d3748));
-    color: var(--rw-error, #ef4444);
+    border-bottom: 1px solid color-mix(in srgb, var(--rw-error) 62%, var(--rw-border));
+    color: var(--rw-error);
 }
 
 .rw-visually-hidden {
@@ -496,7 +496,7 @@ body:has(.rw-code-review) button.review-toolbar-btn.primary:disabled,
 
 .rw-approval-action-menu button:hover,
 .rw-approval-action-menu button:focus-visible {
-    background: color-mix(in srgb, var(--rw-accent, #38bdf8) 16%, var(--rw-surface-muted, #1e293b));
+    background: color-mix(in srgb, var(--rw-accent) 16%, var(--rw-surface-muted));
     color: var(--rw-text-strong, hsl(var(--foreground)));
 }
 
@@ -802,9 +802,9 @@ body:has(.rw-code-review) button.review-toolbar-btn.primary:disabled,
 .rw-artifact-notices,
 .rw-artifact-close-notice {
     margin: 0.75rem 1rem 0;
-    border: 1px solid color-mix(in oklab, var(--rw-warning, #f59e0b) 45%, var(--rw-border, #334155));
+    border: 1px solid color-mix(in oklab, var(--rw-warning) 45%, var(--rw-border));
     border-radius: 0.85rem;
-    background: color-mix(in oklab, var(--rw-warning, #f59e0b) 12%, var(--rw-surface, #0f172a));
+    background: color-mix(in oklab, var(--rw-warning) 12%, var(--rw-surface));
     color: var(--rw-text, var(--foreground));
     font-size: 0.8rem;
 }
@@ -889,7 +889,7 @@ body:has(.rw-code-review) button.review-toolbar-btn.primary:disabled,
     flex: none;
     min-height: var(--rw-review-toolbar-h, 4rem);
     padding: var(--rw-review-toolbar-padding, 0.75rem);
-    border-bottom: 1px solid var(--rw-review-toolbar-border, color-mix(in oklab, var(--rw-border, #2d3748) 70%,
+    border-bottom: 1px solid var(--rw-review-toolbar-border, color-mix(in oklab, var(--rw-border) 70%,
         transparent));
     background: color-mix(in oklab, var(--plannotator-surface) 92%, transparent);
 }
@@ -921,9 +921,29 @@ body:has(.rw-code-review) button.review-toolbar-btn.primary:disabled,
 }
 
 .rw-code-diff-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
     color: var(--muted-foreground);
     font-size: 0.7rem;
     font-weight: 600;
+}
+
+.rw-code-diff-left-controls {
+    flex: 1 1 12rem;
+}
+
+.rw-code-diff-sidebar-restore {
+    flex-shrink: 0;
+}
+
+.rw-code-diff-layout-controls {
+    flex-wrap: wrap;
+    margin-left: auto;
+}
+
+.rw-code-diff-layout-controls > span {
+    white-space: nowrap;
 }
 
 .rw-code-diff-stage {
@@ -967,7 +987,7 @@ body:has(.rw-code-review) button.review-toolbar-btn.primary:disabled,
     min-width: 0;
     min-height: 0;
     overflow: hidden;
-    border-right: 1px solid var(--rw-border, #2d3748);
+    border-right: 1px solid var(--rw-border);
     background: var(--card);
 }
 
@@ -1021,7 +1041,7 @@ body:has(.rw-code-review) button.review-toolbar-btn.primary:disabled,
     gap: 0.5rem;
     flex: none;
     padding: var(--rw-review-toolbar-padding, 0.75rem);
-    border-bottom: 1px solid color-mix(in oklab, var(--rw-border, #2d3748) 70%, transparent);
+    border-bottom: 1px solid color-mix(in oklab, var(--rw-border) 70%, transparent);
     background: color-mix(in oklab, var(--plannotator-surface) 92%, transparent);
 }
 
@@ -1076,7 +1096,7 @@ body:has(.rw-code-review) button.review-toolbar-btn.primary:disabled,
 }
 
 .rw-plan-review-controls {
-    --rw-review-toolbar-border: var(--rw-border, #2d3748);
+    --rw-review-toolbar-border: var(--rw-border);
     grid-template-columns: auto minmax(0, 1fr) auto;
 }
 
@@ -1202,7 +1222,7 @@ body:has(.rw-code-review) button.review-toolbar-btn.primary:disabled,
 
 .review-toolbar {
     z-index: 1000;
-    border: 1px solid var(--border, var(--rw-border, #334155));
+    border: 1px solid var(--border, var(--rw-border));
     border-radius: 0.75rem;
     background: var(--popover, var(--plannotator-surface, #111827));
     color: var(--foreground, var(--plannotator-text, #f8fafc));
@@ -1211,10 +1231,10 @@ body:has(.rw-code-review) button.review-toolbar-btn.primary:disabled,
 }
 
 .rw-plain-action {
-    border: 1px solid var(--rw-border, #334155);
+    border: 1px solid var(--rw-border);
     border-radius: 999px;
     padding: 0.45rem 0.75rem;
-    background: var(--rw-panel, #0f172a);
+    background: var(--rw-surface);
     color: inherit;
 }
 
@@ -1245,7 +1265,7 @@ body:has(.rw-code-review) button.review-toolbar-btn.primary:disabled,
         justify-content: space-between;
         padding: 0.6rem;
         padding-bottom: calc(0.6rem + env(safe-area-inset-bottom));
-        border-top: 1px solid var(--rw-border, #2d3748);
+        border-top: 1px solid var(--rw-border);
         background: color-mix(in srgb, var(--plannotator-surface) 96%, transparent);
         box-shadow: 0 -12px 30px rgb(0 0 0 / 0.32);
     }
@@ -1270,7 +1290,7 @@ body:has(.rw-code-review) button.review-toolbar-btn.primary:disabled,
         z-index: 75;
         max-height: min(70dvh, 34rem);
         width: auto !important;
-        border: 1px solid var(--rw-border, #2d3748);
+        border: 1px solid var(--rw-border);
         border-radius: 1rem 1rem 0 0;
         background: var(--plannotator-surface);
         box-shadow: 0 -18px 45px rgb(0 0 0 / 0.42);
@@ -1345,6 +1365,20 @@ body:has(.rw-code-review) button.review-toolbar-btn.primary:disabled,
         display: none;
     }
 
+    /* Stacked panels must not consume the diff's entire height. */
+    .rw-plannotator-code-layout {
+        grid-auto-rows: max-content;
+        align-content: start;
+    }
+
+    .rw-plannotator-code-layout .rw-review-file-tree {
+        height: 16rem;
+    }
+
+    .rw-plannotator-code-layout .rw-review-all-files-host {
+        height: max(28rem, 65dvh);
+    }
+
     .rw-artifact-contents {
         position: absolute;
         inset: 0;
@@ -1398,21 +1432,21 @@ body:has(.rw-code-review) button.review-toolbar-btn.primary:disabled,
     flex-wrap: wrap;
     gap: 0.5rem;
     padding: 0.75rem 1rem;
-    background: var(--rw-panel, #0f172a);
-    border-bottom: 1px solid var(--rw-border, #334155);
+    background: var(--rw-surface);
+    border-bottom: 1px solid var(--rw-border);
 }
 
 .rw-dev-fixture-switcher button {
-    border: 1px solid var(--rw-border, #334155);
+    border: 1px solid var(--rw-border);
     border-radius: 999px;
     background: transparent;
-    color: var(--rw-text, #e2e8f0);
+    color: var(--rw-text);
     padding: 0.35rem 0.75rem;
 }
 
 .rw-dev-fixture-switcher button.active {
-    border-color: var(--rw-accent, #38bdf8);
-    background: color-mix(in srgb, var(--rw-accent, #38bdf8) 18%, transparent);
+    border-color: var(--rw-accent);
+    background: color-mix(in srgb, var(--rw-accent) 18%, transparent);
 }
 
 .rw-remote-plannotator-review {

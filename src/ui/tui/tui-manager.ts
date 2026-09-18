@@ -12,6 +12,7 @@ import {
 interface ManagedTui {
     start?(): void;
     stop?(): void;
+    requestRender?(force?: boolean): void;
 }
 
 type TerminalConstructor<TTerminal extends FocusReportingTerminal> = new () => TTerminal;
@@ -101,7 +102,7 @@ export function createTuiManager<TTerminal extends FocusReportingTerminal, TTui 
         if (tuiInstance) return tuiInstance;
         const terminal = new TerminalCtor();
         if (!Deno.env.get("WLD_GOLDEN_TUI") && !Deno.env.get("WLD_GOLDEN_TUI_CHILD")) {
-            focusStateOwner = installTerminalFocusState(terminal);
+            focusStateOwner = installTerminalFocusState(terminal, () => tuiInstance?.requestRender?.(true));
         }
         try {
             const tui = new TuiCtor(terminal);

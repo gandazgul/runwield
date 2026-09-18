@@ -2,6 +2,8 @@ import { assertEquals, assertStringIncludes } from "@std/assert";
 import { TuiAltScreen } from "@earendil-works/pi-tui";
 import { createChatView } from "./chat-view.ts";
 import { VirtualTerminal } from "./testing/virtual-terminal.js";
+import { RunWieldTui } from "./tui.ts";
+import { installTerminalFocusState } from "./terminal-focus-state.ts";
 
 Deno.test("chat view keeps scrollback position during live thinking updates", async () => {
     const terminal = new VirtualTerminal({ columns: 80, rows: 10 });
@@ -48,3 +50,65 @@ Deno.test("chat view keeps scrollback position during live thinking updates", as
         tui.stop();
     }
 });
+
+for (const recovery of ["ctrl+l", "focus"] as const) {
+    Deno.test(`chat view restores erased input on ${recovery} without losing draft or scroll position`, async () => {
+        const terminal = new VirtualTerminal({ columns: 80, rows: 12 });
+        const tui = new RunWieldTui(terminal);
+        const focus = installTerminalFocusState(terminal, () => tui.requestRender(true));
+        const view = await createChatView({
+            tui,
+            suppressStartupHeader: true,
+            getSessionId: () => "redraw-session",
+            sessionRuntime: {
+                getSessionSnapshot: () => ({ cwd: "/tmp/redraw-fixture", activeModel: {} }),
+            },
+            setActiveModel: () => Promise.resolve({ status: "active" }),
+        });
+        const submissions: string[] = [];
+        view.editor.onSubmit = (text) => submissions.push(text);
+        try {
+            tui.start();
+            for (let index = 1; index <= 12; index++) {
+                view.uiAPI.appendUserMessage?.(`older message ${index}`);
+            }
+            view.editor.setText("keep this draft");
+            view.uiAPI.setBusy?.(true);
+            tui.renderNow();
+            tui.scrollBy(-5);
+            tui.renderNow();
+            await terminal.flush();
+            const before = terminal.getScreenText();
+            assertStringIncludes(before, "keep this draft");
+            assertStringIncludes(before, "─".repeat(20));
+
+            // Simulate screen damage outside the renderer. Its cached frame still
+            // contains the input, so an ordinary render cannot restore it.
+            terminal.write("\x1b[2J");
+            tui.renderNow();
+            await terminal.flush();
+            assertEquals(terminal.getScreenText().trim(), "");
+
+            if (recovery === "focus") {
+                terminal.input("\x1b[O");
+                terminal.input("\x1b[");
+                terminal.input("I");
+            } else {
+                terminal.input("\x0c");
+            }
+            tui.renderNow();
+            await terminal.flush();
+            assertEquals(terminal.getScreenText(), before);
+            assertEquals(view.editor.getText(), "keep this draft");
+            assertEquals(submissions, []);
+            assertEquals(view.runningTasksComponent.isBusy, true);
+            terminal.pressEnter();
+            assertEquals(submissions, ["keep this draft"]);
+        } finally {
+            view.uiAPI.setBusy?.(false);
+            focus.dispose();
+            view.dispose();
+            tui.stop();
+        }
+    });
+}

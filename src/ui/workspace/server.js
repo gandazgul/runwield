@@ -33,7 +33,7 @@ import { escapeReviewPayloadJson } from "./server/review-payload-json.ts";
 import { withAccessLogger } from "./server-access-logger.ts";
 import { SYSTEM_WORK_RECORD_MNEMOTECA_PORT } from "../../shared/work-records/mnemoteca-port.ts";
 import { PlanProgressSurface } from "./react/PlanProgressSurface.tsx";
-import { loadRunWieldThemeCss } from "../design-system/theme-bridge.js";
+import { renderRunWieldThemeCss } from "../design-system/theme-bridge.js";
 import { reviewImageApi, reviewImageUploadApi } from "./routes/api/review-image-handlers.js";
 import {
     cleanupReviewAgentState,
@@ -1008,7 +1008,7 @@ async function handleStaticRoute(pathname) {
         return await textFileResponse(WORKSPACE_SHELL_JS_PATH, "text/javascript; charset=utf-8");
     }
     if (pathname === "/theme.css") {
-        const css = await loadRunWieldThemeCss();
+        const css = renderRunWieldThemeCss();
         return new Response(css, {
             headers: {
                 "content-type": "text/css; charset=utf-8",

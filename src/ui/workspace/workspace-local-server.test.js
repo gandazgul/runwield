@@ -40,7 +40,7 @@ Deno.test("Workspace wrapper protects page routes and serves public assets witho
         }
         const tokensCss = await app(new Request("http://localhost/tokens.css"));
         assertEquals(tokensCss.status, 200);
-        assertStringIncludes(await tokensCss.text(), "--rw-page-bg:");
+        assertStringIncludes(await tokensCss.text(), "--rw-font-sans:");
         const componentsCss = await app(new Request("http://localhost/components.css"));
         assertEquals(componentsCss.status, 200);
         assertStringIncludes(await componentsCss.text(), ".primary-action");

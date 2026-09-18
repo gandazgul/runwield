@@ -8,6 +8,11 @@ node_modules/
 .history/
 .pi/
 .astro/
+.agents/
+.claude/skills/
+.styleseed/
+STYLESEED.md
+skills-lock.json
 
 debug.log
 .wld/debug/

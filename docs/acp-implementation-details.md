@@ -56,12 +56,11 @@ The adapter still has feature limits outside this hardening scope.
 Important limitations that are not necessarily baseline v1 violations because they are optional or unadvertised:
 
 - no `session/list`, `session/resume`, or `session/delete` support;
-- no session config options or mode switching over ACP;
+- model config options are supported; Agent, thinking-level config options, and mode switching remain unimplemented;
 - no additional workspace roots;
 - no embedded resource, image, or audio prompt content;
 - no client filesystem or terminal delegation;
-- no standard `plan`, `available_commands_update`, `config_option_update`, `current_mode_update`, or
-  `session_info_update` notifications;
+- no standard `plan`, `current_mode_update`, or `session_info_update` notifications;
 - no rich ACP-native RunWield Plan review, Feedback, or approval protocol; local review uses RunWield browser pages.
 
 ## Architecture and transport
@@ -106,7 +105,7 @@ and settled before the Hosted Session is disposed.
 | `agentCapabilities.loadSession`                                            | `true`.                                                                                                                                                                                                                  | Standard stable v1 capability.                                                                           | `src/acp/server.js` |
 | `agentCapabilities.promptCapabilities`                                     | Only `_meta.runwield.contentTypes: ["text", "resource_link"]`; no `image`, `audio`, or `embeddedContext`.                                                                                                                | Baseline text/resource-link support is standard; the explicit content-type list is a RunWield extension. | `src/acp/server.js` |
 | `agentCapabilities.sessionCapabilities.close`                              | `{}`.                                                                                                                                                                                                                    | Standard stable v1 capability.                                                                           | `src/acp/server.js` |
-| `agentCapabilities.sessionCapabilities._meta.runwield.implementedMethods`  | Lists `session/new`, `session/load`, `session/prompt`, `session/cancel`, `session/close`.                                                                                                                                | RunWield extension.                                                                                      | `src/acp/server.js` |
+| `agentCapabilities.sessionCapabilities._meta.runwield.implementedMethods`  | Lists `session/new`, `session/load`, `session/prompt`, `session/cancel`, `session/close`, `session/set_config_option`.                                                                                                   | RunWield extension.                                                                                      | `src/acp/server.js` |
 | `agentCapabilities.sessionCapabilities._meta.runwield.updateNotifications` | Lists `session/update`.                                                                                                                                                                                                  | RunWield extension.                                                                                      | `src/acp/server.js` |
 | `authMethods`                                                              | `[]` by default. When the Client declares `clientCapabilities.auth.terminal === true`, or the registry probe declares `_meta["terminal-auth"] === true`, RunWield advertises one terminal method with `args: ["login"]`. | Standard stable v1 field plus narrow registry compatibility.                                             | `src/acp/server.js` |
 | `agentInfo`                                                                | `{ name: "RunWield", version: VERSION }`, where `VERSION` is the generated build version used by `wld --version`.                                                                                                        | Standard stable v1 field.                                                                                | `src/acp/server.js` |
@@ -129,14 +128,21 @@ it must respond with the latest version it supports. RunWield imports `PROTOCOL_
 
 ## Implemented stable methods
 
-| Method           | Advertised?                                     | Current behavior                                                                                                                                                                                                                                                                                                   | Important gaps                                                                                                                   |
-| ---------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
-| `initialize`     | Required baseline.                              | Stores client capabilities and returns `protocolVersion: 1`, Terminal Auth only for capable Clients, and generated `agentInfo.version`.                                                                                                                                                                            | No known gap in the advertised initialize shape.                                                                                 |
-| `session/new`    | Required baseline.                              | Validates absolute `cwd`, accepts stdio `mcpServers`, rejects other MCP transports and `additionalDirectories`, requires login plus a usable default model, creates a prompt-ready Runtime session, maps it to an ACP session id based on the persisted Session id, and returns `sessionId` plus `_meta.runwield`. | MCP prompts/resources are not supported.                                                                                         |
-| `session/load`   | Advertised through `loadSession: true`.         | Validates like `session/new`, requires `sessionId`, optionally accepts `_meta.runwield.sessionPath`, accepts stdio `mcpServers`, loads a persisted Runtime session, replays mapped Runtime events as `session/update`, and returns `_meta.runwield` after replay.                                                  | Supports no additional roots; MCP prompts/resources are not supported.                                                           |
-| `session/prompt` | Required baseline.                              | Requires a mapped `sessionId`, converts prompt blocks to one text string, installs a per-prompt interaction adapter, subscribes to Runtime events, streams mapped `session/update` notifications, waits for Runtime settlement, waits for pending update sends, and returns a `stopReason`.                        | Only text and lossy resource links are accepted; most Runtime success/failure states collapse to `end_turn` or `refusal`.        |
-| `session/cancel` | Required baseline notification.                 | Looks up the mapped Runtime session, marks the active ACP prompt cancelled, and calls `runtime.cancelSession()`. Unknown sessions are ignored because this is a notification. The notification does not complete the prompt by itself.                                                                             | No known ordering gap in the advertised cancel path.                                                                             |
-| `session/close`  | Advertised through `sessionCapabilities.close`. | Requires a mapped `sessionId`, marks active prompt cancelled, calls `closeSessionWhenIdle()` when available, removes the ACP mapping, and returns `_meta.runwield.closed`.                                                                                                                                         | Response shape is acceptable because `_meta` is allowed, but standard clients will ignore the RunWield-specific closure details. |
+| Method           | Advertised?                                     | Current behavior                                                                                                                                                                                                                                                                                                                          | Important gaps                                                                                                                   |
+| ---------------- | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `initialize`     | Required baseline.                              | Stores client capabilities and returns `protocolVersion: 1`, Terminal Auth only for capable Clients, and generated `agentInfo.version`.                                                                                                                                                                                                   | No known gap in the advertised initialize shape.                                                                                 |
+| `session/new`    | Required baseline.                              | Validates absolute `cwd`, accepts stdio `mcpServers`, rejects other MCP transports and `additionalDirectories`, requires login plus a usable default model, creates a prompt-ready Runtime session, maps it to an ACP session id based on the persisted Session id, and returns `sessionId`, model `configOptions`, and `_meta.runwield`. | MCP prompts/resources are not supported.                                                                                         |
+| `session/load`   | Advertised through `loadSession: true`.         | Validates like `session/new`, requires `sessionId`, optionally accepts `_meta.runwield.sessionPath`, accepts stdio `mcpServers`, loads a persisted Runtime session, replays mapped Runtime events as `session/update`, and returns model `configOptions` and `_meta.runwield` after replay.                                               | Supports no additional roots; MCP prompts/resources are not supported.                                                           |
+| `session/prompt` | Required baseline.                              | Requires a mapped `sessionId`, converts prompt blocks to one text string, installs a per-prompt interaction adapter, subscribes to Runtime events, streams mapped `session/update` notifications, waits for Runtime settlement, waits for pending update sends, and returns a `stopReason`.                                               | Only text and lossy resource links are accepted; most Runtime success/failure states collapse to `end_turn` or `refusal`.        |
+| `session/cancel` | Required baseline notification.                 | Looks up the mapped Runtime session, marks the active ACP prompt cancelled, and calls `runtime.cancelSession()`. Unknown sessions are ignored because this is a notification. The notification does not complete the prompt by itself.                                                                                                    | No known ordering gap in the advertised cancel path.                                                                             |
+| `session/close`  | Advertised through `sessionCapabilities.close`. | Requires a mapped `sessionId`, marks active prompt cancelled, calls `closeSessionWhenIdle()` when available, removes the ACP mapping, and returns `_meta.runwield.closed`.                                                                                                                                                                | Response shape is acceptable because `_meta` is allowed, but standard clients will ignore the RunWield-specific closure details. |
+
+`session/set_config_option` accepts the `model` option with a provider-qualified model value from the shared selectable
+model catalog. It applies the same Session model override as the terminal and Workspace, returns the complete
+`configOptions`, and emits `config_option_update`. It makes no model request and preserves future Session defaults.
+Unknown options or unavailable models return `-32602`; an active turn or failed activation returns `-32002`. Shared
+model commands and Agent changes also emit updated config options. This enables OpenAB's Discord `/models` menu for new
+and loaded Sessions, including selection after a provider failure has settled.
 
 ## Unsupported agent methods
 
@@ -152,15 +158,14 @@ it must respond with the latest version it supports. RunWield imports `PROTOCOL_
 - `session/fork`
 - `session/resume`
 - `session/set_mode`
-- `session/set_config_option`
 - `nes/start`
 - `nes/suggest`
 - `nes/close`
 
-For stable optional methods such as `logout`, `session/list`, `session/delete`, `session/resume`, `session/set_mode`,
-and `session/set_config_option`, this is an optional coverage gap when the method is not advertised. It is not itself a
-baseline conformance failure. Provider, NES, fork, and elicitation-related SDK surfaces include unstable protocol areas
-and should be assessed separately from stable ACP v1 conformance.
+For stable optional methods such as `logout`, `session/list`, `session/delete`, `session/resume`, and
+`session/set_mode`, this is an optional coverage gap when the method is not advertised. It is not itself a baseline
+conformance failure. Provider, NES, fork, and elicitation-related SDK surfaces include unstable protocol areas and
+should be assessed separately from stable ACP v1 conformance.
 
 ## Session identity model
 
@@ -314,23 +319,24 @@ Unexpected runtime failures propagate through the ACP SDK as internal errors.
 
 These are useful interoperability targets, but they are not baseline violations while unadvertised.
 
-| Area                                           | Current state                                                    | Notes                                                                                           |
-| ---------------------------------------------- | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `session/list`                                 | Registered as unimplemented and not advertised.                  | Needed for richer IDE session pickers.                                                          |
-| `session/resume`                               | Registered as unimplemented and not advertised.                  | Could reconnect without replaying history once stable id semantics are fixed.                   |
-| `session/delete`                               | Registered as unimplemented and not advertised.                  | Would need careful mapping to RunWield/Pi persisted sessions.                                   |
-| `session/set_mode`                             | Registered as unimplemented and not advertised.                  | ACP session modes are transitional; config options are preferred.                               |
-| `session/set_config_option`                    | Registered as unimplemented and no `configOptions` are returned. | Natural future fit for active Agent, model, and thinking-level controls.                        |
-| Additional directories                         | Explicitly rejected when non-empty and not advertised.           | Could map to future multi-root project context and tool boundaries.                             |
-| Embedded resources                             | Rejected; `embeddedContext` is not advertised.                   | Would allow clients to pass file contents without relying on RunWield file access.              |
-| Image/audio prompt blocks                      | Rejected; `image`/`audio` are not advertised.                    | Could eventually reuse RunWield vision fallback for images.                                     |
-| Client filesystem methods                      | Not used by the Agent.                                           | RunWield currently uses its own tools and local process filesystem.                             |
-| Client terminal methods                        | Not used by the Agent.                                           | RunWield currently runs tools locally and reports tool output through Runtime events.           |
-| Standard `plan` update                         | Not emitted.                                                     | RunWield Plans are durable markdown artifacts and workflow-specific, not ACP PlanEntry lists.   |
-| `available_commands_update`                    | Emitted after Session new/load and reload catalog changes.       | ACP advertises enabled built-ins plus prompt templates and Skills, with ACP exclusions applied. |
-| `current_mode_update` / `config_option_update` | Not emitted.                                                     | Related to missing mode/config methods.                                                         |
-| `session_info_update`                          | Not emitted.                                                     | Could expose Session Name, cwd, and metadata to clients.                                        |
-| Tool diffs, terminals, locations               | Not emitted.                                                     | Current tool updates contain content and raw output only.                                       |
+| Area                             | Current state                                                           | Notes                                                                                           |
+| -------------------------------- | ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `session/list`                   | Registered as unimplemented and not advertised.                         | Needed for richer IDE session pickers.                                                          |
+| `session/resume`                 | Registered as unimplemented and not advertised.                         | Could reconnect without replaying history once stable id semantics are fixed.                   |
+| `session/delete`                 | Registered as unimplemented and not advertised.                         | Would need careful mapping to RunWield/Pi persisted sessions.                                   |
+| `session/set_mode`               | Registered as unimplemented and not advertised.                         | ACP session modes are transitional; config options are preferred.                               |
+| `session/set_config_option`      | Model selection implemented, with `configOptions` on new/load.          | Agent and thinking-level controls remain future work.                                           |
+| Additional directories           | Explicitly rejected when non-empty and not advertised.                  | Could map to future multi-root project context and tool boundaries.                             |
+| Embedded resources               | Rejected; `embeddedContext` is not advertised.                          | Would allow clients to pass file contents without relying on RunWield file access.              |
+| Image/audio prompt blocks        | Rejected; `image`/`audio` are not advertised.                           | Could eventually reuse RunWield vision fallback for images.                                     |
+| Client filesystem methods        | Not used by the Agent.                                                  | RunWield currently uses its own tools and local process filesystem.                             |
+| Client terminal methods          | Not used by the Agent.                                                  | RunWield currently runs tools locally and reports tool output through Runtime events.           |
+| Standard `plan` update           | Not emitted.                                                            | RunWield Plans are durable markdown artifacts and workflow-specific, not ACP PlanEntry lists.   |
+| `available_commands_update`      | Emitted after Session new/load and reload catalog changes.              | ACP advertises enabled built-ins plus prompt templates and Skills, with ACP exclusions applied. |
+| `config_option_update`           | Emitted for model selections, shared model commands, and Agent changes. | Keeps client model controls current.                                                            |
+| `current_mode_update`            | Not emitted.                                                            | Related to missing mode methods.                                                                |
+| `session_info_update`            | Not emitted.                                                            | Could expose Session Name, cwd, and metadata to clients.                                        |
+| Tool diffs, terminals, locations | Not emitted.                                                            | Current tool updates contain content and raw output only.                                       |
 
 ## Experimental or RunWield-specific behavior
 

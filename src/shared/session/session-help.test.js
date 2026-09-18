@@ -8,6 +8,7 @@ Deno.test("Session keyboard help preserves current shortcut order and copy", () 
             { key: "esc", description: "to interrupt" },
             { key: "ctrl+c", description: "to clear input" },
             { key: "ctrl+c twice", description: "to exit" },
+            { key: "ctrl+l", description: "to redraw the terminal" },
             { key: "shift+tab", description: "to cycle thinking level" },
             { key: "ctrl+o", description: "to expand/collapse tool groups" },
             { key: "ctrl+]", description: "to switch Session sidebar tabs" },
@@ -34,5 +35,5 @@ Deno.test("Session keyboard help returns mutation-safe clones", () => {
     assertNotStrictEquals(first.items, second.items);
     assertEquals(second.title, "Keyboard shortcuts");
     assertEquals(second.items[0], { key: "esc", description: "to interrupt" });
-    assertEquals(second.items.length, 13);
+    assertEquals(second.items.length, 14);
 });

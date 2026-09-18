@@ -1,6 +1,7 @@
 .eyebrow,
 .card-kicker {
-    color: var(--rw-accent-strong);
+    color: var(--rw-text-dim);
+    font-family: var(--rw-font-mono);
     text-transform: uppercase;
     letter-spacing: 0.12em;
     font-size: 0.75rem;
@@ -308,11 +309,11 @@ svg.animate-spin > * {
     flex: none !important;
     min-height: 2.25rem !important;
     border: 1px solid color-mix(in srgb, var(--primary, var(--rw-accent)) 56%, transparent) !important;
-    border-radius: 0.625rem !important;
+    border-radius: var(--rw-radius-control) !important;
     padding: 0.5rem 0.9rem !important;
     background: color-mix(in srgb, var(--primary, var(--rw-accent)) 84%, var(--rw-surface-raised, transparent))
         !important;
-    color: var(--primary-foreground, var(--rw-accent-contrast)) !important;
+    color: var(--primary-foreground, var(--rw-on-accent)) !important;
     box-shadow: none !important;
     font-size: 0.78rem !important;
     font-weight: 650 !important;
@@ -386,8 +387,8 @@ svg.animate-spin > * {
     border-radius: var(--rw-radius-control);
     padding: 0.45rem 0.8rem;
     background: color-mix(in srgb, var(--rw-accent) 88%, var(--rw-surface-raised));
-    color: var(--rw-page-bg);
-    box-shadow: 0 0.25rem 0.8rem color-mix(in srgb, var(--rw-accent) 18%, transparent);
+    color: var(--rw-on-accent);
+    box-shadow: none;
     cursor: pointer;
     font: inherit;
     font-size: 0.78rem;
@@ -403,8 +404,7 @@ svg.animate-spin > * {
 .rw-review-action-button:focus-visible:not(:disabled) {
     border-color: var(--rw-accent);
     background: color-mix(in srgb, var(--rw-accent) 76%, var(--rw-text-strong));
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--rw-accent) 20%, transparent),
-        0 0.35rem 1rem color-mix(in srgb, var(--rw-accent) 20%, transparent);
+    box-shadow: none;
 }
 
 .rw-review-action [data-slot="button"]:focus-visible,
@@ -503,7 +503,7 @@ svg.animate-spin > * {
 .rw-artifact-conversation-message p {
     margin: 0;
     color: var(--rw-text);
-    font-size: 0.76rem;
+    font-size: 1rem;
     line-height: 1.5;
     white-space: pre-wrap;
 }
@@ -577,7 +577,7 @@ svg.animate-spin > * {
 
 .rw-artifact-conversation-error {
     margin: 0;
-    color: var(--rw-danger, var(--destructive));
+    color: var(--rw-error);
     font-size: 0.7rem;
     line-height: 1.4;
 }
@@ -602,11 +602,11 @@ svg.animate-spin > * {
     border: 1px solid var(--rw-border);
     border-radius: var(--rw-radius-panel);
     padding: var(--rw-space-panel);
-    box-shadow: 0 12px 32px #0004;
+    box-shadow: none;
 }
 
 .detail {
-    margin-top: 22px;
+    margin-top: 1.5rem;
 }
 
 .epic-card {
@@ -653,8 +653,7 @@ svg.animate-spin > * {
 
 .clickable-card:hover {
     border-color: var(--rw-accent);
-    box-shadow: 0 22px 60px #0007, 0 0 0 1px color-mix(in srgb, var(--rw-accent) 35%, transparent);
-    transform: translateY(-2px);
+    box-shadow: inset 0 0 0 1px var(--rw-accent);
 }
 
 .card-hit-area {
@@ -879,7 +878,7 @@ button.primary-action,
 .card-actions a.primary-action {
     background: var(--rw-accent);
     border: 1px solid var(--rw-accent);
-    color: #fff;
+    color: var(--rw-on-accent);
 }
 
 .secondary-action,
@@ -901,7 +900,6 @@ button.primary-action:hover {
     background: color-mix(in srgb, var(--rw-accent) 82%, var(--rw-text-strong));
     border-color: var(--rw-accent-strong);
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--rw-accent) 22%, transparent);
-    transform: translateY(-1px);
 }
 
 .secondary-action:hover,
@@ -910,7 +908,6 @@ button.secondary-action:hover {
     border-color: var(--rw-accent);
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--rw-accent) 20%, transparent);
     color: var(--rw-text-strong);
-    transform: translateY(-1px);
 }
 
 .danger-action:hover,
@@ -919,11 +916,10 @@ button.danger-action:hover {
     border-color: color-mix(in srgb, var(--rw-error) 72%, var(--rw-text-strong));
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--rw-error) 25%, transparent);
     color: var(--rw-text-strong);
-    transform: translateY(-1px);
 }
 
 .markdown-view {
-    background: color-mix(in srgb, var(--rw-page-bg) 72%, black);
+    background: var(--rw-page-bg);
     border: 1px solid var(--rw-border);
     border-radius: var(--rw-radius-card);
     line-height: 1.65;
@@ -967,7 +963,7 @@ button.danger-action:hover {
 
 .metadata-section {
     display: grid;
-    gap: 18px;
+    gap: 1rem;
     margin-top: 12px;
 }
 
@@ -1027,7 +1023,7 @@ button.danger-action:disabled {
     overflow: hidden;
     border: 1px solid var(--rw-border);
     border-radius: var(--rw-radius-panel);
-    background: color-mix(in srgb, var(--rw-page-bg) 72%, black);
+    background: var(--rw-page-bg);
     box-shadow: inset 0 1px 0 color-mix(in srgb, var(--rw-text) 7%, transparent);
 }
 
@@ -1035,13 +1031,13 @@ button.danger-action:disabled {
     min-height: 65vh;
     height: min(72vh, 56rem);
     width: 100%;
-    background: color-mix(in srgb, var(--rw-page-bg) 72%, black) !important;
+    background: var(--rw-page-bg) !important;
     color: var(--rw-text) !important;
     font-size: 0.95rem;
 }
 
 .codemirror-shell .cm-scroller {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    font-family: var(--rw-font-mono);
     overflow: auto;
 }
 
@@ -1156,7 +1152,7 @@ button.danger-action:disabled {
 }
 
 .rw-dialog-backdrop {
-    background: color-mix(in srgb, var(--rw-page-bg) 72%, black);
+    background: var(--rw-page-bg);
     inset: 0;
     position: fixed;
     z-index: 50;
@@ -1176,7 +1172,7 @@ button.danger-action:disabled {
     background: var(--rw-surface-raised);
     border: 1px solid var(--rw-border);
     border-radius: var(--rw-radius-panel);
-    box-shadow: 0 24px 70px #0008;
+    box-shadow: none;
     color: var(--rw-text);
     display: grid;
     gap: 1rem;
@@ -1485,5 +1481,11 @@ button.danger-action:disabled {
 
 .rw-toolbar-button-primary {
     background: var(--rw-accent);
-    color: var(--rw-page-bg);
+    color: var(--rw-on-accent);
+}
+
+.rw-toolbar-button-primary:hover:not(:disabled),
+.rw-toolbar-button-primary:focus-visible:not(:disabled) {
+    background: var(--rw-accent-strong);
+    color: var(--rw-on-accent-strong);
 }

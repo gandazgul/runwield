@@ -110,3 +110,25 @@ Deno.test("installTerminalFocusState suppresses empty focus-only reports", () =>
 
     assertEquals(inputs, []);
 });
+
+Deno.test("terminal focus requests recovery only on gaining focus and preserves accompanying input", () => {
+    const terminal = new FocusTestTerminal();
+    let focusEvents = 0;
+    const owner = installTerminalFocusState(terminal, () => focusEvents++);
+    const inputs: string[] = [];
+    try {
+        terminal.start((data) => inputs.push(data));
+        terminal.input("\x1b[");
+        assertEquals(focusEvents, 0);
+        terminal.input("Ihello");
+        terminal.input("\x1b[I");
+        assertEquals(focusEvents, 1);
+        terminal.input("\x1b[O");
+        assertEquals(focusEvents, 1);
+        terminal.input("\x1b[I");
+        assertEquals(focusEvents, 2);
+        assertEquals(inputs, ["hello"]);
+    } finally {
+        owner.dispose();
+    }
+});

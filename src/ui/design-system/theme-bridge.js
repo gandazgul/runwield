@@ -1,115 +1,19 @@
-/**
- * @module ui/design-system/theme-bridge
- * Converts the active RunWield TUI theme into browser CSS variables.
- */
+/** Browser theme CSS and aliases for shared review components. */
+import { DARK_BROWSER_THEME } from "./themes/dark.ts";
 
 /**
- * @typedef {Object} RunWieldBrowserThemeJson
- * @property {string} [name]
- * @property {Record<string, string | number>} [vars]
- * @property {Record<string, string | number>} [colors]
- * @property {Record<string, string | number>} [export]
- */
-
-/**
- * @typedef {Object} ThemeTokenMapping
- * @property {string} css
- * @property {"vars" | "colors" | "export"} source
- * @property {string} token
- */
-
-/** @type {ThemeTokenMapping[]} */
-const RUNWIELD_BROWSER_THEME_TOKEN_MAP = [
-    { css: "--rw-page-bg", source: "export", token: "pageBg" },
-    { css: "--rw-surface", source: "export", token: "cardBg" },
-    { css: "--rw-surface-raised", source: "export", token: "infoBg" },
-    { css: "--rw-surface-muted", source: "colors", token: "selectedBg" },
-    { css: "--rw-surface-strong", source: "colors", token: "customMessageBg" },
-    { css: "--rw-text", source: "vars", token: "text" },
-    { css: "--rw-text-strong", source: "vars", token: "text" },
-    { css: "--rw-text-muted", source: "vars", token: "subtext1" },
-    { css: "--rw-text-dim", source: "vars", token: "overlay1" },
-    { css: "--rw-accent", source: "colors", token: "accent" },
-    { css: "--rw-accent-strong", source: "colors", token: "borderAccent" },
-    { css: "--rw-accent-text", source: "colors", token: "mdHeading" },
-    { css: "--rw-border", source: "colors", token: "borderMuted" },
-    { css: "--rw-border-strong", source: "colors", token: "border" },
-    { css: "--rw-success", source: "colors", token: "success" },
-    { css: "--rw-error", source: "colors", token: "error" },
-    { css: "--rw-warning", source: "colors", token: "warning" },
-    { css: "--rw-complexity-low", source: "colors", token: "success" },
-    { css: "--rw-complexity-medium", source: "colors", token: "warning" },
-    { css: "--rw-complexity-high", source: "colors", token: "error" },
-    { css: "--rw-code", source: "colors", token: "mdCode" },
-];
-
-/**
- * @param {string | undefined} value
- * @returns {string | undefined}
- */
-function cssColor(value) {
-    if (typeof value !== "string") return undefined;
-    const trimmed = value.trim();
-    if (/^#[0-9a-fA-F]{3,8}$/.test(trimmed)) return trimmed;
-    return undefined;
-}
-
-/**
- * @param {string | number | undefined} value
- * @param {RunWieldBrowserThemeJson} themeJson
- * @param {Set<string>} [visited]
- * @returns {string | undefined}
- */
-function resolveThemeColor(value, themeJson, visited = new Set()) {
-    if (typeof value !== "string") return undefined;
-    const trimmed = value.trim();
-    if (trimmed === "") return undefined;
-    if (/^#[0-9a-fA-F]{3,8}$/.test(trimmed)) return trimmed;
-    if (visited.has(trimmed)) return undefined;
-    visited.add(trimmed);
-
-    const vars = themeJson.vars || {};
-    if (Object.hasOwn(vars, trimmed)) {
-        return resolveThemeColor(vars[trimmed], themeJson, visited);
-    }
-
-    const colors = themeJson.colors || {};
-    if (Object.hasOwn(colors, trimmed)) {
-        return resolveThemeColor(colors[trimmed], themeJson, visited);
-    }
-
-    const exports = themeJson.export || {};
-    if (Object.hasOwn(exports, trimmed)) {
-        return resolveThemeColor(exports[trimmed], themeJson, visited);
-    }
-
-    return undefined;
-}
-
-/**
- * @param {string | undefined} name
+ * Render a browser-owned theme. Callers can supply another token set without
+ * changing component CSS or reading TUI settings.
+ * @param {import("./themes/dark.ts").BrowserTheme} [theme]
  * @returns {string}
  */
-function cssString(name) {
-    return (name || "default").replaceAll("\\", "\\\\").replaceAll('"', '\\"');
-}
-
-/**
- * @param {RunWieldBrowserThemeJson} themeJson
- * @returns {string}
- */
-export function renderRunWieldThemeCss(themeJson) {
+export function renderRunWieldThemeCss(theme = DARK_BROWSER_THEME) {
     const lines = [
         ":root {",
-        `    --rw-theme-name: "${cssString(themeJson.name)}";`,
+        `    --rw-theme-name: ${JSON.stringify(theme.name)};`,
+        `    color-scheme: ${theme.colorScheme};`,
+        ...Object.entries(theme.colors).map(([token, value]) => `    ${token}: ${value};`),
     ];
-
-    for (const mapping of RUNWIELD_BROWSER_THEME_TOKEN_MAP) {
-        const source = themeJson[mapping.source] || {};
-        const color = resolveThemeColor(source[mapping.token], themeJson);
-        const cssValue = cssColor(color);
-        if (cssValue) lines.push(`    ${mapping.css}: ${cssValue};`);
-    }
 
     lines.push("    --rw-radix-popover-bg: var(--rw-surface-raised);");
     lines.push("    --rw-radix-focus-ring: var(--rw-accent);");
@@ -126,36 +30,28 @@ export function renderRunWieldThemeCss(themeJson) {
     lines.push("    --popover: var(--rw-surface-raised);");
     lines.push("    --popover-foreground: var(--rw-text);");
     lines.push("    --primary: var(--rw-accent);");
-    lines.push("    --primary-foreground: var(--rw-page-bg);");
+    lines.push("    --primary-foreground: var(--rw-on-accent);");
     lines.push("    --secondary: var(--rw-accent-strong);");
-    lines.push("    --secondary-foreground: var(--rw-page-bg);");
+    lines.push("    --secondary-foreground: var(--rw-on-accent-strong);");
     lines.push("    --muted: var(--rw-surface-muted);");
     lines.push("    --muted-foreground: var(--rw-text-muted);");
     lines.push("    --accent: var(--rw-accent);");
-    lines.push("    --accent-foreground: var(--rw-page-bg);");
+    lines.push("    --accent-foreground: var(--rw-on-accent);");
     lines.push("    --destructive: var(--rw-error);");
-    lines.push("    --destructive-foreground: var(--rw-text-strong);");
+    lines.push("    --destructive-foreground: var(--rw-on-error);");
     lines.push("    --success: var(--rw-success);");
-    lines.push("    --success-foreground: var(--rw-page-bg);");
+    lines.push("    --success-foreground: var(--rw-on-success);");
     lines.push("    --warning: var(--rw-warning);");
-    lines.push("    --warning-foreground: var(--rw-page-bg);");
+    lines.push("    --warning-foreground: var(--rw-on-warning);");
     lines.push("    --border: var(--rw-border);");
     lines.push("    --input: var(--rw-surface-muted);");
     lines.push("    --ring: var(--rw-accent);");
     lines.push("    --code-bg: var(--rw-surface-raised);");
     lines.push("    --focus-highlight: color-mix(in srgb, var(--rw-accent) 28%, transparent);");
-    lines.push("    --font-sans: Inter, ui-sans-serif, system-ui, sans-serif;");
-    lines.push("    --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;");
-    lines.push("    --radius: 0.5rem;");
+    lines.push("    --font-sans: var(--rw-font-sans);");
+    lines.push("    --font-mono: var(--rw-font-mono);");
+    lines.push("    --radius: var(--rw-radius-panel);");
     lines.push("}");
     lines.push("");
     return lines.join("\n");
-}
-
-/**
- * @returns {Promise<string>}
- */
-export async function loadRunWieldThemeCss() {
-    const { resolveSelectedThemeJson } = await import("../theme/theme.js");
-    return renderRunWieldThemeCss(await resolveSelectedThemeJson());
 }

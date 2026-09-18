@@ -98,6 +98,13 @@ links, advertised slash commands, and structured questions. ACP executes all sha
 `/theme`, `/quit`, `/exit`, `/new`, `/resume`, and `/login`. A bare `/agent` opens Agent selection and is never routed
 as a model request. Compatibility documentation must clearly state the capabilities actually available.
 
+**Requirement: Select models through the client's native controls.**
+
+New and loaded ACP Sessions expose the available models and active selection through standard `configOptions`.
+`session/set_config_option` applies a model choice to the same Session without making a model request or changing
+defaults for future Sessions. Model changes from shared commands or Agent changes keep the client selection current.
+After a provider failure settles, the user can select an available alternative and continue the conversation.
+
 Shared requirements: [Core Session continuity](runwield-core-prd.md#session-continuity),
 [Plan review](runwield-core-prd.md#plan-review), and
 [execution and recovery](runwield-core-prd.md#execution-validation-and-recovery). ACP adapts these outcomes rather than
@@ -111,6 +118,10 @@ defining another lifecycle.
   create another conversation.
 - When a client receives Plan links without RunWield-specific presentation metadata, the ordinary text links remain
   usable.
+- Given a new or reloaded Session in Discord through OpenAB, `/models` presents model choices and the current model.
+  Selecting a model makes the next message use it in that same conversation, including after a provider limit error.
+- An invalid model choice or a choice submitted during an active turn fails visibly without changing the model.
+- When `/model` or an Agent switch changes the active model, the client receives the updated selection.
 
 <a id="63-acp-compatibility-requirements"></a>
 
