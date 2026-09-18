@@ -34,6 +34,11 @@ export interface PlanningWorktreeResult {
     reused: boolean;
 }
 
+interface PlanningPlanAttributes {
+    planId?: string;
+    targetBranch?: string;
+}
+
 async function pathExists(path: string): Promise<boolean> {
     try {
         await Deno.stat(path);
@@ -44,7 +49,7 @@ async function pathExists(path: string): Promise<boolean> {
     }
 }
 
-function targetBranchForPlan(attrs: Record<string, unknown>): string {
+function targetBranchForPlan(attrs: PlanningPlanAttributes): string {
     const targetBranch = typeof attrs.targetBranch === "string" ? attrs.targetBranch.trim() : "";
     if (!targetBranch) throw new Error("Epic child planning requires a targetBranch.");
     return targetBranch;
@@ -232,7 +237,7 @@ export async function findTargetBranchPlansByParent(cwd: string, targetBranch: s
 export async function preparePlanningWorktreeForPlan(
     cwd: string,
     planName: string,
-    planAttrs: Record<string, unknown>,
+    planAttrs: PlanningPlanAttributes,
 ): Promise<PlanningWorktreeResult> {
     const projectRoot = resolvePrimaryCheckoutRoot(cwd);
     const planId = typeof planAttrs.planId === "string" ? planAttrs.planId.trim() : "";

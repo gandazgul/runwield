@@ -561,7 +561,7 @@ async function collectArchivedPlanParseIssues(
     planIds: Map<string, string>,
 ) {
     const archivedRoot = join(getPlansDir(projectRoot), "archived");
-    const plans: Array<{ name: string; attrs: Record<string, unknown> }> = [];
+    const plans: Parameters<typeof collectPlanAttributeIssues>[0][] = [];
 
     async function visit(prefix: string[]) {
         try {

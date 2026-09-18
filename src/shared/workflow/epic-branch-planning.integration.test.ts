@@ -13,7 +13,10 @@ import { resolveEpicContinuation } from "./epic-continuation.ts";
 import { resolveWorkflowPlanLocation } from "./plan-location.ts";
 import { preparePlanningWorktreeForPlan } from "./planning-worktree.ts";
 
-async function writePlan(cwd: string, name: string, attrs: Record<string, unknown>, body: string) {
+type PlanFixtureAttribute = string | number | boolean | string[];
+type PlanFixtureAttributes = Record<string, PlanFixtureAttribute>;
+
+async function writePlan(cwd: string, name: string, attrs: PlanFixtureAttributes, body: string) {
     const path = join(cwd, "docs", "plans", `${name}.md`);
     await Deno.mkdir(dirname(path), { recursive: true });
     const lines = ["---"];

@@ -70,7 +70,7 @@ Deno.test("Project Runtime Entry reconciles gitignore and reports broad wld rule
         const warnings: string[] = [];
         try {
             Deno.env.delete("WLD_TEST_SANDBOX_HOME");
-            console.warn = (message?: unknown) => warnings.push(String(message));
+            console.warn = (message) => warnings.push(String(message));
             await Deno.writeTextFile(join(projectRoot, ".gitignore"), ".wld/\n.wld/plan-locks\n");
 
             await enterProjectRuntime(projectRoot);

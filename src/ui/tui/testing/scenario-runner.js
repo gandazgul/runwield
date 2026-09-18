@@ -778,7 +778,7 @@ async function runComposedTuiScenario(scenario, options) {
         }
         // Runtime entry is startup state, not a scenario mutation. Complete it
         // before concurrent UI reads begin and before the project baseline is saved.
-        await enterProjectRuntime(Deno.cwd());
+        await enterProjectRuntime(getCwd());
         const projectSnapshotBefore = await snapshotProjectRoot(Deno.cwd());
         const fauxProvider = scenario.modelSetup === "none" || scenario.modelSetup === "provider-without-models"
             ? null

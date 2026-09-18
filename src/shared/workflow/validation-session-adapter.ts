@@ -338,7 +338,7 @@ async function runIsolatedRequest(
         ...(request.images ? { images: request.images } : {}),
         cwd: request.cwd,
         subAgentDefinition: { id: SUBAGENTS.REVIEWER_FEEDBACK_ENGINEER },
-        customTools: withPairRepairTools(hostedSession, request.customTools as unknown as ToolDefinition[]),
+        customTools: withPairRepairTools(hostedSession, bindReviewDiffTools(hostedSession, request.customTools)),
         sessionManager: repairManager,
     }, "task_completed");
     const report = await acceptedRepairOutcome(hostedSession, event);
