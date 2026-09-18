@@ -391,7 +391,9 @@ jobs:
                   path: release-upload
 
             - name: Register Homebrew dependency tap
-              run: brew tap 1broseidon/tap
+              run: |
+                  brew tap 1broseidon/tap
+                  brew trust --formula 1broseidon/tap/cymbal 1broseidon/tap/ketch
 
             - name: Validate Homebrew before publication
               env:
@@ -587,7 +589,9 @@ jobs:
                     --output homebrew-tap
 
             - name: Register Homebrew dependency tap
-              run: brew tap 1broseidon/tap
+              run: |
+                  brew tap 1broseidon/tap
+                  brew trust --formula 1broseidon/tap/cymbal 1broseidon/tap/ketch
 
             - name: Validate Homebrew tap
               run: deno task package:homebrew:check --tap homebrew-tap
