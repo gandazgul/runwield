@@ -58,9 +58,8 @@ Interactive RunWield sessions expect these helper binaries in `PATH`:
 
 The shell installer is the normal standalone recovery path for missing helper binaries. Package-managed installs should
 be repaired with their package manager instead. The prepared Homebrew formula uses `gandazgul/tap/mnemoteca`,
-`1broseidon/tap/cymbal`, `1broseidon/tap/ketch`, `agent-browser`, and `git`; it does not run helper setup during formula
-installation. RunWield also ships bundled Snip filters for Deno validation output; install or remove user-level copies
-with:
+`1broseidon/tap/cymbal`, `ketch`, `agent-browser`, and `git`; it does not run helper setup during formula installation.
+RunWield also ships bundled Snip filters for Deno validation output; install or remove user-level copies with:
 
 ```bash
 wld snip-filters install

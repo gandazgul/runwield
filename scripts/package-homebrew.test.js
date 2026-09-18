@@ -106,6 +106,8 @@ Deno.test("package:homebrew renders formulas from verified immutable assets", as
         const mnemoteca = await Deno.readTextFile(join(output, "Formula", "mnemoteca.rb"));
         assertStringIncludes(wld, "class Wld < Formula");
         assertStringIncludes(wld, 'depends_on "gandazgul/tap/mnemoteca"');
+        assertStringIncludes(wld, 'depends_on "ketch"');
+        assertEquals(wld.includes("1broseidon/tap/ketch"), false);
         assertStringIncludes(wld, "runwield-install.json");
         assertStringIncludes(wld, "brew upgrade gandazgul/tap/wld");
         assertStringIncludes(wld, "license :cannot_represent");

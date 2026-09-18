@@ -186,12 +186,13 @@ for (const jobName of ["homebrew-check", "homebrew-package"]) {
         const end = nextJob < 0 ? -1 : start + 1 + nextJob;
         const job = workflow.slice(start, end < 0 ? undefined : end);
         const tapIndex = job.indexOf("brew tap 1broseidon/tap");
-        const trustIndex = job.indexOf("brew trust --formula 1broseidon/tap/cymbal 1broseidon/tap/ketch");
+        const trustIndex = job.indexOf("brew trust --formula 1broseidon/tap/cymbal\n");
         const checkIndex = job.indexOf("deno task package:homebrew:check");
         assertEquals(tapIndex >= 0, true);
-        assertEquals(trustIndex > tapIndex, true, "Trust both dependency formulas after registering their tap");
+        assertEquals(trustIndex > tapIndex, true, "Trust Cymbal after registering its tap");
         assertEquals(checkIndex > trustIndex, true);
         assertEquals(job.includes("brew trust 1broseidon/tap"), false);
+        assertEquals(job.includes("1broseidon/tap/ketch"), false);
         assertEquals(workflow.includes("HOMEBREW_NO_REQUIRE_TAP_TRUST"), false);
     });
 }

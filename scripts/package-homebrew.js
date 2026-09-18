@@ -225,7 +225,7 @@ class Wld < Formula
   end
 
   depends_on "1broseidon/tap/cymbal"
-  depends_on "1broseidon/tap/ketch"
+  depends_on "ketch"
   depends_on "agent-browser"
   depends_on "gandazgul/tap/mnemoteca"
   depends_on "git"

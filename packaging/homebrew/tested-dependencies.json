@@ -20,7 +20,7 @@
             "testedVersion": "v0.7.7"
         },
         "ketch": {
-            "formula": "1broseidon/tap/ketch",
+            "formula": "ketch",
             "testedVersion": "v0.8.3"
         },
         "agentBrowser": {

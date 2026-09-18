@@ -798,7 +798,7 @@ Homebrew requirements:
 
 - provide `gandazgul/tap/wld` for macOS Apple Silicon and Intel
 - provide independent `gandazgul/tap/mnemoteca`
-- use package dependencies for Mnemoteca, Cymbal, Ketch, agent-browser, and Git
+- use package dependencies for Mnemoteca, Cymbal, Ketch (from Homebrew Core), agent-browser, and Git
 - keep Mnemoteca model setup and browser setup as first-use actions
 - store package-owner metadata beside the installed executable
 - make `wld update` and `wld upgrade` print the package-manager command for package-managed installs
@@ -819,6 +819,8 @@ Windows WinGet requirements:
 
 **Acceptance scenarios:**
 
+- Given a new Homebrew install, when dependencies resolve, Ketch comes from Homebrew Core without the retired
+  `1broseidon/tap/ketch` formula. Native package checks must pass before publication.
 - Given a Homebrew-owned `wld`, when the user runs `wld update`, RunWield prints `brew upgrade gandazgul/tap/wld` and
   does not run the shell installer.
 - Given a WinGet-owned `wld`, when the user runs `wld update`, RunWield prints

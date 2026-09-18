@@ -30,7 +30,7 @@ The generated `wld` formula depends on:
 
 - `gandazgul/tap/mnemoteca`
 - `1broseidon/tap/cymbal`
-- `1broseidon/tap/ketch`
+- `ketch`
 - `agent-browser`
 - `git`
 
