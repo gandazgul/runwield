@@ -45,6 +45,7 @@
  * npm:vite on every run — a large registry download on cold caches. The type
  * gate is `deno task check`, not these sandboxed executions.
  */
+import { retainTestEvidence } from "./retain-test-evidence.js";
 import { basename, dirname, fromFileUrl, join, relative, resolve } from "@std/path";
 import { listCiFiles } from "./ci-files.ts";
 import { runWithSnip, writeSnipCommandResult } from "./run-with-snip.ts";
@@ -344,6 +345,11 @@ try {
         exitCode = await runIsolatedSuite(sandboxRoot, denoDir, [REPO_ROOT], excludedPaths);
     }
 } finally {
+    if (exitCode !== 0) {
+        const destination = `${sandboxRoot}-evidence`;
+        await retainTestEvidence(sandboxRoot, destination);
+        console.error(`Retained test evidence: ${destination}`);
+    }
     await Deno.remove(sandboxRoot, { recursive: true }).catch(() => {});
 }
 

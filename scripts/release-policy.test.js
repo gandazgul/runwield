@@ -66,15 +66,18 @@ Deno.test("release workflow keeps tag publication and manual recovery channel-sa
     assertStringIncludes(workflow, "prerelease: ${{ needs.metadata.outputs.prerelease }}");
     assertStringIncludes(workflow, "make_latest: ${{ needs.metadata.outputs.make_latest }}");
     assertStringIncludes(workflow, "preserve_order: true");
-    assertStringIncludes(workflow, "overwrite_files: true");
+    assertStringIncludes(workflow, "overwrite_files: false");
     assertStringIncludes(workflow, "config.schema.json");
-    assertStringIncludes(workflow, "release-artifacts/**/*.sha256");
-    assertStringIncludes(workflow, "release-artifacts/SHA256SUMS");
+    assertStringIncludes(workflow, "release-upload/*");
+    assertStringIncludes(workflow, "scripts/release-assets.js");
     assertStringIncludes(workflow, "wld-${VERSION}-${{ matrix.asset_suffix }}");
 
     const policy = await Deno.readTextFile("docs/releasing.md");
     assertStringIncludes(policy, "required-tag manual dispatch solely for recovery");
-    assertMatch(policy, /Never use manual recovery to bypass a genuine failure in tagged product\s+source/);
+    assertStringIncludes(
+        policy.replace(/\s+/g, " "),
+        "Never use manual recovery to bypass a genuine failure in tagged product source",
+    );
 });
 
 Deno.test("Stable releases submit generated WinGet manifests without exposing the token as an argument", async () => {
@@ -89,7 +92,7 @@ Deno.test("Stable releases submit generated WinGet manifests without exposing th
         workflow,
         "ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || needs.metadata.outputs.tag }}",
     );
-    assertStringIncludes(submitJob, "if: needs.metadata.outputs.kind == 'stable'");
+    assertStringIncludes(submitJob, "needs.metadata.outputs.kind == 'stable'");
     assertStringIncludes(submitJob, "- winget-package");
     assertStringIncludes(submitJob, "WINGET_CREATE_GITHUB_TOKEN: ${{ secrets.WINGET_CREATE_GITHUB_TOKEN }}");
     assertStringIncludes(submitJob, "wingetcreate.exe");
@@ -109,7 +112,7 @@ Deno.test("Stable releases validate on macOS before publishing the Homebrew tap"
 
     assertEquals(jobStart >= 0, true);
     assertStringIncludes(job, "runs-on: macos-14");
-    assertStringIncludes(job, "if: needs.metadata.outputs.kind == 'stable'");
+    assertStringIncludes(job, "needs.metadata.outputs.kind == 'stable'");
     assertStringIncludes(job, "repository: gandazgul/homebrew-tap");
     assertStringIncludes(job, "token: ${{ secrets.HOMEBREW_TAP_TOKEN }}");
     assertStringIncludes(job, "HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}");
@@ -154,4 +157,22 @@ Deno.test("release CLI publishes tags without owning qualification or host relea
 Deno.test("README links to wld release policy", async () => {
     const readme = await Deno.readTextFile(new URL("../README.md", import.meta.url));
     assertStringIncludes(readme, "[releasing](docs/releasing.md)");
+});
+
+Deno.test("release publication waits for Candidate and Stable Homebrew checks", async () => {
+    const workflow = await Deno.readTextFile(".github/workflows/release.yml");
+    const release = workflow.slice(workflow.indexOf("    release:"), workflow.indexOf("    winget-package:"));
+    assertStringIncludes(release, "- homebrew-check");
+    const check = workflow.slice(workflow.indexOf("    homebrew-check:"), workflow.indexOf("    release:"));
+    assertEquals(check.split("        steps:")[0].includes("kind == 'stable'"), false);
+    assertStringIncludes(check, "--test-only");
+    assertStringIncludes(check, "brew tap 1broseidon/tap");
+});
+
+Deno.test("published recovery skips builds and verifies existing bytes before packaging", async () => {
+    const workflow = await Deno.readTextFile(".github/workflows/release.yml");
+    assertStringIncludes(workflow, "if: needs.metadata.outputs.published != 'true'");
+    assertStringIncludes(workflow, 'gh release download "$RELEASE_TAG"');
+    assertStringIncludes(workflow, 'release-upload "$RELEASE_TAG" published');
+    assertStringIncludes(workflow, "Retain release qualification failure evidence");
 });

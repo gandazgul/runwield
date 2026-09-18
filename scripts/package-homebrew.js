@@ -357,7 +357,9 @@ export async function packageHomebrew(options) {
     if (!options.testOnly && (options.wldBaseUrl || options.mnemotecaBaseUrl)) {
         throw new Error("Base URL overrides require --test-only.");
     }
-    const wldTag = options.wldTag ? assertStableTag(options.wldTag) : null;
+    const wldTag = options.wldTag
+        ? (options.testOnly ? parseReleaseTag(options.wldTag) : assertStableTag(options.wldTag))
+        : null;
     const mnemotecaTag = assertStableTag(options.mnemotecaTag);
     const inputs = /** @type {HomebrewInputs} */ (JSON.parse(await Deno.readTextFile(options.inputsPath)));
     validateInputs(inputs, mnemotecaTag.tag);

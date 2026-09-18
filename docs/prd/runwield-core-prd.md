@@ -774,6 +774,20 @@ Candidate.
 - Given a tested Candidate and a Release Branch that has advanced, when the maintainer promotes that Candidate, Stable
   uses the tested Candidate commit rather than the newer branch tip.
 
+**Requirement: Qualify release packages before publication and preserve published bytes.**
+
+Candidate and Stable releases must pass native Windows and macOS Homebrew package checks before GitHub publication.
+Candidate checks must not update Stable package channels. A packaging recovery must keep the released tag and asset
+bytes unchanged, verify the existing asset set, and resume package publication without rebuilding published binaries.
+Missing or inconsistent release assets must stop publication rather than cause a silent replacement.
+
+**Acceptance scenarios:**
+
+- Given a package check fails for a new Candidate or Stable, no GitHub Release is created.
+- Given Stable assets are published but tap publication fails, recovery verifies and reuses those assets and leaves the
+  tag unchanged.
+- Given duplicate asset names, missing required assets, or checksum disagreement, publication stops before upload.
+
 **Requirement: Install required local runtime pieces without hiding package ownership.**
 
 Users can install RunWield as a standalone binary with the shell installer or, after owner publication, with the

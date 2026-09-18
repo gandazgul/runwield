@@ -122,25 +122,51 @@ Deno.test("package:homebrew renders formulas from verified immutable assets", as
     }
 });
 
-Deno.test("package:homebrew rejects RC tags before emitting output", async () => {
+Deno.test("package:homebrew rejects publishable RC tags before emitting output", async () => {
     const fixture = await makeReleaseFixture();
     try {
-        const output = join(fixture.root, "tap");
         await assertRejects(
             () =>
                 packageHomebrew({
                     wldTag: "v1.2.3-rc.1",
                     mnemotecaTag: "v0.3.1",
-                    output,
+                    output: join(fixture.root, "tap"),
                     inputsPath: fixture.inputsPath,
-                    wldBaseUrl: fixture.baseUrl,
-                    mnemotecaBaseUrl: fixture.baseUrl,
-                    testOnly: true,
+                    testOnly: false,
                 }),
             Error,
             "Stable tag",
         );
-        await assertRejects(() => Deno.stat(output), Deno.errors.NotFound);
+    } finally {
+        await fixture.close();
+    }
+});
+
+Deno.test("package:homebrew validates Candidate bytes only as test output", async () => {
+    const fixture = await makeReleaseFixture();
+    try {
+        for (const arch of ["darwin-arm64", "darwin-x64"]) {
+            const oldName = `wld-v1.2.3-${arch}.tar.gz`;
+            const name = `wld-v1.2.3-rc.1-${arch}.tar.gz`;
+            await Deno.copyFile(join(fixture.root, oldName), join(fixture.root, name));
+            await Deno.writeTextFile(
+                join(fixture.root, `${name}.sha256`),
+                (await Deno.readTextFile(join(fixture.root, `${oldName}.sha256`))).replace(oldName, name),
+            );
+        }
+        const output = join(fixture.root, "tap");
+        await packageHomebrew({
+            wldTag: "v1.2.3-rc.1",
+            mnemotecaTag: "v0.3.1",
+            output,
+            inputsPath: fixture.inputsPath,
+            testOnly: true,
+            wldBaseUrl: fixture.baseUrl,
+            mnemotecaBaseUrl: fixture.baseUrl,
+        });
+        const manifest = JSON.parse(await Deno.readTextFile(join(output, "runwield-homebrew-package.json")));
+        assertEquals(manifest.wldTag, "v1.2.3-rc.1");
+        assertEquals(manifest.testOnly, true);
     } finally {
         await fixture.close();
     }

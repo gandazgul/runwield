@@ -189,6 +189,9 @@ function isolatedPublicationScenario(
                 { type: "enter" },
                 ...(options.resumeRepair
                     ? [
+                        // A stable screen can precede /load-plan dispatch. Restart only after
+                        // the repair has run and the user has chosen to pause publication.
+                        { type: "waitForEvent", event: "runtime:interaction:select:selected", timeoutMs: 90000 },
                         { type: "waitForIdle", timeoutMs: 90000 },
                         { type: "restartTui" },
                         { type: "type", text: `/load-plan ${name}` },
@@ -204,6 +207,13 @@ function isolatedPublicationScenario(
             assertions: [
                 (result: PublicationState) => {
                     assertPublishedWithoutPrimaryMutation(result, deliveredText);
+                    if (options.resumeRepair) {
+                        assertEquals(
+                            result.state.scriptedInteractions?.map((entry) => entry.interaction?.value),
+                            ["validate", "stop", "validate"],
+                            "Expected publication to pause after repair, then resume after restarting the TUI.",
+                        );
+                    }
                     if (options.repairConflict) {
                         const text = `${result.scrollbackText || ""}\n${result.screenText || ""}`;
                         assert(!text.includes("Validation paused before it could finish"));

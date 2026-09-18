@@ -162,6 +162,12 @@ notes-editing rules. It does not create or use a Release Branch.
 The macOS Homebrew tap is published from immutable Stable release assets. Candidate releases never update Stable package
 output.
 
+Before creating a Candidate or Stable GitHub Release, the workflow validates the exact staged Windows ZIP and runs
+Homebrew audit, install, test, upgrade, uninstall, and ownership checks on macOS. Homebrew uses a temporary local asset
+server and test-only formulas; Candidate formulas are never published to the Stable tap. Stable credential checks also
+run before release creation. The upload set is flat, has unique expected names, and passes checksum validation. Root
+build files such as `package.json` are not release assets.
+
 After Stable asset publication succeeds, the release workflow:
 
 1. Renders the Homebrew formulas from the published release assets.
@@ -210,18 +216,23 @@ model downloads remain first-use per-user setup.
 ## GitHub workflow ownership
 
 The tag-triggered workflow owns release qualification, builds, GitHub release creation, asset upload, native Windows
-package checks, Stable-only Homebrew tap validation and publication, and Stable-only WinGet manifest rendering and
-submission. Local release commands validate release metadata, create and push tags, and monitor that workflow. They must
-not require local qualification and must not call `gh release create`, `gh release edit`, `glab release create`, or
-`glab release edit`.
+package checks, Candidate and Stable Homebrew validation, Stable-only tap publication, and Stable-only WinGet manifest
+rendering and submission. Local release commands validate release metadata, create and push tags, and monitor that
+workflow. They must not require local qualification and must not call `gh release create`, `gh release edit`,
+`glab release create`, or `glab release edit`.
 
 The workflow also exposes a required-tag manual dispatch solely for recovery when a tag cannot or should not be
 moved—for example, after its GitHub Release has made it immutable, or when a workflow-only fix on the default branch can
 safely retry the existing tagged source. In that mode, the source-quality job runs from the default-branch workflow
-revision containing the recovery fix, while metadata validation, release qualification, builds, and publication
-explicitly check out the existing tag. A retry replaces the complete asset set so archives and checksum files stay from
-the same build. Never use manual recovery to bypass a genuine failure in tagged product source. Once a GitHub Release
-exists, never move its tag to include a later fix.
+revision containing the recovery fix, while metadata validation, release qualification, builds, and publication use the
+existing tag. Recovery packaging tools come from the workflow revision, not from a changed product source. If a GitHub
+Release exists, recovery skips compilation and asset publication. It downloads the existing assets and checks their
+completeness, archive checksums, combined checksum file, and GitHub SHA-256 digests before resuming package checks and
+publication. It never replaces published files. Missing or inconsistent assets stop recovery for inspection; restore
+missing original bytes from retained build artifacts, not a new build. Legacy incidental assets are left intact but are
+not packaging inputs. If no Release exists, recovery builds and qualifies the tagged source normally. Never use manual
+recovery to bypass a genuine failure in tagged product source. Once a GitHub Release exists, never move its tag to
+include a later fix.
 
 After CI publishes a release, Operator edits the release notes from the curated temporary notes file. A release is not
 complete until this notes edit is verified. If assets are published but notes editing fails, report the release as
@@ -250,6 +261,10 @@ gh release edit <tag> --notes-file <notes-file>
 - **Candidate published but should not be promoted**: leave it as a prerelease and publish a later Candidate tag.
 - **Assets published but notes pending**: do not recreate the release. Retry the notes edit and verify the published
   notes.
+
+Golden qualification failures retain test logs and Golden diagnostic files as a workflow artifact. Recovery still uses
+the tagged test runner: older tags that delete their diagnostic files retain only the surviving failure logs. A timeout
+remains a failed gate; it does not trigger an automatic retry or a reduced check.
 
 ## Verification expectations
 
