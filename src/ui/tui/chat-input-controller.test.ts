@@ -167,6 +167,7 @@ async function installFakeClipboardCommands(projectRoot: string): Promise<Clipbo
             "#!/bin/sh",
             "echo Zml4dHVyZS1wbmc=",
             `touch "${imageReadMarkerPath}"`,
+            "sleep 0.1",
             "",
         ].join("\n"),
     );

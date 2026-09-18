@@ -38,6 +38,9 @@ import { requireOwnerProjectRoot, sessionBelongsToOwnerProject } from "./owner-p
 
 /** @typedef {"off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"} WorkspaceThinkingLevel */
 /** @typedef {{ name: string, firstMessage: string }} SessionListInfo */
+/** @typedef {{ operationId: string, status: string, runwieldSessionId: string | null, generation: number | null }} CreateSessionResult */
+/** @typedef {{ requestHash: string, settled: Promise<void> }} PendingCreateRequest */
+/** @typedef {(value?: void | PromiseLike<void>) => void} VoidResolver */
 /** @typedef {{ size: number, mtime: number | undefined, ctime: number | undefined, info: SessionListInfo }} SessionListInfoCacheEntry */
 /** @type {Map<string, SessionListInfoCacheEntry>} */
 const sessionListInfoCache = new Map();
@@ -279,6 +282,8 @@ export class WorkspaceSessionContinuationService {
         this.operationListeners = new Map();
         /** @type {Map<string, { requestHash: string, operationId: string }>} */
         this.createRequests = new Map();
+        /** @type {Map<string, PendingCreateRequest>} */
+        this.pendingCreateRequests = new Map();
         /** @type {Map<string, { cwd: string, baselineTree?: string }>} */
         this.codeReviewRefreshContexts = new Map();
     }
@@ -929,6 +934,7 @@ export class WorkspaceSessionContinuationService {
 
     /**
      * @param {{ deviceId?: string | null, projectId: string, requestId: string, text: string, images?: import("../../../shared/session/types.js").ImageAttachment[], agentName?: string, model?: string, provider?: string, thinkingLevel?: string }} options
+     * @returns {Promise<CreateSessionResult>}
      */
     async createSession(options) {
         if (!options.text?.trim() && !options.images?.length) throw new Error("A message or image is required.");
@@ -970,133 +976,161 @@ export class WorkspaceSessionContinuationService {
                 generation: operation?.generation ?? null,
             };
         }
-        let preparedSessionId = "";
-        let preparedModelOverride = "";
-        if ((options.images || []).length > 0) {
-            try {
-                const created = await this.runtime.createInteractiveSession({
-                    cwd: project.currentRoot,
-                    mode: "new",
-                    deferManagedActivationUntilAgentReady: true,
-                });
-                preparedSessionId = created.sessionId;
-                if (launch.model) {
-                    const modelResult = await this.runtime.reconfigureSessionModel(
-                        preparedSessionId,
-                        launch.model,
-                        launch.provider,
-                    );
-                    if (!modelResult?.ok) throw new Error("Selected model could not be applied.");
-                }
-                if (launch.thinkingLevel !== "default") {
-                    const thinkingLevel = /** @type {WorkspaceThinkingLevel} */ (launch.thinkingLevel);
-                    const thinkingResult = await this.runtime.setSessionThinkingLevel(preparedSessionId, thinkingLevel);
-                    if (!thinkingResult?.ok) throw new Error("Selected thinking level could not be applied.");
-                }
-                const preflight = await this.runtime.preflightUserTurnImages(preparedSessionId, {
-                    initialRequest: options.text,
-                    initialImages: options.images || [],
-                    agentName: launch.agentName,
-                });
-                if (!preflight.ok) throw new Error(preflight.message);
-                preparedModelOverride = "preparedModelOverride" in preflight
-                    ? preflight.preparedModelOverride || ""
-                    : "";
-            } catch (error) {
-                if (preparedSessionId) this.runtime.closeSessionWhenIdle(preparedSessionId);
-                throw error;
-            }
-        }
-        const repeated = this.createRequests.get(createKey);
-        if (repeated) {
-            if (preparedSessionId) this.runtime.closeSessionWhenIdle(preparedSessionId);
-            if (repeated.requestHash !== requestHash) {
+        const pending = this.pendingCreateRequests.get(createKey);
+        if (pending) {
+            if (pending.requestHash !== requestHash) {
                 throw new Error("Operation request id was reused with different input");
             }
-            const operation = this.operations.get(repeated.operationId);
-            return {
-                operationId: repeated.operationId,
-                status: operation?.status || "running",
-                runwieldSessionId: operation?.runwieldSessionId || null,
-                generation: operation?.generation ?? null,
-            };
+            await pending.settled;
+            return await this.createSession(options);
         }
-        const operationId = crypto.randomUUID();
-        this.createRequests.set(createKey, { requestHash, operationId });
-        this.setOperation(operationId, {
-            status: "running",
-            projectId: options.projectId,
-            events: [],
-            runwieldSessionId: null,
-        });
-        queueMicrotask(async () => {
-            let sessionId = preparedSessionId;
-            let unsubscribe = () => {};
-            try {
-                if (!sessionId) {
+        /** @type {VoidResolver} */
+        let releasePending = () => {};
+        const reservation = {
+            requestHash,
+            settled: new Promise((resolve) => {
+                releasePending = resolve;
+            }),
+        };
+        this.pendingCreateRequests.set(createKey, reservation);
+        try {
+            let preparedSessionId = "";
+            let preparedModelOverride = "";
+            if ((options.images || []).length > 0) {
+                try {
                     const created = await this.runtime.createInteractiveSession({
                         cwd: project.currentRoot,
                         mode: "new",
                         deferManagedActivationUntilAgentReady: true,
                     });
-                    sessionId = created.sessionId;
-                }
-                this.setOperation(operationId, {
-                    ...(this.operations.get(operationId) || { projectId: options.projectId, events: [] }),
-                    status: "running",
-                    runtimeSessionId: sessionId,
-                    runwieldSessionId: this.runtime.getSessionSnapshot(sessionId)?.managed?.runwieldSessionId || null,
-                });
-                this.runtime.setInteractionAdapter(sessionId, this.createInteractionAdapter({ operationId }));
-                unsubscribe = this.runtime.subscribeSessionEvents(sessionId, (event) => {
-                    this.appendOperationEvent(operationId, event);
-                });
-                if (!preparedSessionId) {
+                    preparedSessionId = created.sessionId;
                     if (launch.model) {
-                        const modelResult = await applyUserModelSelection(
-                            this.runtime,
-                            sessionId,
+                        const modelResult = await this.runtime.reconfigureSessionModel(
+                            preparedSessionId,
                             launch.model,
                             launch.provider,
                         );
-                        if (!modelResult.ok) {
-                            throw new Error(modelResult.error || "Selected model could not be applied.");
-                        }
+                        if (!modelResult?.ok) throw new Error("Selected model could not be applied.");
                     }
                     if (launch.thinkingLevel !== "default") {
                         const thinkingLevel = /** @type {WorkspaceThinkingLevel} */ (launch.thinkingLevel);
-                        const thinkingResult = await this.runtime.setSessionThinkingLevel(sessionId, thinkingLevel);
+                        const thinkingResult = await this.runtime.setSessionThinkingLevel(
+                            preparedSessionId,
+                            thinkingLevel,
+                        );
                         if (!thinkingResult?.ok) throw new Error("Selected thinking level could not be applied.");
                     }
+                    const preflight = await this.runtime.preflightUserTurnImages(preparedSessionId, {
+                        initialRequest: options.text,
+                        initialImages: options.images || [],
+                        agentName: launch.agentName,
+                    });
+                    if (!preflight.ok) throw new Error(preflight.message);
+                    preparedModelOverride = "preparedModelOverride" in preflight
+                        ? preflight.preparedModelOverride || ""
+                        : "";
+                } catch (error) {
+                    if (preparedSessionId) this.runtime.closeSessionWhenIdle(preparedSessionId);
+                    throw error;
                 }
-                const result = await this.runtime.promptUserTurn(sessionId, {
-                    initialRequest: options.text,
-                    initialImages: options.images || [],
-                    agentName: launch.agentName,
-                    preparedModelOverride,
-                });
-                const snapshot = this.runtime.getSessionSnapshot(sessionId);
-                const runwieldSessionId = snapshot?.managed?.runwieldSessionId || null;
-                const generation = snapshot?.managed?.generation ?? (result.ok ? 1 : 0);
-                this.setOperation(operationId, {
-                    ...(this.operations.get(operationId) || { projectId: options.projectId, events: [] }),
-                    status: result.ok ? "completed" : "failed",
-                    generation,
-                    runwieldSessionId,
-                    error: result.error,
-                });
-            } catch (error) {
-                this.setOperation(operationId, {
-                    ...(this.operations.get(operationId) || { projectId: options.projectId, events: [] }),
-                    status: "failed",
-                    error: codeFromError(error),
-                });
-            } finally {
-                unsubscribe();
-                if (sessionId) this.runtime.closeSessionWhenIdle(sessionId);
             }
-        });
-        return { operationId, status: "running", runwieldSessionId: null, generation: null };
+            const repeated = this.createRequests.get(createKey);
+            if (repeated) {
+                if (preparedSessionId) this.runtime.closeSessionWhenIdle(preparedSessionId);
+                if (repeated.requestHash !== requestHash) {
+                    throw new Error("Operation request id was reused with different input");
+                }
+                const operation = this.operations.get(repeated.operationId);
+                return {
+                    operationId: repeated.operationId,
+                    status: operation?.status || "running",
+                    runwieldSessionId: operation?.runwieldSessionId || null,
+                    generation: operation?.generation ?? null,
+                };
+            }
+            const operationId = crypto.randomUUID();
+            this.createRequests.set(createKey, { requestHash, operationId });
+            this.setOperation(operationId, {
+                status: "running",
+                projectId: options.projectId,
+                events: [],
+                runwieldSessionId: null,
+            });
+            queueMicrotask(async () => {
+                let sessionId = preparedSessionId;
+                let unsubscribe = () => {};
+                try {
+                    if (!sessionId) {
+                        const created = await this.runtime.createInteractiveSession({
+                            cwd: project.currentRoot,
+                            mode: "new",
+                            deferManagedActivationUntilAgentReady: true,
+                        });
+                        sessionId = created.sessionId;
+                    }
+                    this.setOperation(operationId, {
+                        ...(this.operations.get(operationId) || { projectId: options.projectId, events: [] }),
+                        status: "running",
+                        runtimeSessionId: sessionId,
+                        runwieldSessionId: this.runtime.getSessionSnapshot(sessionId)?.managed?.runwieldSessionId ||
+                            null,
+                    });
+                    this.runtime.setInteractionAdapter(sessionId, this.createInteractionAdapter({ operationId }));
+                    unsubscribe = this.runtime.subscribeSessionEvents(sessionId, (event) => {
+                        this.appendOperationEvent(operationId, event);
+                    });
+                    if (!preparedSessionId) {
+                        if (launch.model) {
+                            const modelResult = await applyUserModelSelection(
+                                this.runtime,
+                                sessionId,
+                                launch.model,
+                                launch.provider,
+                            );
+                            if (!modelResult.ok) {
+                                throw new Error(modelResult.error || "Selected model could not be applied.");
+                            }
+                        }
+                        if (launch.thinkingLevel !== "default") {
+                            const thinkingLevel = /** @type {WorkspaceThinkingLevel} */ (launch.thinkingLevel);
+                            const thinkingResult = await this.runtime.setSessionThinkingLevel(sessionId, thinkingLevel);
+                            if (!thinkingResult?.ok) throw new Error("Selected thinking level could not be applied.");
+                        }
+                    }
+                    const result = await this.runtime.promptUserTurn(sessionId, {
+                        initialRequest: options.text,
+                        initialImages: options.images || [],
+                        agentName: launch.agentName,
+                        preparedModelOverride,
+                    });
+                    const snapshot = this.runtime.getSessionSnapshot(sessionId);
+                    const runwieldSessionId = snapshot?.managed?.runwieldSessionId || null;
+                    const generation = snapshot?.managed?.generation ?? (result.ok ? 1 : 0);
+                    this.setOperation(operationId, {
+                        ...(this.operations.get(operationId) || { projectId: options.projectId, events: [] }),
+                        status: result.ok ? "completed" : "failed",
+                        generation,
+                        runwieldSessionId,
+                        error: result.error,
+                    });
+                } catch (error) {
+                    this.setOperation(operationId, {
+                        ...(this.operations.get(operationId) || { projectId: options.projectId, events: [] }),
+                        status: "failed",
+                        error: codeFromError(error),
+                    });
+                } finally {
+                    unsubscribe();
+                    if (sessionId) this.runtime.closeSessionWhenIdle(sessionId);
+                }
+            });
+            return { operationId, status: "running", runwieldSessionId: null, generation: null };
+        } finally {
+            if (this.pendingCreateRequests.get(createKey) === reservation) {
+                this.pendingCreateRequests.delete(createKey);
+            }
+            releasePending();
+        }
     }
 
     /**
