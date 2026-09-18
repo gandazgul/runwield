@@ -1,7 +1,10 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
 
-Deno.test("package:homebrew:check registers a tap when brew reports a missing conventional path", async () => {
+// The command intentionally refuses to run off macOS.
+Deno.test("package:homebrew:check registers a tap when brew reports a missing conventional path", {
+    ignore: Deno.build.os !== "darwin",
+}, async () => {
     const root = await Deno.makeTempDir();
     const tap = join(root, "rendered-tap");
     const bin = join(root, "bin");
