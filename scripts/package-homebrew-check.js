@@ -27,9 +27,23 @@ function parseArgs(args) {
  * @param {string[]} args
  * @param {string} cwd
  * @param {boolean} allowFailure
+ * @param {boolean} capture
  */
-async function run(command, args, cwd, allowFailure = false) {
-    const child = new Deno.Command(command, { args, cwd, stdout: "piped", stderr: "piped" });
+async function run(command, args, cwd, allowFailure = false, capture = false) {
+    console.error(`$ ${command} ${args.join(" ")}`);
+    const child = new Deno.Command(command, {
+        args,
+        cwd,
+        stdout: capture ? "piped" : "inherit",
+        stderr: capture ? "piped" : "inherit",
+    });
+    if (!capture) {
+        const status = await child.spawn().status;
+        if (!status.success && !allowFailure) {
+            throw new Error(`${command} ${args.join(" ")} failed with exit code ${status.code}`);
+        }
+        return { success: status.success, stdout: "", stderr: "" };
+    }
     const output = await child.output();
     const stdout = new TextDecoder().decode(output.stdout);
     const stderr = new TextDecoder().decode(output.stderr);
@@ -44,7 +58,7 @@ async function ensureGitTap(tap) {
     const gitDir = await Deno.stat(`${tap}/.git`).then((stat) => stat.isDirectory).catch(() => false);
     if (!gitDir) await run("git", ["init"], tap);
     await run("git", ["add", "."], tap);
-    const status = await run("git", ["status", "--porcelain"], tap);
+    const status = await run("git", ["status", "--porcelain"], tap, false, true);
     if (!status.stdout.trim()) return;
     await run("git", [
         "-c",
@@ -62,7 +76,7 @@ async function ensureGitTap(tap) {
  * @param {string} tap
  */
 async function isCloneOfTap(existingPath, tap) {
-    const origin = await run("git", ["-C", existingPath, "config", "--get", "remote.origin.url"], tap, true);
+    const origin = await run("git", ["-C", existingPath, "config", "--get", "remote.origin.url"], tap, true, true);
     if (!origin.success) return false;
     const expected = `file://${resolve(tap)}`;
     return origin.stdout.trim() === expected ||
@@ -88,7 +102,7 @@ async function copyRenderedTapFiles(fromTap, toTap) {
 
 /** @param {string} tap */
 async function registeredTapPath(tap) {
-    const existing = await run("brew", ["--repo", TAP_NAME], tap, true);
+    const existing = await run("brew", ["--repo", TAP_NAME], tap, true, true);
     if (!existing.success) return "";
     const existingPath = resolve(existing.stdout.trim());
     const exists = await Deno.stat(existingPath).then((stat) => stat.isDirectory).catch((error) => {
@@ -114,7 +128,7 @@ async function readManifest(tap) {
  * @param {string} wldTag
  */
 async function assertInstalledRunWieldPackage(tap, wldTag) {
-    const prefix = (await run("brew", ["--prefix", "gandazgul/tap/wld"], tap)).stdout.trim();
+    const prefix = (await run("brew", ["--prefix", "gandazgul/tap/wld"], tap, false, true)).stdout.trim();
     const metadata = JSON.parse(await Deno.readTextFile(`${prefix}/libexec/runwield-install.json`));
     if (metadata.packageManager !== "homebrew" || metadata.packageIdentifier !== "gandazgul/tap/wld") {
         throw new Error("Installed RunWield artifact is missing Homebrew ownership metadata.");
@@ -123,7 +137,7 @@ async function assertInstalledRunWieldPackage(tap, wldTag) {
         throw new Error(`Installed RunWield metadata does not match ${wldTag}.`);
     }
     const executable = `${prefix}/bin/wld`;
-    const version = (await run(executable, ["--version"], tap)).stdout;
+    const version = (await run(executable, ["--version"], tap, false, true)).stdout;
     if (!version.includes(wldTag)) throw new Error(`Installed wld does not report ${wldTag}: ${version}`);
     return executable;
 }
@@ -134,7 +148,7 @@ async function assertInstalledRunWieldPackage(tap, wldTag) {
  */
 async function assertPackageUpdateAliases(tap, executable) {
     for (const alias of ["update", "upgrade"]) {
-        const output = await run(executable, [alias], tap);
+        const output = await run(executable, [alias], tap, false, true);
         if (!output.stdout.includes("brew upgrade gandazgul/tap/wld")) {
             throw new Error(`wld ${alias} did not report the Homebrew upgrade command.`);
         }

@@ -361,7 +361,8 @@ jobs:
 
     homebrew-check:
         if: ${{ !cancelled() && needs.assets.result == 'success' }}
-        runs-on: macos-14
+        runs-on: macos-15
+        timeout-minutes: 30
         needs: [metadata, assets]
         steps:
             - name: Checkout
@@ -554,7 +555,8 @@ jobs:
                   }
 
     homebrew-package:
-        runs-on: macos-14
+        runs-on: macos-15
+        timeout-minutes: 30
         if: ${{ !cancelled() && needs.release.result == 'success' && needs.metadata.outputs.kind == 'stable' }}
         needs:
             - metadata

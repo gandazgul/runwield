@@ -111,7 +111,7 @@ Deno.test("Stable releases validate on macOS before publishing the Homebrew tap"
     const pushIndex = job.indexOf("git push origin HEAD:main");
 
     assertEquals(jobStart >= 0, true);
-    assertStringIncludes(job, "runs-on: macos-14");
+    assertStringIncludes(job, "runs-on: macos-15");
     assertStringIncludes(job, "needs.metadata.outputs.kind == 'stable'");
     assertStringIncludes(job, "repository: gandazgul/homebrew-tap");
     assertStringIncludes(job, "token: ${{ secrets.HOMEBREW_TAP_TOKEN }}");
@@ -198,3 +198,12 @@ for (const jobName of ["homebrew-check", "homebrew-package"]) {
         assertEquals(workflow.includes("HOMEBREW_NO_REQUIRE_TAP_TRUST"), false);
     });
 }
+
+Deno.test("native Homebrew jobs use a bottle-supported runner and a bounded timeout", async () => {
+    const workflow = await Deno.readTextFile(".github/workflows/release.yml");
+    for (const name of ["homebrew-check", "homebrew-package"]) {
+        const job = workflow.slice(workflow.indexOf(`    ${name}:`)).split(/\n {4}[a-z][a-z-]+:/)[0];
+        assertStringIncludes(job, "runs-on: macos-15");
+        assertStringIncludes(job, "timeout-minutes: 30");
+    }
+});
