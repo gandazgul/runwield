@@ -7,6 +7,12 @@
       <excludeFolder url="file://$MODULE_DIR$/bin" />
       <excludeFolder url="file://$MODULE_DIR$/third_party" />
       <excludeFolder url="file://$MODULE_DIR$/.history" />
+      <excludeFolder url="file://$MODULE_DIR$/.astro" />
+      <excludeFolder url="file://$MODULE_DIR$/.wld/controller" />
+      <excludeFolder url="file://$MODULE_DIR$/.wld/plan-staging" />
+      <excludeFolder url="file://$MODULE_DIR$/.wld/plan-transitions" />
+      <excludeFolder url="file://$MODULE_DIR$/docs/runwield.dev/demo-media" />
+      <excludeFolder url="file://$MODULE_DIR$/src/ui/workspace/.astro/collections" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />

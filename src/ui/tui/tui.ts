@@ -4,6 +4,7 @@
  */
 
 import { ProcessTerminal, type Terminal, type TUI, TuiAltScreen } from "@earendil-works/pi-tui";
+import { type BrowserPort, SYSTEM_BROWSER_PORT } from "../../shared/browser-port.ts";
 import { createTuiCrashGuards } from "./tui-crash-guards.ts";
 import { createTuiManager } from "./tui-manager.ts";
 import { cleanupAgentBrowserSessionSync } from "../../shared/agent-browser-session.ts";
@@ -13,9 +14,17 @@ export interface TuiPair {
     tui: TUI;
 }
 
+export class RunWieldTui extends TuiAltScreen {
+    constructor(terminal: Terminal, browser: BrowserPort = SYSTEM_BROWSER_PORT) {
+        super(terminal, undefined, undefined, {
+            openUrl: (url) => void browser.open(url),
+        });
+    }
+}
+
 const tuiManager = createTuiManager<Terminal, TUI>({
     TerminalCtor: ProcessTerminal,
-    TuiCtor: TuiAltScreen as new (terminal: Terminal) => TUI,
+    TuiCtor: RunWieldTui,
     installCrashGuards: () => crashGuards.install(),
     uninstallCrashGuards: () => crashGuards.uninstall(),
 });

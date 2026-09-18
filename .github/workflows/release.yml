@@ -432,11 +432,14 @@ jobs:
                   }
 
     homebrew-package:
-        runs-on: ubuntu-latest
+        runs-on: macos-14
         if: needs.metadata.outputs.kind == 'stable'
         needs:
             - metadata
             - release
+        concurrency:
+            group: homebrew-tap-publication
+            cancel-in-progress: false
 
         steps:
             - name: Checkout
@@ -449,19 +452,60 @@ jobs:
               with:
                   deno-version: v2.9.3
 
-            - name: Render Homebrew tap artifact
+            - name: Verify Homebrew tap credential
+              env:
+                  HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+              run: |
+                  if [[ -z "$HOMEBREW_TAP_TOKEN" ]]; then
+                    echo "HOMEBREW_TAP_TOKEN is required to publish Stable releases" >&2
+                    exit 1
+                  fi
+
+            - name: Render Homebrew tap
               run: |
                   deno task package:homebrew \
                     --wld-tag "${{ needs.metadata.outputs.tag }}" \
                     --mnemoteca-tag "v0.3.3" \
                     --output homebrew-tap
-                  tar -czf "runwield-homebrew-tap-${{ needs.metadata.outputs.tag }}.tar.gz" -C homebrew-tap .
+
+            - name: Validate Homebrew tap
+              run: deno task package:homebrew:check --tap homebrew-tap
+
+            - name: Archive verified Homebrew tap
+              run: |
+                  tar -czf "runwield-homebrew-tap-${{ needs.metadata.outputs.tag }}.tar.gz" \
+                    -C homebrew-tap Formula README.md runwield-homebrew-package.json
                   shasum -a 256 "runwield-homebrew-tap-${{ needs.metadata.outputs.tag }}.tar.gz" > "runwield-homebrew-tap-${{ needs.metadata.outputs.tag }}.tar.gz.sha256"
 
-            - name: Upload Homebrew tap artifact
+            - name: Upload verified Homebrew tap artifact
               uses: actions/upload-artifact@v5
               with:
                   name: runwield-homebrew-tap-${{ needs.metadata.outputs.tag }}
                   path: |
                       runwield-homebrew-tap-${{ needs.metadata.outputs.tag }}.tar.gz
                       runwield-homebrew-tap-${{ needs.metadata.outputs.tag }}.tar.gz.sha256
+
+            - name: Checkout Homebrew tap repository
+              uses: actions/checkout@v5
+              with:
+                  repository: gandazgul/homebrew-tap
+                  token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+                  path: homebrew-tap-publish
+                  fetch-depth: 0
+
+            - name: Publish verified Homebrew tap
+              run: |
+                  cp homebrew-tap/Formula/wld.rb homebrew-tap-publish/Formula/wld.rb
+                  cp homebrew-tap/Formula/mnemoteca.rb homebrew-tap-publish/Formula/mnemoteca.rb
+                  cp homebrew-tap/README.md homebrew-tap-publish/README.md
+                  cp homebrew-tap/runwield-homebrew-package.json homebrew-tap-publish/runwield-homebrew-package.json
+                  cd homebrew-tap-publish
+                  git config user.name "github-actions[bot]"
+                  git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+                  git add Formula README.md runwield-homebrew-package.json
+                  if git diff --cached --quiet; then
+                    echo "Homebrew tap already matches ${{ needs.metadata.outputs.tag }}"
+                    exit 0
+                  fi
+                  git commit -m "Update RunWield to ${{ needs.metadata.outputs.tag }}"
+                  git push origin HEAD:main

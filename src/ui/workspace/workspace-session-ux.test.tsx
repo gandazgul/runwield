@@ -701,3 +701,14 @@ Deno.test("Core busy events show Thinking at the live edge before any assistant 
     assertEquals(reduceSessionEvents(events.slice(0, 2)).some((item) => item.kind === "busy"), false);
     assertEquals(reduceOperationTransientItems([]).length, 0);
 });
+
+Deno.test("Workspace displays a reported backend denial once", () => {
+    const items = reduceSessionEvents([
+        { type: "system_status", level: "error", message: "Blocked: read_file" },
+        { type: "terminal_error", message: "Blocked: read_file", messageAlreadyReported: true },
+        { type: "terminal_error", message: "A different failure" },
+    ]);
+    assertEquals(items.filter((item) => item.kind === "system-event").map((item) => item.text), [
+        "Blocked: read_file\nA different failure",
+    ]);
+});

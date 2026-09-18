@@ -1,5 +1,5 @@
 import type { AgyCliBackendStatusKind } from "./failure.ts";
-import { isAgyAuthFailure, isAgyMcpUnavailable, isAgyPermissionDenied } from "./failure.ts";
+import { isAgyAuthFailure, isAgyMcpUnavailable, isAgyPermissionDenied, sanitizeAgyStatusMessage } from "./failure.ts";
 
 export interface AgyCliUsage {
     inputTokens: number;
@@ -15,6 +15,7 @@ export interface AgyCliMetadata {
     status: string;
     errorText: string;
     deniedActions: boolean;
+    permissionDetails: string[];
     authFailed: boolean;
     permissionDenied: boolean;
     mcpUnavailable: boolean;
@@ -44,7 +45,7 @@ type JsonValue = JsonScalar | JsonArray | JsonRecord;
 type AgyCliStreamEvent =
     | { kind: "init"; agent?: string; model?: string; sessionId?: string }
     | { kind: "text_delta"; text: string }
-    | { kind: "tool_info" }
+    | { kind: "tool_info"; permissionDetail?: string }
     | {
         kind: "result";
         text: string;
@@ -54,6 +55,7 @@ type AgyCliStreamEvent =
         status: string;
         errorText: string;
         deniedActions: boolean;
+        permissionDetails: string[];
     };
 
 const emptyUsage: AgyCliUsage = { inputTokens: 0, outputTokens: 0 };
@@ -126,6 +128,36 @@ function hasDeniedActions(record: JsonRecord, result: JsonRecord): boolean {
         hasItems(record.deniedActions) || hasItems(result.deniedActions);
 }
 
+function readDeniedActionNames(record: JsonRecord, result: JsonRecord): string[] {
+    const names = new Set<string>();
+    for (const value of [record.denied_actions, result.denied_actions, record.deniedActions, result.deniedActions]) {
+        if (!Array.isArray(value)) continue;
+        for (const item of value) {
+            if (!isJsonRecord(item)) continue;
+            const action = asString(item.action);
+            if (/^[a-z][a-z0-9_]{0,63}$/i.test(action)) names.add(action);
+            if (names.size === 5) return [...names];
+        }
+    }
+    return [...names];
+}
+
+function readToolPermissionDetail(update: JsonRecord): string | undefined {
+    const info = isJsonRecord(update.tool_info) ? update.tool_info : undefined;
+    const error = info && isJsonRecord(info.error) ? info.error : undefined;
+    if (!error || !isAgyPermissionDenied(asString(error.message))) return undefined;
+    const name = asString(info?.name) || asString(update.tool_name);
+    if (!/^[a-z][a-z0-9_]{0,63}$/i.test(name)) return undefined;
+    // Retain file targets, never shell commands, tool output, or arbitrary arguments.
+    const parameters = info && isJsonRecord(info.parameters) ? info.parameters : undefined;
+    const path = name === "view_file"
+        ? asString(parameters?.AbsolutePath)
+        : ["write_to_file", "replace_file_content", "multi_replace_file_content"].includes(name)
+        ? asString(parameters?.TargetFile)
+        : "";
+    return sanitizeAgyStatusMessage(path ? `${name}: ${path}` : name, "permission_denied");
+}
+
 export function parseAgyCliJsonLine(line: string): AgyCliStreamEvent | null {
     const trimmed = line.trim();
     if (!trimmed) return null;
@@ -157,6 +189,9 @@ export function parseAgyCliJsonLine(line: string): AgyCliStreamEvent | null {
         if (updateType === "tool_info") return { kind: "tool_info" };
         const nested = isJsonRecord(parsed.step_update) ? parsed.step_update : undefined;
         if (nested) {
+            if (isJsonRecord(nested.tool_info)) {
+                return { kind: "tool_info", permissionDetail: readToolPermissionDetail(nested) };
+            }
             const nestedType = asString(nested.type) || asString(nested.update_type) || asString(nested.kind);
             if (nestedType === "text_delta" || asString(nested.step_type) === "agent_response") {
                 const text = readTextDelta(nested);
@@ -180,6 +215,7 @@ export function parseAgyCliJsonLine(line: string): AgyCliStreamEvent | null {
             status: readStatus(parsed, result),
             errorText,
             deniedActions: hasDeniedActions(parsed, result),
+            permissionDetails: readDeniedActionNames(parsed, result),
         };
     }
     return null;
@@ -202,6 +238,8 @@ export async function parseAgyCliStream(
     let status = "success";
     let errorText = "";
     let deniedActions = false;
+    let deniedActionNames: string[] = [];
+    const toolPermissionDetails = new Set<string>();
     let toolInfoCount = 0;
     let streamError: AgyCliStreamError | null = null;
 
@@ -219,6 +257,9 @@ export async function parseAgyCliStream(
         }
         if (event.kind === "tool_info") {
             toolInfoCount += 1;
+            if (event.permissionDetail && toolPermissionDetails.size < 5) {
+                toolPermissionDetails.add(event.permissionDetail);
+            }
             return;
         }
         sawResult = true;
@@ -227,6 +268,7 @@ export async function parseAgyCliStream(
         status = event.status;
         errorText = event.errorText;
         deniedActions = event.deniedActions;
+        deniedActionNames = event.permissionDetails;
         if (event.model) model = event.model;
         if (event.sessionId) sessionId = event.sessionId;
     };
@@ -271,10 +313,12 @@ export async function parseAgyCliStream(
         throw new AgyCliStreamError("empty_result", "Agy CLI stream ended without a terminal result");
     }
     const successfulStatus = !status || status === "success" || status === "ok" || status === "completed";
-    if (successfulStatus && !rawResultText) {
+    const permissionDenied = deniedActions || toolPermissionDetails.size > 0 ||
+        isAgyPermissionDenied(`${status}\n${errorText}`);
+    if (successfulStatus && !rawResultText && !permissionDenied) {
         throw new AgyCliStreamError("empty_result", "Agy CLI stream ended with an empty terminal result");
     }
-    if (successfulStatus && visibleText && rawResultText !== visibleText) {
+    if (successfulStatus && rawResultText && visibleText && rawResultText !== visibleText) {
         throw new AgyCliStreamError("result_mismatch", "Agy CLI terminal result did not match streamed assistant text");
     }
     const combinedText = `${status}\n${errorText}`;
@@ -290,8 +334,9 @@ export async function parseAgyCliStream(
             status,
             errorText,
             deniedActions,
+            permissionDetails: toolPermissionDetails.size ? [...toolPermissionDetails] : deniedActionNames,
             authFailed: isAgyAuthFailure(combinedText),
-            permissionDenied: deniedActions || isAgyPermissionDenied(combinedText),
+            permissionDenied,
             mcpUnavailable: isAgyMcpUnavailable(combinedText),
         },
     };

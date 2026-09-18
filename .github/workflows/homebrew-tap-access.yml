@@ -1,0 +1,33 @@
+name: verify-homebrew-tap-access
+
+on:
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+jobs:
+    verify:
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout Homebrew tap repository
+              uses: actions/checkout@v5
+              with:
+                  repository: gandazgul/homebrew-tap
+                  token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+                  path: homebrew-tap
+                  fetch-depth: 1
+
+            - name: Verify Homebrew tap write access
+              working-directory: homebrew-tap
+              env:
+                  CHECK_BRANCH: credential-check-${{ github.run_id }}-${{ github.run_attempt }}
+              run: |
+                  cleanup() {
+                    git push origin --delete "$CHECK_BRANCH" >/dev/null 2>&1 || true
+                  }
+                  trap cleanup EXIT
+                  git push origin "HEAD:refs/heads/$CHECK_BRANCH"
+                  git push origin --delete "$CHECK_BRANCH"
+                  trap - EXIT

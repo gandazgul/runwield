@@ -236,6 +236,7 @@ Deno.test("Agy custom agent materialization rejects unsafe names, empty definiti
 
 Deno.test("Agy command uses direct arguments, requires a model, and keeps Agent Definition out of user text", () => {
     const command = prepareAgyCliStreamCommand({
+        cwd: "/project with spaces",
         agentName: "runwield-command-agent",
         model: "gemini-3.8-flash",
         effort: "medium",
@@ -249,6 +250,8 @@ Deno.test("Agy command uses direct arguments, requires a model, and keeps Agent 
         "gemini-3.8-flash",
         "--effort",
         "medium",
+        "--add-dir",
+        "/project with spaces",
         "--agent",
         "runwield-command-agent",
         "--output-format",
@@ -261,6 +264,7 @@ Deno.test("Agy command uses direct arguments, requires a model, and keeps Agent 
     assertThrows(
         () => {
             prepareAgyCliStreamCommand({
+                cwd: "/project with spaces",
                 agentName: "runwield-command-agent",
                 model: "   ",
                 effort: "low",
@@ -390,6 +394,75 @@ Deno.test("Agy parser reports non-success, permission, and MCP evidence without 
     assertEquals(result.metadata.toolInfoCount, 1);
     assertEquals(JSON.stringify(result.metadata).includes("raw secret"), false);
     assertEquals(JSON.stringify(result.metadata).includes("cat token"), false);
+});
+
+Deno.test("Agy parser preserves safe denial details for an empty successful result", async () => {
+    const result = await parseAgyCliStream(streamFromText([
+        JSON.stringify({ event: "init", conversation_id: "denied-read", init: { model: "fixture-model" } }),
+        JSON.stringify({
+            event: "step_update",
+            step_update: {
+                step_type: "tool",
+                state: "ERROR",
+                tool_name: "view_file",
+                tool_info: {
+                    name: "view_file",
+                    parameters: { AbsolutePath: "/project/scripts/check.test.js" },
+                    error: { type: "TOOL_ERROR", message: "permission check failed for read_file" },
+                    output: "private file contents",
+                },
+            },
+        }),
+        JSON.stringify({
+            event: "result",
+            result: {
+                status: "SUCCESS",
+                response: "",
+                denied_actions: [{ action: "read_file", display_name: "ViewFile" }],
+            },
+        }),
+    ].join("\n")));
+    assertEquals(result.text, "");
+    assertEquals(result.metadata.permissionDenied, true);
+    assertEquals(result.metadata.permissionDetails, ["view_file: /project/scripts/check.test.js"]);
+    assertEquals(result.metadata.sessionId, "denied-read");
+    assertEquals(JSON.stringify(result.metadata).includes("private file contents"), false);
+});
+
+Deno.test("Agy parser retains action names without exposing command arguments", async () => {
+    const result = await parseAgyCliStream(streamFromText([
+        JSON.stringify({
+            event: "step_update",
+            step_update: {
+                step_type: "tool",
+                tool_info: {
+                    name: "run_command",
+                    parameters: { CommandLine: "curl --token private-value" },
+                    error: { message: "permission denied: curl --token private-value" },
+                },
+            },
+        }),
+        JSON.stringify({
+            event: "result",
+            result: {
+                status: "SUCCESS",
+                response: "",
+                denied_actions: [{ action: "command", command: "private-value" }],
+            },
+        }),
+    ].join("\n")));
+    assertEquals(result.metadata.permissionDetails, ["run_command"]);
+    assertEquals(JSON.stringify(result.metadata).includes("private-value"), false);
+
+    const namesOnly = await parseAgyCliStream(streamFromText(JSON.stringify({
+        event: "result",
+        result: {
+            status: "SUCCESS",
+            response: "",
+            denied_actions: [{ action: "read_file", display_name: "ViewFile" }],
+        },
+    })));
+    assertEquals(namesOnly.metadata.permissionDetails, ["read_file"]);
 });
 
 Deno.test("Agy parser ignores empty denied-action lists", async () => {

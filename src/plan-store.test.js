@@ -6,8 +6,6 @@ import { readControllerRecord } from "./shared/workflow/controller-registry.ts";
 import {
     archivePlan,
     archivePlansByStatus,
-    cleanupActivePlanObjectiveCheckMetadata,
-    cleanupObsoleteObjectiveCheckMetadata,
     clearPlanCollaborationMetadata,
     countChildPlanProgress,
     createPulledCollaborationPlan,
@@ -326,106 +324,6 @@ validationObjectiveCheckAttempts: 2
     assertEquals("objectiveChecksBaseline" in parsed.attrs, false);
     assertEquals("objectiveCheckWaivers" in parsed.attrs, false);
     assertEquals("validationObjectiveCheckAttempts" in parsed.attrs, false);
-});
-
-testWithFs("Objective Check cleanup removes only retired metadata from active Plans", async () => {
-    const cwd = await Deno.makeTempDir();
-    try {
-        await ensurePlansDir(cwd);
-        const path = join(cwd, "docs", "plans", "active.md");
-        const before = `---
-planId: active-plan
-classification: PLANNED_CHANGE
-summary: Keep this exact summary
-status: in_progress
-objectiveChecks:
-  - id: OC1
-    command: "false"
-objectiveChecksBaseline:
-  recordedAt: now
-  results: []
-objectiveCheckWaivers: []
-validationObjectiveCheckAttempts: 2
----
-# Active Plan
-
-Keep this body byte-for-byte.
-`;
-        await Deno.writeTextFile(path, before);
-        const loaded = await loadPlan(cwd, "active");
-        if (!loaded) throw new Error("fixture Plan did not load");
-        const result = await cleanupObsoleteObjectiveCheckMetadata(cwd, "active", {
-            expectedRevision: loaded.revision,
-        });
-        assertEquals(result, {
-            status: "changed",
-            removed: [
-                "objectiveChecks",
-                "objectiveChecksBaseline",
-                "objectiveCheckWaivers",
-                "validationObjectiveCheckAttempts",
-            ],
-        });
-        const after = await Deno.readTextFile(path);
-        assertEquals(after.includes("summary:"), false);
-        assertStringIncludes(after, "# Active Plan\n\nKeep this body byte-for-byte.\n");
-        for (const key of result.removed) assertEquals(after.includes(`${key}:`), false);
-
-        const clean = await loadPlan(cwd, "active");
-        if (!clean) throw new Error("cleaned Plan did not load");
-        assertEquals(
-            await cleanupObsoleteObjectiveCheckMetadata(cwd, "active", { expectedRevision: clean.revision }),
-            { status: "already_clean", removed: [] },
-        );
-        assertEquals(await Deno.readTextFile(path), after);
-    } finally {
-        await Deno.remove(cwd, { recursive: true });
-    }
-});
-
-testWithFs("Objective Check cleanup leaves terminal and archived Plans unchanged", async () => {
-    const cwd = await Deno.makeTempDir();
-    try {
-        await ensurePlansDir(cwd);
-        const terminalPath = join(cwd, "docs", "plans", "terminal.md");
-        const archivedDir = join(cwd, "docs", "plans", "archived");
-        const archivedPath = join(archivedDir, "sealed.md");
-        const terminal = `---\nplanId: terminal\nstatus: validated\nobjectiveChecks: []\n---\n# Terminal\n`;
-        const archived = `---\nplanId: archived\nstatus: user_verified\nobjectiveCheckWaivers: []\n---\n# Archived\n`;
-        await Deno.mkdir(archivedDir, { recursive: true });
-        await Deno.writeTextFile(terminalPath, terminal);
-        await Deno.writeTextFile(archivedPath, archived);
-
-        const loaded = await loadPlan(cwd, "terminal");
-        if (!loaded) throw new Error("terminal Plan did not load");
-        assertEquals(
-            await cleanupObsoleteObjectiveCheckMetadata(cwd, "terminal", { expectedRevision: loaded.revision }),
-            { status: "skipped_terminal", removed: [] },
-        );
-        await cleanupActivePlanObjectiveCheckMetadata(cwd);
-        assertEquals(await Deno.readTextFile(terminalPath), terminal);
-        assertEquals(await Deno.readTextFile(archivedPath), archived);
-    } finally {
-        await Deno.remove(cwd, { recursive: true });
-    }
-});
-
-testWithFs("Objective Check cleanup rejects a stale Plan revision", async () => {
-    const cwd = await Deno.makeTempDir();
-    try {
-        await ensurePlansDir(cwd);
-        const path = join(cwd, "docs", "plans", "stale.md");
-        await Deno.writeTextFile(path, `---\nstatus: in_progress\nobjectiveChecks: []\n---\n# Stale\n`);
-        const loaded = await loadPlan(cwd, "stale");
-        if (!loaded) throw new Error("stale fixture did not load");
-        await Deno.writeTextFile(path, `---\nstatus: in_progress\nobjectiveChecks: []\n---\n# Concurrent edit\n`);
-        await assertRejects(
-            () => cleanupObsoleteObjectiveCheckMetadata(cwd, "stale", { expectedRevision: loaded.revision }),
-            StalePlanWriteError,
-        );
-    } finally {
-        await Deno.remove(cwd, { recursive: true });
-    }
 });
 
 Deno.test("frontend verification front matter round trips as legacy source metadata", () => {

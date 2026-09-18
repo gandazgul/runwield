@@ -10,6 +10,7 @@ export {
     listSkills,
 } from "./session.js";
 
+import { AgyCliBackendError } from "./backends/agy-cli/failure.ts";
 import { AGENTS, SUBAGENTS } from "../../constants.js";
 import {
     readPersistedManualModelState,
@@ -3007,6 +3008,11 @@ export class SessionRuntime {
             ? this.#sessionHost.getSession(sessionId)?.getRootSessionManager()?.getSessionName?.() || undefined
             : undefined;
         const enrichedEvent = /** @type {any} */ (sessionName ? { ...event, sessionName } : event);
+        // Agy backend failures already emitted a durable, sanitized system notice.
+        // Keep the terminal event for settlement without displaying it twice.
+        if (event.type === RuntimeEventTypes.TERMINAL_ERROR && event.error instanceof AgyCliBackendError) {
+            enrichedEvent.messageAlreadyReported = true;
+        }
         const runtimeEvent = createSessionRuntimeEvent(sessionId, enrichedEvent);
         const liveEvents = this.#liveSessionEvents.get(sessionId);
         if (liveEvents) appendLiveSessionEvent(liveEvents, runtimeEvent);
