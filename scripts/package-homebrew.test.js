@@ -105,6 +105,7 @@ Deno.test("package:homebrew renders formulas from verified immutable assets", as
         const wld = await Deno.readTextFile(join(output, "Formula", "wld.rb"));
         const mnemoteca = await Deno.readTextFile(join(output, "Formula", "mnemoteca.rb"));
         assertStringIncludes(wld, "class Wld < Formula");
+        assertStringIncludes(wld, '  version "1.2.3"\n');
         assertStringIncludes(wld, 'depends_on "gandazgul/tap/mnemoteca"');
         assertStringIncludes(wld, 'depends_on "ketch"');
         assertEquals(wld.includes("1broseidon/tap/ketch"), false);
@@ -116,6 +117,7 @@ Deno.test("package:homebrew renders formulas from verified immutable assets", as
         assertStringIncludes(wld, "depends_on :macos");
         assertStringIncludes(wld, "# test-only artifact; do not publish this formula");
         assertStringIncludes(mnemoteca, "class Mnemoteca < Formula");
+        assertStringIncludes(mnemoteca, '  version "0.3.1"\n');
         assertStringIncludes(mnemoteca, "depends_on :macos");
         assertStringIncludes(mnemoteca, "mnemoteca_0.3.1_darwin_arm64.tar.gz");
         const manifest = JSON.parse(await Deno.readTextFile(join(output, "runwield-homebrew-package.json")));
@@ -170,6 +172,9 @@ Deno.test("package:homebrew validates Candidate bytes only as test output", asyn
         });
         const manifest = JSON.parse(await Deno.readTextFile(join(output, "runwield-homebrew-package.json")));
         assertEquals(manifest.wldTag, "v1.2.3-rc.1");
+        const wld = await Deno.readTextFile(join(output, "Formula", "wld.rb"));
+        assertStringIncludes(wld, "wld-v1.2.3-rc.1-darwin-arm64.tar.gz");
+        assertEquals(/^ {2}version /m.test(wld), false, "Candidate URL already gives Homebrew the exact version");
         assertEquals(manifest.testOnly, true);
     } finally {
         await fixture.close();
@@ -322,6 +327,7 @@ Deno.test("package:homebrew refreshes only Mnemoteca when wld tag is omitted", a
         assertEquals(await Deno.readTextFile(join(output, "Formula", "wld.rb")), "preserved wld formula\n");
         const mnemoteca = await Deno.readTextFile(join(output, "Formula", "mnemoteca.rb"));
         assertStringIncludes(mnemoteca, "class Mnemoteca < Formula");
+        assertStringIncludes(mnemoteca, '  version "0.3.1"\n');
         const manifest = JSON.parse(await Deno.readTextFile(join(output, "runwield-homebrew-package.json")));
         assertEquals(manifest.testOnly, true);
         assertEquals(manifest.wldTag, "v1.2.3");

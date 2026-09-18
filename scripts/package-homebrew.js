@@ -209,12 +209,15 @@ function validateInputs(inputs, tag) {
  * @param {boolean} testOnly
  */
 function renderWldFormula(wld, testOnly) {
+    // Homebrew reads Candidate versions correctly, but mistakes Stable archive names for CPU versions.
+    // GitHub release URLs and Candidate names already identify the version; repeating it fails brew audit.
+    const versionDeclaration = testOnly && !wld.version.includes("-rc.") ? `  version "${wld.version}"\n` : "";
     return `require "json"
 
 class Wld < Formula
   desc "Plan-first AI coding harness"
   homepage "https://github.com/gandazgul/runwield"
-  license :cannot_represent
+${versionDeclaration}  license :cannot_represent
 
   if Hardware::CPU.arm?
     url "${wld.assets["darwin-arm64"].url}"
@@ -253,12 +256,16 @@ end
 ${testOnly ? "# test-only artifact; do not publish this formula\n" : ""}`;
 }
 
-/** @param {{ version: string, assets: Record<string, AssetInput>, license: string, homepage: string }} mnemoteca */
-function renderMnemotecaFormula(mnemoteca) {
+/**
+ * @param {{ version: string, assets: Record<string, AssetInput>, license: string, homepage: string }} mnemoteca
+ * @param {boolean} testOnly
+ */
+function renderMnemotecaFormula(mnemoteca, testOnly) {
+    const versionDeclaration = testOnly ? `  version "${mnemoteca.version}"\n` : "";
     return `class Mnemoteca < Formula
   desc "Local semantic memory CLI"
   homepage "${mnemoteca.homepage}"
-  license "${mnemoteca.license}"
+${versionDeclaration}  license "${mnemoteca.license}"
 
   if Hardware::CPU.arm?
     url "${mnemoteca.assets["darwin-arm64"].url}"
@@ -398,7 +405,7 @@ export async function packageHomebrew(options) {
         assets: mnemotecaAssets,
         license: inputs.mnemoteca.license,
         homepage: inputs.mnemoteca.homepage,
-    });
+    }, options.testOnly);
     const formulas = ["Formula/wld.rb", "Formula/mnemoteca.rb"];
     const generatedTexts = [mnemotecaFormula];
     if (wldTag) {

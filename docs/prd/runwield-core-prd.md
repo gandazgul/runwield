@@ -798,6 +798,8 @@ bounded job duration. A timeout blocks publication; it does not waive installati
 **Acceptance scenarios:**
 
 - Given a package check fails for a new Candidate or Stable, no GitHub Release is created.
+- Given a native Homebrew check serves Candidate or Stable assets from localhost before publication, the formula and
+  installed ownership metadata retain the release version, not a number inferred from the archive architecture.
 - Given a slow Homebrew command, its output is visible before it exits. If the job reaches its time limit, publication
   remains blocked and the log identifies the command in progress.
 - Given Stable assets are published but tap publication fails, recovery verifies and reuses those assets and leaves the
