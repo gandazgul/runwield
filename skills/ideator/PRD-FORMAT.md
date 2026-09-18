@@ -52,10 +52,10 @@ current behavior as already delivered while planning. As part of planned change 
 its scenarios at the same time as the code, retain unmet product intent explicitly, and fix affected references. A
 workaround or passing test does not silently redefine the owner's intended product.
 
-Ideator shapes capability outcomes and scenarios with the user. Planner links affected capabilities from the Plan, turns
-their scenarios into discriminating verification, and includes required PRD updates in implementation scope. Architect
-preserves those outcomes across the Epic and identifies which child work must fulfill and update them. None should
-require the user to rewrite unrelated PRDs before a bounded change can proceed.
+Ideation shapes capability outcomes and scenarios with the user. Planning links affected capabilities from the plan,
+turns their scenarios into discriminating verification, and includes required PRD updates in implementation scope.
+Architecture preserves those outcomes across the epic and identifies which child work must fulfill and update them. None
+should require the user to rewrite unrelated PRDs before a bounded change can proceed.
 
 ## Template
 
@@ -177,18 +177,18 @@ this distinction when reading, writing, or turning a PRD into an Epic or Plan.
   choices. They are not user stories or success measures. For example, "I can continue on my phone while my idle TUI
   stays open, and see the reply when I return" is a product requirement; "acquire a fenced activation lease" is not.
 - Separate current capability, known implementation gaps, and desired behavior. A temporary rollout restriction, old
-  test, archived Plan, Work Record, or retrieved memory does not turn an implementation limitation into product intent.
-  Check current source and architectural guidance, then apply the user's current decision.
-- Architect and Planner preserve the PRD's scope when designing the solution. A best-effort notification does not imply
-  a persistent acknowledgement system; one user changing screens does not imply simultaneous multi-user collaboration.
-  Reuse existing Core behavior before proposing another state model or coordination layer.
+  test, archived plan, delivery record, or retrieved memory does not turn an implementation limitation into product
+  intent. Check current source and architectural guidance, then apply the user's current decision.
+- Architecture and planning preserve the PRD's scope when designing the solution. A best-effort notification does not
+  imply a persistent acknowledgement system; one user changing screens does not imply simultaneous multi-user
+  collaboration. Reuse existing shared behavior before proposing another state model or coordination layer.
 - Keep the PRD concise enough for the owner to review. Before finalizing it, check that each requirement explains a user
   need, an observable outcome, or a sourced product constraint. Move implementation detail to the appropriate document.
 
 ## Ideator Completion
 
 These steps apply when Ideator writes or revises a PRD at the user's request, after the interview has resolved the major
-product decisions. They do not change Planner or Architect workflows.
+product decisions. They do not change planning or architecture workflows.
 
 1. **Choose the document.** Follow the project's document conventions; use `docs/prd/<feature-name>.md` when none exist.
    Prefer an existing owner for lasting capability guidance. Describe proposed additions, changes, and removals there or
@@ -196,9 +196,7 @@ product decisions. They do not change Planner or Architect workflows.
 2. **Write and check the PRD.** Follow the structure and product requirements above. Keep proposed terms separate from
    the current glossary in a `Proposed Domain Language` section. Include their definitions, avoided aliases, affected
    existing terms, and stable relationships. Use local time, not UTC, for dates and timestamps.
-3. **Register the document.** Immediately after writing it, call `artifact_written` with its Project-relative path and
-   kind `prd` so the RunWield Session can show it in every surface.
-4. **Preserve the conclusion.** Use `memory` with `action: "store"` to save one consolidated memory containing the
+3. **Preserve the conclusion.** If persistent memory is available, save one consolidated memory containing the
    crystallized direction and a pointer to the artifact, not a duplicate of its contents.
-5. **Hand off to planning.** Direct the user to `/agent planner` to turn the PRD into an executable Plan. Do not write
-   the Plan as Ideator.
+4. **Hand off to planning.** Give the user the PRD path and hand it to planning to turn it into an executable plan. Do
+   not write the plan as Ideator.
