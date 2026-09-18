@@ -26,8 +26,10 @@ export const slashLoadPlanScenario = {
     initialAgentName: "guide",
     terminal: { columns: 100, rows: 30 },
     actions: [
+        { type: "waitForScreen", text: "? help" },
         { type: "type", text: "/load-plan" },
         { type: "enter" },
+        { type: "waitForScreen", text: "No plans available" },
         { type: "waitForIdle" },
     ],
     assertions: [
