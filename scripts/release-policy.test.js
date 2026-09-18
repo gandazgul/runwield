@@ -99,6 +99,23 @@ Deno.test("Stable releases submit generated WinGet manifests without exposing th
     assertEquals(submitJob.includes("submit $manifestPath --token"), false);
 });
 
+Deno.test("Stable releases validate on macOS before publishing the Homebrew tap", async () => {
+    const workflow = await Deno.readTextFile(".github/workflows/release.yml");
+    const jobStart = workflow.indexOf("    homebrew-package:");
+    const job = workflow.slice(jobStart);
+    const checkIndex = job.indexOf("deno task package:homebrew:check --tap homebrew-tap");
+    const pushIndex = job.indexOf("git push origin HEAD:main");
+
+    assertEquals(jobStart >= 0, true);
+    assertStringIncludes(job, "runs-on: macos-14");
+    assertStringIncludes(job, "if: needs.metadata.outputs.kind == 'stable'");
+    assertStringIncludes(job, "repository: gandazgul/homebrew-tap");
+    assertStringIncludes(job, "token: ${{ secrets.HOMEBREW_TAP_TOKEN }}");
+    assertStringIncludes(job, "HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}");
+    assertEquals(checkIndex >= 0, true);
+    assertEquals(pushIndex > checkIndex, true);
+});
+
 Deno.test("release-tier Golden TUI alias does not run TODO goldens", async () => {
     const config = JSON.parse(await Deno.readTextFile("deno.json"));
     const normalTest = String(config.tasks?.test || "");

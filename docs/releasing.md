@@ -157,22 +157,28 @@ Direct Stable is an exceptional path. Use it only when explicitly chosen and app
 uses the confirmed `HEAD` commit, then follows the same tag workflow, GitHub Actions qualification, and post-publication
 notes-editing rules. It does not create or use a Release Branch.
 
-## Homebrew tap preparation
+## Homebrew tap publication
 
-The macOS Homebrew tap is prepared from immutable Stable release assets. Candidate releases never update Stable package
+The macOS Homebrew tap is published from immutable Stable release assets. Candidate releases never update Stable package
 output.
 
-The release workflow renders a `runwield-homebrew-tap-<tag>` artifact after Stable asset publication succeeds. Before
-pushing that tree to `gandazgul/homebrew-tap`, run the check against the exact rendered output:
+After Stable asset publication succeeds, the release workflow:
+
+1. Renders the Homebrew formulas from the published release assets.
+2. Runs the complete package check on macOS.
+3. Uploads the verified `runwield-homebrew-tap-<tag>` recovery artifact.
+4. Pushes the verified files to `gandazgul/homebrew-tap`.
+
+The `HOMEBREW_TAP_TOKEN` repository secret must contain a GitHub token with write access to `gandazgul/homebrew-tap`.
+Publication stops if the credential is absent or any package check fails. To reproduce the check locally, use:
 
 ```bash
 deno task package:homebrew --wld-tag vX.Y.Z --mnemoteca-tag v0.3.3 --output /tmp/runwield-tap
 deno task package:homebrew:check --tap /tmp/runwield-tap
 ```
 
-The first public tap release must use a RunWield Stable that contains package-owner metadata. Do not combine an old
-release's checksum proof with a new local binary's update behavior proof. The checked formula installs metadata beside
-`libexec/wld`; a Homebrew-owned `wld update` prints `brew upgrade gandazgul/tap/wld` and must not run `install.sh`.
+The checked formula installs metadata beside `libexec/wld`; a Homebrew-owned `wld update` prints
+`brew upgrade gandazgul/tap/wld` and must not run `install.sh`.
 
 `mnemoteca` can be refreshed independently by omitting `--wld-tag` and passing a new `--mnemoteca-tag` against an
 existing tap tree. First update `packaging/homebrew/tested-dependencies.json` with the verified macOS URLs, SHA-256
@@ -204,9 +210,9 @@ model downloads remain first-use per-user setup.
 ## GitHub workflow ownership
 
 The tag-triggered workflow owns release qualification, builds, GitHub release creation, asset upload, native Windows
-package checks, Stable-only Homebrew tap artifact rendering, and Stable-only WinGet manifest rendering and submission.
-Local release commands validate release metadata, create and push tags, and monitor that workflow. They must not require
-local qualification and must not call `gh release create`, `gh release edit`, `glab release create`, or
+package checks, Stable-only Homebrew tap validation and publication, and Stable-only WinGet manifest rendering and
+submission. Local release commands validate release metadata, create and push tags, and monitor that workflow. They must
+not require local qualification and must not call `gh release create`, `gh release edit`, `glab release create`, or
 `glab release edit`.
 
 The workflow also exposes a required-tag manual dispatch solely for recovery when a tag cannot or should not be
