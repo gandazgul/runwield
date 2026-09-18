@@ -303,6 +303,7 @@ export const loadPlanEpicDoneEnoughArchiveScenario = {
         { type: "enter" },
         { type: "enter" },
         { type: "waitForPlanAbsent", planName: "ready-epic", timeoutMs: 30000 },
+        { type: "waitForScreen", text: "Archived Epic and child Plans:", timeoutMs: 30000 },
         { type: "waitForIdle", timeoutMs: 20000 },
         { type: "captureProjectState", planNames: ["ready-epic", "ready-epic/01-child"] },
     ],
