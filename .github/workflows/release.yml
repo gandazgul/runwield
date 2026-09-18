@@ -468,6 +468,9 @@ jobs:
                     --mnemoteca-tag "v0.3.3" \
                     --output homebrew-tap
 
+            - name: Register Homebrew dependency tap
+              run: brew tap 1broseidon/tap
+
             - name: Validate Homebrew tap
               run: deno task package:homebrew:check --tap homebrew-tap
 

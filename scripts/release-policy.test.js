@@ -103,6 +103,7 @@ Deno.test("Stable releases validate on macOS before publishing the Homebrew tap"
     const workflow = await Deno.readTextFile(".github/workflows/release.yml");
     const jobStart = workflow.indexOf("    homebrew-package:");
     const job = workflow.slice(jobStart);
+    const dependencyTapIndex = job.indexOf("brew tap 1broseidon/tap");
     const checkIndex = job.indexOf("deno task package:homebrew:check --tap homebrew-tap");
     const pushIndex = job.indexOf("git push origin HEAD:main");
 
@@ -112,7 +113,8 @@ Deno.test("Stable releases validate on macOS before publishing the Homebrew tap"
     assertStringIncludes(job, "repository: gandazgul/homebrew-tap");
     assertStringIncludes(job, "token: ${{ secrets.HOMEBREW_TAP_TOKEN }}");
     assertStringIncludes(job, "HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}");
-    assertEquals(checkIndex >= 0, true);
+    assertEquals(dependencyTapIndex >= 0, true);
+    assertEquals(checkIndex > dependencyTapIndex, true);
     assertEquals(pushIndex > checkIndex, true);
 });
 
