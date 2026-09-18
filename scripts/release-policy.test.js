@@ -185,10 +185,12 @@ for (const jobName of ["homebrew-check", "homebrew-package"]) {
         const nextJob = workflow.slice(start + 1).search(/\n {4}[a-z][a-z-]*:/);
         const end = nextJob < 0 ? -1 : start + 1 + nextJob;
         const job = workflow.slice(start, end < 0 ? undefined : end);
+        const updateIndex = job.indexOf("brew update\n");
         const tapIndex = job.indexOf("brew tap 1broseidon/tap");
         const trustIndex = job.indexOf("brew trust --formula 1broseidon/tap/cymbal\n");
         const checkIndex = job.indexOf("deno task package:homebrew:check");
-        assertEquals(tapIndex >= 0, true);
+        assertEquals(updateIndex >= 0, true, "Explicitly refresh Core metadata even when auto-update is disabled");
+        assertEquals(tapIndex > updateIndex, true);
         assertEquals(trustIndex > tapIndex, true, "Trust Cymbal after registering its tap");
         assertEquals(checkIndex > trustIndex, true);
         assertEquals(job.includes("brew trust 1broseidon/tap"), false);

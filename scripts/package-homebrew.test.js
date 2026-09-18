@@ -108,6 +108,8 @@ Deno.test("package:homebrew renders formulas from verified immutable assets", as
         assertStringIncludes(wld, 'depends_on "gandazgul/tap/mnemoteca"');
         assertStringIncludes(wld, 'depends_on "ketch"');
         assertEquals(wld.includes("1broseidon/tap/ketch"), false);
+        const dependencies = Array.from(wld.matchAll(/depends_on "([^"]+)"/g), (match) => match[1]);
+        assertEquals(dependencies, [...dependencies].sort(), "Formula dependencies must be alphabetized");
         assertStringIncludes(wld, "runwield-install.json");
         assertStringIncludes(wld, "brew upgrade gandazgul/tap/wld");
         assertStringIncludes(wld, "license :cannot_represent");

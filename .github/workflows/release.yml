@@ -392,6 +392,8 @@ jobs:
 
             - name: Register Homebrew dependency tap
               run: |
+                  # Runner images can disable auto-update and carry stale Core API data.
+                  brew update
                   brew tap 1broseidon/tap
                   brew trust --formula 1broseidon/tap/cymbal
 
@@ -590,6 +592,8 @@ jobs:
 
             - name: Register Homebrew dependency tap
               run: |
+                  # Runner images can disable auto-update and carry stale Core API data.
+                  brew update
                   brew tap 1broseidon/tap
                   brew trust --formula 1broseidon/tap/cymbal
 
