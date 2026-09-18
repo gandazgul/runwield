@@ -211,7 +211,11 @@ function validateInputs(inputs, tag) {
 function renderWldFormula(wld, testOnly) {
     // Homebrew reads Candidate versions correctly, but mistakes Stable archive names for CPU versions.
     // GitHub release URLs and Candidate names already identify the version; repeating it fails brew audit.
-    const versionDeclaration = testOnly && !wld.version.includes("-rc.") ? `  version "${wld.version}"\n` : "";
+    const releaseUrl = `https://github.com/${RUNWIELD_REPO}/releases/download/v${wld.version}/`;
+    const versionDeclaration = !wld.version.includes("-rc.") &&
+            !Object.values(wld.assets).every((asset) => asset.url.startsWith(releaseUrl))
+        ? `  version "${wld.version}"\n`
+        : "";
     return `require "json"
 
 class Wld < Formula
@@ -258,10 +262,12 @@ ${testOnly ? "# test-only artifact; do not publish this formula\n" : ""}`;
 
 /**
  * @param {{ version: string, assets: Record<string, AssetInput>, license: string, homepage: string }} mnemoteca
- * @param {boolean} testOnly
  */
-function renderMnemotecaFormula(mnemoteca, testOnly) {
-    const versionDeclaration = testOnly ? `  version "${mnemoteca.version}"\n` : "";
+function renderMnemotecaFormula(mnemoteca) {
+    const releaseUrl = `https://github.com/${MNEMOTECA_REPO}/releases/download/v${mnemoteca.version}/`;
+    const versionDeclaration = Object.values(mnemoteca.assets).every((asset) => asset.url.startsWith(releaseUrl))
+        ? ""
+        : `  version "${mnemoteca.version}"\n`;
     return `class Mnemoteca < Formula
   desc "Local semantic memory CLI"
   homepage "${mnemoteca.homepage}"
@@ -405,7 +411,7 @@ export async function packageHomebrew(options) {
         assets: mnemotecaAssets,
         license: inputs.mnemoteca.license,
         homepage: inputs.mnemoteca.homepage,
-    }, options.testOnly);
+    });
     const formulas = ["Formula/wld.rb", "Formula/mnemoteca.rb"];
     const generatedTexts = [mnemotecaFormula];
     if (wldTag) {

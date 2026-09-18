@@ -1,6 +1,6 @@
 import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
-import { packageHomebrew } from "./package-homebrew.js";
+import { packageHomebrew, parsePackageHomebrewArgs } from "./package-homebrew.js";
 
 /** @param {Uint8Array} bytes */
 async function sha256Text(bytes) {
@@ -333,6 +333,60 @@ Deno.test("package:homebrew refreshes only Mnemoteca when wld tag is omitted", a
         assertEquals(manifest.wldTag, "v1.2.3");
         assertEquals(manifest.formulas, ["Formula/wld.rb", "Formula/mnemoteca.rb"]);
     } finally {
+        await fixture.close();
+    }
+});
+
+Deno.test("package:homebrew release workflow mixed URLs and publication versions", async () => {
+    const fixture = await makeReleaseFixture();
+    const realFetch = globalThis.fetch;
+    // Keep release URLs in generated formulas; serve verified fixture bytes at the network boundary.
+    globalThis.fetch = (input, init) => {
+        const url = String(input);
+        const name = url.slice(url.lastIndexOf("/") + 1).replace("0.3.3", "0.3.1").replace("-rc.1", "");
+        if (url.endsWith(".sha256")) {
+            return realFetch(`${fixture.baseUrl}/${name}`, init).then(async (response) =>
+                new Response(
+                    (await response.text()).replace("v1.2.3-", url.includes("-rc.1") ? "v1.2.3-rc.1-" : "v1.2.3-"),
+                )
+            );
+        }
+        return realFetch(`${fixture.baseUrl}/${name}`, init);
+    };
+    try {
+        await Deno.writeTextFile(
+            fixture.inputsPath,
+            (await Deno.readTextFile(fixture.inputsPath)).replaceAll("0.3.1", "0.3.3"),
+        );
+        for (const tag of ["v1.2.3", "v1.2.3-rc.1"]) {
+            for (const mode of ["mixed", "remote-test", "publication"]) {
+                const output = join(fixture.root, `${tag}-${mode}`);
+                // Same arguments as release.yml: only RunWield has a local URL override.
+                const args = ["--wld-tag", tag, "--mnemoteca-tag", "v0.3.3", "--output", output];
+                if (mode !== "publication") args.push("--test-only");
+                if (mode === "mixed") args.push("--wld-base-url", "http://127.0.0.1:8765");
+                const options = parsePackageHomebrewArgs(args);
+                options.inputsPath = fixture.inputsPath;
+                if (mode === "publication" && tag.includes("-rc.")) {
+                    await assertRejects(() => packageHomebrew(options), Error, "Stable tag");
+                    continue;
+                }
+                await packageHomebrew(options);
+                const wld = await Deno.readTextFile(join(output, "Formula", "wld.rb"));
+                const mnemoteca = await Deno.readTextFile(join(output, "Formula", "mnemoteca.rb"));
+                assertEquals(wld.includes('  version "'), mode === "mixed" && tag === "v1.2.3");
+                assertEquals(mnemoteca.includes('  version "'), false);
+                assertStringIncludes(mnemoteca, "https://github.com/gandazgul/mnemoteca/releases/download/v0.3.3/");
+                assertStringIncludes(
+                    wld,
+                    mode === "mixed"
+                        ? "http://127.0.0.1:8765/"
+                        : `https://github.com/gandazgul/runwield/releases/download/${tag}/`,
+                );
+            }
+        }
+    } finally {
+        globalThis.fetch = realFetch;
         await fixture.close();
     }
 });
