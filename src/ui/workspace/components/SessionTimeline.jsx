@@ -319,6 +319,7 @@ export function reduceSessionEvents(events, options = {}) {
                 item.timestamp = timestamp;
                 return;
             }
+            if (type === "terminal_error" && event.messageAlreadyReported) return;
             const level = type === "terminal_error" ? "error" : text(event.level || "info");
             const header = type === "recovery_event" ? "Recovery" : type === "cancellation" ? "Cancellation" : "System";
             appendSystemEvent({

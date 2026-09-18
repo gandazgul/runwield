@@ -731,3 +731,10 @@ Concrete CLI model names ending in `-low`, `-medium`, or `-high` are execution d
 This backend does not accept image attachments. Setup explains and requests approval before installing its global custom
 agent and MCP configuration. Replay includes assistant messages, RunWield tool results, and backend status;
 Antigravity's internal file, shell, and tool activity stays in the CLI.
+
+RunWield passes the Session's current working directory with `--add-dir`, including execution worktrees. This gives
+Antigravity the workspace context needed for normal project file access; it does not change global permissions or bypass
+tool approval. Actions that still require approval cannot prompt in noninteractive mode. RunWield reports the blocked
+action and any available file target once, with sensitive details redacted. Review the action through Antigravity's
+`/permissions`, then retry in RunWield. See the
+[Antigravity headless permissions documentation](https://antigravity.google/docs/cli/headless/#permissions-in-headless-mode).

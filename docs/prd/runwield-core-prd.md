@@ -726,7 +726,10 @@ controls. Setup uses their installed CLI and existing sign-in. Unsupported selec
 change before a turn starts. Session history shows the selected model, thinking level, and Antigravity backend
 independently of unsent composer changes. Replay includes assistant messages and RunWield tool activity; the CLI's
 internal activity is not available in RunWield history. Configuration details are in
-[Settings](../settings.md#antigravity-cli).
+[Settings](../settings.md#antigravity-cli). RunWield supplies the active working directory as the backend workspace so
+normal project file access does not fail because a noninteractive CLI opened without a workspace. Genuine permission
+failures identify the denied action and, when supplied by the CLI, the file target, with sensitive details redacted. The
+failure appears once in live Sessions and remains available in replay; it does not discard the pending request.
 
 Future/open requirements:
 
@@ -743,6 +746,11 @@ Future/open requirements:
   the backend-specific setup action instead of unrelated provider-login instructions.
 - When a backend cannot replay its internal activity, history distinguishes visible RunWield activity from unavailable
   backend internals.
+- Given an Antigravity turn in a project or execution worktree, reading a file there uses that directory's workspace
+  access without requiring a global permission bypass.
+- Given an Antigravity result with exit code zero, an empty response, and a denied action, the turn fails with an
+  actionable notice shown once in TUI and Workspace. Replay retains the notice and the external conversation ID when
+  supplied, without saving raw commands or tool output.
 
 ### Installation and updates
 

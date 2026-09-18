@@ -203,7 +203,7 @@ export const RuntimeEventTypes = Object.freeze({
  */
 
 /**
- * @typedef {RuntimeEventBase & { type: "terminal_error", messageId: string, message: string, error?: unknown }} RuntimeTerminalErrorEvent
+ * @typedef {RuntimeEventBase & { type: "terminal_error", messageId: string, message: string, messageAlreadyReported?: boolean, error?: unknown }} RuntimeTerminalErrorEvent
  */
 
 /**

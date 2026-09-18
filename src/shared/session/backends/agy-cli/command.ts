@@ -4,6 +4,7 @@ export const AGY_CLI_PRINT_TIMEOUT = "24h";
 export const AGY_CLI_PRINT_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 
 export interface AgyCliRunRequest {
+    cwd: string;
     agentName: string;
     model: string;
     userRequest: string;
@@ -25,7 +26,10 @@ export function prepareAgyCliStreamCommand(request: AgyCliRunRequest): PreparedA
     if (!model) throw new Error("Agy model selector is required");
     if (!request.effort) throw new Error("Agy effort is required");
     const args = ["-p", request.userRequest, "--model", model, "--effort", request.effort];
+    // A process cwd alone does not register workspace file access in Agy print mode.
     args.push(
+        "--add-dir",
+        request.cwd,
         "--agent",
         request.agentName,
         "--output-format",
