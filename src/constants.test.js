@@ -7,6 +7,7 @@ import {
     getHomeDir,
     isTestModulePath,
     normalizeWorkKind,
+    PROJECT_INTERNAL_RUNTIME_DIR_NAME,
     PROMPT_TEMPLATES_DIR,
     SKILLS_DIR,
     SNIP_FILTERS_DIR,
@@ -47,6 +48,10 @@ Deno.test("getHomeDir observes HOME changes made after module load", async () =>
         }
         assertEquals(getHomeDir(), originalHome ?? "");
     });
+});
+
+Deno.test("project internal runtime directory name stays below the project RunWield base", () => {
+    assertEquals(PROJECT_INTERNAL_RUNTIME_DIR_NAME, "internal");
 });
 
 Deno.test("documentation Work Kind normalizes and labels planned documentation", () => {

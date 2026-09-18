@@ -7,9 +7,6 @@ import { listOwnerProjects, requireOwnerProjectRoot, sessionBelongsToOwnerProjec
 import * as planAdapter from "./plan-adapter.js";
 import { dirname, relative, resolve, sep as SEPARATOR } from "node:path";
 
-const BUNDLED_PLAN_ADAPTER_KEY = Symbol.for("runwield.workspace.plan-adapter-module");
-Reflect.set(globalThis, BUNDLED_PLAN_ADAPTER_KEY, planAdapter);
-
 export const OWNER_WORKSPACE_STORE_KEY = Symbol.for("runwield.workspace.owner-store");
 export const OWNER_WORKSPACE_SESSION_CONTINUATION_KEY = Symbol.for("runwield.workspace.session-continuation");
 

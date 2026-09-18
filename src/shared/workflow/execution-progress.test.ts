@@ -85,8 +85,11 @@ Deno.test("execution preparation progress reports fresh worktree setup before la
         const projectRoot = await makeWorkflowProject([{
             name: "fresh-progress",
         }]);
+        await Deno.writeTextFile(join(projectRoot, ".gitignore"), ".wld/\n");
         const events: RuntimeStatusEvent[] = [];
         const hostedSession = makeHostedSession("fresh-progress", projectRoot, events);
+        const originalWarn = console.warn;
+        console.warn = () => {};
         let executionCwd = "";
         try {
             await executePlan({
@@ -110,11 +113,16 @@ Deno.test("execution preparation progress reports fresh worktree setup before la
                 "Marking the Plan as in progress...",
                 "Starting Plan Engineer...",
             ]);
+            assert(
+                messages.some((message) => message.includes(".wld/settings.json") && message.includes(".wld/agents/")),
+                `Expected execution preparation to report broad .wld/ ignore rule.\n${messages.join("\n")}`,
+            );
             // An `engineer`-owned Plan runs under the workflow-only Plan Engineer.
             assertEquals(hostedSession.getRootAgentName(), "plan-engineer");
             const executionPlan = await loadPlan(executionCwd, "fresh-progress");
             assertEquals(executionPlan?.attrs.status, "in_progress");
         } finally {
+            console.warn = originalWarn;
             hostedSession.dispose();
             if (executionCwd) {
                 await removeWorktreeGitArtifacts({ projectRoot, path: executionCwd, force: true }).catch(() =>
@@ -361,7 +369,7 @@ Deno.test("restart accepts an existing Plan-only preparation commit", async () =
         );
         assertEquals(
             await git(worktree.path, ["diff", "--name-only", `${worktree.baseCommit}..HEAD`]),
-            "docs/plans/prepared-restart.md",
+            ".gitignore\ndocs/plans/prepared-restart.md",
         );
         assertEquals(await git(worktree.path, ["status", "--porcelain"]), "");
     } finally {

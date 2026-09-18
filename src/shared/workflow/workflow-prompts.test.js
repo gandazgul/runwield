@@ -89,6 +89,26 @@ Deno.test("buildEngineerRequest removes protected Plan Front Matter and preserve
     assertEquals(request.includes("objectiveChecks"), false);
 });
 
+Deno.test("buildEngineerRequest includes confirmed Plan Deviations after the body", () => {
+    const request = buildEngineerRequest(
+        "feature-plan",
+        `---
+planDeviations:
+  - id: call-1
+    supersededRequirement: "Replace nav."
+    replacementRequirement: "Keep nav."
+    approvedAt: "2026-09-10T00:00:00.000Z"
+---
+# Approved body
+`,
+    );
+
+    assertStringIncludes(request, "## Approved Plan Body\n\n# Approved body");
+    assertStringIncludes(request, "## Approved Plan Deviations");
+    assertStringIncludes(request, "Superseded requirement: Replace nav.");
+    assertStringIncludes(request, "Replacement requirement: Keep nav.");
+});
+
 Deno.test("buildTriageReport preserves the Router's structured context", () => {
     const report = buildTriageReport({
         routingIntent: "PLANNED_CHANGE",

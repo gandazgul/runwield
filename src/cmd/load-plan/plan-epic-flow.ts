@@ -22,6 +22,11 @@ import {
     formatWorkRecordAutoGenerationResult,
 } from "../../shared/work-records/auto-generation.js";
 import { SYSTEM_WORK_RECORD_MNEMOTECA_PORT } from "../../shared/work-records/mnemoteca-port.ts";
+import {
+    findTargetBranchPlansByParent,
+    preparePlanningWorktreeForPlan,
+} from "../../shared/workflow/planning-worktree.ts";
+import { isGitRepository } from "../../shared/git.js";
 import { archiveEpicWithChildren } from "./plan-epic-archive.ts";
 import { buildPlanSummary } from "../../shared/plan-presentation.ts";
 import {
@@ -81,9 +86,13 @@ export async function handleEpicPlan({
     projectPlanType(plan.attrs);
     const sequence = isSequencePlan(plan.attrs);
 
-    const children = (await findPlansByParent(projectRoot, plan.planName)).filter((child) =>
-        isPlannedChangeClassification(child.attrs.classification)
-    ).sort(compareChildPlansByOrder);
+    const targetBranch = typeof plan.attrs.targetBranch === "string" ? plan.attrs.targetBranch.trim() : "";
+    const familyChildren = targetBranch && await isGitRepository(projectRoot)
+        ? await findTargetBranchPlansByParent(projectRoot, targetBranch, plan.planName)
+        : await findPlansByParent(projectRoot, plan.planName);
+    const children = familyChildren.filter((child) => isPlannedChangeClassification(child.attrs.classification)).sort(
+        compareChildPlansByOrder,
+    );
     const hasChildren = children.length > 0;
     const isApprovedEpic = plan.attrs.status === "approved";
     const hasLegacyExecutableEpicStatus = ["in_progress", "failed"].includes(plan.attrs.status) ||
@@ -319,6 +328,12 @@ export async function handleEpicPlan({
                 if (!childPlanName) break;
                 if (childPlanName === "__next_child__") {
                     if (!nextChild) break;
+                    if (
+                        typeof nextChild.attrs.targetBranch === "string" && nextChild.attrs.planId &&
+                        await isGitRepository(projectRoot)
+                    ) {
+                        await preparePlanningWorktreeForPlan(projectRoot, nextChild.name, nextChild.attrs);
+                    }
                     await loadChildPlan(nextChild.name);
                     return "handled";
                 }
@@ -335,6 +350,13 @@ export async function handleEpicPlan({
                     if (!childAction || childAction === "back") break;
 
                     if (childAction === "load") {
+                        const selectedChild = children.find((child) => child.name === String(childPlanName));
+                        if (
+                            selectedChild && typeof selectedChild.attrs.targetBranch === "string" &&
+                            selectedChild.attrs.planId && await isGitRepository(projectRoot)
+                        ) {
+                            await preparePlanningWorktreeForPlan(projectRoot, selectedChild.name, selectedChild.attrs);
+                        }
                         await loadChildPlan(String(childPlanName));
                         return "handled";
                     }

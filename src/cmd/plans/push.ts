@@ -12,12 +12,13 @@ import { encryptJsonPayload, importContentKey } from "../../shared/collaboration
 import { COLLABORATION_LOCK_BYPASS, COLLABORATION_STATE_REMOTE_CANONICAL } from "../../shared/collaboration/lock.js";
 import { normalizeRevisionMetadata, normalizeSharedSpaceMetadata } from "../../shared/collaboration/protocol.js";
 import {
-    getGlobalSecretStorePath,
-    getProjectSecretStorePath,
+    getGlobalSecretStoreLocation,
+    getProjectSecretStoreLocation,
     resolvePullSecretRecord,
 } from "../../shared/collaboration/secrets.js";
 import { buildCollaborationUrl } from "../../shared/collaboration/urls.js";
 import { normalizePlanServerUrl } from "../../shared/settings.js";
+import { enterProjectRuntime } from "../../shared/project-runtime-layout.ts";
 
 interface PlansPushArgs {
     target?: string;
@@ -94,10 +95,10 @@ function normalizeRevisionResponse(value: WireValue): ReturnType<typeof normaliz
 }
 
 /** @param {string} cwd @param {boolean} projectSecrets */
-function secretPaths(cwd: string, projectSecrets: boolean): string[] {
-    const globalPath = getGlobalSecretStorePath();
-    const projectPath = getProjectSecretStorePath(cwd);
-    return projectSecrets ? [projectPath, globalPath] : [globalPath, projectPath];
+async function secretPaths(cwd: string, projectSecrets: boolean) {
+    const globalLocation = getGlobalSecretStoreLocation();
+    const projectLocation = await getProjectSecretStoreLocation(cwd);
+    return projectSecrets ? [projectLocation, globalLocation] : [globalLocation, projectLocation];
 }
 
 function findResourceByNameOrId(resources: PlanResource[], target: string): PlanResource | null {
@@ -125,6 +126,7 @@ export async function pushPlanRevision(
     pushOptions: PushPlanRevisionOptions,
 ): Promise<PushedPlanRevision> {
     const cwd = pushOptions.cwd || getCwd();
+    await enterProjectRuntime(cwd);
     const now = new Date().toISOString();
     const target = pushOptions.target;
     const resource = findResourceByNameOrId(await listPlanResources(cwd, { backfillMissing: false }), target);
@@ -151,7 +153,7 @@ export async function pushPlanRevision(
         );
     }
 
-    const paths = secretPaths(cwd, Boolean(pushOptions.projectSecrets));
+    const paths = await secretPaths(cwd, Boolean(pushOptions.projectSecrets));
     const found = await resolvePullSecretRecord(paths, planId, spaceId);
     if (!found?.record?.contentKey) {
         throw new Error("Shared Plan local content key is missing; pull with the maintainer URL to import secrets.");
@@ -295,9 +297,11 @@ export async function runPlansPushCommand(argv: string[]): Promise<void> {
         printPushHelp();
         return;
     }
+    const cwd = getCwd();
+    await enterProjectRuntime(cwd);
     const pushed = await pushPlanRevision({
         target: parsed.target as string,
-        cwd: getCwd(),
+        cwd,
         planServer: parsed.planServer,
         projectSecrets: parsed.projectSecrets,
     });

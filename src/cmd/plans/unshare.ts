@@ -16,11 +16,12 @@ import { COLLABORATION_LOCK_BYPASS, COLLABORATION_STATE_REMOTE_CANONICAL } from 
 import { normalizeSharedSpaceMetadata } from "../../shared/collaboration/protocol.js";
 import {
     deleteCompatibleSecretRecords,
-    getGlobalSecretStorePath,
-    getProjectSecretStorePath,
+    getGlobalSecretStoreLocation,
+    getProjectSecretStoreLocation,
     resolveCompatibleSecretRecord,
 } from "../../shared/collaboration/secrets.js";
 import { normalizePlanServerUrl } from "../../shared/settings.js";
+import { enterProjectRuntime } from "../../shared/project-runtime-layout.ts";
 
 interface PlansUnshareArgs {
     target?: string;
@@ -102,10 +103,10 @@ function normalizeSpaceResponse(value: WireValue): ReturnType<typeof normalizeSh
 }
 
 /** @param {string} cwd @param {boolean} projectSecrets */
-function secretPaths(cwd: string, projectSecrets: boolean): string[] {
-    const globalPath = getGlobalSecretStorePath();
-    const projectPath = getProjectSecretStorePath(cwd);
-    return projectSecrets ? [projectPath, globalPath] : [globalPath, projectPath];
+async function secretPaths(cwd: string, projectSecrets: boolean) {
+    const globalLocation = getGlobalSecretStoreLocation();
+    const projectLocation = await getProjectSecretStoreLocation(cwd);
+    return projectSecrets ? [projectLocation, globalLocation] : [globalLocation, projectLocation];
 }
 
 function findResourceByNameOrId(resources: PlanResource[], target: string): PlanResource | null {
@@ -159,6 +160,7 @@ function confirmationMessage(details: RemoteDetails): string {
 
 export async function unsharePlan(unshareOptions: UnsharePlanOptions): Promise<UnsharedPlan> {
     const cwd = unshareOptions.cwd || getCwd();
+    await enterProjectRuntime(cwd);
     const now = new Date().toISOString();
     const target = unshareOptions.target;
     const resource = findResourceByNameOrId(await listPlanResources(cwd, { backfillMissing: false }), target);
@@ -185,7 +187,7 @@ export async function unsharePlan(unshareOptions: UnsharePlanOptions): Promise<U
         );
     }
 
-    const paths = secretPaths(cwd, Boolean(unshareOptions.projectSecrets));
+    const paths = await secretPaths(cwd, Boolean(unshareOptions.projectSecrets));
     const found = await resolveCompatibleSecretRecord(paths, planId, spaceId);
     if (!found?.record?.contentKey) {
         throw new Error("Shared Plan local content key is missing; pull with the maintainer URL to import secrets.");
@@ -335,9 +337,11 @@ export async function runPlansUnshareCommand(argv: string[]): Promise<void> {
         printUnshareHelp();
         return;
     }
+    const cwd = getCwd();
+    await enterProjectRuntime(cwd);
     const result = await unsharePlan({
         target: parsed.target as string,
-        cwd: getCwd(),
+        cwd,
         planServer: parsed.planServer,
         projectSecrets: parsed.projectSecrets,
         force: parsed.force,

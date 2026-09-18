@@ -96,7 +96,7 @@ const reviewPayload = plan && liveReview
         </section>
     ) : reviewPayload ? (
         <PlanReviewSurface payload={reviewPayload} presentation="workspace" client:only="react">
-            <LoadingSurface slot="fallback" label="Loading Plan review" />
+            <div slot="fallback"><LoadingSurface label="Loading Plan review" /></div>
         </PlanReviewSurface>
     ) : (
         <PlanDetail plan={plan} url={Astro.url.href} editIntent={false} client:load />

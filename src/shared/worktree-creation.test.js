@@ -1,7 +1,8 @@
 import { assertEquals, assertMatch, assertRejects, assertStringIncludes } from "@std/assert";
-import { basename, dirname } from "@std/path";
+import { basename, dirname, join } from "@std/path";
 import { getHomeDir } from "../constants.js";
 
+import { resolveProjectRuntimeLayout } from "./project-runtime-layout.ts";
 import { addEntry, findByPlanId } from "./worktree-registry.js";
 import {
     findReusableWorktree,
@@ -15,20 +16,40 @@ import {
 import { createTestWorktreeAttempt, git, makeRepo } from "./worktree-test-helpers.js";
 import { withProcessGlobalTestLock } from "../testing/process-global-lock.js";
 
-Deno.test("resolveWorktreeParent uses session-style full cwd encoding by default", () => {
-    const projectRoot = "/Users/alice/Documents/web/runwield";
+Deno.test("resolveWorktreeParent keeps overrides and home placement while no-home fallback uses primary internal storage", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const previousHome = getHomeDir();
+        const projectRoot = await makeRepo();
+        const linkedParent = await Deno.makeTempDir({ prefix: "runwield-worktree-parent-linked-" });
+        const linkedRoot = join(linkedParent, "linked");
+        try {
+            Deno.env.set("HOME", "/Users/alice");
+            assertEquals(
+                resolveWorktreeParent("/Users/alice/Documents/web/runwield", undefined),
+                "/Users/alice/.wld/worktrees/--Users-alice-Documents-web-runwield--",
+            );
+            assertEquals(resolveWorktreeParent(projectRoot, "/tmp/worktrees"), "/tmp/worktrees");
 
-    const homeDir = getHomeDir();
-    if (homeDir) {
-        assertEquals(
-            resolveWorktreeParent(projectRoot, undefined),
-            `${homeDir}/.wld/worktrees/--Users-alice-Documents-web-runwield--`,
-        );
-    } else {
-        assertEquals(resolveWorktreeParent(projectRoot, undefined), `${projectRoot}/.wld/worktrees`);
-    }
-
-    assertEquals(resolveWorktreeParent(projectRoot, "/tmp/worktrees"), "/tmp/worktrees");
+            await git(projectRoot, ["worktree", "add", "-b", "linked-parent", linkedRoot]);
+            Deno.env.delete("HOME");
+            const expected =
+                resolveProjectRuntimeLayout(await Deno.realPath(projectRoot)).primary.fallbackWorktreesRoot;
+            assertEquals(resolveWorktreeParent(projectRoot, undefined), expected);
+            assertEquals(resolveWorktreeParent(linkedRoot, undefined), expected);
+            assertEquals(expected.endsWith(join(".wld", "internal", "worktrees")), true);
+        } finally {
+            if (previousHome === undefined) Deno.env.delete("HOME");
+            else Deno.env.set("HOME", previousHome);
+            await new Deno.Command("git", {
+                cwd: projectRoot,
+                args: ["worktree", "remove", "--force", linkedRoot],
+                stdout: "null",
+                stderr: "null",
+            }).output().catch(() => {});
+            await Deno.remove(linkedParent, { recursive: true }).catch(() => {});
+            await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+        }
+    });
 });
 
 Deno.test("resolveCurrentCheckoutBranch returns the primary checkout branch", async () => {

@@ -30,8 +30,16 @@ the execution owner and autonomous or Pair collaboration recommendation.
 ## Validation, review, and repair
 
 Workflow Validation is local CI plus semantic review. Semantic review runs in narrowing rounds, carries findings in a
-Review Issue Ledger, and repairs findings in independent Engineer sessions. `QUICK_FIX` runs Mechanical Validation only:
-no Reviewer, no Plannotator code review, no Plan status changes, and no merge-back.
+Review Issue Ledger, and repairs findings in independent Engineer sessions. It does not run an automatic Plan Amendment
+gate and does not silently adopt execution-worktree Plan edits. `QUICK_FIX` runs Mechanical Validation only: no
+Reviewer, no Plannotator code review, no Plan status changes, and no merge-back.
+
+In Pair Execution, explicit user feedback that replaces an effective Plan requirement must be confirmed through
+`record_plan_deviation`. The confirmed entry is saved in `planDeviations` on the authoritative execution Plan. Semantic
+Review uses it over conflicting original Plan text. Work Records list confirmed entries under `## Deviations from Plan`.
+Canceled, stale, unsupported, or inferred feedback does not change the Plan. If the session is lost before the write,
+ask for confirmation again. If it is lost after the write, retrying the same tool call recovers the saved entry by
+tool-call identity and does not replay transcript approval.
 
 `codereview` controls the local human code-review gate after local validation and semantic review pass and before
 merge-back: `none` skips the gate, `ask` prompts the user, and `always` requires it.

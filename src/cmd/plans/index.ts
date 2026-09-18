@@ -17,8 +17,17 @@ import { runPlansShareCommand } from "./share.ts";
 import { runPlansUiCommand } from "./ui.ts";
 import { runPlansUnshareCommand } from "./unshare.ts";
 import { SYSTEM_BROWSER_PORT } from "../../shared/browser-port.ts";
+import { enterProjectRuntime } from "../../shared/project-runtime-layout.ts";
 
 type PlanEntry = Awaited<ReturnType<typeof listPlans>>[number];
+
+function isHelp(argv: string[]): boolean {
+    return argv.includes("--help") || argv.includes("-h");
+}
+
+async function enterUnlessHelp(argv: string[]): Promise<void> {
+    if (!isHelp(argv)) await enterProjectRuntime(getCwd());
+}
 
 function formatChildProgress(children: PlanEntry[]): string {
     const { verified, active, failed, onHold, remaining, total } = countChildPlanProgress(children);
@@ -66,10 +75,12 @@ function printChildPlan(child: PlanEntry): void {
 export async function runPlansCommand(argv: string[]): Promise<void> {
     const [subcommand] = argv;
     if (subcommand === "ui") {
+        await enterUnlessHelp(argv.slice(1));
         await runPlansUiCommand(argv.slice(1), { browser: SYSTEM_BROWSER_PORT });
         return;
     }
     if (subcommand === "archive") {
+        await enterUnlessHelp(argv.slice(1));
         await runPlansArchiveCommand(argv.slice(1));
         return;
     }
@@ -78,26 +89,32 @@ export async function runPlansCommand(argv: string[]): Promise<void> {
         return;
     }
     if (subcommand === "read") {
+        await enterUnlessHelp(argv.slice(1));
         await runPlansReadCommand(argv.slice(1));
         return;
     }
     if (subcommand === "share") {
+        await enterUnlessHelp(argv.slice(1));
         await runPlansShareCommand(argv.slice(1));
         return;
     }
     if (subcommand === "pull") {
+        await enterUnlessHelp(argv.slice(1));
         await runPlansPullCommand(argv.slice(1));
         return;
     }
     if (subcommand === "prune") {
+        await enterUnlessHelp(argv.slice(1));
         await runPlansPruneCommand(argv.slice(1));
         return;
     }
     if (subcommand === "push") {
+        await enterUnlessHelp(argv.slice(1));
         await runPlansPushCommand(argv.slice(1));
         return;
     }
     if (subcommand === "unshare") {
+        await enterUnlessHelp(argv.slice(1));
         await runPlansUnshareCommand(argv.slice(1));
         return;
     }
@@ -112,6 +129,7 @@ export async function runPlansCommand(argv: string[]): Promise<void> {
         return;
     }
 
+    await enterProjectRuntime(getCwd());
     const plans = await listPlans(getCwd());
     if (plans.length === 0) {
         console.log("[RunWield] No saved plans found.");

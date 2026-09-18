@@ -189,6 +189,7 @@ function isolatedPublicationScenario(
                 { type: "enter" },
                 ...(options.resumeRepair
                     ? [
+                        { type: "waitForScreen", text: "Agent switched to Plan Engineer", timeoutMs: 90000 },
                         { type: "waitForIdle", timeoutMs: 90000 },
                         { type: "restartTui" },
                         { type: "type", text: `/load-plan ${name}` },
@@ -509,6 +510,7 @@ export const validationTreePublicationMissingTargetBranchScenario = withValidati
                 statuses: ["validated_reviewer"],
                 timeoutMs: 30000,
             },
+            { type: "waitForScreen", text: "Target branch main is missing", timeoutMs: 30000 },
             { type: "captureProjectState", planNames: ["publication-missing-target-branch"] },
         ],
         assertions: [],

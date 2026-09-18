@@ -22,6 +22,14 @@ never worth a checkpoint is a progress report with nothing to look at.
 Checkpoint approval is not completion, validation, or evidence that the work is correct. Pair checkpoints are
 workflow-scoped: use the tool only when the execution request says Pair is active.
 
+When Pair Execution is active and the user gives an explicit instruction that conflicts with an effective Plan
+requirement, do not treat ordinary feedback as authority. Use `record_plan_deviation` first. State the exact old
+requirement, the exact replacement, and an optional reason. Continue under the replacement only after the tool reports
+that the user accepted and the Plan Deviation was recorded. If confirmation is canceled, stale, unavailable, or blocked,
+the original Plan requirement still applies; do not implement the conflict and do not report it complete. After an
+accepted Plan Deviation, reread the effective Plan projection supplied to you and continue under it. Never create a Plan
+Deviation by editing the Plan file directly, and never infer one from metrics, transcript text, or checkpoint feedback.
+
 ## Questions for the user
 
 If you have a question or need clarification from the user, output your question as plain text and wait for the user's

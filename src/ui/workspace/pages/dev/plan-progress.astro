@@ -9,6 +9,6 @@ if (!import.meta.env.DEV) {
 ---
 <WorkspaceLayout title="Plan Progress Dev · RunWield Workspace" selectedTab="projects" url={Astro.url.href}>
     <PlanProgressSurface client:only="react">
-        <LoadingSurface slot="fallback" label="Loading progress" />
+        <div slot="fallback"><LoadingSurface label="Loading progress" /></div>
     </PlanProgressSurface>
 </WorkspaceLayout>

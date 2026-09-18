@@ -33,6 +33,8 @@ import { normalizeScreenText, VirtualTerminal } from "./virtual-terminal.js";
 import { NO_OPEN_BROWSER_PORT } from "../../../shared/browser-port.ts";
 import { getCwd } from "../../../constants.js";
 import { getWorktreeRegistryPath } from "../../../shared/worktree-registry.js";
+import { enterProjectRuntime } from "../../../shared/project-runtime-layout.ts";
+import { isCurrentProjectRuntimePath } from "../../../shared/runwield-owned-paths.ts";
 import { PLAN_STATUSES } from "../../../shared/workflow/plan-lifecycle.js";
 
 /**
@@ -243,16 +245,25 @@ async function snapshotProjectRoot(projectRoot) {
     const snapshot = {};
     /** @param {string} directory */
     async function visit(directory) {
-        for await (const entry of Deno.readDir(directory)) {
-            if (entry.name === ".git") continue;
-            const path = join(directory, entry.name);
-            const relativePath = relative(projectRoot, path);
-            if (entry.isDirectory) {
-                snapshot[relativePath] = { kind: "dir" };
-                await visit(path);
-            } else if (entry.isFile) {
-                snapshot[relativePath] = { kind: "file", hash: await sha256Hex(await Deno.readFile(path)) };
+        try {
+            for await (const entry of Deno.readDir(directory)) {
+                if (entry.name === ".git") continue;
+                const path = join(directory, entry.name);
+                const relativePath = relative(projectRoot, path);
+                if (isCurrentProjectRuntimePath(relativePath)) continue;
+                if (entry.isDirectory) {
+                    snapshot[relativePath] = { kind: "dir" };
+                    await visit(path);
+                } else if (entry.isFile) {
+                    const bytes = await Deno.readFile(path).catch((error) => {
+                        if (error instanceof Deno.errors.NotFound) return null;
+                        throw error;
+                    });
+                    if (bytes) snapshot[relativePath] = { kind: "file", hash: await sha256Hex(bytes) };
+                }
             }
+        } catch (error) {
+            if (!(error instanceof Deno.errors.NotFound)) throw error;
         }
     }
     await visit(projectRoot);
@@ -765,6 +776,9 @@ async function runComposedTuiScenario(scenario, options) {
                 }),
             );
         }
+        // Runtime entry is startup state, not a scenario mutation. Complete it
+        // before concurrent UI reads begin and before the project baseline is saved.
+        await enterProjectRuntime(getCwd());
         const projectSnapshotBefore = await snapshotProjectRoot(Deno.cwd());
         const fauxProvider = scenario.modelSetup === "none" || scenario.modelSetup === "provider-without-models"
             ? null
@@ -1605,7 +1619,7 @@ async function runComposedTuiScenario(scenario, options) {
                             ? await loadRemotePlanAttrs(localChildren[1].name) || localChildren[1].attrs
                             : undefined,
                     };
-                    const registryPath = join(Deno.cwd(), ".wld", "worktrees.json");
+                    const registryPath = getWorktreeRegistryPath(getCwd());
                     const registryText = await Deno.readTextFile(registryPath).catch(() => "");
                     /** @type {import('../../../shared/worktree-registry.js').WorktreeRegistryEntry[]} */
                     const registryEntries = registryText ? (JSON.parse(registryText).entries || []) : [];
@@ -2505,6 +2519,21 @@ async function runComposedTuiScenario(scenario, options) {
                     events.push(`project:plan-absent:${planName}`);
                 } else if (typed.type === "waitForIdle") {
                     await composition.waitForIdle(typed.timeoutMs || scenario.timeoutMs || DEFAULT_WAIT_TIMEOUT_MS);
+                } else if (typed.type === "waitForScriptedInteractions") {
+                    const timeoutMs = typed.timeoutMs || scenario.timeoutMs || DEFAULT_WAIT_TIMEOUT_MS;
+                    const expectedRemaining = Number(typed.remaining || 0);
+                    const startedAt = Date.now();
+                    while ((interactionSurface?.interactions.length || 0) > expectedRemaining) {
+                        if (Date.now() - startedAt > timeoutMs) {
+                            throw new Error(
+                                `Timed out waiting for scripted Runtime interactions; remaining=${
+                                    interactionSurface?.interactions.length || 0
+                                }`,
+                            );
+                        }
+                        await terminal.flush();
+                        await new Promise((resolve) => setTimeout(resolve, 20));
+                    }
                 } else if (typed.type === "setNextModelResponse") {
                     const responseText = String(typed.text || "");
                     const nextAgent = composition?.runtime.getSessionSnapshot(composition.sessionId)?.activeAgent ||

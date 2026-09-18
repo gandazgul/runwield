@@ -15,7 +15,7 @@ automatically; exposing an error and a repair command is not completion. Evidenc
 success, blind replay, or loss of user work.
 
 - Plan Front Matter records that validation succeeded. A worktree-backed Planned Change stops changing at `validated`.
-- The matching `.wld/worktrees.json` entry owns publication progress in one `publication` record.
+- The matching `.wld/internal/worktrees.json` entry owns publication progress in one `publication` record.
 - Git commits and refs are evidence. Status strings, error text, Session memory, and transition journals are not
   publication evidence.
 - The registry entry is removed only after verified publication and cleanup. Its absence is the final local fact; there

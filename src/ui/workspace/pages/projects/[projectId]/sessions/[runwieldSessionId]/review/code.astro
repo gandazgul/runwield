@@ -56,7 +56,7 @@ const payload = codeReview
 >
     {payload ? (
         <CodeReviewSurface payload={payload} presentation="workspace" client:only="react">
-            <LoadingSurface slot="fallback" label="Loading code review" />
+            <div slot="fallback"><LoadingSurface label="Loading code review" /></div>
         </CodeReviewSurface>
     ) : (
         <section class="error-panel">

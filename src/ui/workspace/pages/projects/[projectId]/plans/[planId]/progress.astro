@@ -36,7 +36,7 @@ const progressUrl = `/projects/${encodeURIComponent(projectId)}/plans/${encodeUR
         </section>
     ) : (
         <PlanProgressSurface initialProgress={progress} apiUrl={apiUrl} progressUrl={progressUrl} client:only="react">
-            <LoadingSurface slot="fallback" label="Loading progress" />
+            <div slot="fallback"><LoadingSurface label="Loading progress" /></div>
         </PlanProgressSurface>
     )}
 </WorkspaceLayout>

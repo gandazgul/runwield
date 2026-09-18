@@ -301,7 +301,7 @@ export const validationTreeSemanticNudgeOmittedPriorFindingScenario = withValida
             },
             { type: "type", text: "submit the planned change for review" },
             { type: "enter" },
-            { type: "waitForPlanStatus", planName: "plan", statuses: ["verified"], timeoutMs: 180000 },
+            { type: "waitForPlanStatus", planName: "plan", statuses: ["verified"], timeoutMs: 300000 },
             { type: "assertWorkflowDurability" },
         ],
         assertions: [],

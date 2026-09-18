@@ -10,6 +10,6 @@ const variant = Astro.url.searchParams.get("variant") || "feature";
 ---
 <ReviewLayout title="Plan Review Dev · RunWield Workspace">
     <ReviewDevSurface surface="plan" presentation="standalone" variant={variant} client:only="react">
-        <LoadingSurface slot="fallback" label="Loading review" />
+        <div slot="fallback"><LoadingSurface label="Loading review" /></div>
     </ReviewDevSurface>
 </ReviewLayout>

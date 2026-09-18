@@ -11,11 +11,13 @@ import { join } from "@std/path";
 import { healSettledTransitionRecords } from "./transition-recovery.ts";
 import { getTransitionJournalPath } from "./state-transition.ts";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
+import { enterProjectRuntime } from "../project-runtime-layout.ts";
 
 async function writeJournal(
     projectRoot: string,
     record: { transitionId: string; planName: string; state: string; operation?: string },
 ): Promise<string> {
+    await enterProjectRuntime(projectRoot);
     const path = getTransitionJournalPath(projectRoot, record.transitionId);
     await Deno.mkdir(join(path, ".."), { recursive: true });
     await Deno.writeTextFile(path, `${JSON.stringify(record, null, 2)}\n`);

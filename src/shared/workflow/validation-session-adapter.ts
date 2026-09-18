@@ -40,6 +40,7 @@ import { renderOpenItems } from "./review-ledger.ts";
 import { recordValidationRepairCompletion } from "./validation-supervisor.ts";
 import { createReviewDiffTool } from "./review-diff-tool.js";
 import { createQaChecklistGeneratedTool } from "../../tools/qa-checklist-generated.ts";
+import { createPlanDeviationTool } from "../../tools/plan-deviation.ts";
 import { settleWorkflowToolEvent } from "./workflow-tool-events.ts";
 import { switchActiveAgent } from "../session/agent-switching.js";
 import type {
@@ -65,6 +66,18 @@ import {
  * `session.js` consumes, so injected `semanticReviewPort` fixtures and the system
  * implementation both see exactly what they saw before the split.
  */
+function pairRepairTools(hostedSession: HostedSession): ToolDefinition[] {
+    const workflow = hostedSession.getActiveExecutionWorkflow?.();
+    return workflow?.collaborationStyle === "pair" ? [createPlanDeviationTool({ hostedSession })] : [];
+}
+
+function withPairRepairTools(
+    hostedSession: HostedSession,
+    customTools: ToolDefinition[] | undefined,
+): ToolDefinition[] {
+    return [...(customTools || []), ...pairRepairTools(hostedSession)];
+}
+
 export type IsolatedAgentSessionOptions = {
     signal?: AbortSignal;
     hostedSession: HostedSession;
@@ -325,7 +338,7 @@ async function runIsolatedRequest(
         ...(request.images ? { images: request.images } : {}),
         cwd: request.cwd,
         subAgentDefinition: { id: SUBAGENTS.REVIEWER_FEEDBACK_ENGINEER },
-        customTools: request.customTools as unknown as ToolDefinition[],
+        customTools: withPairRepairTools(hostedSession, bindReviewDiffTools(hostedSession, request.customTools)),
         sessionManager: repairManager,
     }, "task_completed");
     const report = await acceptedRepairOutcome(hostedSession, event);
@@ -465,6 +478,7 @@ export function createValidationSessionPort(
                 cwd,
                 dispatchKind: "validation_repair",
                 subAgentDefinition: { id: SUBAGENTS.REVIEWER_FEEDBACK_ENGINEER },
+                customTools: pairRepairTools(hostedSession),
                 sessionManager: repairManager,
             }, "task_completed");
             const completion = await acceptedRepairOutcome(hostedSession, event, kind);
@@ -514,6 +528,7 @@ export function createValidationSessionPort(
                 cwd: repair.cwd,
                 dispatchKind: "validation_repair",
                 subAgentDefinition: { id: SUBAGENTS.REVIEWER_FEEDBACK_ENGINEER },
+                customTools: pairRepairTools(hostedSession),
                 sessionManager: repair.manager,
             }, "task_completed");
             return acceptedRepairOutcome(hostedSession, event);

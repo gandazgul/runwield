@@ -1,5 +1,6 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { dirname, join } from "@std/path";
+import { loadPlan, updatePlanStatus } from "../../plan-store.js";
 import { presentEpicChildPlan, resolveEpicContinuation } from "./epic-continuation.ts";
 
 /**
@@ -74,6 +75,44 @@ Deno.test("resolveEpicContinuation selects the earliest non-terminal child by or
     const result = await resolveEpicContinuation({ cwd, completedPlanName: "epic/01-done" });
     assertEquals(result.kind, "plan");
     assertEquals(result.childPlanName, "epic/02-draft");
+});
+
+Deno.test("resolveEpicContinuation trusts the delivered child document over a stale controller status", async () => {
+    const cwd = await makeProject();
+    await writePlan(cwd, "epic/01-done", {
+        classification: "PLANNED_CHANGE",
+        complexity: "MEDIUM",
+        status: "ready_for_work",
+        summary: "Done",
+        affectedPaths: [],
+        parentPlan: "epic",
+        order: 1,
+        createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    await writePlan(cwd, "epic/02-next", {
+        classification: "PLANNED_CHANGE",
+        complexity: "MEDIUM",
+        status: "draft",
+        summary: "Next",
+        affectedPaths: [],
+        parentPlan: "epic",
+        dependencies: ["01-done"],
+        order: 2,
+        createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    const completed = await loadPlan(cwd, "epic/01-done");
+    if (!completed) throw new Error("Expected completed child Plan.");
+    await updatePlanStatus(cwd, "epic/01-done", "ready_for_work", {}, { expectedRevision: completed.revision });
+    const path = join(cwd, "docs", "plans", "epic", "01-done.md");
+    await Deno.writeTextFile(
+        path,
+        (await Deno.readTextFile(path)).replace('status: "ready_for_work"', 'status: "validated"'),
+    );
+
+    const result = await resolveEpicContinuation({ cwd, completedPlanName: "epic/01-done" });
+
+    assertEquals(result.kind, "plan");
+    assertEquals(result.childPlanName, "epic/02-next");
 });
 
 Deno.test("resolveEpicContinuation stops on the first blocked child instead of skipping later work", async () => {

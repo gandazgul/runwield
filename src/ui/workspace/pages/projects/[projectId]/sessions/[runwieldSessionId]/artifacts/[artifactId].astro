@@ -44,7 +44,7 @@ const payload = artifact
         </section>
     ) : (
         <ArtifactReadSurface payload={payload} presentation="workspace" client:only="react">
-            <LoadingSurface slot="fallback" label="Loading artifact" />
+            <div slot="fallback"><LoadingSurface label="Loading artifact" /></div>
         </ArtifactReadSurface>
     )}
 </WorkspaceLayout>

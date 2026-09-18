@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
 import { addEntry } from "../worktree-registry.js";
 import {
@@ -40,6 +40,7 @@ Deno.test("publication machine persists one compare-and-swap attempt in the work
             targetHeadAtSeal: "a".repeat(40),
         });
         assertEquals(started.publicationRoot, publicationRootForAttempt(projectRoot, "attempt-1"));
+        assertStringIncludes(started.publicationRoot, join(".wld", "internal", "plan-staging", "attempt-1"));
         const artifacts = await advanceStoredPublication(projectRoot, started, "artifacts_committed", {
             artifactCommit: "c".repeat(40),
             planPaths: ["docs/plans/demo.md"],

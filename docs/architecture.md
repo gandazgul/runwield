@@ -807,8 +807,8 @@ flowchart TD
 ### Worktree ownership
 
 `startActiveExecutionWorkflow()` creates or reuses a worktree, captures its baseline tree, records the target branch,
-stores the live workflow on the hosted session, updates `.wld/worktrees.json`, and records `execution_started` in the
-Plan.
+stores the live workflow on the hosted session, updates `.wld/internal/worktrees.json`, and records `execution_started`
+in the Plan.
 
 `worktree.js` owns branch resolution, worktree creation, dirty-path risk checks, committing execution changes, and
 cleanup. `isolated-publication.ts` assembles and publishes the target in a separate clone. `publication-machine.ts` owns
@@ -873,18 +873,18 @@ For a broader entity-by-entity authority table, see
 [Persistence and authority](entity-model.md#persistence-and-authority). This table remains the implementation location
 map for Core persistence.
 
-| Data                                      | Location                                                          | Authority and write behavior                         |
-| ----------------------------------------- | ----------------------------------------------------------------- | ---------------------------------------------------- |
-| Session transcript                        | `~/.wld/sessions/<encoded-project-root>/`                         | Pi `SessionManager`; guarded load by cwd/id/path     |
-| Session image and memory-backup artifacts | Beside the persisted session                                      | Session-scoped file helpers                          |
-| Global settings, models, auth             | `~/.wld/`                                                         | RunWield settings/model services                     |
-| Project settings and overrides            | `<project>/.wld/`                                                 | Project-scoped settings/catalog services             |
-| Plans                                     | `<project>/docs/plans/**/*.md`                                    | Plan store and Plan lifecycle                        |
-| Archived Plans                            | `<project>/docs/plans/archived/`                                  | Plan store archive/restore operations                |
-| Worktree registry                         | `<project>/.wld/worktrees.json`                                   | Worktree registry under a local lock file            |
-| Execution worktrees                       | `~/.wld/worktrees/<encoded-project-root>/` by default             | Git worktree service                                 |
-| Workflow metrics                          | `~/.wld/workflow-metrics/<encoded-project-root>/metrics.jsonl`    | Optional, sanitized, fail-open append                |
-| Collaboration secrets                     | `~/.wld/collaboration-secrets.json` or project-local ignored file | Atomic temp-file/rename with restrictive permissions |
+| Data                                      | Location                                                                                            | Authority and write behavior                         |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| Session transcript                        | `~/.wld/sessions/<encoded-project-root>/`                                                           | Pi `SessionManager`; guarded load by cwd/id/path     |
+| Session image and memory-backup artifacts | Beside the persisted session                                                                        | Session-scoped file helpers                          |
+| Global settings, models, auth             | `~/.wld/`                                                                                           | RunWield settings/model services                     |
+| Project settings and overrides            | `<project>/.wld/`                                                                                   | Project-scoped settings/catalog services             |
+| Plans                                     | `<project>/docs/plans/**/*.md`                                                                      | Plan store and Plan lifecycle                        |
+| Archived Plans                            | `<project>/docs/plans/archived/`                                                                    | Plan store archive/restore operations                |
+| Worktree registry                         | `<primary-project>/.wld/internal/worktrees.json`                                                    | Worktree registry under a local lock file            |
+| Execution worktrees                       | `~/.wld/worktrees/<encoded-project-root>/` by default                                               | Git worktree service                                 |
+| Workflow metrics                          | `~/.wld/workflow-metrics/<encoded-project-root>/metrics.jsonl`                                      | Optional, sanitized, fail-open append                |
+| Collaboration secrets                     | `~/.wld/collaboration-secrets.json` or `<primary-project>/.wld/internal/collaboration-secrets.json` | Atomic temp-file/rename with restrictive permissions |
 
 ## Adapters over Core
 

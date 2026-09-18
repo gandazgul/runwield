@@ -76,6 +76,7 @@ export type WorkflowWorktreeContext = {
     worktreeBaseCommit?: string | null;
     worktreeStatus?:
         | "none"
+        | "planning"
         | "active"
         | "completed"
         | "execution_failed"

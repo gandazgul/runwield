@@ -44,7 +44,11 @@ goals require a distinct product surface.
   project work so simple tasks are not over-planned and large work is not under-specified.
 - **Artifacts over vibes:** Plans, PRDs, ADRs, validation notes, and Work Records are durable project memory.
 - **Session continuity:** Fresh sessions start with Router, but follow-up messages stay with the specialist Agent that
-  owns the current topic unless the user explicitly starts fresh or returns to Router.
+  owns the current topic unless the user explicitly starts fresh or returns to Router. Opening an empty composer does
+  not create project runtime state; the first submitted work enters the project runtime.
+- **Work protection:** Before normal project runtime access, Core uses Project Runtime Entry to adopt eligible legacy
+  state or refuse unsafe layouts. Refusals keep the reason and safe paths, stop writes, and are retryable after cleanup.
+  This follows [ADR-017](../adr/017-project-runtime-state-under-wld-internal.md).
 - **Tool-driven workflow:** Agents declare intent with custom tools; orchestration code decides lifecycle transitions,
   execution, validation, and recovery.
 - **Local-first control:** Core must remain useful without the hosted Workspace.
@@ -774,6 +778,9 @@ Candidate.
 - Given a tested Candidate and a Release Branch that has advanced, when the maintainer promotes that Candidate, Stable
   uses the tested Candidate commit rather than the newer branch tip.
 
+Upgrades that change project runtime layout follow [Work protection](#work-protection). Installation must not bypass
+safe adoption or blocked-layout preservation.
+
 **Requirement: Install required local runtime pieces without hiding package ownership.**
 
 Users can install RunWield as a standalone binary with the shell installer or, after owner publication, with the
@@ -826,6 +833,20 @@ Windows WinGet requirements:
 
 **Scope and maturity:** Current baseline; additional command and governance controls remain open questions.
 
+**Requirement: Enter project runtime state before use.**
+
+Core enters project runtime state before normal project-local runtime reads, locks, or writes. Entry adopts eligible
+legacy state or refuses unsafe layouts with a retryable reason and safe paths. Refusal stops normal writes and preserves
+user work. See [ADR-017](../adr/017-project-runtime-state-under-wld-internal.md).
+
+**Requirement: Keep Project Runtime State out of repository changes.**
+
+The managed `.gitignore` block contains only `.wld/internal/`. User `.wld/settings.json`, `.wld/agents/`,
+`.wld/skills/`, and `.wld/prompts/` remain normal repository content. If Git already tracks or stages runtime state,
+Core refuses checkpoint or publication and reports safe cleanup paths instead of deleting files, changing the index, or
+rewriting history. Core preserves and reports a broad user-authored `.wld/` ignore rule because it also hides trackable
+configuration.
+
 **Requirement: Preserve user work and require deliberate destructive actions.**
 
 Users retain control of their work through reviewed intent, isolated planned execution, recoverable baselines,
@@ -847,6 +868,28 @@ Open product questions:
 
 **Acceptance scenarios:**
 
+- Given untracked Project Runtime State and changed user `.wld` configuration, when execution checkpoints or publishes,
+  runtime state stays out of commits and user configuration can be committed.
+- Given runtime state already tracked, staged, deleted, renamed, or present in newly published history, when Core tries
+  to checkpoint or publish, it refuses with safe paths and preserves the worktree, index, files, and target refs.
+- Given a broad `.wld/` ignore rule, when Core reconciles ignore rules, it leaves the rule in place and reports that it
+  hides settings, Agents, Skills, and prompts.
+- Given eligible 0.10 runtime state, when Doctor checks the project, it reports pending adoption without locks,
+  migration, ignore writes, controller imports, catalog backfills, journal cleanup, or project-local Git fetches.
+- Given the same eligible state, when Doctor repairs it, guarded Project Runtime Entry adopts it once before normal
+  diagnostics run.
+- Given an unsafe 0.10 layout, unfinished publication, or saved repair, when Doctor checks or repairs, it stops,
+  preserves all named paths, and explains how to finish or deliberately abandon the 0.10 work.
+- Given a repository with ordinary file or directory symlinks, when Core publishes and retries delivery, it preserves
+  the links as Git content and still rejects symlinked runtime roots or publication checkout boundaries.
+- Given one legacy project collaboration secret in a linked checkout, when Core enters that checkout, it adopts the
+  secret into the primary internal store and collaboration commands can use it. Multiple populated stores cause a
+  non-destructive conflict.
+- Given Git tracks an old or current collaboration secret or its atomic temporary file, when Doctor reports the refusal,
+  it names only the path and explains untracking, history removal, and capability rotation without printing secret
+  bytes.
+- Given a populated project-local fallback worktree directory, when Core enters the project, it preserves the worktree,
+  registry, Git refs, and files and refuses adoption instead of moving them.
 - When recovery would reset working changes or delete unmerged work, the user must confirm the destructive action.
 - When a local browser surface is opened, it does not silently authorize other users or broaden project access.
 - Given an unclaimed worktree, when cleanup runs without proof its contents are disposable, the worktree remains
@@ -891,6 +934,8 @@ create additional product restrictions on which screen the owner may use.
 
 **Acceptance scenarios:**
 
+- Given a fresh empty composer, when the user opens it without submitting work, no project runtime state is created; the
+  first submitted work enters the project runtime.
 - Given an idle open TUI, when its owner sends the next message from a phone, the same Session continues and the TUI
   updates when the owner returns.
 - When a browser reloads or a completed Plan receives a follow-up, saved history remains usable and unsent drafts

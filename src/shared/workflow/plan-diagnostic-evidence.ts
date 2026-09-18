@@ -9,6 +9,7 @@ interface DiagnosticAttempt {
     planName: string;
     path: string;
     status: string;
+    documentSelected?: boolean;
 }
 
 interface PlanIdentityDocument {
@@ -51,11 +52,11 @@ async function readDocuments(root: string, prefix: string[] = []): Promise<PlanI
 export async function inspectPlanIdentityDocuments(projectRoot: string, attempts: DiagnosticAttempt[]) {
     const primary = await readDocuments(projectRoot);
     const primaryPaths = new Set(primary.map((plan) => plan.path));
-    const live = attempts.filter((attempt) => attempt.status !== "abandoned");
+    const selected = attempts.filter((attempt) => attempt.status !== "abandoned" || attempt.documentSelected);
     const documents = primary.filter((plan) =>
-        !live.some((attempt) => attempt.planId && attempt.planId === plan.attrs.planId)
+        !selected.some((attempt) => attempt.planId && attempt.planId === plan.attrs.planId)
     );
-    for (const attempt of live) {
+    for (const attempt of selected) {
         for (const plan of await readDocuments(attempt.path)) {
             const matches = attempt.planId
                 ? plan.attrs.planId === attempt.planId

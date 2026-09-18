@@ -42,6 +42,7 @@ import { ValidationInteractionTypes } from "./validation-ports.ts";
 import { persistHumanReviewMetadata, runHumanReviewPhase } from "./validation-human-review.ts";
 import { runPublicationPhase } from "./validation-publication.ts";
 import { buildValidationRepairPrompt } from "./validation-repair-prompt.ts";
+import { projectEngineerPlanBody } from "./engineer-plan-projection.ts";
 import { makeValidationCheckpoint, type ValidationReviewState } from "./validation-checkpoint.ts";
 import { classifyValidationOperationalError } from "./validation-operational-errors.ts";
 import {
@@ -433,7 +434,15 @@ export async function runReviewerRound(
         const repairDiffText = state.repairBaselineTree
             ? await getDiffText(state.repairBaselineTree, context.executionCwd)
             : "";
-        const config = buildSemanticReviewAttempt(attempt, nudgeReason, state, reviewMode, diffText, repairDiffText);
+        const config = buildSemanticReviewAttempt(
+            attempt,
+            nudgeReason,
+            state,
+            reviewMode,
+            diffText,
+            args.planContent,
+            repairDiffText,
+        );
         nudgeReason = undefined;
         try {
             const sessionOutcome = await args.session.runIsolatedAgentSession({
@@ -684,6 +693,7 @@ export function buildSemanticReviewAttempt(
     state: SemanticRoundState,
     reviewMode: "discovery" | "verify",
     diffText: string,
+    planContent: string,
     repairDiffText = "",
 ): {
     prompt: string;
@@ -741,7 +751,7 @@ export function buildSemanticReviewAttempt(
         "",
         "### Approved Plan",
         "",
-        "Plan content is supplied by the validation request.",
+        projectEngineerPlanBody(planContent),
     );
     return {
         prompt: sections.join("\n"),

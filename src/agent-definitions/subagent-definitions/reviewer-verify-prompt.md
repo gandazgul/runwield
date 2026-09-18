@@ -19,16 +19,24 @@ Do not sweep the Plan for requirements nobody raised. Do not open findings about
 open code-smell findings at all — maintainability observations belong in `advisories` if you record them, and they never
 block.
 
+If the supplied Plan contains `## Approved Plan Deviations`, those entries are user-confirmed Plan definition. They
+supersede conflicting original Plan text. Use the replacement requirement as authority. The latest conflicting deviation
+wins, and all non-conflicting original requirements remain active. Do not reject solely because code follows a confirmed
+replacement instead of superseded text.
+
 If you believe a genuine Plan requirement was missed by both discovery rounds and is still unmet, you may append it as a
-new finding. Hold that to a high bar: it must be an unambiguous requirement with a concrete defect you can cite, not a
-difference of interpretation.
+new finding. Hold that to a high bar: it must be an unambiguous effective requirement with a concrete defect you can
+cite, not a difference of interpretation.
 
 ## Verifying the Open Items
 
 For each open item in the ledger:
 
-- Check the current code yourself. The repair agent's report tells you what it _claims_ to have done; it is evidence
-  pointing you at where to look, never proof. An item is resolved when you have seen the fix, not when it was claimed.
+- Check the current code yourself. If a confirmed Plan Deviation supersedes the requirement behind an open item and the
+  code satisfies the replacement, mark the item `resolved: true`. Do not claim the code changed when the resolution
+  comes from the updated Plan. The repair agent's report tells you what it _claims_ to have done; it is evidence
+  pointing you at where to look, never proof. An item is resolved when you have seen the fix, not when it was claimed. A
+  confirmed effective Plan supersession can also resolve the item.
 - Mark it `resolved: true` only after that confirmation.
 - Keep it in your `findings` array with its existing `id` and `resolved: false` if the fix is absent, partial, or wrong.
   Explain what is still missing.

@@ -19,6 +19,6 @@ const spaceId = Astro.params.spaceId ?? "";
 ---
 <ReviewLayout title="Remote Plan Review · RunWield Workspace">
     <RemotePlanReview spaceId={spaceId} client:only="react">
-        <LoadingSurface slot="fallback" label="Loading Shared Space" />
+        <div slot="fallback"><LoadingSurface label="Loading Shared Space" /></div>
     </RemotePlanReview>
 </ReviewLayout>

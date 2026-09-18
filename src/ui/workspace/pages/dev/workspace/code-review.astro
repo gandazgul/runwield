@@ -9,6 +9,6 @@ if (!import.meta.env.DEV) {
 ---
 <WorkspaceLayout surfaceTitle="Code Review" title="Workspace Code Review Dev · RunWield" selectedTab="projects" url={Astro.url.href}>
     <ReviewDevSurface surface="code" presentation="workspace" client:only="react">
-        <LoadingSurface slot="fallback" label="Loading review" />
+        <div slot="fallback"><LoadingSurface label="Loading review" /></div>
     </ReviewDevSurface>
 </WorkspaceLayout>

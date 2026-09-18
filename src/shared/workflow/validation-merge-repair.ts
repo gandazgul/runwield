@@ -10,6 +10,11 @@ import type { PhaseContext, UserActionPause, ValidationLoopArgs } from "./valida
 import { emitStatus } from "./validation-emit.ts";
 import { buildValidationUserMessage, validationMergeRepairMessage } from "./validation-user-messages.ts";
 import { buildValidationRepairPrompt } from "./validation-repair-prompt.ts";
+import {
+    assertNoRuntimePathsInNewHistory,
+    assertNoTrackedOrIndexedRuntimePaths,
+    stageGitChangesExcludingRuntime,
+} from "../git-runtime-safety.ts";
 
 type GitCommandResult = { code: number; stdout: string; stderr: string };
 
@@ -71,19 +76,30 @@ export async function finalizeMergeRepair(repairCwd: string): Promise<boolean> {
 
     const mergeHead = await runRepairGit(repairCwd, ["rev-parse", "--verify", "MERGE_HEAD"]);
     if (mergeHead.code === 0) {
-        const staged = await runRepairGit(repairCwd, ["add", "-A"]);
-        if (staged.code !== 0) return false;
+        const repairHead = await runRepairGit(repairCwd, ["rev-parse", "HEAD"]);
+        if (repairHead.code !== 0) return false;
+        await assertNoTrackedOrIndexedRuntimePaths(repairCwd);
+        await assertNoRuntimePathsInNewHistory(repairCwd, repairHead.stdout, mergeHead.stdout);
+        await stageGitChangesExcludingRuntime(repairCwd);
+        await assertNoTrackedOrIndexedRuntimePaths(repairCwd);
         const committed = await runRepairGit(repairCwd, ["commit", "--no-edit"]);
         if (committed.code !== 0) {
             await logValidationFailure(new Error(committed.stderr || committed.stdout), "merge_repair_commit");
             return false;
         }
+        const committedHead = await runRepairGit(repairCwd, ["rev-parse", "HEAD"]);
+        if (committedHead.code !== 0) return false;
+        await assertNoRuntimePathsInNewHistory(repairCwd, repairHead.stdout, committedHead.stdout);
     }
 
     const mergeCommit = await runRepairGit(repairCwd, ["rev-list", "--merges", "-n", "1", "HEAD"]);
     if (mergeCommit.code !== 0 || !mergeCommit.stdout) return false;
-    const staged = await runRepairGit(repairCwd, ["add", "-A"]);
-    if (staged.code !== 0) return false;
+    const mergeBase = await runRepairGit(repairCwd, ["rev-parse", `${mergeCommit.stdout}^1`]);
+    if (mergeBase.code !== 0) return false;
+    await assertNoTrackedOrIndexedRuntimePaths(repairCwd);
+    await assertNoRuntimePathsInNewHistory(repairCwd, mergeBase.stdout, "HEAD");
+    await stageGitChangesExcludingRuntime(repairCwd);
+    await assertNoTrackedOrIndexedRuntimePaths(repairCwd);
     const pending = await runRepairGit(repairCwd, ["diff", "--cached", "--quiet"]);
     if (pending.code === 1) {
         const committed = await runRepairGit(repairCwd, ["commit", "-m", "Complete RunWield publication repair"]);
@@ -148,6 +164,15 @@ export function describeMergePause(
             details: getBlockingPaths(failure),
         };
     }
+    if (kind === "runwield_runtime_tracked") {
+        return {
+            whatHappened:
+                `RunWield stopped before adding "${planName}" to ${targetBranch}, because RunWield runtime files are staged, committed, or present in the publication history. Publishing them can expose local state or secrets.`,
+            doThis:
+                "Remove these paths from Git history and the index, rotate any listed collaboration secret, then pick Retry.",
+            details: getBlockingPaths(failure),
+        };
+    }
     if (kind === "target_checked_out") {
         return {
             whatHappened:
@@ -200,7 +225,7 @@ export function describeMergePause(
 
 export function publicationFailureNeedsUserAction(failure: PublicationFailure): boolean {
     const kind = getMergeFailureKind(failure);
-    return kind === "primary_checkout_dirty" || kind === "target_checked_out" ||
+    return kind === "primary_checkout_dirty" || kind === "runwield_runtime_tracked" || kind === "target_checked_out" ||
         kind === "permission_denied" || kind === "policy_violation" || kind === "publication_target_changed" ||
         kind === "publication_push_failed" || kind === "publication_verification_failed" ||
         kind === "detached_merge_conflict" || kind === "current_checkout_merge_conflict" ||

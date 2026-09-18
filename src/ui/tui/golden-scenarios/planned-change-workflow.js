@@ -79,7 +79,7 @@ function assertRealPlanReviewRevisionAndApproval(result) {
         // is a product output the user keeps or discards, not publication residue.
         statusLines.every((line) => {
             const path = line.slice(3).trim();
-            return line.endsWith("docs/plans/plan.md") || line.endsWith(".wld/worktrees.json") ||
+            return line.endsWith("docs/plans/plan.md") || line.endsWith(".wld/internal/worktrees.json") ||
                 line.endsWith("docs/") || line.includes("docs/work-records/") || path === ".gitignore" ||
                 path === ".wld/settings.json";
         }),

@@ -11,7 +11,7 @@
  * imports — they are RunWield's own machinery, never ports.
  */
 
-import { canonicalPlanStatus, getDeclaredPlanStatus, loadPlan } from "../../plan-store.js";
+import { canonicalPlanStatus, getDeclaredPlanStatus, loadPlan, PlanFrontMatterParseError } from "../../plan-store.js";
 import { VALIDATION_PLAN_STATUSES } from "./plan-lifecycle.js";
 import { getProjectRoot } from "./validation-context.ts";
 import { emitStatus } from "./validation-emit.ts";
@@ -162,7 +162,21 @@ export async function loadCanonicalValidationPlan(
     | { kind: "blocked"; result: ValidationPhaseResult }
 > {
     const projectRoot = getProjectRoot(args);
-    const plan = await loadPlan(validationPlanCwd(args, projectRoot), args.planName);
+    let plan;
+    try {
+        plan = await loadPlan(validationPlanCwd(args, projectRoot), args.planName);
+    } catch (error) {
+        if (!(error instanceof PlanFrontMatterParseError)) throw error;
+        return {
+            kind: "blocked",
+            result: canonicalOperationalResult(args, projectRoot, {
+                source: "policy",
+                kind: "lifecycle_invariant",
+                operation: "validation_state",
+                message: error.message,
+            }),
+        };
+    }
     if (!plan) {
         return {
             kind: "blocked",

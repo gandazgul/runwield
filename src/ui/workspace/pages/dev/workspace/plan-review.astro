@@ -16,6 +16,6 @@ const reviewTitle = variant === "project" ? "Fixture PROJECT Epic: Plan Review U
     url={Astro.url.href}
 >
     <ReviewDevSurface surface="plan" presentation="workspace" variant={variant} client:only="react">
-        <LoadingSurface slot="fallback" label="Loading review" />
+        <div slot="fallback"><LoadingSurface label="Loading review" /></div>
     </ReviewDevSurface>
 </WorkspaceLayout>

@@ -8,7 +8,7 @@
  * provable and get on with it, not hand out a diagnosis and stop.
  */
 
-import { loadPlanStrict } from "../../plan-store.js";
+import { inspectPlanStrict, loadPlanStrict } from "../../plan-store.js";
 import { inspectWorktreeRegistry } from "../worktree-registry.js";
 import {
     type EffectProver,
@@ -78,7 +78,9 @@ const WORKTREE_CREATION_EFFECTS = new Set([
 export function buildEffectProver(
     projectRoot: string,
     facts: { registryEntries: RegistryEntry[]; gitWorktreePaths: string[] },
+    options: { diagnostic?: boolean } = {},
 ): EffectProver {
+    const readPlan = options.diagnostic ? inspectPlanStrict : loadPlanStrict;
     const entryById = new Map(facts.registryEntries.map((entry) => [entry.id, entry]));
     const trackedPaths = new Set(facts.registryEntries.map((entry) => entry.path));
     return async (effect, record) => {
@@ -91,11 +93,13 @@ export function buildEffectProver(
                 return { settled: false, reason: "Sequence journal has no complete document set" };
             }
             const states = await Promise.all(group.plans.map(async (plan) => {
-                const loaded = await loadPlanStrict(projectRoot, plan.planName);
+                const loaded = await readPlan(projectRoot, plan.planName);
                 return {
                     planName: plan.planName,
-                    before: loaded.kind === "loaded" && loaded.revision === plan.beforeRevision,
-                    after: loaded.kind === "loaded" && loaded.revision === plan.afterRevision,
+                    before: loaded.kind === "loaded" && "revision" in loaded &&
+                        loaded.revision === plan.beforeRevision,
+                    after: loaded.kind === "loaded" && "revision" in loaded &&
+                        loaded.revision === plan.afterRevision,
                 };
             }));
             if (states.every((state) => state.before) || states.every((state) => state.after)) {
@@ -160,8 +164,8 @@ export function buildEffectProver(
         if (COMPLETION_MARKER_EFFECTS.has(effect.effect)) {
             const planName = typeof record.planName === "string" ? record.planName : undefined;
             if (!planName) return { settled: false, reason: "the record names no Plan to confirm" };
-            const loaded = await loadPlanStrict(projectRoot, planName);
-            if (loaded.kind !== "loaded") {
+            const loaded = await readPlan(projectRoot, planName);
+            if (loaded.kind !== "loaded" || !("attrs" in loaded)) {
                 return { settled: false, reason: `Plan ${planName} cannot be read (${loaded.kind})` };
             }
             return {

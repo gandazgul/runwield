@@ -4,6 +4,7 @@
  */
 
 import { join } from "@std/path";
+import { RUNWIELD_GITIGNORE_BLOCK } from "../../../shared/runwield-owned-paths.ts";
 
 export const GOLDEN_FAUX_PROVIDER = "golden";
 export const GOLDEN_FAUX_MODEL = "faux";
@@ -152,6 +153,7 @@ export async function createGoldenIsolatedEnvironment(options = {}) {
         join(projectRoot, "README.md"),
         "# Golden TUI Fixture\n\nRouting uses the Router to select Guide.\n",
     );
+    await Deno.writeTextFile(join(projectRoot, ".gitignore"), RUNWIELD_GITIGNORE_BLOCK);
     const initDone = options.initDone !== false;
     const initArtifact = options.initArtifact ?? initDone;
     if (initArtifact) {
