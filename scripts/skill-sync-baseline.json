@@ -1,16 +1,36 @@
 {
-    "pairs": [
+    "skills": [
         {
             "source": "src/agent-definitions/ideator.md",
-            "skill": "skills/ideator/SKILL.md",
             "sourceHash": "6f1835618b21e147a68c67b805177a48db96085c6022b115cb79d29ae00c9909",
-            "skillHash": "15b2019a9601c7d72325bf42b31e87512d8ffcf57cb05a4cbc86e2b74bb46e86"
+            "skill": "skills/ideator/SKILL.md",
+            "skillHash": "15b2019a9601c7d72325bf42b31e87512d8ffcf57cb05a4cbc86e2b74bb46e86",
+            "supportFiles": []
         },
         {
             "source": "src/agent-definitions/guide.md",
-            "skill": "skills/guide/SKILL.md",
             "sourceHash": "bc2b0fd0d8de904d66d24c800e0d70e9a1549f78b04437333dbd20de15269c51",
-            "skillHash": "67212de1d80d7f2542f3e3e41594f96cba1df46be385653538298a629c4d580f"
+            "skill": "skills/guide/SKILL.md",
+            "skillHash": "67212de1d80d7f2542f3e3e41594f96cba1df46be385653538298a629c4d580f",
+            "supportFiles": []
+        },
+        {
+            "skill": "skills/review/SKILL.md",
+            "skillHash": "e0857de1329555487f12a378902332939dbcb2550231a578b6f6f8e0567fd80c",
+            "supportFiles": [
+                {
+                    "path": "skills/review/github.md",
+                    "hash": "ef53c485940b2c07ff19cfff7b89a020a8d01393745d734dd777045cf7c51263"
+                },
+                {
+                    "path": "skills/review/gitlab.md",
+                    "hash": "4c9f4d2a4f4c8ea66830cd59edde6c959dc5cc5af1524ce1ed1b7a1f0113b12e"
+                },
+                {
+                    "path": "skills/review/pull-requests.md",
+                    "hash": "dd8e445ab2dfc2c0414ca644317babc9687ee47350a22b7d4d248024d046e066"
+                }
+            ]
         }
     ]
 }

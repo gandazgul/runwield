@@ -18,8 +18,8 @@ createdAt: "2026-09-17"
 origin: "internal"
 userVerifiedAt: null
 routingIntent: "PLANNED_CHANGE"
-status: "in_progress"
-targetBranch: "pr-78"
+targetBranch: "main"
+status: "implemented"
 ---
 
 # Publish a `review` Skill for Pull Requests and Arbitrary Diffs
