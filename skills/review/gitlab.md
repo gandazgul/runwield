@@ -1,12 +1,13 @@
 # GitLab commands
 
-For a merge request on GitLab. Everything here goes through the `glab` CLI, authenticated.
+For a merge request on GitLab. Requires the `glab` CLI and `jq`, authenticated.
 
-Replace `<n>` with the merge request IID — the number in its URL, not the global ID. Add `--repo <group>/<project>` to
-any command when you are outside the repository.
+Replace `<n>` with the merge request IID — the number in its URL, not the global ID. For `glab mr` commands outside the
+repository, add `--repo <group>/<project>`. For API commands, replace `<project>` with the numeric project ID or the
+URL-encoded path, such as `group%2Fproject`. On a self-managed host, also pass `--hostname <host>` to `glab api`.
 
-> These commands were checked against the current `glab` command reference. They were not executed against a live merge
-> request.
+> These commands were checked against the current `glab` and GitLab REST documentation. They were not executed against a
+> live merge request.
 
 ## Read the change
 
@@ -25,65 +26,156 @@ glab mr note list <n> --type diff --output json
 
 # The diff.
 glab mr diff <n> --raw
+
+# SHAs for the newest diff version.
+glab api "projects/<project>/merge_requests/<n>/versions" \
+  | jq 'max_by(.created_at) | {base_commit_sha, start_commit_sha, head_commit_sha}'
 ```
+
+Copy the three returned values into `position.base_sha`, `position.start_sha`, and `position.head_sha`. They must come
+from the same diff version.
+
+## REST line comments
+
+A line comment is a merge request discussion with a `position` object. For an added line, write:
+
+```json
+{
+    "body": "…",
+    "position": {
+        "position_type": "text",
+        "base_sha": "<base_commit_sha>",
+        "start_sha": "<start_commit_sha>",
+        "head_sha": "<head_commit_sha>",
+        "old_path": "src/session.ts",
+        "new_path": "src/session.ts",
+        "new_line": 42
+    }
+}
+```
+
+Save it as `discussion.json`, then post it only after the user confirms the exact comment:
+
+```bash
+glab api --method POST \
+  "projects/<project>/merge_requests/<n>/discussions" \
+  --input discussion.json
+```
+
+For an unchanged context line, send both `old_line` with its old-file line number and `new_line` with its new-file line
+number. For a removed line, replace `new_line` with its old-file line number as `old_line`. Always send both paths. For
+a renamed file, `old_path` is the path before the change and `new_path` is the path after it.
+
+The discussions call posts immediately. Use the draft-note flow below when the review has multiple comments.
 
 ## Post the review, batched
 
-`--draft` queues a note instead of posting it. Queued notes are visible only to you until you publish, which is how a
-multi-finding review arrives as one notification rather than one per finding.
+First show the user the exact summary and every line comment. Do not create any remote draft until the user confirms all
+of them.
+
+The bulk endpoint publishes every pending draft that belongs to the current user on this merge request. It cannot select
+specific draft IDs. Before creating review drafts, require an empty draft queue:
 
 ```bash
-# A finding on a line the change added.
-glab mr note create <n> --draft --file src/session.ts --line 42 --message "…"
-
-# A finding on a line the change removed.
-glab mr note create <n> --draft --file src/session.ts --old-line 17 --message "…"
-
-# A finding spanning a range.
-glab mr note create <n> --draft --file src/session.ts --line 60:64 --message "…"
-
-# The summary: no --file, so it publishes as a plain comment on the change.
-glab mr note create <n> --draft --message "$(cat review-body.md)"
+glab api "projects/<project>/merge_requests/<n>/draft_notes" > existing-drafts.json
+jq -e 'length == 0' existing-drafts.json
 ```
 
-`--file` targets the latest diff version, so you never resolve commit SHAs yourself.
+If that check fails, stop. Do not delete or publish the existing drafts. Ask the user to publish, remove, or preserve
+them before this review continues.
 
-Then, after the user agrees:
+For each confirmed line comment, create a JSON file with the matching `position` fields described above, but use `note`
+instead of `body`. This added-line example needs only `new_line`:
+
+```json
+{
+    "note": "…",
+    "position": {
+        "position_type": "text",
+        "base_sha": "<base_commit_sha>",
+        "start_sha": "<start_commit_sha>",
+        "head_sha": "<head_commit_sha>",
+        "old_path": "src/session.ts",
+        "new_path": "src/session.ts",
+        "new_line": 42
+    }
+}
+```
+
+Create the drafts and record every returned ID:
 
 ```bash
-glab api --method POST "projects/:fullpath/merge_requests/<n>/draft_notes/bulk_publish"
+set -euo pipefail
+: > review-draft-ids.txt
+for payload in review-comments/*.json; do
+  glab api --method POST \
+    "projects/<project>/merge_requests/<n>/draft_notes" \
+    --input "$payload" | jq -r '.id' >> review-draft-ids.txt
+done
 ```
 
-`glab` has no publish subcommand, so this is the one place the review needs `glab api`. `:fullpath` is filled from the
-current repository.
-
-## Post a single comment instead
-
-When nothing anchors to a line, drop `--draft` and one note posts immediately:
+Immediately before publication, confirm that the queue contains exactly those IDs and no others:
 
 ```bash
-glab mr note create <n> --message "$(cat review-body.md)"
+sort -n review-draft-ids.txt -o review-draft-ids.txt
+glab api "projects/<project>/merge_requests/<n>/draft_notes" \
+  | jq -r '.[].id' | sort -n > all-draft-ids.txt
+cmp review-draft-ids.txt all-draft-ids.txt
 ```
 
-Posting each finding this way without `--draft` also works and needs no `glab api`, but every note is its own
-notification. Prefer the draft queue.
+If `cmp` reports a difference, do not bulk-publish. Remove only this review's drafts, then resolve the unexpected drafts
+with the user:
 
-## Verdict
+```bash
+while read -r id; do
+  glab api --method DELETE \
+    "projects/<project>/merge_requests/<n>/draft_notes/$id"
+done < review-draft-ids.txt
+```
 
-GitLab has no "request changes" action. Carry the verdict in the first line of the summary note:
+If the IDs match, publish the drafts and summary in one call. Run no other draft operation between the ID check and this
+call:
 
-```text
-**Changes requested** — 2 blocking issues, 3 advisories.
+```bash
+# At least one blocking issue.
+glab api --method POST \
+  "projects/<project>/merge_requests/<n>/draft_notes/bulk_publish" \
+  -f "note=$(cat review-body.md)" -f reviewer_state=requested_changes
+
+# No blocking issues.
+glab api --method POST \
+  "projects/<project>/merge_requests/<n>/draft_notes/bulk_publish" \
+  -f "note=$(cat review-body.md)" -f reviewer_state=reviewed
+```
+
+## Post a summary with no line comments
+
+After the user confirms the summary, first confirm that there are no pending drafts. This keeps the bulk endpoint from
+publishing unrelated work:
+
+```bash
+glab api "projects/<project>/merge_requests/<n>/draft_notes" \
+  | jq -e 'length == 0'
+```
+
+Then post the summary with the matching verdict:
+
+```bash
+# At least one blocking issue.
+glab api --method POST \
+  "projects/<project>/merge_requests/<n>/draft_notes/bulk_publish" \
+  -f "note=$(cat review-body.md)" -f reviewer_state=requested_changes
+
+# No blocking issues.
+glab api --method POST \
+  "projects/<project>/merge_requests/<n>/draft_notes/bulk_publish" \
+  -f "note=$(cat review-body.md)" -f reviewer_state=reviewed
 ```
 
 Never run `glab mr approve`, and never run `glab mr revoke` against someone else's approval.
 
 ## When a comment is rejected
 
-A `--file` and `--line` the diff does not contain is rejected, and only that note fails — the ones already queued stay
-queued. Move that finding into the summary body and carry on. Nothing reaches the merge request until you publish, so a
-rejected draft never leaves a half-posted review behind.
-
-To remove a note you queued by mistake, `glab mr note delete <n> <note-id> --yes`, taking the numeric id from
-`glab mr note list <n> -F json`. That subcommand is marked experimental, and the list may not include unpublished
-drafts; when it does not, remove the draft from the merge request page before publishing.
+GitLab rejects a position that is not in the selected diff version. A failed draft is not queued; drafts already created
+remain pending. Delete this review's recorded draft IDs, move the rejected finding into the summary body with its file
+and line, ask the user to confirm the revised review, and rebuild the batch. Never bulk-publish a partial set.

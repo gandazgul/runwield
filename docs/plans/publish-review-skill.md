@@ -19,7 +19,7 @@ origin: "internal"
 userVerifiedAt: null
 routingIntent: "PLANNED_CHANGE"
 targetBranch: "main"
-status: "implemented"
+status: "validated_reviewer"
 ---
 
 # Publish a `review` Skill for Pull Requests and Arbitrary Diffs

@@ -20,11 +20,11 @@
             "supportFiles": [
                 {
                     "path": "skills/review/github.md",
-                    "hash": "ef53c485940b2c07ff19cfff7b89a020a8d01393745d734dd777045cf7c51263"
+                    "hash": "90f89d2302ad58af0afabd125a8199676b3575ac9ba3efe343ede68f6959a3cb"
                 },
                 {
                     "path": "skills/review/gitlab.md",
-                    "hash": "4c9f4d2a4f4c8ea66830cd59edde6c959dc5cc5af1524ce1ed1b7a1f0113b12e"
+                    "hash": "549df62e7a66d36944f123dda1b0992084cc595a0f4033aed5a19a354aa03a32"
                 },
                 {
                     "path": "skills/review/pull-requests.md",
