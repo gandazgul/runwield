@@ -735,6 +735,39 @@ Deno.test("load-plan marks an Epic done enough only after the real lifecycle wri
     });
 });
 
+Deno.test("load-plan distinguishes validated Epic children from pending publication", async () => {
+    await withRuntimeCommandFixture("runwield-epic-publication-", async ({ projectRoot }) => {
+        await prepareValidatedPublicationPlan(projectRoot, "epic/child", {
+            status: "validated",
+            parentPlan: "epic",
+            order: 1,
+        }, async () => {
+            await writePlan(projectRoot, "epic", {
+                classification: "PROJECT",
+                status: "validated",
+                epicCompletionMode: "done_enough",
+                epicDoneEnoughSummary: "All child plans are completed.",
+            });
+        });
+        const { runtime, sessionId } = await createRuntime(projectRoot);
+        const ui = makeUi(["publish:epic/child", "cancel"]);
+        try {
+            await runLoadPlanCommand(["epic"], {
+                sessionRuntime: runtime,
+                sessionId,
+                uiAPI: ui.uiAPI,
+                editor: ui.editor,
+            });
+            assertStringIncludes(ui.messages.join("\n"), "Publication is still pending for epic/child");
+            assertEquals(ui.messages.some((message) => message.includes("All child plans are completed")), false);
+            assertEquals(ui.promptOptions.flat().some((option) => option.value === "publish:epic/child"), true);
+            assertStringIncludes(ui.messages.join("\n"), "Plan loaded: epic/child");
+        } finally {
+            runtime.closeAllSessions();
+        }
+    });
+});
+
 Deno.test("Approve for Later creates no execution segment", async () => {
     await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot }) => {
         await Deno.mkdir(`${projectRoot}/docs/plans`, { recursive: true });

@@ -24,6 +24,7 @@ import {
 import { SYSTEM_WORK_RECORD_MNEMOTECA_PORT } from "../../shared/work-records/mnemoteca-port.ts";
 import { archiveEpicWithChildren } from "./plan-epic-archive.ts";
 import { buildPlanSummary } from "../../shared/plan-presentation.ts";
+import { readControllerWorktree } from "../../shared/workflow/controller-registry.ts";
 import {
     buildEpicDoneEnoughSummary,
     buildEpicPlanSummary,
@@ -85,6 +86,14 @@ export async function handleEpicPlan({
         isPlannedChangeClassification(child.attrs.classification)
     ).sort(compareChildPlansByOrder);
     const hasChildren = children.length > 0;
+    const pendingPublication = (await Promise.all(children.map(async (child) => {
+        if (child.attrs.status !== "validated") return null;
+        const attempt = await readControllerWorktree(projectRoot, {
+            planName: child.name,
+            planId: child.attrs.planId,
+        });
+        return attempt ? child : null;
+    }))).filter((child) => child !== null);
     const isApprovedEpic = plan.attrs.status === "approved";
     const hasLegacyExecutableEpicStatus = ["in_progress", "failed"].includes(plan.attrs.status) ||
         isInValidation(plan.attrs.status);
@@ -117,7 +126,15 @@ export async function handleEpicPlan({
     if (hasChildren) {
         uiAPI.appendSystemMessage(formatEpicProgressSummary(children), false, "RunWield");
     }
-    if (isDoneEnoughEpic(plan)) {
+    if (pendingPublication.length > 0) {
+        for (const child of pendingPublication) {
+            uiAPI.appendSystemMessage(
+                `Publication is still pending for ${child.name}. Its checks passed, but delivery has not finished. Choose Resume publication to continue.`,
+                false,
+                "RunWield",
+            );
+        }
+    } else if (isDoneEnoughEpic(plan)) {
         const summary = plan.attrs.epicDoneEnoughSummary ? ` ${plan.attrs.epicDoneEnoughSummary}` : "";
         uiAPI.appendSystemMessage(
             `This Epic is marked done enough for now.${summary} Remaining child plans stay visible and loadable.`,
@@ -154,6 +171,10 @@ export async function handleEpicPlan({
     while (true) {
         /** @type {Array<{ value: string, label: string }>} */
         const epicOptions = [
+            ...pendingPublication.map((child) => ({
+                value: `publish:${child.name}`,
+                label: `Resume publication: ${child.name}`,
+            })),
             ...(canPickChild ? [{ value: "pick_child", label: "Pick a child Planned Change plan" }] : []),
             ...(canDirectReview ? [{ value: "direct_review", label: "Review plan" }] : []),
             ...(canReviewWithArchitect
@@ -170,7 +191,7 @@ export async function handleEpicPlan({
                 }]
                 : []),
             ...(isHoldableStatus(plan.attrs.status) ? [{ value: "hold", label: "Put Epic on hold" }] : []),
-            ...(isTerminalArchivableStatus(plan.attrs.status)
+            ...(isTerminalArchivableStatus(plan.attrs.status) && pendingPublication.length === 0
                 ? [{ value: "archive_epic", label: "Archive Epic" }]
                 : []),
             { value: "view", label: "View Epic details" },
@@ -179,6 +200,12 @@ export async function handleEpicPlan({
 
         const answer = await uiAPI.promptSelect("What would you like to do with this Epic?", epicOptions);
         if (!answer || answer === "cancel") return "handled";
+
+        const publicationChild = pendingPublication.find((child) => answer === `publish:${child.name}`);
+        if (publicationChild) {
+            await loadChildPlan(publicationChild.name);
+            return "handled";
+        }
 
         if (answer === "view") {
             uiAPI.appendSystemMessage(buildEpicPlanSummary(plan, children), false, "Plan");

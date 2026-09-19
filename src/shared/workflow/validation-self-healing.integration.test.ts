@@ -14,6 +14,35 @@ import { addEntry, findById } from "../worktree-registry.js";
 import { resolveValidationExecutionContext } from "./execution-context.ts";
 import { continueWorkflowValidation } from "./validation-supervisor.ts";
 import { attachRecorder, makeUi, makeValidationProjectRoot } from "./validation-test-helpers.js";
+import { getCurrentValidationProgress } from "./validation-progress.ts";
+
+Deno.test("an interrupted validation clears running progress while retaining a resumable Plan", async () => {
+    const projectRoot = await makeValidationProjectRoot("p", {
+        classification: "PLANNED_CHANGE",
+        status: "implemented",
+    });
+    const hostedSession = attachRecorder(new HostedSession({ id: crypto.randomUUID(), cwd: projectRoot }), makeUi());
+    try {
+        const result = await continueWorkflowValidation({
+            hostedSession,
+            planName: "p",
+            planContent: "# p",
+            triageMeta: { classification: "PLANNED_CHANGE", status: "implemented" },
+            git: createGitPort(),
+            localCI: { run: () => Promise.reject(new Error("CI process disconnected")) },
+            workRecordMnemotecaPort: { run: () => Promise.reject(new Error("publication must not run")) },
+        });
+        assertEquals(result.kind, "paused");
+        const progress = getCurrentValidationProgress(hostedSession);
+        assertExists(progress);
+        assertEquals(progress.outcome, "paused");
+        assertEquals(Object.values(progress.checks).includes("running"), false);
+        assertEquals((await loadPlan(projectRoot, "p"))?.attrs.status, "implemented");
+    } finally {
+        hostedSession.dispose();
+        await Deno.remove(projectRoot, { recursive: true });
+    }
+});
 
 const fixture = defineGitFixture(async (repoPath) => {
     await Deno.writeTextFile(join(repoPath, "README.md"), "# Validation fixture\n");

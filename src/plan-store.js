@@ -2372,7 +2372,10 @@ export async function updatePlanFrontMatter(
         }
         const attrs = { ...recoveryAttrs, ...updates, updatedAt: updates.updatedAt ?? new Date().toISOString() };
         const normalizedAttrs = parsePlanFrontMatter(injectFrontMatter(result.markdown, attrs)).attrs;
-        const previousValues = new Map(Object.entries(extractYaml(result.markdown).attrs || {}));
+        const previousValues = new Map(Object.entries(result.attrs));
+        const storedValues = new Map(
+            Object.entries(hasFrontMatter(result.markdown) ? extractYaml(result.markdown).attrs : {}),
+        );
         const nextValues = new Map(Object.entries(normalizedAttrs));
         /** @type {Partial<PlanFrontMatter>} */
         const normalizedOverrides = {};
@@ -2380,7 +2383,11 @@ export async function updatePlanFrontMatter(
             // Recovery attributes often contain the entire loaded Plan. Replacing
             // unchanged fields reformats YAML lists and invalidates sealed commits
             // during controller-only operations such as claiming a retry.
-            if (JSON.stringify(nextValues.get(key)) === JSON.stringify(previousValues.get(key))) continue;
+            // Explicit document updates must compare against the stored value:
+            // parsing may already normalize a retired status that still needs
+            // to be repaired on disk. Recovery defaults are not explicit edits.
+            const previous = Object.hasOwn(updates, key) ? storedValues.get(key) : previousValues.get(key);
+            if (JSON.stringify(nextValues.get(key)) === JSON.stringify(previous)) continue;
             /** @type {Record<string, unknown>} */ (normalizedOverrides)[key] =
                 /** @type {Record<string, unknown>} */ (normalizedAttrs)[key];
         }

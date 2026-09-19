@@ -215,6 +215,7 @@ function findFixturePlanLifecycle(directory, expectedStatus) {
  *     screen?: string,
  *     activeAgent?: string,
  *     publicationBaseline?: PublicationBaseline,
+ *     validationCiRuns?: Array<{ output: string, isError: boolean }>,
  *     systemMessages?: Array<{ text: string, isError: boolean, header?: string }>,
  * }} ComposedScenarioState
  */
@@ -225,6 +226,8 @@ function findFixturePlanLifecycle(directory, expectedStatus) {
  * @property {string} branch
  * @property {string} status
  * @property {Record<string, string | null>} files
+ * @property {string[]} executionWorktrees
+ * @property {string[]} executionCommits
  */
 
 /** @param {Uint8Array} bytes */
@@ -1148,6 +1151,10 @@ async function runComposedTuiScenario(scenario, options) {
                 if (event.type === "tool_end") {
                     const name = /** @type {{ toolName?: string }} */ (event).toolName || "";
                     events.push(`runtime:tool:end:${name}`);
+                    if (event.toolCallId.startsWith("validation-ci-")) {
+                        events.push(`runtime:validation-ci:${event.isError ? "failed" : "passed"}`);
+                        (state.validationCiRuns ||= []).push({ output: event.output, isError: event.isError });
+                    }
                 }
                 if (event.type === "assistant_text_delta") events.push("runtime:assistant:text");
                 if (event.type === "assistant_thinking_delta") events.push("runtime:assistant:thinking");
@@ -2305,7 +2312,16 @@ async function runComposedTuiScenario(scenario, options) {
                     for (const path of paths) {
                         files[path] = await Deno.readTextFile(join(Deno.cwd(), path)).catch(() => null);
                     }
+                    const executionWorktrees = (await runGoldenGit(["worktree", "list", "--porcelain"], getCwd()))
+                        .split("\n")
+                        .filter((line) => line.startsWith("worktree "))
+                        .slice(1)
+                        .map((line) => line.slice("worktree ".length));
                     state.publicationBaseline = {
+                        executionWorktrees,
+                        executionCommits: await Promise.all(
+                            executionWorktrees.map((path) => runGoldenGit(["rev-parse", "HEAD"], path)),
+                        ),
                         head: await runGoldenGit(["rev-parse", "HEAD"], Deno.cwd()),
                         branch: await runGoldenGit(["branch", "--show-current"], Deno.cwd()),
                         status: await runGoldenGit(["status", "--porcelain", "--untracked-files=all"], Deno.cwd()),
@@ -2400,7 +2416,9 @@ async function runComposedTuiScenario(scenario, options) {
                     const planName = String(typed.planName || "");
                     const deliveredPath = String(typed.deliveredPath || "");
                     const primaryPlan = await loadPlan(Deno.cwd(), planName);
-                    const targetBranch = String(primaryPlan?.attrs.worktreeBaseBranch || "main");
+                    const targetBranch = String(
+                        primaryPlan?.attrs.targetBranch || primaryPlan?.attrs.worktreeBaseBranch || "main",
+                    );
                     const remote =
                         await runGoldenGit(["config", "--get", `branch.${targetBranch}.remote`], Deno.cwd()) ||
                         "origin";
@@ -2434,6 +2452,25 @@ async function runComposedTuiScenario(scenario, options) {
                         ),
                     );
                     state.publication = {
+                        executionCommitsPublished: await Promise.all(
+                            (state.publicationBaseline?.executionCommits || []).map((commit) =>
+                                runGoldenGit(
+                                    ["--git-dir", remotePath, "merge-base", "--is-ancestor", commit, remoteHead],
+                                    getCwd(),
+                                ).then(() => true).catch(() => false)
+                            ),
+                        ),
+                        registeredWorktrees: (await runGoldenGit(["worktree", "list", "--porcelain"], getCwd()))
+                            .split("\n")
+                            .filter((line) => line.startsWith("worktree ")),
+                        remainingExecutionWorktrees: (await Promise.all(
+                            (state.publicationBaseline?.executionWorktrees || []).map(async (path) =>
+                                await Deno.stat(path).then(() => path).catch((error) => {
+                                    if (error instanceof Deno.errors.NotFound) return null;
+                                    throw error;
+                                })
+                            ),
+                        )).filter((path) => path !== null),
                         primaryHead: await runGoldenGit(["rev-parse", "HEAD"], Deno.cwd()),
                         primaryBranch: await runGoldenGit(["branch", "--show-current"], Deno.cwd()),
                         primaryStatus: await runGoldenGit(

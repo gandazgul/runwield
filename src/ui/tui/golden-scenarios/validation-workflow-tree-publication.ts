@@ -191,7 +191,7 @@ function isolatedPublicationScenario(
                     ? [
                         // A stable screen can precede /load-plan dispatch. Restart only after
                         // the repair has run and the user has chosen to pause publication.
-                        { type: "waitForEvent", event: "runtime:interaction:select:selected", timeoutMs: 90000 },
+                        { type: "waitForEvent", event: "runtime:tool:end:bash", timeoutMs: 90000 },
                         { type: "waitForIdle", timeoutMs: 90000 },
                         { type: "restartTui" },
                         { type: "type", text: `/load-plan ${name}` },

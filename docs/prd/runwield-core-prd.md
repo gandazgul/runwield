@@ -377,6 +377,12 @@ Workflow Validation requirements:
 - keep publication-conflict repairs attached to the publication attempt, not CI or code-review repair checkpoints; an
   accepted `task_completed` continues Git verification and publication without another user prompt, whether the Agent
   staged the resolutions or committed them;
+- when publication is pending, keep that distinction visible when loading the parent Epic and offer the child’s
+  publication continuation instead of presenting validation as finished delivery;
+- preserve Plan document bytes during controller-only updates, including publication retries;
+- recover unstaged, formatting-only Plan drift from the sealed candidate on publication retry, without overwriting
+  changed definitions, body text, staged changes, or committed changes;
+- show interrupted validation as paused, never as still running, while retaining its saved continuation;
 - deliver validated work to its configured target and confirm that outcome before reporting delivery complete;
 - after a normal Plan publication completes, keep follow-up messages with Engineer from the primary checkout, not from
   the removed execution worktree;

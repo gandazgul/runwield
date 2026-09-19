@@ -167,7 +167,9 @@ async function installFakeClipboardCommands(projectRoot: string): Promise<Clipbo
             "#!/bin/sh",
             "echo Zml4dHVyZS1wbmc=",
             `touch "${imageReadMarkerPath}"`,
-            "sleep 0.1",
+            // Reading bytes is not paste completion: the process must exit and
+            // RunWield must attach/render the image before the user can submit it.
+            "sleep 0.2",
             "",
         ].join("\n"),
     );
@@ -472,7 +474,10 @@ Deno.test("chat input controller preflights pasted image attachments through the
             try {
                 terminal.input("\x16");
                 await waitForPath(clipboard.imageReadMarkerPath, "clipboard image read");
-                await terminal.flush();
+                await waitFor(
+                    () => terminal.getScreenText().includes("image/png"),
+                    "pasted image preview before submission",
+                );
                 await submitText(terminal, "describe pasted image");
                 await waitFor(
                     () =>
