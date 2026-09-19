@@ -2,7 +2,7 @@
  * Build the standalone RunWield binary.
  */
 
-import { dirname } from "@std/path";
+import { dirname, resolve } from "@std/path";
 
 export const DENO_COMPILE_MINIMUM_VERSION = "2.9.3";
 
@@ -165,6 +165,22 @@ export function assertCompileDenoVersion(version = Deno.version.deno) {
 }
 
 /**
+ * A cross-compiled binary cannot run on the build host.
+ *
+ * @param {string | undefined} target
+ * @returns {boolean}
+ */
+export function canSmokeTestCompiledBinary(target) {
+    if (!target) return true;
+    const osTarget = Deno.build.os === "darwin"
+        ? "apple-darwin"
+        : Deno.build.os === "windows"
+        ? "pc-windows-msvc"
+        : "unknown-linux-gnu";
+    return target === `${Deno.build.arch}-${osTarget}`;
+}
+
+/**
  * @param {string[]} [args]
  * @returns {Promise<void>}
  */
@@ -205,6 +221,13 @@ export async function main(args = Deno.args) {
 
     if (!compile.success) {
         throw new Error(compile.stderr || "Deno compile failed.");
+    }
+
+    if (canSmokeTestCompiledBinary(options.target)) {
+        const smokeTest = await runCmd(resolve(output), ["--version"]);
+        if (!smokeTest.success) {
+            throw new Error(smokeTest.stderr || "Compiled RunWield binary failed its startup smoke test.");
+        }
     }
 }
 

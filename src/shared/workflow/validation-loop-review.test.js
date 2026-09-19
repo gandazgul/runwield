@@ -1,4 +1,4 @@
-import { assertEquals, assertNotEquals, assertRejects, assertStringIncludes } from "@std/assert";
+import { assertEquals, assertExists, assertNotEquals, assertRejects, assertStringIncludes } from "@std/assert";
 
 import { loadPlan } from "../../plan-store.js";
 import { getHomeDir } from "../../constants.js";
@@ -6,6 +6,8 @@ import { join } from "@std/path";
 import { setCustomSetting } from "../settings.js";
 import { executeWorkflowTestTools } from "../../testing/workflow-agent-tools.ts";
 import { captureWorktreeTree } from "./git-snapshot.js";
+import { parseDiffFiles } from "./review-diff-tool.js";
+import { getWorkflowMetricsFilePath } from "./metrics.js";
 import {
     git,
     makeRecordedSession,
@@ -125,7 +127,29 @@ function reviewPort(overrides = {}) {
                     .map((/** @type {any} */ message) => ({
                         name: message.toolName,
                         arguments: message.details || {},
-                    })),
+                    }))
+                    .flatMap((/** @type {any} */ call) => {
+                        if (call.name !== "review_diff" || call.arguments.command !== "list") return [call];
+                        // The scripted Reviewer reads the actual tool diff, including all pages.
+                        const tool = opts.customTools.find((/** @type {any} */ tool) => tool.name === "review_diff");
+                        const diffs = tool.__runwieldReviewDiffs;
+                        return [
+                            call,
+                            ...["full", "repair"].flatMap((scope) =>
+                                parseDiffFiles(diffs[scope] || "").flatMap((file) =>
+                                    Array.from({ length: Math.ceil(file.byteLength / 65536) }, (_, index) => ({
+                                        name: "review_diff",
+                                        arguments: {
+                                            command: "show",
+                                            scope,
+                                            path: file.path,
+                                            offsetBytes: index * 65536,
+                                        },
+                                    }))
+                                )
+                            ),
+                        ];
+                    }),
             );
             return messages;
         },
@@ -155,7 +179,7 @@ function roundLimitPort(reviewer = {}) {
                     }])
                     : reviewerMessages({
                         approved: reviewer.approved === true,
-                        findings: [{ title: "Issue from round 1" }],
+                        findings: [{ title: "Repair introduced a regression", origin: "repair_regression" }],
                     }),
             ),
     });
@@ -295,7 +319,7 @@ Deno.test("runValidationPhase rejects an approved verdict reached without inspec
 
     const plan = await loadPlan(projectRoot, "p");
     assertEquals(reviewCalls, 2);
-    assertStringIncludes(reviewPrompts[1], "without inspecting the diff");
+    assertStringIncludes(reviewPrompts[1], "Read every remaining diff chunk");
     assertEquals(plan?.attrs.status, "validated_reviewer");
 });
 
@@ -333,7 +357,7 @@ Deno.test("runValidationPhase does not count a failed review_diff call as inspec
     });
 
     assertEquals(reviewCalls, 2);
-    assertStringIncludes(reviewPrompts[1], "without inspecting the diff");
+    assertStringIncludes(reviewPrompts[1], "Read every remaining diff chunk");
 });
 
 Deno.test("runValidationPhase nudges the same reviewer session when review_complete is omitted", async () => {
@@ -368,7 +392,7 @@ Deno.test("runValidationPhase nudges the same reviewer session when review_compl
     });
 
     assertEquals(reviewCalls, 2);
-    assertStringIncludes(reviewOpts[1].userRequest, "have not called review_complete");
+    assertStringIncludes(reviewOpts[1].userRequest, "No review_complete was accepted");
     assertEquals(reviewOpts[1].userRequest.includes("Approved Plan"), false);
     assertEquals(reviewOpts[0].sessionManager, reviewOpts[1].sessionManager);
     assertStringIncludes(uiAPI.messages.join(" "), "AI code review needs more time");
@@ -403,7 +427,7 @@ Deno.test("runValidationPhase nudges the same Reviewer after real argument valid
     });
 
     assertEquals(reviewOpts.length, 2);
-    assertStringIncludes(reviewOpts[1].userRequest, "have not called review_complete");
+    assertStringIncludes(reviewOpts[1].userRequest, "No review_complete was accepted");
     assertEquals(reviewOpts[0].sessionManager, reviewOpts[1].sessionManager);
 });
 
@@ -432,7 +456,7 @@ Deno.test("runValidationPhase cannot advance from a failed diff lookup without r
     });
 
     assertEquals(reviewOpts.length, 2);
-    assertStringIncludes(reviewOpts[1].userRequest, "have not called review_complete");
+    assertStringIncludes(reviewOpts[1].userRequest, "No review_complete was accepted");
     assertEquals(reviewOpts[0].sessionManager, reviewOpts[1].sessionManager);
 });
 
@@ -522,6 +546,8 @@ Deno.test("runValidationPhase dispatches semantic review feedback to Reviewer-Fe
         complexity: "MEDIUM",
         executionAgent: "frontend-engineer",
     });
+    const approvedPlan = (await loadPlan(projectRoot, "p"))?.markdown;
+    assertExists(approvedPlan);
     const sessions = /** @type {any[]} */ ([]);
     const reviewerWorkflowContexts = /** @type {Array<Record<string, string> | null>} */ ([]);
     const repairWorkflowContexts = /** @type {Array<Record<string, string> | null>} */ ([]);
@@ -562,6 +588,7 @@ Deno.test("runValidationPhase dispatches semantic review feedback to Reviewer-Fe
     assertEquals(result.kind, "semantic_repair_handoff");
     assertStringIncludes(result.semanticRepairHandoff?.findingsSection || "", "Missing guard");
     assertEquals(sessions.map((opts) => opts.agentName), ["reviewer"]);
+    assertStringIncludes(sessions[0].userRequest, approvedPlan);
     assertEquals(reviewerWorkflowContexts, [expectedWorkflowContext]);
     assertEquals(repairWorkflowContexts, []);
     assertEquals(repairActiveOwners, []);
@@ -617,11 +644,72 @@ Deno.test("runValidationPhase carries existing ledger identities and repair repo
     assertStringIncludes(reviewPrompts[0], "R1-1");
     assertStringIncludes(reviewPrompts[0], "added the guard in file.js");
     assertStringIncludes(reviewPrompts[0], "claims to verify, not proof");
-    assertEquals(reviewModes, ["verify"]);
+    assertEquals(reviewModes, ["discovery"]);
     assertEquals(plan?.attrs.status, "validated_reviewer");
+    assertEquals(plan?.attrs.validationCheckpoint?.reviewState?.semanticRound, 2);
+    assertEquals(plan?.attrs.validationCheckpoint?.reviewState?.reviewLedger.items[0].status, "fix_confirmed");
+    assertEquals(plan?.attrs.validationCheckpoint?.reviewState?.reviewLedger.items[0].resolvedInRound, 2);
 });
 
-Deno.test("a resumed review without persisted findings performs one broad recovery review", async () => {
+Deno.test("round-two origin metrics are recorded separately from durable repair states", async () => {
+    const { projectRoot, hostedSession } = await makeValidatedCiRun({ validationSemanticRounds: 1 });
+    await setCustomSetting("workflowMetrics", true, "project", projectRoot);
+    /** @type {import('./review-ledger.ts').ReviewLedger} */
+    const reviewLedger = {
+        sequence: 2,
+        items: ["R1-1", "R1-2"].map((id) => ({
+            id,
+            openedInRound: 1,
+            resolvedInRound: null,
+            status: "fix_claimed",
+            title: "Existing defect",
+            requirement: "Step 1",
+            evidence: "workflow.js",
+        })),
+    };
+    const workflow = hostedSession.getActiveExecutionWorkflow();
+    assertExists(workflow);
+    hostedSession.setActiveExecutionWorkflow({ ...workflow, reviewLedger });
+    await runValidationPhase({
+        hostedSession,
+        planName: "p",
+        planContent: "# p",
+        triageMeta: { classification: "QUICK_FIX", status: "validated_ci", validationSemanticRounds: 1 },
+        supportsSemanticRepairHandoff: true,
+        semanticReviewPort: reviewPort({
+            runIsolatedAgentSession: () =>
+                Promise.resolve(reviewerMessages({
+                    approved: false,
+                    findings: [
+                        {
+                            id: "R1-1",
+                            title: "Existing defect",
+                            status: "fix_rejected",
+                            rejectionReason: "The empty case still fails.",
+                        },
+                        { id: "R1-2", title: "Existing defect", status: "fix_confirmed" },
+                        { title: "Original miss", status: "new", origin: "missed_original" },
+                        { title: "Repair regression", status: "new", origin: "repair_regression" },
+                    ],
+                })),
+        }),
+    });
+    const records = (await Deno.readTextFile(getWorkflowMetricsFilePath(projectRoot))).trim().split("\n").map((line) =>
+        JSON.parse(line)
+    );
+    const metric = records.find((record) => record.event === "semantic_review_result");
+    assertEquals(metric.details.missedOriginalCount, 1);
+    assertEquals(metric.details.repairRegressionCount, 1);
+    assertEquals(metric.details.existingStillOpenCount, 1);
+    assertEquals(metric.details.fixConfirmedCount, 1);
+    const saved = (await loadPlan(projectRoot, "p"))?.attrs.validationCheckpoint?.reviewState?.reviewLedger;
+    assertExists(saved);
+    assertEquals(saved.items.map((item) => item.status), ["fix_rejected", "fix_confirmed", "new", "new"]);
+    assertEquals(saved.items[0].rejectionReason, "The empty case still fails.");
+    assertEquals(saved.items.some((item) => "origin" in item), false);
+});
+
+Deno.test("a resumed round two without persisted findings still performs a complete review", async () => {
     const { hostedSession } = await makeValidatedCiRun({ validationSemanticRounds: 1 });
     const reviewModes = /** @type {string[]} */ ([]);
 
@@ -762,7 +850,7 @@ Deno.test("runValidationPhase refuses semantic approval while a prior finding is
 
     const plan = await loadPlan(projectRoot, "p");
     assertEquals(reviewCalls, 2);
-    assertStringIncludes(reviewPrompts[1], "does not mention this open finding: R1-1");
+    assertStringIncludes(reviewPrompts[1], "Account for every open finding: R1-1");
     assertStringIncludes(reviewPrompts[1], "Reuse the existing identities exactly");
     assertEquals(plan?.attrs.status, "validated_reviewer");
 });
@@ -908,7 +996,7 @@ Deno.test("inline round-limit repair records passing CI before another Reviewer 
                     reviewerRuns === 1
                         ? reviewerMessages({
                             approved: false,
-                            findings: [{ title: "Round-limit issue" }],
+                            findings: [{ title: "Round-limit issue", origin: "repair_regression" }],
                         })
                         : reviewerMessages({
                             approved: true,
@@ -957,7 +1045,10 @@ Deno.test("look again re-enters at the focused reviewer, after the repair and it
                 modes.push("verify");
                 round += 1;
                 return Promise.resolve(
-                    reviewerMessages({ approved: false, findings: [{ title: "Issue from round 1" }] }),
+                    reviewerMessages({
+                        approved: false,
+                        findings: [{ title: "Repair regression", origin: "repair_regression" }],
+                    }),
                 );
             },
         }),
@@ -979,8 +1070,7 @@ Deno.test("look again re-enters at the focused reviewer, after the repair and it
 });
 
 Deno.test("transcript provenance cannot waive production diff inspection", async () => {
-    // Accepted bridge-stamped review_complete: no review_diff transcript event
-    // is needed, and no inspection nudge is issued.
+    // A provenance label cannot substitute for actual diff read receipts.
     const { projectRoot, hostedSession } = await makeValidatedCiRun();
     const reviewPrompts = /** @type {string[]} */ ([]);
     let reviewCalls = 0;
@@ -1013,11 +1103,10 @@ Deno.test("transcript provenance cannot waive production diff inspection", async
     });
 
     assertEquals(reviewCalls, 4);
-    assertEquals(reviewPrompts[1].includes("without inspecting the diff"), true);
+    assertEquals(reviewPrompts[1].includes("Read every remaining diff chunk"), true);
     assertEquals((await loadPlan(projectRoot, "p"))?.attrs.status, "validated_ci");
 
-    // An otherwise identical result WITHOUT the trusted provenance is still
-    // nudged: the waiver belongs to the Claude opaque-inspection policy only.
+    // An otherwise identical result without provenance also requires actual reads.
     const second = await makeValidatedCiRun();
     let untrustedCalls = 0;
     await runValidationPhase({
@@ -1101,6 +1190,6 @@ Deno.test("transcript provenance cannot waive production diff inspection", async
         }),
     });
     assertEquals(ledgerCalls, 2);
-    assertStringIncludes(ledgerPrompts[1], "does not mention this open finding: R1-1");
+    assertStringIncludes(ledgerPrompts[1], "Account for every open finding: R1-1");
     assertEquals((await loadPlan(third.projectRoot, "p"))?.attrs.status, "validated_reviewer");
 });

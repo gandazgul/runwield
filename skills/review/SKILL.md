@@ -68,6 +68,12 @@ Keep them apart either way: one axis must not see the other's findings, or the l
 
 Give each pass the diff, the commit list, its own sources, and the judgment discipline below.
 
+Each pass must read every changed file's complete diff, including deletions, tests, documentation, and configuration.
+Build a file checklist first and follow truncated output until every chunk is read. Read surrounding code and callers
+where needed to judge behavior. Finding a blocker does not end inspection: finish the checklist before reporting either
+approval or rejection. If the host reports unread chunks, read them and retry completion without dropping findings. For
+a repeat review, keep existing issue identities and distinguish claimed fixes from independently confirmed fixes.
+
 **Standards brief.** Read the standards documents. Then read the diff. Report every place the change breaks a documented
 convention, per file and hunk. Cite the document and the rule. Separate a hard violation from a judgment call. Skip
 anything the formatter or the linter already enforces.

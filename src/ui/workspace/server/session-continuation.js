@@ -15,7 +15,6 @@ import {
     requireUserAgentOption,
     requireUserModelOption,
 } from "../../../shared/session/user-selection.ts";
-import { getCommandDefinition, getSlashCommandDefinitions } from "../../../cmd/registry.js";
 import { normalizeBrowserNotificationPolicy } from "../../../shared/session/notification-content.ts";
 import { applySharedPlanReviewDecision } from "../../../shared/workflow/plan-review-actions.ts";
 import { getWorkflowDiff } from "../../../shared/workflow/git-snapshot.js";
@@ -359,11 +358,12 @@ export class WorkspaceSessionContinuationService {
         const defaultProvider = settings.getDefaultProvider?.() || "";
         const defaultModel = settings.getDefaultModel?.() || "";
         const defaultThinkingLevel = settings.getDefaultThinkingLevel?.() || "default";
-        const [templates, skills] = await Promise.all([
+        const [templates, skills, commandRegistry] = await Promise.all([
             listPromptTemplates({ cwd: projectRoot }),
             listSkills({ cwd: projectRoot }),
+            import("../../../cmd/registry.js"),
         ]);
-        const builtins = getSlashCommandDefinitions("workspace");
+        const builtins = commandRegistry.getSlashCommandDefinitions("workspace");
         return {
             defaults: {
                 agentName: defaultAgent.name,
@@ -378,7 +378,7 @@ export class WorkspaceSessionContinuationService {
                     description: command.description,
                     kind: "action",
                 })),
-                ...templates.filter((template) => !getCommandDefinition(template.name))
+                ...templates.filter((template) => !commandRegistry.getCommandDefinition(template.name))
                     .map((template) => ({ name: template.name, description: template.description, kind: "prompt" })),
                 ...skills.map((skill) => ({
                     name: `skill:${skill.name}`,

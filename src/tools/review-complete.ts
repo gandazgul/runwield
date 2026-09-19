@@ -12,6 +12,8 @@ import type { HostedSession } from "../shared/session/hosted-session.js";
 import { emitReviewResultMessage } from "../shared/session/workflow-messages.js";
 import { recordWorkflowMetric } from "../shared/workflow/metrics.js";
 import { publishWorkflowToolEvent } from "../shared/workflow/workflow-tool-events.ts";
+import { type ReviewLedger, unaccountedOpenItems } from "../shared/workflow/review-ledger.ts";
+import type { ReviewInspection } from "../shared/workflow/review-inspection.ts";
 
 export interface ReviewFinding {
     id?: string;
@@ -19,6 +21,10 @@ export interface ReviewFinding {
     title: string;
     requirement: string;
     evidence: string;
+    status?: "new" | "fix_confirmed" | "fix_rejected";
+    rejectionReason?: string;
+    /** Reviewer attribution for diagnostics only; not persisted as a ledger state. */
+    origin?: "missed_original" | "repair_regression";
 }
 
 export interface ReviewAdvisory {
@@ -27,14 +33,30 @@ export interface ReviewAdvisory {
 }
 
 const FINDING_PARAMS = Type.Object({
+    origin: Type.Optional(Type.Union([Type.Literal("missed_original"), Type.Literal("repair_regression")], {
+        description:
+            "For a new finding after round one: was it already present before repair, or introduced by repair? Metrics only. Omit for existing IDs and first-round findings.",
+    })),
+    status: Type.Optional(Type.Union([
+        Type.Literal("new"),
+        Type.Literal("fix_confirmed"),
+        Type.Literal("fix_rejected"),
+    ], {
+        description:
+            "New defect, independently confirmed fix, or rejected fix. Only the repair completion can claim a fix.",
+    })),
+    rejectionReason: Type.Optional(
+        Type.String({
+            description: "Required for a rejected fix: what is still wrong and why the repair did not resolve it.",
+        }),
+    ),
     id: Type.Optional(Type.String({
         description:
             'Existing ledger identity this finding refers to (e.g. "R1-2"). Omit for a newly discovered issue; RunWield assigns the identity. Never invent or renumber identities.',
     })),
     resolved: Type.Optional(Type.Boolean({
-        default: false,
         description:
-            "Set true only when re-reviewing an existing identity you have independently verified as fixed in the code. An Engineer's claim that it was fixed is evidence, not resolution.",
+            "Legacy equivalent of status: fix_confirmed. Prefer status; if both are supplied they must agree. An Engineer's claim is not confirmation.",
     })),
     title: Type.String({
         description: "One-line statement of the defect.",
@@ -71,7 +93,7 @@ const PARAMETERS = Type.Object({
     findings: Type.Optional(Type.Array(FINDING_PARAMS, {
         default: [],
         description:
-            "Blocking Review Issues. Include every still-open issue each round, marking resolved ones with resolved: true. Approving with unresolved findings is rejected.",
+            "Include every open issue each round: fix_confirmed or fix_rejected with rejectionReason. Use new without id for new defects. Approving with unresolved findings is rejected.",
     })),
     advisories: Type.Optional(Type.Array(ADVISORY_PARAMS, {
         default: [],
@@ -84,7 +106,7 @@ type ReviewFindingParam = Static<typeof FINDING_PARAMS>;
 type ReviewAdvisoryParam = Static<typeof ADVISORY_PARAMS>;
 
 type ReviewCompleteDetails =
-    | { outcome: "rejected"; reason: "approved_with_open_findings" }
+    | { outcome: "rejected"; reason: "approved_with_open_findings" | "incomplete_inspection" | "invalid_findings" }
     | {
         outcome: "approved" | "feedback";
         approved: boolean;
@@ -98,10 +120,12 @@ type ReviewCompleteResult = AgentToolResult<ReviewCompleteDetails> & { terminate
 interface ReviewCompletedToolOptions {
     hostedSession: HostedSession;
     agentName?: string;
+    inspection?: ReviewInspection;
+    ledger?: ReviewLedger;
 }
 
 export function createReviewCompletedTool(
-    { hostedSession, agentName = "reviewer" }: ReviewCompletedToolOptions,
+    { hostedSession, agentName = "reviewer", inspection, ledger }: ReviewCompletedToolOptions,
 ) {
     if (!hostedSession) throw new Error("createReviewCompletedTool: hostedSession is required");
     return defineTool<typeof PARAMETERS, ReviewCompleteDetails>({
@@ -111,15 +135,31 @@ export function createReviewCompletedTool(
             "Call with `approved: true` when the implementation satisfies the plan and no blocking issue remains. " +
             "Call with `approved: false` plus a `findings` array when it does not; each finding is one concrete defect. " +
             "Report non-blocking observations as `advisories` — they never block approval. " +
-            "Call this exactly once when you have finished reviewing. Do not output text after calling this tool.",
+            "Finish reading every required diff chunk before either verdict. If rejected, follow the correction instructions and retry. Do not output text after an accepted completion.",
         parameters: PARAMETERS,
         async execute(toolCallId, params): Promise<ReviewCompleteResult> {
             await Promise.resolve();
+            const unread = inspection?.feedback();
+            if (unread) {
+                return {
+                    content: [{ type: "text", text: unread }],
+                    details: { outcome: "rejected", reason: "incomplete_inspection" },
+                    terminate: false,
+                };
+            }
             const approved = params.approved === true;
             const feedback = typeof params.feedback === "string" ? params.feedback.trim() : "";
             const findings = normalizeFindings(params.findings);
             const advisories = normalizeAdvisories(params.advisories);
             const openFindings = findings.filter((finding) => !finding.resolved);
+            const findingError = validateFindingStates(params.findings || [], ledger);
+            if (findingError) {
+                return {
+                    content: [{ type: "text", text: `review_complete rejected: ${findingError}` }],
+                    details: { outcome: "rejected", reason: "invalid_findings" },
+                    terminate: false,
+                };
+            }
 
             if (approved && openFindings.length > 0) {
                 const rejection = `Cannot approve with ${openFindings.length} unresolved finding(s). ` +
@@ -188,12 +228,52 @@ function normalizeFindings(value: ReviewFindingParam[] | undefined): ReviewFindi
         if (!title) return [];
         return [{
             id: typeof finding.id === "string" && finding.id.trim() ? finding.id.trim() : undefined,
-            resolved: finding.resolved === true,
+            resolved: finding.status ? finding.status === "fix_confirmed" : finding.resolved === true,
+            status: finding.status || (finding.resolved ? "fix_confirmed" : finding.id ? "fix_rejected" : "new"),
+            rejectionReason: finding.rejectionReason?.trim() || "",
+            ...(finding.origin ? { origin: finding.origin } : {}),
             title,
             requirement: typeof finding.requirement === "string" ? finding.requirement.trim() : "",
             evidence: typeof finding.evidence === "string" ? finding.evidence.trim() : "",
         }];
     });
+}
+
+function validateFindingStates(findings: ReviewFindingParam[], ledger?: ReviewLedger): string {
+    const ids = new Set<string>();
+    for (const finding of findings) {
+        if (
+            finding.status && finding.resolved !== undefined &&
+            finding.resolved !== (finding.status === "fix_confirmed")
+        ) {
+            return "status and resolved contradict each other. Use status to state the decision.";
+        }
+        if (finding.id) {
+            if (ids.has(finding.id)) return `Report ${finding.id} exactly once.`;
+            ids.add(finding.id);
+            if (ledger && !ledger.items.some((item) => item.id === finding.id)) {
+                return `Unknown finding ${finding.id}. Omit id for new defects.`;
+            }
+            if (finding.status === "new") {
+                return `Keep ${finding.id} under its existing identity and use fix_rejected with a reason, or fix_confirmed.`;
+            }
+        } else if (finding.status === "fix_confirmed" || finding.status === "fix_rejected" || finding.resolved) {
+            return "A fix decision requires an existing finding id. Use new without an id for a new defect.";
+        }
+        const rejectsFix = finding.status === "fix_rejected" || (finding.id && !finding.status && !finding.resolved);
+        if (rejectsFix && !finding.rejectionReason?.trim()) {
+            return `Explain why the fix for ${finding.id} is rejected in rejectionReason.`;
+        }
+    }
+    if (ledger) {
+        const missing = unaccountedOpenItems(ledger, normalizeFindings(findings));
+        if (missing.length) {
+            return `Account for every open finding: ${
+                missing.join(", ")
+            }. Confirm or reject each fix using its existing id.`;
+        }
+    }
+    return "";
 }
 
 function normalizeAdvisories(value: ReviewAdvisoryParam[] | undefined): ReviewAdvisory[] {
@@ -214,6 +294,7 @@ function formatFindingsProjection(openFindings: ReviewFinding[]): string {
             const parts = [`- ${finding.id ? `${finding.id} — ` : ""}${finding.title}`];
             if (finding.requirement) parts.push(`  Plan: ${finding.requirement}`);
             if (finding.evidence) parts.push(`  Evidence: ${finding.evidence}`);
+            if (finding.rejectionReason) parts.push(`  Fix rejected: ${finding.rejectionReason}`);
             return parts.join("\n");
         })
         .join("\n");

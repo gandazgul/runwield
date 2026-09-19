@@ -517,7 +517,7 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
     if (event === "semantic_review_passed") {
         updates.failureReason = null;
         updates.failedAt = null;
-        updates.validationCheckpoint = null;
+        updates.validationCheckpoint = details.validationCheckpoint ?? null;
     }
 
     if (event === "manual_closed_without_verification") {

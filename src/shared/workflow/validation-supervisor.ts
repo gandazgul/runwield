@@ -23,7 +23,7 @@ import type { WorkflowValidationResult } from "./validation-types.ts";
 import { validationUserMessage } from "./validation-user-messages.ts";
 import { emitStatus } from "./validation-emit.ts";
 import { getDiffText, resolvePhaseContext } from "./validation-context.ts";
-import { renderOpenItems } from "./review-ledger.ts";
+import { claimReviewFixes, renderOpenItems } from "./review-ledger.ts";
 import { PLAN_STATUSES } from "./plan-lifecycle.js";
 import { resolveWorkflowPlanLocation } from "./plan-location.ts";
 import { resolvePrimaryCheckoutRoot } from "../primary-checkout.ts";
@@ -223,7 +223,13 @@ export async function recordValidationRepairCompletion(args: {
             repairGeneration: checkpoint.repairGeneration,
             repairCompletedOperationId: args.repairGeneration,
             lastSettledOperationId: checkpoint.lastSettledOperationId,
-            reviewState: reviewState ? { ...reviewState, lastRepairReport: args.report } : undefined,
+            reviewState: reviewState
+                ? {
+                    ...reviewState,
+                    reviewLedger: claimReviewFixes(reviewState.reviewLedger),
+                    lastRepairReport: args.report,
+                }
+                : undefined,
         });
         try {
             await updatePlanFrontMatter(

@@ -189,7 +189,18 @@ Deno.test("semantic repair completion is an idempotent mechanical receipt", asyn
             repairGeneration: "repair-one",
             reviewState: {
                 semanticRound: 1,
-                reviewLedger: { sequence: 0, items: [] },
+                reviewLedger: {
+                    sequence: 1,
+                    items: [{
+                        id: "R1-1",
+                        openedInRound: 1,
+                        resolvedInRound: null,
+                        status: "new",
+                        title: "Missing guard",
+                        requirement: "Step 1",
+                        evidence: "a.ts",
+                    }],
+                },
                 repairBaselineTree: "tree-before-repair",
             },
         });
@@ -216,6 +227,10 @@ Deno.test("semantic repair completion is an idempotent mechanical receipt", asyn
         assertEquals(reopened.attrs.validationCheckpoint?.repairCompletedOperationId, "repair-one");
         assertEquals(reopened.attrs.validationCheckpoint?.lastSettledOperationId, undefined);
         assertEquals(readValidationReviewState(reopened.attrs.validationCheckpoint)?.lastRepairReport, "Fixed R1-1.");
+        assertEquals(
+            readValidationReviewState(reopened.attrs.validationCheckpoint)?.reviewLedger.items[0].status,
+            "fix_claimed",
+        );
         await assertRejects(
             () =>
                 recordValidationRepairCompletion({

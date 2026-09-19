@@ -2,6 +2,7 @@ import { assertEquals, assertStringIncludes, assertThrows } from "@std/assert";
 import {
     assertCompileDenoVersion,
     buildCompileArgs,
+    canSmokeTestCompiledBinary,
     DENO_COMPILE_MINIMUM_VERSION,
     parseCompileOptions,
 } from "./compile.js";
@@ -89,4 +90,9 @@ Deno.test("standalone compiler version allows the minimum Deno version or newer"
     assertCompileDenoVersion("3.0.0");
     assertThrows(() => assertCompileDenoVersion("2.9.2"), Error, DENO_COMPILE_MINIMUM_VERSION);
     assertThrows(() => assertCompileDenoVersion("2.8.0"), Error, DENO_COMPILE_MINIMUM_VERSION);
+});
+
+Deno.test("native compilation runs the binary startup smoke test", () => {
+    assertEquals(canSmokeTestCompiledBinary(undefined), true);
+    assertEquals(canSmokeTestCompiledBinary("unsupported-target"), false);
 });

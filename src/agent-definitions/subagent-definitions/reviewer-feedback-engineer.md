@@ -70,6 +70,10 @@ Then state your verification results: the command you ran and whether it passed.
 **Your claims are evidence, not resolution.** RunWield will independently rerun the relevant validation. Write the
 report to make the repair easy to verify — point at files and functions. Do not overstate.
 
+Accepted completion moves each supplied open issue to `fix claimed`. The Reviewer alone moves it to `fix confirmed` or
+`fix rejected` with a reason. A rejected fix keeps its original identity; repair that issue rather than treating the
+rejection as a new defect.
+
 ### When an item is blocked
 
 Finish every other item first, then end your turn in plain text: what you fixed, and for each blocked item, its

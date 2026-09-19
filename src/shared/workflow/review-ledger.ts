@@ -15,6 +15,8 @@
 
 import type { ReviewFinding } from "../../tools/review-complete.ts";
 
+export type ReviewIssueStatus = "new" | "fix_claimed" | "fix_confirmed" | "fix_rejected";
+
 export interface LedgerItem {
     /** Stable identity, e.g. "R1-2". Never reused or renumbered. */
     id: string;
@@ -23,6 +25,9 @@ export interface LedgerItem {
     title: string;
     requirement: string;
     evidence: string;
+    /** Optional only for checkpoints written before explicit issue states. */
+    status?: ReviewIssueStatus;
+    rejectionReason?: string;
 }
 
 export interface ReviewLedger {
@@ -51,6 +56,12 @@ export function normalizeLedger(value: unknown): ReviewLedger {
                 title: typeof item.title === "string" ? item.title : "",
                 requirement: typeof item.requirement === "string" ? item.requirement : "",
                 evidence: typeof item.evidence === "string" ? item.evidence : "",
+                status: typeof item.resolvedInRound === "number"
+                    ? "fix_confirmed"
+                    : item.status === "fix_claimed" || item.status === "fix_rejected"
+                    ? item.status
+                    : "new",
+                rejectionReason: typeof item.rejectionReason === "string" ? item.rejectionReason : "",
             }];
         })
         : [];
@@ -70,6 +81,16 @@ export function resolvedItems(ledger: ReviewLedger): LedgerItem[] {
 
 export function hasOpenItems(ledger: ReviewLedger): boolean {
     return openItems(ledger).length > 0;
+}
+
+/** Accepted repair completion claims every supplied open issue is settled; only review confirms it. */
+export function claimReviewFixes(ledger: ReviewLedger): ReviewLedger {
+    return {
+        ...ledger,
+        items: ledger.items.map((item) =>
+            item.resolvedInRound == null ? { ...item, status: "fix_claimed" } : { ...item }
+        ),
+    };
 }
 
 /**
@@ -121,6 +142,8 @@ export function applyRoundFindings(
             if (finding.title) existing.title = finding.title;
             if (finding.requirement) existing.requirement = finding.requirement;
             if (finding.evidence) existing.evidence = finding.evidence;
+            existing.status = finding.resolved ? "fix_confirmed" : "fix_rejected";
+            existing.rejectionReason = finding.resolved ? "" : finding.rejectionReason || finding.evidence || "";
             if (finding.resolved && existing.resolvedInRound == null) {
                 existing.resolvedInRound = round;
                 resolvedCount++;
@@ -140,6 +163,8 @@ export function applyRoundFindings(
             title: finding.title,
             requirement: finding.requirement || "",
             evidence: finding.evidence || "",
+            status: "new",
+            rejectionReason: "",
         };
         next.items.push(item);
         byId.set(item.id, item);
@@ -164,12 +189,14 @@ export function renderResolvedItems(ledger: ReviewLedger): string {
     const items = resolvedItems(ledger);
     if (items.length === 0) return "(none)";
     return items
-        .map((item) => `- ${item.id} — ${item.title} (resolved in round ${item.resolvedInRound})`)
+        .map((item) => `- ${item.id} — ${item.title} (fix confirmed in round ${item.resolvedInRound})`)
         .join("\n");
 }
 
 function formatItem(item: LedgerItem): string {
     const lines = [`${item.id} — ${item.title}`];
+    lines.push(`  State: ${(item.status || "new").replaceAll("_", " ")}`);
+    if (item.rejectionReason) lines.push(`  Fix rejected because: ${item.rejectionReason}`);
     if (item.requirement) lines.push(`  Plan requirement: ${item.requirement}`);
     if (item.evidence) lines.push(`  Evidence: ${item.evidence}`);
     lines.push(`  Opened in round ${item.openedInRound}`);

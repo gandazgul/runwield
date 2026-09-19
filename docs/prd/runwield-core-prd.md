@@ -436,6 +436,23 @@ findings and inspect repair changes for regressions. Each finding remains identi
 open items visible. Repair reports address every finding; an independent Reviewer verifies fixes rather than accepting
 self-approval.
 
+**Requirement: Complete inspection before a review decision.**
+
+The Reviewer receives the actual approved Plan content. Rounds one and two must read the complete diff for every changed
+file. Round three onward must read the complete repair diff and assess every open issue; those rounds do not rediscover
+unrelated defects in the original change. Both approving and rejecting require complete coverage of the relevant diff.
+An incomplete decision returns the unread file chunks and instructions for reading them, in the same review context.
+Listing files, rereading one chunk, or reading the wrong diff scope cannot satisfy coverage. Coverage proves that the
+code was supplied to the Reviewer, not that the judgment is correct.
+
+**Requirement: Distinguish repair claims from confirmed fixes.**
+
+Issue states are `new`, `fix claimed`, `fix confirmed`, and `fix rejected`. Accepted repair completion claims a fix for
+each supplied open issue. Independent review confirms or rejects each claim; rejection retains the issue identity and
+explains what is still wrong. Only confirmed fixes close issues. These states and rejection reasons survive recovery.
+Metrics separately distinguish first-round findings, defects missed in the original change, repair-introduced defects,
+and existing issues still open. Origin is Reviewer attribution for diagnosis, not a new issue state or proof of cause.
+
 Semantic and human-feedback repairs receive focused, fresh context in the same user-visible Session and Plan workflow.
 Human feedback, annotations, and images must survive the handoff. Unclear references require clarification, not guesses.
 Repair is about correctness; it does not introduce Pair design checkpoints.
@@ -458,6 +475,12 @@ convergence without more escaped defects, not approval rate alone.
 
 - Given a concrete missing Plan requirement, when independent review identifies it, the finding remains visible through
   repair until the Reviewer verifies the correction.
+- Given an unread diff chunk, when the Reviewer attempts either verdict, completion returns its path and read command;
+  the review continues with its existing findings and can complete once every required chunk is read.
+- Given a round-one rejection, round two checks the entire implementation and prior findings. Round three and later
+  check only open issues and repair regressions, including when the workflow resumes in a fresh process.
+- Given a claimed fix that is incomplete, review records `fix rejected` and a reason under the same issue identity.
+  Another completed repair moves it to `fix claimed`; independent confirmation closes it without creating a new issue.
 - Given only a maintainability preference, when review completes, it remains advisory and cannot become an invented
   implementation obligation.
 - After the automatic-round boundary, when the user chooses human review, feedback leads to repair and checks and
