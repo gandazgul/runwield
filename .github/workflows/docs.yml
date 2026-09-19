@@ -29,6 +29,8 @@ on:
             - "docs-site/**"
             - "scripts/public-docs.ts"
             - "scripts/check-public-docs.ts"
+            - "scripts/docs-dev.ts"
+            - "scripts/verify-docs-source.ts"
             - "deno.json"
             - "deno.lock"
 
@@ -61,11 +63,11 @@ jobs:
                   REQUESTED_TAG: ${{ inputs.tag }}
               run: |
                   set -euo pipefail
-                  latest=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName,isPrerelease --jq 'select(.isPrerelease == false) | .tagName')
+                  latest=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName,isPrerelease,isDraft --jq 'select(.isPrerelease == false and .isDraft == false) | .tagName')
                   tag=${REQUESTED_TAG:-$latest}
                   test -n "$tag"
                   test "$tag" = "$latest" || { echo "Refusing to replace current docs with $tag; latest is $latest" >&2; exit 1; }
-                  gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json isPrerelease --jq 'select(.isPrerelease == false)' >/dev/null
+                  gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json isPrerelease,isDraft --jq 'select(.isPrerelease == false and .isDraft == false)' >/dev/null
                   git fetch origin "refs/tags/$tag:refs/tags/$tag"
                   echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
@@ -73,6 +75,18 @@ jobs:
               uses: denoland/setup-deno@v2
               with:
                   deno-version: v2.9.3
+
+            - name: Verify complete qualified release assets
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  RELEASE_TAG: ${{ steps.release.outputs.tag }}
+              run: |
+                  set -euo pipefail
+                  gh release download "$RELEASE_TAG" --dir "$RUNNER_TEMP/docs-release-assets"
+                  gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" > "$RUNNER_TEMP/docs-release.json"
+                  deno run -A scripts/release-assets.js \
+                    "$RUNNER_TEMP/docs-release-assets" "$RUNNER_TEMP/verified-docs-release" \
+                    "$RELEASE_TAG" published "$RUNNER_TEMP/docs-release.json"
 
             - name: Reconcile Stable source and documentation corrections
               run: >-
@@ -108,21 +122,27 @@ jobs:
               with:
                   deno-version: v2.9.3
 
-            - name: Verify documented release remains latest
+            - name: Verify documentation source and qualified release
               env:
                   GH_TOKEN: ${{ github.token }}
               run: |
                   set -euo pipefail
                   documented=$(deno eval 'console.log(JSON.parse(Deno.readTextFileSync("docs-site/release.json")).version)')
-                  latest=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName,isPrerelease --jq 'select(.isPrerelease == false) | .tagName')
+                  latest=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName,isPrerelease,isDraft --jq 'select(.isPrerelease == false and .isDraft == false) | .tagName')
                   test "$documented" = "$latest" || { echo "Documented $documented is stale; latest is $latest" >&2; exit 1; }
-                  git merge-base --is-ancestor "$documented" HEAD
-                  while IFS= read -r path; do
-                    case "$path" in
-                      docs/index.md|docs/quickstart.md|docs/workspace.md|docs/workspace-container.md|docs/usage.md|docs/workflows.md|docs/collaboration.md|docs/sessions.md|docs/providers.md|docs/customization.md|docs/troubleshooting.md|docs/settings.md|docs/themes.md|docs/mcp.md|docs/plan-lifecycle.md|docs/validation-authority.md|docs/contributing.md|docs-site/*|scripts/public-docs.ts|scripts/check-public-docs.ts|scripts/public-docs.test.ts|scripts/docs-workflow.test.ts|scripts/reconcile-docs-branch.sh|.github/workflows/docs.yml|deno.json|deno.lock|.gitignore) ;;
-                      *) echo "Docs branch changes product path: $path" >&2; exit 1 ;;
-                    esac
-                  done < <(git diff --name-only "$documented"..HEAD)
+                  deno run -A scripts/verify-docs-source.ts "$documented" "$(git rev-parse HEAD)"
+                  gh release download "$documented" --dir "$RUNNER_TEMP/docs-release-assets"
+                  gh api "repos/$GITHUB_REPOSITORY/releases/tags/$documented" > "$RUNNER_TEMP/docs-release.json"
+                  deno run -A scripts/release-assets.js \
+                    "$RUNNER_TEMP/docs-release-assets" "$RUNNER_TEMP/verified-docs-release" \
+                    "$documented" published "$RUNNER_TEMP/docs-release.json"
+                  source_ref=$(git rev-parse HEAD)
+                  deno eval '
+                    const path = "docs-site/release.json";
+                    const release = JSON.parse(await Deno.readTextFile(path));
+                    release.sourceRef = Deno.args[0];
+                    await Deno.writeTextFile(path, `${JSON.stringify(release, null, 2)}\n`);
+                  ' "$source_ref"
 
             - name: Build and check documentation
               run: deno task docs:check
@@ -136,6 +156,16 @@ jobs:
               uses: actions/upload-pages-artifact@v4
               with:
                   path: dist/docs
+
+            - name: Reject stale build before deployment
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  set -euo pipefail
+                  documented=$(deno eval 'console.log(JSON.parse(Deno.readTextFileSync("docs-site/release.json")).version)')
+                  latest=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName,isPrerelease,isDraft --jq 'select(.isPrerelease == false and .isDraft == false) | .tagName')
+                  test "$documented" = "$latest" || { echo "Documented $documented became stale; latest is $latest" >&2; exit 1; }
+                  deno run -A scripts/verify-docs-source.ts "$documented" "$(git rev-parse HEAD)"
 
             - name: Deploy Pages
               id: deployment

@@ -139,7 +139,7 @@
         "seams:check": "deno run -A scripts/check-injection-seams.js",
         "doc-links:check": "deno run -A scripts/check-doc-links.js",
         "docs:stage": "deno run -A scripts/public-docs.ts",
-        "docs:dev": "deno task docs:stage && cd docs-site && deno run -A npm:astro@7.3.3 dev --host 127.0.0.1 --port 4322",
+        "docs:dev": "deno run -A scripts/docs-dev.ts",
         "docs:build": "deno task docs:stage && cd docs-site && deno run -A npm:astro@7.3.3 build",
         "docs:check": "deno task docs:stage && cd docs-site && deno run -A npm:astro@7.3.3 check && cd .. && deno task docs:build && deno run -A scripts/check-public-docs.ts",
         "skills:sync:check": "deno run -A scripts/check-skill-sync.ts",

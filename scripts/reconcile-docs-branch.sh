@@ -21,19 +21,21 @@ else
   git checkout "$source_sha" -- \
     .github/workflows/docs.yml .gitignore deno.json deno.lock \
     docs/index.md docs-site scripts/public-docs.ts scripts/check-public-docs.ts \
-    scripts/public-docs.test.ts scripts/docs-workflow.test.ts \
-    scripts/reconcile-docs-branch.sh
+    scripts/docs-dev.ts scripts/public-docs.test.ts scripts/docs-workflow.test.ts \
+    scripts/docs-branch-integration.test.ts scripts/reconcile-docs-branch.sh \
+    scripts/verify-docs-source.ts
 fi
 
+source_ref=$(git rev-parse HEAD)
 deno eval '
-const tag = Deno.args[0];
+const [tag, sourceRef] = Deno.args;
 const path = "docs-site/release.json";
 const release = JSON.parse(await Deno.readTextFile(path));
 release.version = tag;
-release.sourceRef = tag;
+release.sourceRef = sourceRef;
 release.releaseUrl = `https://github.com/gandazgul/runwield/releases/tag/${encodeURIComponent(tag)}`;
 await Deno.writeTextFile(path, `${JSON.stringify(release, null, 2)}\n`);
-' "$tag"
+' "$tag" "$source_ref"
 
 git add docs-site/release.json
 if ! git diff --cached --quiet; then

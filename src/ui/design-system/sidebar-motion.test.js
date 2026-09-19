@@ -1,11 +1,18 @@
 import { assertEquals } from "@std/assert";
 import { animateSidebarChange } from "./sidebar-motion.js";
 
-/** @param {boolean} reducedMotion */
+/** @typedef {{ ready: Promise<void>, finished: Promise<void>, skipTransition: () => void }} TestTransition */
+/** @typedef {{ documentElement: { classList: { add: (name: string) => void, remove: (name: string) => void, contains: (name: string) => boolean } }, startViewTransition?: (update: () => void) => TestTransition }} TestBrowser */
+
+/**
+ * @param {boolean} reducedMotion
+ * @returns {{ browser: TestBrowser, classes: Set<string>, restore: () => void }}
+ */
 function installBrowser(reducedMotion = false) {
     const previousDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
     const previousMedia = Object.getOwnPropertyDescriptor(globalThis, "matchMedia");
     const classes = new Set();
+    /** @type {TestBrowser} */
     const browser = {
         documentElement: {
             classList: {
@@ -25,9 +32,9 @@ function installBrowser(reducedMotion = false) {
         classes,
         restore() {
             if (previousDocument) Object.defineProperty(globalThis, "document", previousDocument);
-            else delete globalThis.document;
+            else Reflect.deleteProperty(globalThis, "document");
             if (previousMedia) Object.defineProperty(globalThis, "matchMedia", previousMedia);
-            else delete globalThis.matchMedia;
+            else Reflect.deleteProperty(globalThis, "matchMedia");
         },
     };
 }
@@ -53,6 +60,7 @@ Deno.test("sidebar changes stay immediate without animation support or with redu
 
 Deno.test("rapid sidebar toggles preserve order before and during the animation", async () => {
     const fixture = installBrowser();
+    /** @type {PromiseWithResolvers<void>} */
     const finished = Promise.withResolvers();
     let commit = () => {};
     let skipped = 0;
@@ -61,6 +69,7 @@ Deno.test("rapid sidebar toggles preserve order before and during the animation"
         return { ready: Promise.resolve(), finished: finished.promise, skipTransition: () => skipped++ };
     };
     try {
+        /** @type {boolean[]} */
         const states = [];
         let open = true;
         const toggle = () => states.push(open = !open);
@@ -84,6 +93,7 @@ Deno.test("rapid sidebar toggles preserve order before and during the animation"
 
 Deno.test("a skipped sidebar snapshot still applies the change and clears motion styles", async () => {
     const fixture = installBrowser();
+    /** @type {PromiseWithResolvers<void>} */
     const finished = Promise.withResolvers();
     let commit = () => {};
     fixture.browser.startViewTransition = (update) => {

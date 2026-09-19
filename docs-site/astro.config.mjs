@@ -33,6 +33,11 @@ export default defineConfig({
             ],
             sidebar: [
                 { label: "Home", link: "/" },
+                {
+                    label: "RunWield.dev",
+                    link: "https://runwield.dev",
+                    attrs: { class: "external-link", "aria-label": "RunWield.dev (external link)" },
+                },
                 { label: "Start", items: ["quickstart", "workspace"] },
                 {
                     label: "Use RunWield",

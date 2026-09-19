@@ -84,6 +84,20 @@ function localTargets(source: string): LocalTarget[] {
     return targets;
 }
 
+function markdownFragmentIds(source: string): Set<string> {
+    const ids = new Set<string>();
+    const duplicateCounts = new Map<string, number>();
+    for (const match of source.matchAll(/^#{1,6}\s+(.+?)\s*#*$/gm)) {
+        const base = match[1].replace(/<[^>]+>/g, "").replace(/[`*_~]/g, "").trim().toLowerCase()
+            .replace(/[^\p{L}\p{N}\s-]/gu, "").replace(/\s+/g, "-");
+        const count = duplicateCounts.get(base) ?? 0;
+        ids.add(count === 0 ? base : `${base}-${count}`);
+        duplicateCounts.set(base, count + 1);
+    }
+    for (const match of source.matchAll(/\bid=["']([^"']+)["']/g)) ids.add(match[1]);
+    return ids;
+}
+
 async function validateLocalTargets(
     projectRoot: string,
     source: string,
@@ -93,11 +107,13 @@ async function validateLocalTargets(
     for (const localTarget of localTargets(source)) {
         const { target, image } = localTarget;
         if (
-            !target || target.startsWith("#") || target.startsWith("/") ||
+            !target || target.startsWith("/") ||
             /^[a-z][a-z+.-]*:/i.test(target) || target.startsWith("//")
         ) continue;
-        const { path } = splitTarget(target);
-        const repositoryPath = resolve(projectRoot, dirname(`docs/${sourcePath}`), path);
+        const { path, suffix } = splitTarget(target);
+        const repositoryPath = path
+            ? resolve(projectRoot, dirname(`docs/${sourcePath}`), path)
+            : resolve(projectRoot, "docs", sourcePath);
         const projectRelativePath = relative(projectRoot, repositoryPath);
         if (projectRelativePath.startsWith("..")) {
             throw new Error(`Public document docs/${sourcePath} links outside the repository: ${target}`);
@@ -108,6 +124,13 @@ async function validateLocalTargets(
                 throw new Error(`Public document docs/${sourcePath} uses a directory as an image: ${target}`);
             }
             if (image) images.push(repositoryPath);
+            if (suffix.startsWith("#") && info.isFile && repositoryPath.endsWith(".md")) {
+                const fragment = decodeURIComponent(suffix.slice(1));
+                const targetSource = path ? await Deno.readTextFile(repositoryPath) : source;
+                if (!markdownFragmentIds(targetSource).has(fragment)) {
+                    throw new Error(`Public document docs/${sourcePath} has a missing fragment: ${target}`);
+                }
+            }
         } catch (error) {
             if (!(error instanceof Deno.errors.NotFound)) throw error;
             throw new Error(`Public document docs/${sourcePath} has a missing local target: ${target}`);

@@ -90,7 +90,13 @@ site-search button {
     border-radius: var(--rw-radius-panel);
 }
 .sidebar-content a[aria-current="page"] {
-    color: var(--rw-text-strong);
+    color: var(--sl-color-text-invert);
+}
+.sidebar-content a.external-link > span::after {
+    content: "↗";
+    display: inline-block;
+    margin-inline-start: 0.3em;
+    font-size: 0.8em;
 }
 
 @media (max-width: 50rem) {

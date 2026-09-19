@@ -24,8 +24,11 @@ for (const route of htmlRoutes) {
     const html = await Deno.readTextFile(join(output, route));
     for (const match of html.matchAll(/(?:href|src)="([^"]+)"/g)) {
         const value = match[1];
-        if (value.startsWith("#") || value.startsWith("data:")) continue;
-        const url = new URL(value, "https://docs.runwield.dev");
+        if (value.startsWith("data:")) continue;
+        const pageUrl = route === "index.html"
+            ? "https://docs.runwield.dev/"
+            : `https://docs.runwield.dev/${route.replace(/index\.html$/, "")}`;
+        const url = new URL(value, pageUrl);
         if (url.origin !== "https://docs.runwield.dev") continue;
         const pathname = decodeURIComponent(url.pathname);
         const target = pathname === "/404/"

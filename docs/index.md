@@ -4,7 +4,7 @@ RunWield helps you review what an AI plans to do before it changes your code, th
 to install RunWield, start a Session, understand its workflows, and configure it for your project.
 
 RunWield builds on [Pi](https://pi.dev). These pages explain RunWield-specific behavior and link to Pi when the behavior
-is unchanged.
+is unchanged. Visit the [RunWield website](https://runwield.dev) for the product overview.
 
 ## Start
 
