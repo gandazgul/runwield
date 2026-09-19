@@ -254,13 +254,14 @@ Hide the handle in the narrow-screen overlay layout. Every Session list uses the
 then the first user message. Suppress Sessions that have neither; never fill lists with “Untitled Session.” Keep the
 same naming and visibility rules in Workspace and the TUI.
 
-Workspace-wide actions live in the hamburger menu to the left of the Workspace logo. Browser notification permission and
-its enabled/blocked state belong inside that menu, not among Session or review header actions. Use the shared
-`RunWieldMenu` popover and `.rw-menu-*` styles: semantic tokens, keyboard focus, Escape and outside-click dismissal, and
-a portal so the navigation pane cannot clip it. Plan and Code Review options use the same menu and `RunWieldMenuItem`
-rows. All hamburger and sidebar collapse/restore controls use `RunWieldIconButton` (`.rw-icon-button` for the imperative
-Workspace shell): transparent and borderless, muted hover/open fill, visible keyboard focus, and a fixed compact 28px
-height at every viewport width. Optional text labels may extend the width.
+Workspace-wide actions live in the hamburger menu to the left of the Workspace logo. Browser notification permission,
+its enabled/blocked state, and the public Documentation link belong inside that menu, not among Session or review header
+actions. Use the shared `RunWieldMenu` popover and `.rw-menu-*` styles: semantic tokens, keyboard focus, Escape and
+outside-click dismissal, and a portal so the navigation pane cannot clip it. Plan and Code Review options use the same
+menu and `RunWieldMenuItem` rows. All hamburger and sidebar collapse/restore controls use `RunWieldIconButton`
+(`.rw-icon-button` for the imperative Workspace shell): transparent and borderless, muted hover/open fill, visible
+keyboard focus, and a fixed compact 28px height at every viewport width. Menu navigation links use the same
+`.rw-menu-item` row as actions. Optional text labels may extend the width.
 
 ### Settings and devices
 

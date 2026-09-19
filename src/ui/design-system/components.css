@@ -364,6 +364,7 @@ svg.animate-spin > * {
     font: inherit;
     font-size: 0.75rem;
     text-align: left;
+    text-decoration: none;
     cursor: pointer;
 }
 

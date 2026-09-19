@@ -1,0 +1,101 @@
+@font-face {
+    font-family: "Outfit Variable";
+    font-style: normal;
+    font-display: swap;
+    font-weight: 100 900;
+    src: url("/fonts/outfit-latin-wght-normal.woff2") format("woff2");
+}
+
+@font-face {
+    font-family: "IBM Plex Mono";
+    font-style: normal;
+    font-display: swap;
+    font-weight: 400;
+    src: url("/fonts/ibm-plex-mono-latin-400-normal.woff2") format("woff2");
+}
+
+:root {
+    --rw-page-bg: #f8fafc;
+    --rw-surface: #ffffff;
+    --rw-surface-raised: #f1f5f9;
+    --rw-surface-muted: #e2e8f0;
+    --rw-text: #172033;
+    --rw-text-strong: #0b1020;
+    --rw-text-muted: #475569;
+    --rw-border: #cbd5e1;
+    --rw-accent: #2563eb;
+    --rw-brand: #2f8f83;
+    --rw-code: #176b61;
+    --rw-radius-control: 0.375rem;
+    --rw-radius-panel: 0.5rem;
+    --rw-font-sans: "Outfit Variable", "Avenir Next", ui-sans-serif, system-ui, sans-serif;
+    --rw-font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+    --sl-font: var(--rw-font-sans);
+    --sl-font-mono: var(--rw-font-mono);
+    --sl-color-accent-low: #d7f2ed;
+    --sl-color-accent: var(--rw-brand);
+    --sl-color-accent-high: #164e47;
+    --sl-color-bg: var(--rw-page-bg);
+    --sl-color-bg-nav: color-mix(in srgb, var(--rw-surface) 94%, transparent);
+    --sl-color-bg-sidebar: var(--rw-surface);
+    --sl-color-hairline: var(--rw-border);
+    --sl-color-text: var(--rw-text);
+    --sl-color-white: var(--rw-text-strong);
+}
+
+:root[data-theme="dark"] {
+    --rw-page-bg: #0b1020;
+    --rw-surface: #0f172a;
+    --rw-surface-raised: #111827;
+    --rw-surface-muted: #1e293b;
+    --rw-text: #e2e8f0;
+    --rw-text-strong: #f8fafc;
+    --rw-text-muted: #94a3b8;
+    --rw-border: #334155;
+    --rw-accent: #60a5fa;
+    --rw-brand: #85cbbf;
+    --rw-code: #85cbbf;
+
+    --sl-color-accent-low: #173b38;
+    --sl-color-accent: var(--rw-brand);
+    --sl-color-accent-high: #d7f2ed;
+    --sl-color-bg: var(--rw-page-bg);
+    --sl-color-bg-nav: color-mix(in srgb, var(--rw-surface) 94%, transparent);
+    --sl-color-bg-sidebar: var(--rw-surface);
+    --sl-color-hairline: var(--rw-border);
+    --sl-color-text: var(--rw-text);
+    --sl-color-white: var(--rw-text-strong);
+}
+
+.site-title {
+    color: var(--rw-text-strong);
+}
+.site-title img {
+    width: 1.75rem;
+    height: 1.75rem;
+}
+.sl-markdown-content a:not([class]) {
+    text-underline-offset: 0.18em;
+}
+.sl-markdown-content code:not(:where(.not-content *)) {
+    color: var(--rw-code);
+}
+.sl-markdown-content :is(h1, h2, h3) {
+    letter-spacing: -0.018em;
+}
+.expressive-code,
+.card,
+site-search button {
+    border-radius: var(--rw-radius-panel);
+}
+.sidebar-content a[aria-current="page"] {
+    color: var(--rw-text-strong);
+}
+
+@media (max-width: 50rem) {
+    .sl-markdown-content pre {
+        max-width: calc(100vw - 2rem);
+        overflow-x: auto;
+    }
+}
