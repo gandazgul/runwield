@@ -474,10 +474,8 @@ Deno.test("chat input controller preflights pasted image attachments through the
             try {
                 terminal.input("\x16");
                 await waitForPath(clipboard.imageReadMarkerPath, "clipboard image read");
-                await waitFor(
-                    () => terminal.getScreenText().includes("image/png"),
-                    "pasted image preview before submission",
-                );
+                // Submit while the clipboard process is still running. The input handler must
+                // await that read before it sends the text and attached image to the model.
                 await submitText(terminal, "describe pasted image");
                 await waitFor(
                     () =>
