@@ -21,7 +21,7 @@ createdAt: "2026-09-19"
 origin: "internal"
 userVerifiedAt: null
 targetBranch: "main"
-status: "validated_reviewer"
+status: "validated"
 ---
 
 # Publish release-aligned RunWield documentation
