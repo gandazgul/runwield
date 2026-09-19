@@ -532,6 +532,13 @@ scope.
 
 **Target: concise project briefing.** Provide compressed project context where useful without flooding every prompt.
 
+**Requirement: Keep edit failures focused.** Failed source and Markdown edits report the underlying error without
+automatically appending file contents. Agents can retrieve the relevant source separately when needed.
+
+**Requirement: Batch known code reads efficiently.** Agents can request up to five known source or outline reads
+together. Reads of the same kind share one Cymbal invocation, with duplicate targets read once. Results retain request
+order and identify individual failures without discarding successful reads. The combined response remains bounded.
+
 Future code-intelligence work should address demonstrated gaps in finding relevant code, understanding dependencies, or
 assessing change impact. Indexing technology belongs in architecture and implementation documents.
 
@@ -541,6 +548,10 @@ assessing change impact. Indexing technology belongs in architecture and impleme
   for future work.
 - When an Agent needs a symbol or related prior decision, it can retrieve relevant project code or memory without
   treating operational memory as a Work Record.
+- Given an edit that fails, including in a large file, the Agent receives the error without an automatic source dump and
+  can request the relevant code before retrying.
+- Given interleaved source and outline requests, the Agent receives results in the requested order using at most one
+  Cymbal invocation per kind. A missing source target does not hide successful results in the same batch.
 
 ### Compaction and image context
 

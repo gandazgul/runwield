@@ -23,7 +23,8 @@ const codeBatchParametersSchema = Type.Object({
     operations: Type.Array(codeBatchOperationSchema, {
         minItems: 1,
         maxItems: MAX_CODE_BATCH_OPERATIONS,
-        description: "One to five known code show/outline operations to run in order. Search is not supported.",
+        description:
+            "One to five known code show/outline reads. Results follow request order. Search is not supported.",
     }),
 }, { additionalProperties: false });
 
@@ -48,6 +49,109 @@ interface InputRecord {
     op?: string;
     target?: string;
     file?: string;
+}
+
+interface CymbalSourceLine {
+    line: number;
+    content: string;
+}
+
+interface CymbalOutlineSymbol {
+    name: string;
+    kind: string;
+    start_line: number;
+    end_line: number;
+    depth?: number;
+}
+
+interface CymbalShowResult {
+    error?: string;
+    file?: string;
+    lines?: CymbalSourceLine[];
+    match_count?: number;
+    also?: CymbalSymbolLocation[];
+}
+
+interface CymbalSymbolLocation extends CymbalOutlineSymbol {
+    file: string;
+    rel_path?: string;
+}
+
+type CymbalBatchEntry = CymbalShowResult | CymbalOutlineSymbol[] | null;
+
+interface CymbalBatchResponse {
+    results: Record<string, CymbalBatchEntry>;
+}
+
+function codeBatchTarget(operation: CodeBatchOperation): string {
+    return operation.op === "show" ? operation.target : operation.file;
+}
+
+function formatNativeBatchEntry(entry: CymbalBatchEntry, op: CodeBatchOperation["op"]): string {
+    if (entry === null) return "No results found.";
+    if (typeof entry !== "object") throw new Error("Invalid result entry");
+    if (!Array.isArray(entry) && typeof entry.error === "string") return `Error: ${entry.error}`;
+    if (op === "outline" && Array.isArray(entry)) {
+        return entry.map((symbol) => {
+            if (
+                !symbol || typeof symbol.name !== "string" || typeof symbol.kind !== "string" ||
+                !Number.isInteger(symbol.start_line) || !Number.isInteger(symbol.end_line)
+            ) throw new Error("Invalid outline symbol");
+            const depth = Number.isInteger(symbol.depth) ? Math.max(0, Math.min(symbol.depth ?? 0, 20)) : 0;
+            return `${"  ".repeat(depth)}${symbol.kind} ${symbol.name} (L${symbol.start_line}-${symbol.end_line})`;
+        }).join("\n") || "No results found.";
+    }
+    if (op === "show" && !Array.isArray(entry) && typeof entry.file === "string" && Array.isArray(entry.lines)) {
+        const lines = entry.lines.map((line) => {
+            if (!line || !Number.isInteger(line.line) || typeof line.content !== "string") {
+                throw new Error("Invalid source line");
+            }
+            return `${line.line}: ${line.content}`;
+        });
+        const result = [`file: ${entry.file}`, ...lines];
+        if (typeof entry.match_count === "number" && entry.match_count > 1) {
+            result.push(
+                `\n${entry.match_count} matching definitions; showing the first. Use a file-qualified target to disambiguate.`,
+            );
+        }
+        if (Array.isArray(entry.also)) {
+            for (const symbol of entry.also) {
+                if (!symbol || typeof symbol.file !== "string" || !Number.isInteger(symbol.start_line)) {
+                    throw new Error("Invalid alternative definition");
+                }
+                result.push(`Also: ${symbol.rel_path || symbol.file}:${symbol.start_line}`);
+            }
+        }
+        return result.join("\n");
+    }
+    throw new Error("Unexpected result shape");
+}
+
+function parseNativeBatchResults(output: string, targets: string[], op: CodeBatchOperation["op"]): Map<string, string> {
+    const results = new Map<string, string>();
+    let response: CymbalBatchResponse;
+    try {
+        response = JSON.parse(output);
+        if (
+            !response || typeof response !== "object" || !response.results ||
+            typeof response.results !== "object" || Array.isArray(response.results)
+        ) throw new Error("Missing results map");
+    } catch {
+        const message = output.startsWith("Error") ? output : "Error: Cymbal returned invalid batch JSON.";
+        return new Map(targets.map((target) => [target, message]));
+    }
+    for (const target of targets) {
+        if (!Object.hasOwn(response.results, target)) {
+            results.set(target, "Error: Cymbal omitted this target from its batch response.");
+            continue;
+        }
+        try {
+            results.set(target, formatNativeBatchEntry(response.results[target], op));
+        } catch {
+            results.set(target, "Error: Cymbal returned an invalid result for this target.");
+        }
+    }
+    return results;
 }
 
 export const codeSearchToolDef = defineTool({
@@ -313,17 +417,37 @@ export function createCymbalTools(host: CymbalToolHost): ToolDefinition[] {
                         isError: true,
                     };
                 }
-                const sections: string[] = [];
-                for (let i = 0; i < typed.operations.length; i++) {
-                    const operation = typed.operations[i];
-                    sections.push(
-                        formatCodeBatchSection(
-                            i,
-                            operation,
-                            await runCymbal(getCodeBatchCymbalArgs(operation), signal),
-                        ),
-                    );
+                const groups = new Map<CodeBatchOperation["op"], CodeBatchOperation[]>();
+                for (const operation of typed.operations) {
+                    const group = groups.get(operation.op) ?? [];
+                    group.push(operation);
+                    groups.set(operation.op, group);
                 }
+                const results = new Map<CodeBatchOperation["op"], Map<string, string>>();
+                for (const [op, operations] of groups) {
+                    signal?.throwIfAborted();
+                    const targets = [...new Set(operations.map(codeBatchTarget))];
+                    if (targets.length === 1) {
+                        results.set(
+                            op,
+                            new Map([[
+                                targets[0],
+                                await runCymbal(getCodeBatchCymbalArgs(operations[0]), signal),
+                            ]]),
+                        );
+                    } else {
+                        const output = await runCymbal(["--json", op, "--", ...targets], signal);
+                        results.set(op, parseNativeBatchResults(output, targets, op));
+                    }
+                    signal?.throwIfAborted();
+                }
+                const sections = typed.operations.map((operation, index) =>
+                    formatCodeBatchSection(
+                        index,
+                        operation,
+                        results.get(operation.op)!.get(codeBatchTarget(operation))!,
+                    )
+                );
                 const { text: batchText, truncated } = truncateCodeBatchOutput(sections.join("\n\n---\n\n"));
                 return {
                     content: [{ type: "text" as const, text: batchText }],

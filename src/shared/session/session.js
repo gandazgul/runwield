@@ -19,7 +19,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import { completeSimple } from "@earendil-works/pi-ai/compat";
-import { createEditWithFallbackToolDefinition } from "../../tools/edit-with-fallback.js";
+import { createSingleEditToolDefinition } from "../../tools/edit.js";
 import { createEditDocsToolDefinition, createWriteDocsToolDefinition } from "../../tools/docs-file-tools.js";
 import { wrapPlanSafeFileTool } from "../../tools/plan-safe-file-tools.ts";
 import { WORKFLOW_ADVANCEMENT_TOOL_NAMES } from "../../tools/registry.js";
@@ -1997,7 +1997,7 @@ function applyNamedInvocationExpansionToPiSession(session, sessionManager) {
  * @param {string} [opts.cwd] - Execution cwd for file tools and agent operations. Defaults to primary project root.
  * @param {string} [opts.debugLogPath] - Optional DEBUG log destination for this invocation.
  * @param {string} [opts.projectStateContext] - Optional session-scoped project state note for the system prompt.
- * @param {boolean} [opts.includeEditFallback] - Internal: whether to register the edit fallback custom tool.
+ * @param {boolean} [opts.includeEditFallback] - Legacy option name: whether to register the single-replacement edit tool.
  * @param {boolean} [opts.workflowAuthority] - False for one-turn auxiliary Prompt Template sessions.
  * @param {boolean} [opts.ignoreManualModelOverride] - True when invocation policy must not borrow root /model state.
  * @param {boolean} [opts.updateHostedThinkingLevel] - False when thinking is temporary and must not update root footer state.
@@ -2181,9 +2181,9 @@ export async function buildAgentSession({
         finalCustomTools.push(createRunWieldReadToolDefinition(sessionCwd));
     }
 
-    // Override the built-in edit tool to return file contents on failure.
+    // Adapt the built-in edit tool to the single-replacement schema.
     if (includeEditFallback !== false) {
-        finalCustomTools.push(createEditWithFallbackToolDefinition(sessionCwd));
+        finalCustomTools.push(createSingleEditToolDefinition(sessionCwd));
     }
 
     // Override the built-in grep tool to accept shell-shaped multi-path input.
@@ -4078,7 +4078,7 @@ export async function runNonInteractiveAgentPrompt({
  * @param {string} [opts.cwd] - Execution cwd for file tools and agent operations.
  * @param {string} [opts.debugLogPath] - Optional DEBUG log destination for this invocation.
  * @param {string} [opts.projectStateContext] - Optional session-scoped project state note for the system prompt.
- * @param {boolean} [opts.includeEditFallback] - Internal: whether to register the edit fallback custom tool.
+ * @param {boolean} [opts.includeEditFallback] - Legacy option name: whether to register the single-replacement edit tool.
  * @param {boolean} [opts.workflowAuthority] - False for one-turn auxiliary Prompt Template sessions.
  * @param {boolean} [opts.ignoreManualModelOverride] - True when invocation policy must not borrow root /model state.
  * @param {boolean} [opts.updateHostedThinkingLevel] - False when thinking is temporary and must not update root footer state.

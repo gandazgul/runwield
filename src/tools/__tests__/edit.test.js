@@ -1,6 +1,6 @@
-import { assertEquals, assertMatch, fail } from "@std/assert";
+import { assertEquals, assertMatch, assertNotMatch, assertRejects, fail } from "@std/assert";
 import { join } from "@std/path";
-import { createEditWithFallbackToolDefinition } from "../edit-with-fallback.js";
+import { createSingleEditToolDefinition } from "../edit.js";
 
 /**
  * Helper to execute the edit tool with typed parameters.
@@ -16,8 +16,8 @@ async function executeEdit(tool, params) {
     return await execute("edit-call-1", params, new AbortController().signal, () => {}, {});
 }
 
-Deno.test("createEditWithFallbackToolDefinition exposes expected metadata", () => {
-    const tool = createEditWithFallbackToolDefinition("/tmp");
+Deno.test("createSingleEditToolDefinition exposes expected metadata", () => {
+    const tool = createSingleEditToolDefinition("/tmp");
     assertEquals(tool.name, "edit");
     assertEquals(tool.label, "edit");
     assertMatch(tool.description, /single file/i);
@@ -28,13 +28,13 @@ Deno.test("createEditWithFallbackToolDefinition exposes expected metadata", () =
     assertEquals(Object.keys(properties), ["path", "oldText", "newText"]);
 });
 
-Deno.test("edit-with-fallback: normal successful edit", async () => {
+Deno.test("edit: normal successful edit", async () => {
     const dir = await Deno.makeTempDir();
     const filePath = join(dir, "test.txt");
     const originalContent = "Hello world\nFoo bar\nBaz qux\n";
     await Deno.writeTextFile(filePath, originalContent);
 
-    const tool = createEditWithFallbackToolDefinition(dir);
+    const tool = createSingleEditToolDefinition(dir);
     const result = await executeEdit(tool, {
         path: "test.txt",
         oldText: "Foo bar",
@@ -52,7 +52,7 @@ Deno.test("edit-with-fallback: normal successful edit", async () => {
     await Deno.remove(dir, { recursive: true });
 });
 
-Deno.test("edit-with-fallback: returns file contents on permission error", async () => {
+Deno.test("edit: propagates permission errors without file contents", async () => {
     const dir = await Deno.makeTempDir();
     const filePath = join(dir, "readonly.txt");
     const originalContent = "Line 1: alpha\nLine 2: beta\nLine 3: gamma\nLine 4: delta\n";
@@ -64,30 +64,24 @@ Deno.test("edit-with-fallback: returns file contents on permission error", async
         await Deno.chmod(filePath, 0o444);
     }
 
-    const tool = createEditWithFallbackToolDefinition(dir);
-    const result = await executeEdit(tool, {
-        path: filePath, // use absolute path so cwd doesn't matter
-        oldText: "Line 2: beta",
-        newText: "Line 2: replaced",
-    });
-
-    const text = result.content.map((c) => c.text || "").join("");
-    assertMatch(text, /edit failed/i);
-    assertMatch(text, /permission denied|EACCES/i);
-    assertMatch(text, /File exists on disk/i);
-    assertMatch(text, /Line 1: alpha/);
-    assertMatch(text, /Line 4: delta/);
-
-    // Verify file was NOT modified
-    const afterContent = await Deno.readTextFile(filePath);
-    assertEquals(afterContent, originalContent);
-
-    // Clean up
-    await Deno.chmod(filePath, 0o644);
-    await Deno.remove(dir, { recursive: true });
+    try {
+        const tool = createSingleEditToolDefinition(dir);
+        const error = await assertRejects(() =>
+            executeEdit(tool, {
+                path: filePath,
+                oldText: "Line 2: beta",
+                newText: "Line 2: replaced",
+            }), Error);
+        assertMatch(error.message, /permission denied|EACCES/i);
+        assertNotMatch(error.message, /Line 1: alpha|Line 4: delta|File exists on disk/);
+        assertEquals(await Deno.readTextFile(filePath), originalContent);
+    } finally {
+        await Deno.chmod(filePath, 0o644);
+        await Deno.remove(dir, { recursive: true });
+    }
 });
 
-Deno.test("edit-with-fallback: truncates to 1000 lines on large file", async () => {
+Deno.test("edit: failed match in a large file does not dump source", async () => {
     const dir = await Deno.makeTempDir();
     const filePath = join(dir, "large.txt");
 
@@ -99,37 +93,25 @@ Deno.test("edit-with-fallback: truncates to 1000 lines on large file", async () 
     const originalContent = lines.join("\n");
     await Deno.writeTextFile(filePath, originalContent);
 
-    // Make read-only
-    const stat = await Deno.stat(filePath);
-    if (stat.mode !== null) {
-        await Deno.chmod(filePath, 0o444);
+    try {
+        const tool = createSingleEditToolDefinition(dir);
+        const error = await assertRejects(() =>
+            executeEdit(tool, {
+                path: filePath,
+                oldText: "This text is absent from the file",
+                newText: "replacement",
+            }), Error);
+        assertMatch(error.message, /not find|not found|match/i);
+        assertNotMatch(error.message, /content data here|Showing first|File exists on disk/);
+        assertEquals(await Deno.readTextFile(filePath), originalContent);
+    } finally {
+        await Deno.remove(dir, { recursive: true });
     }
-
-    const tool = createEditWithFallbackToolDefinition(dir);
-    const result = await executeEdit(tool, {
-        path: filePath,
-        oldText: "Line 500: content data here",
-        newText: "Line 500: REPLACED",
-    });
-
-    const text = result.content.map((c) => c.text || "").join("");
-    assertMatch(text, /edit failed/i);
-    assertMatch(text, /1500 lines/);
-    assertMatch(text, /Showing first 1000 lines/);
-    assertMatch(text, /Line 1: content data here/);
-    assertMatch(text, /Line 1000: content data here/);
-    // Line 1001 should NOT be in the truncation
-    assertMatch(text, /Line 1000:/); // end of truncated portion
-    // Verify the message mentions the truncation
-    assertMatch(text, /Showing first 1000 lines/);
-
-    await Deno.chmod(filePath, 0o644);
-    await Deno.remove(dir, { recursive: true });
 });
 
-Deno.test("edit-with-fallback: rethrows original error when file does not exist", async () => {
+Deno.test("edit: propagates error when file does not exist", async () => {
     const dir = await Deno.makeTempDir();
-    const tool = createEditWithFallbackToolDefinition(dir);
+    const tool = createSingleEditToolDefinition(dir);
 
     try {
         await executeEdit(tool, {
@@ -152,8 +134,8 @@ Deno.test("edit-with-fallback: rethrows original error when file does not exist"
     await Deno.remove(dir, { recursive: true });
 });
 
-Deno.test("edit-with-fallback: rethrows error when path is empty", async () => {
-    const tool = createEditWithFallbackToolDefinition("/tmp");
+Deno.test("edit: rejects an empty path", async () => {
+    const tool = createSingleEditToolDefinition("/tmp");
 
     try {
         await executeEdit(tool, {
@@ -167,13 +149,13 @@ Deno.test("edit-with-fallback: rethrows error when path is empty", async () => {
     }
 });
 
-Deno.test("edit-with-fallback: works with relative path", async () => {
+Deno.test("edit: works with relative path", async () => {
     const dir = await Deno.makeTempDir();
     const filePath = join(dir, "relative-test.txt");
     const originalContent = "First line\nSecond line\nThird line\n";
     await Deno.writeTextFile(filePath, originalContent);
 
-    const tool = createEditWithFallbackToolDefinition(dir);
+    const tool = createSingleEditToolDefinition(dir);
     const result = await executeEdit(tool, {
         path: "relative-test.txt",
         oldText: "Second line",
@@ -186,12 +168,12 @@ Deno.test("edit-with-fallback: works with relative path", async () => {
     await Deno.remove(dir, { recursive: true });
 });
 
-Deno.test("edit-with-fallback: accepts legacy single-entry edits array", async () => {
+Deno.test("edit: accepts legacy single-entry edits array", async () => {
     const dir = await Deno.makeTempDir();
     const filePath = join(dir, "legacy-test.txt");
     await Deno.writeTextFile(filePath, "First line\nSecond line\n");
 
-    const tool = createEditWithFallbackToolDefinition(dir);
+    const tool = createSingleEditToolDefinition(dir);
     const prepared = tool.prepareArguments?.({
         path: "legacy-test.txt",
         edits: [{ oldText: "Second line", newText: "Updated line" }],

@@ -7,7 +7,7 @@
  */
 
 import { createWriteToolDefinition } from "@earendil-works/pi-coding-agent";
-import { createEditWithFallbackToolDefinition } from "./edit-with-fallback.js";
+import { createSingleEditToolDefinition } from "./edit.js";
 
 /**
  * @param {unknown} path
@@ -78,14 +78,14 @@ export function createWriteDocsToolDefinition(cwd) {
  * @returns {import('@earendil-works/pi-coding-agent').ToolDefinition<any, any>}
  */
 export function createEditDocsToolDefinition(cwd) {
-    const original = createEditWithFallbackToolDefinition(cwd);
+    const original = createSingleEditToolDefinition(cwd);
     const originalExecute = /** @type {any} */ (original.execute);
     const tool = /** @type {import('@earendil-works/pi-coding-agent').ToolDefinition<any, any>} */ (original);
 
     tool.name = "edit_docs";
     tool.label = "edit_docs";
     tool.description =
-        "Edit a Markdown .md file by replacing one exact text block. Rejects non-.md paths before mutation and returns current file contents on edit failure.";
+        "Edit a Markdown .md file by replacing one exact text block. Rejects non-.md paths before mutation.";
     tool.promptSnippet = "Make one precise exact-text replacement in a Markdown .md file";
     tool.promptGuidelines = [
         "Use edit_docs for focused updates to one Markdown file: path, oldText, newText",
