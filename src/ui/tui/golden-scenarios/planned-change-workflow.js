@@ -186,9 +186,20 @@ export const plannedChangeReviewRepairValidationScenario = {
             thinking: "Inspect the diff, then reject the first implementation during semantic review.",
             toolCalls: [
                 { name: "review_diff", arguments: { command: "list" } },
+                { name: "review_diff", arguments: { command: "show", path: "golden-planned-change.txt" } },
+                { name: "review_diff", arguments: { command: "show", path: ".wld/settings.json" } },
+                { name: "review_diff", arguments: { command: "show", path: "docs/plans/plan.md" } },
                 {
                     name: "review_complete",
-                    arguments: { approved: false, feedback: "Repair required: add durable evidence." },
+                    arguments: {
+                        approved: false,
+                        feedback: "Repair required: add durable evidence.",
+                        findings: [{
+                            title: "Missing durable evidence",
+                            requirement: "Plan",
+                            evidence: "golden-planned-change.txt",
+                        }],
+                    },
                 },
             ],
         },
@@ -225,7 +236,17 @@ export const plannedChangeReviewRepairValidationScenario = {
             thinking: "Inspect the repair diff, then approve the repaired implementation.",
             toolCalls: [
                 { name: "review_diff", arguments: { command: "list" } },
-                { name: "review_complete", arguments: { approved: true, feedback: "Approved after repair." } },
+                { name: "review_diff", arguments: { command: "show", path: "golden-planned-change.txt" } },
+                { name: "review_diff", arguments: { command: "show", path: ".wld/settings.json" } },
+                { name: "review_diff", arguments: { command: "show", path: "docs/plans/plan.md" } },
+                {
+                    name: "review_complete",
+                    arguments: {
+                        approved: true,
+                        feedback: "Approved after repair.",
+                        findings: [{ id: "R1-1", resolved: true, title: "Missing durable evidence" }],
+                    },
+                },
             ],
         },
     ],
@@ -319,8 +340,9 @@ export const plannedChangeReviewRepairValidationScenario = {
         // header — the pinned panel titles the same report "Reviewer latest AI code review" —
         // and the verdict line is the body it exists to show.
         assertsGoldenCoverage("block:review-result", (result) => {
-            assertScreenIncludes(result, "Reviewer:");
-            assertScreenIncludes(result, "Semantic review rejected — issues found:");
+            const transcript = `${result.scrollbackText || ""}\n${result.screenText || ""}`;
+            assertStringIncludes(transcript, "reviewer:");
+            assertStringIncludes(transcript, "Semantic review rejected — 1 issue open:");
         }),
         // The pinned panel, asserted on the screen it is supposed to be pinned to.
         // This capability used to be claimed by a runtime-event assertion, which is
@@ -330,8 +352,9 @@ export const plannedChangeReviewRepairValidationScenario = {
             // Both strings exist only inside the panel's own rendering. An earlier
             // attempt asserted "Workflow Validation", which the Engineer's handoff
             // line also contains — it passed with the panel fully disabled.
-            assertScreenIncludes(result, "Validation passed");
-            assertScreenIncludes(result, "Reviewer latest AI code review");
+            const transcript = `${result.scrollbackText || ""}\n${result.screenText || ""}`;
+            assertStringIncludes(transcript, "Validation passed");
+            assertStringIncludes(transcript, "reviewer latest AI code review");
         }),
     ],
 };
@@ -419,6 +442,9 @@ export const plannedChangeCiRepairReentryScenario = {
             thinking: "Inspect the diff after the build was fixed, then approve.",
             toolCalls: [
                 { name: "review_diff", arguments: { command: "list" } },
+                { name: "review_diff", arguments: { command: "show", path: "golden-planned-change.txt" } },
+                { name: "review_diff", arguments: { command: "show", path: "ci-fix.txt" } },
+                { name: "review_diff", arguments: { command: "show", path: "docs/plans/plan.md" } },
                 { name: "review_complete", arguments: { approved: true, feedback: "Approved after the build fix." } },
             ],
         },
@@ -653,6 +679,8 @@ export const plannedChangeValidationFailureRetryScenario = {
             requiredTools: ["review_diff", "review_complete"],
             toolCalls: [
                 { name: "review_diff", arguments: { command: "list" } },
+                { name: "review_diff", arguments: { command: "show", path: "golden-validation-retry.txt" } },
+                { name: "review_diff", arguments: { command: "show", path: "docs/plans/validation-retry.md" } },
                 { name: "review_complete", arguments: { approved: true, feedback: "Retry repair approved." } },
             ],
         },
@@ -909,6 +937,8 @@ export const plannedChangeFrontendIdentityScenario = {
             requiredTools: ["review_diff", "review_complete"],
             toolCalls: [
                 { name: "review_diff", arguments: { command: "list" } },
+                { name: "review_diff", arguments: { command: "show", path: "golden-frontend-identity.txt" } },
+                { name: "review_diff", arguments: { command: "show", path: "docs/plans/frontend-identity.md" } },
                 { name: "review_complete", arguments: { approved: true, feedback: "Frontend identity approved." } },
             ],
         },

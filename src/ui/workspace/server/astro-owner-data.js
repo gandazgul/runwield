@@ -10,7 +10,7 @@ const BUNDLED_PLAN_ADAPTER_KEY = Symbol.for("runwield.workspace.plan-adapter-mod
 // Production needs the bundled adapter; dev uses the canonical loader's native
 // Deno import so Vite does not try to resolve Core's JSR imports through Node.
 if (!import.meta.env?.DEV) {
-    Reflect.set(globalThis, BUNDLED_PLAN_ADAPTER_KEY, await import("./plan-adapter.js"));
+    Reflect.set(globalThis, BUNDLED_PLAN_ADAPTER_KEY, import("./plan-adapter.js"));
 }
 
 export const OWNER_WORKSPACE_STORE_KEY = Symbol.for("runwield.workspace.owner-store");
