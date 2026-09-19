@@ -280,8 +280,9 @@ Deno.test("owner Workspace requires CSRF for Project mutation and resolves Proje
             new Request("http://127.0.0.1:8787/", { headers: { cookie: cookiePair(claimed.credential) } }),
         );
         const homeHtml = await home.text();
-        assertStringIncludes(homeHtml, "Opening Workspace");
-        assertStringIncludes(homeHtml, "Restoring the latest available Project Session");
+        assertStringIncludes(homeHtml, "Workspace loading");
+        assertStringIncludes(homeHtml, "rw-thinking-glyph");
+        assertEquals(homeHtml.includes("Restoring the latest available Project Session"), false);
         assertStringIncludes(homeHtml, "/workspace-shell.js");
         assertEquals(homeHtml.includes("Relink Project root"), false);
 

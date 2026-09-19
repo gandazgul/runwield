@@ -167,6 +167,7 @@ export async function ownerSidebarApi(ctx) {
                 const result = await ctx.state.sessionContinuation.listSessions(project.projectId, {
                     page: 0,
                     pageSize: 5,
+                    includeTotal: false,
                 });
                 return {
                     ...project,

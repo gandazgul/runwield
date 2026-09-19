@@ -37,6 +37,7 @@ import { requireOwnerProjectRoot, sessionBelongsToOwnerProject } from "./owner-p
 
 /** @typedef {"off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"} WorkspaceThinkingLevel */
 /** @typedef {{ name: string, firstMessage: string }} SessionListInfo */
+/** @typedef {{ page?: number, pageSize?: number, includeEmpty?: boolean, includeTotal?: boolean }} SessionListOptions */
 /** @typedef {{ operationId: string, status: string, runwieldSessionId: string | null, generation: number | null }} CreateSessionResult */
 /** @typedef {{ requestHash: string, settled: Promise<void> }} PendingCreateRequest */
 /** @typedef {(value?: void | PromiseLike<void>) => void} VoidResolver */
@@ -393,29 +394,9 @@ export class WorkspaceSessionContinuationService {
 
     /**
      * @param {string} projectId
-     * @param {{ page?: number, pageSize?: number, includeEmpty?: boolean }} [options]
+     * @param {SessionListOptions} [options]
      */
     async listSessions(projectId, options = {}) {
-        // Normal listing reads the incremental catalog. Full transcript discovery remains an explicit rescan path.
-        const result = await this.store.listProjectSessions(projectId, { page: 0, pageSize: 100, catalog: false });
-        const catalog = [...result.sessions];
-        let nextPage = result.hasNext;
-        for (let page = 1; nextPage; page++) {
-            const next = await this.store.listProjectSessions(projectId, { page, pageSize: 100, catalog: false });
-            catalog.push(...next.sessions);
-            nextPage = next.hasNext;
-        }
-        const visible = [];
-        // Read one Session at a time: large histories must not be loaded together just to build navigation.
-        for (const session of catalog) {
-            const segments = this.store.listSessionTranscriptSegments(session.runwieldSessionId);
-            const paths = segments.length
-                ? [...segments].sort((a, b) => a.ordinal - b.ordinal).map((segment) => segment.transcriptPath)
-                : [session.transcriptPath].filter(Boolean);
-            const displayName = await readSessionDisplayName(paths);
-            if (!options.includeEmpty && !displayName) continue;
-            visible.push({ ...session, displayName });
-        }
         const page = typeof options.page === "number" && Number.isInteger(options.page) && options.page >= 0
             ? options.page
             : 0;
@@ -424,11 +405,35 @@ export class WorkspaceSessionContinuationService {
                 ? Math.min(options.pageSize, 100)
                 : 30;
         const start = page * pageSize;
+        // Navigation needs one visible page and a lookahead, not a count of every transcript.
+        const visibleLimit = options.includeTotal === false ? start + pageSize + 1 : Infinity;
+        const result = await this.store.listProjectSessions(projectId, { page: 0, pageSize: 100, catalog: false });
+        let batch = result;
+        const visible = [];
+        for (let catalogPage = 0;; catalogPage++) {
+            // Keep transcript reads bounded; never load all large histories in parallel.
+            for (const session of batch.sessions) {
+                const segments = this.store.listSessionTranscriptSegments(session.runwieldSessionId);
+                const paths = segments.length
+                    ? [...segments].sort((a, b) => a.ordinal - b.ordinal).map((segment) => segment.transcriptPath)
+                    : [session.transcriptPath].filter(Boolean);
+                const displayName = await readSessionDisplayName(paths);
+                if (!options.includeEmpty && !displayName) continue;
+                visible.push({ ...session, displayName });
+                if (visible.length >= visibleLimit) break;
+            }
+            if (visible.length >= visibleLimit || !batch.hasNext) break;
+            batch = await this.store.listProjectSessions(projectId, {
+                page: catalogPage + 1,
+                pageSize: 100,
+                catalog: false,
+            });
+        }
         return {
             ...result,
             page,
             pageSize,
-            total: visible.length,
+            total: options.includeTotal === false ? null : visible.length,
             hasNext: start + pageSize < visible.length,
             hasPrevious: page > 0 && start < visible.length,
             diagnostics: result.diagnostics || [],

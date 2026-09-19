@@ -4,10 +4,6 @@ import { PlanCard } from "./PlanCard.jsx";
 
 export { buildPlanBoardSearchIndex } from "../plan-search.js";
 
-function EmptyState() {
-    return <p className="empty">No Plans found in this view.</p>;
-}
-
 /** @param {{ screen: any, url: URL | string }} props */
 function OrphanRepairSection({ screen, url }) {
     if (!screen.orphanChildren?.length) return null;
@@ -36,18 +32,9 @@ function OrphanRepairSection({ screen, url }) {
 /** @param {{ board: any, view: "active"|"closed"|"onHold", url: URL | string, staticRender?: boolean, staticRenderNotice?: string, draggableCards?: boolean }} props */
 export function PlanBoard({ board, view, url, staticRender = false, staticRenderNotice, draggableCards = true }) {
     const screen = board.screens[view];
-    const totalCards = screen.columns.reduce(
-        (/** @type {number} */ total, /** @type {any} */ column) =>
-            total + column.cards.length + column.orphanChildren.length,
-        0,
-    );
     const boardId = `status-board-${view}`;
     return (
         <section className="board-view" data-view={view} data-plan-search-scope={boardId}>
-            {totalCards === 0 ? <EmptyState /> : null}
-            <p className="empty board-filtered-empty" data-plan-search-no-results hidden>
-                No Plans match this search in {screen.title}.
-            </p>
             <div
                 id={boardId}
                 className="status-board"
@@ -59,10 +46,10 @@ export function PlanBoard({ board, view, url, staticRender = false, staticRender
                 ))}
             </div>
             {screen.columns.length && !staticRender ? <PlanBoardDragDrop boardId={boardId} /> : null}
-            {screen.columns.length && staticRender
+            {screen.columns.length && staticRender && staticRenderNotice
                 ? (
                     <p className="notice muted board-dnd-status">
-                        {staticRenderNotice || "Drag this Plan Card to an allowed status column."}
+                        {staticRenderNotice}
                     </p>
                 )
                 : null}

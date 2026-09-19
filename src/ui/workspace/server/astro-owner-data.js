@@ -1,6 +1,11 @@
 /** @module ui/workspace/server/astro-owner-data */
 
-import { devOwnerProjects } from "./dev-owner-fixtures.ts";
+import {
+    DEV_OWNER_PROJECT,
+    DEV_OWNER_WORKFLOW_PLAN,
+    devOwnerPlanProgress,
+    devOwnerProjects,
+} from "./dev-owner-fixtures.ts";
 import { currentWorkspaceCwd } from "./cwd.js";
 import { listOwnerProjects, requireOwnerProjectRoot, sessionBelongsToOwnerProject } from "./owner-projects.js";
 import { loadCanonicalBoard, loadCanonicalWorkspaceDetail } from "./astro-canonical-data.js";
@@ -68,6 +73,12 @@ export async function loadOwnerProjectPlanDetail(projectId, planId) {
 /** @param {string} projectId @param {string} planId @param {string | null} runwieldSessionId */
 export async function loadOwnerProjectPlanProgress(projectId, planId, runwieldSessionId = null) {
     const store = getAstroOwnerWorkspaceStore();
+    if (
+        !store && import.meta.env?.DEV && projectId === DEV_OWNER_PROJECT.projectId &&
+        planId === DEV_OWNER_WORKFLOW_PLAN.planId
+    ) {
+        return devOwnerPlanProgress();
+    }
     if (!store) throw new Error("Owner Workspace store is not available.");
     const { loadOwnerPlanProgress } = await import("./owner-plan-progress.ts");
     return await loadOwnerPlanProgress(store, { projectId, planId, runwieldSessionId });

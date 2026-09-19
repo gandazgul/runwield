@@ -1,6 +1,8 @@
 import {
     DEV_OWNER_DEVICE,
     DEV_OWNER_PROJECT,
+    DEV_OWNER_WORKFLOW_PLAN,
+    devOwnerPlanProgress,
     devOwnerSessionOptions,
     devOwnerSessionPage,
     devOwnerSidebar,
@@ -64,6 +66,9 @@ export const GET = ({ request, params }: { request: Request; params: { segments?
     }
 
     if (segments[0] === "projects" && segments[1] === DEV_OWNER_PROJECT.projectId) {
+        if (segments[2] === "plans" && segments[3] === DEV_OWNER_WORKFLOW_PLAN.planId && segments[4] === "progress") {
+            return json(devOwnerPlanProgress());
+        }
         if (segments[2] === "session-options") return json(devOwnerSessionOptions());
         if (segments[2] === "sessions" && segments.length === 3) {
             return json(devOwnerSessionPage(pageValue(url, "page", 0), pageValue(url, "pageSize", 30)));

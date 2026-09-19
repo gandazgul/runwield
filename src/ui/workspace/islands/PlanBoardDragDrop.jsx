@@ -78,7 +78,7 @@ function makeDragImage(card) {
 
 /** @param {{ boardId: string }} props */
 export function PlanBoardDragDrop({ boardId }) {
-    const [message, setMessage] = useState("Drag a Plan Card to an allowed status column.");
+    const [message, setMessage] = useState("");
     const dragging = useRef(/** @type {DragPlanState | null} */ (null));
 
     useEffect(() => {
@@ -261,7 +261,7 @@ export function PlanBoardDragDrop({ boardId }) {
     }, [boardId]);
 
     return (
-        <p className="notice muted board-dnd-status" aria-live="polite" data-board-dnd-status>
+        <p className="notice muted board-dnd-status" aria-live="polite" data-board-dnd-status hidden={!message}>
             {message}
         </p>
     );

@@ -165,6 +165,29 @@ Deno.test("createUiApi appends visible blocks, merges compatible system messages
     assertEquals(messageList.children, []);
 });
 
+Deno.test("createUiApi opens local commands by default and falls back to toggling the latest block", () => {
+    const { tui, messageList } = makeTuiHarness();
+    const ui = /** @type {any} */ (createUiApi(tui, messageList, new SpinnerBlock()));
+
+    const persisted = ui.startToolExecution("bang-1", "bash", "! printf persisted");
+    persisted.setOutput(Array.from({ length: 8 }, (_, index) => `persisted ${index}`).join("\n"));
+    const ephemeral = ui.startToolExecution("bang-2", "bash", "!! printf ephemeral");
+    ephemeral.setOutput(Array.from({ length: 8 }, (_, index) => `ephemeral ${index}`).join("\n"));
+
+    const rendered = stripAnsi(
+        messageList.children.flatMap((/** @type {any} */ child) => child.render?.(100) ?? []).join("\n"),
+    );
+    assertEquals(rendered.includes("persisted 7"), true);
+    assertEquals(rendered.includes("ephemeral 7"), true);
+
+    ui.toggleToolOutputsExpanded();
+    const collapsed = stripAnsi(
+        messageList.children.flatMap((/** @type {any} */ child) => child.render?.(100) ?? []).join("\n"),
+    );
+    assertEquals(collapsed.includes("persisted 7"), true);
+    assertEquals(collapsed.includes("ephemeral 7"), false);
+});
+
 Deno.test("createUiApi does not hide duplicate tool-start events", () => {
     const { tui, messageList } = makeTuiHarness();
     const ui = /** @type {any} */ (createUiApi(tui, messageList, new SpinnerBlock()));
@@ -221,9 +244,22 @@ Deno.test("createUiApi groups contiguous tool calls and closes the group at conv
     assertEquals(messageList.children.filter((/** @type {any} */ child) => child instanceof Spacer).length, 3);
 });
 
-Deno.test("createUiApi toggles completed and active visible tool groups and new groups inherit the mode", () => {
+Deno.test("createUiApi toggles only visible tool groups", () => {
     const { tui, messageList } = makeTuiHarness();
-    const ui = /** @type {any} */ (createUiApi(tui, messageList, new SpinnerBlock()));
+    /** @type {Array<ToolExecutionGroupBlock | ToolExecutionBlock>} */
+    let visibleToolBlocks = [];
+    const ui = /** @type {any} */ (
+        createUiApi(
+            tui,
+            messageList,
+            new SpinnerBlock(),
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            () => visibleToolBlocks,
+        )
+    );
 
     const completed = ui.startToolExecution("tool-1", "bash", "$ echo done");
     completed.setOutput("output");
@@ -231,19 +267,21 @@ Deno.test("createUiApi toggles completed and active visible tool groups and new 
     ui.appendAgentMessageStart("Agent").appendText("boundary");
     const active = ui.startToolExecution("tool-2", "read", "read file");
 
-    ui.toggleToolOutputsExpanded();
     const groups = messageList.children.filter((/** @type {any} */ child) => child instanceof ToolExecutionGroupBlock);
-    assertEquals(groups.map((/** @type {any} */ group) => group.expanded), [true, true]);
+    visibleToolBlocks = [groups[1]];
+    ui.toggleToolOutputsExpanded();
+    assertEquals(groups.map((/** @type {any} */ group) => group.expanded), [false, true]);
 
     ui.appendSystemMessage("boundary");
     const inherited = ui.startToolExecution("tool-3", "grep", "grep pattern");
     const newGroup = messageList.children.filter((/** @type {any} */ child) => child instanceof ToolExecutionGroupBlock)
         .at(-1);
     if (!newGroup) throw new Error("Expected a tool execution group");
-    assertEquals(newGroup.expanded, true);
+    assertEquals(newGroup.expanded, false);
 
     active.endExecution(false, 1);
     inherited.endExecution(false, 1);
+    visibleToolBlocks = [groups[1], newGroup];
     ui.toggleToolOutputsExpanded();
     assertEquals(
         messageList.children.filter((/** @type {any} */ child) => child instanceof ToolExecutionGroupBlock).map(

@@ -1,11 +1,11 @@
 ---
-import WorkspaceLayout from "../layouts/WorkspaceLayout.astro";
+import SettingsLayout from "../layouts/SettingsLayout.astro";
 import { DeviceList } from "../react/DeviceList.tsx";
 ---
-<WorkspaceLayout title="Paired devices" selectedTab="devices" url={Astro.url.href}>
-    <section class="page-header">
+<SettingsLayout title="Devices · RunWield Workspace" active="devices">
+    <div class="workspace-settings-intro">
         <h1>Paired devices</h1>
-        <p>Revocation denies owner Workspace access without canceling unrelated workflows.</p>
-    </section>
+        <p>Devices have access across your Workspace. Revoking access does not stop running workflows.</p>
+    </div>
     <DeviceList client:load />
-</WorkspaceLayout>
+</SettingsLayout>

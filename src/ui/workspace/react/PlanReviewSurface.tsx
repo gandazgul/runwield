@@ -1,4 +1,7 @@
 // @ts-nocheck: Workspace React islands compile TSX, but this module uses JSDoc-style JavaScript only.
+import { RunWieldMenu, RunWieldMenuItem } from "../../design-system/components/react/RunWieldMenu.tsx";
+import { RunWieldIconButton } from "../../design-system/components/react/RunWieldIconButton.tsx";
+import { animateSidebarUpdate } from "../../design-system/components/react/sidebar-motion.js";
 import { RunWieldThinkingDots } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 
 import { RunWieldTabs } from "../../design-system/components/react/RunWieldPrimitives.jsx";
@@ -725,8 +728,10 @@ function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup,
     }
 
     function openSidebarTab(tab) {
-        setSidebarTab(tab);
-        setSidebarOpen(true);
+        animateSidebarUpdate(() => {
+            setSidebarTab(tab);
+            setSidebarOpen(true);
+        });
     }
 
     function applyUIPreferences(next) {
@@ -1028,7 +1033,7 @@ function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup,
                                 <SidebarContainer
                                     activeTab={sidebarTab}
                                     onTabChange={setSidebarTab}
-                                    onClose={() => setSidebarOpen(false)}
+                                    onClose={() => animateSidebarUpdate(() => setSidebarOpen(false))}
                                     width={280}
                                     blocks={parsed.blocks}
                                     annotations={annotations}
@@ -1058,28 +1063,27 @@ function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup,
                                 />
                             )}
                             {sidebarOpen && (
-                                <button
+                                <RunWieldIconButton
                                     className="rw-plan-review-sidebar-collapse"
                                     type="button"
-                                    onClick={() => setSidebarOpen(false)}
+                                    onClick={() => animateSidebarUpdate(() => setSidebarOpen(false))}
                                     title="Collapse contents sidebar"
                                     aria-label="Collapse contents sidebar"
                                 >
                                     <PanelCollapseIcon side="left" />
-                                </button>
+                                </RunWieldIconButton>
                             )}
                             <main className="rw-plannotator-main-pane">
                                 <div className="rw-review-toolbar rw-plan-review-controls">
                                     <div className="rw-review-toolbar-edge rw-review-toolbar-edge-left rw-plan-review-sidebar-restore rw-plan-review-sidebar-restore-left">
                                         {!sidebarOpen && (
-                                            <button
-                                                className="rw-toolbar-button"
+                                            <RunWieldIconButton
                                                 type="button"
                                                 onClick={() => openSidebarTab("toc")}
                                             >
                                                 <ToggleIcon name="contents" />
                                                 <span>Contents</span>
-                                            </button>
+                                            </RunWieldIconButton>
                                         )}
                                     </div>
                                     <div className="rw-review-toolbar-center rw-plan-review-mode-actions">
@@ -1158,14 +1162,13 @@ function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup,
                                             </div>
                                         )}
                                         {!annotationsOpen && (
-                                            <button
-                                                className="rw-toolbar-button"
+                                            <RunWieldIconButton
                                                 type="button"
-                                                onClick={() => setAnnotationsOpen(true)}
+                                                onClick={() => animateSidebarUpdate(() => setAnnotationsOpen(true))}
                                             >
                                                 <ToggleIcon name="annotations" />
                                                 <span>Annotations</span>
-                                            </button>
+                                            </RunWieldIconButton>
                                         )}
                                     </div>
                                 </div>
@@ -1262,19 +1265,19 @@ function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup,
                                                 <span>{annotations.length + codeAnnotations.length}</span>
                                             )}
                                         </div>
-                                        <button
+                                        <RunWieldIconButton
                                             className="rw-plan-review-annotation-close"
                                             type="button"
-                                            onClick={() => setAnnotationsOpen(false)}
+                                            onClick={() => animateSidebarUpdate(() => setAnnotationsOpen(false))}
                                             title="Collapse annotations sidebar"
                                             aria-label="Collapse annotations sidebar"
                                         >
                                             <PanelCollapseIcon side="right" />
-                                        </button>
+                                        </RunWieldIconButton>
                                     </div>
                                     {conversationEnabled && (
                                         <div
-                                            className="rw-review-sidebar-tabs rw-segmented-toggle"
+                                            className="rw-underline-tabs rw-review-sidebar-tabs"
                                             role="tablist"
                                             aria-label="Review sidebar"
                                         >
@@ -1728,33 +1731,10 @@ function normalizeReferencedPath(path) {
 
 function PlanReviewOptionsMenu({ iconOnly = false, onOpenExport, onOpenSettings, onPrint }) {
     return (
-        <ActionMenu
-            panelClassName={iconOnly
-                ? "absolute top-full left-0 mt-1 w-56 rounded-lg border border-border bg-popover py-1 shadow-xl z-[90]"
-                : undefined}
-            renderTrigger={({ isOpen, toggleMenu }) => (
-                <button
-                    type="button"
-                    onClick={toggleMenu}
-                    className={`relative flex items-center gap-1.5 p-1.5 ${
-                        iconOnly ? "" : "md:px-2.5 md:py-1"
-                    } rounded-md text-xs font-medium transition-colors ${
-                        isOpen
-                            ? "bg-muted text-foreground"
-                            : "text-muted-foreground hover:text-foreground hover:bg-muted"
-                    }`}
-                    title="Options"
-                    aria-label="Options"
-                    aria-expanded={isOpen}
-                >
-                    <MenuIcon />
-                    {!iconOnly && <span className="hidden md:inline">Options</span>}
-                </button>
-            )}
-        >
+        <RunWieldMenu label="Options" iconOnly={iconOnly} align={iconOnly ? "start" : "end"}>
             {({ closeMenu }) => (
                 <>
-                    <ActionMenuItem
+                    <RunWieldMenuItem
                         onClick={() => {
                             closeMenu();
                             onOpenExport();
@@ -1762,7 +1742,7 @@ function PlanReviewOptionsMenu({ iconOnly = false, onOpenExport, onOpenSettings,
                         icon={<ExportIcon />}
                         label="Export review feedback"
                     />
-                    <ActionMenuItem
+                    <RunWieldMenuItem
                         onClick={() => {
                             closeMenu();
                             onPrint();
@@ -1770,7 +1750,7 @@ function PlanReviewOptionsMenu({ iconOnly = false, onOpenExport, onOpenSettings,
                         icon={<PrintIcon />}
                         label="Print / Save PDF"
                     />
-                    <ActionMenuItem
+                    <RunWieldMenuItem
                         onClick={() => {
                             closeMenu();
                             onOpenSettings();
@@ -1780,7 +1760,7 @@ function PlanReviewOptionsMenu({ iconOnly = false, onOpenExport, onOpenSettings,
                     />
                 </>
             )}
-        </ActionMenu>
+        </RunWieldMenu>
     );
 }
 
@@ -1857,14 +1837,6 @@ function PanelCollapseIcon({ side }) {
             <path d="M5 4v16" strokeWidth="1.5" strokeLinecap="round" />
             <path d="M19 4v16" strokeWidth="1.5" strokeLinecap="round" />
             <path d={path} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-    );
-}
-
-function MenuIcon() {
-    return (
-        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
         </svg>
     );
 }

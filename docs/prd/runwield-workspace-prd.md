@@ -282,6 +282,12 @@ document surfaces should feel consistent while keeping Plan lifecycle controls s
 - When the user moves or manually closes work, the board reflects that choice without claiming automatic verification;
   failure and hold expose recovery or resume.
 - When a Plan or Epic is renamed, its existing links still resolve and child progress remains visible.
+- The local board shows its W. logo and heading; the embedded Project board omits duplicate branding, Project title, and
+  checkout health. View tabs and search share the header row, with search trailing the tabs. Columns use separators
+  instead of enclosing borders, and an empty column has one consistent empty message. Drag/drop feedback appears only
+  during an interaction; there is no default instruction footer.
+- Plan Board views, Session context, and annotation/chat views in Plan and Code Review share square underline tabs: a
+  thin baseline and a thicker active indicator.
 
 ### Shared Plan collaboration
 
@@ -384,12 +390,48 @@ For each registered Project, Workspace shows:
 Registration, disabling, and removal affect Workspace access and indexing only. They must not delete repository data,
 Plans, Work Records, Session history, branches, or RunWield worktrees.
 
+**Requirement: Open Workspace without repeating startup work.**
+
+Workspace home shows the shared loader and “Workspace loading” while choosing a Session. Logo links return directly to
+the last visited Session. Navigation preserves the sidebar; startup reuses its loaded navigation data when opening the
+chosen Session. The sidebar reads only enough Session names to fill its recent list and determine whether more exist,
+without waiting for names from every older conversation. Session contents load independently of the sidebar.
+
+**Requirement: Keep global actions and Session context in consistent headers.**
+
+The hamburger menu to the left of the Workspace logo contains browser notification permission and its current state.
+Session context tabs occupy the main header above their pane. One collapse/restore control stays on that row, moving
+only horizontally and reversing its icon when the pane opens or closes. Session, Plan Review, and Code Review use the
+same header alignment. Their hamburger menus and sidebar controls share the same borderless buttons, hover treatment,
+and compact height at every screen width. Review and Workspace menus share their popup and item styling.
+
 **Acceptance scenarios:**
 
 - Given two registered roots and one unregistered directory, when the owner browses Projects, only the registered roots
   are available to Workspace.
 - When a Project is disabled or removed, Workspace access and indexing stop without deleting repository data, saved
   Sessions, branches, or worktrees.
+- From a Session or its review, clicking the Workspace logo returns to the last Session without an intermediate home
+  request or clearing the sidebar.
+- Opening home shows a plain shared loader, reuses its sidebar result on the destination page, and opens Projects when
+  no enabled Project is available.
+- With many saved Sessions, the sidebar resolves only its visible recent names plus one lookahead; unnamed Sessions
+  remain hidden and Show more remains available.
+- The Project’s Plan Board navigation item stays active across its Plan Board, Closed, and On Hold views, and clears
+  when the owner opens a Session or another Project’s board.
+- Projects and Devices share Workspace-level header tabs and consistent content margins. Project rows open a child
+  settings page with a Back to Projects control, root controls, and maintenance actions. Linking a Project opens that
+  settings page. Settings omits duplicate Plan Board or New Session actions. Devices applies across Workspace, and the
+  current browser has a compact badge beside its device name.
+- Opening the Workspace menu reveals notification permission without occupying Session or review header space.
+- Opening and closing Session context preserves the header height and the toggle's vertical position; on phones its tabs
+  replace the title on that row, while the Workspace navigation control remains reachable. The expanded pane's header
+  background and vertical divider reach the top of the page, with no additional pane divider beneath its tab rail.
+- Entering a Session at 900px or narrower, or resizing into that range, hides its context sidebar even when desktop
+  preferences saved it open. The owner can reopen it explicitly. Widening restores the desktop preference; narrow-screen
+  toggles do not overwrite it. Hamburger and collapse buttons keep their compact height.
+- Opening or closing navigation, Session context, Plan/Code Review, or artifact Contents sidebars uses consistent,
+  subtle motion. Reduced-motion preferences apply immediately, and repeated toggles preserve the final requested state.
 
 <a id="64-session-experience"></a>
 
@@ -443,7 +485,11 @@ expose TUI-only process controls.
   “Thinking...”, including before any assistant text arrives. It clears when Core is idle or the live operation ends,
   and pauses while a human answer is needed. Reopening saved history does not show an old busy indicator.
 - When a workflow tool finishes, its full report and outcome remain readable in live and saved history and its block
-  stops showing Running.
+  stops showing Running. All special tool blocks, including completion and QA reports, have square corners and mint
+  titles and left rails identifying RunWield, distinct from blue user messages. Failure status remains visibly red.
+  Their rails match other timeline stripes in thickness and meet the frame squarely, without diagonal joins.
+- Normal System notices use a mint stripe and tint, distinct from blue user messages; warning and error stripes remain
+  amber and red.
 - When the owner changes Agents through browser controls, the selected Agent, model defaults, and thinking behavior
   match the TUI.
 

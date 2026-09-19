@@ -1,9 +1,29 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
-import { TuiAltScreen } from "@earendil-works/pi-tui";
-import { createChatView } from "./chat-view.ts";
+import { Container, Spacer, Text, TuiAltScreen } from "@earendil-works/pi-tui";
+import { createChatView, findVisibleToolBlocks } from "./chat-view.ts";
+import { ToolExecutionGroupBlock } from "./blocks.js";
 import { VirtualTerminal } from "./testing/virtual-terminal.js";
 import { RunWieldTui } from "./tui.ts";
 import { installTerminalFocusState } from "./terminal-focus-state.ts";
+
+Deno.test("chat view finds only tool groups intersecting the viewport", () => {
+    const messageList = new Container();
+    const firstGroup = new ToolExecutionGroupBlock();
+    const secondGroup = new ToolExecutionGroupBlock();
+    const containerLayout = [
+        { component: new Text("header", 0, 0), height: 1 },
+        { component: messageList, height: 7 },
+    ];
+    const messageLayout = [
+        { component: firstGroup, height: 3 },
+        { component: new Spacer(1), height: 1 },
+        { component: secondGroup, height: 3 },
+    ];
+
+    const visibleBlocks = findVisibleToolBlocks(containerLayout, messageList, messageLayout, 5, 3);
+    assertEquals(visibleBlocks.length, 1);
+    assertEquals(visibleBlocks[0] === secondGroup, true);
+});
 
 Deno.test("chat view keeps scrollback position during live thinking updates", async () => {
     const terminal = new VirtualTerminal({ columns: 80, rows: 10 });

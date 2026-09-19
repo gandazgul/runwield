@@ -143,6 +143,21 @@ Deno.test("Workspace hides only unnamed empty Sessions and paginates the visible
                 source: "catalog",
             });
         }
+        const readTextFile = Deno.readTextFile;
+        const transcriptsRead = [];
+        Deno.readTextFile = (path, options) => {
+            if (String(path).endsWith(".jsonl")) transcriptsRead.push(String(path));
+            return readTextFile(path, options);
+        };
+        try {
+            const recent = await service.listSessions(fixture.project.projectId, { pageSize: 1, includeTotal: false });
+            assertEquals(recent.sessions.map((session) => session.displayName), ["Hello"]);
+            assertEquals(recent.hasNext, true);
+            assertEquals(recent.total, null);
+            assertEquals(transcriptsRead.length, 2);
+        } finally {
+            Deno.readTextFile = readTextFile;
+        }
         const first = await service.listSessions(fixture.project.projectId, { pageSize: 1 });
         const second = await service.listSessions(fixture.project.projectId, { pageSize: 1, page: 1 });
         const third = await service.listSessions(fixture.project.projectId, { pageSize: 1, page: 2 });
@@ -151,6 +166,13 @@ Deno.test("Workspace hides only unnamed empty Sessions and paginates the visible
         assertEquals(second.sessions[0].displayName, "Named empty");
         assertEquals(third.sessions[0].displayName, "Managed fixture");
         assertEquals(third.hasNext, false);
+        const recentLast = await service.listSessions(fixture.project.projectId, {
+            pageSize: 1,
+            page: 2,
+            includeTotal: false,
+        });
+        assertEquals(recentLast.sessions, third.sessions);
+        assertEquals(recentLast.hasNext, false);
         assertEquals((await service.listSessions(fixture.project.projectId, { includeEmpty: true })).total, 4);
     } finally {
         service.close();

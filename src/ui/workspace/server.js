@@ -9,7 +9,7 @@
 
 import { extname, join, toFileUrl } from "@std/path";
 import { RUNWIELD_ROOT, RUNWIELD_SOURCE_ROOT } from "../../../runtime-root.js";
-import { PLAN_UI_TOKEN_HEADER, PLAN_UI_TOKEN_QUERY } from "../../constants.js";
+import { getCwd, PLAN_UI_TOKEN_HEADER, PLAN_UI_TOKEN_QUERY } from "../../constants.js";
 import { getWorkflowDiff } from "../../shared/workflow/git-snapshot.js";
 import {
     boardApi,
@@ -250,7 +250,12 @@ export function createOwnerWorkspaceApp(options) {
             );
         }
     });
-    app.get("/", () => ownerHtmlResponse("RunWield Owner Workspace", renderOwnerHome()));
+    app.get("/", async (ctx) => {
+        const homeUrl = new URL(ctx.req.url);
+        homeUrl.pathname = "/workspace-home";
+        const response = await renderAstroPage(new Request(homeUrl, { headers: ctx.req.headers }), getCwd());
+        return response || ownerHtmlResponse("RunWield Workspace", renderOwnerHome());
+    });
     app.get("/pair", renderRequiredOwnerAstroPage);
     app.get("/devices", renderRequiredOwnerAstroPage);
     app.get("/projects", renderRequiredOwnerAstroPage);
@@ -770,7 +775,7 @@ function createInProcessRateLimit({ limit, windowMs }) {
 }
 
 function renderOwnerHome() {
-    return `<section class="owner-card"><p class="kicker">RunWield Workspace</p><h1>Opening Workspace…</h1><p>Restoring the latest available Project Session.</p></section>`;
+    return `<div class="rw-loading-surface" aria-busy="true"><span class="rw-thinking-dots" role="status"><span class="rw-thinking-glyph" aria-hidden="true"></span>Workspace loading</span></div>`;
 }
 
 /** @param {Request} request */
@@ -993,6 +998,10 @@ function registerStaticRoutes(app) {
     app.get("/components.css", async () => await handleStaticRoute("/components.css"));
     app.get("/workspace.css", async () => await handleStaticRoute("/workspace.css"));
     app.get("/workspace-shell.js", async () => await handleStaticRoute("/workspace-shell.js"));
+    app.get(
+        "/design-system/sidebar-motion.js",
+        async () => await handleStaticRoute("/design-system/sidebar-motion.js"),
+    );
     app.get("/theme.css", async () => await handleStaticRoute("/theme.css"));
     app.get("/brand/logo.svg", async () => await handleStaticRoute("/brand/logo.svg"));
     app.get("/_astro/:asset", async (ctx) => await handleStaticRoute(ctx.url.pathname));
@@ -1000,6 +1009,9 @@ function registerStaticRoutes(app) {
 
 /** @param {string} pathname */
 async function handleStaticRoute(pathname) {
+    if (pathname === "/design-system/sidebar-motion.js") {
+        return await textFileResponse(join(DESIGN_SYSTEM_DIR, "sidebar-motion.js"), "text/javascript; charset=utf-8");
+    }
     if (pathname === "/styles.css") return await textFileResponse(STYLES_PATH, "text/css; charset=utf-8");
     if (pathname === "/tokens.css") return await textFileResponse(TOKENS_CSS_PATH, "text/css; charset=utf-8");
     if (pathname === "/components.css") return await textFileResponse(COMPONENTS_CSS_PATH, "text/css; charset=utf-8");
@@ -1097,6 +1109,7 @@ function isPublicWorkspaceAsset(pathname) {
         pathname === "/components.css" ||
         pathname === "/workspace.css" ||
         pathname === "/workspace-shell.js" ||
+        pathname === "/design-system/sidebar-motion.js" ||
         pathname === "/theme.css" ||
         pathname === "/brand/logo.svg" ||
         pathname.startsWith("/_astro/");

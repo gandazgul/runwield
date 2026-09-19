@@ -1,4 +1,5 @@
 // @ts-nocheck: Workspace React islands compile TSX, but this module uses JSDoc-style JavaScript only.
+import { animateSidebarUpdate } from "../../design-system/components/react/sidebar-motion.js";
 
 import { useEffect, useMemo, useState } from "react";
 import { ThemeProvider } from "@plannotator/ui/components/ThemeProvider.tsx";
@@ -176,7 +177,7 @@ export function ArtifactReadSurface({ payload, presentation = "standalone" }) {
                             collapsed={!sidebarOpen}
                             label="Contents"
                             controls="artifact-contents"
-                            onClick={() => setSidebarOpen(!sidebarOpen)}
+                            onClick={() => animateSidebarUpdate(() => setSidebarOpen((open) => !open))}
                         />
                         <span>Contents</span>
                         {presentation === "workspace" && initialPayload.artifactPath && (
@@ -206,13 +207,13 @@ export function ArtifactReadSurface({ payload, presentation = "standalone" }) {
                                     id="artifact-contents"
                                     className="rw-artifact-contents"
                                     onKeyDown={(event) => {
-                                        if (event.key === "Escape") setSidebarOpen(false);
+                                        if (event.key === "Escape") animateSidebarUpdate(() => setSidebarOpen(false));
                                     }}
                                 >
                                     <SidebarContainer
                                         activeTab="toc"
                                         onTabChange={() => {}}
-                                        onClose={() => setSidebarOpen(false)}
+                                        onClose={() => animateSidebarUpdate(() => setSidebarOpen(false))}
                                         width={280}
                                         blocks={parsed.blocks}
                                         annotations={[]}
@@ -220,7 +221,7 @@ export function ArtifactReadSurface({ payload, presentation = "standalone" }) {
                                         onTocNavigate={(section) => {
                                             setActiveSection(section);
                                             if (globalThis.matchMedia("(max-width: 980px)").matches) {
-                                                setSidebarOpen(false);
+                                                animateSidebarUpdate(() => setSidebarOpen(false));
                                             }
                                         }}
                                         showFilesTab={false}

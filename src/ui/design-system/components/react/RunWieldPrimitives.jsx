@@ -1,4 +1,5 @@
 import React from "react";
+import { RunWieldIconButton } from "./RunWieldIconButton.tsx";
 import * as Tabs from "@radix-ui/react-tabs";
 
 /**
@@ -38,9 +39,8 @@ export function RunWieldPanelToggle({ side, collapsed, label, controls, onClick 
     const pointsLeft = (side === "left") !== collapsed;
     const title = `${collapsed ? "Show" : "Collapse"} ${label}`;
     return (
-        <button
-            type="button"
-            className="rw-toolbar-button rw-panel-toggle"
+        <RunWieldIconButton
+            className="rw-panel-toggle"
             aria-label={title}
             title={title}
             aria-expanded={!collapsed}
@@ -56,7 +56,7 @@ export function RunWieldPanelToggle({ side, collapsed, label, controls, onClick 
                     strokeLinejoin="round"
                 />
             </svg>
-        </button>
+        </RunWieldIconButton>
     );
 }
 

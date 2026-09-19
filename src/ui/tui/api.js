@@ -23,6 +23,7 @@ const WORKFLOW_TOOL_NAME_SET = new Set(WORKFLOW_TOOL_NAMES);
 /**
  * @typedef {Object} ToolElapsedTimerState
  * @property {ReturnType<typeof setTimeout> | null} renderTimer
+ * @typedef {ToolExecutionGroupBlock | ToolExecutionBlock} VisibleToolBlock
  */
 
 /**
@@ -100,6 +101,7 @@ export function createFooterOnlyUiApi(parentUiAPI) {
  * @param {{ addChild: (child: any) => void, removeChild: (child: any) => void, clear?: () => void, children: any[] }} [validationPanelContainer]
  * @param {{ addChild: (child: any) => void, removeChild: (child: any) => void, clear?: () => void, children: any[] }} [activeInteractionContainer]
  * @param {{ addChild: (child: any) => void, removeChild: (child: any) => void, clear?: () => void, children: any[] }} [queuedInputContainer]
+ * @param {() => VisibleToolBlock[]} [getVisibleToolBlocks]
  * @returns {import('./types.js').UiAPI}
  */
 export function createUiApi(
@@ -110,6 +112,7 @@ export function createUiApi(
     validationPanelContainer,
     activeInteractionContainer,
     queuedInputContainer,
+    getVisibleToolBlocks,
 ) {
     const activeToolBlocks = new Map();
     /** @type {Map<string, { block: SystemMessageBlock, spacer: Spacer }>} */
@@ -135,7 +138,6 @@ export function createUiApi(
     /** @type {(() => void) | null} */
     let activePromptCancel = null;
 
-    let toolsExpanded = false;
     /** @type {ToolExecutionGroupBlock | null} */
     let currentToolGroup = null;
     let outputSuppressed = false;
@@ -564,15 +566,19 @@ export function createUiApi(
                 if (!outputSuppressed) tui.requestRender();
             };
             activeToolBlocks.set(id, block);
-            if (WORKFLOW_TOOL_NAME_SET.has(toolName)) {
+            const isLocalShellCommand = title.startsWith("! ") || title.startsWith("!! ");
+            if (isLocalShellCommand) {
                 closeCurrentToolGroup();
-                block.setExpanded(toolsExpanded);
+                block.setExpanded(true);
+                appendMessageListChild(block);
+                appendMessageListChild(new Spacer(1));
+            } else if (WORKFLOW_TOOL_NAME_SET.has(toolName)) {
+                closeCurrentToolGroup();
                 appendMessageListChild(block);
                 appendMessageListChild(new Spacer(1));
             } else {
                 if (!currentToolGroup || !messageList.children.includes(currentToolGroup)) {
                     currentToolGroup = new ToolExecutionGroupBlock();
-                    currentToolGroup.setExpanded(toolsExpanded);
                     appendMessageListChild(currentToolGroup);
                     appendMessageListChild(new Spacer(1));
                 }
@@ -585,12 +591,18 @@ export function createUiApi(
         },
 
         toggleToolOutputsExpanded: () => {
-            toolsExpanded = !toolsExpanded;
-            for (const child of messageList.children) {
-                if (child instanceof ToolExecutionGroupBlock || child instanceof ToolExecutionBlock) {
-                    child.setExpanded(toolsExpanded);
-                }
-            }
+            const toolBlocks = /** @type {VisibleToolBlock[]} */ (
+                messageList.children.filter((child) =>
+                    child instanceof ToolExecutionGroupBlock || child instanceof ToolExecutionBlock
+                )
+            );
+            const retainedToolBlocks = new Set(toolBlocks);
+            const requestedBlocks = getVisibleToolBlocks?.() ?? toolBlocks.slice(-1);
+            const visibleToolBlocks = requestedBlocks.filter((block) => retainedToolBlocks.has(block));
+            if (visibleToolBlocks.length === 0) return;
+
+            const expand = !visibleToolBlocks.some((block) => block.expanded);
+            for (const block of visibleToolBlocks) block.setExpanded(expand);
             tui.requestRender();
         },
 

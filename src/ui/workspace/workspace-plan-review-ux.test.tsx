@@ -38,13 +38,9 @@ Deno.test("Workspace Plan Review uses the owner header and starts directly at th
     );
     assertStringIncludes(layout, 'class="workspace-main-session-name" data-workspace-surface-title');
     assertStringIncludes(shell, 'header.querySelector("[data-workspace-main-session-name]")?.remove()');
-    assertStringIncludes(layout, '<BrowserNotificationPermissionControl client:only="react" />');
+    assertStringIncludes(layout, "<WorkspaceMenu client:load />");
     assertStringIncludes(layout, "data-workspace-header-actions");
-    assertEquals(
-        layout.indexOf('<BrowserNotificationPermissionControl client:only="react" />') <
-            layout.indexOf("data-workspace-header-actions"),
-        true,
-    );
+    assertEquals(layout.includes("BrowserNotificationPermissionControl"), false);
     assertStringIncludes(portal, 'document.querySelector<HTMLElement>("[data-workspace-header-actions]")');
     assertStringIncludes(workspaceStyles, "row-gap: var(--rw-space-panel);");
     assertStringIncludes(surface, 'presentation === "workspace" ? "wide" : uiPreferences.planWidth');
@@ -187,7 +183,9 @@ Deno.test("Code Review uses the Workspace header when embedded and preserves sta
     assertStringIncludes(surface, '{presentation === "workspace" && reviewOptions}');
 
     assertStringIncludes(surface, "function CodeReviewOptionsMenu({\n    iconOnly = false,");
-    assertStringIncludes(surface, "!iconOnly && <span");
+    assertStringIncludes(surface, '<RunWieldMenu label="Options" iconOnly={iconOnly}');
+    const menu = await Deno.readTextFile("src/ui/design-system/components/react/RunWieldMenu.tsx");
+    assertStringIncludes(menu, "!iconOnly && <span");
     assertStringIncludes(surface, "const codeReviewHeading = `Code Review - ${codeReviewPlanTitle}`;");
     assertStringIncludes(surface, "<h1 title={codeReviewHeading}>{codeReviewHeading}</h1>");
     if (headingIndex < 0 || optionsIndex < headingIndex || logoIndex < optionsIndex) {
@@ -292,7 +290,8 @@ Deno.test("Plan and Code review use shared toolbar structure with edge-aligned r
     assertStringIncludes(surface, '<PanelCollapseIcon side="left" />');
     assertStringIncludes(surface, 'title="Collapse annotations sidebar"');
     assertStringIncludes(surface, 'aria-label="Collapse annotations sidebar"');
-    assertStringIncludes(surface, "z-[90]");
+    const sharedStyles = await Deno.readTextFile("src/ui/design-system/components.css");
+    assertStringIncludes(sharedStyles, ".rw-menu-positioner {\n    z-index: 90;");
     assertStringIncludes(surface, 'planWidthMode === "wide"');
     assertStringIncludes(surface, "function PanelCollapseIcon({ side })");
     assertStringIncludes(styles, ".fixed.inset-0.z-50.bg-black\\/50.backdrop-blur-\\[2px\\]");

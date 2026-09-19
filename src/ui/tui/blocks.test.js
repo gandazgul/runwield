@@ -555,6 +555,19 @@ Deno.test("ToolExecutionBlock expansion and truncation logic", () => {
     assertEquals(expandedLines.length > collapsedLines.length, true);
 });
 
+Deno.test("ToolExecutionBlock limits expanded output while preserving its start and end", () => {
+    const block = new ToolExecutionBlock("bash", "$ print many lines");
+    block.setOutput(Array.from({ length: 1_000 }, (_, index) => `line ${index}`).join("\n"));
+    block.setExpanded(true);
+
+    const plain = block.render(100).map((line) => stripAnsi(line)).join("\n");
+
+    assertEquals(plain.includes("line 0"), true);
+    assertEquals(plain.includes("line 999"), true);
+    assertEquals(plain.includes("line 500"), false);
+    assertEquals(plain.includes("501 lines omitted"), true);
+});
+
 Deno.test("ToolExecutionGroupBlock bolds only the tool name in compact rows", () => {
     const block = new ToolExecutionBlock("set_session_name", "set_session_name Name Here");
     block.endExecution(false, 10);

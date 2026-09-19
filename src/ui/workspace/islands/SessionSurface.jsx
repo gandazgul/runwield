@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { animateSidebarUpdate } from "../../design-system/components/react/sidebar-motion.js";
 
 // New Session chat structure is adapted from OpenChamber's ChatContainer/ChatInput UI.
 // OpenChamber is MIT licensed: Copyright (c) 2025 Bohdan Triapitsyn.
@@ -681,19 +682,30 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     const [sessionSidebarTab, setSessionSidebarTab] = useState("session");
     const [contextCollapsed, setContextCollapsed] = useState(false);
     useEffect(() => {
-        try {
-            const stored = localStorage.getItem("runwield:owner:session-context-collapsed");
-            setContextCollapsed(
-                stored === null ? globalThis.matchMedia("(max-width: 900px)").matches : stored === "true",
-            );
-        } catch { /* Sidebar state is optional. */ }
+        const narrowScreen = globalThis.matchMedia("(max-width: 900px)");
+        function syncContextVisibility() {
+            let savedCollapsed = false;
+            try {
+                savedCollapsed = localStorage.getItem("runwield:owner:session-context-collapsed") === "true";
+            } catch { /* Sidebar state is optional. */ }
+            setContextCollapsed(narrowScreen.matches || savedCollapsed);
+        }
+        syncContextVisibility();
+        narrowScreen.addEventListener("change", syncContextVisibility);
+        return () => narrowScreen.removeEventListener("change", syncContextVisibility);
     }, []);
     function toggleContext() {
-        const collapsed = !contextCollapsed;
-        setContextCollapsed(collapsed);
-        try {
-            localStorage.setItem("runwield:owner:session-context-collapsed", String(collapsed));
-        } catch { /* Sidebar state is optional. */ }
+        animateSidebarUpdate(() => {
+            setContextCollapsed((current) => {
+                const collapsed = !current;
+                try {
+                    if (!globalThis.matchMedia("(max-width: 900px)").matches) {
+                        localStorage.setItem("runwield:owner:session-context-collapsed", String(collapsed));
+                    }
+                } catch { /* Sidebar state is optional. */ }
+                return collapsed;
+            });
+        });
     }
     const sidebarSessionRef = useRef("");
     const [detailError, setDetailError] = useState("");
@@ -1926,15 +1938,40 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     }).session;
     return (
         <section className="session-surface session-surface-detail" aria-label="RunWield Session chat">
-            {timeline && contextCollapsed && (
+            {timeline && (
                 <WorkspaceHeaderActionsPortal>
-                    <RunWieldPanelToggle
-                        side="right"
-                        collapsed
-                        label="Session sidebar"
-                        controls="session-context-sidebar"
-                        onClick={toggleContext}
-                    />
+                    <div className="session-context-header" data-expanded={!contextCollapsed}>
+                        <RunWieldPanelToggle
+                            side="right"
+                            collapsed={contextCollapsed}
+                            label="Session sidebar"
+                            controls="session-context-sidebar"
+                            onClick={toggleContext}
+                        />
+                        {!contextCollapsed && (
+                            <div
+                                className="rw-underline-tabs session-context-tabs"
+                                role="tablist"
+                                aria-label="Session context views"
+                            >
+                                {SESSION_SIDEBAR_TABS.map((tab) => (
+                                    <button
+                                        key={tab}
+                                        type="button"
+                                        role="tab"
+                                        aria-selected={sessionSidebarTab === tab}
+                                        onClick={() => setSessionSidebarTab(tab)}
+                                    >
+                                        {tab[0].toUpperCase() + tab.slice(1)}
+                                        {tab === "artifacts" && Array.isArray(timeline.artifacts) &&
+                                                timeline.artifacts.length
+                                            ? <span>{timeline.artifacts.length}</span>
+                                            : null}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
                 </WorkspaceHeaderActionsPortal>
             )}
             {loadingDetail && !timeline
@@ -2068,36 +2105,6 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                             aria-label="Session context"
                         >
                             <div className="session-context-content">
-                                <div className="session-context-header">
-                                    <RunWieldPanelToggle
-                                        side="right"
-                                        collapsed={false}
-                                        label="Session sidebar"
-                                        controls="session-context-sidebar"
-                                        onClick={toggleContext}
-                                    />
-                                    <div
-                                        className="session-context-tabs"
-                                        role="tablist"
-                                        aria-label="Session context views"
-                                    >
-                                        {SESSION_SIDEBAR_TABS.map((tab) => (
-                                            <button
-                                                key={tab}
-                                                type="button"
-                                                role="tab"
-                                                aria-selected={sessionSidebarTab === tab}
-                                                onClick={() => setSessionSidebarTab(tab)}
-                                            >
-                                                {tab[0].toUpperCase() + tab.slice(1)}
-                                                {tab === "artifacts" && Array.isArray(timeline.artifacts) &&
-                                                        timeline.artifacts.length
-                                                    ? <span>{timeline.artifacts.length}</span>
-                                                    : null}
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
                                 {sessionSidebarTab === "workflow"
                                     ? (
                                         <div className="session-context-panel" role="tabpanel">

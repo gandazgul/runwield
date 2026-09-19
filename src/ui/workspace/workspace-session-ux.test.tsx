@@ -497,11 +497,21 @@ Deno.test("Session sidebar shares TUI fields without duplicating composer or bac
     assertEquals(surface.includes("thinkingValue={displayedThinking}"), true);
 });
 
-Deno.test("Session sidebar places collapse before tabs and omits repeated inner headings", async () => {
+Deno.test("Session sidebar keeps one toggle and its tabs in the shared header", async () => {
     const surface = await Deno.readTextFile(new URL("./islands/SessionSurface.jsx", import.meta.url));
-    const header = surface.slice(surface.indexOf('<div className="session-context-header">'));
-    assertEquals(header.indexOf("<RunWieldPanelToggle") < header.indexOf('className="session-context-tabs"'), true);
-    assertEquals(header.includes('className="kicker"'), false);
+    const header = surface.slice(
+        surface.indexOf("<WorkspaceHeaderActionsPortal>"),
+        surface.indexOf("</WorkspaceHeaderActionsPortal>"),
+    );
+    assertEquals(
+        header.indexOf("<RunWieldPanelToggle") < header.indexOf('className="rw-underline-tabs session-context-tabs"'),
+        true,
+    );
+    assertEquals(header.includes("collapsed={contextCollapsed}"), true);
+    assertEquals(surface.match(/<RunWieldPanelToggle/g)?.length, 1);
+    const sidebar = surface.slice(surface.indexOf('id="session-context-sidebar"'));
+    assertEquals(sidebar.includes('className="session-context-header"'), false);
+    assertEquals(sidebar.includes('className="kicker"'), false);
 });
 
 Deno.test("Session image attachments use a Session-scoped draft key and request payload", () => {

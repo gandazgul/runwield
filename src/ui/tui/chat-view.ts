@@ -28,7 +28,7 @@ import {
 } from "../../shared/update-check.js";
 import { endBlink, renderBootLogo } from "./boot-logo.ts";
 import { createUiApi } from "./api.js";
-import { SpinnerBlock } from "./blocks.js";
+import { SpinnerBlock, ToolExecutionBlock, ToolExecutionGroupBlock } from "./blocks.js";
 import { type FooterTheme, renderUpdateNoticeLine } from "./chat-footer.ts";
 import { installUiApiOverrides } from "./ui-api-overrides.ts";
 import { hasClipboardImage } from "./clipboard.ts";
@@ -61,6 +61,29 @@ export interface ChatViewOptions {
     setActiveModel(model: string, provider?: string): Promise<{ status: "active" | "deferred"; message?: string }>;
     configureUiAPI?: (uiAPI: UiAPI) => void;
 }
+interface RenderedChildLayout {
+    component: Component;
+    height: number;
+}
+
+type VisibleToolBlock = ToolExecutionGroupBlock | ToolExecutionBlock;
+
+class MeasuredContainer extends Container {
+    renderedChildren: RenderedChildLayout[] = [];
+
+    override render(width: number): string[] {
+        const lines: string[] = [];
+        this.renderedChildren = [];
+        for (const child of this.children) {
+            const childLines = child.render(width);
+            this.renderedChildren.push({ component: child, height: childLines.length });
+            lines.push(...childLines);
+        }
+        Reflect.set(this, "mouseLayout", { width, children: this.renderedChildren });
+        return lines;
+    }
+}
+
 export interface ChatView {
     uiAPI: UiAPI;
     tui: TUI;
@@ -84,6 +107,42 @@ export interface ChatView {
 }
 
 const CLIPBOARD_IMAGE_HINT_TEXT = "Image in clipboard · ctrl+v to paste";
+
+export function findVisibleToolBlocks(
+    containerLayout: RenderedChildLayout[],
+    messageList: Component,
+    messageLayout: RenderedChildLayout[],
+    scrollTop: number,
+    viewportHeight: number,
+): VisibleToolBlock[] {
+    if (viewportHeight <= 0) return [];
+
+    let messageTop = 0;
+    let foundMessageList = false;
+    for (const child of containerLayout) {
+        if (child.component === messageList) {
+            foundMessageList = true;
+            break;
+        }
+        messageTop += child.height;
+    }
+    if (!foundMessageList) return [];
+
+    const viewportBottom = scrollTop + viewportHeight;
+    let childTop = messageTop;
+    const visibleBlocks: VisibleToolBlock[] = [];
+    for (const child of messageLayout) {
+        const childBottom = childTop + child.height;
+        if (
+            childBottom > scrollTop && childTop < viewportBottom &&
+            (child.component instanceof ToolExecutionGroupBlock || child.component instanceof ToolExecutionBlock)
+        ) {
+            visibleBlocks.push(child.component);
+        }
+        childTop = childBottom;
+    }
+    return visibleBlocks;
+}
 
 export function renderClipboardImageHintLines(
     clipboardImageAvailable: boolean,
@@ -113,7 +172,7 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
     initRunWieldTheme();
     await applyPersistedTheme();
     const tui = options.tui;
-    const container = new Container();
+    const container = new MeasuredContainer();
     if (!options.suppressStartupHeader) {
         const titleLine = `${theme.fg("accent", theme.bold("RunWield ─ Plan-by-Default Harness"))} ${
             theme.fg("dim", `${VERSION}`)
@@ -149,7 +208,7 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
         container.addChild(new Spacer(1));
         container.addChild(new Spacer(1));
     }
-    const messageList = new Container();
+    const messageList = new MeasuredContainer();
     container.addChild(messageList);
     container.addChild(new Spacer(1));
     const validationPanelContainer = new Container();
@@ -217,11 +276,13 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
         },
         render: (w: number) => [...transcriptArea.render(w), ...bottomDock.render(w)],
     };
+    let transcriptScrollView: ScrollView | undefined;
     if (isViewportTUI(tui)) {
+        transcriptScrollView = new ScrollView(transcriptArea, { follow: "end", primary: true, scrollbar: "auto" });
         tui.setLayoutRoot(
             new VStack([
                 {
-                    component: new ScrollView(transcriptArea, { follow: "end", primary: true, scrollbar: "auto" }),
+                    component: transcriptScrollView,
                     basis: 0,
                     grow: 1,
                     minSize: 1,
@@ -247,6 +308,16 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
         validationPanelContainer,
         activeInteractionContainer,
         queuedInputContainer,
+        transcriptScrollView
+            ? () =>
+                findVisibleToolBlocks(
+                    container.renderedChildren,
+                    messageList,
+                    messageList.renderedChildren,
+                    transcriptScrollView.scrollTop,
+                    transcriptScrollView.viewportHeight,
+                )
+            : undefined,
     );
     const baseSetManagedSyncStatus = uiAPI.setManagedSyncStatus?.bind(uiAPI);
     uiAPI.setManagedSyncStatus = (state) => {

@@ -44,6 +44,10 @@ Deno.test("Workspace wrapper protects page routes and serves public assets witho
         const componentsCss = await app(new Request("http://localhost/components.css"));
         assertEquals(componentsCss.status, 200);
         assertStringIncludes(await componentsCss.text(), ".primary-action");
+        const sidebarMotion = await app(new Request("http://localhost/design-system/sidebar-motion.js"));
+        assertEquals(sidebarMotion.status, 200);
+        assertEquals(sidebarMotion.headers.get("content-type"), "text/javascript; charset=utf-8");
+        assertStringIncludes(await sidebarMotion.text(), "export function animateSidebarChange");
         const workspaceCss = await app(new Request("http://localhost/workspace.css"));
         assertEquals(workspaceCss.status, 200);
         assertStringIncludes(await workspaceCss.text(), ".workspace-shell");

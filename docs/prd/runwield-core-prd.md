@@ -118,6 +118,11 @@ must fail visibly and must not fall through to Router.
 Returning focus to the terminal repaints the screen. Ctrl+L also forces a full redraw. Both preserve the unsent draft,
 conversation scroll position, active interaction, and running Agent turn.
 
+**Requirement: Keep expanded tool output responsive.**
+
+Ctrl+O toggles only tool groups that intersect the current TUI viewport. Each expanded tool block shows at most 500
+output lines. For longer output, it keeps the start and end and shows how many middle lines it omitted.
+
 **Acceptance scenarios:**
 
 - Given a new conversation, when the user submits a request, Router handles initial triage; after a specialist handoff,
@@ -128,6 +133,8 @@ conversation scroll position, active interaction, and running Agent turn.
   routes within the same Session.
 - Given erased terminal contents while the input still accepts typing, returning focus or pressing Ctrl+L restores the
   input and conversation without submitting or discarding the draft, scrolling, or interrupting the Agent.
+- Given tool groups above and inside the current viewport, when the user presses Ctrl+O, only the intersecting groups
+  toggle. A tool result longer than 500 lines keeps its first and last lines and identifies the omitted middle lines.
 
 <a id="32-routing-intents"></a>
 <a id="33-triage-experience"></a>

@@ -1,4 +1,5 @@
 // @ts-nocheck: served as plain browser JavaScript from the owner Workspace static route.
+import { animateSidebarChange } from "../../design-system/sidebar-motion.js";
 export const LAST_SESSION_KEY = "runwield:owner:last-session";
 export const LAST_PROJECT_KEY = "runwield:owner:last-project";
 export const SIDEBAR_COLLAPSED_KEY = "runwield:owner:sidebar-collapsed";
@@ -74,7 +75,9 @@ let sidebarDelegationInstalled = false;
 let restoreDelegationInstalled = false;
 let refreshGeneration = 0;
 let activeSidebarAbort = null;
+let activeSidebarUrl = null;
 let sidebarHasRendered = false;
+let homeSidebarPayload = null;
 const observedSessionNames = new Map();
 
 export function applySessionName(detail) {
@@ -135,6 +138,8 @@ export function currentRouteFromUrl(urlLike) {
             kind: "session",
         };
     }
+    const board = /^\/projects\/([^/]+)\/plans(?:\/(?:closed|on-hold))?\/?$/.exec(url.pathname);
+    if (board) return { projectId: decodeURIComponent(board[1]), kind: "plans" };
     const ownerPlan = /^\/projects\/([^/]+)\/plans\/[^/]+(?:\/progress)?$/.exec(url.pathname);
     const planSession = url.searchParams.get("session") || "";
     if (ownerPlan && planSession) {
@@ -166,7 +171,16 @@ function rememberCurrentRoute() {
     } else if (route.projectId) {
         writeStored(LAST_PROJECT_KEY, { projectId: route.projectId });
     }
+    updateWorkspaceHomeLinks();
     return route;
+}
+
+function updateWorkspaceHomeLinks() {
+    const lastSession = readStored(LAST_SESSION_KEY);
+    if (!lastSession?.projectId || !lastSession.runwieldSessionId) return;
+    for (const link of document.querySelectorAll('[aria-label="RunWield Workspace home"]')) {
+        link.href = sessionHref(lastSession.projectId, lastSession.runwieldSessionId);
+    }
 }
 
 function sessionHref(projectId, sessionId) {
@@ -265,7 +279,7 @@ function renderMainHeader(payload, current) {
         ? ""
         : sessionTitleFromPayload(payload, current);
     const restore = document.createElement("button");
-    restore.className = "rw-toolbar-button workspace-sidebar-restore";
+    restore.className = "rw-icon-button workspace-sidebar-restore";
     restore.type = "button";
     restore.dataset.workspaceSidebarRestore = "";
     restore.setAttribute("aria-label", "Open Workspace sidebar");
@@ -401,7 +415,7 @@ function ensureSidebarScaffold(sidebar, payload, current) {
     }
     if (!brand.querySelector("[data-workspace-sidebar-collapse]")) {
         const collapse = document.createElement("button");
-        collapse.className = "workspace-sidebar-collapse";
+        collapse.className = "rw-icon-button workspace-sidebar-collapse";
         collapse.type = "button";
         collapse.dataset.workspaceSidebarCollapse = "";
         collapse.setAttribute("aria-label", "Collapse Workspace sidebar");
@@ -448,10 +462,11 @@ function makeProjectElement(project, current) {
     item.dataset.sidebarProject = project.projectId;
     const summary = document.createElement("summary");
     summary.innerHTML =
-        `<span class="workspace-sidebar-folder" aria-hidden="true">▸</span><span class="workspace-sidebar-project-name"></span>`;
+        `<span class="workspace-sidebar-folder" aria-hidden="true"><svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor"><path d="M5 2l7 6-7 6z" /></svg></span><span class="workspace-sidebar-project-name"></span>`;
     const gear = document.createElement("a");
     gear.className = "workspace-sidebar-gear";
-    gear.textContent = "⚙";
+    gear.innerHTML =
+        `<svg aria-hidden="true" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 0 0-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 0 0-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 0 0-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 0 0-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 0 0 1.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0z" /></svg>`;
     summary.append(gear);
     const links = document.createElement("div");
     links.className = "workspace-sidebar-project-links";
@@ -470,11 +485,14 @@ function updateProjectElement(item, project, current) {
     gear.href = settingsHref(project.projectId);
     gear.setAttribute("aria-label", `${project.displayName} settings`);
     const links = item.querySelector(".workspace-sidebar-project-links");
-    links.replaceChildren(
-        project.enabled
-            ? createAnchor("", plansHref(project.projectId), "Plan Board")
-            : createAnchor("", settingsHref(project.projectId), "Project unavailable · open settings"),
-    );
+    const projectLink = project.enabled
+        ? createAnchor("", plansHref(project.projectId), "Plan Board")
+        : createAnchor("", settingsHref(project.projectId), "Project unavailable · open settings");
+    if (project.enabled) {
+        projectLink.dataset.sidebarPlanBoard = project.projectId;
+        updatePlanBoardActive(projectLink, current);
+    }
+    links.replaceChildren(projectLink);
     reconcileSessionRows(item.querySelector(".workspace-sidebar-sessions"), snapshotProject(item), project, current);
 }
 
@@ -584,9 +602,18 @@ export function renderSidebar(payload, current) {
     reconcileProjects(list, payload, current);
     setSidebarCollapsed(isSidebarCollapsed());
     sidebarHasRendered = true;
+    updateWorkspaceHomeLinks();
+}
+
+function updatePlanBoardActive(link, current) {
+    const active = current.kind === "plans" && link.dataset.sidebarPlanBoard === current.projectId;
+    link.classList.toggle("active", active);
+    if (active) link.setAttribute("aria-current", "page");
+    else link.removeAttribute("aria-current");
 }
 
 export function applyActiveRoute(current) {
+    document.querySelectorAll("[data-sidebar-plan-board]").forEach((link) => updatePlanBoardActive(link, current));
     document.querySelectorAll("[data-sidebar-session]").forEach((row) => {
         row.classList.toggle(
             "active",
@@ -619,7 +646,7 @@ function installRestoreDelegation() {
         if (!(target instanceof Element)) return;
         if (!target.closest("[data-workspace-sidebar-restore]")) return;
         event.stopPropagation();
-        openSidebar();
+        animateSidebarChange(openSidebar);
     });
 }
 
@@ -630,7 +657,7 @@ function installSidebarDelegation() {
         const target = event.target;
         if (!(target instanceof Element)) return;
         if (target.closest("[data-workspace-sidebar-collapse]")) {
-            setSidebarCollapsed(true);
+            animateSidebarChange(() => setSidebarCollapsed(true));
             return;
         }
         const showMore = target.closest("[data-show-more-sessions]");
@@ -683,25 +710,31 @@ function installSidebarOverlayDismiss() {
         const target = event.target;
         if (!(target instanceof Element)) return;
         if (target.closest(".workspace-sidebar")) return;
-        closeSidebarOverlay();
+        animateSidebarChange(closeSidebarOverlay);
     });
 }
 
-async function refreshSidebarForPage() {
+export async function refreshSidebarForPage() {
     installSidebarOverlayDismiss();
     installSidebarDelegation();
     installRestoreDelegation();
     const current = rememberCurrentRoute();
     applyActiveRoute(current);
+    // The initial module and Astro's first page-load can arrive during the same request.
+    if (activeSidebarAbort && activeSidebarUrl === location.href) return;
     activeSidebarAbort?.abort();
     const abort = new AbortController();
     activeSidebarAbort = abort;
     const requestGeneration = refreshGeneration + 1;
     refreshGeneration = requestGeneration;
     const requestUrl = location.href;
+    activeSidebarUrl = requestUrl;
     try {
-        const payload = await ownerJson("/api/owner/sidebar", { signal: abort.signal });
+        const carriedSidebar = homeSidebarPayload;
+        homeSidebarPayload = null;
+        const payload = carriedSidebar || await ownerJson("/api/owner/sidebar", { signal: abort.signal });
         if (!shouldApplySidebarRefresh(requestGeneration, refreshGeneration, requestUrl, location.href)) return;
+        renderSidebar(payload, current);
         if (location.pathname === "/") {
             const projects = Array.isArray(payload.projects) ? payload.projects : [];
             const lastSession = readStored(LAST_SESSION_KEY);
@@ -712,6 +745,7 @@ async function refreshSidebarForPage() {
                 session.runwieldSessionId === lastSession?.runwieldSessionId
             );
             if (rememberedSessionProject && rememberedSession) {
+                homeSidebarPayload = payload;
                 workspaceNavigate(
                     sessionHref(rememberedSessionProject.projectId, rememberedSession.runwieldSessionId),
                     "replace",
@@ -723,19 +757,27 @@ async function refreshSidebarForPage() {
                 projects.find((project) => project.enabled);
             const fallbackSession = fallbackProject?.sessions?.[0];
             if (fallbackProject && fallbackSession) {
+                homeSidebarPayload = payload;
                 workspaceNavigate(sessionHref(fallbackProject.projectId, fallbackSession.runwieldSessionId), "replace");
                 return;
             }
             if (fallbackProject) {
+                homeSidebarPayload = payload;
                 workspaceNavigate(newSessionHref(fallbackProject.projectId), "replace");
                 return;
             }
+            homeSidebarPayload = payload;
+            workspaceNavigate("/projects", "replace");
         }
-        renderSidebar(payload, current);
     } catch (error) {
         if (error?.name === "AbortError") return;
         const sidebar = document.querySelector("[data-workspace-sidebar]");
         if (sidebar && !sidebarHasRendered) sidebar.replaceChildren(makeEmpty("Sidebar failed to load."));
+    } finally {
+        if (activeSidebarAbort === abort) {
+            activeSidebarAbort = null;
+            activeSidebarUrl = null;
+        }
     }
 }
 

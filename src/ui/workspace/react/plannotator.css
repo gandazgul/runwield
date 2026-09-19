@@ -571,37 +571,11 @@ body:has(.rw-code-review) button.review-toolbar-btn.primary:disabled,
     font-weight: 500;
 }
 
-.rw-plan-review-annotation-close,
-.rw-plan-review-sidebar-collapse,
-.rw-code-annotation-sidebar-close,
-.rw-code-file-sidebar-close {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border: 0;
-    border-radius: 0.375rem;
-    padding: 0.375rem;
-    color: var(--rw-text-muted);
-}
-
 .rw-plan-review-sidebar-collapse {
     position: absolute;
     top: calc((var(--rw-review-toolbar-h, 4rem) - 1.75rem) / 2);
     left: calc(17.5rem - 2.25rem);
     z-index: 65;
-    background: color-mix(in oklab, var(--rw-surface) 86%, transparent);
-}
-
-.rw-plan-review-annotation-close:hover,
-.rw-plan-review-annotation-close:focus-visible,
-.rw-plan-review-sidebar-collapse:hover,
-.rw-plan-review-sidebar-collapse:focus-visible,
-.rw-code-annotation-sidebar-close:hover,
-.rw-code-annotation-sidebar-close:focus-visible,
-.rw-code-file-sidebar-close:hover,
-.rw-code-file-sidebar-close:focus-visible {
-    background: var(--rw-surface-muted);
-    color: var(--rw-text-strong);
 }
 
 .rw-review-feedback-action {
@@ -613,9 +587,9 @@ body:has(.rw-code-review) button.review-toolbar-btn.primary:disabled,
 }
 
 .rw-review-sidebar-tabs {
+    --rw-tab-font-size: 0.72rem;
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 0.25rem;
     margin: 0.6rem 0.75rem 0;
 }
 

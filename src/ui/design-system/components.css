@@ -66,6 +66,49 @@
     opacity: 0.58;
 }
 
+/* Compact, borderless controls keep their size across every sidebar breakpoint. */
+.rw-icon-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.375rem;
+    flex: none;
+    box-sizing: border-box;
+    height: var(--rw-control-height-compact);
+    min-height: var(--rw-control-height-compact);
+    min-width: var(--rw-control-height-compact);
+    border: 0;
+    border-radius: var(--rw-radius-control);
+    padding: 0.375rem;
+    background: transparent;
+    color: var(--rw-text-muted);
+    font: inherit;
+    font-size: 0.75rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.rw-icon-button > svg {
+    flex: none;
+}
+
+.rw-icon-button:hover:not(:disabled),
+.rw-icon-button:focus-visible:not(:disabled),
+.rw-menu-trigger[aria-expanded="true"] {
+    background: var(--rw-surface-muted);
+    color: var(--rw-text-strong);
+}
+
+.rw-icon-button:focus-visible {
+    outline: 2px solid var(--rw-accent);
+    outline-offset: 2px;
+}
+
+.rw-icon-button:disabled {
+    opacity: 0.58;
+    cursor: not-allowed;
+}
+
 .rw-toolbar-select {
     min-height: var(--rw-control-height-compact);
     border: 1px solid var(--rw-border);
@@ -291,6 +334,70 @@ svg.animate-spin > * {
     min-height: 10rem;
     place-items: center;
     padding: 1.5rem;
+}
+
+.rw-menu-positioner {
+    z-index: 90;
+}
+
+.rw-menu-popup {
+    min-width: 14rem;
+    max-width: calc(100vw - 1.5rem);
+    padding: 0.25rem 0;
+    border: 1px solid var(--rw-border);
+    border-radius: var(--rw-radius-panel);
+    background: var(--rw-surface-raised);
+    color: var(--rw-text);
+    box-shadow: 0 8px 24px color-mix(in srgb, var(--rw-page-bg) 60%, transparent);
+}
+
+.rw-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    border: 0;
+    border-radius: 0;
+    padding: 0.5rem 0.75rem;
+    background: transparent;
+    color: var(--rw-text);
+    font: inherit;
+    font-size: 0.75rem;
+    text-align: left;
+    cursor: pointer;
+}
+
+.rw-menu-item:hover:not(:disabled),
+.rw-menu-item:focus-visible:not(:disabled) {
+    background: var(--rw-surface-muted);
+    color: var(--rw-text-strong);
+}
+
+.rw-menu-item:focus-visible {
+    outline: 2px solid var(--rw-accent);
+    outline-offset: -2px;
+}
+
+.rw-menu-item:disabled {
+    color: var(--rw-text-muted);
+    cursor: default;
+}
+
+.rw-menu-item-icon {
+    display: inline-flex;
+    flex: none;
+    color: var(--rw-text-muted);
+}
+
+.rw-menu-item-icon svg {
+    width: 0.875rem;
+    height: 0.875rem;
+}
+
+@media (max-width: 768px) {
+    .rw-menu-trigger-label {
+        display: none;
+    }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1317,6 +1424,184 @@ button.danger-action:disabled {
         padding: 1rem;
     }
 }
+/* Sidebar snapshots animate removed panels too, without leaving focusable hidden UI.
+   Names are applied only during a sidebar action, never during route transitions. */
+.rw-sidebar-motion .workspace-sidebar {
+    view-transition-name: rw-navigation;
+}
+.rw-sidebar-motion .workspace-main-shell {
+    view-transition-name: rw-workspace-main;
+}
+.rw-sidebar-motion .session-context-sidebar {
+    view-transition-name: rw-session-context;
+}
+.rw-sidebar-motion .session-stream-panel {
+    view-transition-name: rw-session-main;
+}
+.rw-sidebar-motion .session-context-header .rw-panel-toggle {
+    view-transition-name: rw-session-toggle;
+}
+.rw-sidebar-motion .rw-plannotator-plan-layout > aside:not([data-annotation-panel]),
+.rw-sidebar-motion .rw-artifact-contents,
+.rw-sidebar-motion .rw-review-file-tree {
+    view-transition-name: rw-review-left;
+}
+.rw-sidebar-motion .rw-plan-review-annotation-sidebar,
+.rw-sidebar-motion .rw-code-review-annotation-sidebar {
+    view-transition-name: rw-review-right;
+}
+.rw-sidebar-motion .rw-plannotator-main-pane,
+.rw-sidebar-motion .rw-review-all-files-host {
+    view-transition-name: rw-review-main;
+}
+
+.rw-sidebar-motion::view-transition-group(*) {
+    animation-duration: var(--rw-sidebar-motion-duration);
+    animation-timing-function: var(--rw-sidebar-motion-ease);
+}
+
+.rw-sidebar-motion::view-transition-old(root) {
+    display: none;
+}
+.rw-sidebar-motion::view-transition-new(root) {
+    animation: none;
+}
+
+/* Unchanged panes move with the layout without flashing or crossfading. */
+.rw-sidebar-motion::view-transition-old(*):not(:only-child) {
+    display: none;
+}
+.rw-sidebar-motion::view-transition-new(*):not(:only-child) {
+    animation: none;
+}
+
+.rw-sidebar-motion::view-transition-old(*),
+.rw-sidebar-motion::view-transition-new(*) {
+    animation-duration: var(--rw-sidebar-motion-duration);
+    animation-timing-function: var(--rw-sidebar-motion-ease);
+    animation-fill-mode: both;
+}
+
+/* Keep text at its natural size while the available canvas changes width. */
+.rw-sidebar-motion::view-transition-image-pair(rw-workspace-main),
+.rw-sidebar-motion::view-transition-image-pair(rw-session-main),
+.rw-sidebar-motion::view-transition-image-pair(rw-review-main) {
+    overflow: clip;
+}
+.rw-sidebar-motion::view-transition-old(rw-workspace-main),
+.rw-sidebar-motion::view-transition-old(rw-session-main),
+.rw-sidebar-motion::view-transition-old(rw-review-main) {
+    display: none;
+}
+.rw-sidebar-motion::view-transition-new(rw-workspace-main),
+.rw-sidebar-motion::view-transition-new(rw-session-main),
+.rw-sidebar-motion::view-transition-new(rw-review-main) {
+    height: 100%;
+    object-fit: none;
+    object-position: left top;
+    animation: none;
+}
+
+.rw-sidebar-motion::view-transition-new(rw-navigation):only-child,
+.rw-sidebar-motion::view-transition-new(rw-review-left):only-child {
+    animation-name: rw-sidebar-enter-left;
+}
+.rw-sidebar-motion::view-transition-old(rw-navigation):only-child,
+.rw-sidebar-motion::view-transition-old(rw-review-left):only-child {
+    animation-name: rw-sidebar-exit-left;
+}
+.rw-sidebar-motion::view-transition-new(rw-session-context):only-child,
+.rw-sidebar-motion::view-transition-new(rw-review-right):only-child {
+    animation-name: rw-sidebar-enter-right;
+}
+.rw-sidebar-motion::view-transition-old(rw-session-context):only-child,
+.rw-sidebar-motion::view-transition-old(rw-review-right):only-child {
+    animation-name: rw-sidebar-exit-right;
+}
+
+@keyframes rw-sidebar-enter-left {
+    from {
+        opacity: 0;
+        transform: translateX(-12px);
+    }
+}
+@keyframes rw-sidebar-exit-left {
+    to {
+        opacity: 0;
+        transform: translateX(-12px);
+    }
+}
+@keyframes rw-sidebar-enter-right {
+    from {
+        opacity: 0;
+        transform: translateX(12px);
+    }
+}
+@keyframes rw-sidebar-exit-right {
+    to {
+        opacity: 0;
+        transform: translateX(12px);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .rw-sidebar-motion::view-transition-group(*),
+    .rw-sidebar-motion::view-transition-old(*),
+    .rw-sidebar-motion::view-transition-new(*) {
+        animation: none !important;
+    }
+}
+
+/* Peer-view navigation: links and tab buttons share the same square underline rail. */
+.rw-underline-tabs {
+    align-items: stretch;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    box-shadow: inset 0 -1px 0 var(--rw-border);
+    display: flex;
+    gap: 0;
+    min-width: 0;
+    padding: 0;
+}
+
+.rw-underline-tabs > :is(a, button) {
+    align-items: center;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    color: var(--rw-text-muted);
+    cursor: pointer;
+    display: inline-flex;
+    flex: 1 1 auto;
+    font: inherit;
+    font-size: var(--rw-tab-font-size, 0.8rem);
+    font-weight: 600;
+    gap: 0.3rem;
+    justify-content: center;
+    min-height: var(--rw-tab-height, var(--rw-control-height));
+    min-width: 0;
+    padding: 0 var(--rw-space-control-x);
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.rw-underline-tabs > :is(a, button):hover {
+    background: var(--rw-surface-muted);
+    color: var(--rw-text-strong);
+}
+
+.rw-underline-tabs > :is([aria-selected="true"], [aria-current="page"], [data-state="active"]) {
+    box-shadow: inset 0 -3px 0 var(--rw-accent);
+    color: var(--rw-text-strong);
+}
+
+.rw-underline-tabs > :is(a, button):focus-visible {
+    outline: 2px solid var(--rw-accent);
+    outline-offset: -2px;
+}
+
 .rw-panel-toggle {
     flex-shrink: 0;
 }
@@ -1374,9 +1659,9 @@ button.danger-action:disabled {
 .rw-workflow-block {
     margin-block: var(--rw-space-panel);
     padding: var(--rw-space-panel);
-    border: 1px solid var(--rw-border);
-    border-inline-start: 3px solid var(--rw-accent);
-    border-radius: var(--rw-radius-card);
+    border: 0;
+    box-shadow: inset 2px 0 var(--rw-brand), inset 0 0 0 1px var(--rw-border);
+    border-radius: 0;
     background: var(--rw-surface-raised);
     overflow-wrap: anywhere;
 }
@@ -1388,7 +1673,7 @@ button.danger-action:disabled {
     gap: var(--rw-space-control-x);
 }
 .rw-workflow-block > header {
-    color: var(--rw-accent-text);
+    color: var(--rw-brand);
 }
 .rw-workflow-block > .markdown-view {
     background: transparent;
@@ -1402,8 +1687,8 @@ button.danger-action:disabled {
     color: var(--rw-text-dim);
     font-size: 0.8rem;
 }
-.rw-workflow-block.status-failed {
-    border-inline-start-color: var(--rw-error);
+.rw-workflow-block.status-failed > header > span {
+    color: var(--rw-error);
 }
 
 .rw-question-fixture {
