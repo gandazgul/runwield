@@ -12,7 +12,9 @@ call the work done until CI and a separate reviewer agree it matches the plan yo
 ideate -> plan -> execute -> record -> use records to plan better
 ```
 
-<p align="center"><img src="brand/runwield-tui.png" alt="RunWield terminal interface" /></p>
+[![Watch the 90-second RunWield demo: Plan Review, execution, validation, Code Review, and Workspace](brand/runwield-demo-poster.jpg)](brand/runwield-demo.mp4)
+
+[Watch the 90-second demo](brand/runwield-demo.mp4)
 
 [Website](https://runwield.dev) · [Install](#install-in-30-seconds) · [How it works](#the-problem) ·
 [Documentation](docs/index.md)
