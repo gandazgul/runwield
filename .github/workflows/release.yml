@@ -640,3 +640,16 @@ jobs:
                   fi
                   git commit -m "Update RunWield to ${{ needs.metadata.outputs.tag }}"
                   git push origin HEAD:main
+
+    publish-docs:
+        if: ${{ !cancelled() && needs.metadata.outputs.kind == 'stable' && needs.release.result == 'success' }}
+        needs:
+            - metadata
+            - release
+        uses: ./.github/workflows/docs.yml
+        with:
+            tag: ${{ needs.metadata.outputs.tag }}
+        permissions:
+            contents: write
+            pages: write
+            id-token: write

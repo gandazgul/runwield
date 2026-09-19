@@ -1,17 +1,14 @@
 # RunWield Documentation
 
-RunWield is an opinionated coding harness built on top of [Pi](https://pi.dev). It keeps Pi's terminal-first agent
-experience, then adds explicit triage, durable plans, role-scoped agents, workflow validation, project memory, and plan
-recovery.
+RunWield helps you review what an AI plans to do before it changes your code, then verifies the result. Use this manual
+to install RunWield, start a Session, understand its workflows, and configure it for your project.
 
-Use these docs for RunWield-specific behavior. When a topic behaves the same as Pi, this index links to the upstream
-[Pi documentation](https://pi.dev/docs/latest) instead of duplicating it.
+RunWield builds on [Pi](https://pi.dev). These pages explain RunWield-specific behavior and link to Pi when the behavior
+is unchanged. Visit the [RunWield website](https://runwield.dev) for the product overview.
 
-**Use RunWield in your browser or on your phone:** [Start Workspace and connect with Tailscale](workspace.md).
+## Start
 
-## Get Started
-
-### 1. Install RunWield
+### Install RunWield
 
 On macOS or Linux:
 
@@ -19,272 +16,44 @@ On macOS or Linux:
 curl -fsSL https://raw.githubusercontent.com/gandazgul/runwield/main/install.sh | bash
 ```
 
-The installer downloads `wld`, required [Mnemoteca]/Cymbal runtime helpers, required agent-browser, and optional Snip,
-then installs missing binaries to `~/.local/bin` by default. Make sure that directory is on your `PATH`.
-
-Mac Homebrew packages are prepared for `gandazgul/homebrew-tap` but are pending owner publication. After publication,
-install with `brew install gandazgul/tap/wld`.
-
-Contributors can also run from source:
+Make sure `~/.local/bin` is on your `PATH`, then start RunWield from your project root:
 
 ```bash
-deno run -A src/cli.ts help
-deno task compile
-./bin/wld help
+wld
 ```
 
-### 2. Runtime helpers
-
-The installer is the helper recovery path. Mnemoteca, Cymbal, and agent-browser are required for interactive Agent
-Sessions; Snip is optional and fail-open. Existing helper binaries found on `PATH` or already executable in
-`WLD_INSTALL_DIR` are preserved, while missing helpers are installed beside `wld`.
-
-### 3. Authenticate a model provider
-
-Start an interactive session and run:
+On first use, connect a model provider when prompted. Then initialize the project and make a request:
 
 ```text
-/login
+/init
+fix the failing parser test
 ```
 
-Then choose a subscription provider or API-key provider. RunWield stores credentials under `~/.wld/auth.json`.
+- [Quickstart](quickstart.md) — install, authenticate, initialize a project, and run your first request.
+- [Workspace](workspace.md) — use RunWield in a browser or on your phone.
 
-You can also configure providers and custom models manually in `~/.wld/models.json`, for example when using Ollama,
-vLLM, LM Studio, API proxies, or custom model entries. RunWield uses Pi's model/provider system, so the full provider
-and model configuration format is documented in [Pi Providers](https://pi.dev/docs/latest/providers) and
-[Pi Custom Models](https://pi.dev/docs/latest/models). See [RunWield providers](providers.md) for the RunWield-specific
-storage paths and commands.
+## Use RunWield
 
-### 4. Initialize a project
+- [Using RunWield](usage.md) — commands, routing, Agents, Plans, and TUI behavior.
+- [Plans and workflows](workflows.md) — triage, review, execution, validation, and recovery.
+- [Sessions](sessions.md) — resume work and manage Session history.
+- [Self-hosted collaboration](collaboration.md) — share Plans through a Shared Space Plan Server.
+- [Workspace containers](workspace-container.md) — run Workspace in its supported container setup.
 
-Run RunWield from the project root:
+## Configure RunWield
 
-```bash
-wld init
-```
+- [Providers and models](providers.md) — credentials, model selection, and custom providers.
+- [Settings reference](settings.md) — global and project settings.
+- [Customization](customization.md) — Agent overrides, prompts, Skills, and themes.
+- [Themes](themes.md) — select and create terminal themes.
+- [MCP](mcp.md) — connect Model Context Protocol servers.
 
-`wld init` explores the repository, writes `docs/domain-language.md`, stores durable project memory, and records that
-the project has been initialized. You can also run `/init` inside the TUI.
+## Get help
 
-### 5. Start with Router
+- [Troubleshooting](troubleshooting.md) — resolve common installation and runtime problems.
+- [Plan lifecycle](plan-lifecycle.md) — understand durable Plan states and recovery.
+- [Validation authority](validation-authority.md) — understand completion and review evidence.
+- [Contributing](contributing.md) — build RunWield and contribute changes.
 
-The default command is `router`, so these are equivalent:
-
-```bash
-wld "fix the failing parser test"
-wld router "fix the failing parser test"
-```
-
-Router is the default Agent for fresh triage. Its `triage_report` assigns one routing intent:
-
-- `INQUIRY` - answer directly through Guide for general help, explanations, and repository questions.
-- `IDEATION` - hand off to Ideator for interviews, research, PRDs, or idea sharpening before implementation planning.
-- `OPERATION` - execute direct non-code repository/environment work through Operator.
-- `QUICK_FIX` - implement bounded no-plan code work through Engineer, followed by Mechanical Validation.
-- `FEATURE` - write a reviewable plan before implementation.
-- `PROJECT` - design the larger effort as an Epic, then interactively slice it into independently executable child
-  FEATURE plans.
-
-## General Usage
-
-### Work through the router by default
-
-Use `wld "request"` when you want RunWield to choose the right workflow. Router records the routing intent through
-`triage_report`; implementation intents also record complexity. That tool outcome hands off to Guide, Ideator, Operator,
-Engineer, Planner, or Architect as appropriate.
-
-### Talk to a specific agent when you know what you need
-
-```bash
-wld agent                  # list agents
-wld agent engineer "..."   # start with Engineer instead of Router
-```
-
-Inside the TUI, use `/agent <name>` to switch agents.
-
-User-selectable bundled agents include `router`, `guide`, `ideator`, `operator`, `planner`, `architect`, `engineer`, and
-`tester`. RunWield also uses workflow-only pseudo-agents such as Slicer and Reviewer during plan readiness and
-validation; they do not appear in normal `/agent` listings.
-
-Documentation work no longer has a dedicated agent. It is handled through the bundled `documentation` skill, which any
-agent with suitable file-mutation tools loads automatically when a task involves updating Markdown project docs. Guide
-also has docs-only `write_docs` and `edit_docs` tools for explicit in-session requests to preserve an answer,
-walkthrough, or report as an ordinary `.md` document; Router dispatch and Operator behavior are unchanged. The full list
-of bundled skills is available under [`docs/customization.md`](customization.md).
-
-### Use plans for non-trivial work
-
-Plans are Markdown files under `docs/plans/` with YAML front matter. List and resume them with:
-
-```bash
-wld plans
-wld load-plan <name-or-path>
-```
-
-PROJECT plans are Epic containers. After review, the interactive Slicer helps split an Epic into child FEATURE plans
-under `docs/plans/<epic-name>/`; each child then moves through the normal review, execution, validation, and recovery
-states. See [Plans and workflows](workflows.md) and [Plan Lifecycle](plan-lifecycle.md).
-
-### Use slash commands in the TUI
-
-Type `/` to open command completion. Common commands:
-
-| Command                                | Purpose                                                                       |
-| -------------------------------------- | ----------------------------------------------------------------------------- |
-| `/login`, `/logout`, `/status`         | Manage model credentials.                                                     |
-| `/model`                               | Switch active model.                                                          |
-| `/agent`                               | Switch active agent.                                                          |
-| `/init`                                | Initialize the current project.                                               |
-| `/load-plan`                           | Continue a saved plan.                                                        |
-| `/resume`, `/new`, `/name`, `/session` | Manage sessions.                                                              |
-| `/compact`                             | Compact the current session context.                                          |
-| `/theme`                               | Pick a theme.                                                                 |
-| `/reload`                              | Reload settings, instructions, prompts, skills, models, themes, and memories. |
-| `/export`, `/share`                    | Export or share a session.                                                    |
-| `/quit`                                | Exit.                                                                         |
-
-For editor behavior, message queue behavior, file references, shell commands, and terminal shortcuts that match Pi, see
-[Pi Using Pi](https://pi.dev/docs/latest/usage) and [Pi Keybindings](https://pi.dev/docs/latest/keybindings). See
-[Using RunWield](usage.md) for RunWield-specific differences.
-
-### Workflow overview
-
-```mermaid
-graph TD
-    U[User request] --> R[Router Agent]
-    R --> TR[Triage report]
-
-    TR -->|inquiry| G[Guide answers or explains]
-    G --> GD[Done]
-
-    TR -->|ideation| I[Ideator researches and sharpens idea]
-    I --> IR[PRD or synthesis]
-    IR --> R2[Return to Router when ready for implementation]
-
-    TR -->|operation| O[Operator executes directly]
-    O --> TC1{Completion signal received}
-    TC1 -->|yes| QD[Done]
-    TC1 -->|no| W1[Wait for completion signal]
-
-    TR -->|quick fix| QE[Engineer implements directly]
-    QE --> QTC{Completion signal received}
-    QTC -->|yes| QV[Mechanical Validation]
-    QTC -->|no| QW[Wait for completion signal]
-
-    TR -->|feature| P[Planner writes plan]
-    P --> PR[Plannotator review]
-    PR -->|feedback| P
-    PR -->|approved| PA{Proceed now}
-    PA -->|yes| E[Engineer executes approved plan]
-    PA -->|no| SP[Saved plan]
-    E --> TC2{Completion signal received}
-    TC2 -->|yes| V2[Workflow validation]
-
-    TR -->|project| A[Architect writes Epic design plan]
-    A --> PR2[Plannotator review]
-    PR2 -->|feedback| A
-    PR2 -->|approved| RD[Ready for decomposition]
-    RD --> S[Interactive Slicer discusses boundaries]
-    S --> CD[Draft child feature plans]
-    CD --> RF[Ready for work child selection]
-    RF --> CP[Child feature plan]
-    CP --> PR3[Plannotator review]
-    PR3 -->|approved| CE[Engineer executes child feature]
-    CE --> TC3{Completion signal received}
-    TC3 -->|yes| V3[Child workflow validation]
-
-    SP --> LP[Load plan command]
-```
-
-## Documentation TOC
-
-### RunWield basics
-
-- [Quickstart](quickstart.md) - install, authenticate, initialize, and run the first routed request.
-- [Workspace on your computer and phone](workspace.md) - start the browser UI, pair devices, connect with Tailscale, and
-  continue TUI Sessions.
-- [Using RunWield](usage.md) - day-to-day commands, routing, agents, plans, and TUI differences from Pi.
-- [Bundled RunWield usage skill](../src/skills/runwield/SKILL.md) - shipped user-facing answer surface; update it
-  alongside docs when user-visible behavior changes.
-- [Plans and workflows](workflows.md) - triage classes, plan review, execution, validation, and recovery.
-- [Self-hosted collaborative planning](collaboration.md) - run a Shared Space Plan Server and use
-  `wld plans share|pull|push|unshare`.
-- [Sessions](sessions.md) - RunWield session paths, root-agent behavior, resume, and compaction notes.
-- [Providers and models](providers.md) - RunWield credential/config paths and links to Pi provider setup.
-- [Customization](customization.md) - settings, agent overrides, prompts, skills, and themes.
-- [Troubleshooting](troubleshooting.md) - missing runtime helpers, plan review UI, plan loading, and agent overrides.
-- [Contributing](contributing.md) - development setup, contribution guidelines, ADRs, and PRDs.
-
-### RunWield reference
-
-- [Settings Reference](settings.md) - global/project settings and RunWield custom keys.
-- [Themes](themes.md) - RunWield theme package behavior and theme files.
-- [Releasing](releasing.md) - wld's repository-specific release policy, Candidate/Promotion flow, and recovery paths.
-- [Design System](design-system.md) - browser UI tokens, patterns, and Plannotator port guidance.
-- [Plan Lifecycle](plan-lifecycle.md) - durable plan and worktree state machine.
-- [Complete Plan workflow map](plan-workflow-map.md) - source-traced planner-to-merge tree, transition inputs, repair
-  and resume branches, with a [dated transition audit](audits/2026-09-07-plan-workflow-transitions.md).
-- [Core capability requirements](prd/runwield-core-prd.md#capability-requirements) - lasting product constraints and
-  acceptance scenarios, including Plan ownership, automatic recovery, and workflow completion; cite the owning
-  capability in review. Technical decisions live in ADRs.
-- [ACP Implementation Details and Gaps](acp-implementation-details.md) - current ACP v1 MVP behavior, conformance gaps,
-  and optional protocol coverage.
-- [Router Model Selection](router-model-selection.md) - evaluation findings for the Router model choice.
-- [Session Compaction](prd/runwield-core-prd.md#compaction-and-image-context) - product behavior for preserving useful
-  context.
-
-### Living central PRDs
-
-These are the current product principles and lasting requirements:
-
-- [RunWield](prd/runwield.md): vision and product family.
-- [Core](prd/runwield-core-prd.md): shared local workflow.
-- [Connect](prd/runwield-connect-prd.md): external-host experience.
-- [ACP](prd/runwield-acp-protocol-prd.md): external-client compatibility and chat-channel integration.
-- [Workspace](prd/runwield-workspace-prd.md): browser and cross-device experience, with team collaboration later.
-
-Other PRDs are transient proposals. After implementation, fold lasting requirements into the appropriate central PRD,
-update references, and remove the feature PRD. Use Git history for old proposals and Work Records for delivery evidence.
-
-### Active product direction
-
-- [Session Context Resilience](prd/session-context-resilience-prd.md) - mid-run context monitoring, safe continuation,
-  and ineffective-compaction recovery.
-- [Agent Behavior Evaluation](prd/agent-behavior-evaluation-prd.md) - Agent contract scorecards, support policy, and
-  evaluation interpretation.
-- [End-to-End Benchmark Harness](prd/end-to-end-benchmark-harness-prd.md) - WLD-native workflow runners, ACP black-box
-  evaluation, and external benchmark adapters.
-- [Selective Execution Model Adaptation](prd/selective-execution-model-adaptation-prd.md) - evaluated Engineer/Operator
-  profiles for selected local or smaller models.
-
-### RunWield vision
-
-- [Domain Harness Blueprint](vision/domain-harness-blueprint.md) - exploratory blueprint for domain-specific LLM
-  harnesses, using RunWield as the software engineering example.
-- [RunWield SE Harness Opportunities](vision/runwield-se-harness-opportunities.md) - capability opportunities for
-  expanding RunWield as a software engineering domain harness.
-- [Research Evidence Set](vision/research-evidence-set-prd.md) - experimental Ideator session evidence for source-heavy
-  research.
-
-### Pi docs that mostly apply unchanged
-
-RunWield inherits Pi's terminal UI and much of its model/provider, session, theme, and customization infrastructure. Use
-these upstream docs for full detail:
-
-- [Pi documentation home](https://pi.dev/docs/latest)
-- [Pi Quickstart](https://pi.dev/docs/latest/quickstart)
-- [Pi Usage](https://pi.dev/docs/latest/usage)
-- [Pi Providers](https://pi.dev/docs/latest/providers)
-- [Pi Settings](https://pi.dev/docs/latest/settings) - pair with [RunWield Settings Reference](settings.md).
-- [Pi Keybindings](https://pi.dev/docs/latest/keybindings)
-- [Pi Sessions](https://pi.dev/docs/latest/sessions) - pair with [RunWield Sessions](sessions.md).
-- [Pi Compaction](https://pi.dev/docs/latest/compaction)
-- [Pi Skills](https://pi.dev/docs/latest/skills) - pair with [RunWield Customization](customization.md).
-- [Pi Prompt Templates](https://pi.dev/docs/latest/prompt-templates)
-- [Pi Themes](https://pi.dev/docs/latest/themes) - pair with [RunWield Themes](themes.md).
-- [Pi Terminal Setup](https://pi.dev/docs/latest/terminal-setup)
-- [Pi tmux](https://pi.dev/docs/latest/tmux)
-- [Pi Windows](https://pi.dev/docs/latest/windows)
-- [Pi Termux](https://pi.dev/docs/latest/termux)
-
-[Mnemoteca]: https://github.com/gandazgul/mnemoteca
+For terminal editing, keybindings, model providers, and other inherited behavior, use the
+[Pi documentation](https://pi.dev/docs/latest).

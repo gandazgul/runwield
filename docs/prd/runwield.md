@@ -198,7 +198,7 @@ each surface document owns its detailed behavior. A reference adds context, not 
 
 | Owning PRD                                                     | Capability scope                                                                                                                          |
 | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| [RunWield](#capability-requirements)                           | Reviewed intent, consistent cross-surface outcomes, durable knowledge, independent adoption and privacy                                   |
+| [RunWield](#capability-requirements)                           | Reviewed intent, consistent cross-surface outcomes, durable knowledge, public documentation, independent adoption and privacy             |
 | [Core](runwield-core-prd.md#capability-requirements)           | Routing, Plan review/lifecycle, execution, validation, recovery, Sessions, context, records, customization, PRD authoring                 |
 | [Workspace](runwield-workspace-prd.md#capability-requirements) | Local boards and sharing, attention, browser/phone journeys, Project access, knowledge/code search, pairing, later team governance/review |
 | [Connect](runwield-connect-prd.md#capability-requirements)     | External-host opt-in, host model ownership, host compatibility, privacy, setup and recovery                                               |
@@ -214,6 +214,7 @@ actual delivery; unmet intent is retained explicitly. Keep the five-document own
 - [Reviewed intent and proportional work](#reviewed-intent-and-proportional-work)
 - [Consistent workflow outcomes across surfaces](#consistent-workflow-outcomes-across-surfaces)
 - [Durable capability requirements and planning memory](#durable-capability-requirements-and-planning-memory)
+- [Public documentation](#public-documentation)
 - [Independent adoption and private working space](#independent-adoption-and-private-working-space)
 
 ### Reviewed intent and proportional work
@@ -332,6 +333,35 @@ Detailed owners: [Connect first-class use](runwield-connect-prd.md#first-class-c
   private conversation.
 - Given a team choosing forge-hosted or dual review, when it adopts that policy, each gate keeps its own decisions;
   RunWield-native review remains the default product direction.
+
+### Public documentation
+
+**Scope and maturity:** Target until `docs.runwield.dev` is deployed from the release-aligned documentation branch.
+
+**Requirement: Find usable instructions.** Users can search and navigate a public manual for installing, using,
+configuring, and troubleshooting RunWield. Internal PRDs, Plans, audits, research, and product proposals do not appear
+as manual pages or search results.
+
+**Requirement: Read documentation for the latest Stable release.** The public manual identifies and describes the latest
+Stable release. Candidate and unreleased `main` behavior does not replace those instructions.
+
+**Requirement: Correct documentation independently.** Maintainers can correct the current Stable manual without
+publishing or changing a product release. Corrections remain present when the next Stable release updates the manual.
+
+**Shared requirements:** [Core installation and updates](runwield-core-prd.md#installation-and-updates) owns truthful
+package availability. [Core execution, validation, and recovery](runwield-core-prd.md#execution-validation-and-recovery)
+remains authoritative for product delivery and recovery.
+
+**Acceptance scenarios:**
+
+- Given a new user, when they open the documentation home, they can reach installation, first-use, configuration, and
+  troubleshooting guidance without navigating internal product records.
+- Given a Candidate or an unreleased change on `main`, when it changes documentation, the public manual continues to
+  identify and describe the latest Stable release.
+- Given an error in Stable documentation, when a reviewed correction is published, the manual changes while the Stable
+  product tag and assets remain unchanged; the correction is retained in the next Stable manual.
+- Given a failed or stale documentation deployment, when publication stops or is retried, the last valid manual remains
+  live and an older release cannot replace a newer one.
 
 <a id="8-delivery-and-references"></a>
 

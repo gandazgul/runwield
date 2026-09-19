@@ -242,6 +242,23 @@ recoverably incomplete and retry with:
 gh release edit <tag> --notes-file <notes-file>
 ```
 
+## Stable documentation publication
+
+A successful Stable release calls the reusable documentation workflow with the selected release tag. Candidate releases,
+`main` pushes, and failed release publication do not update `docs.runwield.dev`. The workflow verifies that the selected
+tag is still GitHub latest, merges it into `docs/stable` without force-pushing, records the documented version, checks
+the Starlight build, and deploys that exact branch commit through GitHub Pages.
+
+Documentation corrections can publish from `docs/stable` without creating or moving a product tag. Keep those changes to
+the public guide allowlist and docs-site tooling, then forward-port them to `main`. A later Stable merge must preserve
+them. If it conflicts, repair the named documentation files and retry; do not reset the branch or overwrite the live
+manual. A product hotfix still uses the ordinary Candidate/Stable or direct Stable patch process above.
+
+Use the `publish-docs` manual workflow to retry the latest Stable deployment. Use its bootstrap option only once when
+`docs/stable` does not exist; it starts from the actual latest Stable tag and brings over only the reviewed public docs
+site support. Run `scripts/setup-docs-pages.sh` for the one-time GitHub Pages and DNS cutover. An older tag, an API
+failure, a failed build, or a rejected non-fast-forward push must leave the current Pages deployment unchanged.
+
 ## Recovery
 
 - **Initial atomic branch-and-tag push failed**: the local tag remains. Inspect the remote branch and tag because a

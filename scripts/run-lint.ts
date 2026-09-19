@@ -8,12 +8,18 @@ const REPO_ROOT = dirname(dirname(fromFileUrl(import.meta.url)));
 const LINT_FILE_PATTERN = /\.(?:jsx?|tsx?|mjs|mts)$/;
 
 if (import.meta.main) {
-    const files = (await listCiFiles(REPO_ROOT)).filter((path) => LINT_FILE_PATTERN.test(path));
-    const result = await runWithSnip("deno", ["lint", "--permit-no-files", ...files], {
-        cwd: REPO_ROOT,
-        failureLabel: "lint",
-        stdin: "inherit",
-    });
+    const files = (await listCiFiles(REPO_ROOT)).filter((path) =>
+        LINT_FILE_PATTERN.test(path) && !path.split("/").includes(".astro")
+    );
+    const result = await runWithSnip(
+        "deno",
+        ["lint", "--permit-no-files", "--rules-exclude=ban-unknown-rule-code", ...files],
+        {
+            cwd: REPO_ROOT,
+            failureLabel: "lint",
+            stdin: "inherit",
+        },
+    );
     await writeSnipCommandResult(result);
     Deno.exit(result.code);
 }

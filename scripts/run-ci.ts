@@ -9,6 +9,7 @@ export const PRE_TEST_TASKS = [
     "language-policy:check",
     "seams:check",
     "doc-links:check",
+    "docs:check",
     "skills:sync:check",
 ] as const;
 

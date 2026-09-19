@@ -39,6 +39,9 @@ Deno.test("Workspace Plan Review uses the owner header and starts directly at th
     assertStringIncludes(layout, 'class="workspace-main-session-name" data-workspace-surface-title');
     assertStringIncludes(shell, 'header.querySelector("[data-workspace-main-session-name]")?.remove()');
     assertStringIncludes(layout, "<WorkspaceMenu client:load />");
+    const workspaceMenu = await Deno.readTextFile("src/ui/workspace/react/WorkspaceMenu.tsx");
+    assertStringIncludes(workspaceMenu, 'href="https://docs.runwield.dev"');
+    assertStringIncludes(workspaceMenu, "Documentation");
     assertStringIncludes(layout, "data-workspace-header-actions");
     assertEquals(layout.includes("BrowserNotificationPermissionControl"), false);
     assertStringIncludes(portal, 'document.querySelector<HTMLElement>("[data-workspace-header-actions]")');

@@ -399,11 +399,12 @@ without waiting for names from every older conversation. Session contents load i
 
 **Requirement: Keep global actions and Session context in consistent headers.**
 
-The hamburger menu to the left of the Workspace logo contains browser notification permission and its current state.
-Session context tabs occupy the main header above their pane. One collapse/restore control stays on that row, moving
-only horizontally and reversing its icon when the pane opens or closes. Session, Plan Review, and Code Review use the
-same header alignment. Their hamburger menus and sidebar controls share the same borderless buttons, hover treatment,
-and compact height at every screen width. Review and Workspace menus share their popup and item styling.
+The hamburger menu to the left of the Workspace logo contains browser notification permission and its current state,
+plus a link to the public RunWield documentation. Session context tabs occupy the main header above their pane. One
+collapse/restore control stays on that row, moving only horizontally and reversing its icon when the pane opens or
+closes. Session, Plan Review, and Code Review use the same header alignment. Their hamburger menus and sidebar controls
+share the same borderless buttons, hover treatment, and compact height at every screen width. Review and Workspace menus
+share their popup and item styling.
 
 **Acceptance scenarios:**
 
@@ -413,6 +414,8 @@ and compact height at every screen width. Review and Workspace menus share their
   Sessions, branches, or worktrees.
 - From a Session or its review, clicking the Workspace logo returns to the last Session without an intermediate home
   request or clearing the sidebar.
+- From Workspace, opening Documentation in the hamburger menu opens `docs.runwield.dev` without changing the active
+  Session.
 - Opening home shows a plain shared loader, reuses its sidebar result on the destination page, and opens Projects when
   no enabled Project is available.
 - With many saved Sessions, the sidebar resolves only its visible recent names plus one lookahead; unnamed Sessions

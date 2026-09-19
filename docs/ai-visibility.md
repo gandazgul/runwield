@@ -50,8 +50,10 @@ link in AI Overviews or AI Mode. There is no separate generative-AI submission m
 
 ### 2. Publish the documentation as crawlable HTML
 
-Publishing the existing documentation at `docs.runwield.dev` is likely the single largest technical improvement. Most of
-RunWield's substantive explanations currently live in GitHub Markdown, while the brand site offers one indexable page.
+The repository now contains the Starlight source and release-aligned GitHub Pages workflow for `docs.runwield.dev`. Live
+publication remains incomplete until the `docs/stable` bootstrap, Pages settings, DNS, and HTTPS checks succeed.
+Publishing this documentation is likely the single largest technical improvement. Most of RunWield's substantive
+explanations currently live in GitHub Markdown, while the brand site offers one indexable page.
 
 Important concepts should have stable HTML URLs, descriptive titles, canonical links, internal links, and sitemap
 entries. Initial candidates include:
