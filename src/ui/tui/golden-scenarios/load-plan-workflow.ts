@@ -439,6 +439,8 @@ export const loadPlanWorktreeInspectResetScenario = {
             requiredTools: ["review_diff", "review_complete"],
             toolCalls: [
                 { name: "review_diff", arguments: { command: "list" } },
+                { name: "review_diff", arguments: { command: "show", path: "recover-reset.txt" } },
+                { name: "review_diff", arguments: { command: "show", path: "docs/plans/recover-reset.md" } },
                 { name: "review_complete", arguments: { approved: true, feedback: "Recovery reset approved." } },
             ],
         },
@@ -571,6 +573,9 @@ export const loadPlanImplementedFollowUpRepaintsScenario = {
             requiredTools: ["review_diff", "review_complete"],
             toolCalls: [
                 { name: "review_diff", arguments: { command: "list" } },
+                { name: "review_diff", arguments: { command: "show", path: "follow-up-repaint.txt" } },
+                { name: "review_diff", arguments: { command: "show", path: "follow-up-repaint-validation.txt" } },
+                { name: "review_diff", arguments: { command: "show", path: "docs/plans/follow-up-repaint.md" } },
                 { name: "review_complete", arguments: { approved: true, feedback: "Follow-up approved." } },
             ],
         },
@@ -674,6 +679,8 @@ export const loadPlanContinueUsesExecutionPlanAuthorityScenario = {
             requiredTools: ["review_diff", "review_complete"],
             toolCalls: [
                 { name: "review_diff", arguments: { command: "list" } },
+                { name: "review_diff", arguments: { command: "show", path: "continue-authority.txt" } },
+                { name: "review_diff", arguments: { command: "show", path: "docs/plans/continue-authority.md" } },
                 { name: "review_complete", arguments: { approved: true, feedback: "Continuation approved." } },
             ],
         },

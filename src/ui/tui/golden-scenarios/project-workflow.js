@@ -276,6 +276,8 @@ export const twoChildProjectContinuationScenario = {
             thinking: "Inspect the first child diff, then approve it.",
             toolCalls: [
                 { name: "review_diff", arguments: { command: "list" } },
+                { name: "review_diff", arguments: { command: "show", path: "golden-child-one.txt" } },
+                { name: "review_diff", arguments: { command: "show", path: "docs/plans/epic/01-child-one.md" } },
                 { name: "review_complete", arguments: { approved: true, feedback: "First child approved." } },
             ],
         },
@@ -327,6 +329,8 @@ export const twoChildProjectContinuationScenario = {
             thinking: "Inspect the second child diff, then approve it.",
             toolCalls: [
                 { name: "review_diff", arguments: { command: "list" } },
+                { name: "review_diff", arguments: { command: "show", path: "golden-child-two.txt" } },
+                { name: "review_diff", arguments: { command: "show", path: "docs/plans/epic/02-child-two.md" } },
                 { name: "review_complete", arguments: { approved: true, feedback: "Second child approved." } },
             ],
         },

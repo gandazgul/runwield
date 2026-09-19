@@ -223,7 +223,7 @@ function transcriptRequirementFor(id: ValidationWorkflowBranchId): string[] {
     if (id.includes(":ci:")) return ["CI"];
     if (id.startsWith("semantic:round-limit:")) return ["Look once more, read it, or stop."];
     if (id === "semantic:provider-error-retry") return ["The model provider could not complete AI code review"];
-    if (id.startsWith("semantic:nudge:")) return ["AI code review needs more time"];
+    if (id.startsWith("semantic:nudge:")) return ["Semantic review approved"];
     if (id === "semantic:entry:non-git-skip") return ["AI code review skipped"];
     if (id === "semantic:entry:empty-diff-skip") return ["AI code review skipped"];
     if (id === "semantic:entry:plan-only-diff-fails") return ["No implementation changes detected"];

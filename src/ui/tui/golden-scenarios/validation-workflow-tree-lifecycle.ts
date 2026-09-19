@@ -54,6 +54,8 @@ export const validationTreeResumeImplementedScenario = withValidationBranches(
                 requiredTools: ["review_diff", "review_complete"],
                 toolCalls: [
                     { name: "review_diff", arguments: { command: "list" } },
+                    { name: "review_diff", arguments: { command: "show", path: "resume-implemented.txt" } },
+                    { name: "review_diff", arguments: { command: "show", path: "docs/plans/resume-implemented.md" } },
                     {
                         name: "review_complete",
                         arguments: { approved: true, feedback: "Resume from implemented approved." },
@@ -107,6 +109,8 @@ export const validationTreeResumeValidatedCiScenario = withValidationBranches(
                 requiredTools: ["review_diff", "review_complete"],
                 toolCalls: [
                     { name: "review_diff", arguments: { command: "list" } },
+                    { name: "review_diff", arguments: { command: "show", path: "resume-validated-ci.txt" } },
+                    { name: "review_diff", arguments: { command: "show", path: "docs/plans/resume-validated-ci.md" } },
                     {
                         name: "review_complete",
                         arguments: { approved: true, feedback: "Resume from validated_ci approved." },
@@ -237,6 +241,8 @@ export const validationTreeAheadStatusScenario = withValidationBranches(
                 requiredTools: ["review_diff", "review_complete"],
                 toolCalls: [
                     { name: "review_diff", arguments: { command: "list" } },
+                    { name: "review_diff", arguments: { command: "show", path: "ahead-status.txt" } },
+                    { name: "review_diff", arguments: { command: "show", path: "docs/plans/ahead-status.md" } },
                     {
                         name: "review_complete",
                         arguments: { approved: true, feedback: "Ahead status kept its canonical progress." },
@@ -320,6 +326,11 @@ export const validationTreeMismatchedWorktreeIdentityScenario = withValidationBr
                 requiredTools: ["review_diff", "review_complete"],
                 toolCalls: [
                     { name: "review_diff", arguments: { command: "list" } },
+                    { name: "review_diff", arguments: { command: "show", path: "mismatched-worktree-identity.txt" } },
+                    {
+                        name: "review_diff",
+                        arguments: { command: "show", path: "docs/plans/mismatched-worktree-identity.md" },
+                    },
                     {
                         name: "review_complete",
                         arguments: { approved: true, feedback: "Registry-owned execution attempt approved." },
