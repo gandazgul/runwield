@@ -12,6 +12,7 @@ import {
     readUpdateCheckCache,
     refreshUpdateCheckCache,
     RELEASES_API_URL,
+    RELEASES_WEB_URL,
     writeUpdateCheckCache,
 } from "./update-check.js";
 
@@ -170,6 +171,30 @@ Deno.test("latest RC lookup selects the highest published candidate", async () =
         version: "v1.2.4-rc.2",
     });
     assertEquals(calls, [RELEASES_API_URL]);
+});
+
+Deno.test("latest RC lookup falls back to the releases page when the API rate limit is exhausted", async () => {
+    /** @type {string[]} */
+    const calls = [];
+    /** @param {string | URL | Request} url */
+    const fetchImpl = (url) => {
+        calls.push(String(url));
+        if (String(url) === RELEASES_API_URL) return Promise.resolve(new Response("rate limited", { status: 403 }));
+        return Promise.resolve(
+            new Response(
+                '<a href="/gandazgul/runwield/releases/tag/v1.2.3">Stable</a>' +
+                    '<a href="/gandazgul/runwield/releases/tag/v1.2.4-rc.2">Candidate</a>' +
+                    '<a href="/gandazgul/runwield/releases/tag/v1.2.4-rc.1">Older candidate</a>',
+                { status: 200 },
+            ),
+        );
+    };
+
+    assertEquals(await fetchLatestRunWieldRcRelease({ fetch: /** @type {typeof globalThis.fetch} */ (fetchImpl) }), {
+        tagName: "v1.2.4-rc.2",
+        version: "v1.2.4-rc.2",
+    });
+    assertEquals(calls, [RELEASES_API_URL, RELEASES_WEB_URL]);
 });
 
 Deno.test("latest RC lookup reports when no candidate is published", async () => {

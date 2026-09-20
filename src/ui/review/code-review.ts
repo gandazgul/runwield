@@ -60,7 +60,7 @@ interface RunCodeReviewOptions {
     planContent?: string;
     planAttrs?: Record<string, ReviewData>;
     executionCwd: string;
-    baselineTree?: string;
+    targetBranch?: string;
     guidedReview?: GuidedReviewPolicy;
     reviewConversation?: ReviewConversation;
     agentLabel?: string;
@@ -171,7 +171,7 @@ export async function runCodeReview({
     planContent,
     planAttrs,
     executionCwd,
-    baselineTree,
+    targetBranch,
     guidedReview,
     reviewConversation,
     agentLabel,
@@ -183,7 +183,7 @@ export async function runCodeReview({
         rawPatch: diffText,
         gitRef: `RunWield workflow diff: ${planName}`,
         agentCwd: executionCwd,
-        baselineTree,
+        targetBranch,
         planName,
         planTitle: typeof planTitle === "string" && planTitle.trim() ? planTitle.trim() : planName.trim(),
         planContent,

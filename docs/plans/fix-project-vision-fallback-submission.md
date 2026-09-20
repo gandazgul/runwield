@@ -28,6 +28,11 @@ status: "validated"
 origin: "internal"
 userVerifiedAt: null
 targetBranch: "main"
+workRecord:
+    status: "generated"
+    recordId: "421bead8-a69a-46da-94cb-44d08bf2ecde"
+    path: "docs/work-records/2026-09-20-fixed-project-scoped-vision-fallback-and-image-submission.md"
+    lastAttemptAt: "2026-09-20T03:13:15.722Z"
 ---
 
 # Fix Project Vision Fallback and Image Submission

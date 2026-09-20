@@ -101,12 +101,20 @@ Deno.test("publication messages name the selected target branch", () => {
     assert(messages.every((message) => !message.includes("main")));
 });
 
-Deno.test("human review wait message includes the review page", () => {
+Deno.test("code review messages distinguish user review from AI review", () => {
     const reviewUrl = "http://127.0.0.1:4567/review/code?token=test";
 
     assertEquals(
-        buildValidationUserMessage({ kind: "human_review_wait", reviewUrl }),
-        `Need your review: ${reviewUrl}`,
+        [
+            buildValidationUserMessage({ kind: "human_review_offer" }),
+            buildValidationUserMessage({ kind: "human_review_wait", reviewUrl }),
+            buildValidationUserMessage({ kind: "human_review_approved" }),
+        ],
+        [
+            "AI review passed. Do you want code review before merge?",
+            `Need your review: ${reviewUrl}`,
+            "Code review is done. You approved the work.",
+        ],
     );
 });
 

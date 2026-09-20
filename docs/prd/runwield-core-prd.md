@@ -391,6 +391,9 @@ Workflow Validation requirements:
   changed definitions, body text, staged changes, or committed changes;
 - show interrupted validation as paused, never as still running, while retaining its saved continuation;
 - deliver validated work to its configured target and confirm that outcome before reporting delivery complete;
+- retain the validated implementation commit and actual target branch in the committed Plan; completed delivery must
+  remain recognizable from Git after temporary workflow records are removed. In non-Git projects, the completed Plan
+  status is sufficient;
 - after a normal Plan publication completes, keep follow-up messages with Engineer from the primary checkout, not from
   the removed execution worktree;
 - when a published child Plan has an active parent Epic continuation, first leave the child worktree context, then let
@@ -413,12 +416,25 @@ Recovery requirements:
 
 - Given a ready approved Plan and existing checkout edits, when execution starts, the approved work is isolated and the
   user’s edits remain preserved.
+- Given a completed Plan without controller records, loading it recognizes delivery when Git proves its validated commit
+  belongs to its target branch. A commit on an unrelated branch is not enough. A pending attempt still resumes
+  publication or cleanup, rather than being treated as finished merely because validation passed.
+- Given a committed archived Plan with no active attempt, Doctor reports no publication problem merely because its
+  historical target branch or pre-squash commit disappeared. An archived Plan with an unfinished attempt still receives
+  the normal recovery check. Archiving alone does not prove publication or authorize deletion of unmerged work.
 - When project checks or review fail, the user sees repair progress or a concrete recovery choice; implementation
   completion alone does not claim verification or delivery.
 - Given a paused Validation Repair Engineer conversation, when the user replies after compaction, RunWield continues the
   same Session and repair worktree instead of failing because storage and execution roots differ.
 - When publication succeeds, follow-up returns to the primary checkout or the parent Epic’s next action; it does not
   operate in a removed worktree.
+- Given publication succeeded and the target branch gained later commits, loading the Plan finishes interrupted cleanup
+  automatically when that branch still contains the published commits, even if temporary checkouts are already gone. It
+  does not repeat publication, alter primary-checkout edits, or ask the user to repair normal Git history. If the
+  published commits cannot be confirmed on the target, remaining files are kept.
+- Given confirmed publication and leftover checkout files whose Git registration is gone, cleanup preserves the entire
+  directory in a named saved-files folder and finishes without asking the user to repair Git bookkeeping. It reports
+  that folder and never discards uncommitted, untracked, or ignored files on the strength of commit history alone.
 - When interrupted validation resumes, preserved work is reused without silently repeating completed actions or deleting
   unmerged changes.
 - Given stale locks, inconsistent settings/storage, or mismatched Plan bookkeeping during a workflow, when RunWield
@@ -448,6 +464,29 @@ The first two rounds inspect the whole change; the second also verifies earlier 
 findings and inspect repair changes for regressions. Each finding remains identifiable across rounds, with resolved and
 open items visible. Repair reports address every finding; an independent Reviewer verifies fixes rather than accepting
 self-approval.
+
+**Requirement: Use one target-relative review diff.**
+
+For Git worktree execution, the full review patch is the direct difference from the recorded target branch's current
+commit to all current worktree files. It includes committed, staged, unstaged, and non-ignored untracked changes. It
+does not use the execution recovery baseline or a shared ancestor. The same comparison supplies Semantic Code Review,
+repair context, and Local Human Code Review, including reload and continuation. One shared comparison owner produces the
+patch; review tools page it and review interfaces present it without creating another Git comparison.
+
+The recorded target branch remains authoritative when it is not `main`. A missing target is a recoverable comparison
+failure, not an empty diff or permission to use another branch. Each computation resolves one target commit. A later
+review refresh can use a newer target tip. The execution baseline remains authoritative only for recovery and explicit
+before-and-after repair comparisons.
+
+**Acceptance scenarios:**
+
+- Given target work imported after execution starts, when review runs, unchanged imported files are absent from the full
+  patch and separate worktree changes remain present.
+- Given a target that advances without the worktree importing it, when review refreshes, target-only content appears as
+  removed or changed because the comparison is direct, not shared-ancestor based.
+- Given identical target and worktree state, AI review, repair context, and human review receive the same full patch.
+- Given a missing recorded target, review stops with a recoverable comparison failure and does not use `main`, `HEAD`,
+  the recovery baseline, or an empty patch.
 
 **Requirement: Complete inspection before a review decision.**
 
@@ -494,6 +533,8 @@ convergence without more escaped defects, not approval rate alone.
   check only open issues and repair regressions, including when the workflow resumes in a fresh process.
 - Given a claimed fix that is incomplete, review records `fix rejected` and a reason under the same issue identity.
   Another completed repair moves it to `fix claimed`; independent confirmation closes it without creating a new issue.
+- Given a prior finding that attributes unchanged target content to the current work, repair reports it as already
+  satisfied with evidence and independent review can confirm it without requiring a file edit. The issue keeps its ID.
 - Given only a maintainability preference, when review completes, it remains advisory and cannot become an invented
   implementation obligation.
 - After the automatic-round boundary, when the user chooses human review, feedback leads to repair and checks and
@@ -573,7 +614,13 @@ automatically appending file contents. Agents can retrieve the relevant source s
 
 **Requirement: Batch known code reads efficiently.** Agents can request up to five known source or outline reads
 together. Reads of the same kind share one Cymbal invocation, with duplicate targets read once. Results retain request
-order and identify individual failures without discarding successful reads. The combined response remains bounded.
+order and identify individual failures without discarding successful reads. Each result receives an equal share of the
+50,000-character response limit, including its heading, status, and truncation notice; a large result cannot hide later
+results. Agents can request narrower reads for truncated content.
+
+**Requirement: Report code-query failures accurately.** Failed Cymbal commands and invalid responses are errors, not
+successful empty queries. Batch results expose success or failure and truncation for each requested item. The whole
+batch is marked failed when every item fails; partial success retains successful results and identifies failed items.
 
 Future code-intelligence work should address demonstrated gaps in finding relevant code, understanding dependencies, or
 assessing change impact. Indexing technology belongs in architecture and implementation documents.
@@ -588,6 +635,10 @@ assessing change impact. Indexing technology belongs in architecture and impleme
   can request the relevant code before retrying.
 - Given interleaved source and outline requests, the Agent receives results in the requested order using at most one
   Cymbal invocation per kind. A missing source target does not hide successful results in the same batch.
+- Given an oversized first result and an error in a later item, both remain visible with their statuses, and the full
+  response stays within its limit. Truncation is indicated separately from failure.
+- Given a missing Cymbal executable or a batch in which all reads fail, the tool reports failure. A successful empty
+  query remains successful.
 
 ### Compaction and image context
 
@@ -647,6 +698,9 @@ renaming; search can be rebuilt from the documents.
 - `wld wr` provides listing, search, reading, index rebuild, and backfill. Backfill previews missing records for
   eligible active and archived completed Plans and asks before generation. It avoids duplicating existing linked
   records.
+- Older Work Records using a non-empty `Result` section remain readable as summaries without rewriting their files. A
+  genuinely invalid existing record stops backfill before generation, identifies the filename and required repair, and
+  does not produce a fatal stack trace or silently generate a duplicate.
 - Default retrieval includes current approved records. Pending, draft, superseded, and archived records require explicit
   historical or maintenance access and clear notices; they are not settled current guidance.
 - Ideator, Planner, and Architect retrieve relevant current records. Guide can inspect historical records with their
@@ -960,6 +1014,8 @@ Required outcomes:
 - open surfaces update when another surface saves work, while preserving unsent drafts;
 - a long conversation or completed Plan does not by itself disable the next user message;
 - retrying a request after a connection failure does not submit the same work twice;
+- automatic workflow and repair handoffs retain the original request as context without emitting it as a new user
+  message;
 - leaving or reloading the browser does not cancel running work;
 - after a process failure, saved history remains available and the user receives a clear next action without silent
   repetition of unfinished work;
@@ -972,6 +1028,8 @@ create additional product restrictions on which screen the owner may use.
 
 **Acceptance scenarios:**
 
+- When validation starts another repair, observers see the repair activity without a second copy of the user's original
+  request. Workflow reports keep their call identity across live delivery and saved replay.
 - Given an idle open TUI, when its owner sends the next message from a phone, the same Session continues and the TUI
   updates when the owner returns.
 - When a browser reloads or a completed Plan receives a follow-up, saved history remains usable and unsent drafts

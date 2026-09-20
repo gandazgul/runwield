@@ -22,8 +22,8 @@ const STAGE_LABELS: Record<ValidationProgressStage, string> = {
     cycle: "Validation",
     ci: "Tests and CI",
     engineer_repair: "Repair",
-    semantic_review: "AI code review",
-    human_review: "Human review",
+    semantic_review: "AI review",
+    human_review: "Code review",
     merge: "Combining commits",
     manual_qa: "Manual QA",
     terminal: "Validation result",
@@ -31,8 +31,8 @@ const STAGE_LABELS: Record<ValidationProgressStage, string> = {
 
 const CHECK_LABELS: Record<ValidationProgressCheckName, string> = {
     ci: "Tests and CI",
-    semanticReview: "AI code review",
-    humanReview: "Human review",
+    semanticReview: "AI review",
+    humanReview: "Code review",
     merge: "Combining commits",
 };
 

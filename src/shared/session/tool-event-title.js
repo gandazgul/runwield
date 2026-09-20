@@ -118,12 +118,13 @@ function formatToolEventTitle(toolName, args) {
         headerArgs = planName ? `docs/plans/${planName}.md` : "";
     } else if (toolName === "memory") {
         if (args?.action === "recall") {
-            headerArgs = args?.query || "";
+            headerArgs = `- recall: ${args?.query || ""}`;
         } else if (args?.action === "delete") {
-            headerArgs = `id: ${args?.id}`;
-        } else {
+            headerArgs = `- delete: id: ${args?.id}`;
+        } else if (args?.action === "store") {
             const content = args?.content || "";
-            headerArgs = content.length > 80 ? content.slice(0, 77) + "..." : content;
+            const preview = content.length > 80 ? content.slice(0, 77) + "..." : content;
+            headerArgs = `- store: ${preview}`;
         }
     } else if (toolName === "memory_recall" || toolName === "memory_recall_global") {
         headerArgs = args?.query || "";

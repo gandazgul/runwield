@@ -211,7 +211,7 @@ function deriveStages(evidence: PlanEvidence, registry: WorktreeRegistryEntry | 
         stage("mechanical", testsAndCiLabel, "pending", "Waiting for implementation to finish.", updatedAt),
         stage("semantic", aiReviewLabel, "pending", "Waiting for tests and CI.", updatedAt),
         stage("repair", "Repair", "not_required", "No repair is active.", updatedAt),
-        stage("delivery", "Delivery", "pending", "Waiting for AI code review.", updatedAt),
+        stage("delivery", "Delivery", "pending", "Waiting for AI review.", updatedAt),
         stage("completion", "Completion", "pending", "Waiting for delivery to finish.", updatedAt),
     ];
 
@@ -236,10 +236,10 @@ function deriveStages(evidence: PlanEvidence, registry: WorktreeRegistryEntry | 
     }
     if (statusAtLeast(status, "validated_ci")) {
         stages[1] = stage("mechanical", testsAndCiLabel, "passed", "Tests and CI passed.", updatedAt);
-        stages[2] = stage("semantic", aiReviewLabel, "running", "AI code review is running.", updatedAt);
+        stages[2] = stage("semantic", aiReviewLabel, "running", "AI review is running.", updatedAt);
     }
     if (statusAtLeast(status, "validated_reviewer")) {
-        stages[2] = stage("semantic", aiReviewLabel, "passed", "AI code review passed.", updatedAt);
+        stages[2] = stage("semantic", aiReviewLabel, "passed", "AI review passed.", updatedAt);
         stages[4] = stage("delivery", "Delivery", "running", "Delivery is active.", updatedAt);
     }
     if (statusAtLeast(status, "validated")) {
@@ -301,8 +301,8 @@ function deriveStages(evidence: PlanEvidence, registry: WorktreeRegistryEntry | 
                 aiReviewLabel,
                 state,
                 reviewState
-                    ? `AI code review round ${reviewState.semanticRound} needs attention.`
-                    : "AI code review can continue.",
+                    ? `AI review round ${reviewState.semanticRound} needs attention.`
+                    : "AI review can continue.",
                 activeCheckpoint.updatedAt,
             );
             if (activeCheckpoint.state === "awaiting_repair" || activeCheckpoint.repairKind === "semantic") {
@@ -310,7 +310,7 @@ function deriveStages(evidence: PlanEvidence, registry: WorktreeRegistryEntry | 
                     "repair",
                     "Repair",
                     state === "paused" ? "paused" : "running",
-                    "AI code review repair is active.",
+                    "AI review repair is active.",
                     activeCheckpoint.updatedAt,
                 );
             }

@@ -65,7 +65,7 @@ Deno.test("validated_reviewer with no human decision runs only the human review 
         });
 
         assertEquals(result.kind, "paused");
-        assertEquals(result.reason, "Local Human Code Review is not required.");
+        assertEquals(result.reason, "Code Review is not required.");
         assertEquals(ciCalls, 0);
     } finally {
         await Deno.remove(projectRoot, { recursive: true });

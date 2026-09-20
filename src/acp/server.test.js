@@ -8,6 +8,7 @@ import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi
 import { dirname, fromFileUrl, join, resolve } from "@std/path";
 import { withRuntimeCommandFixture } from "../cmd/testing/runtime-command-fixture.ts";
 import { openFileSessionStore } from "../shared/session/file-session-store.ts";
+import { __resetSettingsForTests } from "../shared/settings.js";
 import { createRootSessionManager, resolveCreatedRootSessionPath } from "../shared/session/root-session.js";
 import { VERSION } from "../shared/version.js";
 import { mapRuntimeEventToAcpUpdate } from "./event-mapper.js";
@@ -36,6 +37,30 @@ import {
  * @typedef {Object} StartTestServerOptions
  * @property {string | number} [holdResponseId]
  */
+
+/**
+ * @typedef {Object} RuntimeFixtureModelConfig
+ * @property {string} id
+ * @property {string[]} input
+ */
+
+/**
+ * @typedef {Object} RuntimeFixtureProviderConfig
+ * @property {RuntimeFixtureModelConfig[]} models
+ */
+
+/**
+ * @typedef {Object} RuntimeFixtureModelConfiguration
+ * @property {Record<string, RuntimeFixtureProviderConfig>} providers
+ */
+
+/**
+ * @param {string} text
+ * @returns {RuntimeFixtureModelConfiguration}
+ */
+function parseRuntimeFixtureModelConfiguration(text) {
+    return JSON.parse(text);
+}
 
 const REPO_ROOT = resolve(dirname(fromFileUrl(import.meta.url)), "../..");
 const MCP_FIXTURE_SERVER = join(dirname(fromFileUrl(import.meta.url)), "../shared/mcp/fixture-server.ts");
@@ -333,7 +358,8 @@ Deno.test("createInitializeResponse advertises only implemented ACP capabilities
     const capabilities = /** @type {any} */ (response.agentCapabilities);
 
     assertEquals(response.protocolVersion, 1);
-    assertEquals(capabilities.promptCapabilities._meta.runwield.contentTypes, ["text", "resource_link"]);
+    assertEquals(capabilities.promptCapabilities.image, true);
+    assertEquals(capabilities.promptCapabilities._meta.runwield.contentTypes, ["text", "image", "resource_link"]);
     assertEquals(capabilities.loadSession, true);
     assertEquals(capabilities.sessionCapabilities.close, {});
     assertEquals(capabilities.sessionCapabilities._meta.runwield.implementedMethods, [
@@ -569,6 +595,98 @@ Deno.test("ACP session/new and session/prompt exercise the real Runtime and stre
             await closeTestServer(handle);
         }
     });
+});
+
+Deno.test("ACP image prompts reach vision models", async () => {
+    await withRuntimeCommandFixture("runwield-acp-image-", async (fixture) => {
+        let modelMessages = "";
+        fixture.setModelResponseFactory((context) => {
+            modelMessages = JSON.stringify(context.messages);
+            return fauxAssistantMessage(fauxText("Image received."));
+        });
+        const handle = startTestServer();
+        try {
+            const created = await createSession(handle, fixture.projectRoot);
+            const imageData = btoa("discord-image");
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "image-prompt",
+                method: "session/prompt",
+                params: {
+                    sessionId: created.sessionId,
+                    prompt: [
+                        { type: "text", text: "Describe this image." },
+                        { type: "image", data: imageData, mimeType: "image/png" },
+                    ],
+                },
+            });
+            const { response } = await readThroughResponse(handle, "image-prompt");
+
+            assertEquals(response.result, { stopReason: "end_turn" });
+            assertStringIncludes(modelMessages, imageData);
+            assertStringIncludes(modelMessages, '"mimeType":"image/png"');
+        } finally {
+            await closeTestServer(handle);
+        }
+    });
+});
+
+Deno.test("ACP image prompts expose see_image to text-only models with a vision fallback", async () => {
+    await withRuntimeCommandFixture(
+        "runwield-acp-image-fallback-",
+        async (fixture) => {
+            const modelsPath = join(fixture.homeDir, ".wld", "models.json");
+            const modelConfiguration = parseRuntimeFixtureModelConfiguration(await Deno.readTextFile(modelsPath));
+            const models = modelConfiguration.providers["runtime-command-fixture"].models;
+            const textOnlyModel = models.find((model) => model.id === "text-only-model");
+            assert(textOnlyModel);
+            textOnlyModel.input = ["text"];
+            await Deno.writeTextFile(modelsPath, JSON.stringify(modelConfiguration));
+            await Deno.writeTextFile(
+                fixture.settingsPath,
+                JSON.stringify({
+                    defaultProvider: "runtime-command-fixture",
+                    defaultModel: "text-only-model",
+                    visionFallback: { model: "runtime-command-fixture/fixture-model" },
+                    notifications: { enabled: false },
+                }),
+            );
+            __resetSettingsForTests();
+
+            let modelContext = "";
+            fixture.setModelResponseFactory((context) => {
+                modelContext = JSON.stringify(context);
+                return fauxAssistantMessage(fauxText("Fallback is available."));
+            });
+            const handle = startTestServer();
+            try {
+                const created = await createSession(handle, fixture.projectRoot);
+                const imageData = btoa("discord-fallback-image");
+                await sendMessage(handle, {
+                    jsonrpc: "2.0",
+                    id: "fallback-image-prompt",
+                    method: "session/prompt",
+                    params: {
+                        sessionId: created.sessionId,
+                        prompt: [
+                            { type: "text", text: "Inspect this screenshot." },
+                            { type: "image", data: imageData, mimeType: "image/png" },
+                        ],
+                    },
+                });
+                const { response } = await readThroughResponse(handle, "fallback-image-prompt");
+
+                assertEquals(response.result, { stopReason: "end_turn" });
+                assertStringIncludes(modelContext, "[Image attached: attachment:");
+                assertStringIncludes(modelContext, "see_image");
+                assertEquals(modelContext.includes(imageData), false);
+            } finally {
+                await closeTestServer(handle);
+                __resetSettingsForTests();
+            }
+        },
+        { additionalModels: [{ id: "text-only-model", name: "Text Only" }] },
+    );
 });
 
 Deno.test("ACP model config switches the next turn and survives session/load", async () => {

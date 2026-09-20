@@ -15,11 +15,19 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "pair"
 createdAt: "2026-09-17"
+status: "validated"
 origin: "internal"
 userVerifiedAt: null
-routingIntent: "PLANNED_CHANGE"
+workRecord:
+    status: "generated"
+    recordId: "c11cd225-63ac-4096-98b7-3fcec83b2b1b"
+    path: "docs/work-records/2026-09-20-published-portable-two-axis-review-skill.md"
+    lastAttemptAt: "2026-09-20T03:14:24.879Z"
 targetBranch: "main"
-status: "validated"
+archivedAt: "2026-09-19T21:48:00.170Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/publish-review-skill.md"
+routingIntent: "PLANNED_CHANGE"
 ---
 
 # Publish a `review` Skill for Pull Requests and Arbitrary Diffs

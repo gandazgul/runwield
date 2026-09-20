@@ -1679,6 +1679,27 @@
     gap: 0.75rem;
 }
 
+/* Viewport workbenches scroll their panes, never the document behind the header. */
+html:has(.workspace-main-shell :is(.session-surface-detail, .rw-review-embedded)),
+body:has(.workspace-main-shell :is(.session-surface-detail, .rw-review-embedded)) {
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+}
+
+.workspace-shell-with-sidebar:has(.session-surface-detail, .rw-review-embedded) {
+    height: 100dvh;
+    min-height: 0;
+    grid-template-rows: minmax(0, 1fr);
+    overflow: hidden;
+}
+
+.workspace-shell-with-sidebar:has(.session-surface-detail, .rw-review-embedded) > .workspace-sidebar {
+    height: 100%;
+    min-height: 0;
+    overscroll-behavior: contain;
+}
+
 .workspace-main-shell:has(.session-surface-detail) {
     --rw-session-sidebar-width: 22rem;
     display: grid;
@@ -1743,6 +1764,7 @@
 }
 
 .session-timeline-scroll {
+    overflow-anchor: none;
     min-height: 0;
     min-width: 0;
     overflow: auto;
@@ -2681,6 +2703,39 @@
     background: var(--rw-surface);
     box-shadow: none;
     z-index: 2;
+}
+
+/* Preserve mounted drafts and controls while showing one compact row on blur. */
+.session-composer [hidden] {
+    display: none !important;
+}
+
+.session-composer-summary {
+    display: flex;
+    align-items: center;
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: var(--rw-control-height-compact);
+    padding: 0.2rem 0.35rem;
+    border: 0;
+    border-radius: var(--rw-radius-control);
+    background: transparent;
+    color: var(--rw-text-muted);
+    font: inherit;
+    font-size: 0.8rem;
+    text-align: left;
+    cursor: text;
+}
+
+.session-composer-summary span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.session-composer-summary:hover:not(:disabled) {
+    color: var(--rw-text);
+    background: var(--rw-surface-muted);
 }
 
 .session-composer-queue {

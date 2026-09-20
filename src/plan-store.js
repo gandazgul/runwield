@@ -194,6 +194,7 @@ export function getStoredPlanPath(cwd, planName) {
  * @property {string|null} [epicDoneEnoughAt] - ISO timestamp when an Epic was marked done enough for now
  * @property {string|null} [epicDoneEnoughSummary] - Human-readable summary captured when an Epic was marked done enough for now
  * @property {string} [targetBranch] - User-selected target branch, independent of the current execution attempt
+ * @property {string|null} [validatedCommit] - Validated implementation commit; durable after runtime cleanup
  * @property {PlanFrontMatter["status"]|null} [heldFromStatus] - Status captured before the Plan moved to on_hold
  * @property {string|null} [heldAt] - ISO timestamp when the Plan was put on hold
  * @property {string|null} [holdReason] - Optional human reason for the hold
@@ -451,6 +452,7 @@ function formatFrontMatter(fm) {
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.worktreeBranch, fm.worktreeBranch);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.worktreeBaseBranch, fm.worktreeBaseBranch);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.targetBranch, fm.targetBranch);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.validatedCommit, fm.validatedCommit);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.worktreeStatus, fm.worktreeStatus);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.heldFromStatus, fm.heldFromStatus);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.heldAt, fm.heldAt);
@@ -1073,6 +1075,7 @@ export function injectFrontMatter(markdown, overrides = {}) {
         worktreeBranch: optionalFrontMatterValue(overrides, existingFm, "worktreeBranch"),
         worktreeBaseBranch: optionalFrontMatterValue(overrides, existingFm, "worktreeBaseBranch"),
         targetBranch: optionalStringValue(overrides, existingFm, "targetBranch"),
+        validatedCommit: optionalFrontMatterValue(overrides, existingFm, "validatedCommit"),
         worktreeStatus: normalizeWorktreeStatus(
             Object.hasOwn(overrides, "worktreeStatus") ? overrides.worktreeStatus : existingFm.worktreeStatus,
         ),
@@ -1197,6 +1200,7 @@ export function parsePlanFrontMatter(markdown, opts = {}) {
             epicDoneEnoughSummary: attrs.epicDoneEnoughSummary,
             executionMode: normalizeExecutionMode(attrs.executionMode),
             deliveryEvidence: normalizeDeliveryEvidence(attrs.deliveryEvidence),
+            validatedCommit: typeof attrs.validatedCommit === "string" ? attrs.validatedCommit : undefined,
             executionBaselineTree: attrs.executionBaselineTree,
             worktreeId: attrs.worktreeId,
             worktreePath: attrs.worktreePath,

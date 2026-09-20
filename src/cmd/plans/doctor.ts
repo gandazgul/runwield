@@ -28,12 +28,7 @@ import {
     reconcileTransitionRecoveryRecords,
     type TransitionReconciliation,
 } from "../../shared/workflow/state-transition.ts";
-import {
-    buildEffectProver,
-    isGitAncestor,
-    listGitWorktreePaths,
-    runGitLines,
-} from "../../shared/workflow/transition-recovery.ts";
+import { buildEffectProver, listGitWorktreePaths, runGitLines } from "../../shared/workflow/transition-recovery.ts";
 import { isLockHolderGone, isLockHolderUnattributable } from "../../shared/process-liveness.ts";
 import { doctorCheckMessage, doctorCleanMessage, doctorNeedsHelpMessage } from "./doctor-messages.ts";
 import {
@@ -43,18 +38,10 @@ import {
     reconcileEntryIdentity,
 } from "../../shared/worktree-registry.js";
 import { isEpicArtifactPlanName } from "../../shared/epic-artifacts.ts";
-import { isCommitPublishedToTarget } from "../../shared/isolated-publication.ts";
+import { verifyRecordedPublication } from "../../shared/workflow/validation-merge-verification.ts";
 
 /** A registry attempt as stored, before doctor proves anything about it. */
 type RegistryEntry = Awaited<ReturnType<typeof inspectWorktreeRegistry>>["entries"][number];
-
-/** Delivery Evidence as read from Plan Front Matter, before any field is proven. */
-interface DeliveryEvidenceSnapshot {
-    mode?: unknown;
-    executionCommit?: unknown;
-    targetBranch?: unknown;
-    targetHeadBeforeMerge?: unknown;
-}
 
 interface DoctorIssue {
     kind: string;
@@ -120,11 +107,10 @@ function getIssueGuidance(issue: DoctorIssue): IssueGuidance {
             return {
                 category: "Delivery evidence",
                 severity: "Needs attention",
-                diagnosis:
-                    "The Plan says it reached a terminal state, but the evidence is incomplete or Git cannot prove publication.",
+                diagnosis: "Validation passed, but delivery to the target branch has not been confirmed.",
                 nextSteps: [
-                    "Inspect the Plan, worktree branch, and transition journal before trusting the verified status.",
-                    "If the work was published, capture or restore the missing evidence; otherwise reopen/recover the Plan through RunWield.",
+                    "Load this Plan and choose validation to continue its saved publication attempt.",
+                    "If its target branch was intentionally removed or rewritten after delivery, this warning does not mean the changes were lost.",
                 ],
             };
         case "unresolved_transition":
@@ -398,26 +384,6 @@ function collectPlanAttributeIssues(
             });
         } else {
             planIds.set(planId, planName);
-        }
-    }
-    if (plan.attrs.status === "verified" && isPlannedChangeClassification(plan.attrs.classification)) {
-        const evidence = plan.attrs.deliveryEvidence as DeliveryEvidenceSnapshot | undefined;
-        if (!evidence && plan.attrs.executionMode !== "non_git_in_place") {
-            issues.push({
-                kind: "verified_without_evidence",
-                planName,
-                message: `${planName} is verified but has no mode-appropriate Delivery Evidence.`,
-            });
-        }
-        if (evidence?.mode === "worktree_merge") {
-            if (!evidence.executionCommit || !evidence.targetBranch || !evidence.targetHeadBeforeMerge) {
-                issues.push({
-                    kind: "uncertain_publication",
-                    planName,
-                    message:
-                        `${planName} has incomplete worktree_merge Delivery Evidence; publication cannot be proven from Plan metadata alone.`,
-                });
-            }
         }
     }
 }
@@ -701,9 +667,15 @@ async function runPlansDoctorPass(projectRoot: string, repair: boolean) {
         // migrating around a conflict is how a readable registry becomes unreadable.
         await listEntries(projectRoot, { migrate: true }).catch(() => []);
     }
-    const registryPaths = new Set(entries.map((entry) => entry.path));
+    const canonicalRoot = await Deno.realPath(projectRoot).catch(() => projectRoot);
+    const registryPaths = new Set(
+        await Promise.all(
+            entries.map((entry) => Deno.realPath(entry.path).catch(() => entry.path)),
+        ),
+    );
     for (const path of gitWorktreePaths) {
-        if (path !== projectRoot && !registryPaths.has(path)) {
+        const canonicalPath = await Deno.realPath(path).catch(() => path);
+        if (canonicalPath !== canonicalRoot && !registryPaths.has(canonicalPath)) {
             issues.push({
                 kind: "orphan_git_worktree",
                 message:
@@ -753,27 +725,48 @@ async function runPlansDoctorPass(projectRoot: string, repair: boolean) {
             ...archivedPlans.map((plan) => ({ ...plan, name: `archived/${plan.name}` })),
         ]
     ) {
+        if (!["validated", "verified", "user_verified"].includes(plan.attrs.status || "")) continue;
+        if (!isPlannedChangeClassification(plan.attrs.classification)) continue;
         const evidence = plan.attrs.deliveryEvidence;
-        if (evidence?.mode === "worktree_merge" && evidence.executionCommit && evidence.targetBranch) {
-            const published = await isCommitPublishedToTarget({
-                projectRoot,
-                targetBranch: evidence.targetBranch,
-                commit: evidence.executionCommit,
-            }).catch(() => isGitAncestor(projectRoot, evidence.executionCommit, evidence.targetBranch));
-            if (!published) {
+        const legacy = evidence?.mode === "worktree_merge" ? evidence : undefined;
+        const commit = plan.attrs.validatedCommit || legacy?.executionCommit;
+        const targetBranch = plan.attrs.targetBranch || legacy?.targetBranch;
+        // Older documents may make no Git publication claim at all. Missing
+        // disposable metadata alone is not a new publication failure.
+        if (!commit && !targetBranch) continue;
+        const liveAttempt = entries.some((entry) =>
+            entry.status !== "abandoned" &&
+            (plan.attrs.planId && entry.planId
+                ? entry.planId === plan.attrs.planId
+                : entry.planName === plan.name.replace(/^archived\//, ""))
+        );
+        // A committed archive with no unfinished attempt is intentionally retired
+        // history. Do not turn a deleted integration branch into a repair request.
+        // Still diagnose archives with active attempts or uncommitted changes.
+        if (
+            !inspection.readError && inspection.integrityIssues.length === 0 &&
+            plan.name.startsWith("archived/") && !liveAttempt &&
+            await isCommittedArchive(projectRoot, plan.name, plan.path).catch(() => false)
+        ) continue;
+        {
+            const publication = await Deno.readTextFile(plan.path).then((markdown) =>
+                verifyRecordedPublication(projectRoot, plan.attrs, { planName: plan.name, markdown })
+            ).catch(() => ({ published: false }));
+            if (!publication.published) {
                 issues.push({
                     kind: "uncertain_publication",
                     planName: plan.name,
-                    message:
-                        `${plan.name} records that ${evidence.executionCommit} was published to ${evidence.targetBranch}, but that commit is not contained in that branch today. Either the publication never completed, or the branch was rewritten afterwards.`,
-                    commands: [
-                        `git log --oneline ${evidence.targetBranch} -10`,
-                        `git branch --contains ${evidence.executionCommit}`,
-                        `git show --stat ${evidence.executionCommit}`,
-                    ],
-                    repairSummary:
-                        "Not repaired automatically: RunWield will not move a branch or rewrite Delivery Evidence on your behalf. " +
-                        "If the commit exists on another branch, the work is safe and only the target needs updating.",
+                    message: `${plan.name} passed validation${commit ? ` at ${commit}` : ""}, but publication${
+                        targetBranch ? ` to ${targetBranch}` : ""
+                    } could not be confirmed. The target may have been removed, rewritten, or be unavailable.`,
+                    commands: commit && targetBranch
+                        ? [
+                            `git log --oneline ${targetBranch} -10`,
+                            `git branch --all --contains ${commit}`,
+                            `git show --stat ${commit}`,
+                        ]
+                        : [],
+                    repairSummary: "No branches, commits, or Plan status were changed by this check.",
                 });
             }
         }
@@ -939,6 +932,17 @@ async function runPlansDoctorPass(projectRoot: string, repair: boolean) {
     }
 
     return { issues, repaired };
+}
+
+/** Committed archives are history, not an instruction to restart an old delivery. */
+async function isCommittedArchive(projectRoot: string, planName: string, path: string): Promise<boolean> {
+    const result = await new Deno.Command("git", {
+        cwd: projectRoot,
+        args: ["show", `HEAD:docs/plans/${planName}.md`],
+        stdout: "piped",
+        stderr: "null",
+    }).output();
+    return result.success && new TextDecoder().decode(result.stdout) === await Deno.readTextFile(path);
 }
 
 export async function runPlansDoctor(projectRoot: string, repair = true) {

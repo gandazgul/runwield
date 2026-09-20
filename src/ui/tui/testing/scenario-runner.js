@@ -76,7 +76,7 @@ function createGoldenReviewBrowser(
         /** @param {string} url */
         async open(url) {
             if (url.includes("/review/code")) {
-                if (!humanReviewSurface) throw new Error("Unexpected Local Human Code Review interaction.");
+                if (!humanReviewSurface) throw new Error("Unexpected Code Review interaction.");
                 const response = humanReviewSurface.submit({ url });
                 const opened = await createScriptedReviewBrowser(response.approved ? "decision" : "feedback", {
                     approved: response.approved,
@@ -2451,7 +2451,19 @@ async function runComposedTuiScenario(scenario, options) {
                             getCwd(),
                         ),
                     );
+                    const remotePlanAttrs = parsePlanFrontMatter(remotePlanText).attrs;
                     state.publication = {
+                        validatedCommitPublished: Boolean(remotePlanAttrs.validatedCommit) && await runGoldenGit(
+                            [
+                                "--git-dir",
+                                remotePath,
+                                "merge-base",
+                                "--is-ancestor",
+                                remotePlanAttrs.validatedCommit || "",
+                                remoteHead,
+                            ],
+                            getCwd(),
+                        ).then(() => true).catch(() => false),
                         executionCommitsPublished: await Promise.all(
                             (state.publicationBaseline?.executionCommits || []).map((commit) =>
                                 runGoldenGit(
@@ -2480,7 +2492,7 @@ async function runComposedTuiScenario(scenario, options) {
                         primaryFiles: currentFiles,
                         remoteHead,
                         remotePlanStatus: parsePlanFrontMatter(remotePlanText).attrs.status,
-                        remotePlanAttrs: parsePlanFrontMatter(remotePlanText).attrs,
+                        remotePlanAttrs,
                         remotePlanFields: Object.keys(extractYaml(remotePlanText).attrs),
                         controllerState:
                             (await readControllerRecord(getCwd(), { planName, planId: primaryPlan?.attrs.planId }))

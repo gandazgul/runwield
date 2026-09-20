@@ -1,5 +1,6 @@
-import { useEffect, useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
 import { AnnotationToolstrip } from "@plannotator/ui/components/AnnotationToolstrip.tsx";
+import { attachSegmentedSelection } from "../../design-system/components/react/RunWieldSegmentedControl.tsx";
 import type { EditorMode, InputMethod } from "@plannotator/ui/types.ts";
 
 type RunWieldAnnotationToolstripProps = {
@@ -17,14 +18,15 @@ type RunWieldAnnotationToolstripProps = {
 export function RunWieldAnnotationToolstrip(props: RunWieldAnnotationToolstripProps) {
     const wrapperRef = useRef<HTMLDivElement>(null);
 
-    useEffect(() => {
+    useLayoutEffect(() => {
         const wrapper = wrapperRef.current;
         if (!wrapper) return;
 
         const groups = wrapper.querySelectorAll<HTMLDivElement>("div > div:has(> button[aria-pressed])");
-        for (const group of groups) {
+        const cleanups = Array.from(groups, (group) => {
             group.classList.add("rw-segmented-toggle");
-        }
+            return attachSegmentedSelection(group);
+        });
 
         const buttons = wrapper.querySelectorAll<HTMLButtonElement>("button[aria-pressed]");
         for (const button of buttons) {
@@ -33,7 +35,8 @@ export function RunWieldAnnotationToolstrip(props: RunWieldAnnotationToolstripPr
             button.title = label;
             button.setAttribute("aria-label", label);
         }
-    });
+        return () => cleanups.forEach((cleanup) => cleanup());
+    }, []);
 
     return (
         <div ref={wrapperRef} className="rw-plannotator-annotation-toolstrip">

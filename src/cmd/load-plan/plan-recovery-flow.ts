@@ -192,7 +192,7 @@ export async function handlePlanRecovery(
         }
     }
     if (!context.worktreeContext) {
-        const publication = await verifyRecordedPublication(projectRoot, plan.attrs);
+        const publication = await verifyRecordedPublication(projectRoot, plan.attrs, plan);
         if (publication.published) {
             uiAPI.appendSystemMessage(
                 buildValidationUserMessage({

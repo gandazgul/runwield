@@ -3,6 +3,7 @@ import type { BrowserPort } from "../../shared/browser-port.ts";
 import { defineCommittedGitFixture } from "../../shared/git-test-fixture.ts";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import { createTuiInteractionAdapter } from "../tui/runtime-interaction-adapter.js";
+import { getWorktreeReviewDiff } from "../../shared/workflow/git-snapshot.js";
 import {
     type ReviewDecisionValue,
     type ReviewServerOutput,
@@ -315,31 +316,42 @@ reviewLauncherTest(
     },
 );
 
-reviewLauncherTest("reloading Code Review recomputes the diff from its workflow baseline", async (projectRoot) => {
+reviewLauncherTest("reloading Code Review recomputes the target-relative worktree diff", async (projectRoot) => {
     await runGit(projectRoot, ["init", "-b", "main"]);
     await runGit(projectRoot, ["config", "user.email", "runwield@example.com"]);
     await runGit(projectRoot, ["config", "user.name", "RunWield Test"]);
     await Deno.writeTextFile(`${projectRoot}/review.ts`, "export const label = 'base';\n");
     await runGit(projectRoot, ["add", "review.ts"]);
     await runGit(projectRoot, ["commit", "-m", "fixture base"]);
-    const baselineTree = await runGit(projectRoot, ["rev-parse", "HEAD"]);
+    await runGit(projectRoot, ["branch", "target"]);
+    await runGit(projectRoot, ["switch", "-c", "execution"]);
     await Deno.writeTextFile(`${projectRoot}/review.ts`, "export const label = 'first';\n");
 
     const server = await startCodeReviewSurface<CodeDecision>({
         rawPatch: "stale patch",
         gitRef: "fixture diff",
         agentCwd: projectRoot,
-        baselineTree,
+        targetBranch: "target",
         browser: recordingBrowser(false),
     });
+    await runGit(projectRoot, ["add", "review.ts"]);
+    await runGit(projectRoot, ["commit", "-m", "advance target"]);
+    await runGit(projectRoot, ["update-ref", "refs/heads/target", "HEAD"]);
     await Deno.writeTextFile(`${projectRoot}/review.ts`, "export const label = 'second';\n");
+    const expectedPatch = await getWorktreeReviewDiff(projectRoot, "target");
     const response = await fetch(server.url);
     const html = await response.text();
+    const embedded = html.match(/<script[^>]*data-code-review-payload[^>]*>([\s\S]*?)<\/script>/)?.[1] || "{}";
+    const payload = JSON.parse(embedded);
 
     assertEquals(response.status, 200);
+    assertEquals(payload.rawPatch, expectedPatch);
+    assertStringIncludes(html, "-export const label = 'first';");
     assertStringIncludes(html, "+export const label = 'second';");
+    assertEquals(html.includes("label = 'base'"), false);
     assertEquals(html.includes("stale patch"), false);
-    assertEquals(html.includes(baselineTree), false);
+    assertEquals(html.includes("targetBranch"), false);
+    assertEquals(html.includes(projectRoot), false);
     await server.stop();
 });
 
@@ -397,6 +409,7 @@ reviewLauncherTest(
                     planTitle: "Readable Plan Title",
                     diffText: "diff --git a/change.ts b/change.ts\n+change",
                     executionCwd: projectRoot,
+                    targetBranch: "main",
                     guidedReview: {
                         mode: "auto",
                         autoStart: true,
