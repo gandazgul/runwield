@@ -235,6 +235,7 @@ export class ClaudeCliExecutionSession {
                         },
                         beforeRuntimeToolEvent: () => flushRuntimeDeltas(),
                         consumePendingSteering: () => this.consumeSteeringMessages(),
+                        onTerminalAccepted: () => process?.kill(),
                     });
                 } catch {
                     emitFailure("bridge_startup_failed", null);
@@ -351,7 +352,7 @@ export class ClaudeCliExecutionSession {
                 emitFailure("canceled", status.code);
                 throw new ClaudeCliBackendError("canceled", { exitCode: status.code });
             }
-            if (parsed.metadata.isError || !status.success) {
+            if (parsed.metadata.isError || (!status.success && bridge?.acceptedTerminal !== true)) {
                 const stderr = await process.stderrText;
                 const excerpt = sanitizeStderrForDisplay(stderr);
                 const claudeMessage = parsed.metadata.isError ? sanitizeStderrForDisplay(parsed.text) : "";

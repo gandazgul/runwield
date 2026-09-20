@@ -32,6 +32,11 @@ The command registry owns shared built-in command names, aliases, descriptions, 
 Workspace consume that registry instead of keeping separate command policy, while TUI-only presentation and process
 controls stay unavailable outside the TUI. Built-in names remain reserved before prompt-template or Skill expansion.
 
+Pair checkpoints are normal multi-turn Session conversation on TUI, Workspace, and ACP. Adapters render the checkpoint
+report through the ordinary event stream and accept follow-up messages through their normal prompt path. They do not
+advertise or collect a Pair checkpoint form. The shared runtime restores the durable checkpoint and execution context
+before root Agent activation.
+
 Each Hosted Session carries an absolute project root. Shared catalogs, layered settings, Plans, workflow metrics, memory
 commands, validation, and Worktree operations resolve from that root rather than the server process cwd. A Hosted
 Session id is an in-process runtime identity and is deliberately distinct from both persisted SessionManager ids and

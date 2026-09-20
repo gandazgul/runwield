@@ -136,16 +136,13 @@ Deno.test("Engineer completion is derived from the real task_completed tool resu
     });
 });
 
-Deno.test("Pair execution exposes the real checkpoint tool and resumes after the fixture interaction", async () => {
+Deno.test("Pair execution reports a durable checkpoint and settles without a form", async () => {
     await withRuntimeCommandFixture("pair-engineer-runner-", async ({ projectRoot, setModelMessages }) => {
         setModelMessages([
             fauxAssistantMessage(fauxToolCall("pair_checkpoint", {
+                action: "report",
                 summary: "The fixture screen is ready.",
                 evidence: ["fixture screenshot"],
-            })),
-            fauxAssistantMessage(fauxToolCall("task_completed", {
-                message: "- Pair increment accepted.",
-                browserPreflightOutcome: "succeeded",
             })),
         ]);
         const interactionRequests: RuntimeInteractionRequest[] = [];
@@ -162,6 +159,7 @@ Deno.test("Pair execution exposes the real checkpoint tool and resumes after the
         });
 
         try {
+            fixture.hostedSession.beginTurn("pair-report-turn");
             const result = await runEngineerWithPlan(
                 "pair-plan",
                 "# Pair Plan",
@@ -175,10 +173,10 @@ Deno.test("Pair execution exposes the real checkpoint tool and resumes after the
                 "frontend-engineer",
             );
 
-            assertEquals(result.completed, true);
-            assertEquals(interactionRequests.map((request) => request.type), ["pair_checkpoint", "pair_checkpoint"]);
-            assertEquals(interactionRequests[1]?._meta?.finalCompletion, true);
-            assertEquals(fixture.hostedSession.getActiveExecutionWorkflow()?.pairCheckpointCount, 2);
+            assertEquals(result.completed, false);
+            assertEquals("checkpointPending" in result && result.checkpointPending, true);
+            assertEquals(interactionRequests, []);
+            assertEquals(fixture.hostedSession.getActiveExecutionWorkflow()?.pairCheckpointCount, 1);
             assert(fixture.hostedSession.getActiveExecutionWorkflow()?.pairPauseReason === undefined);
         } finally {
             fixture.hostedSession.dispose();

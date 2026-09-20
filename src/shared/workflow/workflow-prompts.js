@@ -307,7 +307,7 @@ export function buildEngineerRequest(planName, planBody, reviewFeedback, options
     if (options.collaborationStyle === "pair") {
         lines.push(
             "## Runtime Collaboration Style",
-            "Pair Execution is active.",
+            "Pair Execution is active. Report checkpoints, then resolve them only from later user turns as described in your Runtime Collaboration Style.",
             "",
         );
     } else if (options.collaborationStyle === "autonomous") {

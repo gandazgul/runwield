@@ -399,6 +399,39 @@ Deno.test("RunWield MCP bridge rejects duplicate aliases", async () => {
     }
 });
 
+Deno.test("RunWield MCP bridge treats Pair reports as terminal lifecycle calls without changing their name", async () => {
+    const checkpoint = defineTool({
+        name: "pair_checkpoint",
+        label: "Pair Checkpoint",
+        description: "Report a checkpoint.",
+        parameters: Type.Object({ action: Type.Literal("report"), summary: Type.String() }),
+        execute() {
+            return Promise.resolve({
+                content: [{ type: "text" as const, text: "Checkpoint ready." }],
+                details: { outcome: "reported" },
+                terminate: true,
+            });
+        },
+    });
+    await withBridge([checkpoint], async (context) => {
+        const listed = await context.client.listTools();
+        assertEquals(listed.tools.map((tool) => tool.name), ["pair_checkpoint"]);
+        await context.client.callTool({
+            name: "pair_checkpoint",
+            arguments: { action: "report", summary: "Ready." },
+        });
+        assertEquals(context.bridge.acceptedTerminal, true);
+        const repeated = await context.client.callTool({
+            name: "pair_checkpoint",
+            arguments: { action: "report", summary: "Again." },
+        });
+        assertStringIncludes(
+            resultText(repeated as { content: Array<{ type: string; text?: string }> }),
+            "terminal lifecycle call already closed the gate",
+        );
+    });
+});
+
 Deno.test("RunWield MCP bridge lets capabilities run after a terminal lifecycle result", async () => {
     const lifecycle = defineTool({
         name: "task_completed",

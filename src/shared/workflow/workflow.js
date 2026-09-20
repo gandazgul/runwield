@@ -56,6 +56,8 @@ export { CollaborationStyles, PairCheckpointDecisions, PairPauseReasons } from "
  * @property {boolean} repairRequired
  * @property {boolean} executionComplete
  * @property {boolean} [paused]
+ * @property {boolean} [checkpointPending]
+ * @property {string} [checkpointId]
  * @property {boolean} [canceled]
  * @property {boolean} [intentionalComplete]
  * @property {string} [intentionalCompleteReason]

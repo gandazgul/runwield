@@ -1726,7 +1726,7 @@ function ExecutionPolicyControls({
             />
             <SegmentedPolicyControl
                 label="Execution Style"
-                tooltip="Pair Execution asks a capable host for checkpoints. Autonomous hands off the approved Plan; incapable hosts fall back without rewriting Pair."
+                tooltip="Pair Execution pauses for feedback in normal conversation. Autonomous hands off the approved Plan; noninteractive hosts fall back without rewriting Pair."
                 value={collaborationRecommendation}
                 onChange={onRecommendationChange}
                 disabled={disabled}

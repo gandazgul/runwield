@@ -173,6 +173,14 @@ export function decidePostExecution(executionResult, { planName, triageMeta, exe
         });
     }
 
+    if (executionResult.checkpointPending) {
+        return decision("stay_with_agent", {
+            agentName: executionAgentName,
+            reason: "pair_checkpoint_pending",
+            checkpointId: executionResult.checkpointId,
+        });
+    }
+
     return decision("stay_with_agent", {
         agentName: executionAgentName,
         reason: "execution_incomplete",

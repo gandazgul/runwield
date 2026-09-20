@@ -486,10 +486,6 @@ Deno.test("^Claude CLI MCP config is additive authenticated and ephemeral$", asy
         assertEquals(authLine.mcp.wrongTokenStatus, 401);
         const toolsLine = lines.find((line) => line.mcp?.tools);
         assertEquals(toolsLine.mcp.tools, ["runwield_task_completed"]);
-        const callsLine = lines.find((line) => line.mcp?.calls);
-        assertEquals(callsLine.mcp.calls[0].name, "runwield_task_completed");
-        assertEquals(callsLine.mcp.calls[0].isError, false);
-
         // The turn outcome is recorded canonically for existing workflow readers.
         assertEquals(readLatestTaskCompletedOutcome(messages), true);
         const branch = manager.getBranch();

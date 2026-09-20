@@ -179,7 +179,7 @@ Deno.test("agent handler rejects a handler whose root Agent changed", async () =
     });
 });
 
-Deno.test("agent handler resumes a paused Pair workflow before the real root turn", async () => {
+Deno.test("agent handler does not treat a resume phrase as Pair authority", async () => {
     await withRuntimeCommandFixture("agent-handler-pair-", async ({ projectRoot, setModelResponse }) => {
         const events: CapturedRuntimeEvent[] = [];
         setModelResponse("Continuing the isolated Pair execution.");
@@ -197,8 +197,8 @@ Deno.test("agent handler resumes a paused Pair workflow before the real root tur
 
         await fixture.handler("resume execution", [], fixture.sessionManager);
 
-        assertEquals(fixture.hostedSession.getActiveExecutionWorkflow()?.pairPauseReason, undefined);
-        assertEquals(fixture.hostedSession.getActiveExecutionWorkflow()?.pairStopRequested, undefined);
+        assertEquals(fixture.hostedSession.getActiveExecutionWorkflow()?.pairPauseReason, "stop");
+        assertEquals(fixture.hostedSession.getActiveExecutionWorkflow()?.pairStopRequested, true);
         fixture.hostedSession.dispose();
     });
 });

@@ -355,9 +355,10 @@ Deno.test("plan execution personas can run a Pair checkpoint", async () => {
         const { systemPrompt } = await loadAgentDef(agentName);
         assertStringIncludes(systemPrompt, "Runtime Collaboration Style");
         assertStringIncludes(systemPrompt, "`pair_checkpoint` is supplied");
-        // A checkpoint is a pause for real steering, not a progress announcement.
-        assertStringIncludes(systemPrompt, "read the diff,");
-        assertStringIncludes(systemPrompt, "run the code, or build");
+        // Reporting ends the turn; authority comes only from a later user turn.
+        assertStringIncludes(systemPrompt, "action `report`");
+        assertStringIncludes(systemPrompt, "action `resolve`");
+        assertStringIncludes(systemPrompt, "later user turn");
     }
 });
 

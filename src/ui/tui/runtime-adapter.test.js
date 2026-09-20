@@ -126,7 +126,7 @@ function makeRuntimeHarness(sessionId, queuedMessages = [], workflowContext = nu
     return { runtime, sessionId, interactionAdapters };
 }
 
-Deno.test("TUI adapter advertises Pair checkpoints only while attached", () => {
+Deno.test("TUI adapter does not advertise a Pair form while attached", () => {
     const { runtime, sessionId, interactionAdapters } = makeRuntimeHarness("pair-capability-lifetime");
     const { uiAPI } = makeUi();
     let canceledPrompts = 0;
@@ -137,7 +137,7 @@ Deno.test("TUI adapter advertises Pair checkpoints only while attached", () => {
     const registration = attachTuiRuntimeAdapter({ runtime, sessionId, uiAPI });
 
     assertEquals(interactionAdapters.length, 1);
-    assertEquals(interactionAdapters[0].supportsInteraction("pair_checkpoint"), true);
+    assertEquals(interactionAdapters[0].supportsInteraction("pair_checkpoint"), false);
     assertEquals(interactionAdapters[0].supportsInteraction("select"), false);
 
     registration.dispose();

@@ -200,7 +200,7 @@ const WORKFLOW_SHOWCASE_CASES: WorkflowShowcaseCase[] = [
         toolName: "pair_checkpoint",
         agentName: "Engineer",
         output:
-            "**Checkpoint accepted.**\n\nThe folder rename and script updates are ready. Continue with CI references and documentation before requesting final review.",
+            "**Pair checkpoint 1.**\n\nThe folder rename and script updates are ready.\n\nNext increment: Update CI references and documentation.\n\nReply normally to ask a question, request a change, continue, stop, or switch to autonomous work.",
     },
     {
         toolName: "task_completed",

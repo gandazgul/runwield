@@ -167,24 +167,6 @@ function canCompleteActiveExecutionWorkflow(agentName: string, workflow: ActiveE
 }
 
 /**
- * @param {string} userRequest
- * @returns {boolean}
- */
-function isDeliberateExecutionResume(userRequest: string): boolean {
-    const normalized = userRequest.trim().toLowerCase().replaceAll(/\s+/g, " ");
-    return [
-        "continue",
-        "continue execution",
-        "continue pair execution",
-        "resume",
-        "resume execution",
-        "resume pair execution",
-        "proceed",
-        "keep going",
-    ].includes(normalized);
-}
-
-/**
  * @param {string} planName
  * @returns {boolean}
  */
@@ -251,16 +233,6 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
 
     return async (userRequest, images, sessionManager, signal) => {
         const projectRoot = hostedSession.cwd;
-        const resumedWorkflow = hostedSession.getActiveExecutionWorkflow();
-        if (
-            (resumedWorkflow?.pairPauseReason || resumedWorkflow?.pairStopRequested) &&
-            isDeliberateExecutionResume(userRequest)
-        ) {
-            const resumed = { ...resumedWorkflow };
-            delete resumed.pairPauseReason;
-            delete resumed.pairStopRequested;
-            hostedSession.setActiveExecutionWorkflow(resumed);
-        }
         function recordWorkflowMetricImpl(metric: WorkflowMetric) {
             return recordWorkflowMetric(metric, projectRoot);
         }

@@ -145,6 +145,8 @@ Stage 1 proves the reference journey through the shared Session experience. Prot
 - ACP sends `available_commands_update` for enabled built-ins, prompt templates, and Skills. Built-in names and aliases
   have precedence over prompt resources, including built-ins unavailable on ACP.
 - OpenAB advertises and handles generic ACP form elicitation for RunWield select, text, and approval interactions.
+- Pair Execution uses ordinary ACP prompt turns and messages, not form elicitation. A checkpoint report ends one ACP
+  request; questions and a later natural-language decision continue the same saved Session and execution context.
 - If a client has no form support, local select, text, and approval questions expose a loopback browser URL and wait for
   an explicit answer or cancellation. This does not claim remote browser reachability.
 - Form cancellation, decline, and presentation failure settle the pending interaction so the same Session can accept
@@ -176,6 +178,8 @@ requirement.
   choice ignores stray Other text. Blank Other submissions record no answer.
 - When the client displays cost, the advertised ACP shape and cumulative USD Session cost are accurate; missing
   context-capacity support is not fabricated.
+- Given Pair Execution through ACP, the increment report returns `end_turn`. Later prompt requests can discuss it and
+  then resolve it without a Pair form; final completion still requires a later accepted user turn.
 
 <a id="62-required-user-journey"></a>
 

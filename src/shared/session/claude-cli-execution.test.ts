@@ -454,10 +454,6 @@ Deno.test("^Claude CLI MCP lifecycle bridge black-box contract$", async () => {
         assertEquals(toolsLine.mcp.tools.includes("runwield_task_completed"), true);
         assertEquals(toolsLine.mcp.tools.includes("memory"), true);
         assertEquals(toolsLine.mcp.tools.includes("delegate_agent"), false);
-        const callsLine = lines.find((line) => line.mcp?.calls);
-        assertEquals(callsLine.mcp.calls[0].isError, true);
-        assertEquals(callsLine.mcp.calls[1].isError, false);
-
         // The canonical internal tool result is exposed to current workflow readers.
         assertEquals(readLatestTaskCompletedOutcome(messages), true);
         const toolResults = messages.filter((message) =>
@@ -568,8 +564,6 @@ Deno.test("^Claude CLI Router exposes triage_report through the MCP lifecycle br
         assertEquals(lines[0].args.includes("mcp__runwield__runwield_triage_report"), true);
         const toolsLine = lines.find((line) => line.mcp?.tools);
         assertEquals(toolsLine.mcp.tools.includes("runwield_triage_report"), true);
-        const callsLine = lines.find((line) => line.mcp?.calls);
-        assertEquals(callsLine.mcp.calls[0].isError, false);
         const triage = readLatestTriageOutcome(messages);
         assertEquals(triage?.routingIntent, "QUICK_FIX");
     });
@@ -647,7 +641,7 @@ Deno.test("^Claude CLI missing terminal signal leaves workflow waiting like Pi$"
     });
 });
 
-Deno.test("^Claude CLI post-terminal output stays display-only after accepted signal$", async () => {
+Deno.test("^Claude CLI stops before post-terminal output after an accepted signal$", async () => {
     await withClaudeExecutionFixture(async (_home, cwd) => {
         const manager = SessionManager.inMemory(cwd);
         const hostedSession = createHostedSession(cwd, manager);
@@ -670,7 +664,7 @@ Deno.test("^Claude CLI post-terminal output stays display-only after accepted si
         const messages = await runRootTurn({ hostedSession, agentName: AGENTS.ENGINEER, userRequest: "finish" });
         assertEquals(readLatestTaskCompletedOutcome(messages), true);
         const serialized = JSON.stringify(manager.getBranch());
-        assertStringIncludes(serialized, "final text post-terminal prose");
+        assertEquals(serialized.includes("post-terminal prose"), false);
         assertEquals(serialized.includes("terminal result did not match"), false);
     });
 });
