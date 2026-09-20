@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { animateSidebarUpdate } from "../../design-system/components/react/sidebar-motion.js";
+import { animateSidebarUpdate } from "../../design-system/components/react/sidebar-motion.ts";
 
 // New Session chat structure is adapted from OpenChamber's ChatContainer/ChatInput UI.
 // OpenChamber is MIT licensed: Copyright (c) 2025 Bohdan Triapitsyn.

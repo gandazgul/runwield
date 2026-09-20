@@ -20,6 +20,9 @@ userVerifiedAt: null
 routingIntent: "PLANNED_CHANGE"
 targetBranch: "main"
 status: "validated"
+archivedAt: "2026-09-19T21:48:00.170Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/publish-review-skill.md"
 ---
 
 # Publish a `review` Skill for Pull Requests and Arbitrary Diffs

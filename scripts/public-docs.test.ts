@@ -130,6 +130,17 @@ async function copyTree(source: string, destination: string): Promise<void> {
     }
 }
 
+async function readGeneratedJson(path: string) {
+    for (let attempt = 0; attempt < 20; attempt++) {
+        try {
+            return JSON.parse(await Deno.readTextFile(path));
+        } catch (error) {
+            if (!(error instanceof SyntaxError) || attempt === 19) throw error;
+            await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+    }
+}
+
 Deno.test("production docs build publishes and indexes only fixture manual pages", async () => {
     const root = await Deno.makeTempDir();
     const repositoryRoot = resolve(dirname(fromFileUrl(import.meta.url)), "..");
@@ -187,7 +198,7 @@ Deno.test("production docs build publishes and indexes only fixture manual pages
         const sitemap = await Deno.readTextFile(join(output, "sitemap-0.xml"));
         assertEquals(sitemap.includes("/prd/"), false);
         assertEquals(sitemap.includes("/plans/"), false);
-        const pagefind = JSON.parse(await Deno.readTextFile(join(output, "pagefind", "pagefind-entry.json")));
+        const pagefind = await readGeneratedJson(join(output, "pagefind", "pagefind-entry.json"));
         assertEquals(pagefind.languages.en.page_count, PUBLIC_DOCS.length);
         assertEquals(index.includes("EXCLUDED-SEARCH-MARKER"), false);
         await assertRejects(() => Deno.stat(join(output, "prd", "secret", "index.html")), Deno.errors.NotFound);

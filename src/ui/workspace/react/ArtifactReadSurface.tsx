@@ -1,5 +1,5 @@
 // @ts-nocheck: Workspace React islands compile TSX, but this module uses JSDoc-style JavaScript only.
-import { animateSidebarUpdate } from "../../design-system/components/react/sidebar-motion.js";
+import { animateSidebarUpdate } from "../../design-system/components/react/sidebar-motion.ts";
 
 import { useEffect, useMemo, useState } from "react";
 import { ThemeProvider } from "@plannotator/ui/components/ThemeProvider.tsx";

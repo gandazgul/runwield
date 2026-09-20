@@ -391,6 +391,9 @@ Workflow Validation requirements:
   changed definitions, body text, staged changes, or committed changes;
 - show interrupted validation as paused, never as still running, while retaining its saved continuation;
 - deliver validated work to its configured target and confirm that outcome before reporting delivery complete;
+- retain the validated implementation commit and actual target branch in the committed Plan; completed delivery must
+  remain recognizable from Git after temporary workflow records are removed. In non-Git projects, the completed Plan
+  status is sufficient;
 - after a normal Plan publication completes, keep follow-up messages with Engineer from the primary checkout, not from
   the removed execution worktree;
 - when a published child Plan has an active parent Epic continuation, first leave the child worktree context, then let
@@ -413,6 +416,12 @@ Recovery requirements:
 
 - Given a ready approved Plan and existing checkout edits, when execution starts, the approved work is isolated and the
   user’s edits remain preserved.
+- Given a completed Plan without controller records, loading it recognizes delivery when Git proves its validated commit
+  belongs to its target branch. A commit on an unrelated branch is not enough. A pending attempt still resumes
+  publication or cleanup, rather than being treated as finished merely because validation passed.
+- Given a committed archived Plan with no active attempt, Doctor reports no publication problem merely because its
+  historical target branch or pre-squash commit disappeared. An archived Plan with an unfinished attempt still receives
+  the normal recovery check. Archiving alone does not prove publication or authorize deletion of unmerged work.
 - When project checks or review fail, the user sees repair progress or a concrete recovery choice; implementation
   completion alone does not claim verification or delivery.
 - Given a paused Validation Repair Engineer conversation, when the user replies after compaction, RunWield continues the
@@ -573,7 +582,13 @@ automatically appending file contents. Agents can retrieve the relevant source s
 
 **Requirement: Batch known code reads efficiently.** Agents can request up to five known source or outline reads
 together. Reads of the same kind share one Cymbal invocation, with duplicate targets read once. Results retain request
-order and identify individual failures without discarding successful reads. The combined response remains bounded.
+order and identify individual failures without discarding successful reads. Each result receives an equal share of the
+50,000-character response limit, including its heading, status, and truncation notice; a large result cannot hide later
+results. Agents can request narrower reads for truncated content.
+
+**Requirement: Report code-query failures accurately.** Failed Cymbal commands and invalid responses are errors, not
+successful empty queries. Batch results expose success or failure and truncation for each requested item. The whole
+batch is marked failed when every item fails; partial success retains successful results and identifies failed items.
 
 Future code-intelligence work should address demonstrated gaps in finding relevant code, understanding dependencies, or
 assessing change impact. Indexing technology belongs in architecture and implementation documents.
@@ -588,6 +603,10 @@ assessing change impact. Indexing technology belongs in architecture and impleme
   can request the relevant code before retrying.
 - Given interleaved source and outline requests, the Agent receives results in the requested order using at most one
   Cymbal invocation per kind. A missing source target does not hide successful results in the same batch.
+- Given an oversized first result and an error in a later item, both remain visible with their statuses, and the full
+  response stays within its limit. Truncation is indicated separately from failure.
+- Given a missing Cymbal executable or a batch in which all reads fail, the tool reports failure. A successful empty
+  query remains successful.
 
 ### Compaction and image context
 

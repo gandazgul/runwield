@@ -1,10 +1,13 @@
 # ACP Implementation Details and Gaps
 
-**Audit date:** 2026-07-19\
-**Verdict:** RunWield ships an **ACP v1 stdio adapter** for the implemented Session path. The hardening work closed the
-listed wire-shape and lifecycle gaps for initialize, generated version, cumulative cost, cancellation ordering, stdio
-MCP setup, and reloadable mapped Sessions. RunWield still must not claim support for optional ACP features it does not
-advertise.
+**Audit date:** 2026-09-19\
+**Repository baseline:** `67cc27f5`; working tree clean before this documentation update.\
+**Verdict:** RunWield implements the main **ACP v1 stdio** Session path, model selection, shared commands, and form
+questions. This is not proof of full ACP v1 compliance. Context usage, queued-turn completion, and some interaction
+behavior still need work. Most missing features are optional under ACP, but several would materially improve IDE use.
+
+This is a source-and-test review, not a fresh test run or a multi-client compatibility test. Recommendations below are
+opinions, not approved scope or delivery commitments.
 
 ## Audit baseline
 
@@ -20,8 +23,14 @@ This document compares the current repository implementation against:
 - ACP v1 content and tool-call references: <https://agentclientprotocol.com/protocol/v1/content> and
   <https://agentclientprotocol.com/protocol/v1/tool-calls>
 - ACP v1 extension rules: <https://agentclientprotocol.com/protocol/v1/extensibility>
-- ACP elicitation RFD used by the current SDK and adapter: <https://agentclientprotocol.com/rfds/elicitation>
-- RunWield's pinned `@agentclientprotocol/sdk` dependency in `deno.json` (`^1.4.0`, resolved to 1.4.0 in `deno.lock`).
+- Current ACP v1 form and URL elicitation: <https://agentclientprotocol.com/protocol/v1/elicitation>
+- Session configuration: <https://agentclientprotocol.com/protocol/v1/session-config-options>
+- Client filesystem access: <https://agentclientprotocol.com/protocol/v1/file-system>
+- RunWield's `@agentclientprotocol/sdk` dependency in `deno.json` (`^1.4.0`, resolved to 1.4.0 in `deno.lock`).
+
+The upstream v1 pages were checked on the audit date. Protocol version `1` does not mean every optional feature is
+implemented. SDK version `1.4.0` is a separate version number. Current upstream v1 documents include elicitation;
+calling all elicitation experimental is no longer an accurate description of those pages.
 
 The implementation evidence comes from these source files:
 
@@ -41,27 +50,31 @@ The implementation evidence comes from these source files:
 
 ## Short answer: is RunWield up to ACP v1?
 
-RunWield now satisfies the ACP v1 behavior it advertises for initialize and the core Session path. The hardened adapter:
+**The main path works in the implementation; full compliance remains unproven.** The adapter:
 
-1. returns supported `protocolVersion: 1` even when a Client requests an unsupported version;
-2. returns ACP Session ids based on the persisted RunWield Session id for new Sessions;
-3. accepts stdio `mcpServers` in `session/new` and `session/load`, starts them through Core MCP support, and rejects
-   HTTP, SSE, and ACP transports;
-4. waits for Runtime settlement and queued updates before `session/prompt` returns `stopReason: "cancelled"`;
-5. sends `usage_update.cost` as `{ amount, currency: "USD" }`, where `amount` is the cumulative ACP Session cost; and
-6. reports the generated RunWield version from `src/shared/version.js`.
+1. negotiates `protocolVersion: 1` and reports the generated RunWield version;
+2. creates Sessions and reloads saved conversations with history replay;
+3. accepts client-supplied stdio MCP servers on new/load;
+4. streams text, thoughts, tool activity, status, and review links;
+5. waits for a cancelled active turn and its pending updates before returning `cancelled`;
+6. reports cumulative mapped usage cost in the ACP object shape;
+7. exposes model selection through `configOptions`, with selection updates;
+8. accepts ACP image prompt blocks through the shared Runtime image path; and
+9. advertises shared commands and uses native form questions or a local browser fallback.
 
-The adapter still has feature limits outside this hardening scope.
+Evidence: `src/acp/server.js` (`createInitializeResponse`, `createRunWieldAcpServer`), `event-mapper.js`,
+`interaction-mapper.js`, and `server.test.js` under `src/acp/`.
 
-Important limitations that are not necessarily baseline v1 violations because they are optional or unadvertised:
+**Still missing:** Session listing/resume/delete, native Agent and thinking selectors, embedded resources, audio
+prompts, additional roots, HTTP/SSE MCP, client filesystem/terminal use, standard Plan and Session-info updates, and
+rich tool diffs/locations. Agent switching itself works through `/agent`; only the native selector is missing.
 
-- no `session/list`, `session/resume`, or `session/delete` support;
-- model config options are supported; Agent, thinking-level config options, and mode switching remain unimplemented;
-- no additional workspace roots;
-- no embedded resource, image, or audio prompt content;
-- no client filesystem or terminal delegation;
-- no standard `plan`, `current_mode_update`, or `session_info_update` notifications;
-- no rich ACP-native RunWield Plan review, Feedback, or approval protocol; local review uses RunWield browser pages.
+**Fix before adding breadth:** context usage accuracy, truthful queued-turn completion, browser Other-answer support,
+and stop-reason detail. Active-turn model changes also differ from current upstream guidance. See
+[Required and high-priority gaps](#required-and-high-priority-gaps) and [Suggested next work](#suggested-next-work).
+
+ACP makes many features optional. Missing an unadvertised optional feature is not, by itself, a compliance failure.
+Browser Plan review is an intentional RunWield choice, not a missing standard ACP Plan editor.
 
 ## Architecture and transport
 
@@ -99,16 +112,16 @@ and settled before the Hosted Session is disposed.
 
 `createInitializeResponse()` in `src/acp/server.js` builds the initialize result.
 
-| Capability or field                                                        | Current wire behavior                                                                                                                                                                                                    | Standard or extension                                                                                    | Evidence            |
-| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- | ------------------- |
-| `protocolVersion`                                                          | Always returns the SDK `PROTOCOL_VERSION` value, currently `1`.                                                                                                                                                          | Standard ACP v1 negotiation.                                                                             | `src/acp/server.js` |
-| `agentCapabilities.loadSession`                                            | `true`.                                                                                                                                                                                                                  | Standard stable v1 capability.                                                                           | `src/acp/server.js` |
-| `agentCapabilities.promptCapabilities`                                     | Only `_meta.runwield.contentTypes: ["text", "resource_link"]`; no `image`, `audio`, or `embeddedContext`.                                                                                                                | Baseline text/resource-link support is standard; the explicit content-type list is a RunWield extension. | `src/acp/server.js` |
-| `agentCapabilities.sessionCapabilities.close`                              | `{}`.                                                                                                                                                                                                                    | Standard stable v1 capability.                                                                           | `src/acp/server.js` |
-| `agentCapabilities.sessionCapabilities._meta.runwield.implementedMethods`  | Lists `session/new`, `session/load`, `session/prompt`, `session/cancel`, `session/close`, `session/set_config_option`.                                                                                                   | RunWield extension.                                                                                      | `src/acp/server.js` |
-| `agentCapabilities.sessionCapabilities._meta.runwield.updateNotifications` | Lists `session/update`.                                                                                                                                                                                                  | RunWield extension.                                                                                      | `src/acp/server.js` |
-| `authMethods`                                                              | `[]` by default. When the Client declares `clientCapabilities.auth.terminal === true`, or the registry probe declares `_meta["terminal-auth"] === true`, RunWield advertises one terminal method with `args: ["login"]`. | Standard stable v1 field plus narrow registry compatibility.                                             | `src/acp/server.js` |
-| `agentInfo`                                                                | `{ name: "RunWield", version: VERSION }`, where `VERSION` is the generated build version used by `wld --version`.                                                                                                        | Standard stable v1 field.                                                                                | `src/acp/server.js` |
+| Capability or field                                                        | Current wire behavior                                                                                                                                                                                                    | Standard or extension                                                                                                       | Evidence            |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- | ------------------- |
+| `protocolVersion`                                                          | Always returns the SDK `PROTOCOL_VERSION` value, currently `1`.                                                                                                                                                          | Standard ACP v1 negotiation.                                                                                                | `src/acp/server.js` |
+| `agentCapabilities.loadSession`                                            | `true`.                                                                                                                                                                                                                  | Standard stable v1 capability.                                                                                              | `src/acp/server.js` |
+| `agentCapabilities.promptCapabilities`                                     | Advertises `image: true` and `_meta.runwield.contentTypes: ["text", "image", "resource_link"]`; no `audio` or `embeddedContext`.                                                                                         | Text, image, and resource-link support use standard content blocks; the explicit content-type list is a RunWield extension. | `src/acp/server.js` |
+| `agentCapabilities.sessionCapabilities.close`                              | `{}`.                                                                                                                                                                                                                    | Standard stable v1 capability.                                                                                              | `src/acp/server.js` |
+| `agentCapabilities.sessionCapabilities._meta.runwield.implementedMethods`  | Lists `session/new`, `session/load`, `session/prompt`, `session/cancel`, `session/close`, `session/set_config_option`.                                                                                                   | RunWield extension.                                                                                                         | `src/acp/server.js` |
+| `agentCapabilities.sessionCapabilities._meta.runwield.updateNotifications` | Lists `session/update`.                                                                                                                                                                                                  | RunWield extension.                                                                                                         | `src/acp/server.js` |
+| `authMethods`                                                              | `[]` by default. When the Client declares `clientCapabilities.auth.terminal === true`, or the registry probe declares `_meta["terminal-auth"] === true`, RunWield advertises one terminal method with `args: ["login"]`. | Standard stable v1 field plus narrow registry compatibility.                                                                | `src/acp/server.js` |
+| `agentInfo`                                                                | `{ name: "RunWield", version: VERSION }`, where `VERSION` is the generated build version used by `wld --version`.                                                                                                        | Standard stable v1 field.                                                                                                   | `src/acp/server.js` |
 
 The adapter stores `clientCapabilities` from `initialize` for later interaction mapping. Current production use covers
 Terminal Auth capability detection during `initialize` and `clientCapabilities.elicitation.form` in
@@ -128,21 +141,22 @@ it must respond with the latest version it supports. RunWield imports `PROTOCOL_
 
 ## Implemented stable methods
 
-| Method           | Advertised?                                     | Current behavior                                                                                                                                                                                                                                                                                                                          | Important gaps                                                                                                                   |
-| ---------------- | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `initialize`     | Required baseline.                              | Stores client capabilities and returns `protocolVersion: 1`, Terminal Auth only for capable Clients, and generated `agentInfo.version`.                                                                                                                                                                                                   | No known gap in the advertised initialize shape.                                                                                 |
-| `session/new`    | Required baseline.                              | Validates absolute `cwd`, accepts stdio `mcpServers`, rejects other MCP transports and `additionalDirectories`, requires login plus a usable default model, creates a prompt-ready Runtime session, maps it to an ACP session id based on the persisted Session id, and returns `sessionId`, model `configOptions`, and `_meta.runwield`. | MCP prompts/resources are not supported.                                                                                         |
-| `session/load`   | Advertised through `loadSession: true`.         | Validates like `session/new`, requires `sessionId`, optionally accepts `_meta.runwield.sessionPath`, accepts stdio `mcpServers`, loads a persisted Runtime session, replays mapped Runtime events as `session/update`, and returns model `configOptions` and `_meta.runwield` after replay.                                               | Supports no additional roots; MCP prompts/resources are not supported.                                                           |
-| `session/prompt` | Required baseline.                              | Requires a mapped `sessionId`, converts prompt blocks to one text string, installs a per-prompt interaction adapter, subscribes to Runtime events, streams mapped `session/update` notifications, waits for Runtime settlement, waits for pending update sends, and returns a `stopReason`.                                               | Only text and lossy resource links are accepted; most Runtime success/failure states collapse to `end_turn` or `refusal`.        |
-| `session/cancel` | Required baseline notification.                 | Looks up the mapped Runtime session, marks the active ACP prompt cancelled, and calls `runtime.cancelSession()`. Unknown sessions are ignored because this is a notification. The notification does not complete the prompt by itself.                                                                                                    | No known ordering gap in the advertised cancel path.                                                                             |
-| `session/close`  | Advertised through `sessionCapabilities.close`. | Requires a mapped `sessionId`, marks active prompt cancelled, calls `closeSessionWhenIdle()` when available, removes the ACP mapping, and returns `_meta.runwield.closed`.                                                                                                                                                                | Response shape is acceptable because `_meta` is allowed, but standard clients will ignore the RunWield-specific closure details. |
+| Method           | Advertised?                                     | Current behavior                                                                                                                                                                                                                                                                                                                     | Important gaps                                                                                                                                                                  |
+| ---------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `initialize`     | Required baseline.                              | Stores client capabilities and returns `protocolVersion: 1`, Terminal Auth only for capable Clients, and generated `agentInfo.version`.                                                                                                                                                                                              | No known gap in the advertised initialize shape.                                                                                                                                |
+| `session/new`    | Required baseline.                              | Validates absolute `cwd`, accepts stdio `mcpServers`, rejects other MCP transports and `additionalDirectories`, requires login plus a usable default model, creates a prompt-ready Runtime session, maps it to an ACP ID based on the persisted Pi segment ID, and returns `sessionId`, model `configOptions`, and `_meta.runwield`. | MCP prompts/resources are not supported.                                                                                                                                        |
+| `session/load`   | Advertised through `loadSession: true`.         | Validates like `session/new`, requires `sessionId`, optionally accepts `_meta.runwield.sessionPath`, accepts stdio `mcpServers`, loads a persisted Runtime session, replays mapped Runtime events as `session/update`, and returns model `configOptions` and `_meta.runwield` after replay.                                          | Supports no additional roots; MCP prompts/resources are not supported.                                                                                                          |
+| `session/prompt` | Required baseline.                              | Requires a mapped `sessionId`, converts prompt blocks to one text string, installs a per-prompt interaction adapter, subscribes to Runtime events, streams mapped `session/update` notifications, waits for Runtime settlement, waits for pending update sends, and returns a `stopReason`.                                          | Only text and flattened resource links; success returns `end_turn`, cancellation returns `cancelled`, rejected turns return errors. Queued work is a separate limitation below. |
+| `session/cancel` | Required baseline notification.                 | Looks up the mapped Runtime session, marks the active ACP prompt cancelled, and calls `runtime.cancelSession()`. Unknown sessions are ignored because this is a notification. The notification does not complete the prompt by itself.                                                                                               | No known ordering gap in the advertised cancel path.                                                                                                                            |
+| `session/close`  | Advertised through `sessionCapabilities.close`. | Requires a mapped `sessionId`, marks active prompt cancelled, calls `closeSessionWhenIdle()` when available, removes the ACP mapping, and returns `_meta.runwield.closed`.                                                                                                                                                           | Response shape is acceptable because `_meta` is allowed, but standard clients will ignore the RunWield-specific closure details.                                                |
 
 `session/set_config_option` accepts the `model` option with a provider-qualified model value from the shared selectable
 model catalog. It applies the same Session model override as the terminal and Workspace, returns the complete
 `configOptions`, and emits `config_option_update`. It makes no model request and preserves future Session defaults.
 Unknown options or unavailable models return `-32602`; an active turn or failed activation returns `-32002`. Shared
-model commands and Agent changes also emit updated config options. This enables OpenAB's Discord `/models` menu for new
-and loaded Sessions, including selection after a provider failure has settled.
+model commands and Agent changes also emit updated config options. This supplies the protocol data needed for native
+model menus such as the OpenAB Discord `/models` journey in the ACP PRD. Repository tests cover model selection after a
+provider failure settles; this audit did not verify that journey in a live Discord client.
 
 ## Unsupported agent methods
 
@@ -164,30 +178,33 @@ and loaded Sessions, including selection after a provider failure has settled.
 
 For stable optional methods such as `logout`, `session/list`, `session/delete`, `session/resume`, and
 `session/set_mode`, this is an optional coverage gap when the method is not advertised. It is not itself a baseline
-conformance failure. Provider, NES, fork, and elicitation-related SDK surfaces include unstable protocol areas and
-should be assessed separately from stable ACP v1 conformance.
+conformance failure. Provider, NES, and fork methods are SDK surfaces outside the stable agent-method list checked in
+the current [v1 schema](https://agentclientprotocol.com/protocol/v1/schema). They are not required v1 gaps. Form
+elicitation is covered by current v1 documentation and must not be grouped with those methods.
 
 ## Session identity model
 
-RunWield currently has three relevant session identities:
+Do not treat the ACP ID, live Runtime ID, stable RunWield ID, and Pi segment ID as interchangeable.
 
-| Identity                    | Owner                                       | Purpose                                                               | Current example                                                                                             |
-| --------------------------- | ------------------------------------------- | --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| ACP session id              | `AcpSessionMap` in `src/acp/session-map.js` | Transport-facing id used by ACP clients for prompt/cancel/close/load. | `acp-<persistedSessionId>` for fresh sessions; the caller's `sessionId` for loaded sessions.                |
-| Runtime session id          | `SessionRuntime` / `HostedSession`          | Opaque live in-process Hosted Session id.                             | A `crypto.randomUUID()` from `SessionRuntime.createInteractiveSession()` or `SessionRuntime.loadSession()`. |
-| Persisted SessionManager id | Pi/RunWield SessionManager                  | Durable conversation id used to reopen prior chat history.            | `snapshot.sessionManagerId` or `result.sessionManagerId`.                                                   |
+| Identity            | Purpose                                               | Current mapping                                                                                                        |
+| ------------------- | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| ACP `sessionId`     | ID the client retains for prompt/cancel/close/load.   | New Sessions use `acp-<snapshot.sessionManagerId>`, with a Runtime-ID fallback. Load retains the client's supplied ID. |
+| Runtime Session ID  | Live, in-process Hosted Session.                      | Recreated on load; can change during Runtime replacement.                                                              |
+| `runwieldSessionId` | Stable saved conversation across transcript segments. | Stored in the file-backed Session bundle. Load reports this in `_meta.runwield.persistedSessionId` when available.     |
+| `piSessionId`       | One persisted transcript segment.                     | Exposed as `snapshot.sessionManagerId` for managed Sessions; currently supplies the new ACP ID.                        |
 
-The separation is intentional at the architecture level: ADR-010 says Hosted Session ids are in-process identities and
-are distinct from persisted SessionManager ids and transport-facing ACP ids.
+`session/load` strips an `acp-` prefix before resolving the saved conversation. It returns no standard `sessionId`
+field; the client continues using its original ID. The new/load `_meta.runwield.persistedSessionId` values can differ:
+new currently reports the Pi ID, while load prefers the stable RunWield ID. Clients should keep the standard ACP ID, not
+substitute that metadata value.
 
-The current ACP mapping avoids using live Runtime ids as durable transport ids. `session/new` calls
-`runtime.createPromptReadySession()`, reads the persisted SessionManager id, and creates the ACP id as
-`acp-<persistedSessionId>`. Standard ACP clients can later pass that returned `sessionId` to `session/load`; RunWield
-strips the `acp-` prefix and loads the matching persisted conversation.
+Evidence: `src/acp/server.js` new/load handlers; `src/acp/session-map.js` (`createRecord`,
+`normalizeAcpSessionIdForLoad`); `src/shared/session/session-runtime.js` (`getSessionSnapshot`). The real reload test in
+`src/acp/server.test.js` checks continuation with the returned ACP ID and explicitly checks the differing metadata IDs.
 
-Loaded sessions map the client-provided `sessionId` to a new Runtime id and return no standard `sessionId` field,
-matching the ACP load response schema. That means a loaded session can continue to use the same ACP-facing id during the
-live connection.
+Accepted [ADR-010](adr/010-session-runtime-sibling-adapters-and-acp.md) separates live and transport identities;
+accepted [ADR-015](adr/015-file-authoritative-session-bundles.md) defines stable file-backed Session identity across
+segments. This review does not claim that the new ACP ID is already the stable bundle ID.
 
 ## Prompt content handling
 
@@ -198,33 +215,62 @@ live connection.
 | `text`           | Appends `block.text` to a newline-joined text prompt.                   | Baseline supported.                                                                                                 |
 | `resource_link`  | Appends `[Resource: label <uri>]` text using `title`, `name`, or `uri`. | Baseline accepted, but support is lossy because metadata is flattened into text and no resource fetch is performed. |
 | `resource`       | Rejected as unsupported.                                                | Optional, gated by `promptCapabilities.embeddedContext`; RunWield does not advertise it.                            |
-| `image`          | Rejected as unsupported.                                                | Optional, gated by `promptCapabilities.image`; RunWield does not advertise it.                                      |
+| `image`          | Converts base64 data and MIME type to a Runtime image attachment.       | Advertised through `promptCapabilities.image`; direct vision and `see_image` fallback use shared Runtime behavior.  |
 | `audio`          | Rejected as unsupported.                                                | Optional, gated by `promptCapabilities.audio`; RunWield does not advertise it.                                      |
 
-The Runtime receives the converted text as `initialRequest` with `initialImages: []`. No ACP prompt metadata is
-currently forwarded to the Runtime turn.
+The Runtime receives converted text as `initialRequest` and image blocks as `initialImages`. It persists image bytes in
+the Session. Vision-capable models receive them directly. Text-only models receive attachment markers and `see_image`
+when `visionFallback.model` is configured. Other ACP prompt metadata is not forwarded. Built-in slash commands are
+dispatched before this conversion; attachments beside a built-in command do not become model context.
+
+### Shared commands
+
+ACP advertises enabled built-ins, Prompt Templates, and `skill:<name>` entries through `available_commands_update` on
+new/load and catalog changes. Built-in names and aliases take precedence. `/agent` opens Agent selection without a model
+turn. `/model` and other supported shared commands remain usable. There is no direct thinking-level slash command in the
+registry; do not confuse thinking-change notifications with an exposed ACP control.
+
+ACP excludes `/copy`, `/theme`, `/quit`, `/exit`, `/new`, `/resume`, and `/login`. The shared `/logout` command is
+available; the distinct ACP `logout` method is not.
+
+Evidence: `src/acp/server.js` (`buildAcpAvailableCommands`, `dispatchAcpBuiltinCommand`), `src/cmd/registry.js`, and
+`src/acp/server.test.js` command/catalog tests.
 
 ## `session/update` event mapping
 
 `src/acp/event-mapper.js` maps adapter-neutral Runtime events into ACP `session/update` notifications.
 
-| Runtime event                                     | ACP update                                      | Current details                                                                                                                                                                             |
-| ------------------------------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `user_message`                                    | `user_message_chunk`                            | Sends text content and message id; replay metadata remains under `_meta.runwield`.                                                                                                          |
-| `assistant_text_delta`                            | `agent_message_chunk`                           | Sends text content and message id; agent name, message kind, workflow marker, and approval marker are extension metadata.                                                                   |
-| `assistant_thinking_delta`                        | `agent_thought_chunk`                           | Sends text content and agent-name metadata.                                                                                                                                                 |
-| `tool_start`                                      | `tool_call`                                     | Sends id, title, kind, status `in_progress`, raw input, and tool-name metadata.                                                                                                             |
-| `tool_update`                                     | `tool_call_update`                              | Sends id/title/kind/status `in_progress`, full content snapshot, and `rawOutput`.                                                                                                           |
-| `tool_end`                                        | `tool_call_update`                              | Sends status `completed` or `failed`, full content snapshot, `rawOutput`, and duration metadata.                                                                                            |
-| `usage`                                           | `usage_update`                                  | Sends `used`, `size`, and `cost: { amount, currency: "USD" }` when the cumulative Session cost is greater than zero. `amount` is cumulative for the ACP Session.                            |
-| `plan_review_link`                                | `agent_message_chunk`                           | Sends the review-link message as text and includes Plan/review metadata under `_meta.runwield`.                                                                                             |
-| `agent_changed`                                   | `agent_message_chunk`                           | Sends `Active agent: <name>` as text plus metadata.                                                                                                                                         |
-| `system_status`, `cancellation`, `terminal_error` | `agent_message_chunk` when a message is present | Status and cancellation events without a message are dropped.                                                                                                                               |
-| Other Runtime events                              | no ACP update                                   | Session, busy, model, thinking-level, workflow-context, input-state, running-task, queued-message, interaction-lifecycle, attention, and keyboard-help events are currently ignored by ACP. |
+| Runtime event                                     | ACP update                                      | Current details                                                                                                                                                  |
+| ------------------------------------------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `user_message`                                    | `user_message_chunk`                            | Sends text content and message id; replay metadata remains under `_meta.runwield`.                                                                               |
+| `assistant_text_delta`                            | `agent_message_chunk`                           | Sends text content and message id; agent name, message kind, workflow marker, and approval marker are extension metadata.                                        |
+| `assistant_thinking_delta`                        | `agent_thought_chunk`                           | Sends text content and agent-name metadata.                                                                                                                      |
+| `tool_start`                                      | `tool_call`                                     | Sends id, title, kind, status `in_progress`, raw input, and tool-name metadata.                                                                                  |
+| `tool_update`                                     | `tool_call_update`                              | Sends id/title/kind/status `in_progress`, full content snapshot, and `rawOutput`.                                                                                |
+| `tool_end`                                        | `tool_call_update`                              | Sends status `completed` or `failed`, full content snapshot, `rawOutput`, and duration metadata.                                                                 |
+| `usage`                                           | `usage_update`                                  | Sends `used`, `size`, and `cost: { amount, currency: "USD" }` when the cumulative Session cost is greater than zero. `amount` is cumulative for the ACP Session. |
+| `plan_review_link`                                | `agent_message_chunk`                           | Sends the review-link message as text and includes Plan/review metadata under `_meta.runwield`.                                                                  |
+| `agent_changed`                                   | `agent_message_chunk`                           | Sends `Active agent: <name>` only for a committed root handoff; activation and same-Agent rebuilds are suppressed.                                               |
+| `system_status`, `cancellation`, `terminal_error` | `agent_message_chunk` when a message is present | Status and cancellation events without a message are dropped.                                                                                                    |
+| Other Runtime events                              | no ACP update                                   | Other unmapped events are dropped; see the additional mappings below.                                                                                            |
 
-Runtime tool content is currently limited by `RuntimeToolContentBlock` to text and image blocks. ACP tool-call content
-supports richer content, diffs, terminals, and locations; RunWield does not currently emit ACP diffs, terminal handles,
-or file locations for tool calls.
+Additional mappings in `src/acp/event-mapper.js`:
+
+- `model_changed` and `thinking_level_changed` send readable text notices.
+- `command_catalog_changed` sends `available_commands_update`.
+- `interaction_resolved` and `interaction_canceled` send text when a message is present.
+- Status events can carry validation progress under `_meta.runwield.validationProgress`.
+
+The server also sends `config_option_update` after model selection and relevant model/Agent changes. Session naming,
+workflow context, busy/input state, task lists, and other unmapped events have no standard ACP update here.
+
+Runtime tool content supports text and images. ACP diffs, terminal handles, and file locations are not emitted. The
+programmatic tool name is in `_meta.runwield.toolName`, not the current v1 standard `name` field. Upstream recommends
+sending `name` when available, so this omission misses a protocol recommendation even though the field is optional.
+Initial status is `in_progress`; this is valid for an already-running tool, not a compliance defect by itself.
+
+Evidence: `src/acp/event-mapper.js`, `src/acp/server.js`, and
+[ACP tool calls](https://agentclientprotocol.com/protocol/v1/tool-calls).
 
 ### Usage update behavior
 
@@ -233,9 +279,19 @@ total on each ACP Session record. Live, setup, and replayed Runtime `usage` even
 that total before mapping. The wire value is `cost: { amount: <Session total>, currency: "USD" }` when the total is
 greater than zero. If no priced message exists, `cost` is omitted.
 
-RunWield still sets `size` to `event.usage.contextWindow || used`; when no context window is known, this can make `size`
-equal current used tokens rather than total context capacity. That fallback size behavior is still a semantic accuracy
-issue.
+Cost is accumulated from mapped events in memory and rebuilt from replay on load. It is not a direct read of durable
+Session totals; accurate totals depend on receiving each relevant usage event once.
+
+Context reporting remains inaccurate:
+
+- `used` is the latest message's `inputTokens`, not a complete context measurement. Separate cache-read and cache-write
+  counts are not included.
+- `size` is `event.usage.contextWindow || used`, so an unknown capacity looks like a full context window.
+- Live and replay producers normalize message usage without adding the active model's context capacity.
+
+Evidence: `src/acp/event-mapper.js` (`mapRuntimeEventToAcpUpdate`), `src/acp/session-map.js` (`addUsageCost`),
+`src/shared/session/session.js` usage emission, `session-transcript-projection.js` replay, and
+`session-runtime-events.js` (`normalizeRuntimeUsage`). Schema-valid numbers do not prove accurate context reporting.
 
 ## Prompt completion and stop reasons
 
@@ -243,14 +299,27 @@ ACP v1 stop reasons are `end_turn`, `max_tokens`, `max_turn_requests`, `refusal`
 
 RunWield currently returns:
 
-- `cancelled` when the ACP prompt record has been marked cancelled, or when the Runtime result already reports
-  `stopReason: "cancelled"`;
-- `refusal` when the Runtime result has `ok: false`;
-- `end_turn` for other successful Runtime results.
+- `cancelled` when the active ACP prompt was cancelled or the Runtime reports that stop reason;
+- `end_turn` for successful Runtime results;
+- a JSON-RPC error (`-32002`) for `ok: false`, except when the request is queued as described below.
 
-The adapter does not currently preserve a Runtime distinction for `max_tokens` or `max_turn_requests`, and Runtime
-handoff-limit outcomes are treated as successful `end_turn` responses after emitting a warning status. This is a
-fidelity gap if those Runtime conditions need to map to standard ACP stop reasons.
+There is no explicit mapping for `max_tokens`, `max_turn_requests`, or model `refusal`. Do not describe ordinary
+execution/provider errors as model refusals. Evidence: `src/acp/server.js`, `session/prompt` handler.
+
+### Queued prompts are a separate gap
+
+If another surface is running work in the same saved Session, ACP can queue the message and immediately return
+`end_turn` with `_meta.runwield.queued: true`. This happens before the queued message runs. A standard client that
+ignores extension metadata can mistake this for a completed turn.
+
+The early queue path does not install the normal ACP event subscription or interaction adapter. Later execution is
+therefore not covered by the ordinary streaming/question path. The managed-session integration test proves that queued
+model requests run after writer release; it does not prove their output and questions reach the ACP client.
+
+Evidence: `src/acp/server.js` (`session/prompt`, `active_elsewhere` and `managed_operation_in_progress` branches);
+`src/acp/managed-session.integration.test.ts`. This conflicts with the normal
+[ACP prompt contract](https://agentclientprotocol.com/protocol/v1/schema#session%2Fprompt), which returns when the turn
+is complete. It needs a client-visible, truthful waiting/completion path, not only extension metadata.
 
 ## Cancellation behavior
 
@@ -271,110 +340,219 @@ After the cancelled response is sent, the next prompt can start.
 
 RunWield's ACP interaction adapter maps Runtime interaction requests into client requests when possible.
 
-| Runtime interaction             | ACP behavior                                                                                                                               | Stability                             |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------- |
-| `select`                        | Sends `elicitation/create` with `mode: "form"`, one `answer` string field, and `oneOf` options.                                            | ACP elicitation surface in SDK 1.4.0. |
-| `text`                          | Sends `elicitation/create` with `mode: "form"`, one `answer` string field, default, and placeholder description.                           | ACP elicitation surface in SDK 1.4.0. |
-| `approval`                      | Sends `elicitation/create` like select, then maps accepted approval values to Runtime acceptance and non-accepted choices to cancellation. | ACP elicitation surface in SDK 1.4.0. |
-| `plan_review` and `code_review` | Opens the local RunWield review surface, sends the review URL to ACP, and waits for the browser review decision.                           | RunWield product behavior.            |
-| `artifact_review`               | Opens the local read-only artifact surface, sends the URL to ACP, then asks for feedback or an empty approval before returning.            | RunWield product behavior.            |
-| Other interaction types         | Returns Runtime `unsupported`.                                                                                                             | Adapter limitation.                   |
+| Runtime interaction           | Current behavior                                                                                                         |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `select`                      | Native `elicitation/create` form with labeled choices and an optional Other-answer field.                                |
+| `text`                        | Native form with an answer field, optional default, and placeholder description.                                         |
+| `approval`                    | Native choice form; accepted approval values approve, other choices cancel. This is not ACP tool permission.             |
+| `plan_review` / `code_review` | Sends a normal text link and waits for the RunWield browser review decision.                                             |
+| `artifact_review`             | Sends the artifact link; feedback or empty acceptance uses the browser question path even if native forms are supported. |
+| Pair Execution checkpoint     | Explicitly unsupported.                                                                                                  |
+| Other interaction types       | Unsupported.                                                                                                             |
+
+Native forms are part of the current
+[v1 elicitation documentation](https://agentclientprotocol.com/protocol/v1/elicitation). RunWield does not use URL-mode
+elicitation or `elicitation/complete`; its browser links are normal text plus metadata.
 
 The adapter sends form elicitations when the client advertises `clientCapabilities.elicitation.form`. Without that
 capability, select/text/approval interactions use a loopback browser question page. The page needs its token and rejects
 answers that do not carry the same local Origin. If the browser page is not available, ACP gets an actionable
 unsupported response instead of an unusable link.
 
-RunWield does not provide an ACP-native Plan edit protocol. Local review decisions still happen in RunWield review
-surfaces, and ACP receives usable text links plus `_meta.runwield` URLs.
+The browser fallback is not yet equivalent to native forms for Other answers. Its question payload omits
+`otherOptionValue`, and its answer handler does not return `otherText`. That is a RunWield interaction gap, not a
+missing ACP feature. Native form decline/cancel responses settle as cancellation; invalid answers return unsupported.
+
+RunWield emits no `session/request_permission` calls. Workflow approval forms and Plan review are not substitutes for
+client-controlled tool authorization. Pair checkpoints also remain unavailable through ACP.
+
+RunWield does not provide an ACP-native Plan editor. Review stays in RunWield browser pages, as the
+[ACP PRD](prd/runwield-acp-protocol-prd.md#product-decisions) intends. Standard ACP `plan` updates are progress lists,
+not a replacement for RunWield Plan Feedback and approval.
+
+Evidence: `src/acp/interaction-mapper.js` (`createAcpInteractionAdapter`, `requestBrowserQuestion`, `buildSchema`) and
+`src/shared/session/browser-question.ts` (`startBrowserQuestionServer`).
 
 ## Error behavior
 
-The adapter uses these RunWield-specific JSON-RPC error codes in `src/acp/server.js`:
+The adapter uses these JSON-RPC error codes in `src/acp/server.js`. Some are standard protocol errors, not
+RunWield-specific codes.
 
-| Code     | Name in source        | Current use                                                                                                                                                                       |
-| -------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `-32602` | `ACP_INVALID_PARAMS`  | Invalid or unsupported request parameters, such as relative `cwd`, missing `sessionId`, unsupported prompt content, non-empty `mcpServers`, or non-empty `additionalDirectories`. |
-| `-32001` | `ACP_NOT_FOUND`       | Unknown ACP session or unable to load a persisted session.                                                                                                                        |
-| `-32002` | `ACP_INVALID_STATE`   | Active prompt overlap or duplicate loaded-session mapping.                                                                                                                        |
-| `-32004` | `ACP_NOT_IMPLEMENTED` | Registered-but-unimplemented methods.                                                                                                                                             |
+| Code     | Name in source        | Current use                                                                                                                                                                           |
+| -------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `-32000` | `ACP_AUTH_REQUIRED`   | Login/default-model setup is missing.                                                                                                                                                 |
+| `-32602` | `ACP_INVALID_PARAMS`  | Invalid IDs, relative `cwd`, unsupported prompt content, invalid/non-stdio MCP config, additional roots, or invalid model selection. Valid non-empty stdio `mcpServers` are accepted. |
+| `-32001` | `ACP_NOT_FOUND`       | Unknown ACP Session or unable to load a saved Session.                                                                                                                                |
+| `-32002` | `ACP_INVALID_STATE`   | Overlapping/rejected turns, duplicate load mapping, active-turn model change, or failed model activation.                                                                             |
+| `-32004` | `ACP_NOT_IMPLEMENTED` | Registered-but-unimplemented methods.                                                                                                                                                 |
 
 Unexpected runtime failures propagate through the ACP SDK as internal errors.
 
 ## Required and high-priority gaps
 
-| Priority | Gap                                                                                  | ACP basis                                                                                                             | Current evidence                                                                                                | Impact                                                                            | Likely remediation seam                                                                                           |
-| -------- | ------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| Closed   | Protocol version negotiation echoes unsupported versions.                            | ACP initialization requires returning requested version only when supported; otherwise latest supported version.      | `createInitializeResponse()` returns SDK `PROTOCOL_VERSION`, currently `1`.                                     | Clients receive the supported version and can accept or close.                    | Covered by `server.test.js`.                                                                                      |
-| Closed   | `session/new` returns a live-runtime-derived ACP id that is not reliably reloadable. | ACP session ids identify conversations and are used for `session/load` when load is supported.                        | `AcpSessionMap.createRecord()` defaults to `acp-${persistedSessionId}` for new Sessions.                        | Standard clients can load the returned mapped id later.                           | Covered by `server.test.js`.                                                                                      |
-| Closed   | Non-empty stdio `mcpServers` are rejected.                                           | ACP v1 says all Agents must support stdio MCP server configurations; HTTP/SSE are optional capabilities.              | `validateNewSessionParams()` accepts stdio `mcpServers` and rejects HTTP, SSE, and ACP transports.              | Clients can pass stdio MCP servers.                                               | Covered by the real MCP fixture test.                                                                             |
-| Closed   | Cancellation may respond before final Runtime settlement and updates.                | ACP prompt cancellation requires pending updates to be sent before the original `session/prompt` returns `cancelled`. | `session/prompt` awaits the Runtime prompt and pending notification sends before returning `cancelled`.         | Clients see final cancellation updates before the response.                       | Covered by the cancel-ordering test.                                                                              |
-| Closed   | `usage_update.cost` is a number instead of `{ amount, currency }`.                   | ACP v1 `UsageUpdate.cost` uses the `Cost` object.                                                                     | `event-mapper.js` sends `{ cost: { amount: sessionTotal, currency: "USD" } }` when cumulative cost is non-zero. | Strict clients receive a schema-valid cost.                                       | Covered by schema and cumulative-cost tests.                                                                      |
-| High     | `usage_update.size` can fall back to used tokens.                                    | ACP `size` is total context window size.                                                                              | `event-mapper.js` uses `event.usage.contextWindow` when truthy, otherwise `used`.                               | Clients can display misleading capacity information.                              | Omit usage until capacity is known only if schema permits, or ensure Runtime always supplies real context window. |
-| Medium   | Stop-reason fidelity is coarse.                                                      | ACP defines multiple semantic stop reasons.                                                                           | `session/prompt` collapses most successful Runtime outcomes to `end_turn` and failures to `refusal`.            | Clients cannot distinguish token, request-limit, and some workflow-stop outcomes. | Add Runtime result stop-reason vocabulary and map directly where possible.                                        |
-| Closed   | `agentInfo.version` was static.                                                      | ACP says implementation info should provide name/version and future versions may require it.                          | `createInitializeResponse()` returns generated `VERSION` from `src/shared/version.js`.                          | Debugging and registry/client UX can identify the actual RunWield build.          | Covered by the CLI/ACP version proof.                                                                             |
-| Medium   | Tool call start status is always `in_progress`.                                      | ACP examples distinguish initial `pending` from later `in_progress`, though status is flexible.                       | `TOOL_START` maps to `tool_call` with `status: "in_progress"`.                                                  | Some clients may not show approval/input-pending states correctly.                | Preserve Runtime pending/in-progress states if the Runtime can expose them.                                       |
+These are accuracy, compatibility, or RunWield journey gaps, not a list of mandatory missing methods. Priority is this
+audit's recommendation.
+
+| Priority | Remaining gap                                                                                                   | Why it matters                                                                                                                                                                             | Evidence                                                                                                                                                                                    |
+| -------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| High     | Queued prompts return `end_turn` before execution; no normal ACP stream/question setup on the early queue path. | Clients can see a completed turn while work is still waiting. This differs from the standard prompt lifecycle.                                                                             | `src/acp/server.js`, prompt queue branches; `managed-session.integration.test.ts`.                                                                                                          |
+| High     | Context `used` excludes separate cache counts; unknown `size` becomes `used`.                                   | A client can show false context usage/capacity.                                                                                                                                            | `src/acp/event-mapper.js`, usage case; Runtime usage producers listed above.                                                                                                                |
+| High     | Browser questions lose Other-answer text.                                                                       | Clients without forms cannot collect the same interview answer. This falls short of the ACP PRD's fallback requirement.                                                                    | `src/acp/interaction-mapper.js`; `src/shared/session/browser-question.ts`; [Protocol negotiation and interactions](prd/runwield-acp-protocol-prd.md#protocol-negotiation-and-interactions). |
+| Medium   | Model config changes reject active turns.                                                                       | Current upstream config docs allow changes while generating. RunWield deliberately requires idle state; resolve or document this compatibility difference before a full-conformance claim. | `src/acp/server.js`, `session/set_config_option`; [ACP config options](https://agentclientprotocol.com/protocol/v1/session-config-options#setting-a-config-option).                         |
+| Medium   | No explicit token-limit, request-limit, or refusal stop mapping.                                                | Clients cannot reliably explain all reasons a turn stopped.                                                                                                                                | `src/acp/server.js`, prompt response mapping.                                                                                                                                               |
+| Verify   | Multi-client and cross-surface journeys remain unproven by this review.                                         | Source and fixture tests do not establish successful IDE/remote workflow use.                                                                                                              | [ACP PRD: Advertised ACP conformance](prd/runwield-acp-protocol-prd.md#advertised-acp-conformance).                                                                                         |
+
+The old negotiation, generated-version, reload, stdio MCP, cancellation-order, and cost-object issues are addressed in
+current source and covered by `src/acp/server.test.js`. That does not close the separate issues above. In particular,
+valid usage JSON is not accurate usage, and a queued model call is not proof that the client received its result.
 
 ## Optional stable v1 coverage gaps
 
-These are useful interoperability targets, but they are not baseline violations while unadvertised.
+These omissions are not baseline violations when the related capability is not advertised or the optional method is not
+used. Once supported, that feature's protocol rules apply.
 
-| Area                             | Current state                                                           | Notes                                                                                           |
-| -------------------------------- | ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `session/list`                   | Registered as unimplemented and not advertised.                         | Needed for richer IDE session pickers.                                                          |
-| `session/resume`                 | Registered as unimplemented and not advertised.                         | Could reconnect without replaying history once stable id semantics are fixed.                   |
-| `session/delete`                 | Registered as unimplemented and not advertised.                         | Would need careful mapping to RunWield/Pi persisted sessions.                                   |
-| `session/set_mode`               | Registered as unimplemented and not advertised.                         | ACP session modes are transitional; config options are preferred.                               |
-| `session/set_config_option`      | Model selection implemented, with `configOptions` on new/load.          | Agent and thinking-level controls remain future work.                                           |
-| Additional directories           | Explicitly rejected when non-empty and not advertised.                  | Could map to future multi-root project context and tool boundaries.                             |
-| Embedded resources               | Rejected; `embeddedContext` is not advertised.                          | Would allow clients to pass file contents without relying on RunWield file access.              |
-| Image/audio prompt blocks        | Rejected; `image`/`audio` are not advertised.                           | Could eventually reuse RunWield vision fallback for images.                                     |
-| Client filesystem methods        | Not used by the Agent.                                                  | RunWield currently uses its own tools and local process filesystem.                             |
-| Client terminal methods          | Not used by the Agent.                                                  | RunWield currently runs tools locally and reports tool output through Runtime events.           |
-| Standard `plan` update           | Not emitted.                                                            | RunWield Plans are durable markdown artifacts and workflow-specific, not ACP PlanEntry lists.   |
-| `available_commands_update`      | Emitted after Session new/load and reload catalog changes.              | ACP advertises enabled built-ins plus prompt templates and Skills, with ACP exclusions applied. |
-| `config_option_update`           | Emitted for model selections, shared model commands, and Agent changes. | Keeps client model controls current.                                                            |
-| `current_mode_update`            | Not emitted.                                                            | Related to missing mode methods.                                                                |
-| `session_info_update`            | Not emitted.                                                            | Could expose Session Name, cwd, and metadata to clients.                                        |
-| Tool diffs, terminals, locations | Not emitted.                                                            | Current tool updates contain content and raw output only.                                       |
+| Missing area                           | Current state                                                         | User value / limit                                                                                                         |
+| -------------------------------------- | --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `session/list`                         | Unsupported and unadvertised.                                         | Find existing conversations in an IDE instead of retaining IDs manually.                                                   |
+| `session/resume`                       | Unsupported and unadvertised.                                         | Reconnect without history replay; `session/load` already provides continuation with replay.                                |
+| `session/delete`                       | Unsupported and unadvertised.                                         | Remove Sessions from the client's list. ACP defines list removal; it need not mean destroying all saved work.              |
+| Agent and thinking config options      | Only model selection is exposed.                                      | Native controls would make existing shared behavior easier to discover.                                                    |
+| Legacy modes / `current_mode_update`   | No `session/set_mode` or mode updates.                                | Useful only for clients that still require modes instead of config options.                                                |
+| Additional directories                 | Non-empty lists rejected.                                             | Multiple repositories/roots in one Session; requires correct Core scope, not just another request field.                   |
+| Embedded resources                     | `resource` blocks rejected; no `embeddedContext`.                     | Exact client-supplied file content, including content unavailable on local disk.                                           |
+| Audio prompts                          | Rejected; no `audio` capability.                                      | Voice input or audio analysis; not needed for ordinary coding requests.                                                    |
+| HTTP/SSE MCP                           | Rejected; only stdio accepted.                                        | HTTP enables hosted MCP tools. Upstream recommends HTTP for new Agents; SSE is deprecated by MCP.                          |
+| Client file reads/writes               | No ACP filesystem requests.                                           | Editor buffers, unsaved changes, and client-side change tracking; local tools currently use the process filesystem.        |
+| Client terminal methods                | No delegation or terminal handles.                                    | IDE-native command output; local command execution already exists.                                                         |
+| `session/request_permission`           | Never emitted.                                                        | Client-native approval of sensitive tool calls, if RunWield adopts that interaction. Not required for every tool.          |
+| Standard `plan` update                 | Not emitted.                                                          | A simple client-visible progress list; not a Plan editor or approval record.                                               |
+| `session_info_update`                  | Not emitted.                                                          | Keep the displayed Session title/metadata current.                                                                         |
+| Tool diffs, locations, standard `name` | No native diff/location output; tool name is extension metadata only. | Show changed files, jump to locations, and identify tools without RunWield-specific parsing.                               |
+| URL elicitation / completion           | No native URL-mode requests or completion notifications.              | Better client handling of external interaction links; current browser links are text.                                      |
+| Protocol `logout` / Agent Auth         | Unsupported; Terminal Auth is implemented instead.                    | Native logout or in-protocol login only where a client needs it. Terminal Auth intentionally does not call `authenticate`. |
+| Boolean/grouped config controls        | Not exposed by the model-only option builder.                         | Optional presentation choices, not a need by themselves.                                                                   |
 
-## Experimental or RunWield-specific behavior
+Implementation evidence: `src/acp/server.js` capability declarations and unsupported handlers,
+`src/acp/model-options.ts`, `src/acp/event-mapper.js`, and `src/acp/interaction-mapper.js`. Protocol basis:
+[schema](https://agentclientprotocol.com/protocol/v1/schema),
+[content](https://agentclientprotocol.com/protocol/v1/content),
+[Session setup](https://agentclientprotocol.com/protocol/v1/session-setup),
+[tool calls](https://agentclientprotocol.com/protocol/v1/tool-calls), and
+[config options](https://agentclientprotocol.com/protocol/v1/session-config-options).
 
-RunWield uses ACP extension points in two ways:
+MCP prompts and resources are also outside the current tool-only integration (`src/shared/mcp/pool.ts`). They are MCP
+feature scope, not separate mandatory ACP v1 agent methods. Provider management, Session fork, and NES are not counted
+as missing stable v1 requirements here.
 
-- `_meta.runwield` appears in initialize capabilities, session responses, message/tool metadata, replay events, and Plan
-  review link notifications. This follows ACP's `_meta` extension mechanism and should be ignored by standard clients.
-- `elicitation/create` is used for select/text/approval interactions when a client advertises form elicitation. SDK
-  1.4.0 keeps the wire method as `elicitation/create`; RunWield still treats the interaction mapping as capability-gated
-  ACP behavior, not as a promise that all ACP Clients can answer every RunWield interaction.
-- When a local ACP client has no form support, RunWield can expose a loopback browser question URL for select, text, and
-  approval. The URL is local-process state, requires its per-question token, and does not prove remote browser
-  reachability.
+## Standard behavior and RunWield extensions
 
-RunWield also surfaces Plan, code, and artifact review through local browser review pages. That behavior is valuable for
-RunWield workflows, but it is not a stable ACP v1 Plan or approval protocol.
+- `elicitation/create` form mode is standard capability-gated behavior in current v1 docs. It does not imply that every
+  client supports forms or every RunWield interaction.
+- `_meta.runwield` carries Session mapping, queued state, replay, tool, validation, and review details. Clients may
+  ignore it. Ordinary messages and outcomes must remain useful without it.
+- Browser question and review links are RunWield behavior. Local question URLs require their per-question token and
+  same-origin submission. A loopback URL does not prove remote browser reachability.
+- Browser Plan review remains separate from standard ACP Plan progress and tool permissions. Adding either standard
+  feature would not replace the browser approval workflow.
+
+Evidence: `src/acp/server.js`, `event-mapper.js`, and `interaction-mapper.js`; current
+[elicitation](https://agentclientprotocol.com/protocol/v1/elicitation) and
+[extensibility](https://agentclientprotocol.com/protocol/v1/extensibility) docs.
 
 ## Current automated coverage
 
-Current ACP tests include schema and lifecycle conformance coverage for the implemented adapter path:
+The repository contains these checks. They were read, not rerun for this update.
 
-- `src/acp/protocol-smoke.test.js` verifies SDK 1.4.0 imports, `PROTOCOL_VERSION`, elicitation method names, `Cost`,
-  `UsageUpdate`, and Terminal Auth schema behavior.
-- `src/acp/session-map.test.js` verifies ACP/runtime id mapping, cancellation records, and cumulative Session cost
-  state.
-- `src/acp/server.test.js` covers initialize output, protocol-pure stdout, version proof, serialized schema checks,
-  unimplemented-method errors, session load replay, prompt streaming, prompt overlap handling, close/cancel ordering,
-  usage cost mapping, event mapping, interaction mapping, and the no-TUI-import boundary.
-- `src/acp/interaction-mapper.test.js` covers form elicitation mapping and unsupported interaction behavior.
+- `src/acp/protocol-smoke.test.js`: SDK 1.4.0 imports, protocol version, elicitation names, cost/usage schemas, and
+  Terminal Auth shapes.
+- `src/acp/session-map.test.js`: ACP/Runtime mapping, cancellation records, and cost state.
+- `src/acp/server.test.js`: real Runtime wire tests for initialization, stdout purity, generated version, stdio MCP,
+  new/load/replay, model selection and provider-failure recovery, commands/catalog reload, forms, cancellation ordering
+  including request ID `0`, close, event metadata, and serialized schemas.
+- `src/acp/interaction-mapper.test.js`: form selection/approval, unsupported Pair checkpoints, browser cancellation, and
+  origin checks.
+- `src/acp/managed-session.integration.test.ts`: load across segments and queued execution after another writer releases
+  the Session.
+- `src/acp/segment-stable-identity.test.js`: an explicitly supplied stable ACP ID is stored separately from Pi IDs.
 
-Future conformance work should add more black-box fixtures only when RunWield advertises more ACP features.
+Important limits:
+
+- Cost accumulation/schema tests do not prove real context capacity or complete cross-surface cost accounting.
+- Queue tests do not establish ACP delivery of later output or questions.
+- The stable-ID unit test supplies its own ID; the real new/load test is the evidence for client-returned IDs.
+- Browser fallback tests can take an unavailable-page path. They are not proof of a completed browser interview.
+- The ACP import check tests direct imports, not every transitive dependency.
+- This audit did not perform live tests with multiple clients, packaged installations, or remote review links. The
+  [ACP PRD](prd/runwield-acp-protocol-prd.md#advertised-acp-conformance) requires multi-client evidence before claiming
+  full compliance.
+
+Work Record search failed on a malformed record during this audit. No retrospective completion claim here depends on
+that search; the cited source and test files establish the inspected state. Existing-feature gaps need stronger checks
+as well as tests for any newly advertised capability.
 
 ## Suggested next work
 
-1. Tighten `usage_update.size` so it never suggests exact context capacity when the Runtime does not know it.
-2. Add more exact ACP stop-reason mapping if the Runtime exposes `max_tokens` or `max_turn_requests` distinctly.
-3. Add optional session/config/list/richer-update capabilities incrementally and only advertise them once implemented.
-4. Add HTTP/SSE MCP, MCP prompts, or MCP resources only through a separate Core MCP design.
+**Opinion, not a delivery plan:** improve trust first, then make RunWield's existing strengths accessible through normal
+client controls. Do not implement every optional method just to lengthen the feature list.
+
+### Fix existing behavior first
+
+1. Keep queued work visibly pending until its real outcome, and deliver its output and questions to the client.
+2. Report real context usage and capacity; do not present an unknown capacity as a full window.
+3. Preserve Other answers in browser fallback and verify a complete browser question journey.
+4. Improve stop reasons, resolve the active-turn model-config difference, and test the ordinary workflow with more than
+   one real client.
+
+These are correctness and compatibility work, not optional feature expansion. See the evidence in
+[Required and high-priority gaps](#required-and-high-priority-gaps).
+
+### High-value optional features
+
+| Feature                                        | My recommendation                   | Why RunWield benefits                                                                                                                                 |
+| ---------------------------------------------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `session/list` + `session_info_update`         | Highest-value Session addition.     | The same-conversation promise is easier to use when clients can find saved Sessions and show their current names. Load already supplies continuation. |
+| Embedded resources                             | Prioritize for IDE use.             | File mentions should carry the exact content the user selected, not only a URI the model may or may not read.                                         |
+| Agent + thinking config options                | Extend the existing model selector. | Expose existing RunWield choices without requiring users to learn slash commands. Preserve shared defaults and override behavior.                     |
+| Tool diffs, locations, and standard tool names | Add for better IDE feedback.        | Users can inspect changes and follow file activity without custom `_meta` support.                                                                    |
+| Standard `plan` updates                        | Useful after correctness fixes.     | Show a small progress list for long work. Derive it from actual workflow state; do not create another Plan or approval authority.                     |
+
+These are optional in ACP, but I would not treat them as low-value extras for an IDE-facing coding product.
+
+### Useful when a concrete client needs them
+
+| Feature                  | Recommendation                                                                                                                                                                    |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Client filesystem reads  | Valuable for unsaved editor buffers. Embedded resources can cover explicitly attached content first; client reads cover later Agent-initiated reads.                              |
+| Client filesystem writes | Add only with clear handling of editor buffers, worktrees, and saved files. Native editor tracking is useful, but blindly redirecting all writes could target the wrong checkout. |
+| HTTP MCP                 | Worth adding for hosted tools. Prefer it over legacy SSE; current upstream guidance recommends HTTP even though it is optional.                                                   |
+| Tool permission requests | Useful if sensitive tool operations need native client approval. Keep this separate from Plan approval and verify client handling before relying on it.                           |
+| URL elicitation          | Useful for client-native external-interaction handling. It does not by itself make localhost review links remotely reachable.                                                     |
+| Additional roots         | Add when real multi-repository work requires it; preserve one clear project/worktree context.                                                                                     |
+| `session/resume`         | Add if replay is measurably slow or a target client requires no-history reconnect. It is not needed to continue a Session today.                                                  |
+
+### Truly optional for current RunWield use
+
+- **Audio:** defer unless voice/audio work becomes a real need; text and screenshots cover the usual coding journey.
+- **Client terminal delegation:** local execution and tool output already exist. Add only for a demonstrated IDE
+  terminal or remote-execution need.
+- **Legacy modes:** prefer config options. Add `session/set_mode` only for a target client's compatibility; upstream
+  says config options supersede modes and recommends both during transition when exposing mode-like settings.
+- **Session deletion:** useful housekeeping, not needed to create, continue, review, or deliver work. Avoid assuming ACP
+  list removal must delete the underlying saved work.
+- **SSE MCP:** defer legacy transport unless a required server supports nothing else; prioritize HTTP.
+- **Additional auth flows/native logout:** Terminal Auth and shared commands cover the current local setup. Add another
+  flow only when a client cannot use that route.
+- **Boolean/grouped config controls:** choose them only for an actual setting or a large option list.
+- **MCP prompts/resources, provider management, fork, and NES:** assess separately when needed; none should block the
+  advertised v1 path merely because the SDK contains related APIs.
+
+Keep browser Plan review. The missing standard progress display is worth adding; replacing RunWield's review and
+approval workflow with a custom ACP Plan editor is not necessary.
+
+Recommendation basis: the inspected behavior above; the
+[ACP PRD's Session-continuity and browser-review goals](prd/runwield-acp-protocol-prd.md); accepted
+[ADR-010](adr/010-session-runtime-sibling-adapters-and-acp.md) and
+[ADR-015](adr/015-file-authoritative-session-bundles.md); and the linked upstream optional-capability rules.
 
 ## Related documents
 

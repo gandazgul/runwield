@@ -25,6 +25,9 @@ dependencies:
     []
 userVerifiedAt: null
 targetBranch: "main"
+archivedAt: "2026-09-19T21:48:21.140Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/package-manager-distribution/01-homebrew-tap.md"
 ---
 
 # Prepare the RunWield and Mnemoteca Homebrew Tap

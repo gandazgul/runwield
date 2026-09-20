@@ -17,6 +17,7 @@ interface PublishedState {
     primaryFiles: Record<string, string | null>;
     remoteHead: string;
     remotePlanStatus: string;
+    remotePlanAttrs?: { validatedCommit?: string };
     remoteTree: string;
     deliveredText: string;
     registryEntries: Array<{ id: string }>;
@@ -24,6 +25,7 @@ interface PublishedState {
     remainingExecutionWorktrees: string[];
     registeredWorktrees: string[];
     executionCommitsPublished: boolean[];
+    validatedCommitPublished: boolean;
 }
 
 interface JourneyState {
@@ -165,6 +167,12 @@ Replace the original feature with the implemented feature.
             assertEquals(published.primaryStatus, baseline.status);
             assertEquals(published.primaryFiles, baseline.files);
             assertEquals(published.remotePlanStatus, "validated");
+            assert(/^[a-f0-9]{40,64}$/i.test(published.remotePlanAttrs?.validatedCommit || ""));
+            assertEquals(
+                published.validatedCommitPublished,
+                true,
+                "The persisted stamp must name a commit on the remote target.",
+            );
             assertEquals(published.deliveredText, "implemented");
             assert(published.remoteHead !== baseline.head);
             assert(published.remoteTree.includes("docs/work-records/"));

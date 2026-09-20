@@ -110,7 +110,8 @@ export function createInitializeResponse(request) {
         agentCapabilities: {
             loadSession: true,
             promptCapabilities: {
-                _meta: { runwield: { contentTypes: ["text", "resource_link"] } },
+                image: true,
+                _meta: { runwield: { contentTypes: ["text", "image", "resource_link"] } },
             },
             sessionCapabilities: {
                 close: {},
@@ -261,19 +262,48 @@ function validateAcpMcpServers(value) {
 }
 
 /**
- * @param {Array<Record<string, any>>} blocks
- * @returns {string}
+ * @typedef {Object} AcpPromptBlock
+ * @property {string} [type]
+ * @property {string | null} [text]
+ * @property {string | null} [data]
+ * @property {string | null} [mimeType]
+ * @property {string | null} [title]
+ * @property {string | null} [name]
+ * @property {string | null} [uri]
  */
-export function convertAcpPromptToText(blocks) {
+
+/**
+ * @typedef {Object} ConvertedAcpPrompt
+ * @property {string} text
+ * @property {import('../shared/session/types.js').ImageAttachment[]} images
+ */
+
+/**
+ * @param {AcpPromptBlock[]} blocks
+ * @returns {ConvertedAcpPrompt}
+ */
+export function convertAcpPrompt(blocks) {
     if (!Array.isArray(blocks) || blocks.length === 0) {
         throwInvalidParams("session/prompt requires at least one prompt content block");
     }
     /** @type {string[]} */
     const parts = [];
+    /** @type {import('../shared/session/types.js').ImageAttachment[]} */
+    const images = [];
     for (const block of blocks) {
         if (!block || typeof block !== "object") throwInvalidParams("Invalid prompt content block");
         if (block.type === "text") {
             parts.push(String(block.text || ""));
+            continue;
+        }
+        if (block.type === "image") {
+            if (typeof block.data !== "string" || !block.data) {
+                throwInvalidParams("ACP image prompt content requires base64 data", { contentType: block.type });
+            }
+            if (typeof block.mimeType !== "string" || !block.mimeType) {
+                throwInvalidParams("ACP image prompt content requires a MIME type", { contentType: block.type });
+            }
+            images.push({ base64: block.data, mimeType: block.mimeType });
             continue;
         }
         if (block.type === "resource_link") {
@@ -285,7 +315,7 @@ export function convertAcpPromptToText(blocks) {
             contentType: block.type,
         });
     }
-    return parts.join("\n").trim();
+    return { text: parts.join("\n").trim(), images };
 }
 
 /**
@@ -925,10 +955,10 @@ function createRunWieldAcpServer(context) {
                 });
             }
         }
-        const promptText = convertAcpPromptToText(request.prompt);
+        const { text: promptText, images: promptImages } = convertAcpPrompt(request.prompt);
         const initialSnapshot = runtime.getSessionSnapshot(runtimeSessionId);
         if (initialSnapshot?.managed?.syncState?.status === "active_elsewhere") {
-            const queued = runtime.queueNextTurnMessage(runtimeSessionId, promptText, [], {
+            const queued = runtime.queueNextTurnMessage(runtimeSessionId, promptText, promptImages, {
                 deliverWhenAvailable: true,
             });
             if (!queued.ok) {
@@ -1023,7 +1053,7 @@ function createRunWieldAcpServer(context) {
         try {
             const runtimePrompt = runtime.promptUserTurn(runtimeSessionId, {
                 initialRequest: promptText,
-                initialImages: [],
+                initialImages: promptImages,
                 onTurnStarted: (/** @type {{ turnId: string }} */ { turnId }) => {
                     activePrompt = sessionMap.beginPrompt(
                         acpSessionId,
@@ -1062,7 +1092,7 @@ function createRunWieldAcpServer(context) {
                     result.error === "managed_operation_in_progress" &&
                     !sessionMap.getRecord(acpSessionId)?.activePrompt
                 ) {
-                    const queued = runtime.queueNextTurnMessage(runtimeSessionId, promptText, [], {
+                    const queued = runtime.queueNextTurnMessage(runtimeSessionId, promptText, promptImages, {
                         deliverWhenAvailable: true,
                     });
                     if (queued.ok) {

@@ -1,7 +1,7 @@
 // @ts-nocheck: Workspace React islands compile TSX, but this module uses JSDoc-style JavaScript only.
 import { RunWieldMenu, RunWieldMenuItem } from "../../design-system/components/react/RunWieldMenu.tsx";
 import { RunWieldIconButton } from "../../design-system/components/react/RunWieldIconButton.tsx";
-import { animateSidebarUpdate } from "../../design-system/components/react/sidebar-motion.js";
+import { animateSidebarUpdate } from "../../design-system/components/react/sidebar-motion.ts";
 import { RunWieldThinkingDots } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 
 import { RunWieldTabs } from "../../design-system/components/react/RunWieldPrimitives.jsx";
@@ -203,7 +203,9 @@ function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup,
     const hasReviewFeedback = annotations.length > 0 || codeAnnotations.length > 0 || globalAttachments.length > 0 ||
         directlyEditedPlan !== null;
     const hasGroupFeedback = hasReviewFeedback || Boolean(reviewGroup?.hasFeedback);
-    const planWidthMode = presentation === "workspace" ? "wide" : uiPreferences.planWidth;
+    const planWidthMode = initialPayload.mode === "workspace" || presentation === "workspace"
+        ? "wide"
+        : uiPreferences.planWidth;
     const planMaxWidth = useMemo(
         () =>
             planWidthMode === "wide"

@@ -18,6 +18,9 @@ origin: "internal"
 userVerifiedAt: null
 targetBranch: "main"
 status: "validated"
+archivedAt: "2026-09-19T21:47:51.743Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/release-candidate-branches.md"
 ---
 
 # Isolate Release Candidates on Release Branches

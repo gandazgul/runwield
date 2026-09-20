@@ -252,8 +252,8 @@ Deno.test("plans doctor applies identity and evidence checks to archived Plans",
         assertEquals(report.issues.some((issue) => issue.kind === "duplicate_plan_id"), true);
         assertEquals(
             report.issues.some((issue) => issue.kind === "verified_without_evidence"),
-            true,
-            "A duplicate document cannot overwrite the controller's delivery evidence",
+            false,
+            "A non-Git Plan needs no publication receipt; duplicate identity is still reported",
         );
     } finally {
         await Deno.remove(cwd, { recursive: true }).catch(() => {});
@@ -642,6 +642,88 @@ Deno.test("plans doctor clears an abandoned Plan lock", async () => {
         assertEquals(await Deno.stat(lockPath).then(() => true).catch(() => false), false);
     } finally {
         await Deno.remove(cwd, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("doctor uses committed validation stamps without controller records and ignores superseded evidence", async () => {
+    const cwd = await ancestryRepo.checkout({ prefix: "runwield-doctor-stamps-" });
+    try {
+        const publishedCommit = await git(cwd, ["rev-parse", "main"]);
+        const unpublishedCommit = await git(cwd, ["rev-parse", "side"]);
+        for (const [name, commit] of [["published", publishedCommit], ["unpublished", unpublishedCommit]]) {
+            await savePlan(cwd, name, `# ${name}\n`, {
+                planId: name,
+                classification: "PLANNED_CHANGE",
+                status: "validated",
+                targetBranch: "main",
+                validatedCommit: commit,
+            });
+        }
+        await savePlan(cwd, "reopened", "# Reopened\n", {
+            planId: "reopened",
+            classification: "PLANNED_CHANGE",
+            status: "ready_for_work",
+            deliveryEvidence: {
+                version: 1,
+                mode: "worktree_merge",
+                executionCommit: unpublishedCommit,
+                targetBranch: "main",
+                targetHeadBeforeMerge: publishedCommit,
+            },
+        });
+        const report = await runPlansDoctor(cwd, false);
+        assertEquals(
+            report.issues.filter((issue) => issue.kind === "uncertain_publication").map((issue) => issue.planName),
+            ["unpublished"],
+        );
+        assertEquals(
+            await Deno.readTextFile(join(cwd, "docs/plans/published.md")).then((text) =>
+                text.includes(publishedCommit)
+            ),
+            true,
+        );
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
+Deno.test("doctor distinguishes committed archived history from a still-active publication", async () => {
+    const cwd = await ancestryRepo.checkout({ prefix: "runwield-doctor-archive-proof-" });
+    try {
+        const commit = await git(cwd, ["rev-parse", "side"]);
+        await savePlan(cwd, "archived/done", "# Archived\n", {
+            planId: "archived-history",
+            classification: "PLANNED_CHANGE",
+            status: "validated",
+            archivedAt: "2026-09-19T00:00:00.000Z",
+            archivedFromStatus: "validated",
+            targetBranch: "removed-feature",
+            validatedCommit: commit,
+        });
+        const uncommittedReport = await runPlansDoctor(cwd, false);
+        assertEquals(uncommittedReport.issues.some((issue) => issue.kind === "uncertain_publication"), true);
+        await git(cwd, ["add", "docs/plans/archived/done.md"]);
+        await git(cwd, ["commit", "-m", "Archive completed feature"]);
+        const report = await runPlansDoctor(cwd, false);
+        assertEquals(report.issues.some((issue) => issue.kind === "uncertain_publication"), false);
+        assertEquals(report.issues, [], "Committed archived history has nothing for Doctor to repair");
+        await addEntry(cwd, {
+            id: "still-publishing",
+            planId: "archived-history",
+            planName: "done",
+            branch: "side",
+            path: join(cwd, "missing-execution-tree"),
+            baseBranch: "main",
+            baseRef: "main",
+            baseCommit: await git(cwd, ["rev-parse", "main"]),
+            status: "active",
+            createdAt: "2026-09-19T00:00:00.000Z",
+            updatedAt: "2026-09-19T00:00:00.000Z",
+        });
+        const activeReport = await runPlansDoctor(cwd, false);
+        assertEquals(activeReport.issues.some((issue) => issue.kind === "uncertain_publication"), true);
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
     }
 });
 

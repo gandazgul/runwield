@@ -14,12 +14,21 @@ recoverable work. RunWield reconciles proof and repairs internal storage, locks,
 automatically; exposing an error and a repair command is not completion. Evidence requirements still forbid fabricated
 success, blind replay, or loss of user work.
 
-- Plan Front Matter records that validation succeeded. A worktree-backed Planned Change stops changing at `validated`.
+- Plan Front Matter records that validation succeeded, the `validatedCommit` implementation hash, and the actual
+  `targetBranch`. A worktree-backed Planned Change stops changing at `validated`.
 - The matching `.wld/worktrees.json` entry owns publication progress in one `publication` record.
 - Git commits and refs are evidence. Status strings, error text, Session memory, and transition journals are not
   publication evidence.
-- The registry entry is removed only after verified publication and cleanup. Its absence is the final local fact; there
-  is no Plan `published` status.
+- The registry entry is removed only after verified publication and cleanup. With no active attempt, Git ancestry of the
+  Plan's `validatedCommit` on `targetBranch` proves delivery without a permanent controller receipt. Absence of a
+  registry entry alone is not proof. There is no Plan `published` status. Non-Git completion uses the Plan status.
+
+The stamp survives removal of runtime records; checkpoints and intermediate publication receipts do not become Plan
+fields. Reopening for review or starting a new execution clears the previous stamp. Older unstamped Plans can be
+recognized by exact completed document content already committed on their target; arbitrary working-copy status edits do
+not qualify. Committed archived history without an active attempt is not an instruction to restart publication when an
+old feature branch or pre-squash commit is no longer reachable. Doctor omits such non-actionable history, rather than
+calling it broken. This diagnostic rule neither proves publication nor authorizes deleting unmerged commits.
 
 The record advances monotonically through these proven phases:
 

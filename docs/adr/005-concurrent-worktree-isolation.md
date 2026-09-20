@@ -27,12 +27,12 @@ live under RunWield's home-directory worktree area, grouped by project, with a u
 
 ### Separate document and controller ownership
 
-| Data                                                                                                                    | Authority                                  |
-| ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
-| Plan definition, identity, human lifecycle status, `targetBranch`, relationships, archive and user-verification history | Plan Markdown                              |
-| Validation checkpoints and counters, review decisions, execution mode, runtime timestamps and delivery evidence         | `<primary-project>/.wld/controller/plans/` |
-| Attempt ID, branch, path, base ref/commit/tree, execution status and publication receipts                               | `<primary-project>/.wld/worktrees.json`    |
-| Commit contents, ancestry, checked-out branches and remote target                                                       | Git                                        |
+| Data                                                                                                                                       | Authority                                  |
+| ------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------ |
+| Plan definition, identity, human lifecycle status, `targetBranch`, `validatedCommit`, relationships, archive and user-verification history | Plan Markdown                              |
+| Validation checkpoints and counters, review decisions, execution mode, runtime timestamps and delivery evidence                            | `<primary-project>/.wld/controller/plans/` |
+| Attempt ID, branch, path, base ref/commit/tree, execution status and publication receipts                                                  | `<primary-project>/.wld/worktrees.json`    |
+| Commit contents, ancestry, checked-out branches and remote target                                                                          | Git                                        |
 
 The summary shown in lists is derived from the Plan's Context section. It is not a second stored definition in YAML.
 Runtime fields may appear in an in-memory joined Plan view for consumers, but saving Markdown does not serialize them.
@@ -55,8 +55,8 @@ A registered document that is missing or archived never selects the older primar
 also resolves the live attempt from the registry; Session memory cannot reactivate a retired attempt. Child completion
 discovers the family from the primary project catalog plus registered execution documents, including children that have
 not started and therefore have no worktree yet. Completed siblings whose worktrees were cleaned up may come from the
-completing attempt's recorded target commit, backed by controller delivery evidence and exact committed document bytes.
-An arbitrary status in a copied document cannot override an unstarted sibling in primary.
+completing attempt's recorded target commit, backed by exact committed document bytes rather than a permanent controller
+receipt. An arbitrary status in a copied document cannot override an unstarted sibling in primary.
 
 Restoring with a different name updates the document's registry address while preserving its Plan ID, attempt ID,
 branch, and directory. Ordinary registry updates still cannot change these addresses. A saved publication binds its

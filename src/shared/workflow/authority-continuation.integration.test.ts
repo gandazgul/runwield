@@ -281,6 +281,47 @@ for (const event of ["manual_user_verified", "validation_passed"] as const) {
     });
 }
 
+Deno.test("Epic completion reads published siblings without a permanent controller receipt", async () => {
+    await withProject(async (root, directory) => {
+        await savePlan(root, "epic/a", "# A\n", {
+            planId: "epic/a",
+            classification: "PLANNED_CHANGE",
+            parentPlan: "epic",
+            status: "implemented",
+        });
+        await savePlan(root, "epic/b", "# B\n", {
+            planId: "epic/b",
+            classification: "PLANNED_CHANGE",
+            parentPlan: "epic",
+            status: "ready_for_work",
+            targetBranch: "main",
+        });
+        await git(root, ["add", "docs"]);
+        await git(root, ["commit", "-m", "Initial sibling"]);
+        await git(root, ["switch", "-c", "published-target-snapshot"]);
+        const before = await loadPlan(root, "epic/b");
+        assert(before);
+        await updatePlanFrontMatter(
+            root,
+            "epic/b",
+            {
+                status: "validated",
+                validatedCommit: await git(root, ["rev-parse", "HEAD"]),
+            },
+            {},
+            { expectedRevision: before.revision },
+        );
+        await git(root, ["add", "docs"]);
+        await git(root, ["commit", "-m", "Published sibling"]);
+        const tree = await addTree(root, directory, "a", "epic/a");
+        await git(root, ["switch", "main"]);
+        const siblings = await findCompletionSiblings(tree, "epic");
+        const b = siblings.find((child) => child.name === "epic/b");
+        assertEquals(b?.attrs.status, "validated");
+        assertEquals(b?.attrs.deliveryEvidence, undefined);
+    });
+});
+
 for (const change of ["reparented", "archived", "uncommitted_completion"] as const) {
     Deno.test(`Epic completion does not revive a ${change} sibling from an old checkout`, async () => {
         await withProject(async (root, directory) => {

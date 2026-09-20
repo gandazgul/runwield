@@ -1,4 +1,5 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
+import { getRunWieldRuntimeDir } from "../../constants.js";
 import {
     type Context,
     fauxAssistantMessage,
@@ -435,7 +436,9 @@ Deno.test("load-plan offers lifecycle actions for a validated Plan already publi
         await git(projectRoot, ["commit", "--allow-empty", "-m", "fixture baseline"]);
         const executionCommit = await git(projectRoot, ["rev-parse", "HEAD"]);
         await writePlan(projectRoot, "published", {
+            planId: "published-plan",
             status: "validated",
+            targetBranch: "main",
             executionMode: "worktree",
             deliveryEvidence: {
                 version: 1,
@@ -445,6 +448,10 @@ Deno.test("load-plan offers lifecycle actions for a validated Plan already publi
                 targetHeadBeforeMerge: executionCommit,
             },
         });
+        await git(projectRoot, ["add", "docs/plans/published.md"]);
+        await git(projectRoot, ["commit", "-m", "Publish validated Plan"]);
+        // Completed Plans must remain usable after all controller bookkeeping is lost.
+        await Deno.remove(`${getRunWieldRuntimeDir(projectRoot)}/controller`, { recursive: true });
         const { runtime, sessionId } = await createRuntime(projectRoot);
         const ui = makeUi(["archive"]);
         try {
@@ -458,6 +465,29 @@ Deno.test("load-plan offers lifecycle actions for a validated Plan already publi
             assertEquals(ui.prompts.includes("What would you like to do?"), true);
             assertEquals(await loadPlan(projectRoot, "published"), null);
             assertEquals((await loadArchivedPlan(projectRoot, "published"))?.attrs.archivedFromStatus, "validated");
+        } finally {
+            runtime.closeAllSessions();
+        }
+    });
+});
+
+Deno.test("load-plan offers completed actions for a validated non-Git Plan without controller state", async () => {
+    await withRuntimeCommandFixture("runwield-load-plan-non-git-completed-", async ({ projectRoot }) => {
+        await writePlan(projectRoot, "finished", { status: "validated" });
+        await Deno.remove(`${getRunWieldRuntimeDir(projectRoot)}/controller`, { recursive: true }).catch((error) => {
+            if (!(error instanceof Deno.errors.NotFound)) throw error;
+        });
+        const { runtime, sessionId } = await createRuntime(projectRoot);
+        const ui = makeUi(["archive"]);
+        try {
+            await runLoadPlanCommand(["finished"], {
+                sessionRuntime: runtime,
+                sessionId,
+                uiAPI: ui.uiAPI,
+                editor: ui.editor,
+            });
+            assertEquals(ui.prompts.some((prompt) => prompt.startsWith("Plan recovery")), false);
+            assertEquals((await loadArchivedPlan(projectRoot, "finished"))?.attrs.archivedFromStatus, "validated");
         } finally {
             runtime.closeAllSessions();
         }

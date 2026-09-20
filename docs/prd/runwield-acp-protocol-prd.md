@@ -292,12 +292,18 @@ independently of the Telegram proof.
 Optional listing, deletion, configuration, additional roots, rich media, embedded resources, and client filesystem or
 terminal delegation should be evaluated on user value. Compliance does not require advertising unsupported options.
 
+RunWield currently advertises ACP image prompts. ACP image blocks use the shared Session image path: vision-capable
+models receive the image directly, while text-only models can inspect the persisted attachment through `see_image` when
+`visionFallback.model` is configured.
+
 **Acceptance scenarios:**
 
 - When RunWield advertises a capability, its required protocol behavior passes interoperability checks with more than
   one client before full compliance is claimed.
 - When an optional capability is unsupported, it is not advertised merely to satisfy a checklist; public coverage
   remains aligned with evidence.
+- When an ACP client sends an image prompt, a vision-capable model receives the image. A text-only model with a
+  configured vision fallback receives a persisted attachment reference and can inspect it with `see_image`.
 
 ## Stage 1 Delivery Environment
 

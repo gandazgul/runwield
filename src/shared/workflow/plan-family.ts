@@ -16,11 +16,7 @@ export async function findCompletionSiblings(cwd: string, parentPlan: string) {
         // A live or reopened sibling already has an authoritative document in the
         // primary catalog. Never replace it with another branch's copy.
         if (selected.some((entry) => entry.planName === child.name)) continue;
-        const evidence = child.attrs.deliveryEvidence;
-        if (
-            (child.attrs.status !== "validated" && child.attrs.status !== "verified") ||
-            evidence?.mode !== "worktree_merge"
-        ) continue;
+        if (child.attrs.status !== "validated" && child.attrs.status !== "verified") continue;
         const primaryChild = await loadPlan(primaryRoot, child.name);
         if (
             primaryChild &&

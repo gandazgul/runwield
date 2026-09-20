@@ -1,7 +1,7 @@
 // @ts-nocheck: Workspace React islands compile TSX, but this module uses JSDoc-style JavaScript only.
 import { RunWieldMenu, RunWieldMenuItem } from "../../design-system/components/react/RunWieldMenu.tsx";
 import { RunWieldIconButton } from "../../design-system/components/react/RunWieldIconButton.tsx";
-import { animateSidebarUpdate } from "../../design-system/components/react/sidebar-motion.js";
+import { animateSidebarUpdate } from "../../design-system/components/react/sidebar-motion.ts";
 import { RunWieldThinkingDots } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";

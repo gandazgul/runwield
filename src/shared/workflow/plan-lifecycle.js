@@ -505,7 +505,7 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
             : 0;
         updates.validationSemanticRounds = currentRounds + 1;
         updates.validationCiAttempts = 0;
-        updates.failureReason = details.failureReason || "Semantic Code Review requested changes.";
+        updates.failureReason = details.failureReason || "Semantic Review requested changes.";
         // The open Review Issues and repair identity must commit with the status
         // move back to implemented. A later Session projection cannot fill this
         // in safely after the fact: the process may stop between these writes.
@@ -750,6 +750,8 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         }
         updates.executionMode = executionMode;
         updates.deliveryEvidence = deliveryEvidence;
+        updates.validatedCommit = deliveryEvidence?.mode === "worktree_merge" ? deliveryEvidence.executionCommit : null;
+        if (deliveryEvidence?.mode === "worktree_merge") updates.targetBranch = deliveryEvidence.targetBranch;
         // The registry remains the publication/recovery authority until the push is
         // confirmed. The validated Plan is immutable and must not retain a pointer
         // that would require another front-matter rewrite after publication.
@@ -820,6 +822,8 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         // Only explicit reset/abandon actions retire the registered worktree.
     }
 
+    // A new execution or review must not retain the previous implementation's stamp.
+    if (updates.deliveryEvidence === null) updates.validatedCommit = null;
     return updates;
 }
 
