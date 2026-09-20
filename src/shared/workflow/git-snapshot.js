@@ -3,8 +3,17 @@
  * Git tree snapshots for workflow-scoped validation diffs.
  */
 
-import { join } from "@std/path";
+import { dirname, isAbsolute, join } from "@std/path";
 import { assertGitRepository, GitRepositoryRequiredError } from "../git.js";
+
+export class WorktreeReviewTargetError extends Error {
+    /** @param {string} targetBranch */
+    constructor(targetBranch) {
+        const branch = targetBranch || "(missing)";
+        super(`Cannot compute the worktree review diff because target ref refs/heads/${branch} is unavailable.`);
+        this.name = "WorktreeReviewTargetError";
+    }
+}
 
 /**
  * @param {string} cwd
@@ -98,15 +107,22 @@ export async function listCommitsTouchingPathsSince(cwd, since, paths) {
  */
 export async function captureWorktreeTree(cwd) {
     await assertGitRepository(cwd, "Capturing an execution baseline tree");
-    const tempDir = await Deno.makeTempDir({ prefix: "runwield-git-index-" });
-    const indexPath = join(tempDir, "index");
+    const realIndex = (await runGit(cwd, ["rev-parse", "--git-path", "index"])).trim();
+    const realIndexPath = isAbsolute(realIndex) ? realIndex : join(cwd, realIndex);
+    const indexPath = await Deno.makeTempFile({ dir: dirname(realIndexPath), prefix: "runwield-index-" });
     const env = { GIT_INDEX_FILE: indexPath };
 
     try {
+        try {
+            await Deno.writeFile(indexPath, await Deno.readFile(realIndexPath));
+        } catch (error) {
+            if (!(error instanceof Deno.errors.NotFound)) throw error;
+            await Deno.remove(indexPath);
+        }
         await runGit(cwd, ["add", "-A", "--", "."], env);
         return (await runGit(cwd, ["write-tree"], env)).trim();
     } finally {
-        await Deno.remove(tempDir, { recursive: true }).catch(() => {});
+        await Deno.remove(indexPath).catch(() => {});
     }
 }
 
@@ -134,6 +150,31 @@ export async function getWorkflowDiff(cwd, baselineTree) {
 
     const currentTree = await captureWorktreeTree(cwd);
     return await diffTrees(cwd, baselineTree, currentTree);
+}
+
+/**
+ * Return the complete net patch from a local target branch's current commit to
+ * the current worktree files. This is the shared comparison for AI review,
+ * repair context, human review, and future full-review consumers.
+ *
+ * @param {string} cwd
+ * @param {string} targetBranch
+ * @returns {Promise<string>}
+ */
+export async function getWorktreeReviewDiff(cwd, targetBranch) {
+    await assertGitRepository(cwd, "Computing a worktree review diff");
+    const branch = String(targetBranch || "").trim();
+    if (!branch) throw new WorktreeReviewTargetError(branch);
+
+    let targetCommit;
+    try {
+        targetCommit = (await runGit(cwd, ["rev-parse", "--verify", `refs/heads/${branch}^{commit}`])).trim();
+    } catch {
+        throw new WorktreeReviewTargetError(branch);
+    }
+    const targetTree = (await runGit(cwd, ["rev-parse", "--verify", `${targetCommit}^{tree}`])).trim();
+    const currentTree = await captureWorktreeTree(cwd);
+    return await diffTrees(cwd, targetTree, currentTree);
 }
 
 /**

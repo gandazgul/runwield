@@ -1867,12 +1867,16 @@ export class SessionRuntime {
             }
             session.setActiveExecutionWorkflow(/** @type {any} */ (continuation.activeWorkflow));
             const { buildValidationRepairPrompt } = await import("../workflow/validation-repair-prompt.ts");
+            const { getWorktreeReviewDiff } = await import("../workflow/git-snapshot.js");
             const { createReviewDiffTool, buildDiffInspectionSection } = await import(
                 "../workflow/review-diff-tool.js"
             );
             const { acknowledgeTaskCompletion, claimPendingTaskCompletion } = await import(
                 "./task-completion-session.ts"
             );
+            const diffText = workflow.executionMode === "non_git_in_place" || workflow.nonGitInPlace
+                ? continuation.repair.diffText
+                : await getWorktreeReviewDiff(executionCwd, workflow.worktreeBaseBranch || "");
             await runActiveAgentTurn({
                 hostedSession: session,
                 agentName: AGENTS.REVIEWER_FEEDBACK_ENGINEER,
@@ -1889,7 +1893,7 @@ export class SessionRuntime {
                         "",
                         continuation.repair.findingsSection || "(no findings text supplied)",
                         "",
-                        buildDiffInspectionSection(continuation.repair.diffText),
+                        buildDiffInspectionSection(diffText),
                     ].join("\n"),
                     completionInstruction:
                         "Report a disposition for every finding, then call task_completed. If a finding is still open because something blocked you, stop in plain text instead and name it.",
@@ -1897,7 +1901,7 @@ export class SessionRuntime {
                 cwd: executionCwd,
                 dispatchKind: "validation_repair",
                 subAgentDefinition: { id: SUBAGENTS.REVIEWER_FEEDBACK_ENGINEER },
-                customTools: [createReviewDiffTool({ full: continuation.repair.diffText }, { hostedSession: session })],
+                customTools: [createReviewDiffTool({ full: diffText }, { hostedSession: session })],
             });
             const acceptedCompletion = claimPendingTaskCompletion(session, null);
             const completed = Boolean(acceptedCompletion);

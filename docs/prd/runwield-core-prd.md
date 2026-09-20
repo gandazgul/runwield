@@ -462,6 +462,29 @@ findings and inspect repair changes for regressions. Each finding remains identi
 open items visible. Repair reports address every finding; an independent Reviewer verifies fixes rather than accepting
 self-approval.
 
+**Requirement: Use one target-relative review diff.**
+
+For Git worktree execution, the full review patch is the direct difference from the recorded target branch's current
+commit to all current worktree files. It includes committed, staged, unstaged, and non-ignored untracked changes. It
+does not use the execution recovery baseline or a shared ancestor. The same comparison supplies Semantic Code Review,
+repair context, and Local Human Code Review, including reload and continuation. One shared comparison owner produces the
+patch; review tools page it and review interfaces present it without creating another Git comparison.
+
+The recorded target branch remains authoritative when it is not `main`. A missing target is a recoverable comparison
+failure, not an empty diff or permission to use another branch. Each computation resolves one target commit. A later
+review refresh can use a newer target tip. The execution baseline remains authoritative only for recovery and explicit
+before-and-after repair comparisons.
+
+**Acceptance scenarios:**
+
+- Given target work imported after execution starts, when review runs, unchanged imported files are absent from the full
+  patch and separate worktree changes remain present.
+- Given a target that advances without the worktree importing it, when review refreshes, target-only content appears as
+  removed or changed because the comparison is direct, not shared-ancestor based.
+- Given identical target and worktree state, AI review, repair context, and human review receive the same full patch.
+- Given a missing recorded target, review stops with a recoverable comparison failure and does not use `main`, `HEAD`,
+  the recovery baseline, or an empty patch.
+
 **Requirement: Complete inspection before a review decision.**
 
 The Reviewer receives the actual approved Plan content. Rounds one and two must read the complete diff for every changed
@@ -507,6 +530,8 @@ convergence without more escaped defects, not approval rate alone.
   check only open issues and repair regressions, including when the workflow resumes in a fresh process.
 - Given a claimed fix that is incomplete, review records `fix rejected` and a reason under the same issue identity.
   Another completed repair moves it to `fix claimed`; independent confirmation closes it without creating a new issue.
+- Given a prior finding that attributes unchanged target content to the current work, repair reports it as already
+  satisfied with evidence and independent review can confirm it without requiring a file edit. The issue keeps its ID.
 - Given only a maintainability preference, when review completes, it remains advisory and cannot become an invented
   implementation obligation.
 - After the automatic-round boundary, when the user chooses human review, feedback leads to repair and checks and

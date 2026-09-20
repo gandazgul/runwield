@@ -132,7 +132,11 @@ Deno.test("bundled verification reviewer prompt treats repair claims as evidence
     assertStringIncludes(prompt, "Omitting an item does not resolve it");
     assertStringIncludes(prompt, "Never renumber, reuse, or invent identities");
     // An empty diff is neither proof of a fix nor proof an already-satisfied item is broken.
-    assertStringIncludes(prompt.replace(/\s+/g, " "), "An empty repair diff is not proof of a fix");
+    assertStringIncludes(
+        prompt.replace(/\s+/g, " "),
+        "An empty repair diff is not proof of a fix or proof that an already-satisfied item is broken",
+    );
+    assertStringIncludes(prompt.replace(/\s+/g, " "), "full target-relative diff");
     assertStringIncludes(prompt.replace(/\s+/g, " "), "otherwise reject the fix with a reason");
 });
 
@@ -143,6 +147,8 @@ Deno.test("bundled validation repair engineer prompt is repair-scoped without Pl
     assertStringIncludes(prompt, "repair the validation problem you were given and report what you did");
     assertStringIncludes(compact, "the general Engineer prompt");
     assertStringIncludes(prompt, "one bounded repair packet");
+    assertStringIncludes(prompt, "supplied full review diff");
+    assertStringIncludes(prompt, "`already satisfied`");
     assertStringIncludes(prompt, "CI diagnostics");
     assertStringIncludes(compact, "semantic review findings");
     assertEquals(prompt.includes("Plan"), false);

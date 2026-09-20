@@ -213,7 +213,7 @@ export function summarizeDiffForReview(entries) {
  * @param {string} path - The requested file path.
  * @param {DiffFileEntry[]} entries
  * @param {{ offsetBytes?: number, maxBytes?: number }} [options]
- * @returns {{ found: true, entry: DiffFileEntry, content: string, truncated: boolean, remainingBytes: number } | { found: false, message: string }}
+ * @returns {{ found: true, entry: DiffFileEntry, content: string, offsetBytes: number, nextOffsetBytes: number, truncated: boolean, remainingBytes: number } | { found: false, message: string }}
  */
 export function getFileDiff(entries, path, options = {}) {
     const entry = entries.find((e) => e.path === path) || entries.find((e) => e.path.endsWith(`/${path}`));
@@ -229,21 +229,32 @@ export function getFileDiff(entries, path, options = {}) {
             found: true,
             entry,
             content: "",
+            offsetBytes: entry.byteLength,
+            nextOffsetBytes: entry.byteLength,
             truncated: false,
             remainingBytes: 0,
         };
     }
 
-    const encoder = new TextEncoder();
-    const fullBytes = encoder.encode(entry.text);
-    const sliced = fullBytes.slice(offsetBytes, offsetBytes + maxBytes);
-    const remainingBytes = Math.max(0, fullBytes.byteLength - (offsetBytes + sliced.byteLength));
+    const fullBytes = new TextEncoder().encode(entry.text);
+    let start = offsetBytes;
+    while (start > 0 && (fullBytes[start] & 0xc0) === 0x80) start -= 1;
+    let end = Math.min(fullBytes.byteLength, start + maxBytes);
+    while (end > start && end < fullBytes.byteLength && (fullBytes[end] & 0xc0) === 0x80) end -= 1;
+    if (end === start && end < fullBytes.byteLength) {
+        end = Math.min(fullBytes.byteLength, start + maxBytes);
+        while (end < fullBytes.byteLength && (fullBytes[end] & 0xc0) === 0x80) end += 1;
+    }
+    const sliced = fullBytes.slice(start, end);
+    const remainingBytes = Math.max(0, fullBytes.byteLength - end);
     const truncated = remainingBytes > 0;
 
     return {
         found: true,
         entry,
         content: new TextDecoder().decode(sliced),
+        offsetBytes: start,
+        nextOffsetBytes: end,
         truncated,
         remainingBytes,
     };
@@ -286,8 +297,8 @@ export function listDiffFiles(entries, maxInlineBytes = 64 * 1024) {
  * The tool provides bounded, read-only access to the workflow diff.
  *
  * Two scopes exist because a verification round asks two different questions.
- * `full` is the whole workflow diff from the execution baseline and answers
- * "does anything diverge from the Plan". `repair` is only what the last repair
+ * `full` is the whole target-relative worktree diff and answers "does anything
+ * diverge from the Plan". `repair` is only what the last repair
  * changed and answers "did the repair fix the open findings without breaking
  * something". Round one has no repair scope.
  *
@@ -308,7 +319,7 @@ export function createReviewDiffTool(diffs, options = {}) {
     const MAX_READ_BYTES = 64 * 1024;
 
     const scopeDescription = hasRepairScope
-        ? " Scope 'full' is the entire workflow diff; scope 'repair' is only what the most recent repair changed."
+        ? " Scope 'full' is the entire target-relative worktree diff; scope 'repair' is only what the most recent repair changed."
         : "";
 
     const tool = defineTool({
@@ -323,7 +334,7 @@ export function createReviewDiffTool(diffs, options = {}) {
             command: StringEnum(["list", "show"]),
             scope: Type.Optional(StringEnum(["full", "repair"], {
                 description:
-                    "Which diff to inspect. 'full' (default) is the entire workflow diff from the execution baseline. 'repair' is only what the most recent repair changed, and is available from the second review round onward.",
+                    "Which diff to inspect. 'full' (default) compares the recorded target branch with the current worktree files. 'repair' is only what the most recent repair changed, and is available from the second review round onward.",
             })),
             path: Type.Optional(Type.String({
                 description:
@@ -439,9 +450,11 @@ export function createReviewDiffTool(diffs, options = {}) {
                 if (result.truncated) {
                     content.push(
                         "",
-                        `[Diff truncated at ${formatByteSize(params.maxBytes || MAX_READ_BYTES)}. Use offsetBytes=${
-                            (params.offsetBytes || 0) + (params.maxBytes || MAX_READ_BYTES)
-                        } to read next chunk. ${formatByteSize(result.remainingBytes)} remaining.]`,
+                        `[Diff truncated at ${
+                            formatByteSize(params.maxBytes || MAX_READ_BYTES)
+                        }. Use offsetBytes=${result.nextOffsetBytes} to read next chunk. ${
+                            formatByteSize(result.remainingBytes)
+                        } remaining.]`,
                     );
                 }
                 content.push("", "```diff", result.content, "```");
@@ -449,8 +462,8 @@ export function createReviewDiffTool(diffs, options = {}) {
                 options.inspection?.record(
                     scope,
                     result.entry.path,
-                    params.offsetBytes || 0,
-                    result.entry.byteLength - result.remainingBytes,
+                    result.offsetBytes,
+                    result.nextOffsetBytes,
                 );
 
                 if (options.hostedSession) {
@@ -469,6 +482,7 @@ export function createReviewDiffTool(diffs, options = {}) {
                         path: result.entry.path,
                         truncated: result.truncated,
                         remainingBytes: result.remainingBytes,
+                        nextOffsetBytes: result.nextOffsetBytes,
                     }),
                 });
             }
@@ -535,7 +549,7 @@ export function buildDiffInspectionSection(diffText, options = {}) {
     if (options.hasRepairScope) {
         lines.push(
             '4. Add `scope: "repair"` to either command to see only what the most recent repair changed. The default' +
-                ' scope, `"full"`, is the entire workflow diff.',
+                ' scope, `"full"`, is the entire target-relative worktree diff.',
         );
     }
 

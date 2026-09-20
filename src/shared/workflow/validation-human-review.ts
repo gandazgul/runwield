@@ -15,7 +15,8 @@ import type {
     ValidationLoopArgs,
     ValidationPhaseResult,
 } from "./validation-types.ts";
-import { getDiffText, getPlanAttrs, recordLifecycleEvent } from "./validation-context.ts";
+import { getPlanAttrs, recordLifecycleEvent } from "./validation-context.ts";
+import { getWorktreeReviewDiff } from "./git-snapshot.js";
 import { emitProgress } from "./validation-emit.ts";
 import { pauseForUserAction, requestInteraction } from "./validation-interactions.ts";
 import { dispatchReviewFeedbackRepair } from "./validation-semantic.ts";
@@ -90,7 +91,9 @@ export async function runHumanReviewPhase(
         }
     }
 
-    let diffText = context.nonGitInPlace ? "" : await getDiffText(context.baselineTree, context.executionCwd);
+    let diffText = context.nonGitInPlace
+        ? ""
+        : await getWorktreeReviewDiff(context.executionCwd, context.worktreeBaseBranch || "");
     const planAttrs = getPlanAttrs(args.planContent);
     const planTitle = codeReviewPlanTitle(args.planContent, args.planName);
     const agentLabel = args.session.getAgentDisplayName(AGENTS.REVIEWER_FEEDBACK_ENGINEER, context.projectRoot);
@@ -145,7 +148,7 @@ export async function runHumanReviewPhase(
                 planContent: args.planContent,
                 planAttrs,
                 diffText,
-                baselineTree: context.baselineTree,
+                targetBranch: context.worktreeBaseBranch,
                 executionCwd: context.executionCwd,
                 guidedReview,
                 reviewConversation,
@@ -235,7 +238,7 @@ export async function runHumanReviewPhase(
                     });
                     diffText = context.nonGitInPlace
                         ? ""
-                        : await getDiffText(context.baselineTree, context.executionCwd);
+                        : await getWorktreeReviewDiff(context.executionCwd, context.worktreeBaseBranch || "");
                 }
                 return {
                     kind: "decided",
