@@ -496,7 +496,7 @@ export function buildPlanRecoveryUserMessage(request: PlanRecoveryMessageRequest
                 ? `Cleanup is done for ${request.planName}. The commits are on ${request.targetBranch}.`
                 : `Cleanup stopped for ${request.planName}. ${
                     request.details.join(" ")
-                } Your files are kept. Fix this Git issue, then load the Plan to retry.`;
+                } Your files are kept. Load the Plan to check again.`;
         case "recovery_report": {
             const parts = [request.summary];
             if (request.lastRunStopped) parts.push("The last run stopped before it was done.");

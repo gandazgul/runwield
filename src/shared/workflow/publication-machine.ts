@@ -149,11 +149,20 @@ async function publishedEvidence(
     const integrationCommit = attempt.integrationCommit;
     const targetBaseCommit = attempt.targetBaseCommit;
     if (!integrationCommit || !targetBaseCommit) return null;
-    const remote = await resolveRemoteTarget(projectRoot, attempt.targetBranch);
+    let remote = attempt.publicationMode === "local"
+        ? null
+        : await resolveRemoteTarget(projectRoot, attempt.targetBranch);
+    if (attempt.publicationMode === "remote") {
+        // Once published, changed branch configuration must not change which
+        // upstream supplies the proof, or silently fall back to local history.
+        if (!attempt.upstreamRemote || !attempt.upstreamBranch) return null;
+        const url = await git(projectRoot, ["remote", "get-url", attempt.upstreamRemote]);
+        if (url.code !== 0 || !url.stdout) return null;
+        remote = { remote: attempt.upstreamRemote, branch: attempt.upstreamBranch, url: url.stdout };
+    }
     if (!remote) {
         const target = `refs/heads/${attempt.targetBranch}`;
-        const targetHead = await git(projectRoot, ["rev-parse", target]);
-        if (targetHead.code !== 0 || targetHead.stdout !== integrationCommit) return null;
+        if (!(await gitAncestor(projectRoot, integrationCommit, target))) return null;
         return {
             targetBaseCommit,
             integrationCommit,
@@ -164,12 +173,33 @@ async function publishedEvidence(
     const remoteHead = await git(projectRoot, ["ls-remote", "--heads", remote.url, `refs/heads/${remote.branch}`]);
     if (remoteHead.code !== 0) return null;
     const head = remoteHead.stdout.split(/\s+/)[0] || "";
-    if (!head || head !== integrationCommit) return null;
+    if (!head) return null;
+    if (head !== integrationCommit) {
+        // The publication clone may already have been cleaned up. Fetch into an
+        // independent bare repository, never the user's checkout or its refs.
+        const inspectionRoot = await Deno.makeTempDir({ prefix: "runwield-publication-proof-" });
+        try {
+            if ((await git(projectRoot, ["init", "--bare", inspectionRoot])).code !== 0) return null;
+            const fetched = await git(projectRoot, [
+                "--git-dir",
+                inspectionRoot,
+                "fetch",
+                "--no-tags",
+                remote.url,
+                `refs/heads/${remote.branch}`,
+            ]);
+            if (fetched.code !== 0 || !(await gitAncestor(inspectionRoot, integrationCommit, "FETCH_HEAD"))) {
+                return null;
+            }
+        } finally {
+            await Deno.remove(inspectionRoot, { recursive: true });
+        }
+    }
     return {
         targetBaseCommit,
         integrationCommit,
         publicationMode: "remote",
-        publishedCommit: head,
+        publishedCommit: integrationCommit,
         upstreamRemote: remote.remote,
         upstreamBranch: remote.branch,
     };
@@ -361,7 +391,7 @@ export async function cleanupStoredPublication(
             attempt,
             worktreeKept,
             branchKept,
-            details: [`The target branch no longer points to ${attempt.publishedCommit || "the published commit"}.`],
+            details: [`Could not confirm that ${attempt.targetBranch} still contains the published commits.`],
         };
     }
     const details: string[] = [];

@@ -12,8 +12,13 @@ const seed = defineCommittedGitFixture({ ".gitignore": ".wld/\n", "README.md": "
 const driver = fromFileUrl(new URL("../../shared/workflow/testing/publication-process-driver.ts", import.meta.url));
 type CrashBoundary = "cleanup_effect" | "cleanup_receipt";
 type Invocation = "named" | "picker";
+type TargetChange = "unchanged" | "advanced" | "rewritten" | "upstream_reconfigured" | "remote_removed";
 
-async function checkCleanupRestart(boundary: CrashBoundary, invocation: Invocation, targetChanged = false) {
+async function checkCleanupRestart(
+    boundary: CrashBoundary,
+    invocation: Invocation,
+    targetChange: TargetChange = "unchanged",
+) {
     await withRuntimeCommandFixture("runwield-cleanup-command-", async () => {
         const root = await seed.checkout();
         const directory = await Deno.makeTempDir({ prefix: "runwield-cleanup-git-" });
@@ -75,7 +80,30 @@ async function checkCleanupRestart(boundary: CrashBoundary, invocation: Invocati
                 boundary === "cleanup_effect" ? "publication_verified" : "cleanup_complete",
             );
             assertEquals(await Deno.stat(tree).then(() => true).catch(() => false), false);
-            if (targetChanged) await git(remote, ["update-ref", "refs/heads/main", targetBefore]);
+            if (targetChange === "rewritten") await git(remote, ["update-ref", "refs/heads/main", targetBefore]);
+            if (targetChange === "advanced") {
+                // Another developer publishes after our process exits. Do not fetch into
+                // the primary checkout: recovery must observe the actual remote itself.
+                const other = join(directory, "other-developer");
+                await git(root, ["clone", "--branch", "main", remote, other]);
+                await git(other, ["config", "user.name", "Another developer"]);
+                await git(other, ["config", "user.email", "other@example.com"]);
+                await Deno.writeTextFile(join(other, "later.txt"), "Later independent change\n");
+                await git(other, ["add", "later.txt"]);
+                await git(other, ["commit", "-m", "Later independent change"]);
+                await git(other, ["push", "origin", "main"]);
+            }
+            if (targetChange === "upstream_reconfigured") {
+                await git(root, ["config", "branch.main.remote", "."]);
+                await git(root, ["config", "branch.main.merge", "refs/heads/other"]);
+            }
+            if (targetChange === "remote_removed") {
+                // Local history alone must not authorize cleanup of a remote
+                // publication whose recorded upstream can no longer be checked.
+                await git(root, ["pull", "--ff-only", "origin", "main"]);
+                await git(root, ["remote", "remove", "origin"]);
+            }
+            const primaryHead = await git(root, ["rev-parse", "HEAD"]);
             const expectedTarget = await git(remote, ["rev-parse", "refs/heads/main"]);
             const primaryPath = join(root, "docs/plans/demo.md");
             const primaryBytes = "---\nstatus: [unfinished user edit\n---\n# Keep my primary Plan\n";
@@ -112,17 +140,21 @@ async function checkCleanupRestart(boundary: CrashBoundary, invocation: Invocati
             });
 
             assertEquals(prompts, []);
-            if (targetChanged) {
+            if (targetChange === "rewritten" || targetChange === "remote_removed") {
                 assertEquals(await findById(root, "attempt-1", { migrate: false }), before);
                 assertStringIncludes(messages.join("\n"), "Cleanup stopped for demo");
-                assertStringIncludes(messages.join("\n"), "no longer points to");
+                assertStringIncludes(
+                    messages.join("\n"),
+                    "Could not confirm that main still contains the published commits",
+                );
+                assertEquals(messages.join("\n").includes("Fix this Git issue"), false);
             } else {
                 assertEquals(await findById(root, "attempt-1", { migrate: false }), null);
                 assertStringIncludes(messages.join("\n"), "Cleanup is done for demo");
             }
             assertEquals(await Deno.readTextFile(primaryPath), primaryBytes);
             assertEquals(await Deno.readTextFile(join(root, "README.md")), "Unsaved user changes\n");
-            assertEquals(await git(root, ["rev-parse", "HEAD"]), targetBefore);
+            assertEquals(await git(root, ["rev-parse", "HEAD"]), primaryHead);
             assertEquals(await git(root, ["status", "--porcelain", "--untracked-files=all"]), primaryStatus);
             assertEquals(await git(remote, ["rev-parse", "refs/heads/main"]), expectedTarget);
             if (invocation === "picker") assertEquals(editor.disableSubmit, false);
@@ -140,8 +172,17 @@ for (const invocation of ["named", "picker"] as const) {
         Deno.test(`load-plan ${invocation} resumes publication after ${boundary} without reading primary`, async () => {
             await checkCleanupRestart(boundary, invocation);
         });
+        Deno.test(`load-plan ${invocation} finishes cleanup after ${boundary} when the remote advances`, async () => {
+            await checkCleanupRestart(boundary, invocation, "advanced");
+        });
     }
     Deno.test(`load-plan ${invocation} preserves publication receipt when the target changed before cleanup`, async () => {
-        await checkCleanupRestart("cleanup_effect", invocation, true);
+        await checkCleanupRestart("cleanup_effect", invocation, "rewritten");
+    });
+    Deno.test(`load-plan ${invocation} checks the recorded upstream after branch configuration changes`, async () => {
+        await checkCleanupRestart("cleanup_effect", invocation, "upstream_reconfigured");
+    });
+    Deno.test(`load-plan ${invocation} keeps publication evidence when only local history is available`, async () => {
+        await checkCleanupRestart("cleanup_effect", invocation, "remote_removed");
     });
 }
