@@ -22,7 +22,7 @@ createdAt: "2026-09-17"
 origin: "internal"
 userVerifiedAt: null
 targetBranch: "main"
-status: "validated_reviewer"
+status: "validated"
 ---
 
 # Compare Review Diffs Directly Against the Target Branch
