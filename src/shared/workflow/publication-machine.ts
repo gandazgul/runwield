@@ -9,6 +9,7 @@
 import { join } from "@std/path";
 import { getRunWieldRuntimeDir, PLAN_STAGING_DIR_NAME } from "../../constants.js";
 import { findById, pruneEntry, updatePublication } from "../worktree-registry.js";
+import { existingPublicationSavedFiles, preserveUnregisteredPublicationFiles } from "./publication-leftover-files.ts";
 import {
     deleteMergedWorktreeBranch,
     deleteRemotelyPublishedWorktreeBranch,
@@ -356,6 +357,7 @@ export type PublicationCleanupResult = {
     worktreeKept: boolean;
     branchKept: boolean;
     details: string[];
+    preservedFiles?: string;
 };
 
 /**
@@ -368,9 +370,10 @@ export async function cleanupStoredPublication(
     initial: PublicationAttempt,
 ): Promise<PublicationCleanupResult> {
     let attempt = await reconcileStoredPublication(projectRoot, initial);
+    let preservedFiles = await existingPublicationSavedFiles(attempt.executionCwd);
     if (attempt.phase === "cleanup_complete") {
         await pruneEntry(projectRoot, attempt.attemptId);
-        return { complete: true, attempt, worktreeKept: false, branchKept: false, details: [] };
+        return { complete: true, attempt, worktreeKept: false, branchKept: false, details: [], preservedFiles };
     }
     if (attempt.phase !== "publication_verified") {
         throw new Error(`Publication cleanup requires verified publication, found ${attempt.phase}.`);
@@ -402,7 +405,10 @@ export async function cleanupStoredPublication(
             false
         );
         if (worktreeExists) {
-            await removeWorktreeGitArtifacts({ projectRoot, path: attempt.executionCwd, force: false });
+            preservedFiles = await preserveUnregisteredPublicationFiles(projectRoot, attempt.executionCwd);
+            if (!preservedFiles) {
+                await removeWorktreeGitArtifacts({ projectRoot, path: attempt.executionCwd, force: false });
+            }
         }
     } catch (error) {
         if (!(error instanceof Deno.errors.NotFound)) {
@@ -448,11 +454,11 @@ export async function cleanupStoredPublication(
         }
     });
     if (worktreeKept || branchKept || details.length > 0) {
-        return { complete: false, attempt, worktreeKept, branchKept, details };
+        return { complete: false, attempt, worktreeKept, branchKept, details, preservedFiles };
     }
     attempt = await advanceStoredPublication(projectRoot, attempt, "cleanup_complete", {
         cleanedAt: new Date().toISOString(),
     });
     await pruneEntry(projectRoot, attempt.attemptId);
-    return { complete: true, attempt, worktreeKept: false, branchKept: false, details: [] };
+    return { complete: true, attempt, worktreeKept: false, branchKept: false, details: [], preservedFiles };
 }

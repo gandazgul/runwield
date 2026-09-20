@@ -61,6 +61,7 @@ export type ValidationMessageRequest =
         targetBranch: string;
     }
     | { kind: "merge_dispatch" }
+    | { kind: "publication_files_preserved"; path: string }
     | {
         kind: "publication_blocked";
         planName: string;
@@ -245,6 +246,8 @@ export function buildValidationUserMessage(request: ValidationMessageRequest): s
                     return exhaustiveStage;
                 }
             }
+        case "publication_files_preserved":
+            return `Leftover files were saved at ${request.path}.`;
         case "publication_cleanup_incomplete": {
             const facts = request.details.map((detail) => `- ${detail}`).join("\n");
             const checks = [
@@ -397,6 +400,7 @@ export type PlanRecoveryMessageRequest =
         targetBranch: string;
         complete: boolean;
         details: string[];
+        preservedFiles?: string;
     }
     | {
         kind: "recovery_report";
@@ -491,12 +495,16 @@ export function buildPlanRecoveryUserMessage(request: PlanRecoveryMessageRequest
                 : "The saved worktree details are clear. The files were left in place.";
         case "abandon_definition_missing":
             return "The worktree is gone. No saved Plan file is left. Restore the Plan from Git or a backup, then load it again.";
-        case "publication_cleanup_resumed":
-            return request.complete
+        case "publication_cleanup_resumed": {
+            const message = request.complete
                 ? `Cleanup is done for ${request.planName}. The commits are on ${request.targetBranch}.`
                 : `Cleanup stopped for ${request.planName}. ${
                     request.details.join(" ")
                 } Your files are kept. Load the Plan to check again.`;
+            return request.preservedFiles
+                ? `${message} Leftover files were saved at ${request.preservedFiles}.`
+                : message;
+        }
         case "recovery_report": {
             const parts = [request.summary];
             if (request.lastRunStopped) parts.push("The last run stopped before it was done.");

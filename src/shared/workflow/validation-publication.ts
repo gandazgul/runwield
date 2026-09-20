@@ -490,7 +490,16 @@ async function runLockedPublicationPhase(
                 async () => await reconcileStoredPublication(context.projectRoot, publicationAttempt!),
             );
             if (publicationAttempt.phase === "cleanup_complete") {
-                await cleanupStoredPublication(context.projectRoot, publicationAttempt);
+                const cleanup = await cleanupStoredPublication(context.projectRoot, publicationAttempt);
+                if (cleanup.preservedFiles) {
+                    emitStatus(
+                        args,
+                        buildValidationUserMessage({
+                            kind: "publication_files_preserved",
+                            path: cleanup.preservedFiles,
+                        }),
+                    );
+                }
                 return {
                     recorded: true,
                     result: buildVerifiedResult(args, context.projectRoot, undefined, targetBranch),
@@ -654,6 +663,12 @@ async function runLockedPublicationPhase(
         await args.session.handoffVerifiedPublication(context.projectRoot);
         const cleanup = await cleanupStoredPublication(context.projectRoot, publicationAttempt);
         publicationAttempt = cleanup.attempt;
+        if (cleanup.preservedFiles) {
+            emitStatus(
+                args,
+                buildValidationUserMessage({ kind: "publication_files_preserved", path: cleanup.preservedFiles }),
+            );
+        }
         if (!cleanup.complete) {
             emitStatus(
                 args,

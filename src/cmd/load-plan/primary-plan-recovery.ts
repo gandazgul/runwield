@@ -33,6 +33,7 @@ export interface PublicationCleanupNotice {
     targetBranch: string;
     complete: boolean;
     details: string[];
+    preservedFiles?: string;
 }
 
 async function canonicalFilePath(path: string): Promise<string> {
@@ -114,6 +115,7 @@ export async function resumePlanPublicationCleanup(
             targetBranch: publication.targetBranch,
             complete: cleanup.complete,
             details: cleanup.details,
+            preservedFiles: cleanup.preservedFiles,
         });
     }
     return notices;
