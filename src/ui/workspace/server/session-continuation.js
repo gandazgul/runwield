@@ -1,8 +1,9 @@
 import { validateSequenceReviewDecision } from "../../../shared/workflow/sequence-review.ts";
 /* @module ui/workspace/server/session-continuation */
 
+import { mergePlanAssociations } from "../../../shared/session/plan-association.ts";
 import { appendLiveSessionEvent } from "../../../shared/session/live-session-events.ts";
-import { readLiveSessionConnection } from "../../../shared/session/live-session-connection.ts";
+import { projectLiveSessionInfo, readLiveSessionConnection } from "../../../shared/session/live-session-connection.ts";
 import { createHash } from "node:crypto";
 import { findPlanEvidenceById } from "../../../plan-store.js";
 import { getMergedCustomSetting, getSettingsManager } from "../../../shared/settings.js";
@@ -17,7 +18,7 @@ import {
 } from "../../../shared/session/user-selection.ts";
 import { normalizeBrowserNotificationPolicy } from "../../../shared/session/notification-content.ts";
 import { applySharedPlanReviewDecision } from "../../../shared/workflow/plan-review-actions.ts";
-import { getWorkflowDiff } from "../../../shared/workflow/git-snapshot.js";
+import { getWorktreeReviewDiff, WorktreeReviewTargetError } from "../../../shared/workflow/git-snapshot.js";
 import {
     createSessionRuntime,
     deriveManagedSessionContinuationDecision,
@@ -128,7 +129,6 @@ function safePlanReviewReference(request) {
 function safeCodeReviewReference(request) {
     const meta = request._meta && typeof request._meta === "object" ? request._meta : {};
     const rawPatch = typeof meta.diffText === "string" ? meta.diffText : "";
-    if (!rawPatch) return null;
     const planName = typeof meta.planName === "string" && meta.planName.trim()
         ? meta.planName.trim()
         : "Workspace changes";
@@ -252,6 +252,7 @@ async function readSessionDisplayName(paths) {
  * @property {string} projectId
  * @property {import("../../../shared/session/session-runtime-events.js").SessionRuntimeEvent[]} events
  * @property {boolean} [remote]
+ * @property {import("../../../shared/session/live-session-connection.ts").LiveSessionInfo | null} [sessionInfo]
  * @property {import("../../../shared/session/session-runtime-events.js").RuntimeQueuedMessage[]} [queuedMessages]
  * @property {string} [error]
  * @property {number | null} [generation]
@@ -284,7 +285,7 @@ export class WorkspaceSessionContinuationService {
         this.createRequests = new Map();
         /** @type {Map<string, PendingCreateRequest>} */
         this.pendingCreateRequests = new Map();
-        /** @type {Map<string, { cwd: string, baselineTree?: string }>} */
+        /** @type {Map<string, { cwd: string, targetBranch: string }>} */
         this.codeReviewRefreshContexts = new Map();
     }
 
@@ -542,8 +543,10 @@ export class WorkspaceSessionContinuationService {
         });
         if (projection.ok) {
             /** @type {import('../../../shared/session/live-session-connection.ts').LiveSessionInfo | null | undefined} */
-            let liveInfo = this.runtime.listSessions().find((item) =>
-                item.managed?.runwieldSessionId === runwieldSessionId && !item.managed.dormant
+            let liveInfo = projectLiveSessionInfo(
+                this.runtime.listSessions().find((item) =>
+                    item.managed?.runwieldSessionId === runwieldSessionId && !item.managed.dormant
+                ) || null,
             );
             if (!liveInfo && state === "active" && inspected.activation?.operationId) {
                 try {
@@ -557,8 +560,15 @@ export class WorkspaceSessionContinuationService {
             const paths = segments.length
                 ? [...segments].sort((a, b) => a.ordinal - b.ordinal).map((segment) => segment.transcriptPath)
                 : [session.transcriptPath].filter(Boolean);
+            if (liveInfo) {
+                const planAssociations = mergePlanAssociations(
+                    getCommittedTranscriptAuthorityFacts(projection).planAssociations,
+                    liveInfo.planAssociations,
+                );
+                const sessionStats = liveInfo.sessionStats || projection.snapshot.sessionStats;
+                Object.assign(projection.snapshot, liveInfo, { planAssociations, sessionStats });
+            }
             projection.snapshot.name = liveInfo?.name || await readSessionDisplayName(paths);
-            if (liveInfo?.sessionStats) projection.snapshot.sessionStats = liveInfo.sessionStats;
             projection.snapshot.contextUsage = liveInfo?.contextUsage || null;
             projection.snapshot.systemContextTokens = liveInfo?.systemContextTokens ?? null;
         }
@@ -842,10 +852,11 @@ export class WorkspaceSessionContinuationService {
         if (codeReview) {
             const meta = request._meta && typeof request._meta === "object" ? request._meta : {};
             const executionCwd = typeof meta.executionCwd === "string" ? meta.executionCwd.trim() : "";
-            if (executionCwd) {
+            const targetBranch = typeof meta.targetBranch === "string" ? meta.targetBranch.trim() : "";
+            if (executionCwd && targetBranch) {
                 this.codeReviewRefreshContexts.set(`${operationId}:${interactionId}`, {
                     cwd: executionCwd,
-                    ...(typeof meta.baselineTree === "string" && { baselineTree: meta.baselineTree }),
+                    targetBranch,
                 });
             }
         }
@@ -1558,8 +1569,9 @@ export class WorkspaceSessionContinuationService {
         let rawPatch = String(codeReview.rawPatch);
         if (refresh) {
             try {
-                rawPatch = await getWorkflowDiff(refresh.cwd, refresh.baselineTree);
-            } catch {
+                rawPatch = await getWorktreeReviewDiff(refresh.cwd, refresh.targetBranch);
+            } catch (error) {
+                if (error instanceof WorktreeReviewTargetError) throw error;
                 // Keep the last complete interaction patch while the checkout is temporarily unreadable.
             }
         }
@@ -1667,6 +1679,7 @@ export class WorkspaceSessionContinuationService {
             remote: true,
             generation,
             events: live.events,
+            sessionInfo: live.sessionInfo,
             queuedMessages: live.queuedMessages,
         });
         if (live.interaction) {
@@ -1717,12 +1730,16 @@ export class WorkspaceSessionContinuationService {
     getOperation(operationId) {
         const live = this.operations.get(operationId);
         const durable = this.store.getOperationReceipt(operationId);
+        const sessionInfo = live?.runtimeSessionId
+            ? projectLiveSessionInfo(this.runtime.getSessionSnapshot(live.runtimeSessionId))
+            : live?.sessionInfo || null;
         if (!durable) {
             if (!live) return { operationId, status: "unknown", events: [] };
             const { answer: _answer, runtimeSessionId: _runtimeSessionId, ...snapshot } = live;
             return {
                 operationId,
                 ...snapshot,
+                sessionInfo,
                 queuedMessages: live.runtimeSessionId
                     ? this.runtime.getQueuedMessages(live.runtimeSessionId)
                     : live.queuedMessages || [],
@@ -1744,6 +1761,7 @@ export class WorkspaceSessionContinuationService {
             generation: durable.resultGeneration,
             error: durable.errorMessage || durable.errorCode,
             events: live?.events || [],
+            sessionInfo,
             queuedMessages: live?.runtimeSessionId
                 ? this.runtime.getQueuedMessages(live.runtimeSessionId)
                 : live?.queuedMessages || [],

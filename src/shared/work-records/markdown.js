@@ -306,7 +306,9 @@ export function extractWorkRecordSections(body) {
     for (const title of WORK_RECORD_OPTIONAL_SECTION_TITLES) {
         if (sections[title]) optional[title] = sections[title];
     }
-    return { title, summary: sections.Summary || "", optional };
+    // Older records used Result for the same prose. Read them without rewriting
+    // their history; generated records continue to use the canonical Summary.
+    return { title, summary: sections.Summary || sections.Result || "", optional };
 }
 
 /**

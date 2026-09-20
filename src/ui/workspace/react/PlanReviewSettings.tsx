@@ -1,5 +1,6 @@
 // @ts-nocheck: Workspace React islands compile TSX, but this module uses JSDoc-style JavaScript only.
 
+import { RunWieldSegmentedControl } from "../../design-system/components/react/RunWieldSegmentedControl.tsx";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { KeyboardShortcuts } from "@plannotator/ui/components/KeyboardShortcuts.tsx";
@@ -406,7 +407,7 @@ function DisplaySettings({ gridEnabled, onGridEnabledChange, onUIPreferencesChan
                     <div className="text-sm font-medium">Plan Width</div>
                     <div className="text-xs text-muted-foreground">Maximum width of the plan card</div>
                 </div>
-                <div className="rw-segmented-toggle w-full">
+                <RunWieldSegmentedControl className="w-full">
                     {PLAN_WIDTH_OPTIONS.map((option) => (
                         <button
                             aria-pressed={uiPreferences.planWidth === option.id}
@@ -420,7 +421,7 @@ function DisplaySettings({ gridEnabled, onGridEnabledChange, onUIPreferencesChan
                             <span>{option.label}</span>
                         </button>
                     ))}
-                </div>
+                </RunWieldSegmentedControl>
                 <div className="text-[10px] text-muted-foreground/70">
                     {PLAN_WIDTH_OPTIONS.find((option) => option.id === uiPreferences.planWidth)?.hint}
                 </div>
@@ -536,7 +537,7 @@ function CodeDisplayChoice({ description, label, onChange, options, value }) {
                 <div className="text-sm font-medium">{label}</div>
                 <div className="text-xs text-muted-foreground">{description}</div>
             </div>
-            <div className="rw-segmented-toggle w-full">
+            <RunWieldSegmentedControl className="w-full">
                 {options.map((option) => (
                     <button
                         aria-pressed={value === option.value}
@@ -550,7 +551,7 @@ function CodeDisplayChoice({ description, label, onChange, options, value }) {
                         <span>{option.label}</span>
                     </button>
                 ))}
-            </div>
+            </RunWieldSegmentedControl>
         </div>
     );
 }

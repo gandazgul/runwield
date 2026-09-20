@@ -575,6 +575,7 @@ Deno.test("accepted workflow transitions replay their result even when the tool 
         );
         assertEquals(events.filter((event) => event.type === "tool_end").length, 1);
         assertEquals(events.filter((event) => event.workflowMessage === "task_completed").length, 1);
+        assertEquals(events.find((event) => event.workflowMessage === "task_completed")?.toolCallId, "completed-1");
         assertEquals(events.find((event) => event.type === "tool_end")?.isError, false);
     }
     assertEquals(createReplayEvents("session", entries.slice(0, 1)).some((event) => event.type === "tool_end"), false);

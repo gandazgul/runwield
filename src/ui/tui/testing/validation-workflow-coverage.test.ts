@@ -25,7 +25,7 @@ function fullEvidenceResult(id: ValidationWorkflowBranchId): ValidationWorkflowR
         scrollbackText: [
             `validation branch ${id}`,
             "Tests and CI passed.",
-            "Local Human Code Review approved.",
+            "Code Review approved.",
         ].join("\n"),
         events: ["project:state:captured", "human-review:captured", "runtime:tool:start:review_complete"],
         state: {

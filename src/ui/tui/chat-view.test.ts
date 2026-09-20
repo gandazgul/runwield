@@ -6,6 +6,48 @@ import { VirtualTerminal } from "./testing/virtual-terminal.js";
 import { RunWieldTui } from "./tui.ts";
 import { installTerminalFocusState } from "./terminal-focus-state.ts";
 
+Deno.test("TUI artifact shortcut opens the shared-reader picker without changing the draft", async () => {
+    const terminal = new VirtualTerminal({ columns: 150, rows: 30 });
+    const tui = new TuiAltScreen(terminal);
+    const view = await createChatView({
+        tui,
+        suppressStartupHeader: true,
+        getSessionId: () => "artifact-session",
+        sessionRuntime: {
+            getSessionSnapshot: () => ({
+                cwd: "/tmp/artifact-picker-fixture",
+                activeModel: { model: "fixture", provider: "test" },
+                managed: { generation: 0 },
+                artifacts: [{
+                    artifactId: "prd-1",
+                    kind: "prd",
+                    title: "Reader requirements",
+                    path: "docs/prd/reader.md",
+                    registeredAt: "2026-09-19T00:00:00.000Z",
+                    registeredBy: "Ideator",
+                    sourceSegmentId: "segment-1",
+                }],
+            }),
+        },
+        setActiveModel: () => Promise.resolve({ status: "active" }),
+    });
+    try {
+        tui.start();
+        view.editor.setText("Keep my draft");
+        terminal.input("\x1b]");
+        tui.renderNow(true);
+        await terminal.flush();
+        assertStringIncludes(terminal.getScreenText(), "Open artifact");
+        assertStringIncludes(terminal.getScreenText(), "Reader requirements");
+        terminal.input("\x1b");
+        await terminal.flush();
+        assertEquals(view.editor.getText(), "Keep my draft");
+    } finally {
+        view.dispose();
+        tui.stop();
+    }
+});
+
 Deno.test("chat view finds only tool groups intersecting the viewport", () => {
     const messageList = new Container();
     const firstGroup = new ToolExecutionGroupBlock();

@@ -7,6 +7,26 @@
  * reach the target branch actually did.
  */
 
+import { planDocumentMarkdown, type PlanFrontMatter } from "../../plan-store.js";
+import { isCommitPublishedToTarget } from "../isolated-publication.ts";
+import { dirname, join, resolve } from "@std/path";
+
+/** Detect Git on disk so a missing/broken Git executable cannot imply non-Git completion. */
+async function hasGitDirectory(projectRoot: string): Promise<boolean> {
+    let directory = resolve(projectRoot);
+    while (true) {
+        try {
+            await Deno.lstat(join(directory, ".git"));
+            return true;
+        } catch (error) {
+            if (!(error instanceof Deno.errors.NotFound)) throw error;
+        }
+        const parent = dirname(directory);
+        if (parent === directory) return false;
+        directory = parent;
+    }
+}
+
 /**
  * @param {string} cwd
  * @param {string[]} args
@@ -31,36 +51,59 @@ interface MergeVerificationResult {
 export interface RecordedPublicationResult {
     published: boolean;
     targetBranch?: string;
+    unavailable?: boolean;
+}
+
+interface PublicationPlanDocument {
+    planName: string;
+    markdown: string;
 }
 
 /**
  * Prove the terminal publication state that intentionally has no worktree record.
  *
  * Once Direct Delivery succeeds, RunWield removes the attempt from the worktree
- * registry. The Plan deliberately remains `validated`; its recorded execution commit
- * and target branch are the durable proof that distinguishes "published" from
- * "validated but still waiting to publish".
+ * registry. The Plan deliberately remains `validated`; its committed stamp and
+ * target branch are sufficient after all controller state has been removed.
  */
 export async function verifyRecordedPublication(
     projectRoot: string,
-    attrs: import("../../plan-store.js").PlanFrontMatter,
+    attrs: PlanFrontMatter,
+    document?: PublicationPlanDocument,
 ): Promise<RecordedPublicationResult> {
+    if (!["validated", "verified", "user_verified"].includes(attrs.status || "")) return { published: false };
+    if (!(await hasGitDirectory(projectRoot))) return { published: true };
     const evidence = attrs.deliveryEvidence;
-    if (
-        attrs.status !== "validated" || evidence?.mode !== "worktree_merge" ||
-        !evidence.executionCommit || !evidence.targetBranch
-    ) {
-        return { published: false };
+    const legacy = evidence?.mode === "worktree_merge" ? evidence : undefined;
+    const targetBranch = attrs.targetBranch || legacy?.targetBranch;
+    if (!targetBranch) return { published: false };
+    const commit = attrs.validatedCommit || legacy?.executionCommit;
+    let unavailable = false;
+    if (commit) {
+        if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/i.test(commit)) return { published: false, targetBranch };
+        try {
+            const published = await isCommitPublishedToTarget({ projectRoot, targetBranch, commit });
+            if (published || attrs.validatedCommit) return { published, targetBranch };
+        } catch {
+            // An unavailable Git remote must not crash load-plan or masquerade
+            // as successful publication. Keep the ordinary continuation available.
+            if (attrs.validatedCommit) return { published: false, targetBranch, unavailable: true };
+            unavailable = true;
+        }
     }
-    const containment = await runGitForMergeVerification(projectRoot, [
-        "merge-base",
-        "--is-ancestor",
-        evidence.executionCommit,
-        evidence.targetBranch,
-    ]);
-    return containment.exitCode === 0
-        ? { published: true, targetBranch: evidence.targetBranch }
-        : { published: false, targetBranch: evidence.targetBranch };
+    // Older published Plans predate the stamp. Exact committed document equality
+    // proves their completion without inventing evidence or rewriting the Plan.
+    if (document) {
+        const saved = await runGitForMergeVerification(projectRoot, [
+            "show",
+            `refs/heads/${targetBranch}:docs/plans/${document.planName}.md`,
+        ]).catch(() => null);
+        if (!saved) return { published: false, targetBranch, unavailable: true };
+        if (saved.exitCode === 0 && planDocumentMarkdown(saved.stdout) === planDocumentMarkdown(document.markdown)) {
+            return { published: true, targetBranch };
+        }
+    }
+    return { published: false, targetBranch, ...(unavailable ? { unavailable: true } : {}) };
 }
 
 export interface RepairedMergeCandidate {

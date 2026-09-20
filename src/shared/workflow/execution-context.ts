@@ -322,6 +322,7 @@ export async function resolveValidationExecutionContext({
                 {
                     executionMode: "non_git_in_place",
                     deliveryEvidence: null,
+                    validatedCommit: null,
                 },
                 attrs,
                 { expectedRevision: plan.revision },

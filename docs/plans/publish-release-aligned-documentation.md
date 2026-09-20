@@ -22,6 +22,11 @@ origin: "internal"
 userVerifiedAt: null
 targetBranch: "main"
 status: "validated"
+workRecord:
+    status: "generated"
+    recordId: "fd8b0c45-5d82-43dd-9714-857a6de311b5"
+    path: "docs/work-records/2026-09-20-publish-release-aligned-documentation-system.md"
+    lastAttemptAt: "2026-09-20T03:13:31.894Z"
 ---
 
 # Publish release-aligned RunWield documentation

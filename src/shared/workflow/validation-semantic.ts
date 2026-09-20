@@ -1,11 +1,11 @@
 /**
  * @module shared/workflow/validation-semantic
- * The Semantic Code Review phase: reviewer rounds with ledger convergence, repair
+ * The Semantic Review phase: reviewer rounds with ledger convergence, repair
  * dispatch, and the round-limit decision when the automatic rounds are spent.
  */
 
 import { AGENTS } from "../../constants.js";
-import { captureWorktreeTree } from "./git-snapshot.js";
+import { captureWorktreeTree, getWorkflowDiff, getWorktreeReviewDiff } from "./git-snapshot.js";
 import { buildDiffInspectionSection, createReviewDiffTool, parseDiffFiles } from "./review-diff-tool.js";
 import { ReviewInspection } from "./review-inspection.ts";
 import { logValidationFailure } from "./validation-state-errors.ts";
@@ -28,7 +28,6 @@ import type {
     ValidationPhaseResult,
 } from "./validation-types.ts";
 import {
-    getDiffText,
     hasFinalHumanReviewDecision,
     readHumanReviewMetadata,
     readSemanticRoundState,
@@ -63,7 +62,7 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
             kind: "paused",
             planName: args.planName,
             projectRoot: context.projectRoot,
-            reason: "Semantic Code Review skipped for non-Git execution.",
+            reason: "Semantic Review skipped for non-Git execution.",
             continueValidation: true,
         };
     }
@@ -86,7 +85,7 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
     const state = readSemanticRoundState(args, context);
     const round = state.semanticRound;
     const ledger = state.reviewLedger;
-    const diffText = await getDiffText(context.baselineTree, context.executionCwd);
+    const diffText = await getWorktreeReviewDiff(context.executionCwd, context.worktreeBaseBranch || "");
     if (requiresImplementationDiff(args.triageMeta) && !hasImplementationDiff(diffText, args.planName)) {
         const planOnly = Boolean(diffText.trim());
         const reason = planOnly
@@ -103,7 +102,7 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
             kind: "paused",
             planName: args.planName,
             projectRoot: context.projectRoot,
-            reason: "Semantic Code Review skipped because the diff is empty.",
+            reason: "Semantic Review skipped because the diff is empty.",
             continueValidation: true,
         };
     }
@@ -133,7 +132,7 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
                 kind: "paused",
                 planName: args.planName,
                 projectRoot: context.projectRoot,
-                reason: "Semantic Code Review round limit reached; Local Human Code Review requested.",
+                reason: "Semantic Review round limit reached; Code Review requested.",
                 continueValidation: true,
             };
         }
@@ -281,7 +280,7 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
                 kind: "paused",
                 planName: args.planName,
                 projectRoot: context.projectRoot,
-                reason: "Semantic Code Review passed.",
+                reason: "Semantic Review passed.",
                 continueValidation: true,
             };
         }
@@ -328,7 +327,7 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
             context.projectRoot,
             "semantic_review_feedback",
             "validated_ci",
-            review.outcome.feedback || "Semantic Code Review requested changes.",
+            review.outcome.feedback || "Semantic Review requested changes.",
             { validationCheckpoint: repairCheckpoint },
         );
         args.session.setActiveWorkflow({
@@ -424,7 +423,7 @@ export async function runReviewerRound(
     let latestOutcome: ValidationReviewOutcome | null = null;
     let operationalAttempt = 1;
     const repairDiffText = state.repairBaselineTree
-        ? await getDiffText(state.repairBaselineTree, context.executionCwd)
+        ? await getWorkflowDiff(context.executionCwd, state.repairBaselineTree)
         : "";
     const requiredScope = reviewMode === "discovery" ? "full" : "repair";
     const inspection = new ReviewInspection(

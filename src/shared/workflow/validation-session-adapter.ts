@@ -196,7 +196,7 @@ function readReviewerProviderFailure(messages: AgentMessage[]): ValidationOperat
         if (message.stopReason !== "error") return undefined;
         return classifyProviderFailure(
             "semantic_review",
-            "The model provider could not complete AI code review.",
+            "The model provider could not complete AI review.",
             { kind: "service_unavailable", code: "provider/turn_failed" },
         );
     }

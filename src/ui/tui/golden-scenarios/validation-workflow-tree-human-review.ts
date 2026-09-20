@@ -35,7 +35,7 @@ export const validationTreeHumanReviewAskSkipScenario = withValidationBranches(
             },
         ],
         scriptedInteractions: [
-            { type: "select", promptIncludes: "human review before merge", value: "skip" },
+            { type: "select", promptIncludes: "code review before merge", value: "skip" },
         ],
         actions: plannedChangeReviewRepairValidationScenario.actions.filter((action: { type?: string }) =>
             action.type !== "assertWorkflowDurability"
@@ -57,7 +57,7 @@ export const validationTreeHumanReviewAskOpenApproveScenario = withValidationBra
             },
         ],
         scriptedInteractions: [
-            { type: "select", promptIncludes: "human review before merge", value: "open" },
+            { type: "select", promptIncludes: "code review before merge", value: "open" },
         ],
         humanReviewDecisions: [{ approved: true, feedback: "Human approves the Golden implementation." }],
         actions: plannedChangeReviewRepairValidationScenario.actions.filter((action: { type?: string }) =>
@@ -156,7 +156,7 @@ export const validationTreeHumanReviewFeedbackRepairApproveScenario = withValida
             },
         ],
         humanReviewDecisions: [
-            { approved: false, feedback: "Human review requests one more durable note." },
+            { approved: false, feedback: "Code review requests one more durable note." },
             { approved: true, feedback: "Human approves after feedback repair." },
         ],
         script: plannedChangeReviewRepairValidationScenario.script.filter((turn: { id?: string }) =>
@@ -168,7 +168,7 @@ export const validationTreeHumanReviewFeedbackRepairApproveScenario = withValida
                 phase: "engineer",
                 ordinal: 5,
                 requiredTools: ["write"],
-                thinking: "Repair after Local Human Code Review feedback.",
+                thinking: "Repair after Code Review feedback.",
                 toolCalls: [{
                     name: "write",
                     arguments: { path: "golden-planned-change.txt", content: "golden-human-review-repaired" },
@@ -180,10 +180,10 @@ export const validationTreeHumanReviewFeedbackRepairApproveScenario = withValida
                 phase: "engineer",
                 ordinal: 6,
                 requiredTools: ["task_completed"],
-                thinking: "Report Local Human Code Review feedback repair complete.",
+                thinking: "Report Code Review feedback repair complete.",
                 toolCalls: [{
                     name: "task_completed",
-                    arguments: { message: "- Repaired Local Human Code Review feedback." },
+                    arguments: { message: "- Repaired Code Review feedback." },
                 }],
             },
         ]),

@@ -189,7 +189,7 @@ export function createReviewCompletedTool(
                     findings.length > 0 ? `${openLabel}${resolvedNote}` : "issues found"
                 }:\n${projection || "(no feedback provided)"}`;
 
-            emitReviewResultMessage(hostedSession, agentName, message, approved);
+            emitReviewResultMessage(hostedSession, agentName, message, approved, toolCallId);
             await recordWorkflowMetric({
                 category: "validation",
                 event: "review_complete",

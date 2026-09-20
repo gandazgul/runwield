@@ -162,7 +162,7 @@ Deno.test("runValidationLoop ask mode can skip human review and merge", async ()
     assertEquals(plan?.attrs.humanReviewDecision, "skipped");
 });
 
-Deno.test("runValidationLoop ask mode opens human review before merge when approved", async () => {
+Deno.test("runValidationLoop ask mode opens code review before merge when approved", async () => {
     const projectRoot = await makeValidationProjectRoot("p", {
         classification: "QUICK_FIX",
         status: "validated_reviewer",
@@ -359,10 +359,13 @@ Deno.test("Code Review chat repairs rerun CI before reopening the fresh diff", a
         baselineTree,
         worktreeId: "review-chat-worktree",
         worktreeBranch: "review-chat-branch",
+        worktreeBaseBranch: "main",
     });
 
     /** @type {string[]} */
     const patches = [];
+    /** @type {string[]} */
+    const targetBranches = [];
     /** @type {any[]} */
     const conversations = [];
     let reviewRound = 0;
@@ -370,6 +373,7 @@ Deno.test("Code Review chat repairs rerun CI before reopening the fresh diff", a
         if (request.type !== "code_review") return Promise.resolve({ outcome: "canceled" });
         reviewRound += 1;
         patches.push(String(request._meta?.diffText || ""));
+        targetBranches.push(String(request._meta?.targetBranch || ""));
         conversations.push(request._meta?.reviewConversation);
         if (reviewRound === 1) {
             return Promise.resolve({
@@ -406,6 +410,7 @@ Deno.test("Code Review chat repairs rerun CI before reopening the fresh diff", a
     });
 
     assertEquals(reviewRound, 2);
+    assertEquals(targetBranches, ["main", "main"]);
     assertStringIncludes(patches[0], "+export const label = 'first';");
     assertStringIncludes(patches[1], "+export const label = 'second';");
     assertEquals(ciRuns, 1);

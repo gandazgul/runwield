@@ -29,12 +29,12 @@ the execution owner and autonomous or Pair collaboration recommendation.
 
 ## Validation, review, and repair
 
-Workflow Validation is local CI plus semantic review. Semantic review runs in narrowing rounds, carries findings in a
+Workflow Validation is local CI plus Semantic Review. Semantic Review runs in narrowing rounds, carries findings in a
 Review Issue Ledger, and repairs findings in independent Engineer sessions. `QUICK_FIX` runs Mechanical Validation only:
-no Reviewer, no Plannotator code review, no Plan status changes, and no merge-back.
+no Reviewer, no Plannotator Code Review, no Plan status changes, and no merge-back.
 
-`codereview` controls the local human code-review gate after local validation and semantic review pass and before
-merge-back: `none` skips the gate, `ask` prompts the user, and `always` requires it.
+`codereview` controls the Code Review gate after local validation and Semantic Review pass and before merge-back: `none`
+skips the gate, `ask` prompts the user, and `always` requires it.
 
 ## Statuses users see
 
@@ -46,8 +46,8 @@ merge-back: `none` skips the gate, `ask` prompts the user, and `always` requires
 - `in_progress`: execution started.
 - `failed`: implementation did not finish; recovery may continue or reset it.
 - `implemented`: implementation finished and waits for validation or repair restart.
-- `validated_ci`: local Mechanical Validation passed; semantic review is next.
-- `validated_reviewer`: semantic review passed; human review and publication are next.
+- `validated_ci`: local Mechanical Validation passed; Semantic Review is next.
+- `validated_reviewer`: Semantic Review passed; Code Review and publication are next.
 - `validation_passed`: validation success event that moves the Plan to `verified` after required proof.
 - `verified`: RunWield Verified; Workflow Validation passed and worktree-backed work merged back.
 - `user_verified`: User Verified; the user attested acceptance without RunWield Workflow Validation proof.

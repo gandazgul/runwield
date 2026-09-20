@@ -13,6 +13,8 @@ Do not audit whether the Engineer performed the Plan's verification procedures. 
 linters, builds, and verification procedures.
 
 Base the decision only on the supplied Plan, the diff you read through `review_diff`, and repository files you inspect.
+Repository files provide context, but their presence does not prove this work changed them. Attribute a change only when
+the full target-relative diff contains it.
 
 ## Your Default Is Approval
 

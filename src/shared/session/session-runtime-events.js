@@ -67,7 +67,7 @@ export const RuntimeEventTypes = Object.freeze({
  */
 
 /**
- * @typedef {RuntimeEventBase & { type: "assistant_text_delta", delta: string, messageId: string, agentName: string, messageKind: "assistant" | "workflow" | "review_result", workflowMessage?: string, approved?: boolean }} RuntimeAssistantTextDeltaEvent
+ * @typedef {RuntimeEventBase & { type: "assistant_text_delta", delta: string, messageId: string, agentName: string, messageKind: "assistant" | "workflow" | "review_result", workflowMessage?: string, toolCallId?: string, approved?: boolean }} RuntimeAssistantTextDeltaEvent
  */
 
 /**
@@ -837,7 +837,7 @@ export function emitSystemStatus(hostedSession, message, options = {}) {
  * @param {import('./hosted-session.js').HostedSession | undefined} hostedSession
  * @param {string} agentName
  * @param {string} text
- * @param {{ messageKind?: "assistant" | "workflow" | "review_result", workflowMessage?: string, approved?: boolean }} [options]
+ * @param {{ messageKind?: "assistant" | "workflow" | "review_result", workflowMessage?: string, toolCallId?: string, approved?: boolean }} [options]
  * @returns {boolean}
  */
 export function emitAssistantMessage(hostedSession, agentName, text, options = {}) {
@@ -848,6 +848,7 @@ export function emitAssistantMessage(hostedSession, agentName, text, options = {
         agentName,
         messageKind: options.messageKind || "assistant",
         ...(options.workflowMessage ? { workflowMessage: options.workflowMessage } : {}),
+        ...(options.toolCallId ? { toolCallId: options.toolCallId } : {}),
         ...(options.approved === undefined ? {} : { approved: options.approved }),
     });
 }

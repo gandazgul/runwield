@@ -54,7 +54,7 @@ export const validationTreeSemanticRepairIncompleteScenario = withValidationBran
                 phase: "engineer",
                 ordinal: 4,
                 optional: true,
-                text: "Semantic Code Review repair stopped before task_completed.",
+                text: "Semantic Review repair stopped before task_completed.",
             },
         ],
         actions: [
@@ -115,7 +115,7 @@ export const validationTreeSemanticReviewerIncompletePauseScenario = withValidat
             { type: "type", text: "/load-plan semantic-reviewer-incomplete" },
             { type: "enter" },
             { type: "enter" },
-            { type: "waitForScreen", text: "AI code review", timeoutMs: 90000 },
+            { type: "waitForScreen", text: "AI review", timeoutMs: 90000 },
             { type: "waitForIdle", timeoutMs: 90000 },
             { type: "captureProjectState", planNames: ["semantic-reviewer-incomplete"] },
         ],
@@ -219,7 +219,7 @@ export const validationTreeSemanticProviderErrorRetryScenario = withValidationBr
             { type: "enter" },
             {
                 type: "waitForScreen",
-                text: "The model provider could not complete AI code review",
+                text: "The model provider could not complete AI review",
                 timeoutMs: 90000,
             },
             {

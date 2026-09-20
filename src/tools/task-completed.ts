@@ -389,7 +389,7 @@ export function createTaskCompletedTool(
                 report,
                 timestampMs,
             });
-            emitTaskCompletedMessage(targetHostedSession, agentName, report);
+            emitTaskCompletedMessage(targetHostedSession, agentName, report, _toolCallId);
             await recordWorkflowMetric({
                 category: "execution",
                 event: "task_completed",

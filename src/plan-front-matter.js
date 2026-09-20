@@ -47,6 +47,7 @@ export const PLAN_FRONT_MATTER_KEYS = Object.freeze({
     worktreeBaseBranch: "worktreeBaseBranch",
     worktreeBaseCommit: "worktreeBaseCommit",
     targetBranch: "targetBranch",
+    validatedCommit: "validatedCommit",
     worktreeStatus: "worktreeStatus",
     heldFromStatus: "heldFromStatus",
     heldAt: "heldAt",

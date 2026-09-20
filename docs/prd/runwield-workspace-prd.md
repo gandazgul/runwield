@@ -404,7 +404,9 @@ plus a link to the public RunWield documentation. Session context tabs occupy th
 collapse/restore control stays on that row, moving only horizontally and reversing its icon when the pane opens or
 closes. Session, Plan Review, and Code Review use the same header alignment. Their hamburger menus and sidebar controls
 share the same borderless buttons, hover treatment, and compact height at every screen width. Review and Workspace menus
-share their popup and item styling.
+share their popup and item styling. Segmented tool selectors keep a steady footprint and slide the selection highlight
+when selection changes. Labels switch immediately without width animation; reduced-motion preferences keep the highlight
+immediate.
 
 **Acceptance scenarios:**
 
@@ -427,6 +429,32 @@ share their popup and item styling.
   settings page. Settings omits duplicate Plan Board or New Session actions. Devices applies across Workspace, and the
   current browser has a compact badge beside its device name.
 - Opening the Workspace menu reveals notification permission without occupying Session or review header space.
+- On mobile, scrolling a Session or embedded review and resizing the browser viewport keeps sidebar controls in the
+  visible header; the document behind the workbench cannot scroll them offscreen.
+- At 980px or narrower, Plan Review starts with Contents and Annotations collapsed. Both can be opened and closed
+  explicitly; each fills the workbench below the header with reachable tabs and a close control. Opening one hides the
+  other. Contents/version selection returns to the document. The compact header retains title and approval, while
+  execution and annotation tools remain available from menus; View, Edit, and Changes stay visible. Resizing into this
+  range collapses both panels without preventing manual reopening.
+- The Session sidebar shows the current Agent, provider/model, and Thinking at the top, omitting the name already in the
+  header. Values follow the active Session state; a queued configuration change is not displayed as already active.
+- A Session started with Ideator and switched to Planner follows the new Plan as soon as `plan_written` attaches it,
+  without reloading or waiting for the response to finish. Live workflow and agent changes reach both local and attached
+  browsers. A newly attached Plan selects Workflow once; progress continues updating during execution and review.
+- Saved history and live events appear once in chronological order, including completion, QA, and review reports. A
+  delayed result cannot change an accepted report's time. Repair handoffs do not repeat the original user prompt.
+  Activity groups contain only consecutive completed tools and Thinking between messages or special blocks.
+- Opening Activity keeps it open as new events arrive. Its toggle opens/closes Thinking blocks, including new Thinking
+  rows while open, without changing individual tool blocks. Thinking can also be toggled independently.
+- On desktop and mobile, an unfocused composer is one compact row containing attachment, Agent/model/Thinking summary,
+  and the primary action. Focusing it reveals the full input and dropdowns; moving focus between its controls keeps it
+  open. Leaving it collapses without losing text, attachments, or queued messages.
+- While a stoppable Session is running, an empty composer shows Stop in the primary action slot. Typing text or
+  attaching an image changes it back to Send/Steer; clearing the draft returns Stop. Queue remains a separate action.
+- Plan and Code Review use shared underline tabs for their left sidebar views. Their right sidebar header contains
+  annotation/chat tabs and the collapse control in one row, with no duplicate Annotations heading. Collapsed restore
+  controls retain their existing position and behavior.
+
 - Opening and closing Session context preserves the header height and the toggle's vertical position; on phones its tabs
   replace the title on that row, while the Workspace navigation control remains reachable. The expanded pane's header
   background and vertical divider reach the top of the page, with no additional pane divider beneath its tab rail.
@@ -482,6 +510,12 @@ expose TUI-only process controls.
   no title or message does not appear.
 - Given a typed message and image attachments, when sending fails or the browser refreshes, the draft and previews
   remain available.
+- On desktop and mobile, the unfocused composer shows only Attach, the Agent/provider/model/Thinking summary and the
+  primary action. Focusing the summary expands the textarea and settings; moving focus outside collapses it without
+  losing text, images or selections. Moving between its controls keeps it expanded. Expansion and collapse animate
+  without losing the visible history position or requiring live followers to scroll down again; reduced motion is
+  respected. The primary action stops running work when the draft is empty and sends or steers when text or images are
+  present.
 - On a phone, opening the Session sidebar fills the available height below the Workspace header. Its tabs and close
   control remain reachable while scrolling; closing it restores the conversation and composer in place.
 - When Core becomes busy after a message, the live end of the conversation immediately shows the shared dots loader and
@@ -499,9 +533,12 @@ expose TUI-only process controls.
 **Requirement: Read Session artifacts comfortably on desktop and phone.**
 
 Opening an artifact gives immediate loading feedback until its document is ready. Browser waiting states use one
-consistent dots indicator, familiar from the TUI. An embedded reader uses Workspace’s title and actions, with no second
-application header. Contents starts collapsed on small screens and can be opened and closed with the same panel control
-as Plan and Code Review. The owner can return directly to the originating Session.
+consistent dots indicator, familiar from the TUI. One shared Markdown reader serves Plans, PRDs, ADRs, Work Records,
+Epic artifacts, and reports from every read-only entry point, including Ideator review prompts, Workspace/TUI Session
+artifacts, and the Plan/Work Record read commands. It replaces Workspace navigation with its own full-window logo/title
+header and one Contents header. Contents starts collapsed on small screens and uses the same panel control as Plan and
+Code Review. Workspace launches return directly to the originating Session; local launches have Close. Feedback stays in
+the owning Session interaction. TUI users can choose a registered artifact with Alt+] and open this same reader.
 
 **Acceptance scenarios:**
 
@@ -509,7 +546,12 @@ as Plan and Code Review. The owner can return directly to the originating Sessio
   document replaces it.
 - On a phone, an artifact opens with its document visible and Contents closed; the owner can open Contents, select a
   heading, and return to the document, or collapse Contents without selecting anything.
-- In Workspace, the artifact title appears once in the shared header and Back to Session returns to its conversation.
+- In Workspace, the artifact title appears once in the reader header, Workspace navigation is absent, and Back to
+  Session returns to its conversation.
+- An Ideator PRD review, a registered Session artifact, and a Plan/Work Record read command display the same reader;
+  only artifact metadata and the return/close action differ.
+- In a TUI Session, Alt+] lists registered artifacts and opens the selected artifact in that reader without changing the
+  running Agent or artifact content.
 
 <a id="65-moving-between-tui-and-phone"></a>
 
@@ -561,7 +603,16 @@ journeys.
 The owner can review, give feedback, approve for later, or approve and run the current Plan from Workspace. Opening a
 Plan or its associated Session does not give that screen permanent control of the work.
 
-Embedded Plan and Code Review use Workspace’s header for their title and actions, without a second application header.
+Plan and Code Review replace the entire Workspace shell with the full-window review layout. Each uses its own toolbar
+and Contents/Files and Annotations sidebars; the Workspace Project/Session sidebar and its restore control are absent.
+Returning to a Session restores the normal Workspace shell. The right sidebar places its Annotations/chat tabs and
+collapse control in a single header row, matching standalone reviews, with no duplicate title row. The left sidebars use
+that same underline-tab treatment for Contents/Versions and Files/Changes, with both labels visible. Read-only Plan and
+artifact views use the same full-window shell with their own logo/title header and Back to Session action. Contents has
+one header and collapse control, without a second tab row.
+
+Linked source files open with compact, consistent line spacing. Short files must not stretch their rows to fill the
+dialog; long files scroll within the reader.
 
 If a Plan changes after the owner opens it, Workspace shows the changed content before accepting an approval for the new
 version. Repeated delivery of the same click does not run the action twice. Actual failures explain what happened and
@@ -597,8 +648,13 @@ internal repair procedures.
 
 **Acceptance scenarios:**
 
+- Opening either review through a direct link or Workspace navigation shows one review toolbar and only review sidebars
+  on desktop and mobile. Read-only artifacts likewise omit Workspace navigation and show a single Contents header.
+  Returning to the Session restores Project/Session navigation.
 - Given a Plan changed since the review opened, when the owner tries to approve, the changed content is shown before the
   approval is accepted.
+- Opening a short linked source file keeps adjacent lines together at every viewport size; a longer file remains
+  scrollable without pushing the reader controls offscreen.
 - On a phone, the Plan document fits the screen with its controls and approval actions reachable. Opening or closing
   Contents or Annotations does not widen the page, and the owner can scroll to the end of the document.
 - On a phone, Code Review keeps a readable, scrollable diff below its file list. The list cannot squeeze the diff shut;

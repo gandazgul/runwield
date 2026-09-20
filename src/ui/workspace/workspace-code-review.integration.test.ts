@@ -1,6 +1,7 @@
 // @ts-nocheck: Deno test imports are checked by scripts/run-tests.js, not Astro check.
-import { assertEquals, assertFalse, assertStringIncludes } from "@std/assert";
+import { assertEquals, assertFalse, assertRejects, assertStringIncludes } from "@std/assert";
 import { WorkspaceSessionContinuationService } from "./server/session-continuation.js";
+import { getWorktreeReviewDiff } from "../../shared/workflow/git-snapshot.js";
 
 const ROUTE_PATH = new URL(
     "./pages/projects/[projectId]/sessions/[runwieldSessionId]/review/code.astro",
@@ -18,15 +19,15 @@ async function runGit(cwd: string, args: string[]): Promise<string> {
     return new TextDecoder().decode(result.stdout).trim();
 }
 
-Deno.test("live Session Code Review uses the shared review surface inside Workspace", async () => {
+Deno.test("live Session Code Review replaces the Workspace shell with the shared review surface", async () => {
     const route = await Deno.readTextFile(ROUTE_PATH);
 
-    assertStringIncludes(route, "WorkspaceLayout");
+    assertStringIncludes(route, "ReviewLayout");
     assertStringIncludes(route, "CodeReviewSurface");
-    assertStringIncludes(route, 'presentation="workspace"');
+    assertFalse(route.includes('presentation="workspace"'));
     assertStringIncludes(route, "getLiveCodeReview");
     assertStringIncludes(route, 'artifactLabel: codeReview.planTitle || codeReview.planName || "Code changes"');
-    assertFalse(route.includes("ReviewLayout"));
+    assertFalse(route.includes("WorkspaceLayout"));
 });
 
 Deno.test("Workspace Session projects code-review interactions to one stable in-situ URL", async () => {
@@ -43,6 +44,37 @@ Deno.test("Workspace Session projects code-review interactions to one stable in-
     assertStringIncludes(timeline, 'item.kind === "code-review"');
     assertStringIncludes(timeline, "Review Code");
     assertStringIncludes(server, '"/projects/:projectId/sessions/:runwieldSessionId/review/code"');
+});
+
+Deno.test("Workspace Code Review keeps an empty target-relative patch reviewable", async () => {
+    const service = new WorkspaceSessionContinuationService({ store: {} });
+    try {
+        service.operations.set("operation-empty", {
+            status: "running",
+            projectId: "project-1",
+            runwieldSessionId: "session-1",
+            events: [],
+        });
+        const interaction = service.createInteractionAdapter({ operationId: "operation-empty" }).requestInteraction({
+            id: "interaction-empty",
+            type: "code_review",
+            prompt: "Review the code changes.",
+            _meta: { diffText: "", planName: "empty-review" },
+        });
+        const liveReview = await service.getLiveCodeReview({
+            projectId: "project-1",
+            runwieldSessionId: "session-1",
+            operationId: "operation-empty",
+            interactionId: "interaction-empty",
+        });
+
+        assertEquals(liveReview?.request?.codeReview?.rawPatch, "");
+        assertStringIncludes(String(liveReview?.request?.reviewUrl), "/review/code?");
+        service.operations.get("operation-empty")?.answer?.resolve({ outcome: "canceled" });
+        await interaction;
+    } finally {
+        service.close();
+    }
 });
 
 Deno.test("Workspace Code Review live interaction keeps planTitle in its payload", async () => {
@@ -80,7 +112,7 @@ Deno.test("Workspace Code Review live interaction keeps planTitle in its payload
     }
 });
 
-Deno.test("Workspace Code Review reload reads the latest files against the original baseline", async () => {
+Deno.test("Workspace Code Review reload reads the latest target-relative worktree diff", async () => {
     const projectRoot = await Deno.makeTempDir({ prefix: "runwield-workspace-code-reload-" });
     const service = new WorkspaceSessionContinuationService({ store: {} });
     try {
@@ -90,7 +122,8 @@ Deno.test("Workspace Code Review reload reads the latest files against the origi
         await Deno.writeTextFile(`${projectRoot}/review.ts`, "export const label = 'base';\n");
         await runGit(projectRoot, ["add", "review.ts"]);
         await runGit(projectRoot, ["commit", "-m", "fixture base"]);
-        const baselineTree = await runGit(projectRoot, ["rev-parse", "HEAD"]);
+        await runGit(projectRoot, ["branch", "target"]);
+        await runGit(projectRoot, ["switch", "-c", "execution"]);
         await Deno.writeTextFile(`${projectRoot}/review.ts`, "export const label = 'first';\n");
         service.operations.set("operation-reload", {
             status: "running",
@@ -106,11 +139,15 @@ Deno.test("Workspace Code Review reload reads the latest files against the origi
                 diffText: "stale patch",
                 planName: "reload-code-review",
                 executionCwd: projectRoot,
-                baselineTree,
+                targetBranch: "target",
             },
         });
 
+        await runGit(projectRoot, ["add", "review.ts"]);
+        await runGit(projectRoot, ["commit", "-m", "advance target"]);
+        await runGit(projectRoot, ["update-ref", "refs/heads/target", "HEAD"]);
         await Deno.writeTextFile(`${projectRoot}/review.ts`, "export const label = 'second';\n");
+        const expectedPatch = await getWorktreeReviewDiff(projectRoot, "target");
         const liveReview = await service.getLiveCodeReview({
             projectId: "project-1",
             runwieldSessionId: "session-1",
@@ -118,8 +155,24 @@ Deno.test("Workspace Code Review reload reads the latest files against the origi
             interactionId: "interaction-reload",
         });
 
+        assertEquals(liveReview?.request?.codeReview?.rawPatch, expectedPatch);
+        assertStringIncludes(String(liveReview?.request?.codeReview?.rawPatch), "-export const label = 'first';");
         assertStringIncludes(String(liveReview?.request?.codeReview?.rawPatch), "+export const label = 'second';");
+        assertFalse(String(liveReview?.request?.codeReview?.rawPatch).includes("label = 'base'"));
         assertFalse(JSON.stringify(liveReview).includes(projectRoot));
+
+        await runGit(projectRoot, ["update-ref", "-d", "refs/heads/target"]);
+        await assertRejects(
+            () =>
+                service.getLiveCodeReview({
+                    projectId: "project-1",
+                    runwieldSessionId: "session-1",
+                    operationId: "operation-reload",
+                    interactionId: "interaction-reload",
+                }),
+            Error,
+            "refs/heads/target",
+        );
         service.operations.get("operation-reload")?.answer?.resolve({ outcome: "canceled" });
         await interaction;
     } finally {

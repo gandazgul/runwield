@@ -471,7 +471,7 @@ export class ValidationHandoffBlock {
             const verdict = reviewer.approved ? "approved" : "rejected";
             this.appendMarkdownSection(
                 lines,
-                `${reviewer.agentName || "Reviewer"} latest AI code review — ${verdict}${stale}`,
+                `${reviewer.agentName || "Reviewer"} latest AI review — ${verdict}${stale}`,
                 reviewer.markdown || (reviewer.approved ? "Approved." : "Rejected without detailed feedback."),
                 width,
             );

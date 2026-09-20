@@ -7,6 +7,16 @@ import { basename, dirname, join, relative, resolve } from "@std/path";
 import { WORK_RECORDS_DIR_NAME } from "../../constants.js";
 import { formatWorkRecordMarkdown, parseWorkRecordMarkdown } from "./markdown.js";
 
+export class WorkRecordReadError extends Error {
+    /** @param {string} filePath @param {string} reason */
+    constructor(filePath, reason) {
+        super(`${filePath}: ${reason}`);
+        this.name = "WorkRecordReadError";
+        this.filePath = filePath;
+        this.reason = reason;
+    }
+}
+
 /** @param {string} cwd */
 export function getWorkRecordsDir(cwd) {
     return join(cwd, WORK_RECORDS_DIR_NAME);
@@ -62,10 +72,17 @@ function relativeWorkRecordPath(cwd, filePath) {
 export async function readWorkRecord(cwd, fileName) {
     const filePath = resolveWorkRecordPath(cwd, fileName);
     const markdown = await Deno.readTextFile(filePath);
-    return parseWorkRecordMarkdown(markdown, {
-        path: filePath,
-        relativePath: relativeWorkRecordPath(cwd, filePath),
-    });
+    try {
+        return parseWorkRecordMarkdown(markdown, {
+            path: filePath,
+            relativePath: relativeWorkRecordPath(cwd, filePath),
+        });
+    } catch (error) {
+        throw new WorkRecordReadError(
+            relativeWorkRecordPath(cwd, filePath),
+            error instanceof Error ? error.message : String(error),
+        );
+    }
 }
 
 /**
@@ -87,12 +104,7 @@ export async function listWorkRecords(cwd, options = {}) {
     const records = [];
     for await (const entry of Deno.readDir(dir)) {
         if (!entry.isFile || !entry.name.endsWith(".md")) continue;
-        const filePath = join(dir, entry.name);
-        const markdown = await Deno.readTextFile(filePath);
-        records.push(parseWorkRecordMarkdown(markdown, {
-            path: filePath,
-            relativePath: relativeWorkRecordPath(cwd, filePath),
-        }));
+        records.push(await readWorkRecord(cwd, entry.name));
     }
     return records.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
 }
