@@ -4,6 +4,7 @@ import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { loadPlan, savePlan } from "../../plan-store.js";
 import { HostedSession } from "../session/hosted-session.js";
+import { readManualQaChecklistMessage } from "../session/workflow-messages.js";
 import { runManualQaChecklistPrompt } from "./validation.ts";
 
 Deno.test("Manual QA runs the bundled isolated Operator and persists its visible checklist", async () => {
@@ -42,8 +43,11 @@ Deno.test("Manual QA runs the bundled isolated Operator and persists its visible
             );
             assert(checklist && checklist.type === "custom");
             assertEquals(checklist.customType, "runwield.manual_qa_checklist");
+            const visibleChecklist = readManualQaChecklistMessage(checklist);
+            assert(visibleChecklist && typeof visibleChecklist.toolCallId === "string");
             assertEquals(checklist.data, {
                 agentName: "Operator",
+                toolCallId: visibleChecklist.toolCallId,
                 text: "Manual verification steps for settings-panel\n- [ ] Save settings and reload.",
                 name: "settings-panel",
                 classification: "PLANNED_CHANGE",
