@@ -67,7 +67,7 @@
         "react": "npm:react@^19.2.7",
         "react-dom": "npm:react-dom@^19.2.7",
         "react-dom/client": "npm:react-dom@^19.2.7/client",
-        "react-test-renderer": "npm:react-test-renderer@^19.3.0",
+        "react-test-renderer": "npm:react-test-renderer@^19.2.7",
         "@types/react": "npm:@types/react@^19.2.18",
         "@types/react-dom": "npm:@types/react-dom@^19.2.3",
         "@base-ui/react/": "npm:@base-ui/react@^1.7.0/",
