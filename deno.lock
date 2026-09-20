@@ -75,7 +75,7 @@
     "npm:@types/react@^19.2.18": "19.2.18",
     "npm:@vitejs/plugin-react@^6.0.5": "6.1.0_vite@8.2.0__esbuild@0.28.2",
     "npm:@viz-js/viz@^3.29.0": "3.29.0",
-    "npm:@xterm/headless@5.5.0": "5.5.0",
+    "npm:@xterm/headless@6.0.0": "6.0.0",
     "npm:@zag-js/dialog@^1.42.0": "1.42.0",
     "npm:@zag-js/preact@^1.43.0": "1.43.3_preact@10.29.8",
     "npm:astro@*": "7.3.2_@emnapi+core@1.11.3_@emnapi+runtime@1.11.3",
@@ -3937,8 +3937,8 @@
     "@vscode/l10n@0.0.18": {
       "integrity": "sha512-KYSIHVmslkaCDyw013pphY+d7x1qV8IZupYfeIfzNA+nsaWHbn5uPuQRvdRFsa9zFzGeudPuoGoZ1Op4jrJXIQ=="
     },
-    "@xterm/headless@5.5.0": {
-      "integrity": "sha512-5xXB7kdQlFBP82ViMJTwwEc3gKCLGKR/eoxQm4zge7GPBl86tCdI0IdPJjoKd8mUSFXz5V7i/25sfsEkP4j46g=="
+    "@xterm/headless@6.0.0": {
+      "integrity": "sha512-5Yj1QINYCyzrZtf8OFIHi47iQtI+0qYFPHmouEfG8dHNxbZ9Tb9YGSuLcsEwj9Z+OL75GJqPyJbyoFer80a2Hw=="
     },
     "@zag-js/anatomy@1.42.0": {
       "integrity": "sha512-F6kRAPxgBZRZmuV5SLywcrGNSclKcAcPAAgSrEdr2Z2dzFgQngbvS4dmdQyGau/vtQ42OlCI48Ri4t0hZxXkMw=="
@@ -7025,7 +7025,7 @@
       "npm:@types/react@^19.2.18",
       "npm:@vitejs/plugin-react@^6.0.5",
       "npm:@viz-js/viz@^3.29.0",
-      "npm:@xterm/headless@5.5.0",
+      "npm:@xterm/headless@6.0.0",
       "npm:@zag-js/dialog@^1.42.0",
       "npm:@zag-js/preact@^1.43.0",
       "npm:astro@^7.3.2",
