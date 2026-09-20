@@ -19,8 +19,10 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-09-17"
-status: "feedback"
 origin: "internal"
+userVerifiedAt: null
+status: "in_progress"
+targetBranch: "main"
 ---
 
 # Compare Review Diffs Directly Against the Target Branch
