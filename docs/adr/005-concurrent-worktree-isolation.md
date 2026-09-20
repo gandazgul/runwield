@@ -127,8 +127,13 @@ user's confirmation; normal continuation never resets unrelated primary-checkout
 
 Explicit discard clears both the execution reference and the document-location reference. Before offering another
 action, the Session reloads the surviving document in full; it must not keep the deleted document's status or revision.
-When publication is already proven, load-plan can finish interrupted cleanup from its receipt without requiring the
-deleted execution document or consulting an older primary Plan copy.
+After confirmed publication, the execution document no longer owns Plan reads. Load-plan reads the surviving project
+Plan and opens its action menu, without removing branches, moving files, or recreating a deleted execution worktree.
+Cleanup runs during publication or when the user explicitly selects removal of the published worktree and branch. That
+action uses the publication receipt and fresh Git proof, not the primary Plan's potentially older status, to authorize
+cleanup. A failed cleanup leaves the menu available and keeps the remaining files. Loading is navigation, not permission
+to move or remove files; automatic cleanup on load was rejected because it surprises the user and can prevent the
+requested menu from opening.
 
 ## Consequences
 

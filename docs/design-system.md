@@ -219,6 +219,10 @@ Session and review workbenches constrain the outer shell to `100dvh` with no doc
 sidebar, and review panes scroll. Do not retain a `100vh` minimum on their shell or navigation pane: mobile browser
 chrome can make that larger than the visible workspace and scroll header controls offscreen.
 
+Workspace and review layouts request `interactive-widget=resizes-content` in their viewport metadata. On Android Chrome,
+this lets the keyboard shrink the layout and its viewport units, keeping the composer and controls above the keyboard.
+`100dvh` alone does not respond to the keyboard with Chrome's default viewport behavior. Preserve normal browser zoom.
+
 ### Compact Plan Review
 
 At 980px and below, follow Plannotator's document-first mobile layout: both review sidebars start collapsed, a compact

@@ -118,9 +118,10 @@ to succeed**. It should not incrementally assemble the implementation solution.
 
 During codebase exploration, also look for project documentation:
 
-- If `docs/domain-language-map.md` exists at the repository root, the project has multiple contexts. Read it to identify
-  the relevant context-specific `domain-language.md` and `docs/adr/` location.
-- If only a `docs/domain-language.md` exists, treat the repository as a single-context project.
+- If `docs/domain-language-map.md` exists at the repository root, read it to identify the relevant context-specific
+  `domain-language.md` and `docs/adr/` location.
+- If only `docs/domain-language.md` exists, use it as the project glossary without inferring model boundaries from its
+  layout.
 - If neither exists, use the domain language already present in docs and code; do not create a context file during
   ideation.
 - Create `docs/adr/` lazily only when the first ADR is genuinely needed.

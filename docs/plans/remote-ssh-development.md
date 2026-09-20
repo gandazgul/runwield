@@ -25,18 +25,17 @@ status: "draft"
 
 ## Context
 
-**Continuity draft only. Not approved, complete, ready for decomposition, or proof of delivered support.** The owner
-requested this file before restarting the conversation. No production code or prototype was written. No ADR was adopted.
+**Continuity draft only. Not approved, complete, or ready for decomposition.** No production support or ADR exists. A
+throwaway prototype has now proved the narrow Pi model path; it is not proof of a working remote RunWield Session.
 
 **Resume here:** Read this draft, the [PRD](../prd/remote-ssh-prd.md), and the
-[feasibility report](../research/remote-ssh-feasibility.md). Complete the live model-path proof below before settling
-the architecture or submitting the Epic. Do not repeat the product interview or treat a working SSH tunnel as a working
-remote RunWield Session.
+[feasibility report](../research/remote-ssh-feasibility.md). Use the completed proof below to settle the architecture
+before submitting the Epic. Do not repeat the product interview or generalize the Pi result to Session persistence,
+review, setup, or disconnect cleanup.
 
-The owner chose a full Epic rather than a limited connection-only Plan. Their next instruction was: “prove the reverse
-channel thing before doing anything else.” This early document is an explicit exception to preserve context, not
-permission to skip that proof. A throwaway prototype was proposed but has not been authorized through an implementation
-handoff or created. The Architect session did source inspection and a live transport test only.
+The owner chose a full Epic rather than a limited connection-only Plan. They required the reverse channel proof before
+architecture work. That proof passed on 2026-09-20 EDT. The owner also decided that Claude CLI and Antigravity CLI can
+be deferred from the first release; they remain future compatibility targets.
 
 ### Agreed product requirements
 
@@ -63,8 +62,8 @@ wld remote sct
 - Resume saved history against the same remote project without replaying unfinished effects automatically.
 - Never copy provider credentials, private SSH keys, the whole local environment, or `~/.wld` to solve compatibility. Do
   not silently change provider, model, or billing method.
-- Claude CLI and Antigravity CLI remain compatibility targets. A limited release excluding them needs an explicit owner
-  decision. Their support is not proven by Pi support.
+- The first release can support only Pi-backed providers. Claude CLI and Antigravity CLI are explicitly deferred by
+  owner decision. Their support is not proven by Pi support and must not be advertised.
 
 The reference is [VS Code Remote SSH](https://code.visualstudio.com/docs/remote/ssh): connected work on remote files
 with little setup. Its internal design is not a requirement or proof of RunWield feasibility.
@@ -91,16 +90,16 @@ Core remains the lasting owner through its existing capabilities for
 [Plan review](../prd/runwield-core-prd.md#plan-review), and
 [execution, validation, and recovery](../prd/runwield-core-prd.md#execution-validation-and-recovery).
 
-The PRD's statement that no Epic exists and its Planner handoff predate this draft. The research report's statement that
-no live SSH test was run also predates the transport test below. Neither document is evidence that the model path works.
-Only this draft is changed in this checkpoint; reconcile those references when the architecture is ready.
+This draft, the PRD, and the feasibility report now record the completed Pi model-path proof. That proof closes the
+first feasibility question only. It is not delivery evidence for a complete remote RunWield Session.
 
 ## Objective
 
 Enable normal RunWield work on a remote-only project while the laptop remains the authority for personal data.
 
 The proposed division is below. Module names describe responsibilities, not approved classes, protocols, or file layout.
-The remote TUI and remote project execution are agreed; the local service design still needs proof and discussion.
+The remote TUI and remote project execution are agreed. The local model bridge is proven for Pi, but the production
+service boundary, authorization, and full Session integration still need design.
 
 ```mermaid
 graph TD
@@ -213,7 +212,38 @@ version on restart; these are dependency internals, not a stable RunWield API pr
 - `foreground-process.ts` can terminate process trees. This alone does not prove cleanup on SSH loss; helpers, MCP, and
   CLI subprocesses need coverage.
 
-### Live reverse-channel evidence
+### Live Pi model-path evidence
+
+**Observed on 2026-09-20 EDT, using the existing `sct` SSH alias:**
+
+- A throwaway prototype under ignored `prototypes/remote-ssh-model-proof/` installed Pi Agent Core 0.85.1 in a temporary
+  remote directory. The laptop ran `createRunWieldModelRuntime` with local `openai-codex/gpt-5.6-luna` authentication
+  and exposed only a one-run bearer-protected stream endpoint through reverse SSH.
+- The remote Pi `Agent` used `streamProxy`. It requested `read_remote_sentinel`, executed that tool remotely, sent the
+  result through a second local model request, and streamed the exact sentinel in its final reply. A different laptop
+  file at the identical path was unchanged.
+- Text deltas arrived before completion. For both model requests, proxy `.result()` content and usage matched the final
+  Agent message. The first request ended with `toolUse`; the second ended with `stop`.
+- Calling the remote Agent's abort reached the laptop endpoint and aborted the local provider stream. The remote result,
+  local terminal event, and Agent state all settled as `aborted`.
+- Killing only the reverse tunnel made the remote Agent settle with
+  `Connection closed by proxy server before the
+  response completed`; the laptop provider stream settled as `aborted`.
+  A fresh SSH connection then completed another remote tool round trip.
+- The remote shell exposed no provider-key environment variable and had no RunWield or Pi auth file at the checked
+  standard paths. The remote Agent had no direct provider stream function or fallback. Temporary files were removed on
+  both machines.
+
+**Proven:** A real Pi Agent can run remotely while authenticated model requests run locally, with streamed tool loops,
+matching terminal results, cancellation propagation, tunnel-loss settlement, machine-correct tools, and a fresh
+connection after loss.
+
+**Still not proven:** Production authorization, full RunWield Session integration, personal resources and persistence,
+browser review, bootstrap/version policy, process cleanup beyond the active model call, or durable Session resume.
+Claude CLI and Antigravity CLI are deferred and unproven. The prototype uses Pi's existing proxy representation, whose
+known option and event omissions still require production design.
+
+### Earlier reverse-channel transport evidence
 
 **Observed on 2026-09-19 EDT, using the existing `sct` SSH alias:**
 
@@ -266,9 +296,9 @@ These are evidence-based areas, not an approved implementation checklist or a co
 
 ## Verification Plan
 
-### Immediate proof required before architectural convergence
+### Completed proof used for architectural convergence
 
-A throwaway implementation must exercise the real installed Pi path, not only `curl` or fabricated model events:
+The throwaway implementation exercised the real installed Pi path, not only `curl` or fabricated model events:
 
 ```mermaid
 graph TD
@@ -279,7 +309,7 @@ graph TD
     B -->|Final streamed reply| A
 ```
 
-Evidence must show:
+The 2026-09-20 run showed:
 
 - A real provider request uses local authentication. The remote process has no provider credentials and cannot silently
   fall back to direct provider access.
@@ -288,19 +318,20 @@ Evidence must show:
   second model request and affects the reply. No local checkout is required.
 - User cancellation stops the local upstream request. Tunnel loss settles the remote call without hanging or continuing
   autonomous tool work. Check both ends; a closed fetch alone is insufficient evidence.
-- A new connection can complete a fresh request. Do not mistake this for durable Session resume, which needs separate
+- A new connection completed a fresh request. This is not durable Session resume, which still needs separate
   verification.
-- Failures and omissions are recorded honestly. A Pi proof does not close the Claude/agy compatibility question.
+- Failures and omissions are recorded honestly. The owner deferred Claude/agy; this Pi proof does not establish their
+  future compatibility.
 
-Use a trusted host, synthetic prompt/files, and a selected locally configured model. Do not transmit project contents or
-credentials just to prove transport. Temporary installation needs and provider choice remain to be settled for the
-prototype. The proof must not mutate real personal settings or Session history as test fixtures.
+The run used a trusted host, synthetic prompts/files, and a locally configured model. It did not transmit project
+contents or credentials or mutate personal settings or Session history. The ignored prototype and full local evidence
+remain under `prototypes/remote-ssh-model-proof/` for the current checkout.
 
 ### Later verification expectations
 
 These commands are future checks, not claims of current success:
 
-- `deno task doc-links:check` for tracked documentation; directly call the existing checker for this untracked draft.
+- `deno task doc-links:check` for tracked documentation.
 - `deno task seams:check` and `deno task ci` as implementation evolves.
 - Use `deno task test` or `deno run -A scripts/run-tests.js <test arguments>` for automated tests, never direct
   `deno test`. Use sandboxed HOME and memory storage. Do not add injection seams for owned workflow or storage rules.
@@ -341,10 +372,11 @@ true. Actual decomposition remains for Slicer after approval, not this draft.
 
 ### Decisions and evidence still needed
 
-1. **Full reverse model path:** First unresolved dependency. Does the real Pi Session work with local auth, complete
-   stream semantics, remote tools, cancellation, and loss? Do not finalize the API before this result.
-2. **CLI compatibility:** How can Claude/agy keep local sign-in while native tools operate remotely? Inspect native
-   tools, MCP, subprocesses, temporary resources, and CLI-owned history. A browser SSH login is not local-only auth.
+1. **Full RunWield integration:** The Pi model boundary is proven. A full Session still needs local personal resources,
+   persistence, workflow integration, and remote project identity without weakening stream or cancellation semantics.
+2. **Deferred CLI compatibility:** Claude/agy are outside the first release. Future support must inspect native tools,
+   MCP, subprocesses, temporary resources, CLI-owned history, and local sign-in. A browser SSH login is not local-only
+   auth.
 3. **Personal-service permissions:** Which operations may the remote process request? How are they tied to one
    connection, project, and active operation? A loopback listener can still be reached by other users on a shared host;
    SSH encryption alone is not application authorization.

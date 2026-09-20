@@ -431,6 +431,8 @@ immediate.
 - Opening the Workspace menu reveals notification permission without occupying Session or review header space.
 - On mobile, scrolling a Session or embedded review and resizing the browser viewport keeps sidebar controls in the
   visible header; the document behind the workbench cannot scroll them offscreen.
+- On Android Chrome, opening the keyboard shrinks the Session workbench so the focused composer and its actions remain
+  visible above the keyboard. Closing it restores the available height while retaining the draft and history position.
 - At 980px or narrower, Plan Review starts with Contents and Annotations collapsed. Both can be opened and closed
   explicitly; each fills the workbench below the header with reachable tabs and a close control. Opening one hides the
   other. Contents/version selection returns to the document. The compact header retains title and approval, while

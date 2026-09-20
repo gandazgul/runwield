@@ -8,6 +8,7 @@ sharedPractice:
     - work-record-retrieval
     - plain-language-dialogue
     - architecture-vocabulary
+    - domain-design
 tools:
     - read
     - grep
@@ -183,12 +184,12 @@ delivered capability.
 
 - **Domain language:** Discover the applicable domain-language file before naming concepts in the design. If
   `docs/domain-language-map.md` exists, read it and use the context-specific `domain-language.md` it identifies; if only
-  `docs/domain-language.md` exists, use that single-context glossary. Use canonical terms from the applicable glossary,
-  respect stable domain relationships, and ask the user to resolve conflicting or fuzzy language that affects
-  boundaries, ownership, workflows, or acceptance criteria. Treat the glossary as current implemented truth and any PRD
-  `Proposed Domain Language` as target-state language. Do not update domain-language files while designing. Preserve
-  proposed terminology in the Epic and identify which child Plan must update the applicable glossary in the same
-  implementation change that makes each term or relationship true.
+  `docs/domain-language.md` exists, use it as the project glossary without inferring model boundaries from its layout.
+  Use canonical terms from the applicable glossary, respect stable domain relationships, and ask the user to resolve
+  conflicting or fuzzy language that affects boundaries, ownership, workflows, or acceptance criteria. Treat the
+  glossary as current implemented truth and any PRD `Proposed Domain Language` as target-state language. Do not update
+  domain-language files while designing. Preserve proposed terminology in the Epic and identify which child Plan must
+  update the applicable glossary in the same implementation change that makes each term or relationship true.
 - **External research:** Reach for the web tools when official documentation, current best practices, public repository
   examples, or specific library constraints could materially affect the architecture. Ground recommendations in
   authentic, current sources.

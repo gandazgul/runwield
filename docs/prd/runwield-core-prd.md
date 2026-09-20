@@ -211,6 +211,14 @@ failure, or rollback. A metadata problem must never be blamed on the user's pros
 made since that content was opened; protecting those edits is separate from deciding whether metadata can advance.
 Actual changes to the intended work still follow normal Plan review and approval.
 
+**Requirement: Domain reasoning fits the user's project.**
+
+For changes affecting domain behavior, Architect and Planner identify relevant concepts, identities, rules, owners,
+consistency needs, and external translations using the project's language and conventions. Architect establishes the
+relationships and trade-offs; Planner carries affected rules into implementation and verification. Depth follows the
+change's needs and risk across software types and languages, without requiring an entity model, additional document, or
+prescribed architecture.
+
 **Requirement: External Markdown Plans are first-class.**
 
 A plain Markdown file in `docs/plans/` is a valid draft even without RunWield metadata. Listing, browsing, or inspecting
@@ -227,6 +235,10 @@ does not reset its lifecycle or decisions.
 - Given malformed lifecycle metadata, when recovery runs, RunWield repairs its own state rather than rejecting the
   user's prose or requiring the user to edit internal fields.
 - Given an already adopted Plan, when it is loaded again, its age, identity, and lifecycle decisions remain intact.
+- Given a change affecting domain rules, architecture and planning identify their owners and necessary consistency and
+  recovery behavior, then carry those rules into verification using the project's existing conventions.
+- Given a project without an entity model, or a change needing little domain reasoning, planning proceeds without
+  requiring a modeling artifact or imposing classes, services, or events.
 
 <a id="35-plan-lifecycle"></a>
 <a id="user-verified-plan-lifecycle-outcome"></a>
@@ -417,7 +429,7 @@ Recovery requirements:
 - Given a ready approved Plan and existing checkout edits, when execution starts, the approved work is isolated and the
   user’s edits remain preserved.
 - Given a completed Plan without controller records, loading it recognizes delivery when Git proves its validated commit
-  belongs to its target branch. A commit on an unrelated branch is not enough. A pending attempt still resumes
+  belongs to its target branch. A commit on an unrelated branch is not enough. A pending attempt offers continuation of
   publication or cleanup, rather than being treated as finished merely because validation passed.
 - Given a committed archived Plan with no active attempt, Doctor reports no publication problem merely because its
   historical target branch or pre-squash commit disappeared. An archived Plan with an unfinished attempt still receives
@@ -428,10 +440,14 @@ Recovery requirements:
   same Session and repair worktree instead of failing because storage and execution roots differ.
 - When publication succeeds, follow-up returns to the primary checkout or the parent Epic’s next action; it does not
   operate in a removed worktree.
-- Given publication succeeded and the target branch gained later commits, loading the Plan finishes interrupted cleanup
-  automatically when that branch still contains the published commits, even if temporary checkouts are already gone. It
-  does not repeat publication, alter primary-checkout edits, or ask the user to repair normal Git history. If the
-  published commits cannot be confirmed on the target, remaining files are kept.
+- Loading a Plan opens its picker or action menu. It does not remove branches, move leftover files, or resume
+  publication cleanup. After confirmed publication, leftover cleanup records do not require the execution document or
+  recreate its removed worktree. The user can view the Plan or explicitly choose to remove the published worktree and
+  branch.
+- Given publication succeeded and the target branch gained later commits, normal publication cleanup or explicitly
+  requested cleanup finishes when that branch still contains the published commits, even if temporary checkouts are
+  already gone. It does not repeat publication, alter primary-checkout edits, or ask the user to repair normal Git
+  history. If the published commits cannot be confirmed on the target, remaining files are kept.
 - Given confirmed publication and leftover checkout files whose Git registration is gone, cleanup preserves the entire
   directory in a named saved-files folder and finishes without asking the user to repair Git bookkeeping. It reports
   that folder and never discards uncommitted, untracked, or ignored files on the strength of commit history alone.
@@ -609,6 +625,11 @@ scope.
 
 **Target: concise project briefing.** Provide compressed project context where useful without flooding every prompt.
 
+**Requirement: Glossary layout does not prescribe architecture.** A project may keep one glossary covering several
+contexts or use a map linking separate glossaries where distinct terminology makes that useful. Agents discover model
+boundaries from behavior, terminology, and ownership, not file count. Separate glossaries may live with code or in
+documentation directories without requiring code reorganization.
+
 **Requirement: Keep edit failures focused.** Failed source and Markdown edits report the underlying error without
 automatically appending file contents. Agents can retrieve the relevant source separately when needed.
 
@@ -629,6 +650,8 @@ assessing change impact. Indexing technology belongs in architecture and impleme
 
 - Given an existing project, when Init completes, the project glossary and saved facts provide terminology and context
   for future work.
+- Given one glossary describing several contexts, Agents preserve their distinct meanings without assuming a single
+  model or requiring separate files. Given a glossary map, Agents follow its links regardless of code layout.
 - When an Agent needs a symbol or related prior decision, it can retrieve relevant project code or memory without
   treating operational memory as a Work Record.
 - Given an edit that fails, including in a large file, the Agent receives the error without an automatic source dump and

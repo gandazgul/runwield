@@ -44,11 +44,12 @@ The owner approved these rules for new series:
 - Existing RC series keep their current behavior. This starts with the next new series.
 - Review enforces fixes-only scope. The release command enforces source selection.
 
-The related product capability is Core [Installation and updates](../prd/runwield-core-prd.md#installation-and-updates).
-Add a named **Isolated Candidate stabilization** requirement and an acceptance scenario for continued feature work on
-`main` while a release receives fixes. Keep operational details in [release policy](../releasing.md). Preserve Candidate
-versus Stable channel behavior, package ownership, and Stable-only package publication. These additions are proposed,
-not evidence of delivery.
+The related product capability is Core
+[Installation and updates](../../prd/runwield-core-prd.md#installation-and-updates). Add a named **Isolated Candidate
+stabilization** requirement and an acceptance scenario for continued feature work on `main` while a release receives
+fixes. Keep operational details in [release policy](../../releasing.md). Preserve Candidate versus Stable channel
+behavior, package ownership, and Stable-only package publication. These additions are proposed, not evidence of
+delivery.
 
 ## Objective
 
