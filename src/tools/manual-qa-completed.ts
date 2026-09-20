@@ -28,6 +28,7 @@ export function createManualQaCompletedTool(options: ManualQaOptions) {
             }
             recordManualQaChecklistMessage(options.hostedSession.getRootSessionManager() as SessionManager | null, {
                 agentName: "Operator",
+                toolCallId,
                 text,
                 name: options.name,
                 classification: options.classification,
@@ -35,6 +36,7 @@ export function createManualQaCompletedTool(options: ManualQaOptions) {
             emitAssistantMessage(options.hostedSession, "operator", text, {
                 messageKind: "workflow",
                 workflowMessage: "manual_qa_completed",
+                toolCallId,
             });
             publishWorkflowToolEvent({
                 hostedSession: options.hostedSession,

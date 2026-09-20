@@ -901,11 +901,21 @@ Deno.test("SessionRuntime preserves a blocked semantic repair through compaction
                     expectedGeneration: 0,
                 });
                 setRuntimeModelResponseFactories([() => fauxAssistantMessage(fauxText(blockerText))]);
-                const repairResult = await runtime.executePlan(adopted.sessionId, {
+                /** @type {string[]} */
+                const repairUserMessages = [];
+                const unsubscribeRepair = runtime.subscribeSessionEvents(adopted.sessionId, (event) => {
+                    if (event.type === "user_message") repairUserMessages.push(event.text);
+                });
+                // Handoffs carry the original request as context, not as a new user turn.
+                const repairOptions = {
                     planName: "repair-follow-up",
                     planContent: planBody,
                     triageMeta: activeWorkflow.triageMeta,
-                });
+                    initialRequest: "Make a plan for this",
+                };
+                const repairResult = await runtime.executePlan(adopted.sessionId, repairOptions);
+                unsubscribeRepair();
+                assertEquals(repairUserMessages, []);
                 assertEquals(repairResult.kind, "paused");
                 const blockedSegment = store.getCurrentSessionSegment(acquired.session.runwieldSessionId);
                 if (!blockedSegment) throw new Error("Expected a blocked repair segment");

@@ -38,10 +38,14 @@ import type { ImageAttachment } from "../../shared/session/types.js";
 import type { UiAPI } from "./types.js";
 import {
     composePinnedSessionSidebar,
+    isSessionArtifactOpenKey,
     isSessionSidebarCycleKey,
     TuiSessionSidebar,
     type TuiSessionSidebarSnapshot,
 } from "./session-sidebar.ts";
+import { readSessionArtifact } from "../../shared/session/read-session-artifact.ts";
+import { SYSTEM_BROWSER_PORT } from "../../shared/browser-port.ts";
+import { startArtifactReadSurface } from "../review/review-launcher.ts";
 
 const SESSION_SIDEBAR_MIN_WIDTH = 132;
 
@@ -293,7 +297,57 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
     } else {
         tui.addChild(rootWrapper);
     }
+    const artifactReaders = new Set<Awaited<ReturnType<typeof startArtifactReadSurface>>>();
+    let selectingArtifact = false;
+    let disposed = false;
+    async function openSessionArtifact() {
+        if (selectingArtifact || activeInteractionContainer.children.length > 0) return;
+        const snapshot = options.sessionRuntime.getSessionSnapshot(options.getSessionId());
+        if (!snapshot?.artifacts?.length) return;
+        selectingArtifact = true;
+        try {
+            const artifactId = await uiAPI.promptSelect(
+                "Open artifact",
+                snapshot.artifacts.slice().reverse().map((artifact) => ({
+                    value: artifact.artifactId,
+                    label: artifact.title,
+                    description: artifact.path,
+                })),
+                { persistResult: false },
+            );
+            const artifact = snapshot.artifacts.find((item) => item.artifactId === artifactId);
+            if (!artifact || disposed) return;
+            const document = await readSessionArtifact(snapshot.cwd, artifact);
+            const surface = await startArtifactReadSurface({
+                cwd: snapshot.cwd,
+                markdown: document.markdown,
+                artifactKind: artifact.kind,
+                title: artifact.title,
+                path: artifact.path,
+                imageBaseDir: document.imageBaseDir,
+                browser: SYSTEM_BROWSER_PORT,
+            });
+            if (disposed) {
+                await surface.stop();
+                return;
+            }
+            artifactReaders.add(surface);
+            if (!surface.opened) uiAPI.appendSystemMessage(`Open artifact: ${surface.url}`);
+            void surface.waitForDecision().finally(async () => {
+                artifactReaders.delete(surface);
+                await surface.stop();
+            }).catch(() => {});
+        } catch (error) {
+            uiAPI.appendSystemMessage(error instanceof Error ? error.message : String(error), true);
+        } finally {
+            selectingArtifact = false;
+        }
+    }
     const removeSidebarKeyListener = tui.addInputListener((data) => {
+        if (isSessionArtifactOpenKey(data)) {
+            void openSessionArtifact();
+            return { consume: true };
+        }
         if (!isSessionSidebarCycleKey(data)) return undefined;
         sessionSidebar.cycleTab();
         tui.requestRender();
@@ -443,6 +497,9 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
             tui.requestRender();
         },
         dispose() {
+            disposed = true;
+            for (const surface of artifactReaders) void Promise.resolve(surface.stop()).catch(() => {});
+            artifactReaders.clear();
             removeSidebarKeyListener();
             clearInterval(clipboardPollingInterval);
             unsubscribeThemeChange();

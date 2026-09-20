@@ -684,6 +684,7 @@ export class SessionRuntime {
             activeTurnId: session.getActiveTurnId(),
             queuedMessages: this.getQueuedMessages(session.id),
             workflowContext: workflowContext ? { ...workflowContext } : null,
+            planAssociations: activeSessionInfo?.planAssociations || [],
             artifacts,
             activeExecutionWorkflow: activeExecutionWorkflow ? { ...activeExecutionWorkflow } : null,
             systemContextTokens,
@@ -1548,6 +1549,7 @@ export class SessionRuntime {
             session.id,
             {
                 name: "workflow_operation",
+                emitPromptEvents: false,
                 options: {
                     ...options,
                     expectedGeneration: managed.generation ?? undefined,

@@ -95,6 +95,7 @@ interface ArtifactReadSurfaceOptions {
     artifactKind: "plan" | "prd" | "adr" | "work-record" | "epic-artifact" | "report";
     title: string;
     path?: string;
+    imageBaseDir?: string;
     notices?: string[];
     token?: string;
     browser: BrowserPort;
@@ -375,6 +376,7 @@ export async function startArtifactReadSurface<TDecision = ReviewDecisionValue>(
     artifactKind,
     title,
     path,
+    imageBaseDir,
     notices = [],
     token = crypto.randomUUID(),
     browser,
@@ -391,6 +393,7 @@ export async function startArtifactReadSurface<TDecision = ReviewDecisionValue>(
             artifactKind,
             title,
             artifactPath: path,
+            imageBaseDir,
             notices,
         },
         reviewType: "plan",

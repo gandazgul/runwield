@@ -109,7 +109,7 @@ export function sessionSidebarFields(session: SessionSidebarProjection["session"
     return fields;
 }
 
-export function sessionArtifactKindLabel(kind: SessionArtifactReference["kind"]): string {
+export function sessionArtifactKindLabel(kind: string): string {
     switch (kind) {
         case "prd":
             return "PRD";
@@ -123,6 +123,8 @@ export function sessionArtifactKindLabel(kind: SessionArtifactReference["kind"])
             return "Plan";
         case "report":
             return "Report";
+        default:
+            return "Artifact";
     }
 }
 
