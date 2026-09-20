@@ -15,6 +15,7 @@ import { basename, dirname, isAbsolute, relative, resolve } from "@std/path";
 import { resolvePrimaryCheckoutRoot } from "../../shared/primary-checkout.ts";
 import { listEntries } from "../../shared/worktree-registry.js";
 import { cleanupStoredPublication, loadPublicationAttempt } from "../../shared/workflow/publication-machine.ts";
+import { isPublicationCleanupPending } from "../../shared/workflow/publication-attempt.ts";
 
 type ResolvedPlan = Awaited<ReturnType<typeof resolvePlan>>;
 
@@ -81,22 +82,15 @@ async function repairRetiredPlanStatus(
     };
 }
 
-/** Resume already-proven publication independently of its removed Plan directory. */
+/** Explicitly requested cleanup, independent of an already-removed Plan directory. */
 export async function resumePlanPublicationCleanup(
     projectRoot: string,
-    planArg?: string,
+    planArg: string,
 ): Promise<PublicationCleanupNotice[]> {
     const registryRoot = resolvePrimaryCheckoutRoot(projectRoot);
-    let planName: string | undefined;
-    if (planArg !== undefined) {
-        try {
-            planName = canonicalizeStoredPlanName(await normalizePlanArgument(projectRoot, planArg)).name;
-        } catch {
-            return [];
-        }
-    }
+    const planName = canonicalizeStoredPlanName(await normalizePlanArgument(projectRoot, planArg)).name;
     const entries = (await listEntries(registryRoot, { migrate: false }))
-        .filter((entry) => entry.status !== "abandoned" && (!planName || entry.planName === planName));
+        .filter((entry) => entry.status !== "abandoned" && entry.planName === planName);
     if (entries.some((entry) => entries.filter((candidate) => candidate.planName === entry.planName).length > 1)) {
         throw new Error(
             "More than one execution attempt owns this Plan. Inspect the saved worktree records before cleanup.",
@@ -104,9 +98,7 @@ export async function resumePlanPublicationCleanup(
     }
     const notices: PublicationCleanupNotice[] = [];
     for (const entry of entries) {
-        if (
-            entry.publication?.phase !== "publication_verified" && entry.publication?.phase !== "cleanup_complete"
-        ) continue;
+        if (!isPublicationCleanupPending(entry.publication)) continue;
         const publication = await loadPublicationAttempt(registryRoot, entry.id);
         if (!publication) continue;
         const cleanup = await cleanupStoredPublication(registryRoot, publication);

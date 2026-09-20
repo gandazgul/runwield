@@ -10,6 +10,7 @@ Deno.test("release prompt starts with the three release choices before policy di
     assertStringIncludes(prompt, "Create Candidate");
     assertStringIncludes(prompt, "Promote Candidate");
     assertStringIncludes(prompt, "Create Stable Directly");
+    assertStringIncludes(prompt, "agent: engineer");
     assertStringIncludes(prompt, "You are running inside the wld harness");
     assertStringIncludes(prompt, "Follow repository-specific policy first");
     assertMatch(prompt, /If no repository-specific release-note scope is\s+documented/);

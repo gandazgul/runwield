@@ -43,8 +43,8 @@ const PLANNING_DOC_AUTHORS: readonly string[] = ["planner", "architect"];
 
 /** Planning personas that compose the explanation practice on top of user authority. */
 const PLANNING_PRACTICE_CONSUMERS: ReadonlyArray<[string, readonly string[]]> = [
-    ["planner", [...PLANNING_DOC_FRAGMENTS, "plain-language-dialogue", "architecture-vocabulary"]],
-    ["architect", [...PLANNING_DOC_FRAGMENTS, "plain-language-dialogue", "architecture-vocabulary"]],
+    ["planner", [...PLANNING_DOC_FRAGMENTS, "plain-language-dialogue", "architecture-vocabulary", "domain-design"]],
+    ["architect", [...PLANNING_DOC_FRAGMENTS, "plain-language-dialogue", "architecture-vocabulary", "domain-design"]],
     ["ideator", [...PLANNING_DOC_FRAGMENTS]],
 ];
 

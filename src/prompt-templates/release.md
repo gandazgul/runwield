@@ -1,5 +1,6 @@
 ---
 description: Orchestrates a repository release by discovering its release policy, asking for the release kind, and following repository-owned automation.
+agent: engineer
 ---
 
 # Release

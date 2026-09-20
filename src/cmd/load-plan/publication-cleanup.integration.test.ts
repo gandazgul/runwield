@@ -26,6 +26,7 @@ async function checkCleanupRestart(
     boundary: CrashBoundary,
     invocation: Invocation,
     targetChange: TargetChange = "unchanged",
+    requestCleanup = true,
 ) {
     await withRuntimeCommandFixture("runwield-cleanup-command-", async () => {
         const root = await seed.checkout();
@@ -104,7 +105,12 @@ async function checkCleanupRestart(
                         "Keep previous saved files\n",
                     );
                 }
-            } else assertEquals(await Deno.stat(tree).then(() => true).catch(() => false), false);
+            } else {
+                assertEquals(
+                    await Deno.stat(tree).then(() => true).catch(() => false),
+                    boundary === "verification_receipt",
+                );
+            }
             if (targetChange === "rewritten") await git(remote, ["update-ref", "refs/heads/main", targetBefore]);
             if (targetChange === "advanced") {
                 // Another developer publishes after our process exits. Do not fetch into
@@ -131,14 +137,19 @@ async function checkCleanupRestart(
             const primaryHead = await git(root, ["rev-parse", "HEAD"]);
             const expectedTarget = await git(remote, ["rev-parse", "refs/heads/main"]);
             const primaryPath = join(root, "docs/plans/demo.md");
-            const primaryBytes = "---\nstatus: [unfinished user edit\n---\n# Keep my primary Plan\n";
+            const primaryBytes =
+                `---\nplanId: plan-1\nclassification: PLANNED_CHANGE\nstatus: validated\ntargetBranch: main\nvalidatedCommit: ${before.publication.validatedCommit}\n---\n# Keep my primary Plan\n\nUnsaved Plan notes.\n`;
             await Deno.writeTextFile(primaryPath, primaryBytes);
             await Deno.writeTextFile(join(root, "README.md"), "Unsaved user changes\n");
             const primaryStatus = await git(root, ["status", "--porcelain", "--untracked-files=all"]);
+            const sourceBranch = await git(root, ["branch", "--list", "worktree/demo"]);
+            const worktreeList = await git(root, ["worktree", "list", "--porcelain"]);
 
             const sessionId = await runtime.createPromptReadySession({ cwd: root, agentName: "router" });
             const messages: string[] = [];
             const prompts: string[] = [];
+            let cleanupSelected = false;
+            let viewed = false;
             const editor: EditorAPI = {
                 disableSubmit: true,
                 setText: () => {},
@@ -150,9 +161,24 @@ async function checkCleanupRestart(
                 appendSystemMessage: (message) => messages.push(message),
                 appendAgentMessageStart: () => ({ appendText: () => {} }),
                 requestRender: () => {},
-                promptSelect: (prompt) => {
+                promptSelect: (prompt, choices) => {
                     prompts.push(prompt);
-                    return Promise.resolve(null);
+                    if (prompt !== "Load plan:" && !cleanupSelected) assertEquals(choices[0].value, "view");
+                    const choice = prompt === "Load plan:"
+                        ? "demo"
+                        : requestCleanup && !cleanupSelected
+                        ? "cleanup"
+                        : !requestCleanup && !viewed
+                        ? "view"
+                        : "cancel";
+                    assert(choices.some((option) => option.value === choice), `Missing ${choice} in ${prompt}`);
+                    if (choice === "cleanup") {
+                        // Loading and displaying the menu must not perform cleanup first.
+                        assertEquals(messages.some((message) => message.includes("Cleanup")), false);
+                        cleanupSelected = true;
+                    }
+                    if (choice === "view") viewed = true;
+                    return Promise.resolve(choice);
                 },
                 promptText: () => Promise.resolve(null),
                 showModelSelector: () => {},
@@ -164,8 +190,40 @@ async function checkCleanupRestart(
                 editor,
             });
 
-            assertEquals(prompts, []);
-            if (targetChange === "saved_copy_exists") {
+            assertEquals(
+                prompts,
+                [
+                    ...(invocation === "picker" ? ["Load plan:"] : []),
+                    "What would you like to do?",
+                    "What would you like to do?",
+                ],
+            );
+            assertStringIncludes(messages.join("\n"), "Plan loaded: demo");
+            if (!requestCleanup) {
+                assertEquals(await findById(root, "attempt-1", { migrate: false }), before);
+                assertEquals(await git(root, ["branch", "--list", "worktree/demo"]), sourceBranch);
+                assertEquals(await git(root, ["worktree", "list", "--porcelain"]), worktreeList);
+                assertEquals(messages.some((message) => /Cleanup|restored|leftover/i.test(message)), false);
+                assertEquals(
+                    await Deno.stat(tree).then(() => true).catch(() => false),
+                    boundary === "verification_receipt",
+                );
+                if (lostRegistration) {
+                    assertEquals(
+                        await Deno.readTextFile(join(tree, "implementation.txt")),
+                        "Uncommitted work to keep\n",
+                    );
+                    assertEquals(await Deno.readTextFile(join(tree, "personal-note.txt")), "Untracked work to keep\n");
+                }
+                if (targetChange !== "saved_copy_exists") {
+                    assertEquals(await Deno.stat(`${tree}.saved`).then(() => true).catch(() => false), false);
+                } else {
+                    assertEquals(
+                        await Deno.readTextFile(join(`${tree}.saved`, "files", "previous.txt")),
+                        "Keep previous saved files\n",
+                    );
+                }
+            } else if (targetChange === "saved_copy_exists") {
                 assertEquals(await findById(root, "attempt-1", { migrate: false }), before);
                 assertEquals(await Deno.readTextFile(join(tree, "personal-note.txt")), "Untracked work to keep\n");
                 assertEquals(
@@ -201,7 +259,6 @@ async function checkCleanupRestart(
             assertEquals(await git(root, ["rev-parse", "HEAD"]), primaryHead);
             assertEquals(await git(root, ["status", "--porcelain", "--untracked-files=all"]), primaryStatus);
             assertEquals(await git(remote, ["rev-parse", "refs/heads/main"]), expectedTarget);
-            if (invocation === "picker") assertEquals(editor.disableSubmit, false);
         } finally {
             runtime.closeAllSessions();
             await git(root, ["worktree", "remove", "--force", tree]).catch(() => {});
@@ -212,30 +269,45 @@ async function checkCleanupRestart(
 }
 
 for (const invocation of ["named", "picker"] as const) {
-    Deno.test(`load-plan ${invocation} finishes published cleanup with a missing Git registration and preserves leftover files`, async () => {
+    for (const boundary of ["verification_receipt", "cleanup_effect", "cleanup_receipt"] as const) {
+        Deno.test(`load-plan ${invocation} views a published Plan without cleanup after ${boundary}`, async () => {
+            await checkCleanupRestart(boundary, invocation, "unchanged", false);
+        });
+    }
+    for (const target of ["lost_registration", "saved_copy_exists", "rewritten", "remote_removed"] as const) {
+        Deno.test(`load-plan ${invocation} opens the menu without cleanup or file movement: ${target}`, async () => {
+            await checkCleanupRestart(
+                target.startsWith("lost") || target === "saved_copy_exists" ? "verification_receipt" : "cleanup_effect",
+                invocation,
+                target,
+                false,
+            );
+        });
+    }
+    Deno.test(`load-plan ${invocation} explicitly requested cleanup preserves leftover files with a missing Git registration`, async () => {
         await checkCleanupRestart("verification_receipt", invocation, "lost_registration");
     });
-    Deno.test(`load-plan ${invocation} preserves leftover files when both registration and branch are gone`, async () => {
+    Deno.test(`load-plan ${invocation} requested cleanup preserves files when registration and branch are gone`, async () => {
         await checkCleanupRestart("verification_receipt", invocation, "lost_registration_branch_gone");
     });
-    Deno.test(`load-plan ${invocation} never overwrites a saved copy during leftover recovery`, async () => {
+    Deno.test(`load-plan ${invocation} requested cleanup never overwrites a saved copy`, async () => {
         await checkCleanupRestart("verification_receipt", invocation, "saved_copy_exists");
     });
     for (const boundary of ["cleanup_effect", "cleanup_receipt"] as const) {
-        Deno.test(`load-plan ${invocation} resumes publication after ${boundary} without reading primary`, async () => {
+        Deno.test(`load-plan ${invocation} requested cleanup after ${boundary} returns to the menu without overwriting primary`, async () => {
             await checkCleanupRestart(boundary, invocation);
         });
-        Deno.test(`load-plan ${invocation} finishes cleanup after ${boundary} when the remote advances`, async () => {
+        Deno.test(`load-plan ${invocation} requested cleanup after ${boundary} accepts remote advancement`, async () => {
             await checkCleanupRestart(boundary, invocation, "advanced");
         });
     }
-    Deno.test(`load-plan ${invocation} preserves publication receipt when the target changed before cleanup`, async () => {
+    Deno.test(`load-plan ${invocation} requested cleanup preserves the receipt when the target was rewritten`, async () => {
         await checkCleanupRestart("cleanup_effect", invocation, "rewritten");
     });
-    Deno.test(`load-plan ${invocation} checks the recorded upstream after branch configuration changes`, async () => {
+    Deno.test(`load-plan ${invocation} requested cleanup checks the recorded upstream after configuration changes`, async () => {
         await checkCleanupRestart("cleanup_effect", invocation, "upstream_reconfigured");
     });
-    Deno.test(`load-plan ${invocation} keeps publication evidence when only local history is available`, async () => {
+    Deno.test(`load-plan ${invocation} requested cleanup keeps publication evidence when only local history is available`, async () => {
         await checkCleanupRestart("cleanup_effect", invocation, "remote_removed");
     });
 }
