@@ -9,6 +9,14 @@ interface RecordedCall {
     cwd: string;
 }
 
+interface ToolResultStatus {
+    isError?: boolean;
+}
+
+function toolFailed(result: Awaited<ReturnType<typeof executeTool>>): boolean {
+    return (result as ToolResultStatus).isError === true;
+}
+
 function setup(
     execImpl: (
         command: string,
@@ -68,6 +76,7 @@ Deno.test("Cymbal failures strip Usage tail and return text", async () => {
     const result = await executeTool(getTool("code_refs"), { symbol: "Thing" });
 
     assertEquals(firstText(result), "Error (exit 2): bad args");
+    assertEquals(toolFailed(result), true);
 });
 
 Deno.test("empty Cymbal output returns no results text", async () => {
@@ -76,6 +85,7 @@ Deno.test("empty Cymbal output returns no results text", async () => {
     const result = await executeTool(getTool("code_outline"), { file: "src/a.ts" });
 
     assertEquals(firstText(result), "No results found.");
+    assertEquals(toolFailed(result), false);
 });
 
 Deno.test("code_batch validates operations and limits batch size", async () => {
@@ -100,7 +110,7 @@ Deno.test("code_batch validates operations and limits batch size", async () => {
     assertMatch(firstText(malformed), /target must be/);
 });
 
-Deno.test("code_batch numbers sections and truncates after the output limit", async () => {
+Deno.test("code_batch limits a large first result without hiding later results", async () => {
     const longText = "x".repeat(MAX_CODE_BATCH_OUTPUT_CHARS + 10);
     const { getTool } = setup((_command, args) => ({
         code: 0,
@@ -114,8 +124,18 @@ Deno.test("code_batch numbers sections and truncates after the output limit", as
     const text = firstText(result);
 
     assert(text.startsWith("## 1. show big"));
-    assertMatch(text, /code_batch output truncated at 50000 characters/);
-    assertEquals(result.details, { operationCount: 2, truncated: true });
+    assertMatch(text, /Result truncated/);
+    assertMatch(text, /## 2\. outline small.ts\nStatus: success\n\nsmall/);
+    assert(text.length <= MAX_CODE_BATCH_OUTPUT_CHARS);
+    assertEquals(result.details, {
+        operationCount: 2,
+        truncated: true,
+        results: [
+            { operation: { op: "show", target: "big" }, status: "success", truncated: true },
+            { operation: { op: "outline", file: "small.ts" }, status: "success", truncated: false },
+        ],
+    });
+    assertEquals(toolFailed(result), false);
 });
 
 Deno.test("code_batch groups interleaved reads into one native call per kind and restores order", async () => {
@@ -152,12 +172,23 @@ Deno.test("code_batch groups interleaved reads into one native call per kind and
     ]);
     const sections = firstText(result).split("\n\n---\n\n");
     assertEquals(sections.length, 5);
-    assertMatch(sections[0], /## 1\. show Alpha\n\nfile: \/repo\/a.ts\n1: export function Alpha/);
-    assertMatch(sections[1], /## 2\. outline a.ts\n\nfunction Alpha \(L1-3\)/);
-    assertMatch(sections[2], /## 3\. show Beta\n\nfile: \/repo\/b.ts\n4: export function Beta/);
-    assertMatch(sections[3], /## 4\. outline b.ts\n\nNo results found\./);
-    assertMatch(sections[4], /## 5\. show Missing\n\nError: symbol not found: Missing/);
-    assertEquals(result.details, { operationCount: 5, truncated: false });
+    assertMatch(sections[0], /## 1\. show Alpha\nStatus: success\n\nfile: \/repo\/a.ts\n1: export function Alpha/);
+    assertMatch(sections[1], /## 2\. outline a.ts\nStatus: success\n\nfunction Alpha \(L1-3\)/);
+    assertMatch(sections[2], /## 3\. show Beta\nStatus: success\n\nfile: \/repo\/b.ts\n4: export function Beta/);
+    assertMatch(sections[3], /## 4\. outline b.ts\nStatus: success\n\nNo results found\./);
+    assertMatch(sections[4], /## 5\. show Missing\nStatus: error\n\nError: symbol not found: Missing/);
+    assertEquals(toolFailed(result), false);
+    assertEquals(result.details, {
+        operationCount: 5,
+        truncated: false,
+        results: [
+            { operation: { op: "show", target: "Alpha" }, status: "success", truncated: false },
+            { operation: { op: "outline", file: "a.ts" }, status: "success", truncated: false },
+            { operation: { op: "show", target: "Beta" }, status: "success", truncated: false },
+            { operation: { op: "outline", file: "b.ts" }, status: "success", truncated: false },
+            { operation: { op: "show", target: "Missing" }, status: "error", truncated: false },
+        ],
+    });
 });
 
 Deno.test("code_batch reads duplicate targets once while retaining every requested section", async () => {
@@ -168,7 +199,14 @@ Deno.test("code_batch reads duplicate targets once while retaining every request
     assertEquals(calls.map((call) => call.args), [["--no-federate", "show", "Alpha"]]);
     assertMatch(firstText(result), /## 1\. show Alpha/);
     assertMatch(firstText(result), /## 2\. show Alpha/);
-    assertEquals(result.details, { operationCount: 2, truncated: false });
+    assertEquals(result.details, {
+        operationCount: 2,
+        truncated: false,
+        results: [
+            { operation: { op: "show", target: "Alpha" }, status: "success", truncated: false },
+            { operation: { op: "show", target: "Alpha" }, status: "success", truncated: false },
+        ],
+    });
 });
 
 Deno.test("code_batch keeps ambiguous symbol alternatives visible", async () => {
@@ -234,11 +272,74 @@ Deno.test("code_batch reports invalid JSON or command failures without per-targe
             operations: [{ op: "show", target: "Alpha" }, { op: "show", target: "Beta" }],
         });
         assertEquals(calls.length, 1);
+        assertEquals(toolFailed(result), true);
         const sections = firstText(result).split("\n\n---\n\n");
         for (const section of sections) {
             assertMatch(section, response.code === 0 ? /invalid batch JSON/ : /Error \(exit 2\): index unavailable/);
         }
     }
+});
+
+Deno.test("code_batch bounds every result including large errors and preserves the final item", async () => {
+    const { getTool } = setup(() => ({
+        code: 0,
+        stdout: JSON.stringify({
+            results: {
+                Large: { file: "large.ts", lines: [{ line: 1, content: "x".repeat(60_000) }] },
+                Bad: { error: "Failure ".repeat(10_000) },
+                Last: { file: "last.ts", lines: [{ line: 1, content: "final result" }] },
+            },
+        }),
+        stderr: "",
+    }));
+    const result = await executeTool(getTool("code_batch"), {
+        operations: [{ op: "show", target: "Large" }, { op: "show", target: "Bad" }, { op: "show", target: "Last" }],
+    });
+    const text = firstText(result);
+    assert(text.length <= MAX_CODE_BATCH_OUTPUT_CHARS);
+    const sections = text.split("\n\n---\n\n");
+    assertEquals(sections.length, 3);
+    assertMatch(sections[0], /Status: success[\s\S]*Result truncated/);
+    assertMatch(sections[1], /Status: error[\s\S]*Result truncated/);
+    assertMatch(sections[2], /Status: success[\s\S]*final result/);
+    assertEquals(toolFailed(result), false);
+});
+
+Deno.test("code_batch marks all native target failures as a failed tool call", async () => {
+    const { getTool } = setup(() => ({
+        code: 0,
+        stdout: JSON.stringify({ results: { A: { error: "missing A" }, B: { error: "missing B" } } }),
+        stderr: "",
+    }));
+    const result = await executeTool(getTool("code_batch"), {
+        operations: [{ op: "show", target: "A" }, { op: "show", target: "B" }],
+    });
+    assertEquals(toolFailed(result), true);
+    assertEquals(firstText(result).match(/Status: error/g)?.length, 2);
+});
+
+Deno.test("code_batch marks a failed single target as a failed tool call", async () => {
+    const { getTool } = setup(() => ({ code: 1, stdout: "", stderr: "missing A" }));
+    const result = await executeTool(getTool("code_batch"), { operations: [{ op: "show", target: "A" }] });
+    assertEquals(toolFailed(result), true);
+    assertMatch(firstText(result), /Status: error/);
+});
+
+Deno.test("successful source beginning with Error is not mistaken for a tool failure", async () => {
+    const { getTool } = setup(() => ({ code: 0, stdout: "Error is a source identifier", stderr: "" }));
+    assertEquals(toolFailed(await executeTool(getTool("code_show"), { target: "A" })), false);
+    const result = await executeTool(getTool("code_batch"), { operations: [{ op: "show", target: "A" }] });
+    assertEquals(toolFailed(result), false);
+    assertMatch(firstText(result), /Status: success/);
+});
+
+Deno.test("Cymbal process exceptions mark tool calls as failed", async () => {
+    const { getTool } = setup(() => {
+        throw new Error("missing executable");
+    });
+    const result = await executeTool(getTool("code_show"), { target: "A" });
+    assertEquals(toolFailed(result), true);
+    assertMatch(firstText(result), /missing executable/);
 });
 
 Deno.test("code_batch stops before the next group after cancellation", async () => {
