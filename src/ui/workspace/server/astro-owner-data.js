@@ -9,7 +9,7 @@ import {
 import { currentWorkspaceCwd } from "./cwd.js";
 import { listOwnerProjects, requireOwnerProjectRoot, sessionBelongsToOwnerProject } from "./owner-projects.js";
 import { loadCanonicalBoard, loadCanonicalWorkspaceDetail } from "./astro-canonical-data.js";
-import { dirname, relative, resolve, sep as SEPARATOR } from "node:path";
+import { readSessionArtifact } from "../../../shared/session/read-session-artifact.ts";
 
 const BUNDLED_PLAN_ADAPTER_KEY = Symbol.for("runwield.workspace.plan-adapter-module");
 // Production needs the bundled adapter; dev uses the canonical loader's native
@@ -97,15 +97,5 @@ export async function loadOwnerSessionArtifact(projectId, runwieldSessionId, art
             (candidate) => candidate.artifactId === artifactId,
         );
     if (!artifact) throw new Error("Session artifact not found.");
-    const canonicalRoot = await Deno.realPath(root);
-    const absolutePath = await Deno.realPath(resolve(canonicalRoot, artifact.path));
-    const artifactRelativePath = relative(canonicalRoot, absolutePath);
-    if (!artifactRelativePath || artifactRelativePath === ".." || artifactRelativePath.startsWith(`..${SEPARATOR}`)) {
-        throw new Error("Session artifact is outside its Project.");
-    }
-    return {
-        ...artifact,
-        markdown: await Deno.readTextFile(absolutePath),
-        imageBaseDir: dirname(absolutePath),
-    };
+    return await readSessionArtifact(root, artifact);
 }

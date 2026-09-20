@@ -13,7 +13,7 @@ import { useConfigValue } from "@plannotator/ui/config/index.ts";
 import { extractFrontmatter, parseMarkdownToBlocks } from "@plannotator/ui/utils/parser.ts";
 import { getUIPreferences, PLAN_WIDTH_OPTIONS } from "@plannotator/ui/utils/uiPreferences.ts";
 import { RunWieldPanelToggle, RunWieldThinkingDots } from "../../design-system/components/react/RunWieldPrimitives.jsx";
-import { WorkspaceHeaderActionsPortal } from "./WorkspaceHeaderActionsPortal.tsx";
+import { sessionArtifactKindLabel } from "../../../shared/session/session-sidebar.ts";
 import "./plannotator.css";
 
 const DEFAULT_READ_PAYLOAD = {
@@ -26,15 +26,6 @@ const DEFAULT_READ_PAYLOAD = {
     notices: [],
 };
 
-const ARTIFACT_LABELS = {
-    plan: "Plan",
-    prd: "PRD",
-    adr: "ADR",
-    "work-record": "Work Record",
-    "epic-artifact": "Epic Artifact",
-    report: "Report",
-};
-
 function workspaceNavigate(href) {
     const event = new CustomEvent("runwield:workspace-navigate", {
         cancelable: true,
@@ -43,16 +34,14 @@ function workspaceNavigate(href) {
     if (document.dispatchEvent(event)) globalThis.location.assign(href);
 }
 
-export function ArtifactReadSurface({ payload, presentation = "standalone" }) {
+export function ArtifactReadSurface({ payload }) {
     usePrintMode();
     const initialPayload = useMemo(() => payload || readEmbeddedPayload("review-payload") || DEFAULT_READ_PAYLOAD, [
         payload,
     ]);
     const markdown = initialPayload.markdown || initialPayload.plan || "";
-    const artifactKind = Object.hasOwn(ARTIFACT_LABELS, initialPayload.artifactKind)
-        ? initialPayload.artifactKind
-        : "report";
-    const artifactLabel = ARTIFACT_LABELS[artifactKind];
+    const artifactKind = initialPayload.artifactKind || "report";
+    const artifactLabel = sessionArtifactKindLabel(artifactKind);
     const title = initialPayload.title || `Untitled ${artifactLabel}`;
     const notices = Array.isArray(initialPayload.notices) ? initialPayload.notices.filter(Boolean) : [];
     const [activeSection, setActiveSection] = useState(null);
@@ -88,7 +77,7 @@ export function ArtifactReadSurface({ payload, presentation = "standalone" }) {
 
     async function closeReadSurface() {
         if (closing || closed) return;
-        if (presentation === "workspace" && initialPayload.returnHref) {
+        if (initialPayload.returnHref) {
             workspaceNavigate(initialPayload.returnHref);
             return;
         }
@@ -131,7 +120,7 @@ export function ArtifactReadSurface({ payload, presentation = "standalone" }) {
             onClick={closeReadSurface}
             disabled={closing || closed}
         >
-            {presentation === "workspace"
+            {initialPayload.returnHref
                 ? "Back to Session"
                 : closing
                 ? <RunWieldThinkingDots label="Closing" />
@@ -150,41 +139,32 @@ export function ArtifactReadSurface({ payload, presentation = "standalone" }) {
         >
             <TooltipProvider>
                 <div
-                    className={`rw-plannotator-host rw-plan-review rw-artifact-read ${
-                        presentation === "workspace" ? "rw-review-embedded" : ""
-                    }`}
+                    className="rw-plannotator-host rw-plan-review rw-artifact-read"
                     data-artifact-kind={artifactKind}
                 >
-                    {presentation === "workspace"
-                        ? <WorkspaceHeaderActionsPortal>{closeAction}</WorkspaceHeaderActionsPortal>
-                        : (
-                            <header className="rw-plannotator-toolbar">
-                                <div className="rw-plan-review-heading rw-artifact-read-heading">
-                                    <img src="/brand/logo.svg" alt="" aria-hidden="true" />
-                                    <div className="rw-artifact-read-title-block">
-                                        <h1>{title}</h1>
-                                        {initialPayload.artifactPath && (
-                                            <p className="rw-artifact-path">{initialPayload.artifactPath}</p>
-                                        )}
-                                    </div>
-                                </div>
-                                <div className="rw-plannotator-actions">{closeAction}</div>
-                            </header>
-                        )}
-                    <div className="rw-artifact-document-toolbar">
-                        <RunWieldPanelToggle
-                            side="left"
-                            collapsed={!sidebarOpen}
-                            label="Contents"
-                            controls="artifact-contents"
-                            onClick={() => animateSidebarUpdate(() => setSidebarOpen((open) => !open))}
-                        />
-                        <span>Contents</span>
-                        {presentation === "workspace" && initialPayload.artifactPath && (
-                            <span className="rw-artifact-path" title={initialPayload.artifactPath}>
-                                {initialPayload.artifactPath}
-                            </span>
-                        )}
+                    <header className="rw-plannotator-toolbar">
+                        <div className="rw-plan-review-heading rw-artifact-read-heading">
+                            <img src="/brand/logo.svg" alt="" aria-hidden="true" />
+                            <div className="rw-artifact-read-title-block">
+                                <h1>{title}</h1>
+                                {initialPayload.artifactPath && (
+                                    <p className="rw-artifact-path">{initialPayload.artifactPath}</p>
+                                )}
+                            </div>
+                        </div>
+                        <div className="rw-plannotator-actions">{closeAction}</div>
+                    </header>
+                    <div className="rw-artifact-document-toolbar" data-sidebar-open={sidebarOpen}>
+                        <div className="rw-artifact-contents-heading">
+                            {sidebarOpen && <span>Contents</span>}
+                            <RunWieldPanelToggle
+                                side="left"
+                                collapsed={!sidebarOpen}
+                                label="Contents"
+                                controls="artifact-contents"
+                                onClick={() => animateSidebarUpdate(() => setSidebarOpen((open) => !open))}
+                            />
+                        </div>
                     </div>
                     {error && <p className="rw-review-error" role="alert">{error}</p>}
                     {closed && closeBlocked && (
@@ -269,6 +249,7 @@ export function ArtifactReadSurface({ payload, presentation = "standalone" }) {
                                                 inputMethod="drag"
                                                 taterMode={false}
                                                 stickyActions={false}
+                                                copyLabel="Copy Markdown"
                                                 gridEnabled={gridEnabled}
                                                 maxWidth={planMaxWidth}
                                                 imageBaseDir={initialPayload.imageBaseDir}

@@ -13,8 +13,8 @@ Deno.test("stable Plan page switches from live review to settled detail", async 
     assertStringIncludes(route, "getLivePlanReview");
     assertFalse(route.includes("const liveReview = Boolean(runwieldSessionId && operationId && interactionId)"));
     assertStringIncludes(route, "WorkspaceLayout");
-    assertStringIncludes(route, 'presentation="workspace"');
-    assertFalse(route.includes("ReviewLayout"));
+    assertStringIncludes(route, "const Layout = reviewPayload ? ReviewLayout : WorkspaceLayout");
+    assertFalse(route.includes('presentation="workspace"'));
 });
 
 Deno.test("Workspace Plan review returns Feedback to the same live Core interaction", async () => {

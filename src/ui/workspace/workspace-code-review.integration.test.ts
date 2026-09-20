@@ -18,15 +18,15 @@ async function runGit(cwd: string, args: string[]): Promise<string> {
     return new TextDecoder().decode(result.stdout).trim();
 }
 
-Deno.test("live Session Code Review uses the shared review surface inside Workspace", async () => {
+Deno.test("live Session Code Review replaces the Workspace shell with the shared review surface", async () => {
     const route = await Deno.readTextFile(ROUTE_PATH);
 
-    assertStringIncludes(route, "WorkspaceLayout");
+    assertStringIncludes(route, "ReviewLayout");
     assertStringIncludes(route, "CodeReviewSurface");
-    assertStringIncludes(route, 'presentation="workspace"');
+    assertFalse(route.includes('presentation="workspace"'));
     assertStringIncludes(route, "getLiveCodeReview");
     assertStringIncludes(route, 'artifactLabel: codeReview.planTitle || codeReview.planName || "Code changes"');
-    assertFalse(route.includes("ReviewLayout"));
+    assertFalse(route.includes("WorkspaceLayout"));
 });
 
 Deno.test("Workspace Session projects code-review interactions to one stable in-situ URL", async () => {

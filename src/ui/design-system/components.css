@@ -186,6 +186,8 @@
 }
 
 .rw-segmented-toggle {
+    position: relative;
+    isolation: isolate;
     display: inline-flex;
     gap: 0.25rem;
     border: 1px solid color-mix(in srgb, var(--rw-border) 75%, transparent);
@@ -195,6 +197,9 @@
 }
 
 .rw-segmented-toggle button {
+    position: relative;
+    z-index: 1;
+    flex-shrink: 0;
     display: inline-flex;
     width: 1.75rem !important;
     min-width: 0;
@@ -212,13 +217,17 @@
     font-weight: 600;
     line-height: 1;
     white-space: nowrap;
-    transition: border-color 150ms ease, background-color 150ms ease, color 150ms ease;
+    transition:
+        border-color var(--rw-control-motion-duration) var(--rw-control-motion-ease),
+        background-color var(--rw-control-motion-duration) var(--rw-control-motion-ease),
+        color var(--rw-control-motion-duration) var(--rw-control-motion-ease) !important;
 }
 
 .rw-segmented-toggle button > div {
     align-items: center;
     gap: 0.35rem !important;
     padding-left: 0 !important;
+    transition: none !important;
 }
 
 .rw-segmented-toggle button svg {
@@ -233,12 +242,13 @@
     max-width: 0;
     overflow: hidden;
     opacity: 0;
+    transition: none !important;
 }
 
 .rw-segmented-toggle button.active,
 .rw-segmented-toggle button[aria-pressed="true"],
 .rw-segmented-toggle button[aria-selected="true"] {
-    width: auto !important;
+    width: var(--rw-segmented-selection-width, auto) !important;
     gap: 0.35rem;
     padding-inline: 0.55rem;
 }
@@ -269,9 +279,44 @@
     color: var(--rw-accent);
 }
 
+/* The selection slides; button widths and label visibility switch immediately. */
+.rw-segmented-toggle[data-selection-ready]::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0;
+    pointer-events: none;
+    box-sizing: border-box;
+    width: var(--rw-segmented-highlight-width);
+    height: var(--rw-segmented-selection-height);
+    transform: translate(var(--rw-segmented-selection-x), var(--rw-segmented-selection-y));
+    border: 1px solid color-mix(in srgb, var(--rw-accent) 45%, var(--rw-border));
+    border-radius: var(--rw-radius-control);
+    background: color-mix(in srgb, var(--rw-accent) 12%, transparent);
+}
+
+.rw-segmented-toggle[data-selection-motion]::before {
+    transition: transform var(--rw-control-motion-duration) var(--rw-control-motion-ease);
+}
+
+.rw-segmented-toggle[data-selection-ready] button:is(.active, [aria-pressed="true"], [aria-selected="true"]) {
+    border-color: transparent;
+    background: transparent;
+    box-shadow: none;
+}
+
 .rw-segmented-toggle button:disabled {
     cursor: not-allowed;
     opacity: 0.45;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .rw-segmented-toggle::before,
+    .rw-segmented-toggle button,
+    .rw-segmented-toggle button > div,
+    .rw-segmented-toggle button span:not([aria-hidden]) {
+        transition: none !important;
+    }
 }
 
 /* TUI Braille frames: ⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏, advancing every 120 ms.

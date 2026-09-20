@@ -61,6 +61,16 @@ html[class*="theme-"] {
     min-height: 0;
 }
 
+/* The imported reader sets its host and code grid to height: 100%. Give it a
+ * content-sized grid track so short files do not stretch their lines to fill
+ * the dialog. The surrounding pane owns vertical scrolling for long files. */
+[data-popout="true"] :has(> diffs-container) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-auto-rows: max-content;
+    overflow-y: auto;
+}
+
 .review-toolbar .review-toolbar-btn.primary,
 body:has(.rw-code-review) button.review-toolbar-btn.primary,
 .rw-code-review button.review-toolbar-btn.primary,
@@ -356,10 +366,9 @@ body:has(.rw-code-review) button.review-toolbar-btn.primary:disabled,
 .rw-plan-review-notice {
     display: grid;
     gap: 0.25rem;
-    margin: 0.75rem 1rem 0;
+    margin: 0.75rem 1rem;
     padding: 0.75rem 0.9rem;
     border: 1px solid var(--rw-border);
-    border-radius: 0.85rem;
     background: var(--rw-surface-raised);
     color: var(--rw-text);
 }
@@ -526,7 +535,6 @@ body:has(.rw-code-review) button.review-toolbar-btn.primary:disabled,
     min-height: var(--rw-review-toolbar-h, 4rem);
     align-items: center;
     justify-content: space-between;
-    padding: var(--rw-review-toolbar-padding, 0.75rem);
     border-bottom: 1px solid color-mix(in srgb, var(--rw-border) 50%, transparent);
     background: color-mix(in oklab, var(--plannotator-surface) 92%, transparent);
 }
@@ -554,8 +562,7 @@ body:has(.rw-code-review) button.review-toolbar-btn.primary:disabled,
     color: var(--rw-text-muted);
 }
 
-.rw-plan-review-annotation-heading span,
-.rw-review-annotation-heading span {
+.rw-review-annotation-count {
     display: inline-flex;
     min-width: 1.125rem;
     height: 1.125rem;
@@ -581,20 +588,54 @@ body:has(.rw-code-review) button.review-toolbar-btn.primary:disabled,
 .rw-review-feedback-action {
     display: grid;
     gap: 0.5rem;
-    padding: 0.65rem 0.75rem;
-    border-bottom: 1px solid color-mix(in srgb, var(--rw-border) 72%, transparent);
-    background: color-mix(in srgb, var(--rw-accent) 5%, var(--rw-surface));
+    /*padding: 0.65rem 0.75rem;*/
+    /*border-bottom: 1px solid color-mix(in srgb, var(--rw-border) 72%, transparent);*/
+    /*background: color-mix(in srgb, var(--rw-accent) 5%, var(--rw-surface));*/
 }
 
 .rw-review-sidebar-tabs {
     --rw-tab-font-size: 0.72rem;
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    margin: 0.6rem 0.75rem 0;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin: 0;
+}
+
+.rw-plan-review-annotation-heading:has(.rw-review-sidebar-tabs),
+.rw-review-annotation-heading:has(.rw-review-sidebar-tabs) {
+    gap: 0.5rem;
+    padding-block: 0;
+    border-bottom: 0;
+}
+
+.rw-plan-review-annotation-heading > .rw-review-sidebar-tabs,
+.rw-review-annotation-heading > .rw-review-sidebar-tabs {
+    display: grid;
+    align-items: stretch;
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    gap: 0;
+}
+
+.rw-plan-review-annotation-heading > .rw-icon-button,
+.rw-review-annotation-heading > .rw-icon-button {
+    flex: none;
 }
 
 .rw-review-sidebar-tabs button {
     width: 100%;
+}
+
+.rw-review-sidebar-tabs button > span:not(.rw-review-annotation-count) {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.rw-review-sidebar-tabs button > svg,
+.rw-review-sidebar-tabs .rw-review-annotation-count {
+    flex: none;
 }
 
 .rw-review-context-to-chat {
@@ -676,9 +717,15 @@ body:has(.rw-code-review) button.review-toolbar-btn.primary:disabled,
 
 .rw-plan-sidebar-tab-toggle {
     position: absolute;
-    top: calc((var(--rw-review-toolbar-h, 4rem) - 2.25rem) / 2);
+    top: 0;
     left: 0.75rem;
+    right: calc(100% - 17.5rem + 2.75rem);
+    height: var(--rw-review-toolbar-h, 4rem);
     z-index: 70;
+}
+
+.rw-plan-sidebar-tab-toggle > button:only-child {
+    grid-column: 1 / -1;
 }
 
 .rw-plannotator-plan-layout {
@@ -710,14 +757,24 @@ body:has(.rw-code-review) button.review-toolbar-btn.primary:disabled,
     display: flex;
     align-items: center;
     flex: none;
-    gap: 0.5rem;
-    padding: 0.5rem 0.75rem;
+    min-height: var(--rw-review-toolbar-h, 4rem);
     border-bottom: 1px solid var(--rw-border);
 }
 
-.rw-artifact-document-toolbar .rw-artifact-path {
-    margin-left: auto;
+.rw-artifact-contents-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
     min-width: 0;
+    padding: 0.5rem 0.75rem;
+}
+
+.rw-artifact-document-toolbar[data-sidebar-open="true"] .rw-artifact-contents-heading {
+    width: 17.5rem;
+    align-self: stretch;
+    border-right: 1px solid var(--rw-border);
+    background: var(--rw-surface);
 }
 
 .rw-artifact-contents {
@@ -733,6 +790,11 @@ body:has(.rw-code-review) button.review-toolbar-btn.primary:disabled,
     top: auto;
     width: 100% !important;
     height: 100%;
+}
+
+/* Contents already has a shared header and collapse control above the pane. */
+.rw-artifact-contents > aside > div:first-child {
+    display: none;
 }
 
 .rw-review-embedded .rw-plan-content-area {
@@ -1014,13 +1076,14 @@ body:has(.rw-code-review) button.review-toolbar-btn.primary:disabled,
     justify-content: space-between;
     gap: 0.5rem;
     flex: none;
-    padding: var(--rw-review-toolbar-padding, 0.75rem);
-    border-bottom: 1px solid color-mix(in oklab, var(--rw-border) 70%, transparent);
+    padding: 0 var(--rw-review-toolbar-padding, 0.75rem);
     background: color-mix(in oklab, var(--plannotator-surface) 92%, transparent);
 }
 
-.rw-code-file-tabs .rw-segmented-toggle {
+.rw-code-file-tabs > .rw-review-sidebar-tabs {
     min-width: 0;
+    flex: 1;
+    height: 100%;
 }
 
 .rw-code-file-sidebar-close {
@@ -1359,6 +1422,11 @@ body:has(.rw-code-review) button.review-toolbar-btn.primary:disabled,
         z-index: 70;
     }
 
+    .rw-artifact-document-toolbar[data-sidebar-open="true"] .rw-artifact-contents-heading {
+        width: 100%;
+        border-right: 0;
+    }
+
     .rw-artifact-read-heading h1 {
         max-width: 100%;
     }
@@ -1590,5 +1658,182 @@ body:has(.rw-code-review) button.review-toolbar-btn.primary:disabled,
 @media (max-width: 980px) {
     .rw-sequence-review .rw-plan-review .rw-plannotator-plan-layout {
         grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+/* Compact review follows Plannotator's document-first layout: one toolbar and
+   one transient panel, with secondary tools available from a shared menu. */
+.rw-compact-review-tools {
+    display: flex;
+    flex-direction: column;
+    gap: var(--rw-space-panel);
+    padding: 0.5rem;
+    max-width: calc(100vw - 2rem);
+}
+
+.rw-compact-review-tools .rw-plan-review-execution-policy {
+    flex-direction: column;
+    align-items: stretch;
+}
+
+@media (max-width: 980px) {
+    .rw-plan-review {
+        --rw-review-toolbar-h: 3.25rem;
+        --rw-review-toolbar-padding: 0.25rem;
+    }
+
+    .rw-plan-review .rw-plannotator-toolbar {
+        min-height: 3.25rem;
+        padding: 0.25rem 0.5rem;
+        flex-direction: row;
+        align-items: center;
+    }
+
+    .rw-plan-review .rw-plan-review-heading {
+        flex: 1;
+        flex-wrap: nowrap;
+        min-width: 0;
+    }
+
+    .rw-plan-review-heading h1 {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .rw-plan-review .rw-plan-review-dev-notice {
+        font-size: 0;
+        flex: none;
+    }
+
+    .rw-plan-review .rw-plan-review-dev-notice::after {
+        content: "DEV";
+        font-size: 0.625rem;
+    }
+
+    .rw-plan-review-header-actions.rw-plannotator-actions {
+        position: static;
+        inset: auto;
+        width: auto;
+        flex-wrap: nowrap;
+        gap: 0.25rem;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        box-shadow: none;
+    }
+
+    .rw-plan-review-controls {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        gap: 0.25rem;
+    }
+
+    .rw-plan-review-controls .rw-plan-review-mode-actions {
+        order: 0;
+        flex-wrap: nowrap;
+        width: auto;
+        justify-self: center;
+        gap: 0.25rem;
+    }
+
+    .rw-plan-review-controls .rw-icon-button > span {
+        display: none;
+    }
+
+    .rw-plan-review .rw-icon-button {
+        min-width: 2.75rem;
+        width: 2.75rem;
+        min-height: 2.75rem;
+        height: 2.75rem;
+        flex: none;
+    }
+
+    .rw-plan-review-controls .rw-document-mode-toggle button {
+        width: auto !important;
+        min-width: 2.75rem;
+        min-height: 2.75rem;
+        padding-inline: 0.5rem;
+    }
+
+    .rw-plan-review-controls .rw-document-mode-toggle button span {
+        max-width: none;
+        opacity: 1;
+    }
+
+    .rw-plan-review-controls .rw-document-mode-toggle button svg {
+        display: none;
+    }
+
+    .rw-plan-review .rw-plannotator-plan-layout > aside:not([data-annotation-panel]),
+    .rw-plan-review .rw-plannotator-plan-layout > .rw-plan-review-annotation-sidebar {
+        display: flex;
+        position: absolute;
+        inset: 0;
+        z-index: 75;
+        width: 100% !important;
+        height: 100%;
+        max-height: none;
+        border: 0;
+        border-radius: 0;
+        box-shadow: none;
+        padding-bottom: env(safe-area-inset-bottom);
+    }
+
+    .rw-plan-review .rw-plannotator-plan-layout[data-sidebar-open="true"] > main,
+    .rw-plan-review .rw-plannotator-plan-layout[data-annotations-open="true"] > main {
+        visibility: hidden;
+    }
+
+    .rw-plan-review .rw-plan-sidebar-tab-toggle {
+        top: 0;
+        left: 0.5rem;
+        width: calc(100% - 4rem);
+        z-index: 76;
+    }
+
+    .rw-plan-review .rw-plannotator-plan-layout > aside:not([data-annotation-panel]) button,
+    .rw-plan-review .rw-review-sidebar-tabs button,
+    .rw-plan-review .rw-plan-sidebar-tab-toggle button {
+        min-height: 2.75rem;
+    }
+
+    .rw-plan-review .rw-plan-review-sidebar-collapse {
+        top: 0.25rem;
+        left: auto;
+        right: 0.25rem;
+        z-index: 76;
+    }
+
+    .rw-plan-review .rw-plan-content-area {
+        padding-bottom: env(safe-area-inset-bottom);
+    }
+
+    .rw-plan-review .rw-editor-save-controls > span {
+        display: none;
+    }
+}
+
+@media (max-width: 380px) {
+    .rw-plan-review-controls .rw-document-mode-toggle button svg {
+        display: block;
+    }
+    .rw-plan-review-controls .rw-document-mode-toggle button span {
+        display: none;
+    }
+    .rw-plan-review-controls .rw-document-mode-toggle button {
+        padding-inline: 0.25rem;
+    }
+}
+
+@media (max-width: 980px) {
+    .rw-plan-review[data-plan-width] .rw-plan-document-canvas {
+        padding: 0;
+    }
+    .rw-plan-review[data-plan-width] article[data-print-region="article"] {
+        border: 0;
+        border-radius: 0;
+        box-shadow: none;
+        padding: 1rem;
     }
 }

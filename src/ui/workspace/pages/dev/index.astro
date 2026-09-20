@@ -10,10 +10,6 @@ const planVariants = [
     { id: "project", label: "PROJECT Epic" },
     { id: "sequence", label: "PROJECT Sequence" },
     { id: "stale", label: "Stale review" },
-    { id: "expired", label: "Expired review" },
-    { id: "recovery", label: "Recovery required" },
-    { id: "read-plan", label: "Read-only Plan" },
-    { id: "read-work-record", label: "Read-only Work Record" },
 ] as const;
 
 const planReviewLinks = planVariants.flatMap((variant) => [
@@ -25,7 +21,7 @@ const planReviewLinks = planVariants.flatMap((variant) => [
     {
         href: `/dev/workspace/plan-review?variant=${variant.id}`,
         label: `${variant.label} · Workspace`,
-        detail: "In-situ Workspace shell",
+        detail: "Full-window Workspace review",
     },
 ]);
 
@@ -41,7 +37,11 @@ const groups = [
     {
         title: "Plan Review",
         description: "Every Plan presentation in standalone and Workspace shells.",
-        links: planReviewLinks,
+        links: [...planReviewLinks, {
+            href: "/dev/plan-review?variant=read-only",
+            label: "Read-only Markdown",
+            detail: "Shared reader for all Markdown artifacts",
+        }],
     },
     {
         title: "Code Review",
@@ -51,13 +51,13 @@ const groups = [
             {
                 href: "/dev/workspace/code-review",
                 label: "Workspace Code Review",
-                detail: "In-situ Session presentation",
+                detail: "Full-window Workspace review",
             },
         ],
     },
     {
         title: "Session",
-        description: "The Workspace route that launches live in-situ reviews.",
+        description: "The Workspace route that launches full-window reviews.",
         links: [
             {
                 href: "/projects/dev-project/sessions/choose-terraform-folder-name",

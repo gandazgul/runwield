@@ -1,8 +1,9 @@
 import { validateSequenceReviewDecision } from "../../../shared/workflow/sequence-review.ts";
 /* @module ui/workspace/server/session-continuation */
 
+import { mergePlanAssociations } from "../../../shared/session/plan-association.ts";
 import { appendLiveSessionEvent } from "../../../shared/session/live-session-events.ts";
-import { readLiveSessionConnection } from "../../../shared/session/live-session-connection.ts";
+import { projectLiveSessionInfo, readLiveSessionConnection } from "../../../shared/session/live-session-connection.ts";
 import { createHash } from "node:crypto";
 import { findPlanEvidenceById } from "../../../plan-store.js";
 import { getMergedCustomSetting, getSettingsManager } from "../../../shared/settings.js";
@@ -252,6 +253,7 @@ async function readSessionDisplayName(paths) {
  * @property {string} projectId
  * @property {import("../../../shared/session/session-runtime-events.js").SessionRuntimeEvent[]} events
  * @property {boolean} [remote]
+ * @property {import("../../../shared/session/live-session-connection.ts").LiveSessionInfo | null} [sessionInfo]
  * @property {import("../../../shared/session/session-runtime-events.js").RuntimeQueuedMessage[]} [queuedMessages]
  * @property {string} [error]
  * @property {number | null} [generation]
@@ -542,8 +544,10 @@ export class WorkspaceSessionContinuationService {
         });
         if (projection.ok) {
             /** @type {import('../../../shared/session/live-session-connection.ts').LiveSessionInfo | null | undefined} */
-            let liveInfo = this.runtime.listSessions().find((item) =>
-                item.managed?.runwieldSessionId === runwieldSessionId && !item.managed.dormant
+            let liveInfo = projectLiveSessionInfo(
+                this.runtime.listSessions().find((item) =>
+                    item.managed?.runwieldSessionId === runwieldSessionId && !item.managed.dormant
+                ) || null,
             );
             if (!liveInfo && state === "active" && inspected.activation?.operationId) {
                 try {
@@ -557,8 +561,15 @@ export class WorkspaceSessionContinuationService {
             const paths = segments.length
                 ? [...segments].sort((a, b) => a.ordinal - b.ordinal).map((segment) => segment.transcriptPath)
                 : [session.transcriptPath].filter(Boolean);
+            if (liveInfo) {
+                const planAssociations = mergePlanAssociations(
+                    getCommittedTranscriptAuthorityFacts(projection).planAssociations,
+                    liveInfo.planAssociations,
+                );
+                const sessionStats = liveInfo.sessionStats || projection.snapshot.sessionStats;
+                Object.assign(projection.snapshot, liveInfo, { planAssociations, sessionStats });
+            }
             projection.snapshot.name = liveInfo?.name || await readSessionDisplayName(paths);
-            if (liveInfo?.sessionStats) projection.snapshot.sessionStats = liveInfo.sessionStats;
             projection.snapshot.contextUsage = liveInfo?.contextUsage || null;
             projection.snapshot.systemContextTokens = liveInfo?.systemContextTokens ?? null;
         }
@@ -1667,6 +1678,7 @@ export class WorkspaceSessionContinuationService {
             remote: true,
             generation,
             events: live.events,
+            sessionInfo: live.sessionInfo,
             queuedMessages: live.queuedMessages,
         });
         if (live.interaction) {
@@ -1717,12 +1729,16 @@ export class WorkspaceSessionContinuationService {
     getOperation(operationId) {
         const live = this.operations.get(operationId);
         const durable = this.store.getOperationReceipt(operationId);
+        const sessionInfo = live?.runtimeSessionId
+            ? projectLiveSessionInfo(this.runtime.getSessionSnapshot(live.runtimeSessionId))
+            : live?.sessionInfo || null;
         if (!durable) {
             if (!live) return { operationId, status: "unknown", events: [] };
             const { answer: _answer, runtimeSessionId: _runtimeSessionId, ...snapshot } = live;
             return {
                 operationId,
                 ...snapshot,
+                sessionInfo,
                 queuedMessages: live.runtimeSessionId
                     ? this.runtime.getQueuedMessages(live.runtimeSessionId)
                     : live.queuedMessages || [],
@@ -1744,6 +1760,7 @@ export class WorkspaceSessionContinuationService {
             generation: durable.resultGeneration,
             error: durable.errorMessage || durable.errorCode,
             events: live?.events || [],
+            sessionInfo,
             queuedMessages: live?.runtimeSessionId
                 ? this.runtime.getQueuedMessages(live.runtimeSessionId)
                 : live?.queuedMessages || [],

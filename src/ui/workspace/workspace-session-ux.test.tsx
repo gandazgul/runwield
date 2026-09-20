@@ -5,6 +5,7 @@ import {
     deriveWorkflowSidebarStages,
     draftRecoveryDecision,
     isAtLiveScrollEdge,
+    mergeLiveSessionInfo,
     newSessionDraftInstanceStorageKey,
     reduceOperationTransientItems,
     serializeSessionImageForRequest,
@@ -19,6 +20,7 @@ import {
     compactToolLine,
     displayAgentName,
     formatSessionTimelineTime,
+    mergeSessionTimelineItems,
     reduceSessionEvents,
     sessionInteractionChoiceResponse,
     sessionInteractionTypedResponse,
@@ -79,7 +81,7 @@ Deno.test("Session composer keeps provider/model identities and opens slash choi
     assertEquals(empty.includes('title="Send"'), true);
     const commands = renderToStaticMarkup(createElement(SessionComposer, { ...props, draft: "/mo", canSend: true }));
     assertEquals(commands.includes('role="listbox" aria-label="Commands"'), true);
-    assertEquals(commands.includes('aria-expanded="true"'), true);
+    assertEquals(commands.includes('aria-expanded="false"'), true);
     assertEquals(commands.includes('aria-activedescendant="new-session-request-text-commands-0"'), true);
     assertEquals(commands.includes("<strong>/model</strong>"), true);
     const models = renderToStaticMarkup(
@@ -410,6 +412,68 @@ Deno.test("Session timeline groups completed technical activity after agent cont
     assertEquals(items[1]?.items?.[0]?.output, "src/app.js");
 });
 
+Deno.test("Activity stays open as it grows and only synchronizes Thinking disclosures", async () => {
+    const { createElement } = await import("react");
+    const { create, act } = await import("react-test-renderer");
+    const previousActFlag = globalThis.IS_REACT_ACT_ENVIRONMENT;
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    let renderer;
+    const activity = (extra = false) =>
+        reduceSessionEvents([
+            { type: "tool_start", eventId: "t1s", toolCallId: "t1", toolName: "read" },
+            { type: "tool_end", eventId: "t1e", toolCallId: "t1", toolName: "read", output: "first file" },
+            { type: "assistant_thinking_delta", eventId: "th1", messageId: "thinking-1", delta: "Checking" },
+            { type: "assistant_thinking_end", eventId: "th1e", messageId: "thinking-1" },
+            ...(extra
+                ? [
+                    { type: "tool_end", eventId: "t2e", toolCallId: "t2", toolName: "read", output: "second file" },
+                    { type: "assistant_thinking_delta", eventId: "th2", messageId: "thinking-2", delta: "More checks" },
+                    { type: "assistant_thinking_end", eventId: "th2e", messageId: "thinking-2" },
+                ]
+                : []),
+            { type: "assistant_text_delta", eventId: "a1", messageId: "a1", delta: "Done" },
+        ]).filter((item) => item.kind === "activity");
+    const initial = activity();
+    const expanded = activity(true);
+    assertEquals(initial[0].key, expanded[0].key);
+    const group = () => renderer.root.findByProps({ className: "session-activity-group" });
+    const thinking = () =>
+        renderer.root.findAllByType("details").filter((node) => node.props.className.includes("activity-thinking"));
+    const tools = () =>
+        renderer.root.findAllByType("details").filter((node) => node.props.className.includes("activity-tool"));
+    const toggle = async (node, open) => {
+        const target = { open };
+        await act(() => node.props.onToggle({ currentTarget: target, target }));
+    };
+    try {
+        await act(() => {
+            renderer = create(createElement(SessionTimeline, { items: initial }));
+        });
+        const firstTool = tools()[0];
+        assertEquals(group().props.open, false);
+        await toggle(group(), true);
+        assertEquals(thinking()[0].props.open, true);
+        await toggle(thinking()[0], false);
+        assertEquals(group().props.open, true);
+        await act(() => renderer.update(createElement(SessionTimeline, { items: expanded })));
+        assertEquals(group().props.open, true);
+        assertEquals(thinking().map((node) => node.props.open), [false, true]);
+        assertEquals(tools()[0] === firstTool, true);
+        assertEquals(tools().every((node) => node.props.open === undefined && node.props.onToggle === undefined), true);
+        await toggle(group(), false);
+        assertEquals(thinking().map((node) => node.props.open), [false, false]);
+        await toggle(group(), true);
+        assertEquals(thinking().map((node) => node.props.open), [true, true]);
+        // Nested toggle events must never change the parent disclosure.
+        await act(() => group().props.onToggle({ currentTarget: { open: false }, target: {} }));
+        assertEquals(group().props.open, true);
+    } finally {
+        if (renderer) await act(() => renderer.unmount());
+        if (previousActFlag === undefined) delete globalThis.IS_REACT_ACT_ENVIRONMENT;
+        else globalThis.IS_REACT_ACT_ENVIRONMENT = previousActFlag;
+    }
+});
+
 Deno.test("Session timeline keeps trailing or running technical activity visible", () => {
     const trailing = reduceSessionEvents([
         { type: "tool_start", eventId: "t1s", toolCallId: "t1", toolName: "read", title: "read src/app.js" },
@@ -439,6 +503,48 @@ Deno.test("Existing Session route lets the shared chat shell own the page headin
     assertEquals(route.includes("Session Continuation"), false);
     assertEquals(route.includes("Committed transcript history"), false);
     assertEquals(route.includes("SessionSurface"), true);
+});
+
+Deno.test("live Plan attachment updates sidebar state without replacing committed history", () => {
+    const initial = {
+        events: [{ eventId: "committed-1", text: "Start with Ideator" }],
+        nextCursor: "committed-1",
+        generation: 1,
+        snapshot: {
+            activeAgent: "ideator",
+            workflowContext: null,
+            planAssociations: [{ planName: "old-plan", planId: "plan-1" }],
+        },
+    };
+    const planning = mergeLiveSessionInfo(initial, {
+        activeAgent: "planner",
+        activeModel: { provider: "openai", model: "planner-model" },
+        thinkingLevel: "high",
+        workflowContext: { planName: "new-plan" },
+        planAssociations: [{ planName: "new-plan", planId: "plan-2" }],
+        activeExecutionWorkflow: null,
+    });
+    assertEquals(
+        activePlanProgressApiUrl("project", "session", planning.snapshot),
+        "/api/owner/projects/project/plans/plan-2/progress?session=session",
+    );
+    assertEquals(planning.events, initial.events);
+    assertEquals(planning.nextCursor, "committed-1");
+    assertEquals(planning.generation, 1);
+    assertEquals(planning.snapshot.activeAgent, "planner");
+    assertEquals(planning.snapshot.planAssociations.map((item) => item.planId), ["plan-1", "plan-2"]);
+    assertEquals(mergeLiveSessionInfo(planning, planning.snapshot).snapshot.planAssociations.length, 2);
+    assertEquals(planning.snapshot.thinkingLevel, "high");
+    const executing = mergeLiveSessionInfo(planning, {
+        activeAgent: "engineer",
+        activeExecutionWorkflow: { planName: "child-plan", triageMeta: { planId: "child-id" } },
+    });
+    assertEquals(
+        activePlanProgressApiUrl("project", "session", executing.snapshot),
+        "/api/owner/projects/project/plans/child-id/progress?session=session",
+    );
+    assertEquals(mergeLiveSessionInfo(executing, null), executing);
+    assertEquals(initial.snapshot.activeAgent, "ideator");
 });
 
 Deno.test("Session workflow sidebar uses canonical progress stages", async () => {
@@ -488,9 +594,18 @@ Deno.test("Persisted Sessions expose the shared context sidebar tabs", async () 
     assertEquals(surface.includes("<dt>Epic</dt>"), true);
 });
 
-Deno.test("Session sidebar shares TUI fields without duplicating composer or backend details", async () => {
+Deno.test("Session sidebar adds current runtime settings to shared TUI fields", async () => {
     const surface = await Deno.readTextFile(new URL("./islands/SessionSurface.jsx", import.meta.url));
-    assertEquals(surface.includes("sessionSidebarFields(sessionSidebar).map"), true);
+    assertEquals(
+        surface.includes('sessionSidebarFields(sessionSidebar).filter((field) => field.label !== "Session")'),
+        true,
+    );
+    assertEquals(surface.includes('label: "Agent"'), true);
+    assertEquals(surface.includes('label: "Model"'), true);
+    assertEquals(surface.includes('label: "Thinking"'), true);
+    assertEquals(surface.includes('const currentAgent = timeline?.snapshot?.activeAgent || ""'), true);
+    assertEquals(surface.includes("value: activeThinking"), true);
+    assertEquals(surface.includes('[activeProvider, activeModelId].filter(Boolean).join("/")'), true);
     assertEquals(surface.includes("Execution Backend"), false);
     assertEquals(surface.includes("<dd>{displayedThinking}</dd>"), false);
     assertEquals(surface.includes("modelValue={stagedModelKey}"), true);
@@ -721,4 +836,253 @@ Deno.test("Workspace displays a reported backend denial once", () => {
     assertEquals(items.filter((item) => item.kind === "system-event").map((item) => item.text), [
         "Blocked: read_file\nA different failure",
     ]);
+});
+
+Deno.test("Session composer preserves drafts across focus changes and shares one Stop or Send action", async () => {
+    const previousDocument = globalThis.document;
+    const previousActFlag = globalThis.IS_REACT_ACT_ENVIRONMENT;
+    globalThis.document = { getElementById: () => null };
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    const { createElement } = await import("react");
+    const { act, create } = await import("react-test-renderer");
+    let renderer;
+    let stopped = 0;
+    let sent = 0;
+    let focused = 0;
+    const props = {
+        id: "focus-composer",
+        draft: "",
+        disabled: false,
+        canSend: false,
+        submitting: false,
+        agentValue: "planner",
+        agents: [{ name: "planner", displayName: "Planner" }],
+        modelValue: "openai\u001fgpt-model",
+        thinkingValue: "high",
+        onDraftChange() {},
+        onSubmit() {
+            sent++;
+        },
+        onStop() {
+            stopped++;
+        },
+    };
+    try {
+        await act(() => {
+            renderer = create(createElement(SessionComposer, props), {
+                createNodeMock(element) {
+                    return element.type === "textarea"
+                        ? {
+                            style: {},
+                            scrollHeight: 48,
+                            focus() {
+                                focused++;
+                            },
+                        }
+                        : null;
+                },
+            });
+        });
+        const form = () => renderer.root.findByType("form");
+        const textarea = () => renderer.root.findByType("textarea");
+        const primary = () =>
+            renderer.root.findAllByType("button").find((button) =>
+                button.props.className?.includes("session-send-button")
+            );
+        const summary = () => renderer.root.findByProps({ className: "session-composer-summary" });
+        assertEquals(form().props["data-expanded"], false);
+        assertEquals(textarea().props.hidden, true);
+        assertEquals(summary().props.title, "Planner · openai/gpt-model · high");
+        assertEquals(primary().props["aria-label"], "Stop");
+        assertEquals(primary().props.disabled, false);
+        await act(() => primary().props.onClick());
+        assertEquals(stopped, 1);
+        assertEquals(sent, 0);
+        await act(() => summary().props.onFocus());
+        assertEquals(form().props["data-expanded"], true);
+        assertEquals(textarea().props.hidden, false);
+        assertEquals(focused, 1);
+        const settings = {};
+        await act(() =>
+            form().props.onBlurCapture({
+                currentTarget: { contains: (target) => target === settings },
+                relatedTarget: settings,
+            })
+        );
+        assertEquals(form().props["data-expanded"], true);
+        await act(() =>
+            renderer.update(createElement(SessionComposer, {
+                ...props,
+                draft: "Keep this draft",
+                canSend: true,
+                imageAttachments: [{ id: "image-1", name: "draft.png", mimeType: "image/png", base64: "aW1n" }],
+            }))
+        );
+        assertEquals(primary().props["aria-label"], "Send");
+        assertEquals(primary().props.type, "submit");
+        await act(() => form().props.onBlurCapture({ currentTarget: { contains: () => false }, relatedTarget: null }));
+        assertEquals(form().props["data-expanded"], false);
+        assertEquals(textarea().props.value, "Keep this draft");
+        assertEquals(summary().children[0].children[0].startsWith("Draft · Planner"), true);
+        assertEquals(renderer.root.findByProps({ "aria-label": "Attached images" }).props.hidden, true);
+        await act(() => summary().props.onClick());
+        assertEquals(textarea().props.value, "Keep this draft");
+        assertEquals(renderer.root.findByProps({ "aria-label": "Attached images" }).props.hidden, false);
+        await act(() => form().props.onSubmit({ preventDefault() {} }));
+        assertEquals(sent, 1);
+        await act(() =>
+            renderer.update(createElement(SessionComposer, {
+                ...props,
+                draft: " ",
+                canSend: true,
+                imageAttachments: [{ id: "image-1", name: "draft.png", mimeType: "image/png", base64: "aW1n" }],
+            }))
+        );
+        assertEquals(primary().props["aria-label"], "Send");
+        await act(() => renderer.update(createElement(SessionComposer, { ...props, draft: " " })));
+        assertEquals(primary().props["aria-label"], "Stop");
+    } finally {
+        if (renderer) await act(() => renderer.unmount());
+        if (previousDocument === undefined) delete globalThis.document;
+        else globalThis.document = previousDocument;
+        if (previousActFlag === undefined) delete globalThis.IS_REACT_ACT_ENVIRONMENT;
+        else globalThis.IS_REACT_ACT_ENVIRONMENT = previousActFlag;
+    }
+});
+
+Deno.test("saved and live reports reconcile by call and retain chronological Activity boundaries", () => {
+    const time = (minute) => `2026-09-19T20:${minute}:00.000Z`;
+    const report = (call, minute) => [
+        { type: "tool_end", toolName: "task_completed", toolCallId: call, timestamp: time(minute) },
+        {
+            type: "assistant_text_delta",
+            workflowMessage: "task_completed",
+            toolCallId: call,
+            messageId: `report-${call}`,
+            delta: `Report ${call}`,
+            timestamp: time(minute),
+        },
+    ];
+    const tools = (prefix, minute) =>
+        [1, 2].map((n) => ({
+            type: "tool_end",
+            toolName: "read",
+            toolCallId: `${prefix}-${n}`,
+            timestamp: time(minute),
+        }));
+    const saved = reduceSessionEvents([
+        ...report("first", "24"),
+        ...tools("saved", "25"),
+        ...report("second", "53"),
+    ]);
+    const live = reduceSessionEvents([
+        ...report("first", "24"),
+        ...tools("saved", "25"),
+        { type: "assistant_thinking_end", messageId: "review-thinking", timestamp: time("28") },
+        ...tools("review", "29"),
+        {
+            type: "assistant_text_delta",
+            workflowMessage: "review_complete",
+            toolCallId: "review",
+            messageId: "review-report",
+            delta: "Repair required",
+            timestamp: time("30"),
+        },
+        ...report("second", "53"),
+    ], { source: "transient" });
+    const items = mergeSessionTimelineItems(saved, live);
+    assertEquals(items.map((item) => item.workflowMessage || item.kind), [
+        "task_completed",
+        "activity",
+        "review_complete",
+        "task_completed",
+    ]);
+    assertEquals(items.filter((item) => item.kind === "workflow").map((item) => item.timestamp), [
+        time("24"),
+        time("30"),
+        time("53"),
+    ]);
+    assertEquals(items[1].items.map((item) => item.toolCallId || item.kind), [
+        "saved-1",
+        "saved-2",
+        "thinking",
+        "review-1",
+        "review-2",
+    ]);
+    assertEquals(new Set(items[1].items.map((item) => item.key)).size, 5);
+});
+
+Deno.test("Activity never spans a user message or special report", () => {
+    const tool = (id) => ({ type: "tool_end", toolName: "read", toolCallId: id });
+    const items = reduceSessionEvents([
+        tool("a"),
+        tool("b"),
+        { type: "user_message", messageId: "user", text: "Earlier request" },
+        tool("c"),
+        { type: "assistant_thinking_end", messageId: "thinking" },
+        { type: "tool_end", toolName: "manual_qa_completed", toolCallId: "qa" },
+        tool("d"),
+        tool("e"),
+        { type: "assistant_text_delta", messageId: "reply", delta: "Done" },
+    ]);
+    assertEquals(items.map((item) => item.kind), [
+        "activity",
+        "message",
+        "activity",
+        "workflow",
+        "activity",
+        "message",
+    ]);
+    assertEquals(
+        items.filter((item) => item.kind === "activity").map((item) => item.items.map((entry) => entry.kind)),
+        [["tool", "tool"], ["tool", "thinking"], ["tool", "tool"]],
+    );
+});
+
+Deno.test("nested completion reports keep their call identity and accepted time after late results", () => {
+    const time = (minute) => `2026-09-19T20:${minute}:00.000Z`;
+    const items = reduceSessionEvents([
+        { type: "tool_start", toolName: "task_completed", toolCallId: "outer", timestamp: time("23") },
+        { type: "tool_start", toolName: "task_completed", toolCallId: "inner", timestamp: time("24") },
+        {
+            type: "assistant_text_delta",
+            workflowMessage: "task_completed",
+            toolCallId: "outer",
+            messageId: "outer-report",
+            delta: "Outer report",
+            timestamp: time("25"),
+        },
+        {
+            type: "assistant_text_delta",
+            workflowMessage: "task_completed",
+            toolCallId: "inner",
+            messageId: "inner-report",
+            delta: "Inner report",
+            timestamp: time("26"),
+        },
+        { type: "tool_end", toolName: "task_completed", toolCallId: "outer", timestamp: time("53") },
+        { type: "tool_end", toolName: "task_completed", toolCallId: "inner", timestamp: time("54") },
+    ]);
+    assertEquals(items.map((item) => [item.toolCallId, item.markdown, item.timestamp]), [[
+        "outer",
+        "Outer report",
+        time("25"),
+    ], ["inner", "Inner report", time("26")]]);
+});
+
+Deno.test("live updates finish saved running tools without dropping later repeated user text", () => {
+    const saved = reduceSessionEvents([
+        { type: "user_message", messageId: "saved-user", text: "Continue", timestamp: "2026-09-19T20:00:01Z" },
+        { type: "tool_start", toolCallId: "call", toolName: "read", timestamp: "2026-09-19T20:01:00Z" },
+    ]);
+    const live = reduceSessionEvents([
+        { type: "user_message", messageId: "live-user", text: "Continue", timestamp: "2026-09-19T20:00:00Z" },
+        { type: "tool_end", toolCallId: "call", toolName: "read", output: "Result", timestamp: "2026-09-19T20:02:00Z" },
+        { type: "user_message", messageId: "later-user", text: "Continue", timestamp: "2026-09-19T20:03:00Z" },
+    ], { source: "transient" });
+    const items = mergeSessionTimelineItems(saved, live);
+    assertEquals(items.map((item) => item.kind), ["message", "tool", "message"]);
+    assertEquals(items[1].status, "completed");
+    assertEquals(items[1].output, "Result");
+    assertEquals(items[2].timestamp, "2026-09-19T20:03:00Z");
 });

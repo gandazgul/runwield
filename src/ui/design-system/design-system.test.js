@@ -43,7 +43,7 @@ Deno.test("design-system exposes review action, modal, and segmented toggle styl
     assertStringIncludes(css, ".rw-segmented-toggle button svg");
     assertStringIncludes(css, ".rw-segmented-toggle button > div");
     assertStringIncludes(css, "width: 1.75rem !important;");
-    assertStringIncludes(css, "width: auto !important;");
+    assertStringIncludes(css, "width: var(--rw-segmented-selection-width, auto) !important;");
     assertStringIncludes(css, ".rw-segmented-toggle button span:not([aria-hidden])");
     assertStringIncludes(css, "background: color-mix(in srgb, var(--rw-accent) 8%, transparent);");
     assertStringIncludes(css, "overflow: hidden;");

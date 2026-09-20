@@ -1,6 +1,5 @@
 ---
 import LoadingSurface from "../../../components/LoadingSurface.astro";
-import WorkspaceLayout from "../../../layouts/WorkspaceLayout.astro";
 import ReviewLayout from "../../../layouts/ReviewLayout.astro";
 import { ReviewDevSurface } from "../../../react/ReviewDevSurface.tsx";
 
@@ -8,15 +7,11 @@ if (!import.meta.env.DEV) {
     return new Response("Not found", { status: 404 });
 }
 const variant = Astro.url.searchParams.get("variant") || "feature";
-const isArtifact = variant === "read-plan" || variant === "read-work-record";
-const Layout = isArtifact ? WorkspaceLayout : ReviewLayout;
 ---
-<Layout
+<ReviewLayout
     title="Workspace Plan Review Dev · RunWield"
-    selectedTab="projects"
-    url={Astro.url.href}
 >
-    <ReviewDevSurface surface="plan" presentation={isArtifact ? "workspace" : "standalone"} variant={variant} client:only="react">
+    <ReviewDevSurface surface="plan" returnHref="/projects/dev-project/sessions/choose-terraform-folder-name" variant={variant} client:only="react">
         <LoadingSurface slot="fallback" label="Loading review" />
     </ReviewDevSurface>
-</Layout>
+</ReviewLayout>

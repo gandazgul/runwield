@@ -935,11 +935,28 @@ Deno.test("a new Workspace Session is discoverable before its first response fin
                 let operation;
                 for (let index = 0; index < 400; index++) {
                     operation = service.getOperation(started.operationId);
-                    if (operation.runwieldSessionId || operation.status !== "running") break;
+                    if ((operation.runwieldSessionId && requestedThinking.length) || operation.status !== "running") {
+                        break;
+                    }
                     await new Promise((resolve) => setTimeout(resolve, 10));
                 }
                 assert(operation.runwieldSessionId, JSON.stringify(operation));
                 assertEquals(operation.status, "running");
+                assertEquals(operation.sessionInfo.activeAgent, AGENTS.IDEATOR);
+                assertEquals(operation.sessionInfo.activeModel.model, "runtime-command-fixture/fixture-model");
+                assertEquals(operation.sessionInfo.thinkingLevel, "low");
+                const observer = new WorkspaceSessionContinuationService({ store: fixture.openStore() });
+                try {
+                    const attached = await observer.liveSession(fixture.project.projectId, operation.runwieldSessionId);
+                    assertEquals(attached.operation.remote, true);
+                    assertEquals(attached.operation.sessionInfo.activeAgent, AGENTS.IDEATOR);
+                    assertEquals(attached.operation.sessionInfo.activeModel, operation.sessionInfo.activeModel);
+                    assertEquals(attached.operation.sessionInfo.thinkingLevel, "low");
+                    assertEquals(attached.operation.sessionInfo.planAssociations, []);
+                } finally {
+                    observer.close();
+                    observer.store.close();
+                }
                 assertEquals(
                     (await service.liveSession(fixture.project.projectId, operation.runwieldSessionId)).operation
                         .operationId,

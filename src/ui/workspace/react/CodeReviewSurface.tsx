@@ -4,6 +4,7 @@ import { RunWieldIconButton } from "../../design-system/components/react/RunWiel
 import { animateSidebarUpdate } from "../../design-system/components/react/sidebar-motion.ts";
 import { RunWieldThinkingDots } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 
+import { RunWieldSegmentedControl } from "../../design-system/components/react/RunWieldSegmentedControl.tsx";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import mermaid from "mermaid";
 import { GuideView } from "@plannotator/guide-viewer/GuideView.tsx";
@@ -876,7 +877,11 @@ export function CodeReviewSurface({ payload, presentation = "standalone" }) {
                         {fileTreeOpen && (
                             <aside className="rw-review-file-tree">
                                 <div className="rw-code-file-tabs">
-                                    <div className="rw-segmented-toggle" role="tablist" aria-label="Code review files">
+                                    <div
+                                        className="rw-underline-tabs rw-review-sidebar-tabs"
+                                        role="tablist"
+                                        aria-label="Code review files"
+                                    >
                                         <button
                                             aria-selected={filePanelMode === "tree"}
                                             className={filePanelMode === "tree" ? "active" : ""}
@@ -1095,11 +1100,53 @@ export function CodeReviewSurface({ payload, presentation = "standalone" }) {
                         {annotationsOpen && (
                             <div className="rw-code-review-annotation-sidebar">
                                 <div className="rw-review-annotation-heading">
-                                    <div>
-                                        <CommentIcon />
-                                        <h2>Annotations</h2>
-                                        {annotations.length > 0 && <span>{annotations.length}</span>}
-                                    </div>
+                                    {conversationEnabled
+                                        ? (
+                                            <div
+                                                className="rw-underline-tabs rw-review-sidebar-tabs"
+                                                role="tablist"
+                                                aria-label="Review sidebar"
+                                            >
+                                                <button
+                                                    className={rightSidebarView === "annotations" ? "active" : ""}
+                                                    type="button"
+                                                    role="tab"
+                                                    aria-selected={rightSidebarView === "annotations"}
+                                                    onClick={() => setRightSidebarView("annotations")}
+                                                    title="Annotations"
+                                                >
+                                                    <CommentIcon />
+                                                    <span>Annotations</span>
+                                                    {annotations.length > 0 && (
+                                                        <span className="rw-review-annotation-count">
+                                                            {annotations.length}
+                                                        </span>
+                                                    )}
+                                                </button>
+                                                <button
+                                                    className={rightSidebarView === "agent" ? "active" : ""}
+                                                    type="button"
+                                                    role="tab"
+                                                    aria-selected={rightSidebarView === "agent"}
+                                                    onClick={() => setRightSidebarView("agent")}
+                                                    title={agentLabel}
+                                                >
+                                                    <CommentIcon />
+                                                    <span>{agentLabel}</span>
+                                                </button>
+                                            </div>
+                                        )
+                                        : (
+                                            <div>
+                                                <CommentIcon />
+                                                <h2>Annotations</h2>
+                                                {annotations.length > 0 && (
+                                                    <span className="rw-review-annotation-count">
+                                                        {annotations.length}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        )}
                                     <RunWieldIconButton
                                         className="rw-code-annotation-sidebar-close"
                                         type="button"
@@ -1110,36 +1157,6 @@ export function CodeReviewSurface({ payload, presentation = "standalone" }) {
                                         <PanelCollapseIcon side="right" />
                                     </RunWieldIconButton>
                                 </div>
-                                {conversationEnabled && (
-                                    <div
-                                        className="rw-underline-tabs rw-review-sidebar-tabs"
-                                        role="tablist"
-                                        aria-label="Review sidebar"
-                                    >
-                                        <button
-                                            className={rightSidebarView === "annotations" ? "active" : ""}
-                                            type="button"
-                                            role="tab"
-                                            aria-selected={rightSidebarView === "annotations"}
-                                            onClick={() => setRightSidebarView("annotations")}
-                                            title="Annotations"
-                                        >
-                                            <CommentIcon />
-                                            <span>Annotations</span>
-                                        </button>
-                                        <button
-                                            className={rightSidebarView === "agent" ? "active" : ""}
-                                            type="button"
-                                            role="tab"
-                                            aria-selected={rightSidebarView === "agent"}
-                                            onClick={() => setRightSidebarView("agent")}
-                                            title={agentLabel}
-                                        >
-                                            <CommentIcon />
-                                            <span>{agentLabel}</span>
-                                        </button>
-                                    </div>
-                                )}
                                 {rightSidebarView === "annotations"
                                     ? (
                                         <>
@@ -1318,7 +1335,7 @@ function DiffStyleToggle({
             </div>
             <div className="rw-review-toolbar-edge rw-review-toolbar-edge-right rw-code-diff-layout-controls">
                 <span>Diff view</span>
-                <div className="rw-segmented-toggle rw-code-diff-style-toggle" role="group" aria-label="Diff layout">
+                <RunWieldSegmentedControl className="rw-code-diff-style-toggle" role="group" aria-label="Diff layout">
                     <button
                         aria-pressed={diffStyle === "split"}
                         className={diffStyle === "split" ? "active" : ""}
@@ -1339,7 +1356,7 @@ function DiffStyleToggle({
                         <CodeToggleIcon name="unified" />
                         <span>Unified</span>
                     </button>
-                </div>
+                </RunWieldSegmentedControl>
                 <button
                     ref={globalCommentButtonRef}
                     className="rw-toolbar-button"

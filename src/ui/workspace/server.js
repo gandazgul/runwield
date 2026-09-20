@@ -7,6 +7,7 @@
  * delegate to the Astro Deno adapter output when it is available.
  */
 
+import { sessionArtifactKindLabel } from "../../shared/session/session-sidebar.ts";
 import { extname, join, toFileUrl } from "@std/path";
 import { RUNWIELD_ROOT, RUNWIELD_SOURCE_ROOT } from "../../../runtime-root.js";
 import { getCwd, PLAN_UI_TOKEN_HEADER, PLAN_UI_TOKEN_QUERY } from "../../constants.js";
@@ -675,7 +676,7 @@ function isLegacyReviewApiPath(pathname) {
  */
 function renderStaticReviewFallback(reviewType, payload) {
     const title = payload?.surface === "artifact-read"
-        ? `${payload.artifactKind === "work-record" ? "Work Record" : "Plan"} · RunWield Workspace`
+        ? `${sessionArtifactKindLabel(payload.artifactKind)} · RunWield Workspace`
         : reviewType === "plan"
         ? "Plan Review · RunWield Workspace"
         : "Code Review · RunWield Workspace";
