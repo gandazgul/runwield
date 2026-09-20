@@ -16,11 +16,16 @@ createdAt: "2026-09-08T10:26:23-04:00"
 status: "validated"
 origin: "internal"
 userVerifiedAt: null
-routingIntent: "PLANNED_CHANGE"
+workRecord:
+    status: "generated"
+    recordId: "7ffa75a0-ccfe-48fa-9bc0-012778834760"
+    path: "docs/work-records/2026-09-20-fix-published-plan-session-handoff.md"
+    lastAttemptAt: "2026-09-20T03:14:04.925Z"
+targetBranch: "main"
 archivedAt: "2026-09-15T18:28:50.566Z"
 archivedFromStatus: "validated"
 archivedFromPath: "docs/plans/fix-published-plan-session-context.md"
-targetBranch: "main"
+routingIntent: "PLANNED_CHANGE"
 ---
 
 # Fix Published Plan Session Context

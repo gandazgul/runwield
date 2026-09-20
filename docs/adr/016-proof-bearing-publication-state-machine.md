@@ -60,6 +60,12 @@ an independent temporary repository when needed, including after the publication
 fetch into the primary checkout. Missing or unreachable upstream history cannot fall back to a stale local branch as
 proof. Exact target-head checks remain required for the pre-publication push lease, not post-publication cleanup.
 
+An interrupted cleanup can leave a directory whose `.git` file points to a removed registration in this repository.
+After proving publication, recovery moves that unregistered directory intact to `<execution-path>.saved/files`, reports
+the saved location, and completes the remaining cleanup. It does not infer clean file contents from a published commit
+or delete the leftovers. Registered checkouts still require the normal clean-worktree checks. A pre-existing saved copy
+is never overwritten, and an unrelated repository or the primary checkout is not adopted by this recovery path.
+
 `artifactCommit` is the immutable source-branch boundary. Publication does not commit or otherwise advance the source
 branch after that phase. During cleanup, the normal proof is that the published target contains the source-branch tip.
 Recovery may also delete a source branch that advanced past `artifactCommit` only when Git proves that the artifact is

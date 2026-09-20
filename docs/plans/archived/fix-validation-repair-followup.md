@@ -19,11 +19,16 @@ createdAt: "2026-09-11"
 status: "validated"
 origin: "internal"
 userVerifiedAt: null
-routingIntent: "PLANNED_CHANGE"
+workRecord:
+    status: "generated"
+    recordId: "a89e245a-9b70-45f9-98c6-2bf3d97954b0"
+    path: "docs/work-records/2026-09-20-restore-validation-repair-follow-ups.md"
+    lastAttemptAt: "2026-09-20T03:14:12.545Z"
+targetBranch: "main"
 archivedAt: "2026-09-15T18:29:03.448Z"
 archivedFromStatus: "validated"
 archivedFromPath: "docs/plans/fix-validation-repair-followup.md"
-targetBranch: "main"
+routingIntent: "PLANNED_CHANGE"
 ---
 
 # Fix Validation Repair Follow-up

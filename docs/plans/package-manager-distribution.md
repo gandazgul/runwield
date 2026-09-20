@@ -17,6 +17,11 @@ userVerifiedAt: null
 epicCompletionMode: "done_enough"
 epicDoneEnoughAt: "2026-09-16T03:55:16.220Z"
 epicDoneEnoughSummary: "All 2 child plans are completed after package-manager-distribution/02-windows-winget-readiness."
+workRecord:
+    status: "generated"
+    recordId: "56b2d954-c6ee-4b01-ad98-aafaf06b79fa"
+    path: "docs/work-records/2026-09-20-prepared-homebrew-and-winget-distribution.md"
+    lastAttemptAt: "2026-09-20T03:12:35.831Z"
 ---
 
 # Prepare Homebrew and WinGet Distribution

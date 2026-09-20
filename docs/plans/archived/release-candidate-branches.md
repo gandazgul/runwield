@@ -14,10 +14,15 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-09-17"
+status: "validated"
 origin: "internal"
 userVerifiedAt: null
+workRecord:
+    status: "generated"
+    recordId: "cb218bdd-6b7c-4638-bf0c-34f30c0f3988"
+    path: "docs/work-records/2026-09-20-isolated-release-candidates-on-release-branches.md"
+    lastAttemptAt: "2026-09-20T03:14:45.661Z"
 targetBranch: "main"
-status: "validated"
 archivedAt: "2026-09-19T21:47:51.743Z"
 archivedFromStatus: "validated"
 archivedFromPath: "docs/plans/release-candidate-branches.md"

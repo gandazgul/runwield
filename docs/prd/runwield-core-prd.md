@@ -432,6 +432,9 @@ Recovery requirements:
   automatically when that branch still contains the published commits, even if temporary checkouts are already gone. It
   does not repeat publication, alter primary-checkout edits, or ask the user to repair normal Git history. If the
   published commits cannot be confirmed on the target, remaining files are kept.
+- Given confirmed publication and leftover checkout files whose Git registration is gone, cleanup preserves the entire
+  directory in a named saved-files folder and finishes without asking the user to repair Git bookkeeping. It reports
+  that folder and never discards uncommitted, untracked, or ignored files on the strength of commit history alone.
 - When interrupted validation resumes, preserved work is reused without silently repeating completed actions or deleting
   unmerged changes.
 - Given stale locks, inconsistent settings/storage, or mismatched Plan bookkeeping during a workflow, when RunWield
@@ -695,6 +698,9 @@ renaming; search can be rebuilt from the documents.
 - `wld wr` provides listing, search, reading, index rebuild, and backfill. Backfill previews missing records for
   eligible active and archived completed Plans and asks before generation. It avoids duplicating existing linked
   records.
+- Older Work Records using a non-empty `Result` section remain readable as summaries without rewriting their files. A
+  genuinely invalid existing record stops backfill before generation, identifies the filename and required repair, and
+  does not produce a fatal stack trace or silently generate a duplicate.
 - Default retrieval includes current approved records. Pending, draft, superseded, and archived records require explicit
   historical or maintenance access and clear notices; they are not settled current guidance.
 - Ideator, Planner, and Architect retrieve relevant current records. Guide can inspect historical records with their
