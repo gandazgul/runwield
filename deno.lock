@@ -55,7 +55,7 @@
     "npm:@lezer/highlight@^1.2.3": "1.2.3",
     "npm:@modelcontextprotocol/sdk@1.30.0": "1.30.0_zod@4.4.3",
     "npm:@modelcontextprotocol/sdk@^1.30.0": "1.30.0_zod@4.4.3",
-    "npm:@pierre/diffs@1.3.5": "1.3.5_react@19.2.7_react-dom@19.2.7__react@19.2.7",
+    "npm:@pierre/diffs@1.4.2": "1.4.2_react@19.2.7_react-dom@19.2.7__react@19.2.7",
     "npm:@plannotator/atomic-editor@0.8": "0.8.0_@codemirror+autocomplete@6.20.3_@codemirror+lang-javascript@6.2.5_@codemirror+lang-json@6.0.2_@codemirror+lang-markdown@6.5.0_@codemirror+lang-python@6.2.1_@codemirror+lang-yaml@6.1.3_@codemirror+language@6.12.4_@codemirror+legacy-modes@6.5.3_@codemirror+state@6.7.1_@codemirror+view@6.43.11_@lezer+common@1.5.2_@lezer+highlight@1.2.3_react@19.2.7_react-dom@19.2.7__react@19.2.7_typescript@5.9.3",
     "npm:@plannotator/markdown-editor@0.4": "0.4.0_@codemirror+lang-javascript@6.2.5_@codemirror+lang-json@6.0.2_@codemirror+lang-python@6.2.1_@codemirror+lang-yaml@6.1.3_@codemirror+language@6.12.4_@codemirror+legacy-modes@6.5.3_@codemirror+state@6.7.1_@plannotator+atomic-editor@0.8.0__@codemirror+autocomplete@6.20.3__@codemirror+lang-javascript@6.2.5__@codemirror+lang-json@6.0.2__@codemirror+lang-markdown@6.5.0__@codemirror+lang-python@6.2.1__@codemirror+lang-yaml@6.1.3__@codemirror+language@6.12.4__@codemirror+legacy-modes@6.5.3__@codemirror+state@6.7.1__@codemirror+view@6.43.11__@lezer+common@1.5.2__@lezer+highlight@1.2.3__react@19.2.7__react-dom@19.2.7___react@19.2.7__typescript@5.9.3_react@19.2.7_react-dom@19.2.7__react@19.2.7_@codemirror+view@6.43.11",
     "npm:@plannotator/web-highlighter@~0.8.1": "0.8.1",
@@ -86,7 +86,6 @@
     "npm:class-variance-authority@~0.7.1": "0.7.1",
     "npm:clsx@^2.1.1": "2.1.1",
     "npm:codemirror@^6.0.2": "6.0.2",
-    "npm:diff@8.0.4": "8.0.4",
     "npm:diff@9": "9.0.0",
     "npm:dockview-react@^8.2.0": "8.2.0_react@19.2.7_react-dom@19.2.7__react@19.2.7",
     "npm:dompurify@*": "3.4.11",
@@ -1949,8 +1948,8 @@
     "@oxc-project/types@0.142.0": {
       "integrity": "sha512-7W+2q5AKQVU36fkaryontrHn3YDt1RyUYXatw9i5H8ocYe2sPKSFB6eS8WNPeRKiN1qAWWZUPm7gwFzJGrccqQ=="
     },
-    "@pierre/diffs@1.3.5_react@19.2.7_react-dom@19.2.7__react@19.2.7": {
-      "integrity": "sha512-BhaLEiUvR+BdIyOYdogA4JLQjluWPubuwySmmIqEkcE0FwIWRbgJgHNC/r884dlxEr89fO4hTk/sBln0a7NSOw==",
+    "@pierre/diffs@1.4.2_react@19.2.7_react-dom@19.2.7__react@19.2.7": {
+      "integrity": "sha512-X9njBs6fGN+BIBhJ/otJRcxzNfsU3fd31VNquPiRW5nK051IyjuNS5JuOunqFDmEN3VCS9fm0gauyka/nMdokg==",
       "dependencies": [
         "@pierre/theme",
         "@pierre/theming",
@@ -1961,6 +1960,10 @@
         "react",
         "react-dom",
         "shiki@4.3.1"
+      ],
+      "optionalPeers": [
+        "react",
+        "react-dom"
       ]
     },
     "@pierre/theme@2.0.0": {
@@ -6965,7 +6968,7 @@
       "npm:@lezer/common@^1.5.2",
       "npm:@lezer/highlight@^1.2.3",
       "npm:@modelcontextprotocol/sdk@^1.30.0",
-      "npm:@pierre/diffs@1.3.5",
+      "npm:@pierre/diffs@1.4.2",
       "npm:@plannotator/atomic-editor@0.8",
       "npm:@plannotator/markdown-editor@0.4",
       "npm:@plannotator/web-highlighter@~0.8.1",
@@ -7018,11 +7021,6 @@
       "npm:typescript@^5.9.3",
       "npm:unique-username-generator@^1.5.1",
       "npm:vite@^8.1.5"
-    ],
-    "packageJson": {
-      "dependencies": [
-        "npm:diff@8.0.4"
-      ]
-    }
+    ]
   }
 }
