@@ -333,7 +333,6 @@ For worktree-backed plans:
    files. A missing target fails the comparison without falling back to `main`, `HEAD`, the recovery baseline, or an
    empty patch.
 
-
    Review narrows as rounds progress: rounds one and two review the implementation against the whole Plan, and rounds
    three and above only verify the open findings and check the latest repair for regressions. Two full sweeps give a
    requirement overlooked in round one a second independent look; narrowing after that is what lets the loop terminate
