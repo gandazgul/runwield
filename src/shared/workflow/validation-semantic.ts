@@ -5,7 +5,7 @@
  */
 
 import { AGENTS } from "../../constants.js";
-import { captureWorktreeTree } from "./git-snapshot.js";
+import { captureWorktreeTree, getWorkflowDiff, getWorktreeReviewDiff } from "./git-snapshot.js";
 import { buildDiffInspectionSection, createReviewDiffTool, parseDiffFiles } from "./review-diff-tool.js";
 import { ReviewInspection } from "./review-inspection.ts";
 import { logValidationFailure } from "./validation-state-errors.ts";
@@ -28,7 +28,6 @@ import type {
     ValidationPhaseResult,
 } from "./validation-types.ts";
 import {
-    getDiffText,
     hasFinalHumanReviewDecision,
     readHumanReviewMetadata,
     readSemanticRoundState,
@@ -86,7 +85,7 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
     const state = readSemanticRoundState(args, context);
     const round = state.semanticRound;
     const ledger = state.reviewLedger;
-    const diffText = await getDiffText(context.baselineTree, context.executionCwd);
+    const diffText = await getWorktreeReviewDiff(context.executionCwd, context.worktreeBaseBranch || "");
     if (requiresImplementationDiff(args.triageMeta) && !hasImplementationDiff(diffText, args.planName)) {
         const planOnly = Boolean(diffText.trim());
         const reason = planOnly
@@ -424,7 +423,7 @@ export async function runReviewerRound(
     let latestOutcome: ValidationReviewOutcome | null = null;
     let operationalAttempt = 1;
     const repairDiffText = state.repairBaselineTree
-        ? await getDiffText(state.repairBaselineTree, context.executionCwd)
+        ? await getWorkflowDiff(context.executionCwd, state.repairBaselineTree)
         : "";
     const requiredScope = reviewMode === "discovery" ? "full" : "repair";
     const inspection = new ReviewInspection(

@@ -870,6 +870,7 @@ Deno.test("SessionRuntime preserves a blocked semantic repair through compaction
                 "R1-2 blocked: missing reviewer artifact must be restored before this repair can finish.";
             const blockerText = `${blockerNeedle}\n${"Repair blocker evidence. ".repeat(6000)}`;
             let promptText = "";
+            let repairPromptText = "";
             let deliveries = 0;
             try {
                 const adopted = runtime.adoptManagedSession({
@@ -900,13 +901,18 @@ Deno.test("SessionRuntime preserves a blocked semantic repair through compaction
                     continuation,
                     expectedGeneration: 0,
                 });
-                setRuntimeModelResponseFactories([() => fauxAssistantMessage(fauxText(blockerText))]);
+                setRuntimeModelResponseFactories([(context) => {
+                    repairPromptText = JSON.stringify(context.messages.at(-1));
+                    return fauxAssistantMessage(fauxText(blockerText));
+                }]);
                 const repairResult = await runtime.executePlan(adopted.sessionId, {
                     planName: "repair-follow-up",
                     planContent: planBody,
                     triageMeta: activeWorkflow.triageMeta,
                 });
                 assertEquals(repairResult.kind, "paused");
+                assertStringIncludes(repairPromptText, "docs/plans/repair-follow-up.md");
+                assertEquals(repairPromptText.includes("file.js"), false);
                 const blockedSegment = store.getCurrentSessionSegment(acquired.session.runwieldSessionId);
                 if (!blockedSegment) throw new Error("Expected a blocked repair segment");
                 assertStringIncludes(await Deno.readTextFile(blockedSegment.transcriptPath), blockerNeedle);

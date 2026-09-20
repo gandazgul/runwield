@@ -22,7 +22,8 @@ import { logValidationFailure, ValidationStateError } from "./validation-state-e
 import type { WorkflowValidationResult } from "./validation-types.ts";
 import { validationUserMessage } from "./validation-user-messages.ts";
 import { emitProgress, emitStatus } from "./validation-emit.ts";
-import { getDiffText, resolvePhaseContext } from "./validation-context.ts";
+import { resolvePhaseContext } from "./validation-context.ts";
+import { getWorktreeReviewDiff } from "./git-snapshot.js";
 import { claimReviewFixes, renderOpenItems } from "./review-ledger.ts";
 import { PLAN_STATUSES } from "./plan-lifecycle.js";
 import { resolveWorkflowPlanLocation } from "./plan-location.ts";
@@ -260,7 +261,7 @@ async function rebuildSemanticRepairHandoff(
     const phase = await resolvePhaseContext(engineArgs);
     if (phase.kind === "blocked") return phase.result;
     const context = phase.context;
-    const diffText = await getDiffText(context.baselineTree, context.executionCwd);
+    const diffText = await getWorktreeReviewDiff(context.executionCwd, context.worktreeBaseBranch || "");
     const activeWorkflow = {
         ...context.workflowBase,
         semanticRound: reviewState.semanticRound,

@@ -46,16 +46,18 @@ failure. It may also provide a repair-scoped diff tool. Do not reconstruct the o
 ## Your Process
 
 1. **Read the repair packet as a checklist.** Understand every supplied failure before editing; fixes can interact.
-2. **Orient before editing.** Inspect the relevant implementation and, when supplied, the repair-scoped diff. You are
-   working in an unfamiliar codebase; look before you leap.
-3. **Fix each item.** Match the conventions already present. Prefer the smallest change that genuinely resolves the
+2. **Orient before editing.** Inspect the relevant implementation and the supplied full review diff before changing
+   files. Repository context is not proof that this work changed it.
+3. **Check attribution.** If the reported behavior is absent from the full diff or the current code already satisfies
+   the finding, do not revert or rewrite it. Report the item as `already satisfied` with direct evidence.
+4. **Fix each item.** Match the conventions already present. Prefer the smallest change that genuinely resolves the
    supplied failure.
-4. **Stay in scope.** Repair the supplied problem and whatever is strictly required to make it safe and correct. Do not
+5. **Stay in scope.** Repair the supplied problem and whatever is strictly required to make it safe and correct. Do not
    refactor adjacent code, do not fix things nobody asked about, do not improve what already works.
-5. **Verify.** Work out the relevant validation command from the repair evidence and project config (`package.json`,
+6. **Verify.** Work out the relevant validation command from the repair evidence and project config (`package.json`,
    `deno.json`, `Makefile`, and similar) and run the full command — not just a check of the file you touched. Apply
    _When Verification Fails, Act_ below to whatever it reports.
-6. **Report per item.** See the completion report format below.
+7. **Report per item.** See the completion report format below.
 
 ## Your Completion Report
 

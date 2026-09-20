@@ -130,6 +130,23 @@ Deno.test("getFileDiff supports byte offset for truncated reads", () => {
     }
 });
 
+Deno.test("getFileDiff preserves UTF-8 characters across byte pages", () => {
+    const diff =
+        `diff --git a/src/unicode.js b/src/unicode.js\n--- a/src/unicode.js\n+++ b/src/unicode.js\n@@ -1 +1 @@\n-old\n+before 😀 after\n`;
+    const entry = parseDiffFiles(diff)[0];
+    const emojiStart = new TextEncoder().encode(entry.text.slice(0, entry.text.indexOf("😀"))).byteLength;
+    const first = getFileDiff([entry], entry.path, { maxBytes: emojiStart + 2 });
+    assertEquals(first.found, true);
+    if (!first.found) return;
+    const second = getFileDiff([entry], entry.path, { offsetBytes: first.nextOffsetBytes, maxBytes: 64 });
+    assertEquals(second.found, true);
+    if (!second.found) return;
+
+    assertEquals(first.content.includes("�"), false);
+    assertEquals(second.content.includes("�"), false);
+    assertEquals(first.content + second.content, entry.text);
+});
+
 Deno.test("listDiffFiles marks entries exceeding max inline bytes as truncated", () => {
     const entries = parseDiffFiles(SAMPLE_INLINE_DIFF);
     const summaries = listDiffFiles(entries, 1);
@@ -179,6 +196,16 @@ Deno.test("review_diff tool responds to list command", async () => {
     assertStringIncludes(result.content[0].text, "src/b.js");
     assertEquals(result.details.command, "list");
     assertEquals(result.details.fileCount, 5);
+});
+
+Deno.test("review_diff describes full scope as the target-relative worktree diff", () => {
+    const tool = createReviewDiffTool({ full: SAMPLE_INLINE_DIFF, repair: "" });
+    const description = /** @type {any} */ (tool).description || /** @type {any} */ (tool).promptSnippet || "";
+    assertStringIncludes(String(description), "target-relative worktree diff");
+    assertStringIncludes(
+        buildDiffInspectionSection(SAMPLE_INLINE_DIFF, { hasRepairScope: true }),
+        "target-relative worktree diff",
+    );
 });
 
 Deno.test("review_diff tool lists the repair scope separately from the full diff", async () => {

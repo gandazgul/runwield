@@ -2,8 +2,10 @@ import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import {
     captureWorktreeTree,
     getWorkflowDiff,
+    getWorktreeReviewDiff,
     listCommitsTouchingPathsSince,
     restoreWorktreeTree,
+    WorktreeReviewTargetError,
 } from "./git-snapshot.js";
 import { GitRepositoryRequiredError } from "../git.js";
 
@@ -45,6 +47,129 @@ Deno.test("getWorkflowDiff excludes dirty worktree changes that existed before t
         assertEquals(diff.includes("preexisting.js"), false);
         assertStringIncludes(diff, "changed.js");
         assertStringIncludes(diff, "workflow change");
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
+Deno.test("getWorktreeReviewDiff excludes target work imported after the execution baseline", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-review-diff-test-" });
+    try {
+        await git(dir, ["init", "-b", "target"]);
+        await git(dir, ["config", "user.email", "test@example.com"]);
+        await git(dir, ["config", "user.name", "Test User"]);
+        await Deno.writeTextFile(`${dir}/shared.js`, "base\n");
+        await git(dir, ["add", "shared.js"]);
+        await git(dir, ["commit", "-m", "base"]);
+        await git(dir, ["switch", "-c", "execution"]);
+        const executionBaseline = await captureWorktreeTree(dir);
+
+        await git(dir, ["switch", "target"]);
+        await Deno.writeTextFile(`${dir}/inherited.js`, "target behavior\n");
+        await git(dir, ["add", "inherited.js"]);
+        await git(dir, ["commit", "-m", "target behavior"]);
+        await git(dir, ["switch", "execution"]);
+        await git(dir, ["merge", "--no-edit", "target"]);
+        await Deno.writeTextFile(`${dir}/plan-change.js`, "plan behavior\n");
+
+        const oldDiff = await getWorkflowDiff(dir, executionBaseline);
+        const reviewDiff = await getWorktreeReviewDiff(dir, "target");
+
+        assertStringIncludes(oldDiff, "inherited.js");
+        assertEquals(reviewDiff.includes("inherited.js"), false);
+        assertStringIncludes(reviewDiff, "plan-change.js");
+        assertStringIncludes(reviewDiff, "plan behavior");
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
+Deno.test("getWorktreeReviewDiff returns one net patch and preserves checkout state", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-review-diff-test-" });
+    try {
+        await git(dir, ["init", "-b", "target"]);
+        await git(dir, ["config", "user.email", "test@example.com"]);
+        await git(dir, ["config", "user.name", "Test User"]);
+        await Deno.writeTextFile(`${dir}/committed.js`, "target committed\n");
+        await Deno.writeTextFile(`${dir}/mixed.js`, "target mixed\n");
+        await Deno.writeTextFile(`${dir}/deleted.js`, "target deleted\n");
+        await Deno.writeTextFile(`${dir}/undone.js`, "target bytes\n");
+        await git(dir, ["add", "."]);
+        await git(dir, ["commit", "-m", "target"]);
+        const targetTip = (await git(dir, ["rev-parse", "target"])).trim();
+        await git(dir, ["switch", "-c", "execution"]);
+
+        await Deno.writeTextFile(`${dir}/committed.js`, "execution commit\n");
+        await git(dir, ["add", "committed.js"]);
+        await git(dir, ["commit", "-m", "execution commit"]);
+        await Deno.writeTextFile(`${dir}/staged.js`, "staged addition\n");
+        await Deno.writeTextFile(`${dir}/mixed.js`, "staged mixed\n");
+        await git(dir, ["add", "staged.js", "mixed.js"]);
+        await Deno.writeTextFile(`${dir}/mixed.js`, "final mixed\n");
+        await Deno.writeTextFile(`${dir}/unstaged.js`, "unstaged addition\n");
+        await Deno.writeTextFile(`${dir}/untracked.js`, "untracked addition\n");
+        await Deno.remove(`${dir}/deleted.js`);
+        await Deno.writeTextFile(`${dir}/undone.js`, "temporary\n");
+        await Deno.writeTextFile(`${dir}/undone.js`, "target bytes\n");
+
+        const statusBefore = await git(dir, ["status", "--porcelain=v1"]);
+        const indexBefore = await Deno.readFile(`${dir}/.git/index`).catch(() => new Uint8Array());
+        const executionTip = (await git(dir, ["rev-parse", "HEAD"])).trim();
+        const diff = await getWorktreeReviewDiff(dir, "target");
+
+        assertStringIncludes(diff, "+execution commit");
+        assertStringIncludes(diff, "+staged addition");
+        assertStringIncludes(diff, "+final mixed");
+        assertStringIncludes(diff, "+unstaged addition");
+        assertStringIncludes(diff, "+untracked addition");
+        assertStringIncludes(diff, "-target deleted");
+        assertEquals(diff.includes("staged mixed"), false);
+        assertEquals(diff.includes("undone.js"), false);
+        assertEquals((diff.match(/diff --git a\/mixed\.js b\/mixed\.js/g) || []).length, 1);
+        assertEquals(await git(dir, ["status", "--porcelain=v1"]), statusBefore);
+        assertEquals(await Deno.readFile(`${dir}/.git/index`).catch(() => new Uint8Array()), indexBefore);
+        assertEquals((await git(dir, ["rev-parse", "HEAD"])).trim(), executionTip);
+        assertEquals((await git(dir, ["rev-parse", "target"])).trim(), targetTip);
+        assertEquals(await Deno.readTextFile(`${dir}/mixed.js`), "final mixed\n");
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
+Deno.test("getWorktreeReviewDiff compares directly with the latest target tip", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-review-diff-test-" });
+    try {
+        await git(dir, ["init", "-b", "target"]);
+        await git(dir, ["config", "user.email", "test@example.com"]);
+        await git(dir, ["config", "user.name", "Test User"]);
+        await Deno.writeTextFile(`${dir}/base.js`, "base\n");
+        await git(dir, ["add", "."]);
+        await git(dir, ["commit", "-m", "base"]);
+        await git(dir, ["switch", "-c", "execution"]);
+        await git(dir, ["switch", "target"]);
+        await Deno.writeTextFile(`${dir}/target-only.js`, "target one\n");
+        await git(dir, ["add", "."]);
+        await git(dir, ["commit", "-m", "target one"]);
+        await git(dir, ["switch", "execution"]);
+
+        const first = await getWorktreeReviewDiff(dir, "target");
+        assertStringIncludes(first, "deleted file mode");
+        assertStringIncludes(first, "-target one");
+
+        await git(dir, ["switch", "target"]);
+        await Deno.writeTextFile(`${dir}/target-only.js`, "target two\n");
+        await git(dir, ["add", "."]);
+        await git(dir, ["commit", "-m", "target two"]);
+        await git(dir, ["switch", "execution"]);
+
+        const second = await getWorktreeReviewDiff(dir, "target");
+        assertStringIncludes(second, "-target two");
+        assertEquals(second.includes("-target one"), false);
+        await assertRejects(
+            () => getWorktreeReviewDiff(dir, "missing-target"),
+            WorktreeReviewTargetError,
+            "refs/heads/missing-target",
+        );
     } finally {
         await Deno.remove(dir, { recursive: true });
     }

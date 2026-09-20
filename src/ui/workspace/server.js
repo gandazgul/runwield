@@ -10,7 +10,7 @@
 import { extname, join, toFileUrl } from "@std/path";
 import { RUNWIELD_ROOT, RUNWIELD_SOURCE_ROOT } from "../../../runtime-root.js";
 import { getCwd, PLAN_UI_TOKEN_HEADER, PLAN_UI_TOKEN_QUERY } from "../../constants.js";
-import { getWorkflowDiff } from "../../shared/workflow/git-snapshot.js";
+import { getWorktreeReviewDiff, WorktreeReviewTargetError } from "../../shared/workflow/git-snapshot.js";
 import {
     boardApi,
     lifecycleActionApi,
@@ -497,21 +497,22 @@ export function createReviewWorkspaceApp({ cwd, token, reviewPayload, reviewType
 
 /**
  * Refresh Code Review from the working tree on every document request. The
- * workflow baseline remains stable, so browser reload never changes what the
- * user is comparing against.
+ * recorded target branch is resolved for each refresh.
  *
  * @param {{ cwd: string, reviewPayload: Record<string, unknown>, reviewType: "plan" | "code", token: string }} options
  */
 async function currentReviewPagePayload({ cwd, reviewPayload, reviewType, token }) {
     const payload = { ...reviewPayload, token, mode: "workflow" };
-    if (reviewType === "code" && typeof reviewPayload.baselineTree === "string") {
+    if (reviewType === "code" && typeof reviewPayload.targetBranch === "string") {
         try {
-            payload.rawPatch = await getWorkflowDiff(cwd, reviewPayload.baselineTree);
-        } catch {
+            payload.rawPatch = await getWorktreeReviewDiff(cwd, reviewPayload.targetBranch);
+        } catch (error) {
+            if (error instanceof WorktreeReviewTargetError) throw error;
             // Keep the last complete patch if the checkout is temporarily unreadable.
         }
     }
-    delete payload.baselineTree;
+    delete payload.targetBranch;
+    delete payload.agentCwd;
     return payload;
 }
 

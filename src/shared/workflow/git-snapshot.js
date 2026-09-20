@@ -6,6 +6,15 @@
 import { join } from "@std/path";
 import { assertGitRepository, GitRepositoryRequiredError } from "../git.js";
 
+export class WorktreeReviewTargetError extends Error {
+    /** @param {string} targetBranch */
+    constructor(targetBranch) {
+        const branch = targetBranch || "(missing)";
+        super(`Cannot compute the worktree review diff because target ref refs/heads/${branch} is unavailable.`);
+        this.name = "WorktreeReviewTargetError";
+    }
+}
+
 /**
  * @param {string} cwd
  * @param {string[]} args
@@ -134,6 +143,31 @@ export async function getWorkflowDiff(cwd, baselineTree) {
 
     const currentTree = await captureWorktreeTree(cwd);
     return await diffTrees(cwd, baselineTree, currentTree);
+}
+
+/**
+ * Return the complete net patch from a local target branch's current commit to
+ * the current worktree files. This is the shared comparison for AI review,
+ * repair context, human review, and future full-review consumers.
+ *
+ * @param {string} cwd
+ * @param {string} targetBranch
+ * @returns {Promise<string>}
+ */
+export async function getWorktreeReviewDiff(cwd, targetBranch) {
+    await assertGitRepository(cwd, "Computing a worktree review diff");
+    const branch = String(targetBranch || "").trim();
+    if (!branch) throw new WorktreeReviewTargetError(branch);
+
+    let targetCommit;
+    try {
+        targetCommit = (await runGit(cwd, ["rev-parse", "--verify", `refs/heads/${branch}^{commit}`])).trim();
+    } catch {
+        throw new WorktreeReviewTargetError(branch);
+    }
+    const targetTree = (await runGit(cwd, ["rev-parse", "--verify", `${targetCommit}^{tree}`])).trim();
+    const currentTree = await captureWorktreeTree(cwd);
+    return await diffTrees(cwd, targetTree, currentTree);
 }
 
 /**

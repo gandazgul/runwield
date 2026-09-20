@@ -105,7 +105,7 @@ interface CodeReviewSurfaceOptions {
     rawPatch: string;
     gitRef: string;
     agentCwd: string;
-    baselineTree?: string;
+    targetBranch?: string;
     planName?: string;
     planTitle?: string;
     planContent?: string;
@@ -122,7 +122,7 @@ interface CodeReviewPayload extends Record<string, unknown> {
     rawPatch: string;
     gitRef: string;
     agentCwd: string;
-    baselineTree?: string;
+    targetBranch?: string;
     planName?: string;
     planTitle?: string;
     reviewStatus: CodeReviewStatus;
@@ -405,7 +405,7 @@ export async function startCodeReviewSurface<TDecision = ReviewDecisionValue>({
     rawPatch,
     gitRef,
     agentCwd,
-    baselineTree,
+    targetBranch,
     planName,
     planTitle,
     planContent,
@@ -424,7 +424,7 @@ export async function startCodeReviewSurface<TDecision = ReviewDecisionValue>({
         rawPatch,
         gitRef,
         agentCwd,
-        baselineTree,
+        targetBranch,
         planName,
         planTitle,
         reviewStatus,

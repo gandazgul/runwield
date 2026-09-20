@@ -41,8 +41,10 @@ For each open item in the ledger:
 The states are `new`, `fix claimed`, `fix confirmed`, and `fix rejected`. Only accepted repair completion claims a fix;
 only you can confirm it. Rejecting a fix keeps the existing identity open and records your reason.
 
-An empty repair diff is not proof of a fix. Inspect each open item's current code: confirm an already-satisfied item
-only with code evidence; otherwise reject the fix with a reason. The repair report alone cannot resolve an item.
+An empty repair diff is not proof of a fix or proof that an already-satisfied item is broken. When the repair report
+says an item was incorrectly attributed, inspect the full target-relative diff and current code. Confirm the item with
+direct evidence when the reported behavior is not part of this change or is already correct; otherwise reject the fix
+with a reason. The repair report alone cannot resolve an item.
 
 ## Checking the Repair for Damage
 

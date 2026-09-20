@@ -17,7 +17,7 @@ import {
 } from "../../../shared/session/user-selection.ts";
 import { normalizeBrowserNotificationPolicy } from "../../../shared/session/notification-content.ts";
 import { applySharedPlanReviewDecision } from "../../../shared/workflow/plan-review-actions.ts";
-import { getWorkflowDiff } from "../../../shared/workflow/git-snapshot.js";
+import { getWorktreeReviewDiff, WorktreeReviewTargetError } from "../../../shared/workflow/git-snapshot.js";
 import {
     createSessionRuntime,
     deriveManagedSessionContinuationDecision,
@@ -128,7 +128,6 @@ function safePlanReviewReference(request) {
 function safeCodeReviewReference(request) {
     const meta = request._meta && typeof request._meta === "object" ? request._meta : {};
     const rawPatch = typeof meta.diffText === "string" ? meta.diffText : "";
-    if (!rawPatch) return null;
     const planName = typeof meta.planName === "string" && meta.planName.trim()
         ? meta.planName.trim()
         : "Workspace changes";
@@ -284,7 +283,7 @@ export class WorkspaceSessionContinuationService {
         this.createRequests = new Map();
         /** @type {Map<string, PendingCreateRequest>} */
         this.pendingCreateRequests = new Map();
-        /** @type {Map<string, { cwd: string, baselineTree?: string }>} */
+        /** @type {Map<string, { cwd: string, targetBranch: string }>} */
         this.codeReviewRefreshContexts = new Map();
     }
 
@@ -842,10 +841,11 @@ export class WorkspaceSessionContinuationService {
         if (codeReview) {
             const meta = request._meta && typeof request._meta === "object" ? request._meta : {};
             const executionCwd = typeof meta.executionCwd === "string" ? meta.executionCwd.trim() : "";
-            if (executionCwd) {
+            const targetBranch = typeof meta.targetBranch === "string" ? meta.targetBranch.trim() : "";
+            if (executionCwd && targetBranch) {
                 this.codeReviewRefreshContexts.set(`${operationId}:${interactionId}`, {
                     cwd: executionCwd,
-                    ...(typeof meta.baselineTree === "string" && { baselineTree: meta.baselineTree }),
+                    targetBranch,
                 });
             }
         }
@@ -1558,8 +1558,9 @@ export class WorkspaceSessionContinuationService {
         let rawPatch = String(codeReview.rawPatch);
         if (refresh) {
             try {
-                rawPatch = await getWorkflowDiff(refresh.cwd, refresh.baselineTree);
-            } catch {
+                rawPatch = await getWorktreeReviewDiff(refresh.cwd, refresh.targetBranch);
+            } catch (error) {
+                if (error instanceof WorktreeReviewTargetError) throw error;
                 // Keep the last complete interaction patch while the checkout is temporarily unreadable.
             }
         }

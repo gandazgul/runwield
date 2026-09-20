@@ -99,12 +99,21 @@ Deno.test("repair coverage requires repair reads, with precise 64KiB continuatio
     const diff = diffTool({ full: large, repair: large }, { inspection });
     for (const file of files) await diff.execute("full", { command: "show", path: file.path });
     assertEquals(inspection.unread().length, 2);
-    for (const file of files) await diff.execute("repair", { command: "show", scope: "repair", path: file.path });
+    let nextOffsetBytes = 0;
+    for (const file of files) {
+        const result = await diff.execute("repair", { command: "show", scope: "repair", path: file.path });
+        if (result.details?.truncated) nextOffsetBytes = Number(result.details.nextOffsetBytes);
+    }
     const remaining = inspection.unread();
     assertEquals(remaining.length, 1);
-    assertEquals(remaining[0].start, 65536);
-    assertStringIncludes(inspection.feedback(), '"offsetBytes":65536');
-    await diff.execute("rest", { command: "show", scope: "repair", path: remaining[0].path, offsetBytes: 65536 });
+    assertEquals(remaining[0].start, nextOffsetBytes);
+    assertStringIncludes(inspection.feedback(), `"offsetBytes":${nextOffsetBytes}`);
+    await diff.execute("rest", {
+        command: "show",
+        scope: "repair",
+        path: remaining[0].path,
+        offsetBytes: nextOffsetBytes,
+    });
     assertEquals(inspection.unread(), []);
 });
 

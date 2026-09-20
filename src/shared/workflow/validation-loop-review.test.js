@@ -5,7 +5,7 @@ import { getHomeDir } from "../../constants.js";
 import { join } from "@std/path";
 import { setCustomSetting } from "../settings.js";
 import { executeWorkflowTestTools } from "../../testing/workflow-agent-tools.ts";
-import { captureWorktreeTree } from "./git-snapshot.js";
+import { captureWorktreeTree, getWorktreeReviewDiff } from "./git-snapshot.js";
 import { parseDiffFiles } from "./review-diff-tool.js";
 import { getWorkflowMetricsFilePath } from "./metrics.js";
 import {
@@ -222,7 +222,7 @@ Deno.test("runValidationPhase resumes at validated_ci and skips CI before record
     assertEquals(plan?.attrs.status, "validated_reviewer");
 });
 
-Deno.test("runValidationPhase reviews the diff scoped to the active workflow baseline from validated_ci", async () => {
+Deno.test("runValidationPhase reviews the target-relative worktree diff from validated_ci", async () => {
     const expectedWorkflowContext = { routingIntent: "QUICK_FIX", complexity: "MEDIUM", planName: "p" };
     const { projectRoot, hostedSession } = await makeValidatedCiRun({ complexity: "MEDIUM" });
     const reviewPrompts = /** @type {string[]} */ ([]);
@@ -247,6 +247,65 @@ Deno.test("runValidationPhase reviews the diff scoped to the active workflow bas
     assertEquals(reviewPrompts[0].includes("+scoped workflow change"), false);
     assertEquals(hostedSession.getWorkflowContext(), expectedWorkflowContext);
     assertEquals(plan?.attrs.status, "validated_reviewer");
+});
+
+Deno.test("Semantic Review supplies the target-relative patch through review_diff", async () => {
+    const projectRoot = await makeValidationProjectRoot("p", {
+        classification: "QUICK_FIX",
+        status: "validated_ci",
+    });
+    const { hostedSession } = makeValidationUi();
+    await git(projectRoot, ["init", "-b", "target"]);
+    await git(projectRoot, ["config", "user.email", "runwield@example.com"]);
+    await git(projectRoot, ["config", "user.name", "RunWield Test"]);
+    await git(projectRoot, ["add", "."]);
+    await git(projectRoot, ["commit", "-m", "execution baseline"]);
+    const baselineTree = await git(projectRoot, ["rev-parse", "HEAD^{tree}"]);
+    await Deno.writeTextFile(`${projectRoot}/inherited.js`, "export const inherited = true;\n");
+    await git(projectRoot, ["add", "inherited.js"]);
+    await git(projectRoot, ["commit", "-m", "target behavior"]);
+    await git(projectRoot, ["switch", "-c", "execution"]);
+    await Deno.writeTextFile(`${projectRoot}/plan-change.js`, "export const planned = true;\n");
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "p",
+        triageMeta: { classification: "QUICK_FIX", status: "validated_ci" },
+        executionAgent: "engineer",
+        projectRoot,
+        executionCwd: projectRoot,
+        baselineTree,
+        executionMode: "worktree",
+        worktreeId: "wt-target-review",
+        worktreeBranch: "execution",
+        worktreeBaseBranch: "target",
+    });
+    const expectedDiff = await getWorktreeReviewDiff(projectRoot, "target");
+    let suppliedDiff = "";
+
+    const result = await runValidationPhase({
+        hostedSession,
+        planName: "p",
+        planContent: "# p",
+        triageMeta: { classification: "QUICK_FIX", status: "validated_ci" },
+        supportsSemanticRepairHandoff: true,
+        semanticReviewPort: reviewPort({
+            runIsolatedAgentSession: (/** @type {any} */ opts) => {
+                const tool = opts.customTools.find((/** @type {any} */ candidate) => candidate.name === "review_diff");
+                suppliedDiff = String(tool.__runwieldReviewDiffs.full || "");
+                return Promise.resolve(reviewerMessages({
+                    approved: false,
+                    feedback: "Missing guard",
+                    findings: [{ title: "Missing guard", requirement: "Step 1", evidence: "plan-change.js" }],
+                }));
+            },
+        }),
+    });
+
+    assertEquals(suppliedDiff, expectedDiff);
+    assertStringIncludes(suppliedDiff, "plan-change.js");
+    assertStringIncludes(suppliedDiff, "+export const planned = true;");
+    assertEquals(suppliedDiff.includes("inherited.js"), false);
+    assertEquals(result.kind, "semantic_repair_handoff");
+    assertEquals(result.semanticRepairHandoff?.diffText, expectedDiff);
 });
 
 Deno.test("runValidationPhase configures Semantic Reviewer with diff tools and isolated session", async () => {

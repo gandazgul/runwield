@@ -326,7 +326,12 @@ For worktree-backed plans:
 3. Workflow Validation reads `validationCiAttempts` and `validationSemanticRounds` from the current controller record,
    runs exactly one lifecycle phase for the current Plan Status, records at most one Plan Event for that phase, and
    returns. Repeated calls resume from durable status instead of an in-memory validation loop.
-4. The `validated_ci` phase computes the workflow diff and starts semantic review rounds in the execution worktree.
+4. The `validated_ci` phase computes one full review patch directly from the recorded target branch's current commit to
+   all current execution-worktree files. One shared function supplies that patch to AI review, repair context, and human
+   review, including reload and continuation. It does not compare with the execution recovery baseline or a shared
+   ancestor. The separate repair patch still compares the pre-repair tree with current files. A missing target fails the
+   comparison without falling back to `main`, `HEAD`, the recovery baseline, or an empty patch.
+
    Review narrows as rounds progress: rounds one and two review the implementation against the whole Plan, and rounds
    three and above only verify the open findings and check the latest repair for regressions. Two full sweeps give a
    requirement overlooked in round one a second independent look; narrowing after that is what lets the loop terminate
@@ -347,9 +352,10 @@ For worktree-backed plans:
    passes and before merge-back. The optional `guidedReview` setting can generate a Guided Review Explainer inside that
    already-open human review, but it does not create a Plan Status, Plan Event, or Front Matter field. Human feedback
    goes to the Reviewer-Feedback Engineer in the same fresh-session way, along with the annotations and images, and
-   human review then reopens. Human review always sees the full workflow diff, never a repair-scoped one. Human approval
-   reached through the round-limit escape hatch is authoritative and permits merge-back even though semantic review
-   never approved; the record distinguishes that case.
+   human review then reopens. Human review always sees the same full target-relative patch as AI review, never a
+   repair-scoped one. Reload resolves the recorded target again and includes current committed and uncommitted files.
+   Human approval reached through the round-limit escape hatch is authoritative and permits merge-back even though
+   semantic review never approved; the record distinguishes that case.
 
    Once the change is in a human's hands the loop belongs to them: CI reruns and code review reopens after every
    feedback round, for as many rounds as they give, and automatic semantic rounds do not resume. **The only exits are
