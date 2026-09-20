@@ -35,7 +35,7 @@ function buildPresentation(payload, progress) {
         intent: payload.classification,
         classification: payload.classification,
         projectPlanType: payload.type || payload.attrs?.type,
-        status: progress?.plan?.status || payload.status,
+        status: progress?.overall?.state === "completed" ? "verified" : progress?.plan?.status || payload.status,
         progressFacts: progressFacts(progress || payload.workflow),
         degradedMessage: typeof progress?.degraded?.message === "string"
             ? progress.degraded.message
@@ -62,7 +62,7 @@ function buildPresentation(payload, progress) {
     });
 }
 
-export function PlanHomeSurface({ payload, presentation = "workspace" }) {
+export function PlanHomeSurface({ payload, presentation = "standalone" }) {
     const [progress, setProgress] = useState(payload.workflow || null);
     const [message, setMessage] = useState("");
     useEffect(() => {
@@ -126,16 +126,22 @@ export function PlanHomeSurface({ payload, presentation = "workspace" }) {
     const workflow = useMemo(() => buildPresentation(payload, progress), [payload, progress]);
 
     return (
-        <div className="rw-plan-home-shell">
-            <div className="rw-plan-home-reader">
-                {message ? <p className="session-surface-status" role="status">{message}</p> : null}
-                <ArtifactReadSurface payload={artifactPayload} presentation={presentation} />
-            </div>
-            <WorkflowSidebar
-                presentation={workflow}
-                payload={{ ...payload, ...(progress || {}) }}
-                onAction={runAction}
-            />
-        </div>
+        <ArtifactReadSurface
+            payload={artifactPayload}
+            embedded={presentation === "workspace"}
+            showLogo={false}
+            contentsInitiallyOpen={false}
+            workflowSidebar={
+                <>
+                    {message ? <p className="session-surface-status" role="status">{message}</p> : null}
+                    <WorkflowSidebar
+                        presentation={workflow}
+                        embedded
+                        payload={{ ...payload, ...(progress || {}) }}
+                        onAction={runAction}
+                    />
+                </>
+            }
+        />
     );
 }

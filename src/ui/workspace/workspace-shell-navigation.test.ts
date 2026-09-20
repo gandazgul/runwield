@@ -22,7 +22,7 @@ Deno.test("Workspace sidebar resizing respects panel and conversation bounds", (
     assertEquals(clampSidebarWidth(480, 870), 450);
 });
 
-Deno.test("Workspace home renders and reuses its sidebar while opening the remembered Session", async () => {
+Deno.test("Workspace home stays on the Attention Dashboard and reuses its sidebar", async () => {
     const { document, sidebar } = installFakeBrowser("/");
     const stored = new Map([[
         LAST_SESSION_KEY,
@@ -57,10 +57,13 @@ Deno.test("Workspace home renders and reuses its sidebar while opening the remem
         await refreshSidebarForPage();
         const row = sidebar.querySelector('[data-sidebar-session="session-a"]');
         await refreshSidebarForPage();
-        assertEquals(destinations, ["/projects/project-a/sessions/session-a"]);
-        assertEquals(requests, 1);
+        assertEquals(destinations, []);
+        assertEquals(requests, 2);
         assertStrictEquals(sidebar.querySelector('[data-sidebar-session="session-a"]'), row);
-        assertEquals(document.querySelector('[aria-label="RunWield Workspace home"]').href, destinations[0]);
+        assertEquals(
+            document.querySelector('[aria-label="RunWield Workspace home"]').href,
+            "/projects/project-a/sessions/session-a",
+        );
     } finally {
         globalThis.fetch = previousFetch;
     }
@@ -488,11 +491,11 @@ Deno.test("Plan Board navigation stays active across board views and clears on S
     applyActiveRoute(currentRouteFromUrl("/projects/project-b/sessions/session-a"));
     assertEquals(second.classList.contains("active"), false);
     assertEquals(second.getAttribute("aria-current"), null);
-    assertEquals(currentRouteFromUrl("/projects/project-b/plans/a-plan").kind, "project");
+    assertEquals(currentRouteFromUrl("/projects/project-b/plans/a-plan").kind, "plan");
 });
 
-Deno.test("Workspace shell shares an in-flight sidebar request across startup events", async () => {
-    const { document } = installFakeBrowser();
+Deno.test("Workspace shell shares startup requests and preserves scroll across page swaps", async () => {
+    const { document, sidebar } = installFakeBrowser();
     let refreshes = 0;
     globalThis.fetch = () => {
         refreshes += 1;
@@ -504,6 +507,14 @@ Deno.test("Workspace shell shares an in-flight sidebar request across startup ev
     document.dispatchEvent(new CustomEvent("astro:page-load"));
     await Promise.resolve();
     assertEquals(refreshes, 1);
+    for (const scrollTop of [812, 547]) {
+        sidebar.scrollTop = scrollTop;
+        document.dispatchEvent(new CustomEvent("astro:before-swap"));
+        // Moving a persisted element between document bodies can reset its scroll.
+        sidebar.scrollTop = 0;
+        document.dispatchEvent(new CustomEvent("astro:after-swap"));
+        assertEquals(sidebar.scrollTop, scrollTop);
+    }
 });
 
 Deno.test("Workspace sidebar resize supports keyboard, pointer, and persisted width", () => {

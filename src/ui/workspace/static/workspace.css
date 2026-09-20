@@ -1492,6 +1492,8 @@
     align-items: center;
     border-bottom: 1px solid var(--rw-border-subtle, var(--rw-border));
     display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
     justify-content: space-between;
     margin-bottom: 0.5rem;
     padding-bottom: 0.5rem;
@@ -1500,6 +1502,7 @@
 .owner-dashboard-section-heading h2 {
     font-size: 1rem;
     margin: 0;
+    margin-right: auto;
 }
 
 .owner-dashboard-section-heading span {
@@ -1807,21 +1810,21 @@
 }
 
 /* Viewport workbenches scroll their panes, never the document behind the header. */
-html:has(.workspace-main-shell :is(.session-surface-detail, .rw-review-embedded)),
-body:has(.workspace-main-shell :is(.session-surface-detail, .rw-review-embedded)) {
+html:has(.workspace-main-shell :is(.session-surface-detail, .rw-review-embedded, .rw-artifact-embedded, .owner-dashboard)),
+body:has(.workspace-main-shell :is(.session-surface-detail, .rw-review-embedded, .rw-artifact-embedded, .owner-dashboard)) {
     height: 100%;
     overflow: hidden;
     overscroll-behavior: none;
 }
 
-.workspace-shell-with-sidebar:has(.session-surface-detail, .rw-review-embedded) {
+.workspace-shell-with-sidebar:has(.session-surface-detail, .rw-review-embedded, .rw-artifact-embedded, .owner-dashboard) {
     height: 100dvh;
     min-height: 0;
     grid-template-rows: minmax(0, 1fr);
     overflow: hidden;
 }
 
-.workspace-shell-with-sidebar:has(.session-surface-detail, .rw-review-embedded) > .workspace-sidebar {
+.workspace-shell-with-sidebar:has(.session-surface-detail, .rw-review-embedded, .rw-artifact-embedded, .owner-dashboard) > .workspace-sidebar {
     height: 100%;
     min-height: 0;
     overscroll-behavior: contain;
@@ -2091,16 +2094,6 @@ body:has(.workspace-main-shell :is(.session-surface-detail, .rw-review-embedded)
     border-radius: 0;
     background: transparent;
     position: relative;
-}
-
-.workflow-diagram-connected li:not(:last-child)::after {
-    background: var(--rw-border);
-    bottom: -0.55rem;
-    content: "";
-    left: 0.18rem;
-    position: absolute;
-    top: calc(100% - 0.15rem);
-    width: 1px;
 }
 
 .workflow-repair-return {
@@ -3078,15 +3071,12 @@ body:has(.workspace-main-shell :is(.session-surface-detail, .rw-review-embedded)
     align-items: center;
     gap: 0.5rem;
     box-sizing: border-box;
-    height: var(--rw-workspace-header-height);
+    height: calc(var(--rw-workspace-header-height) - 1px);
     padding-inline: 0.75rem;
 }
 
 .session-context-header[data-expanded="true"] {
     width: var(--rw-session-sidebar-width);
-    height: calc(var(--rw-workspace-header-height) + var(--rw-space-panel));
-    margin-top: calc(-1 * var(--rw-space-panel));
-    padding-top: var(--rw-space-panel);
     border-left: 1px solid var(--rw-border);
     background: color-mix(in srgb, var(--rw-surface) 94%, var(--rw-page-bg));
 }
@@ -3200,7 +3190,7 @@ body:has(.workspace-main-shell :is(.session-surface-detail, .rw-review-embedded)
 }
 
 .workspace-shell-with-sidebar {
-    --rw-workspace-header-height: 36px;
+    --rw-workspace-header-height: var(--rw-shell-header-height);
     --rw-workspace-sidebar-effective-width: min(var(--rw-workspace-sidebar-width, 280px), max(220px, calc(100vw - 420px)));
     display: grid;
     grid-template-columns: var(--rw-workspace-sidebar-effective-width) minmax(0, 1fr);
@@ -3243,16 +3233,18 @@ body:has(.workspace-main-shell :is(.session-surface-detail, .rw-review-embedded)
     border-right: 1px solid var(--rw-border);
     box-sizing: border-box;
     color: var(--rw-text-muted);
-    min-height: 100vh;
+    height: 100dvh;
+    min-height: 0;
     overflow-y: auto;
-    padding: var(--rw-space-panel) 12px;
+    overflow-anchor: none;
+    padding: 0 12px var(--rw-space-panel);
     box-shadow: inset 3px 0 var(--rw-brand);
 }
 
 .workspace-main-shell {
     box-sizing: border-box;
     min-width: 0;
-    padding: var(--rw-space-panel) 0;
+    padding: 0;
 }
 
 .workspace-main-header {
@@ -3260,6 +3252,7 @@ body:has(.workspace-main-shell :is(.session-surface-detail, .rw-review-embedded)
     display: flex;
     gap: 1rem;
     min-height: var(--rw-workspace-header-height, 36px);
+    border-bottom: 1px solid var(--rw-border);
 }
 
 .workspace-main-shell:has(.session-surface-detail) .workspace-main-header-left {
@@ -3387,6 +3380,14 @@ body:has(.workspace-main-shell :is(.session-surface-detail, .rw-review-embedded)
     justify-content: space-between;
     margin-bottom: 16px;
     min-height: var(--rw-workspace-header-height);
+    margin-inline: -12px;
+    padding-inline: 12px;
+    border-bottom: 1px solid var(--rw-border);
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--rw-surface);
+    box-shadow: inset 3px 0 var(--rw-brand);
 }
 
 .workspace-sidebar-brand a {
@@ -3411,6 +3412,10 @@ body:has(.workspace-main-shell :is(.session-surface-detail, .rw-review-embedded)
     color: var(--rw-text-strong);
     font-weight: 500;
     padding: 0 8px;
+}
+
+.workspace-sidebar-home + .workspace-sidebar-new {
+    margin-top: 0.5rem;
 }
 
 .workspace-sidebar-plus,
@@ -3910,136 +3915,61 @@ body:has(.workspace-main-shell :is(.session-surface-detail, .rw-review-embedded)
     }
 }
 
-.rw-plan-home-shell {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(18rem, 24rem);
-    min-height: calc(100vh - var(--rw-workspace-header-height, 0px));
-    background: var(--rw-page-bg);
-}
-
-.rw-plan-home-reader {
-    min-width: 0;
-    border-right: 1px solid var(--rw-border);
-}
-
-.rw-plan-home-reader .rw-artifact-read {
-    min-height: 100%;
-}
-
+/* One scroll owner per sidebar; embedded workflow content inherits its pane. */
 .rw-plan-home-workflow {
     min-width: 0;
-    max-height: calc(100vh - var(--rw-workspace-header-height, 0px));
+    max-height: calc(100dvh - var(--rw-shell-header-height));
     overflow: auto;
-    padding: 1.5rem;
-    background: var(--rw-surface-raised);
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: var(--rw-space-card);
+    background: var(--rw-surface);
 }
 
 .rw-plan-home-workflow > header {
-    padding-bottom: 1rem;
+    min-height: var(--rw-shell-header-height);
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
     border-bottom: 1px solid var(--rw-border);
 }
 
 .rw-plan-home-workflow > header h2 {
-    margin: 0.25rem 0 0;
-    color: var(--rw-text-strong);
-    font-size: 1.05rem;
-    line-height: 1.2;
-}
-
-.rw-plan-home-workflow > header p:not(.kicker) {
-    margin: 0.5rem 0 0;
-    color: var(--rw-text-muted);
-    font-size: 0.875rem;
-}
-
-.rw-plan-home-workflow .workflow-diagram {
-    margin-top: 1rem;
-}
-
-@media (max-width: 960px) {
-    .rw-plan-home-shell {
-        grid-template-columns: 1fr;
-    }
-
-    .rw-plan-home-reader {
-        border-right: 0;
-        border-bottom: 1px solid var(--rw-border);
-    }
-
-    .rw-plan-home-workflow {
-        max-height: none;
-    }
-}
-
-.rw-plan-home-workflow {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-    border-left: 1px solid var(--rw-border);
-    background: linear-gradient(180deg, var(--rw-surface-raised), var(--rw-page-bg));
-}
-
-.rw-plan-home-workflow .session-workflow-stage-list {
-    gap: 0.5rem;
     margin: 0;
-    padding: 0;
+    color: var(--rw-text-strong);
+    font-size: 0.95rem;
 }
 
-.rw-plan-home-workflow .session-workflow-stage-list li {
-    position: relative;
-    gap: 0.25rem;
-    padding: 0.75rem;
-    border: 1px solid var(--rw-border);
-    border-radius: var(--rw-radius-card);
-    background: var(--rw-surface-muted);
-    box-shadow: 0 12px 28px #0004;
-}
-
-.rw-plan-home-workflow .session-workflow-stage-list li[aria-current="step"],
-.rw-plan-home-workflow .session-workflow-stage-list li[data-state="current"] {
-    border-color: color-mix(in srgb, var(--rw-accent) 55%, var(--rw-border));
-    background: color-mix(in srgb, var(--rw-accent) 10%, var(--rw-surface-muted));
-    box-shadow: inset 3px 0 var(--rw-accent), 0 12px 28px #0004;
-    padding-left: 1rem;
-}
-
-.rw-plan-home-workflow .session-workflow-stage-list li[data-state="blocked"] {
-    border-color: color-mix(in srgb, var(--rw-error) 55%, var(--rw-border));
-    background: color-mix(in srgb, var(--rw-error) 10%, var(--rw-surface-muted));
-    box-shadow: inset 3px 0 var(--rw-error), 0 12px 28px #0004;
-    padding-left: 1rem;
-}
-
-.rw-plan-home-workflow .session-workflow-stage-list li > span {
-    font-size: 0.875rem;
-    line-height: 1.2;
-}
-
-.rw-plan-home-workflow .session-workflow-stage-list li > strong {
-    color: var(--rw-text-dim);
-    font-size: 0.68rem;
-    letter-spacing: 0.12em;
-}
-
-.rw-plan-home-workflow .session-workflow-stage-list li > p {
+.rw-plan-home-workflow > header p {
+    margin: 0;
     color: var(--rw-text-muted);
-    font-size: 0.78rem;
-    line-height: 1.45;
+}
+
+.rw-plan-home-workflow-embedded {
+    max-height: none;
+    overflow: visible;
+    padding: 0;
+    background: transparent;
+}
+
+.rw-plan-home-workflow .session-workflow-stage-list > li:first-child {
+    border-top: 0;
 }
 
 .rw-plan-home-workflow .workflow-next-card {
-    margin-top: 0;
-    padding: 1rem;
-    border: 1px solid var(--rw-border);
-    border-radius: var(--rw-radius-panel);
-    background: var(--rw-surface);
-    box-shadow: 0 12px 28px #0004;
+    padding: 0.75rem 0;
+    border: 0;
+    border-top: 1px solid var(--rw-border);
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
 }
 
 .rw-plan-home-workflow .workflow-next-card .rw-toolbar-button {
-    justify-content: center;
-    width: 100%;
-    margin-top: 0.5rem;
+    justify-self: start;
+    margin-top: 0.25rem;
 }
 
 .workspace-navigation-loading:not([hidden]) {
@@ -4065,7 +3995,7 @@ body:has(.workspace-main-shell :is(.session-surface-detail, .rw-review-embedded)
 
 @media (max-width: 900px) {
     .workspace-shell-with-sidebar {
-        --rw-workspace-header-height: 44px;
+        --rw-workspace-header-height: var(--rw-shell-header-height);
     }
 
     .workspace-main-header:has(.session-context-header[data-expanded="true"]) .workspace-main-header-left {
@@ -4110,4 +4040,46 @@ body:has(.workspace-main-shell :is(.session-surface-detail, .rw-review-embedded)
     .plan-card.drop-rejected {
         animation: none;
     }
+}
+
+/* Dashboard and Plan readers keep Workspace navigation and share its title row. */
+.workspace-main-shell:has(.rw-artifact-embedded, .owner-dashboard) {
+    display: grid;
+    grid-template-rows: var(--rw-shell-header-height) minmax(0, 1fr);
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.workspace-main-shell:has(.rw-artifact-embedded, .owner-dashboard) > main,
+.workspace-main-shell:has(.rw-artifact-embedded, .owner-dashboard) > main > astro-island {
+    display: block;
+    height: 100%;
+    min-height: 0;
+    min-width: 0;
+}
+
+.workspace-main-shell:has(.rw-artifact-embedded, .owner-dashboard) .workspace-main-header {
+    align-items: center;
+    flex-wrap: nowrap;
+    padding-block: 0;
+}
+
+.workspace-main-shell:has(.rw-artifact-embedded, .owner-dashboard) .workspace-main-header-left {
+    flex: 1 1 0;
+}
+
+.workspace-main-shell:has(.rw-artifact-embedded, .owner-dashboard) .workspace-main-header-action-row {
+    flex: 0 0 auto;
+    width: auto;
+    margin-left: auto;
+}
+
+.workspace-main-shell:has(.rw-artifact-embedded, .owner-dashboard) .tab-search-slot:empty {
+    display: none;
+}
+
+.workspace-main-shell:has(.owner-dashboard) > main {
+    overflow-y: auto;
+    overscroll-behavior: contain;
 }

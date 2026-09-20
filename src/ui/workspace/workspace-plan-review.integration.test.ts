@@ -5,16 +5,16 @@ const ROUTE_PATH = "src/ui/workspace/pages/projects/[projectId]/plans/[planId].a
 const SESSION_CONTINUATION_PATH = "src/ui/workspace/server/session-continuation.js";
 const PLAN_REVIEW_SURFACE_PATH = "src/ui/workspace/react/PlanReviewSurface.tsx";
 
-Deno.test("stable Plan page switches from live review to settled detail", async () => {
+Deno.test("stable Plan page switches from live review to settled Plan home", async () => {
     const route = await Deno.readTextFile(ROUTE_PATH);
 
     assertStringIncludes(route, "PlanReviewSurface");
-    assertStringIncludes(route, "PlanDetail");
+    assertStringIncludes(route, "PlanHomeSurface");
     assertStringIncludes(route, "getLivePlanReview");
     assertFalse(route.includes("const liveReview = Boolean(runwieldSessionId && operationId && interactionId)"));
     assertStringIncludes(route, "WorkspaceLayout");
     assertStringIncludes(route, "const Layout = reviewPayload ? ReviewLayout : WorkspaceLayout");
-    assertFalse(route.includes('presentation="workspace"'));
+    assertStringIncludes(route, 'presentation="workspace"');
 });
 
 Deno.test("Workspace Plan review returns Feedback to the same live Core interaction", async () => {

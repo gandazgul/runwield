@@ -630,7 +630,7 @@ function reconcilePlanRows(container, project, current) {
     if (plans.length > visible.length) {
         const button = document.createElement("button");
         button.type = "button";
-        button.className = "workspace-sidebar-more";
+        button.className = "workspace-sidebar-show-more";
         button.dataset.showMorePlans = project.projectId;
         button.textContent = `Show ${plans.length - visible.length} more Plans...`;
         container.append(button);
@@ -647,7 +647,7 @@ function reconcilePlanRows(container, project, current) {
     for (const selector of focusSelectors) {
         const focusTarget = container.querySelector(selector);
         if (focusTarget) {
-            focusTarget.focus();
+            focusTarget.focus({ preventScroll: true });
             break;
         }
     }
@@ -754,12 +754,14 @@ function reconcileProjects(list, payload, current) {
 export function renderSidebar(payload, current) {
     const sidebar = document.querySelector("[data-workspace-sidebar]");
     if (!sidebar) return;
+    const scrollTop = sidebar.scrollTop;
     renderMainHeader(payload, current);
     const list = ensureSidebarScaffold(sidebar, payload, current);
     reconcileProjects(list, payload, current);
     setSidebarCollapsed(isSidebarCollapsed());
     sidebarHasRendered = true;
     updateWorkspaceHomeLinks();
+    sidebar.scrollTop = scrollTop;
 }
 
 function updatePlanBoardActive(link, current) {
@@ -932,6 +934,14 @@ let workspaceShellBrowserInstalled = false;
 export function installWorkspaceShellBrowser() {
     if (workspaceShellBrowserInstalled) return;
     workspaceShellBrowserInstalled = true;
+    let sidebarScrollTop = 0;
+    document.addEventListener("astro:before-swap", () => {
+        sidebarScrollTop = document.querySelector("[data-workspace-sidebar]")?.scrollTop || 0;
+    });
+    document.addEventListener("astro:after-swap", () => {
+        const sidebar = document.querySelector("[data-workspace-sidebar]");
+        if (sidebar) sidebar.scrollTop = sidebarScrollTop;
+    });
     document.addEventListener("runwield:session-named", (event) => applySessionName(event.detail));
     if (document.readyState === "loading") {
         document.addEventListener("DOMContentLoaded", installWorkspaceShell, { once: true });

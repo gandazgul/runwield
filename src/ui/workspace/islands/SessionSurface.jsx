@@ -2327,6 +2327,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                                                             interactionHref: workflowActionUrl,
                                                         }}
                                                         title="Workflow"
+                                                        embedded
                                                         onAction={runWorkflowAction}
                                                     />
                                                 )

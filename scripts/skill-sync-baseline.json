@@ -2,7 +2,7 @@
     "skills": [
         {
             "source": "src/agent-definitions/ideator.md",
-            "sourceHash": "513e19542da20afb86ba212d8deec2ef65ad7af0f34c9456eb7be7ba195998c6",
+            "sourceHash": "f2e11aa38a539206cff953742707d9b617599a8d4ebd5c691f752343fd4ff652",
             "skill": "skills/ideator/SKILL.md",
             "skillHash": "090937d2d4ed0d51dbff8e6b413d001445a861d6e1a7335d4157954a7fb66bd2",
             "supportFiles": [

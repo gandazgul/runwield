@@ -1,4 +1,4 @@
-import { assertEquals, assertStringIncludes } from "@std/assert";
+import { assertEquals, assertStrictEquals, assertStringIncludes } from "@std/assert";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { savePlan } from "../../plan-store.js";
@@ -9,6 +9,8 @@ import { ownerProjectSessionsApi, ownerSessionPlanWorkflowApi } from "./routes/o
 import { latestLiveWorkflowInteraction } from "./islands/SessionSurface.jsx";
 import { WorkflowSidebar } from "./react/WorkflowSidebar.tsx";
 import { loadOwnerDashboard } from "./server/owner-dashboard.ts";
+import { createWorkspaceSessionContinuationService } from "./server/session-continuation.js";
+import { makeManagedSessionFixture, readTranscriptEvidence } from "../../testing/managed-session-fixture.ts";
 
 function cookiePair(credential: string, csrf = "csrf-secret"): string {
     return `rw_owner_device=${encodeURIComponent(credential)}; rw_owner_csrf=${encodeURIComponent(csrf)}`;
@@ -32,7 +34,198 @@ function pairedApp(dir: string) {
     };
 }
 
-Deno.test("personal remote Workspace v2 Dashboard uses eligible completion evidence and Project caps", async () => {
+Deno.test("Project settings stays accessible when its root disappears or its registration is disabled", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-project-settings-recovery-" });
+    const root = `${dir}/original`;
+    const movedRoot = `${dir}/moved`;
+    await Deno.mkdir(root);
+    const { store, app } = pairedApp(dir);
+    try {
+        const project = store.registerProject({ root, displayName: "Moved Project" });
+        await Deno.rename(root, movedRoot);
+        const settingsUrl = `http://127.0.0.1:8787/projects/${project.projectId}/settings`;
+        const headers = { cookie: cookiePair("credential-secret") };
+        const missing = await app(new Request(settingsUrl, { headers }));
+        assertEquals(missing.status, 200);
+        const html = await missing.text();
+        assertStringIncludes(html, "Moved Project");
+        assertStringIncludes(html, "Relink Project root");
+        assertStringIncludes(html, 'data-action="remove"');
+        assertEquals(html.includes("Workspace request blocked"), false);
+        const action = (body: { action: string; newRoot?: string }) =>
+            app(
+                new Request(
+                    `http://127.0.0.1:8787/api/owner/projects/${project.projectId}/action`,
+                    {
+                        method: "POST",
+                        headers: {
+                            ...headers,
+                            origin: "http://127.0.0.1:8787",
+                            "x-runwield-csrf": "csrf-secret",
+                            "content-type": "application/json",
+                        },
+                        body: JSON.stringify(body),
+                    },
+                ),
+            );
+        assertEquals((await action({ action: "disable" })).status, 200);
+        const disabled = await app(new Request(settingsUrl, { headers }));
+        assertEquals(disabled.status, 200);
+        assertStringIncludes(await disabled.text(), 'data-action="enable"');
+        assertEquals((await action({ action: "relink", newRoot: movedRoot })).status, 200);
+        assertEquals((await action({ action: "enable" })).status, 200);
+        assertEquals(store.getProjectHealth(project.projectId).status, "available");
+        const repaired = await app(new Request(settingsUrl, { headers }));
+        assertEquals(repaired.status, 200);
+        assertStringIncludes(await repaired.text(), "available");
+        assertEquals((await action({ action: "remove" })).status, 200);
+        assertEquals((await Deno.stat(movedRoot)).isDirectory, true);
+        assertEquals(store.listProjects(), []);
+        assertEquals((await app(new Request(settingsUrl, { headers }))).status, 404);
+        const projectsPage = await app(new Request("http://127.0.0.1:8787/projects", { headers }));
+        assertEquals((await projectsPage.text()).includes("Moved Project"), false);
+        const unknown = await app(new Request("http://127.0.0.1:8787/projects/not-registered/settings", { headers }));
+        assertEquals(unknown.status, 404);
+        assertStringIncludes(await unknown.text(), "Project settings not found");
+    } finally {
+        store.close();
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
+Deno.test("Removing and re-adding a Project preserves file-authoritative Session history", async () => {
+    const fixture = await makeManagedSessionFixture();
+    try {
+        const { store, project, projectRoot, transcriptPath, session } = fixture;
+        const transcript = await Deno.readTextFile(transcriptPath);
+        store.removeProject(project.projectId);
+        assertEquals(store.getProjectById(project.projectId), null);
+        assertEquals(await Deno.readTextFile(transcriptPath), transcript);
+        const added = store.registerProject({ root: projectRoot });
+        assertEquals(added.projectId === project.projectId, false);
+        await store.catalogProjectSessions(added.projectId, { fullRescan: true });
+        const rediscovered = await store.listProjectSessions(added.projectId);
+        assertEquals(rediscovered.sessions.some((item) => item.runwieldSessionId === session.runwieldSessionId), true);
+        assertEquals(await Deno.readTextFile(transcriptPath), transcript);
+    } finally {
+        await fixture.cleanup();
+    }
+});
+
+Deno.test("Dashboard uses the persistent Workspace shell", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-dashboard-shell-" });
+    const { store, app } = pairedApp(dir);
+    try {
+        const response = await app(
+            new Request("http://127.0.0.1:8787/", { headers: { cookie: cookiePair("credential-secret") } }),
+        );
+        assertEquals(response.status, 200);
+        const html = await response.text();
+        assertStringIncludes(html, "data-owner-dashboard");
+        assertStringIncludes(html, "data-astro-transition-persist");
+        assertStringIncludes(html, "astro-view-transitions-enabled");
+        assertStringIncludes(html, "Attention Dashboard");
+    } finally {
+        store.close();
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
+Deno.test("unassociated live Plan reviews use Plan names and ordinary questions use Session names", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-dashboard-review-names-" });
+    const { store } = pairedApp(dir);
+    try {
+        const project = store.registerProject({ root: dir });
+        await savePlan(dir, "review-me", "# Review the searchable artifacts\n", {
+            planId: "review-plan-id",
+            title: "Review the searchable artifacts",
+            classification: "FEATURE",
+            status: "draft",
+        });
+        const continuation = {
+            operations: new Map([
+                ["browser-op", {
+                    projectId: project.projectId,
+                    runwieldSessionId: "browser-session",
+                    status: "running",
+                    liveInteraction: {
+                        interactionId: "review-1",
+                        request: {
+                            type: "plan_review",
+                            planReview: { planId: "review-plan-id", planName: "review-me" },
+                        },
+                    },
+                }],
+                ["tui-op", {
+                    projectId: project.projectId,
+                    runwieldSessionId: "tui-session",
+                    status: "running",
+                    liveInteraction: {
+                        interactionId: "review-2",
+                        request: { type: "plan_review", _meta: { planName: "A new Plan in a worktree" } },
+                    },
+                }],
+                ["question-op", {
+                    projectId: project.projectId,
+                    runwieldSessionId: "question-session",
+                    status: "running",
+                    liveInteraction: { interactionId: "question", request: { type: "text", prompt: "Which file?" } },
+                }],
+            ]),
+            listSessions: () =>
+                Promise.resolve({
+                    sessions: [
+                        { runwieldSessionId: "question-session", displayName: "Choose Terraform folder name" },
+                    ],
+                }),
+        };
+        const dashboard = await loadOwnerDashboard(store, continuation);
+        const items = dashboard.dashboard.sections.find((section) => section.key === "needs-you")?.items || [];
+        assertEquals(items.length, 3);
+        assertEquals(items.find((item) => item.planId === "review-plan-id")?.title, "Review the searchable artifacts");
+        assertEquals(items.some((item) => item.title === "A new Plan in a worktree"), true);
+        assertEquals(items.some((item) => item.title === "Choose Terraform folder name"), true);
+        assertEquals(items.some((item) => item.title === "Session is waiting for you"), false);
+    } finally {
+        store.close();
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
+Deno.test("Dashboard shares concurrent reads but refreshes evidence after they finish", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-dashboard-concurrent-" });
+    const projectRoot = `${dir}/project`;
+    await Deno.mkdir(projectRoot);
+    const store = openOwnerCoordinationStore({ dbPath: `${dir}/owner.sqlite3` });
+    const sessions = createWorkspaceSessionContinuationService({ store });
+    try {
+        store.registerProject({ root: projectRoot, displayName: "Project" });
+        const first = loadOwnerDashboard(store, sessions);
+        const concurrent = loadOwnerDashboard(store, sessions);
+        assertStrictEquals(first, concurrent);
+        const initial = await first;
+        assertEquals(initial.dashboard.sections.flatMap((section) => section.items).length, 0);
+
+        await savePlan(projectRoot, "finished", "# Finished\n", {
+            planId: "finished-plan",
+            classification: "FEATURE",
+            status: "user_verified",
+            userVerifiedAt: new Date().toISOString(),
+        });
+        const refreshed = await loadOwnerDashboard(store, sessions);
+        assertEquals(
+            refreshed.dashboard.sections.find((section) => section.key === "recently-finished")?.items
+                .some((item) => item.planId === "finished-plan"),
+            true,
+        );
+    } finally {
+        await sessions.close();
+        store.close();
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
+Deno.test("personal remote Workspace v2 Dashboard returns eligible completions for client expansion", async () => {
     const dir = await Deno.makeTempDir({ prefix: "runwield-owner-dashboard-acceptance-" });
     const projectOne = `${dir}/one`;
     const projectTwo = `${dir}/two`;
@@ -77,10 +270,10 @@ Deno.test("personal remote Workspace v2 Dashboard uses eligible completion evide
         const recentlyFinished = payload.dashboard.sections.find((section: { key: string }) =>
             section.key === "recently-finished"
         ).items;
-        assertEquals(recentlyFinished.length, 10);
+        assertEquals(recentlyFinished.length, 12);
         assertEquals(
             recentlyFinished.filter((item: { projectId: string }) => item.projectId === registeredOne.projectId).length,
-            5,
+            6,
         );
         assertEquals(JSON.stringify(payload.dashboard).includes("held-plan"), false);
         assertEquals(JSON.stringify(payload.dashboard).includes("sequence-plan"), false);
@@ -108,11 +301,145 @@ Deno.test("personal remote Workspace v2 workflow presentation exposes connected 
     assertEquals(presentation.connections.some((connection) => connection.kind === "repair_return"), true);
 
     const html = renderToStaticMarkup(createElement(WorkflowSidebar, { presentation }));
-    assertEquals(html.indexOf("Repair is current.") < html.indexOf("Repair returns to AI review"), true);
-    assertEquals(html.indexOf("Repair returns to AI review") < html.indexOf("Delivery has not started."), true);
+    assertEquals(
+        html.indexOf("Fix the reported issues, then rerun the failed check.") <
+            html.indexOf("Repair returns to AI review"),
+        true,
+    );
+    assertEquals(
+        html.indexOf("Repair returns to AI review") <
+            html.indexOf("Publish the validated changes to the target branch"),
+        true,
+    );
 
+    assertEquals(html.includes("<strong>current</strong>"), false);
+    assertEquals(html.includes("<strong>upcoming</strong>"), false);
+    assertEquals(html.includes('aria-current="step"'), true);
     const missingLiveFacts = buildWorkflowPresentation({ planName: "Feature Plan" });
     assertEquals(missingLiveFacts.action?.kind, "open_plan");
+});
+
+Deno.test("Dashboard ignores historical attention flags and sorts all ready Plans by updated time", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-dashboard-attention-" });
+    const root = `${dir}/project`;
+    await Deno.mkdir(root);
+    const { store, app } = pairedApp(dir);
+    try {
+        store.registerProject({ root, displayName: "Project" });
+        for (
+            const status of [
+                "draft",
+                "feedback",
+                "validated",
+                "approved",
+                "failed",
+                "ci_failed",
+                "review_failed",
+                "blocked",
+            ]
+        ) {
+            await savePlan(root, status, `# ${status}\n`, {
+                planId: status,
+                classification: "FEATURE",
+                status,
+                humanReviewMode: "pair",
+                humanReviewDecision: "pending",
+                validationCheckpoint: { state: "awaiting_repair" },
+            });
+        }
+        for (let index = 0; index < 7; index++) {
+            await savePlan(root, `ready-${index}`, `# Ready ${index}\n`, {
+                planId: `ready-${index}`,
+                classification: "FEATURE",
+                status: "ready_for_work",
+                humanReviewMode: "pair",
+                humanReviewDecision: "pending",
+                validationCheckpoint: { state: "awaiting_repair" },
+                updatedAt: `2026-09-${String(index + 1).padStart(2, "0")}T12:00:00.000Z`,
+            });
+        }
+        const response = await app(
+            new Request("http://127.0.0.1:8787/api/owner/dashboard", {
+                headers: { cookie: cookiePair("credential-secret") },
+            }),
+        );
+        const payload = await response.json();
+        assertEquals(
+            payload.dashboard.sections.find((section: { key: string }) => section.key === "needs-you").items,
+            [],
+        );
+        assertEquals(
+            payload.dashboard.sections.find((section: { key: string }) => section.key === "ready").items.map((
+                item: { planId: string },
+            ) => item.planId),
+            ["ready-6", "ready-5", "ready-4", "ready-3", "ready-2", "ready-1", "ready-0"],
+        );
+    } finally {
+        store.close();
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
+Deno.test("Dashboard distinguishes stopped execution from an active Agent and an ordinary idle Session", async () => {
+    const fixture = await makeManagedSessionFixture();
+    const { store, session, project } = fixture;
+    const service = createWorkspaceSessionContinuationService({ store });
+    try {
+        await savePlan(fixture.projectRoot, "unfinished", "# Unfinished\n", {
+            planId: "unfinished",
+            classification: "FEATURE",
+            status: "in_progress",
+        });
+        const before = await loadOwnerDashboard(store, service);
+        assertEquals(before.dashboard.sections.find((section) => section.key === "needs-you")?.items.length, 0);
+        let proof = store.acquireSessionActivation({
+            runwieldSessionId: session.runwieldSessionId,
+            projectId: project.projectId,
+            ownerInstanceId: "dashboard-test",
+            ownerProcessKind: "test",
+            expectedGeneration: 0,
+        });
+        const segment = store.getCurrentSessionSegment(session.runwieldSessionId)!;
+        store.stagePlanAssociation(proof, {
+            planId: "unfinished",
+            planName: "unfinished",
+            purpose: "execution",
+            segmentId: segment.segmentId,
+            segmentKind: segment.kind,
+            recordedAt: new Date().toISOString(),
+        });
+        proof = store.changeSessionActivationPhase(proof, "hydrated");
+        proof = store.changeSessionActivationPhase(proof, "checkpointing");
+        store.publishGenerationAndRelease(proof, {
+            generation: 1,
+            currentSegmentId: segment.segmentId,
+            ...await readTranscriptEvidence(fixture.transcriptPath),
+        });
+        const stopped = await loadOwnerDashboard(store, service);
+        const attention = stopped.dashboard.sections.find((section) => section.key === "needs-you")?.items;
+        assertEquals(attention?.map((item) => item.planId), ["unfinished"]);
+        assertEquals(attention?.[0].href, `/projects/${project.projectId}/sessions/${session.runwieldSessionId}`);
+        proof = store.acquireSessionActivation({
+            runwieldSessionId: session.runwieldSessionId,
+            projectId: project.projectId,
+            ownerInstanceId: "dashboard-test",
+            ownerProcessKind: "test",
+            expectedGeneration: 1,
+        });
+        try {
+            const running = await loadOwnerDashboard(store, service);
+            assertEquals(running.dashboard.sections.find((section) => section.key === "needs-you")?.items.length, 0);
+            assertEquals(
+                running.dashboard.sections.find((section) => section.key === "in-progress")?.items[0]?.planId,
+                "unfinished",
+            );
+        } finally {
+            store.releaseUnchangedActivation(proof);
+        }
+    } finally {
+        await service.close();
+        await fixture.cleanup();
+    }
 });
 
 Deno.test("personal remote Workspace v2 owner home has bounded refresh and visible failure handling", async () => {
@@ -165,7 +492,7 @@ Deno.test("personal remote Workspace v2 Dashboard promotes associated live quest
             projectId: "project-1",
             runwieldSessionId: "question-session",
             status: "running",
-            liveInteraction: { interactionId: "ask-1", request: { prompt: "Choose." } },
+            liveInteraction: { interactionId: "ask-1", request: { prompt: "Choose.", type: "text" } },
         }]]),
         listSessions: () =>
             Promise.resolve({
@@ -183,6 +510,28 @@ Deno.test("personal remote Workspace v2 Dashboard promotes associated live quest
             section.key === "needs-you"
         ).items;
         assertEquals(needsYou.some((item: { planId: string }) => item.planId === "active-plan"), true);
+        for (const type of ["plan_review", "code_review", "pair_checkpoint"]) {
+            sessionContinuation.operations.set("op-1", {
+                projectId: "project-1",
+                runwieldSessionId: "question-session",
+                status: "running",
+                liveInteraction: { interactionId: "ask-1", request: { prompt: "Review", type } },
+            });
+            const waiting = await loadOwnerDashboard(store, sessionContinuation);
+            const item = waiting.dashboard.sections.find((section) => section.key === "needs-you")?.items[0];
+            assertEquals(item?.href, "/projects/project-1/sessions/question-session#interaction-ask-1");
+            assertEquals(
+                item?.statusLabel,
+                type === "plan_review"
+                    ? "Plan ready for review"
+                    : type === "code_review"
+                    ? "Code ready for review"
+                    : "Checkpoint waiting for you",
+            );
+        }
+        sessionContinuation.operations.clear();
+        const answered = await loadOwnerDashboard(store, sessionContinuation);
+        assertEquals(answered.dashboard.sections.find((section) => section.key === "needs-you")?.items.length, 0);
         assertEquals(
             payload.projects[0].sessions.some((session: { runwieldSessionId: string }) =>
                 session.runwieldSessionId === "done-session"
@@ -278,7 +627,8 @@ Deno.test("personal remote Workspace v2 Dashboard does not mark READY status rea
         const needsYou = payload.dashboard.sections.find((section: { key: string }) =>
             section.key === "needs-you"
         ).items;
-        assertEquals(needsYou.some((item: { type: string }) => item.type === "project"), true);
+        assertEquals(needsYou.length, 0);
+        assertEquals(payload.projects[0].diagnostics.some((item) => item.source === "registry-reader"), true);
     } finally {
         await Deno.remove(dir, { recursive: true });
     }

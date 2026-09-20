@@ -5,6 +5,7 @@ import { findByPlanId, type WorktreeRegistryEntry } from "../../../shared/worktr
 import { loadPlanActionEvidence } from "../../../shared/workflow/plan-actions.ts";
 import { loadBoard } from "./plan-adapter.js";
 import { requireOwnerProjectRoot, serializeOwnerProject } from "./owner-projects.js";
+import { readLiveSessionConnection } from "../../../shared/session/live-session-connection.ts";
 
 type DashboardCategory = "needs-you" | "ready" | "in-progress" | "recently-finished";
 
@@ -64,6 +65,7 @@ type DashboardItem = {
     summary: string;
     href: string;
     recentAt: string;
+    updatedAt: string;
 };
 
 type DashboardSection = { key: DashboardCategory; label: string; items: DashboardItem[] };
@@ -74,6 +76,7 @@ type SessionSummary = {
     name?: string;
     href?: string;
     state?: string;
+    headerTimestamp?: string;
 };
 
 type SidebarPlan = {
@@ -108,21 +111,38 @@ type OwnerStore = {
         committedGeneration?: number | null;
     }>;
     inspectSessionActivation?: (runwieldSessionId: string) => {
-        activation?: { state?: string; ownerProcessKind?: string; activeAgentName?: string };
+        activation?: {
+            state?: string;
+            ownerProcessKind?: string;
+            activeAgentName?: string;
+            operationId?: string | null;
+            updatedAt?: string;
+        };
     };
+};
+
+type InteractionPlanReference = { planId?: string; planName?: string; title?: string };
+type DashboardInteractionRequest = {
+    prompt?: string;
+    type?: string;
+    planReview?: InteractionPlanReference;
+    codeReview?: InteractionPlanReference;
+    _meta?: InteractionPlanReference;
 };
 
 type WorkspaceOperation = {
     projectId?: string;
     runwieldSessionId?: string;
     status?: string;
-    liveInteraction?: { interactionId?: string; request?: { prompt?: string; type?: string } };
+    liveInteraction?: { interactionId?: string; request?: DashboardInteractionRequest };
     error?: string;
+    remote?: boolean;
+    events?: Array<{ timestamp: string }>;
 };
 
 type SessionContinuation = {
     operations?: Map<string, WorkspaceOperation>;
-    listSessions(projectId: string, options: { page: number; pageSize: number }): Promise<{
+    listSessions(projectId: string, options: { page: number; pageSize: number; includeTotal?: boolean }): Promise<{
         sessions?: SessionSummary[];
         hasNext?: boolean;
         diagnostics?: Array<{ code?: string; message?: string; source?: string }>;
@@ -138,8 +158,17 @@ const CATEGORY_LABELS: Record<DashboardCategory, string> = {
     "recently-finished": "Recently Finished",
 };
 
-const NEEDS_YOU = new Set(["feedback", "failed", "ci_failed", "review_failed", "blocked"]);
 const READY = new Set(["ready_for_work", "ready_for_decomposition"]);
+const UNFINISHED_EXECUTION = new Set([
+    "in_progress",
+    "implemented",
+    "validated_ci",
+    "validated_reviewer",
+    "failed",
+    "ci_failed",
+    "review_failed",
+    "blocked",
+]);
 const FINISHED = new Set(["verified", "user_verified", "closed_without_verification"]);
 const TERMINAL = new Set([...FINISHED, "archived"]);
 const STATUS_PRIORITY: Record<DashboardCategory, number> = {
@@ -243,7 +272,15 @@ function completionTime(plan: OwnerPlan, registry: WorktreeRegistryEntry | null 
     return "";
 }
 
-type ClassificationEvidence = { activeSession?: boolean; liveQuestion?: boolean; ready?: boolean };
+type ClassificationEvidence = {
+    activeSession?: boolean;
+    liveQuestion?: boolean;
+    ready?: boolean;
+    stopped?: boolean;
+    attentionLabel?: string;
+    attentionHref?: string;
+    updatedAt?: string;
+};
 
 function classifyPlan(
     plan: OwnerPlan,
@@ -251,29 +288,12 @@ function classifyPlan(
     evidence: ClassificationEvidence = {},
 ): DashboardCategory | null {
     if (!isDashboardEligible(plan)) return null;
-    const attrs = plan.attrs || {};
     const status = planStatus(plan);
-    if (completionTime(plan, registry)) return "recently-finished";
     if (evidence.liveQuestion) return "needs-you";
-    if (
-        registry?.publication?.failure || registry?.status === "execution_failed" ||
-        registry?.status === "validation_failed"
-    ) {
-        return "needs-you";
-    }
-    if (attrs.validationCheckpoint?.state === "awaiting_repair" || attrs.validationCheckpoint?.state === "paused") {
-        return "needs-you";
-    }
-    if (attrs.humanReviewMode && attrs.humanReviewMode !== "none" && attrs.humanReviewDecision !== "approved") {
-        return "needs-you";
-    }
-    if (NEEDS_YOU.has(status) || status === "approved") return "needs-you";
+    if (completionTime(plan, registry)) return "recently-finished";
     if (READY.has(status) && evidence.ready) return "ready";
-    if (
-        evidence.activeSession || registry?.status === "active" || publicationPhaseAtLeast(registry, "target_published")
-    ) {
-        return "in-progress";
-    }
+    if (evidence.activeSession) return "in-progress";
+    if (evidence.stopped && UNFINISHED_EXECUTION.has(status)) return "needs-you";
     return null;
 }
 
@@ -282,6 +302,7 @@ function dashboardItem(
     plan: OwnerPlan,
     category: DashboardCategory,
     registry: WorktreeRegistryEntry | null = null,
+    evidence: ClassificationEvidence = {},
 ): DashboardItem {
     return {
         type: "plan",
@@ -290,29 +311,55 @@ function dashboardItem(
         projectName: project.displayName || "Project",
         planId: plan.planId,
         title: plan.title || plan.name || plan.planName || plan.planId,
-        statusLabel: plan.statusLabel || plan.status || plan.attrs?.status || "unknown",
+        statusLabel: category === "needs-you"
+            ? evidence.attentionLabel || "Agent stopped before completing the workflow"
+            : plan.statusLabel || plan.status || plan.attrs?.status || "unknown",
         summary: plan.summary || plan.attrs?.summary || "",
-        href: planHref(project.projectId, plan.planId),
+        href: category === "needs-you" && evidence.attentionHref
+            ? evidence.attentionHref
+            : planHref(project.projectId, plan.planId),
         recentAt: completionTime(plan, registry),
+        updatedAt: latestTimestamp(
+            planUpdatedAt(plan),
+            evidence.updatedAt,
+            registry?.updatedAt,
+            completionTime(plan, registry),
+        ),
     };
 }
 
-function diagnosticItem(project: SidebarProject, diagnostic: Diagnostic): DashboardItem {
-    return {
-        type: "project",
-        category: "needs-you",
-        projectId: project.projectId,
-        projectName: project.displayName || "Project",
-        planId: "",
-        title: `${project.displayName || "Project"} needs repair`,
-        statusLabel: diagnostic.source,
-        summary: diagnostic.message,
-        href: diagnostic.repairHref,
-        recentAt: "",
-    };
+function latestTimestamp(...values: Array<string | undefined>): string {
+    return values.filter((value): value is string => Boolean(value && Number.isFinite(Date.parse(value))))
+        .sort((left, right) => Date.parse(right) - Date.parse(left))[0] || "";
 }
 
-function operationItem(project: SidebarProject, operationId: string, operation: WorkspaceOperation): DashboardItem {
+function interactionLabel(operation: WorkspaceOperation): string {
+    switch (operation.liveInteraction?.request?.type) {
+        case "plan_review":
+            return "Plan ready for review";
+        case "code_review":
+            return "Code ready for review";
+        case "artifact_review":
+            return "Artifact ready for review";
+        case "pair_checkpoint":
+            return "Checkpoint waiting for you";
+        default:
+            return "Question waiting for you";
+    }
+}
+
+function interactionPlan(operation: WorkspaceOperation): InteractionPlanReference {
+    const request = operation.liveInteraction?.request;
+    return request?.planReview || request?.codeReview || request?._meta || {};
+}
+
+function operationItem(
+    project: SidebarProject,
+    operationId: string,
+    operation: WorkspaceOperation,
+    plan?: OwnerPlan,
+    session?: SessionSummary,
+): DashboardItem {
     const waiting = Boolean(operation.liveInteraction?.interactionId);
     const sessionId = safeText(operation.runwieldSessionId);
     return {
@@ -320,9 +367,10 @@ function operationItem(project: SidebarProject, operationId: string, operation: 
         category: waiting ? "needs-you" : "in-progress",
         projectId: project.projectId,
         projectName: project.displayName || "Project",
-        planId: "",
-        title: waiting ? "Session is waiting for you" : "Session is working",
-        statusLabel: waiting ? "question waiting" : "active Session",
+        planId: plan?.planId || safeText(interactionPlan(operation).planId),
+        title: plan?.title || plan?.name || plan?.planName || safeText(interactionPlan(operation).planName) ||
+            session?.displayName || session?.name || "Untitled Session",
+        statusLabel: waiting ? interactionLabel(operation) : "active Session",
         summary: operation.liveInteraction?.request?.prompt || operation.error || operationId,
         href: sessionId
             ? `${sessionHref(project.projectId, sessionId)}#interaction-${
@@ -330,6 +378,7 @@ function operationItem(project: SidebarProject, operationId: string, operation: 
             }`
             : "/",
         recentAt: "",
+        updatedAt: latestTimestamp(...(operation.events || []).map((event) => event.timestamp)),
     };
 }
 
@@ -357,13 +406,6 @@ function isRecent(item: DashboardItem, now = Date.now()): boolean {
     return time > 0 && now - time <= 7 * 24 * 60 * 60 * 1000;
 }
 
-function hasCommittedPlanAssociation(store: OwnerStore, projectId: string, sessionId: string, planId: string): boolean {
-    const associations = store.listSessionPlanAssociations?.(sessionId, projectId) || [];
-    return associations.some((association) =>
-        association.planId === planId && association.committedGeneration !== null
-    );
-}
-
 function sessionSummary(projectId: string, session: SessionSummary): SessionSummary {
     const runwieldSessionId = safeText(session.runwieldSessionId);
     return {
@@ -375,6 +417,8 @@ function sessionSummary(projectId: string, session: SessionSummary): SessionSumm
 }
 
 function operationPlanId(store: OwnerStore, projectId: string, operation: WorkspaceOperation): string {
+    const reference = interactionPlan(operation);
+    if (reference.planId) return reference.planId;
     const sessionId = safeText(operation.runwieldSessionId);
     if (!sessionId) return "";
     const associations = store.listSessionPlanAssociations?.(sessionId, projectId) || [];
@@ -440,7 +484,11 @@ async function projectPayload(
     let sessions: SessionSummary[] = [];
     let hasMoreSessions = false;
     try {
-        const result = await sessionContinuation.listSessions(project.projectId, { page: 0, pageSize: 100 });
+        const result = await sessionContinuation.listSessions(project.projectId, {
+            page: 0,
+            pageSize: 100,
+            includeTotal: false,
+        });
         sessions = (result.sessions || []).filter((session) => session.runwieldSessionId).map((session) =>
             sessionSummary(project.projectId, session)
         );
@@ -464,14 +512,25 @@ async function projectPayload(
 
     const associatedSessionIds = new Set<string>();
     const associatedSessionsByPlan = new Map<string, SessionSummary[]>();
-    for (const plan of plans.filter((candidate) => safeText(candidate.planId))) {
-        const matches = sessions.filter((session) =>
-            session.runwieldSessionId &&
-            hasCommittedPlanAssociation(store, project.projectId, session.runwieldSessionId, plan.planId)
+    const currentPlanBySession = new Map<string, string>();
+    const planIds = new Set(plans.map((plan) => safeText(plan.planId)).filter(Boolean));
+    for (const session of sessions) {
+        if (!session.runwieldSessionId) continue;
+        const associations = store.listSessionPlanAssociations?.(session.runwieldSessionId, project.projectId) || [];
+        const currentPlanId = associations.filter((association) => association.committedGeneration !== null).at(-1)
+            ?.planId;
+        if (currentPlanId) currentPlanBySession.set(session.runwieldSessionId, currentPlanId);
+        const committedPlanIds = new Set(
+            associations.filter((association) =>
+                association.committedGeneration !== null && association.planId && planIds.has(association.planId)
+            ).map((association) => association.planId),
         );
-        associatedSessionsByPlan.set(plan.planId, matches);
-        for (const session of matches) {
-            if (session.runwieldSessionId) associatedSessionIds.add(session.runwieldSessionId);
+        for (const planId of committedPlanIds) {
+            if (!planId) continue;
+            const matches = associatedSessionsByPlan.get(planId) || [];
+            matches.push(session);
+            associatedSessionsByPlan.set(planId, matches);
+            associatedSessionIds.add(session.runwieldSessionId);
         }
     }
 
@@ -486,31 +545,70 @@ async function projectPayload(
         }
     }
     const dashboardSessions: DashboardItem[] = [];
-    for (const [operationId, operation] of sessionContinuation.operations?.entries() || []) {
-        if (operation.projectId !== project.projectId || operation.status !== "running") continue;
-        const planId = operationPlanId(store, project.projectId, operation);
-        if (planId) {
+    const currentOperations = new Map(
+        [...(sessionContinuation.operations?.entries() || [])].filter(([, operation]) =>
+            operation.projectId === project.projectId && operation.status === "running" && !operation.remote
+        ),
+    );
+    // Observe active TUI Sessions too; never infer a pending question from transcript history.
+    await Promise.all(sessions.map(async (session) => {
+        const sessionId = session.runwieldSessionId;
+        if (!sessionId) return;
+        const activation = store.inspectSessionActivation?.(sessionId).activation;
+        const planId = currentPlanBySession.get(sessionId);
+        if (planId && activation) {
             const current = activeEvidenceByPlan.get(planId) || {};
             activeEvidenceByPlan.set(planId, {
                 ...current,
+                activeSession: current.activeSession || activation.state === "active",
+                stopped: current.stopped || activation.state === "idle" || activation.state === "interrupted",
+                attentionHref: current.attentionHref || sessionHref(project.projectId, sessionId),
+                updatedAt: latestTimestamp(current.updatedAt, activation.updatedAt, session.headerTimestamp),
+            });
+        }
+        if (
+            activation?.state !== "active" || !activation.operationId || currentOperations.has(activation.operationId)
+        ) return;
+        try {
+            const live = await readLiveSessionConnection(sessionId, activation.operationId);
+            currentOperations.set(activation.operationId, {
+                projectId: project.projectId,
+                runwieldSessionId: sessionId,
+                status: "running",
+                events: live.events,
+                liveInteraction: live.interaction?.id
+                    ? { interactionId: live.interaction.id, request: live.interaction }
+                    : undefined,
+            });
+        } catch {
+            // A turn can finish while its live socket is being observed. Retry on the next refresh.
+        }
+    }));
+    for (const [operationId, operation] of currentOperations) {
+        if (operation.projectId !== project.projectId || operation.status !== "running") continue;
+        const reference = interactionPlan(operation);
+        const candidateId = operationPlanId(store, project.projectId, operation);
+        const plan = plans.find((candidate) => candidate.planId === candidateId) ||
+            plans.find((candidate) =>
+                reference.planName && [candidate.name, candidate.planName].includes(reference.planName)
+            );
+        const planId = plan?.planId;
+        const session = sessions.find((candidate) => candidate.runwieldSessionId === operation.runwieldSessionId);
+        if (planId && plan && isDashboardEligible(plan)) {
+            const current = activeEvidenceByPlan.get(planId) || {};
+            const waiting = Boolean(operation.liveInteraction?.interactionId);
+            const item = operationItem(project, operationId, operation, plan, session);
+            activeEvidenceByPlan.set(planId, {
+                ...current,
                 activeSession: true,
-                liveQuestion: current.liveQuestion || Boolean(operation.liveInteraction?.interactionId),
+                liveQuestion: current.liveQuestion || waiting,
+                attentionLabel: waiting ? interactionLabel(operation) : current.attentionLabel,
+                attentionHref: waiting ? item.href : current.attentionHref,
+                updatedAt: latestTimestamp(current.updatedAt, item.updatedAt),
             });
             continue;
         }
-        dashboardSessions.push(operationItem(project, operationId, operation));
-    }
-    for (const plan of plans) {
-        for (const session of associatedSessionsByPlan.get(plan.planId) || []) {
-            if (!session.runwieldSessionId) continue;
-            const activation = store.inspectSessionActivation?.(session.runwieldSessionId).activation;
-            if (activation?.state === "active") {
-                activeEvidenceByPlan.set(plan.planId, {
-                    ...(activeEvidenceByPlan.get(plan.planId) || {}),
-                    activeSession: true,
-                });
-            }
-        }
+        dashboardSessions.push(operationItem(project, operationId, operation, plan, session));
     }
 
     const plansForSidebar = plans.filter((plan) => {
@@ -564,20 +662,32 @@ async function projectPayload(
     };
 }
 
-function capRecentlyFinished(items: DashboardItem[]): DashboardItem[] {
-    const perProject = new Map<string, number>();
-    const capped: DashboardItem[] = [];
-    for (const item of items) {
-        const count = perProject.get(item.projectId) || 0;
-        if (count >= 5) continue;
-        perProject.set(item.projectId, count + 1);
-        capped.push(item);
-        if (capped.length >= 10) break;
+type DashboardPayload = { projects: SidebarProject[]; dashboard: { sections: DashboardSection[] } };
+
+// Share only work currently in progress. Each later refresh reads fresh evidence.
+const pendingDashboardReads = new WeakMap<OwnerStore, WeakMap<SessionContinuation, Promise<DashboardPayload>>>();
+
+export function loadOwnerDashboard(
+    store: OwnerStore,
+    sessionContinuation: SessionContinuation,
+): Promise<DashboardPayload> {
+    let pending = pendingDashboardReads.get(store);
+    if (!pending) {
+        pending = new WeakMap();
+        pendingDashboardReads.set(store, pending);
     }
-    return capped;
+    const existing = pending.get(sessionContinuation);
+    if (existing) return existing;
+    const reads = pending;
+    const result = readOwnerDashboard(store, sessionContinuation).finally(() => reads.delete(sessionContinuation));
+    reads.set(sessionContinuation, result);
+    return result;
 }
 
-export async function loadOwnerDashboard(store: OwnerStore, sessionContinuation: SessionContinuation) {
+async function readOwnerDashboard(
+    store: OwnerStore,
+    sessionContinuation: SessionContinuation,
+): Promise<DashboardPayload> {
     const sections = Object.fromEntries(
         CATEGORY_ORDER.map((category) => [category, section(category)]),
     ) as Record<DashboardCategory, DashboardSection>;
@@ -591,11 +701,9 @@ export async function loadOwnerDashboard(store: OwnerStore, sessionContinuation:
                 const registry = project.root
                     ? await registryFor(project.root, plan, project.diagnostics, project.projectId)
                     : null;
-                const category = classifyPlan(plan, registry, project.activeEvidenceByPlan?.get(plan.planId) || {});
-                if (category) sections[category].items.push(dashboardItem(project, plan, category, registry));
-            }
-            for (const diagnostic of project.diagnostics || []) {
-                sections["needs-you"].items.push(diagnosticItem(project, diagnostic));
+                const evidence = project.activeEvidenceByPlan?.get(plan.planId) || {};
+                const category = classifyPlan(plan, registry, evidence);
+                if (category) sections[category].items.push(dashboardItem(project, plan, category, registry, evidence));
             }
             for (const item of project.dashboardSessions || []) sections[item.category].items.push(item);
             delete project.dashboardPlans;
@@ -623,13 +731,14 @@ export async function loadOwnerDashboard(store: OwnerStore, sessionContinuation:
                 }],
             } as SidebarProject;
             projects.push(project);
-            sections["needs-you"].items.push(diagnosticItem(project, project.diagnostics[0]));
         }
     }
-    sections["recently-finished"].items = capRecentlyFinished(
-        sections["recently-finished"].items
-            .filter((item) => isRecent(item))
-            .sort((left, right) => recentTime(right) - recentTime(left) || left.planId.localeCompare(right.planId)),
-    );
+    sections["recently-finished"].items = sections["recently-finished"].items.filter((item) => isRecent(item));
+    for (const section of Object.values(sections)) {
+        section.items.sort((left, right) =>
+            (Date.parse(right.updatedAt) || 0) - (Date.parse(left.updatedAt) || 0) ||
+            left.href.localeCompare(right.href)
+        );
+    }
     return { projects, dashboard: { sections: CATEGORY_ORDER.map((category) => sections[category]) } };
 }

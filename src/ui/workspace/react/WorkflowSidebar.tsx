@@ -18,7 +18,9 @@ export function workflowActionHref(payload, action) {
     return payload.planHref || "";
 }
 
-export function WorkflowSidebar({ presentation, payload = {}, title = "Plan workflow", onAction = null }) {
+export function WorkflowSidebar(
+    { presentation, payload = {}, title = "Plan workflow", embedded = false, onAction = null },
+) {
     const actionHref = workflowActionHref(payload, presentation.action);
     const stageLabels = new Map(presentation.stages.map((stage) => [stage.id, stage.label]));
     const repairReturns = new Map(
@@ -26,11 +28,17 @@ export function WorkflowSidebar({ presentation, payload = {}, title = "Plan work
             .map((connection) => [connection.from, connection.to]) || [],
     );
     return (
-        <aside className="rw-plan-home-workflow" aria-label={title}>
-            <header>
-                <h2>{title}</h2>
-                {presentation.epic ? <p>{presentation.epic}</p> : null}
-            </header>
+        <aside
+            className={`rw-plan-home-workflow${embedded ? " rw-plan-home-workflow-embedded" : ""}`}
+            aria-label={title}
+        >
+            {!embedded && (
+                <header>
+                    <h2>{title}</h2>
+                    {presentation.epic ? <p>{presentation.epic}</p> : null}
+                </header>
+            )}
+            {embedded && presentation.epic ? <p className="session-context-empty">{presentation.epic}</p> : null}
             <ol
                 className="session-workflow-stage-list workflow-diagram workflow-diagram-connected"
                 aria-label="Workflow stages"
@@ -44,8 +52,8 @@ export function WorkflowSidebar({ presentation, payload = {}, title = "Plan work
                                 aria-current={stage.current ? "step" : undefined}
                             >
                                 <span>{stage.label}</span>
-                                <strong>{stage.state}</strong>
-                                <p>{stage.detail}</p>
+                                {!["current", "upcoming"].includes(stage.state) && <strong>{stage.state}</strong>}
+                                {stage.detail && <p>{stage.detail}</p>}
                             </li>
                             {returnTarget
                                 ? (
@@ -67,7 +75,7 @@ export function WorkflowSidebar({ presentation, payload = {}, title = "Plan work
                     );
                 })}
             </ol>
-            {presentation.blocker
+            {presentation.blocker && presentation.blocker !== presentation.currentStage?.detail
                 ? (
                     <section className="workflow-next-card" aria-label="Workflow blocker">
                         <h3>Blocked by</h3>

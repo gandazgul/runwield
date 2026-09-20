@@ -577,7 +577,7 @@ Deno.test("Session workflow sidebar uses canonical progress stages", async () =>
                 { kind: "validation_checkpoint", phase: "semantic", state: "running" },
             ],
         }).stages.map((stage) => stage.label),
-        ["Planning", "Execution", "Tests and CI", "AI review", "Delivery", "Completion"],
+        ["Planning", "Execution", "Tests and CI", "AI review", "Code Review", "Publication", "Completion"],
     );
     assertEquals(surface.includes('ownerFetch(apiUrl, { method: "GET" })'), true);
     assertEquals(surface.includes("WorkflowSidebar"), true);

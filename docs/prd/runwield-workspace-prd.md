@@ -346,7 +346,9 @@ Default ordering:
 
 1. **Pinned:** user-pinned Sessions, Projects, Plans, or workflow items. Pinning makes work easier to find.
 2. **Needs You:** actual human decisions or external prerequisites, such as approval, feedback, human review, or a Pair
-   checkpoint. Internal repair, failed validation, and retry exhaustion alone do not create user chores.
+   checkpoint. Use current unanswered Session interactions (including `plan_written` Plan reviews and code reviews), or
+   an associated Agent that stopped with unfinished execution. Draft, feedback, validated, configured review modes, and
+   historical repair flags alone do not request attention. Internal diagnostics remain in Project settings/navigation.
 3. **Ready to Continue:** approved Plans ready for work, paused workflows, child Plans ready in a PROJECT sequence, or
    other safe next actions.
 4. **Recently Finished:** successfully published or deliberately abandoned delivery workflows, and completed
@@ -360,6 +362,15 @@ remain explorable, but users should not have to inspect every Project to discove
 The Dashboard shows current work across Projects and links to the Session or Plan where the owner can act. It does not
 create an additional approval step or change which work the owner can continue.
 
+**Requirement: Bound navigation reads and share concurrent refreshes.** Dashboard and sidebar requests made together
+share their in-progress read. Navigation reads only the recent Session page it needs, without counting the full Session
+archive, and reads each Session's Plan associations once per refresh. Completed reads are not retained as a stale cache;
+the next refresh reads current workflow evidence.
+
+Each section defaults to most recently updated first, has a header button to reverse its sort, and initially shows five
+items. **Read more** expands that section, and **Show less** collapses it. Sort and expansion choices survive automatic
+refreshes. Ready-for-work Plans belong in Ready to Continue unless a current unanswered interaction needs the owner.
+
 **Acceptance scenarios:**
 
 - Given two registered Projects with blocked, ready, finished, and running work, when the owner opens Workspace, the
@@ -367,6 +378,13 @@ create an additional approval step or change which work the owner can continue.
 - When the owner pins work, it becomes easier to find but does not gain approval or execution permission.
 - When work reaches a required human decision, the attention signal leads to the correct Session or Plan; quietly
   running work stays secondary.
+- Given a Project with thousands of archived Sessions, opening the Dashboard and sidebar together does not read every
+  archived transcript or duplicate the dashboard scan. A later refresh reflects newly completed work.
+- Given a ready Plan with old repair or review flags, it appears in Ready to Continue. A live question, Plan review,
+  code review, or Pair checkpoint appears in Needs You and links to the associated Session; answering it removes that
+  attention signal. Active TUI Sessions are observed without first opening them in the browser.
+- Given more than five items in any section, only the five newest appear initially. Reversing sort shows the oldest
+  first; expanding shows all eligible items, and refresh preserves both choices.
 
 <a id="63-project-experience"></a>
 
@@ -390,12 +408,24 @@ For each registered Project, Workspace shows:
 Registration, disabling, and removal affect Workspace access and indexing only. They must not delete repository data,
 Plans, Work Records, Session history, branches, or RunWield worktrees.
 
+**Requirement: Remove a Project registration completely.** Remove deletes the registration and its dependent Workspace
+SQLite records, rather than retaining a visible removed entry. Previously removed registrations are cleaned up on
+upgrade. Adding the directory again creates a new Workspace registration and rediscovers its file-authoritative Sessions
+and artifacts. Removal returns to Projects; disabling remains reversible in the existing settings page.
+
+Project settings reads the Workspace registration independently of repository availability. Missing or disabled roots
+must not block opening settings, relinking the root, or disabling/removing the registration. Repository-dependent reads
+remain unavailable until the Project is enabled and its root is available.
+
+Dashboard attention rows use the Plan name from the live review or linked Plan. Questions without a Plan use the Session
+name. The waiting reason belongs in the secondary status text, never as a repeated generic row title.
+
 **Requirement: Open Workspace without repeating startup work.**
 
-Workspace home shows the shared loader and “Workspace loading” while choosing a Session. Logo links return directly to
-the last visited Session. Navigation preserves the sidebar; startup reuses its loaded navigation data when opening the
-chosen Session. The sidebar reads only enough Session names to fill its recent list and determine whether more exist,
-without waiting for names from every older conversation. Session contents load independently of the sidebar.
+Workspace home opens the Attention Dashboard. Logo links return directly to the last visited Session. Navigation
+preserves the mounted sidebar and its loaded data; its viewport height stays stable while destination content loads. The
+sidebar reads only enough Session names to fill its recent list and determine whether more exist, without waiting for
+names from every older conversation. Session contents load independently of the sidebar.
 
 **Requirement: Keep global actions and Session context in consistent headers.**
 
@@ -408,12 +438,26 @@ share their popup and item styling. Segmented tool selectors keep a steady footp
 when selection changes. Labels switch immediately without width animation; reduced-motion preferences keep the highlight
 immediate.
 
+The Workspace brand, main title, and Session context tabs share a top-aligned header row. Navigation retains its header
+while its list scrolls. Workflow content inside a Session uses the existing Workflow tab as its heading and the sidebar
+as its scroll area; it must not introduce a duplicate heading, nested scrolling pane, or bulky per-stage cards.
+
+Dashboard, Sessions, and Plan home keep the same mounted Workspace navigation sidebar, preserving expanded Projects and
+scroll position across navigation. Plan home uses it for switching between Plans and uses its shared title header
+without a second logo or reader header. Contents starts collapsed, and Contents and Workflow controls share one aligned
+row. Both panes remain reopenable on mobile. Workflow steps use the active stripe instead of Current/Upcoming labels;
+their descriptions explain the work, proven results, waiting user actions, and available errors. Code Review follows AI
+review, then Publication. Ready-for-work Plans show Planning as complete and Execution as the next step. Publication
+facts describe the confirmed phase and any recorded failure.
+
 **Acceptance scenarios:**
 
 - Given two registered roots and one unregistered directory, when the owner browses Projects, only the registered roots
   are available to Workspace.
 - When a Project is disabled or removed, Workspace access and indexing stop without deleting repository data, saved
   Sessions, branches, or worktrees.
+- Removing a Project makes it disappear from Projects, the sidebar, and the dashboard, and its old settings URL no
+  longer resolves. Its files remain unchanged; adding its directory again rediscovers the saved Sessions.
 - From a Session or its review, clicking the Workspace logo returns to the last Session without an intermediate home
   request or clearing the sidebar.
 - From Workspace, opening Documentation in the hamburger menu opens `docs.runwield.dev` without changing the active
@@ -640,7 +684,7 @@ Review offers distinct outcomes:
 
 Plan approval never implies ambient permission for a different Session to execute it.
 
-The Plan home and Session Workflow sidebar show the same workflow presentation: connected stages, current step, blocker,
+The Plan home and Session Workflow sidebar show the same workflow presentation: ordered stages, current step, blocker,
 next action, and proven working Session link when available. The separate Plan Progress page is not a product surface;
 its read data feeds Plan home and Session context.
 

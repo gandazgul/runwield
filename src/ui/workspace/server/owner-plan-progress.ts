@@ -92,6 +92,7 @@ type ProgressStage = {
         | "semantic"
         | "repair"
         | "delivery"
+        | "code_review"
         | "completion";
     label: string;
     state: ProgressStageState;
@@ -213,6 +214,7 @@ function progressFactsFromEvidence(
             kind: "publication",
             phase: registry.publication.phase,
             failure: Boolean(registry.publication.failure),
+            message: registry.publication.failure?.message || null,
             updatedAt: registry.publication.updatedAt,
         });
     }

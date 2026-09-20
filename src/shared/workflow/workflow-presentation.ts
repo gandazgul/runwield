@@ -25,6 +25,7 @@ export interface WorkflowProgressFact {
     repairKind?: string | null;
     updatedAt?: string | null;
     failure?: boolean | null;
+    message?: string | null;
 }
 
 export interface WorkflowPresentationInput {
@@ -86,7 +87,8 @@ const EXECUTABLE_STAGES: StageDefinition[] = [
     { id: "mechanical", label: "Tests and CI" },
     { id: "semantic", label: "AI review" },
     { id: "repair", label: "Repair" },
-    { id: "delivery", label: "Delivery" },
+    { id: "code_review", label: "Code Review" },
+    { id: "delivery", label: "Publication" },
     { id: "completion", label: "Completion" },
 ];
 
@@ -153,6 +155,13 @@ function baseStates(input: WorkflowPresentationInput, stages: StageDefinition[])
         return states;
     }
 
+    if (
+        ["ready_for_work", "in_progress", "implemented", "validated_ci", "validated_reviewer", "validated"].includes(
+            status,
+        )
+    ) {
+        states.set("planning", "completed");
+    }
     if (status === "feedback" || status === "failed") states.set("planning", "needs_attention");
     else if (status === "ready_for_work") states.set("execution", "pending");
     else if (status === "in_progress") states.set("execution", "running");
@@ -167,8 +176,9 @@ function baseStates(input: WorkflowPresentationInput, stages: StageDefinition[])
         states.set("execution", "completed");
         states.set("mechanical", "completed");
         states.set("semantic", "completed");
-        states.set("delivery", "running");
+        states.set("code_review", "running");
     } else if (status === "validated") {
+        states.set("code_review", "completed");
         states.set("execution", "completed");
         states.set("mechanical", "completed");
         states.set("semantic", "completed");
@@ -182,7 +192,7 @@ function baseStates(input: WorkflowPresentationInput, stages: StageDefinition[])
 function stageForValidationPhase(phase: string): string {
     if (phase === "mechanical") return "mechanical";
     if (phase === "semantic") return "semantic";
-    if (phase === "delivery") return "delivery";
+    if (phase === "delivery") return "code_review";
     return "";
 }
 
@@ -226,6 +236,8 @@ function mergedRawStates(input: WorkflowPresentationInput, stages: StageDefiniti
             states.set("execution", "running");
         }
     }
+    if (input.hasPlanReview && states.has("planning")) states.set("planning", "running");
+    if (input.hasCodeReview && states.has("code_review")) states.set("code_review", "running");
     return states;
 }
 
@@ -237,7 +249,7 @@ function repairReturnTarget(input: WorkflowPresentationInput): string {
         }
         if (clean(fact.kind) === "registry" && clean(fact.status) === "validation_failed") {
             const status = clean(input.status).toLowerCase();
-            return status === "implemented" ? "mechanical" : status === "validated_ci" ? "semantic" : "delivery";
+            return status === "implemented" ? "mechanical" : status === "validated_ci" ? "semantic" : "code_review";
         }
     }
     const status = clean(input.status).toLowerCase();
@@ -260,14 +272,76 @@ function currentStageIndex(stages: StageDefinition[], rawStates: Map<string, str
     return stages.length - 1;
 }
 
-function detailFor(stage: WorkflowPresentationStage): string {
-    if (stage.state === "blocked") return `${stage.label} needs attention.`;
-    if (stage.state === "paused") return `${stage.label} is paused.`;
-    if (stage.state === "current") return `${stage.label} is current.`;
-    if (stage.state === "completed") return `${stage.label} is complete.`;
-    if (stage.state === "skipped") return `${stage.label} is not required.`;
-    if (stage.state === "unavailable") return `${stage.label} evidence is unavailable.`;
-    return `${stage.label} has not started.`;
+function detailFor(stage: WorkflowPresentationStage, input: WorkflowPresentationInput): string {
+    const fact = (input.progressFacts || []).find((item) =>
+        item.kind === "publication"
+            ? stage.id === "delivery"
+            : item.kind === "validation_checkpoint"
+            ? stage.id === stageForValidationPhase(clean(item.phase))
+            : item.kind === "registry" && stage.id === "execution"
+    );
+    if (fact?.failure && clean(fact.message)) return clean(fact.message);
+    if (stage.current && input.hasLiveQuestion) return "The agent needs your answer in the Session before continuing.";
+    if (stage.current && clean(input.degradedMessage)) return clean(input.degradedMessage);
+    if (stage.id === "planning" && input.hasPlanReview) {
+        return "Review the proposed Plan, then approve it or send feedback.";
+    }
+    if (stage.id === "code_review" && input.hasCodeReview) {
+        return "Inspect the changes and approve them or request a repair.";
+    }
+    if (stage.state === "paused") return "Work is paused. Open the Session to review the latest result and continue.";
+    if (stage.state === "unavailable") return "Progress could not be read. Open the Session for the latest result.";
+    if (stage.state === "blocked") {
+        if (stage.id === "mechanical") return "A check failed. The agent must repair it and rerun validation.";
+        if (stage.id === "semantic") return "The AI review found issues that must be repaired and reviewed again.";
+        if (stage.id === "delivery") {
+            return "Publishing needs attention. Open the Session to inspect the failure and retry.";
+        }
+        if (stage.id === "planning") {
+            return "The Plan needs revisions before work can begin. Open the Session to continue.";
+        }
+        return "Work stopped before this step finished. Open the Session to inspect the result and continue.";
+    }
+    if (stage.id === "delivery" && fact?.phase) {
+        const phases: Record<string, string> = {
+            candidate_sealed: "Validated changes are recorded; preparing the publication commit.",
+            artifacts_committed: "Changes and delivery records are committed; integrating the target branch next.",
+            target_integrated: "Changes are integrated into the target branch; publishing next.",
+            target_published: "Changes reached the target; verifying publication.",
+            publication_verified: "Publication is confirmed; cleaning up the execution worktree.",
+            cleanup_complete: "Publication is confirmed and the execution worktree is cleaned up.",
+        };
+        if (phases[fact.phase]) return phases[fact.phase];
+    }
+    if (stage.state === "completed") {
+        const results: Record<string, string> = {
+            planning: "The Plan is ready for implementation.",
+            execution: "Implementation is recorded; validation checks the resulting changes.",
+            mechanical: "The required tests and CI checks passed.",
+            semantic: "The AI review checks passed.",
+            code_review: "The code review and delivery checks are satisfied.",
+            delivery: "The changes reached their publication target.",
+            completion: "The workflow is finished.",
+        };
+        return results[stage.id] || "";
+    }
+    if (stage.id === "execution" && clean(input.status) === "ready_for_work") {
+        return "Ready to implement. Continue from the Session to start work.";
+    }
+    const descriptions: Record<string, string> = {
+        planning: "Define the scope, approach, and verification steps before implementation.",
+        execution: "Implement the Plan and record the changes for validation.",
+        mechanical: "Run the required tests, lint, type checks, and CI validation.",
+        semantic: "Review the implementation against the Plan and check for correctness issues.",
+        repair: "Fix the reported issues, then rerun the failed check.",
+        code_review: "Inspect the diff and address review feedback before publication.",
+        delivery: "Publish the validated changes to the target branch and confirm they arrived.",
+        completion: "Record delivery evidence and finish any remaining cleanup.",
+        review: "Review the scope and approve the parent Plan before splitting work.",
+        decomposition: "Split the approved Plan into executable child Plans.",
+        child_work: "Implement and validate the child Plans in dependency order.",
+    };
+    return descriptions[stage.id] || "";
 }
 
 function actionFor(
@@ -288,13 +362,13 @@ function actionFor(
         return { kind: "review_code", label: "Review code", detail: "Open the current code review." };
     }
     if (input.canRecover) {
-        return { kind: "recover", label: "Recover", detail: "Use the existing recovery flow for this Plan." };
+        return { kind: "recover", label: "Recover", detail: "Open the Session to inspect the failure and continue." };
     }
     if (input.canResume) {
-        return { kind: "resume", label: "Resume", detail: "Use the existing continuation flow for this Plan." };
+        return { kind: "resume", label: "Resume", detail: "Continue this Plan from its saved progress." };
     }
     if (input.canRun) {
-        return { kind: "run", label: "Run", detail: "Start the existing Plan continuation flow." };
+        return { kind: "run", label: "Run", detail: "Start implementation of this Plan." };
     }
     if (clean(input.sessionState) === "active" || input.hasWorkingSession) {
         return { kind: "open_session", label: "Open Session", detail: "Open the working Session." };
@@ -333,7 +407,7 @@ export function buildWorkflowPresentation(input: WorkflowPresentationInput): Wor
             detail: "",
             current: index === currentIndex,
         };
-        return { ...stage, detail: detailFor(stage) };
+        return { ...stage, detail: detailFor(stage, input) };
     }).filter((stage) => stage.state !== "skipped");
     const currentStage = stages.find((stage) => stage.current) || stages.at(-1) || null;
     const blocker = clean(input.degradedMessage) ||

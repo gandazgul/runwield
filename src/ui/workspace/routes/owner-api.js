@@ -200,7 +200,6 @@ export async function projectActionApi(ctx) {
         if (body.action === "disable") ctx.state.store.setProjectEnabled(projectId, false);
         else if (body.action === "enable") ctx.state.store.setProjectEnabled(projectId, true);
         else if (body.action === "remove") ctx.state.store.removeProject(projectId);
-        else if (body.action === "restore") ctx.state.store.restoreProject(projectId);
         else if (body.action === "relink") {
             ctx.state.store.relinkProject({ projectId, newRoot: String(body.newRoot || "") });
         } else if (body.action === "rescan") {

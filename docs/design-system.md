@@ -81,6 +81,16 @@ and Workspace so they agree again.
 These values are defaults, not a reason to add `!important`. A specialized interaction may differ when its content or
 accessibility behavior requires it.
 
+Attention Dashboard section headers reuse `.rw-toolbar-button` for newest/oldest sorting. Sections show five rows by
+default, with a matching Read more/Show less button using `aria-expanded` and `aria-controls`. Refreshes preserve each
+section's sort, expansion, and focused control.
+
+Workspace brand, main, and Session context headers start at the top edge and share `--rw-shell-header-height` (52px).
+Review title bars use the same minimum height. Sidebar controls remain vertically aligned when panels collapse; avoid
+negative margins or extra top padding to simulate a shared row. The navigation brand row stays visible when its list
+scrolls. Embedded workflow content uses its host's tab header and scroll area, with compact square rows and separators,
+not a second heading or nested card stack.
+
 ## Component architecture
 
 RunWield owns its browser UI components. Shared design-system CSS and primitives should live under
@@ -832,18 +842,22 @@ not claimed.” Do not add a separate theme or token for this status.
 
 ### Plan home, Dashboard rows, and workflow progress
 
-Plan home uses a two-column reader/sidebar layout: the Plan document stays readable on the left, and the right sidebar
-shows workflow state and the next action. On narrow screens the columns stack, with the document first. Keep Plan home
-usable even when workflow evidence is unavailable.
+Dashboard, Sessions, and Plan home share the persistent Workspace navigation sidebar for switching Plans and Sessions.
+The shared artifact reader uses the Workspace title header and action slot, without a duplicate header or logo. Contents
+starts collapsed; Contents and Workflow pane controls share one aligned row and the shared sidebar motion. On narrow
+screens both panes start collapsed and open over the document. Keep Plan home usable when workflow evidence is
+unavailable.
 
 The owner Dashboard uses compact category rows for **Needs You**, **Ready to Continue**, **In Progress**, and **Recently
 Finished**. Rows are links to the repair destination, Plan, or Session. Long names shrink and truncate inside the row;
 the action label must remain reachable on phones.
 
 Use the workflow progress pattern when Plan home or a Session Workflow sidebar must show an ordered RunWield workflow
-such as execution, Mechanical Validation, Semantic Code Review, repair, delivery, and completion.
+such as Execution, Tests and CI, AI review, repair, Code Review, Publication, and Completion.
 
-- Render stages as an ordered list with visible connections, text status, and color status. Do not rely on color alone.
+- Render stages as plain ordered rows without decorative connector ticks. Omit Current/Upcoming labels; retain
+  meaningful completed, blocked, and paused states. Descriptions explain purpose, recorded progress, errors, or user
+  actions rather than repeating the step state.
 - Mark the current stage with `aria-current="step"` and an accent rail.
 - Put blocker text and the next action near the diagram. The action must route to the existing review, prompt, Session,
   continuation, or recovery flow.

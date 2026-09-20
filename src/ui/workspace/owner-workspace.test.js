@@ -589,7 +589,7 @@ Deno.test("owner Workspace requires CSRF for Project mutation and resolves Proje
         );
         assertEquals(removedRescan.status, 400);
         assertEquals(removedCatalogCalled, false);
-        store.restoreProject(project.projectId);
+        assertEquals(store.getProjectById(project.projectId), null);
 
         const badUpgradeOrigin = await app(
             new Request("http://127.0.0.1:8787/api/owner/future-socket", {

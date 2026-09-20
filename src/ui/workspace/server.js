@@ -252,10 +252,11 @@ export function createOwnerWorkspaceApp(options) {
             );
         }
     });
-    app.get(
-        "/",
-        () => ownerHtmlResponse("RunWield Owner Workspace", renderOwnerHome(), { surfaceTitle: "Attention Dashboard" }),
-    );
+    app.get("/", async (ctx) => {
+        const headers = new Headers(ctx.req.headers);
+        headers.set("x-runwield-owner-dashboard", "true");
+        return await renderRequiredOwnerAstroPage({ ...ctx, req: new Request(ctx.req, { headers }) });
+    });
     app.get("/pair", renderRequiredOwnerAstroPage);
     app.get("/devices", renderRequiredOwnerAstroPage);
     app.get("/projects", renderRequiredOwnerAstroPage);
@@ -263,7 +264,8 @@ export function createOwnerWorkspaceApp(options) {
     app.get("/projects/:projectId/plans/closed", renderRequiredOwnerAstroPage);
     app.get("/projects/:projectId/plans/on-hold", renderRequiredOwnerAstroPage);
     app.get("/projects/:projectId/plans/:planId", renderRequiredOwnerAstroPage);
-    app.get("/projects/:projectId/settings", renderOwnerProjectSettingsPage);
+    // Settings manages the registration, including missing and disabled roots.
+    app.get("/projects/:projectId/settings", renderRequiredOwnerAstroPage);
     app.get("/projects/:projectId/sessions", renderOwnerProjectSessionsPage);
     app.get("/projects/:projectId/sessions/new", renderOwnerProjectSessionNewPage);
     app.get(
@@ -785,85 +787,6 @@ function createInProcessRateLimit({ limit, windowMs }) {
     };
 }
 
-function renderOwnerHome() {
-    return `<section class="owner-dashboard" data-owner-dashboard>
-        <div class="owner-dashboard-intro">
-            <p>Plans that need you, can continue, are running, or recently finished.</p>
-            <a class="rw-toolbar-button" href="/projects">Projects</a>
-        </div>
-        <div class="owner-dashboard-status" role="status" aria-busy="true" data-dashboard-status>
-            <span class="rw-thinking-dots" aria-label="Loading"><span aria-hidden="true">Loading</span><span class="rw-thinking-dot" aria-hidden="true"></span><span class="rw-thinking-dot" aria-hidden="true"></span><span class="rw-thinking-dot" aria-hidden="true"></span></span>
-        </div>
-        <div class="owner-dashboard-grid" data-dashboard-sections></div>
-    </section>
-    <script type="module">
-        const root = document.querySelector('[data-owner-dashboard]');
-        const status = root?.querySelector('[data-dashboard-status]');
-        const sectionsRoot = root?.querySelector('[data-dashboard-sections]');
-        const labels = ['Needs You', 'Ready to Continue', 'In Progress', 'Recently Finished'];
-        let generation = 0;
-        let dashboardRefreshInFlight = null;
-        let dashboardRefreshTimer = null;
-        function escapeText(value) {
-            return String(value || '').replace(/[&<>\"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;' }[char]));
-        }
-        function itemHtml(item) {
-            return '<a class="owner-dashboard-row" href="' + escapeText(item.href) + '">' +
-                '<span><strong>' + escapeText(item.title) + '</strong><small>' + escapeText(item.projectName) + ' · ' + escapeText(item.statusLabel) + '</small></span>' +
-                '<span class="owner-dashboard-row-action">Open</span>' +
-            '</a>';
-        }
-        function sectionHtml(section) {
-            const items = Array.isArray(section.items) ? section.items : [];
-            return '<section class="owner-dashboard-section" aria-label="' + escapeText(section.label) + '">' +
-                '<div class="owner-dashboard-section-heading"><h2>' + escapeText(section.label) + '</h2><span>' + items.length + '</span></div>' +
-                (items.length ? items.map(itemHtml).join('') : '<p class="empty">No Plans here.</p>') +
-            '</section>';
-        }
-        async function refreshDashboard() {
-            if (dashboardRefreshInFlight) return dashboardRefreshInFlight;
-            const current = ++generation;
-            dashboardRefreshInFlight = (async () => {
-                try {
-                    const response = await fetch('/api/owner/dashboard', { headers: { accept: 'application/json' } });
-                    const payload = await response.json();
-                    if (current !== generation) return;
-                    if (!response.ok) throw new Error(payload.error || 'Dashboard failed to load.');
-                    const sections = Array.isArray(payload.dashboard?.sections) ? payload.dashboard.sections : [];
-                    const byLabel = new Map(sections.map((section) => [section.label, section]));
-                    sectionsRoot.innerHTML = labels.map((label) => sectionHtml(byLabel.get(label) || { label, items: [] })).join('');
-                    status.hidden = true;
-                    status.removeAttribute('aria-busy');
-                } catch (error) {
-                    if (current !== generation) return;
-                    status.hidden = false;
-                    status.removeAttribute('aria-busy');
-                    status.setAttribute('role', 'alert');
-                    status.textContent = error instanceof Error ? error.message : String(error);
-                } finally {
-                    dashboardRefreshInFlight = null;
-                }
-            })();
-            return dashboardRefreshInFlight;
-        }
-        function startDashboardRefreshLoop() {
-            if (dashboardRefreshTimer) return;
-            refreshDashboard();
-            dashboardRefreshTimer = setInterval(refreshDashboard, 5000);
-        }
-        function stopDashboardRefreshLoop() {
-            if (!dashboardRefreshTimer) return;
-            clearInterval(dashboardRefreshTimer);
-            dashboardRefreshTimer = null;
-        }
-        startDashboardRefreshLoop();
-        document.addEventListener('astro:before-preparation', stopDashboardRefreshLoop, { once: true });
-        document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'visible') refreshDashboard();
-        });
-    </script>`;
-}
-
 /** @param {Request} request */
 function ownerReviewProjectId(request) {
     const referer = request.headers.get("referer");
@@ -900,12 +823,6 @@ async function renderRequiredOwnerAstroPage(ctx, cwd = Deno.cwd()) {
     const handle = await loadAstroHandle();
     if (!handle) return workspaceBuildUnavailable();
     return await handle(withWorkspaceCwdHeader(ctx.req, cwd));
-}
-
-/** @param {any} ctx */
-async function renderOwnerProjectSettingsPage(ctx) {
-    const root = requireOwnerProjectRoot(ctx.state.store, ctx.params.projectId);
-    return await renderRequiredOwnerAstroPage(ctx, root);
 }
 
 /** @param {any} component @param {Record<string, unknown>} props */

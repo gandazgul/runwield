@@ -1,16 +1,23 @@
 ---
+import OwnerDashboard from "../components/OwnerDashboard.astro";
+import WorkspaceLayout from "../layouts/WorkspaceLayout.astro";
 import PlanBoardPage from "../components/PlanBoardPage.astro";
 import { loadCanonicalBoard, serializeCanonicalPlanError } from "../server/astro-canonical-data.js";
 import { currentWorkspaceCwd } from "../server/cwd.js";
 
+const ownerDashboard = Astro.request.headers.get("x-runwield-owner-dashboard") === "true";
 const workspaceCwd = Astro.request.headers.get("x-runwield-workspace-cwd") || currentWorkspaceCwd();
 let board = null;
 let error = null;
 try {
-    board = await loadCanonicalBoard(workspaceCwd);
+    if (!ownerDashboard) board = await loadCanonicalBoard(workspaceCwd);
 } catch (caught) {
     error = await serializeCanonicalPlanError(caught);
     Astro.response.status = 409;
 }
 ---
-<PlanBoardPage boardData={board} boardError={error} context="local" view="active" />
+{ownerDashboard ? (
+    <WorkspaceLayout title="RunWield Owner Workspace" surfaceTitle="Attention Dashboard" selectedTab="dashboard">
+        <OwnerDashboard />
+    </WorkspaceLayout>
+) : <PlanBoardPage boardData={board} boardError={error} context="local" view="active" />}

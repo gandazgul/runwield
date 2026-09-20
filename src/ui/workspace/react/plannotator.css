@@ -268,7 +268,8 @@ body:has(.rw-code-review) button.review-toolbar-btn.primary:disabled,
     align-items: center;
     justify-content: space-between;
     gap: 1rem;
-    padding: 1rem;
+    min-height: var(--rw-shell-header-height);
+    padding: 0.5rem 1rem;
     border-bottom: 1px solid var(--rw-border);
     background: var(--plannotator-surface);
 }
@@ -1836,4 +1837,66 @@ body:has(.rw-code-review) button.review-toolbar-btn.primary:disabled,
         box-shadow: none;
         padding: 1rem;
     }
+}
+
+/* The shared reader owns Plan workflow panes and their aligned header controls. */
+.rw-artifact-read .rw-artifact-document-toolbar {
+    min-height: var(--rw-shell-header-height);
+}
+
+.rw-artifact-workflow-heading {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    align-self: stretch;
+    flex-shrink: 0;
+}
+
+.rw-artifact-workflow-heading[data-open="true"] {
+    width: 20rem;
+    border-left: 1px solid var(--rw-border);
+    background: var(--rw-surface);
+}
+
+.rw-artifact-read[data-workflow-open="true"] .rw-artifact-read-layout {
+    grid-template-columns: 17.5rem minmax(0, 1fr) 20rem;
+}
+
+.rw-artifact-read[data-workflow-open="true"] .rw-artifact-read-layout[data-sidebar-open="false"] {
+    grid-template-columns: minmax(0, 1fr) 20rem;
+}
+
+.rw-artifact-workflow {
+    min-height: 0;
+    overflow: auto;
+    padding: var(--rw-space-card);
+    border-left: 1px solid var(--rw-border);
+    background: var(--rw-surface);
+}
+
+@media (max-width: 980px) {
+    .rw-artifact-read[data-workflow-open="true"] .rw-artifact-read-layout[data-sidebar-open] {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .rw-artifact-workflow {
+        position: absolute;
+        inset: 0;
+        z-index: 70;
+        border: 0;
+    }
+
+    .rw-artifact-workflow-heading[data-open="true"],
+    .rw-artifact-read .rw-artifact-document-toolbar[data-sidebar-open="true"] .rw-artifact-contents-heading {
+        width: auto;
+        border: 0;
+    }
+}
+
+.rw-plan-review.rw-artifact-embedded {
+    height: 100%;
+    min-height: 0;
 }

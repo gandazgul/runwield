@@ -199,6 +199,7 @@ const Layout = reviewPayload ? ReviewLayout : WorkspaceLayout;
 ---
 <Layout
     title={plan ? `${plan.planName} · RunWield Workspace` : "Project Plan · RunWield Workspace"}
+    surfaceTitle={planHomePayload?.title || ""}
     selectedTab="projects"
     url={Astro.url.href}
 >
