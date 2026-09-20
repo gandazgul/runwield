@@ -30,7 +30,10 @@ tool acceptance alone is not proof of publication.
 - `triage_report` publishes routing data and starts post-triage workflow dispatch.
 - `plan_written` publishes the Plan review outcome and starts execution, starts decomposition, or keeps planning active.
 - `task_completed` publishes the accepted completion and continues active execution or Workflow Validation when
-  execution context exists.
+  execution context exists. During Pair Execution, its first final attempt records a durable final checkpoint. Only a
+  later accepted user turn and typed checkpoint resolution can authorize a new accepted completion.
+- `pair_checkpoint` records a durable report that ends the Agent turn, then records a typed resolution from a later
+  genuine user turn. Conversation text remains context, not workflow authority.
 - `review_diff`, `review_complete`, and `qa_checklist_generated` publish isolated validation evidence for the current
   owner and generation.
 

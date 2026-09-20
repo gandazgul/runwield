@@ -347,8 +347,9 @@ Default ordering:
 1. **Pinned:** user-pinned Sessions, Projects, Plans, or workflow items. Pinning makes work easier to find.
 2. **Needs You:** actual human decisions or external prerequisites, such as approval, feedback, human review, or a Pair
    checkpoint. Use current unanswered Session interactions (including `plan_written` Plan reviews and code reviews), or
-   an associated Agent that stopped with unfinished execution. Draft, feedback, validated, configured review modes, and
-   historical repair flags alone do not request attention. Internal diagnostics remain in Project settings/navigation.
+   an associated Agent that stopped with unfinished execution, including a conversational Pair checkpoint. Draft,
+   feedback, validated, configured review modes, and historical repair flags alone do not request attention. Internal
+   diagnostics remain in Project settings/navigation.
 3. **Ready to Continue:** approved Plans ready for work, paused workflows, child Plans ready in a PROJECT sequence, or
    other safe next actions.
 4. **Recently Finished:** successfully published or deliberately abandoned delivery workflows, and completed
@@ -381,8 +382,9 @@ refreshes. Ready-for-work Plans belong in Ready to Continue unless a current una
 - Given a Project with thousands of archived Sessions, opening the Dashboard and sidebar together does not read every
   archived transcript or duplicate the dashboard scan. A later refresh reflects newly completed work.
 - Given a ready Plan with old repair or review flags, it appears in Ready to Continue. A live question, Plan review,
-  code review, or Pair checkpoint appears in Needs You and links to the associated Session; answering it removes that
-  attention signal. Active TUI Sessions are observed without first opening them in the browser.
+  code review, or execution Agent stopped at a conversational Pair checkpoint appears in Needs You and links to the
+  associated Session; answering it removes that attention signal. Active TUI Sessions are observed without first opening
+  them in the browser.
 - Given more than five items in any section, only the five newest appear initially. Reversing sort shows the oldest
   first; expanding shows all eligible items, and refresh preserves both choices.
 
@@ -543,6 +545,11 @@ Several Sessions may run across several Projects. Closing a browser tab or losin
 On reconnection, Workspace shows the latest saved conversation and current work. The user can continue when the Session
 is ready for input without a separate takeover or preparation step.
 
+Pair Execution uses this same timeline and composer. A checkpoint report ends the Agent turn and remains visible as
+conversation. Questions and review discussion do not require a separate decision control and do not resume work.
+Natural-language revision, continuation, autonomous switching, and Stop messages are interpreted by the execution Agent
+and committed through the typed checkpoint tool. Reloading the page preserves the pending checkpoint.
+
 Shared behavior: [Core TUI conversation](runwield-core-prd.md#tui-conversation),
 [models and providers](runwield-core-prd.md#models-and-providers), and
 [Session continuity](runwield-core-prd.md#session-continuity). Browser command controls use the shared command catalog
@@ -575,6 +582,10 @@ expose TUI-only process controls.
   amber and red.
 - When the owner changes Agents through browser controls, the selected Agent, model defaults, and thinking behavior
   match the TUI.
+- Given Pair Execution in Workspace, a checkpoint appears in the normal timeline and the ordinary composer supports
+  discussion and a later decision. No separate checkpoint form or final-approval buttons are required.
+- Given a pending Pair checkpoint, refreshing or reopening the Session preserves the report and lets a later user
+  message resolve it without changing owner, worktree, working directory, tools, or attempt.
 
 **Requirement: Read Session artifacts comfortably on desktop and phone.**
 

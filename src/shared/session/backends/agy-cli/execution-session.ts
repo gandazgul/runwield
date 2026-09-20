@@ -248,6 +248,7 @@ export class AgyCliExecutionSession {
                         onUnexpectedDisconnect: () => {
                             bridgeDisconnected = true;
                         },
+                        onTerminalAccepted: () => process?.kill(),
                     });
                 } catch (error) {
                     const failure: ClassifiedFailure = {
@@ -341,10 +342,10 @@ export class AgyCliExecutionSession {
                     backendModel: parsed.metadata.model,
                 });
             }
+            if (acceptedTerminal) return this.getMessages();
             if (failure) {
                 process.kill();
-                emitFailure(failure, acceptedTerminal);
-                if (acceptedTerminal) return this.getMessages();
+                emitFailure(failure, false);
                 throw new AgyCliBackendError(failure.kind, {
                     exitCode: failure.exitCode,
                     message: failure.message,
@@ -352,16 +353,11 @@ export class AgyCliExecutionSession {
             }
             if (!parsed) {
                 const fallback = { kind: "empty_result", exitCode: status.code } satisfies ClassifiedFailure;
-                emitFailure(fallback, acceptedTerminal);
-                if (acceptedTerminal) return this.getMessages();
+                emitFailure(fallback, false);
                 throw new AgyCliBackendError(fallback.kind, { exitCode: fallback.exitCode });
             }
 
             const softFailure = classifySoftResultStatus(parsed);
-            if (acceptedTerminal) {
-                if (softFailure) emitFailure(softFailure, true);
-                return this.getMessages();
-            }
             if (this.persistModelChange) this.sessionManager.appendModelChange(this.model.provider, this.model.id);
             const assistantMessage = makeAssistantMessage(parsed.text, this.model, parsed.metadata.usage);
             this.sessionManager.appendMessage(assistantMessage);

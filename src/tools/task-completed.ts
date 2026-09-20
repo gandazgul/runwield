@@ -11,15 +11,15 @@ import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import type { HostedSession } from "../shared/session/hosted-session.js";
 import { AGENTS } from "../constants.js";
 import { recordAcceptedTaskCompletion } from "../shared/session/task-completion-session.ts";
+import {
+    clearPairCheckpoint,
+    hasFinalPairAssent,
+    readCurrentPairCheckpoint,
+    recordPairCheckpointReport,
+} from "../shared/session/pair-checkpoint-session.ts";
 import { emitTaskCompletedMessage } from "../shared/session/workflow-messages.js";
 import { recordWorkflowMetric } from "../shared/workflow/metrics.js";
 import { resolveActiveWorkflowRuntimeAgent } from "../shared/workflow/execution-agent.ts";
-import {
-    requestHostedSessionInteraction,
-    RuntimeInteractionOutcomes,
-    RuntimeInteractionTypes,
-    supportsHostedSessionInteraction,
-} from "../shared/session/session-runtime-interactions.js";
 
 const DEFAULT_MESSAGE_DESCRIPTION = "Concise summary of the task you completed and what you verified.";
 const ENGINEER_MESSAGE_DESCRIPTION =
@@ -34,11 +34,20 @@ type BrowserPreflightOutcome = "succeeded" | "failed" | "externally_blocked";
 type ActiveExecutionWorkflow = import("../shared/session/hosted-session.js").ActiveExecutionWorkflow;
 
 type TaskCompletedDetails =
-    | { outcome: "rejected"; reason: "execution_not_started" | "pair_execution_paused" | "wrong_execution_owner" }
+    | {
+        outcome: "rejected";
+        reason:
+            | "execution_not_started"
+            | "pair_execution_paused"
+            | "wrong_execution_owner"
+            | "pair_final_checkpoint_pending"
+            | "pair_checkpoint_context_unavailable";
+    }
     | {
         outcome: "pair_completion_checkpoint";
-        decision: "revise" | "stop" | "canceled" | "switch_to_autonomous";
-        feedback?: string;
+        checkpointId: string;
+        checkpointNumber: number;
+        decision: "pending";
     }
     | {
         outcome: "task_completed";
@@ -106,19 +115,6 @@ function isInitialPairCompletionCheckpoint(
     );
 }
 
-function clearPairPause<Workflow extends { pairPauseReason?: string; pairStopRequested?: boolean }>(
-    workflow: Workflow,
-): Workflow {
-    const next = { ...workflow };
-    delete next.pairPauseReason;
-    delete next.pairStopRequested;
-    return next;
-}
-
-function pairCheckpointNumber(workflow: { pairCheckpointCount?: number }): number {
-    return (workflow.pairCheckpointCount || 0) + 1;
-}
-
 function buildToolDescription(): string {
     return "Declare that you have finished the execution task you were assigned. " +
         "For PLANNED_CHANGE and PROJECT workflows, this signals the orchestrator to begin saved-plan validation. " +
@@ -153,7 +149,7 @@ export function createTaskCompletedTool(
         label: "Task Completed",
         description: buildToolDescription(),
         parameters: PARAMETERS,
-        async execute(_toolCallId, params, signal): Promise<TaskCompletedResult> {
+        async execute(_toolCallId, params, _signal): Promise<TaskCompletedResult> {
             await Promise.resolve();
             const activeWorkflow = targetHostedSession.getActiveExecutionWorkflow?.();
             const normalizedAgentName = normalizeAgentName(agentName);
@@ -195,191 +191,64 @@ export function createTaskCompletedTool(
                 };
             }
             const report = typeof params.message === "string" ? params.message : "";
-            if (isInitialPairCompletionCheckpoint(activeWorkflow)) {
-                const checkpointNumber = pairCheckpointNumber(activeWorkflow);
-                const checkpointWorkflow = clearPairPause({ ...activeWorkflow, pairCheckpointCount: checkpointNumber });
-                targetHostedSession.setActiveExecutionWorkflow(checkpointWorkflow);
-                if (!supportsHostedSessionInteraction(targetHostedSession, RuntimeInteractionTypes.PAIR_CHECKPOINT)) {
-                    targetHostedSession.setActiveExecutionWorkflow({
-                        ...checkpointWorkflow,
-                        collaborationStyle: "autonomous",
-                        pairCapabilityLost: true,
-                    });
+            if (
+                isInitialPairCompletionCheckpoint(activeWorkflow) &&
+                !hasFinalPairAssent(targetHostedSession, activeWorkflow)
+            ) {
+                const currentCheckpoint = readCurrentPairCheckpoint(targetHostedSession);
+                if (currentCheckpoint?.report.report.final && !currentCheckpoint.resolution) {
                     return {
                         content: [{
                             type: "text",
                             text:
-                                "Final Pair checkpoint is unavailable. Continue autonomously and call task_completed again when the work is ready.",
+                                "Final Pair checkpoint is still pending. Wait for the user's direction before task completion.",
                         }],
-                        details: { outcome: "pair_completion_checkpoint", decision: "switch_to_autonomous" },
-                        terminate: false,
+                        details: { outcome: "rejected", reason: "pair_final_checkpoint_pending" },
+                        terminate: true,
                     };
                 }
-                const response = await requestHostedSessionInteraction(
-                    targetHostedSession,
-                    {
-                        type: RuntimeInteractionTypes.PAIR_CHECKPOINT,
-                        prompt: report,
-                        _meta: {
-                            finalCompletion: true,
-                            checkpointNumber,
-                            browserPreflightOutcome: params.browserPreflightOutcome,
+                try {
+                    const checkpoint = recordPairCheckpointReport({
+                        hostedSession: targetHostedSession,
+                        toolCallId: _toolCallId,
+                        report: {
+                            summary: report,
+                            final: true,
+                            ...(params.browserPreflightOutcome
+                                ? { browserPreflightOutcome: params.browserPreflightOutcome as BrowserPreflightOutcome }
+                                : {}),
                         },
-                    },
-                    signal,
-                    targetHostedSession.getManagedOperationCapability?.() || null,
-                );
-                if (response.outcome === RuntimeInteractionOutcomes.CANCELED) {
-                    targetHostedSession.setActiveExecutionWorkflow({
-                        ...checkpointWorkflow,
-                        pairPauseReason: "canceled",
+                        timestampMs: now(),
                     });
-                    await recordWorkflowMetric({
-                        category: "execution",
-                        event: "pair_checkpoint_decided",
-                        details: { checkpointNumber, decision: "canceled", reason: "checkpoint_interaction_canceled" },
-                    }, targetHostedSession.cwd);
                     return {
                         content: [{
                             type: "text",
-                            text:
-                                "The final Pair checkpoint was canceled. Pause this turn without completing the Plan.",
+                            text: [
+                                `**Pair checkpoint ${checkpoint.report.checkpointNumber} — final.**`,
+                                "",
+                                report,
+                                "",
+                                "Reply normally to ask a question, request a change, approve completion, stop, or switch to autonomous work.",
+                            ].join("\n"),
                         }],
-                        details: { outcome: "pair_completion_checkpoint", decision: "canceled" },
-                        terminate: true,
-                    };
-                }
-                if (
-                    response.outcome === RuntimeInteractionOutcomes.UNSUPPORTED ||
-                    response.outcome === RuntimeInteractionOutcomes.BLOCKED
-                ) {
-                    targetHostedSession.setActiveExecutionWorkflow({
-                        ...checkpointWorkflow,
-                        collaborationStyle: "autonomous",
-                        pairCapabilityLost: true,
-                    });
-                    await recordWorkflowMetric({
-                        category: "execution",
-                        event: "pair_checkpoint_decided",
-                        details: { checkpointNumber, decision: "switch_to_autonomous", reason: "pair_capability_lost" },
-                    }, targetHostedSession.cwd);
-                    return {
-                        content: [{
-                            type: "text",
-                            text:
-                                "Final Pair checkpoint is unavailable. Continue autonomously and call task_completed again when the work is ready.",
-                        }],
-                        details: { outcome: "pair_completion_checkpoint", decision: "switch_to_autonomous" },
-                        terminate: false,
-                    };
-                }
-                const decision = response.outcome === RuntimeInteractionOutcomes.SELECTED
-                    ? String(response.value || "")
-                    : "";
-                if (decision === "revise") {
-                    const feedback = typeof response._meta?.feedback === "string" ? response._meta.feedback.trim() : "";
-                    if (!feedback) {
-                        targetHostedSession.setActiveExecutionWorkflow({
-                            ...checkpointWorkflow,
-                            pairPauseReason: "canceled",
-                        });
-                        await recordWorkflowMetric({
-                            category: "execution",
-                            event: "pair_checkpoint_decided",
-                            details: { checkpointNumber, decision: "canceled", reason: "revision_feedback_required" },
-                        }, targetHostedSession.cwd);
-                        return {
-                            content: [{
-                                type: "text",
-                                text:
-                                    "Revision was selected without feedback. Pause this turn without completing the Plan.",
-                            }],
-                            details: { outcome: "pair_completion_checkpoint", decision: "canceled" },
-                            terminate: true,
-                        };
-                    }
-                    targetHostedSession.setActiveExecutionWorkflow(checkpointWorkflow);
-                    await recordWorkflowMetric({
-                        category: "execution",
-                        event: "pair_checkpoint_decided",
-                        details: { checkpointNumber, decision: "revise" },
-                    }, targetHostedSession.cwd);
-                    return {
-                        content: [{
-                            type: "text",
-                            text: `Revise the final result using the user's feedback: ${feedback}`,
-                        }],
-                        details: { outcome: "pair_completion_checkpoint", decision: "revise", feedback },
-                        terminate: false,
-                    };
-                }
-                if (decision === "stop") {
-                    targetHostedSession.setActiveExecutionWorkflow({
-                        ...checkpointWorkflow,
-                        pairPauseReason: "stop",
-                        pairStopRequested: true,
-                    });
-                    await recordWorkflowMetric({
-                        category: "execution",
-                        event: "pair_checkpoint_decided",
-                        details: { checkpointNumber, decision: "stop" },
-                    }, targetHostedSession.cwd);
-                    return {
-                        content: [{ type: "text", text: "Stop Pair Execution now without completing the Plan." }],
-                        details: { outcome: "pair_completion_checkpoint", decision: "stop" },
-                        terminate: true,
-                    };
-                }
-                if (decision === "autonomous") {
-                    targetHostedSession.setActiveExecutionWorkflow({
-                        ...checkpointWorkflow,
-                        collaborationStyle: "autonomous",
-                        pairSwitchedToAutonomous: true,
-                    });
-                    await recordWorkflowMetric({
-                        category: "execution",
-                        event: "pair_checkpoint_decided",
-                        details: { checkpointNumber, decision: "switch_to_autonomous" },
-                    }, targetHostedSession.cwd);
-                    return {
-                        content: [{
-                            type: "text",
-                            text: "Continue autonomously. Call task_completed again when the work is ready.",
-                        }],
-                        details: { outcome: "pair_completion_checkpoint", decision: "switch_to_autonomous" },
-                        terminate: false,
-                    };
-                }
-                if (decision !== "continue") {
-                    targetHostedSession.setActiveExecutionWorkflow({
-                        ...checkpointWorkflow,
-                        collaborationStyle: "autonomous",
-                        pairCapabilityLost: true,
-                    });
-                    await recordWorkflowMetric({
-                        category: "execution",
-                        event: "pair_checkpoint_decided",
                         details: {
-                            checkpointNumber,
-                            decision: "switch_to_autonomous",
-                            reason: "invalid_checkpoint_response",
+                            outcome: "pair_completion_checkpoint",
+                            checkpointId: checkpoint.report.checkpointId,
+                            checkpointNumber: checkpoint.report.checkpointNumber,
+                            decision: "pending",
                         },
-                    }, targetHostedSession.cwd);
+                        terminate: true,
+                    };
+                } catch {
                     return {
                         content: [{
                             type: "text",
-                            text:
-                                "The final Pair checkpoint response was not recognized. Continue autonomously and call task_completed again when the work is ready.",
+                            text: "Final Pair checkpoint could not be recorded. Task completion was not accepted.",
                         }],
-                        details: { outcome: "pair_completion_checkpoint", decision: "switch_to_autonomous" },
+                        details: { outcome: "rejected", reason: "pair_checkpoint_context_unavailable" },
                         terminate: false,
                     };
                 }
-                await recordWorkflowMetric({
-                    category: "execution",
-                    event: "pair_checkpoint_decided",
-                    details: { checkpointNumber, decision: "continue" },
-                }, targetHostedSession.cwd);
             }
             const timestampMs = now();
             recordAcceptedTaskCompletion({
@@ -389,6 +258,9 @@ export function createTaskCompletedTool(
                 report,
                 timestampMs,
             });
+            if (isInitialPairCompletionCheckpoint(activeWorkflow)) {
+                clearPairCheckpoint(targetHostedSession, "task_completion_accepted", timestampMs);
+            }
             emitTaskCompletedMessage(targetHostedSession, agentName, report, _toolCallId);
             await recordWorkflowMetric({
                 category: "execution",

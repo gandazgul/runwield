@@ -28,8 +28,8 @@ origin: "internal"
 parentPlan: "conversational-checkpoints-and-acp-interviews"
 order: 1
 userVerifiedAt: null
-status: "in_progress"
 targetBranch: "main"
+status: "implemented"
 ---
 
 # Make Pair Checkpoints a Conversation

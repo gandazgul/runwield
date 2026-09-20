@@ -77,7 +77,7 @@ export function mcpAliasFor(internalName: string): string {
 }
 
 function isLifecycleTool(internalName: string): boolean {
-    return workflowMcpAliasFor(internalName) !== undefined;
+    return internalName === "pair_checkpoint" || workflowMcpAliasFor(internalName) !== undefined;
 }
 
 /** Model fields the recorded assistant toolCall message carries from the current model. */
@@ -111,6 +111,8 @@ export interface RunWieldMcpBridgeOptions {
     onUnexpectedDisconnect?: () => void;
     /** Consume live user steering before a lifecycle call is accepted. */
     consumePendingSteering?: () => string[];
+    /** Stop the external backend immediately after a terminating lifecycle result. */
+    onTerminalAccepted?: (internalName: string) => void;
 }
 
 export interface RunWieldMcpBridgeHandle {
@@ -373,7 +375,7 @@ export async function startRunWieldMcpBridge(
         }
         if (entry.kind === "lifecycle" && terminal) {
             return rejectedResult(
-                "the accepted completion already closed the lifecycle gate for this turn",
+                "an accepted terminal lifecycle call already closed the gate for this turn",
                 entry,
                 callId,
                 args ?? {},
@@ -425,7 +427,14 @@ export async function startRunWieldMcpBridge(
             };
         }
 
-        if (entry.kind === "lifecycle" && result.terminate === true) terminal = true;
+        if (entry.kind === "lifecycle" && result.terminate === true) {
+            terminal = true;
+            try {
+                options.onTerminalAccepted?.(entry.internalName);
+            } catch {
+                // The accepted result remains authoritative if the process already exited.
+            }
+        }
         recordToolResult(entry.internalName, callId, result);
         return { content: result.content, isError: result.isError === true };
     }

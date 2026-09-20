@@ -574,7 +574,7 @@ convergence without more escaped defects, not approval rate alone.
 
 ### Frontend engineering and pair execution
 
-**Scope and maturity:** Current baseline, with host-dependent Pair support.
+**Scope and maturity:** Current baseline across TUI, Workspace, and ACP conversation hosts.
 
 **Requirement: Let the user steer visible increments without bypassing validation.**
 
@@ -583,11 +583,17 @@ changes in the same slice. Users can configure its model independently. Planner 
 states, accessibility, responsive expectations, and existing design references, while leaving visual treatment open when
 user taste is part of the work.
 
-Pairing is optional. A Plan recommendation and host capability select Pair or autonomous work without an extra startup
-question. Both use Frontend Engineer; noninteractive hosts use autonomous execution. In Pair mode, the Agent runs the
-real app early, implements coherent visible increments, checks the browser, and pauses for feedback. Users can revise,
-continue, switch to autonomous, or stop with work preserved. Iteration retains the working context, server, and browser.
-Material scope changes return to planning; ordinary visual refinements do not.
+Pairing is optional. A Plan recommendation and conversation-host capability select Pair or autonomous work without an
+extra startup question. Noninteractive hosts use autonomous execution. In Pair mode, Plan Engineer or Frontend Engineer
+implements a coherent observable increment, reports it in the normal Session conversation, and ends the turn. The user
+can ask questions without resuming implementation, request a revision, continue, switch to autonomous work, or stop with
+work preserved. TUI, Workspace, and ACP use their normal message composer; Pair does not require a checkpoint form.
+Iteration retains the same workflow owner, worktree, working directory, tools, attempt, and conversation.
+
+A checkpoint report is not approval. Only a typed checkpoint resolution based on a later genuine user turn can resume
+implementation or authorize final completion. Final approval uses the same report-and-reply flow. Reload and transcript
+compaction preserve the active checkpoint and execution context. Stale, same-turn, generated, or quoted text cannot
+resolve it. Material scope changes return to planning; ordinary refinements do not.
 
 Both styles verify in the real browser when available and follow existing project tests. A new browser test framework
 requires an explicit Plan decision. Pair feedback does not replace validation. Frontend ownership remains through normal
@@ -596,10 +602,15 @@ cycles, completion, and checkpoint fatigue without collecting screenshots or fee
 
 **Acceptance scenarios:**
 
-- Given a visual Plan with Pair selected on a capable host, when a visible increment is ready, the user can review the
-  real app, request refinements, continue autonomously, or stop with work preserved.
-- Given a noninteractive host, when the same Plan runs, Frontend Engineer works autonomously; neither Pair feedback nor
-  its absence replaces validation.
+- Given a Plan with Pair selected on TUI, Workspace, or ACP, when an observable increment is ready, its report ends the
+  Agent turn and the normal conversation accepts questions, revisions, continuation, autonomous switching, or Stop.
+- Given an open checkpoint, same-turn output, generated continuation, quoted approval, or stale checkpoint data cannot
+  resolve it. A later accepted user turn can.
+- Given a final increment, the first completion attempt reports a final checkpoint. Workflow Validation starts only
+  after a later user turn accepts it and the Agent submits typed completion again.
+- Given a stopped Pair execution, work and workflow state remain available for an explicit later resume.
+- Given a noninteractive host, when the same Plan runs, the execution Agent works autonomously; neither Pair feedback
+  nor its absence replaces validation.
 
 ### Theme selection
 

@@ -203,7 +203,7 @@ export function createAcpInteractionAdapter({ context, acpSessionId, clientCapab
             if (interaction.type === RuntimeInteractionTypes.PAIR_CHECKPOINT) {
                 return {
                     outcome: RuntimeInteractionOutcomes.UNSUPPORTED,
-                    message: "ACP does not support Pair Execution checkpoints.",
+                    message: "Pair checkpoints use ordinary ACP prompts, not structured interactions.",
                 };
             }
             /** @param {string | { url: string }} surface */

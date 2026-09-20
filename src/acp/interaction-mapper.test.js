@@ -5,7 +5,7 @@
 import { assertEquals } from "@std/assert";
 import { createAcpInteractionAdapter } from "./interaction-mapper.js";
 
-Deno.test("ACP interaction adapter withholds Pair capability", async () => {
+Deno.test("ACP interaction adapter does not expose the obsolete Pair form", async () => {
     /** @type {unknown[]} */
     const requests = [];
     const adapter = createAcpInteractionAdapter({
@@ -27,7 +27,7 @@ Deno.test("ACP interaction adapter withholds Pair capability", async () => {
         }),
         {
             outcome: "unsupported",
-            message: "ACP does not support Pair Execution checkpoints.",
+            message: "Pair checkpoints use ordinary ACP prompts, not structured interactions.",
         },
     );
     assertEquals(requests, []);

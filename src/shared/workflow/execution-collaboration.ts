@@ -2,7 +2,6 @@
 import { AGENTS } from "../../constants.js";
 import { resolvePlanExecutionPolicy } from "../../plan-store.js";
 import { emitSystemStatus } from "../session/session-runtime-events.js";
-import { RuntimeInteractionTypes, supportsHostedSessionInteraction } from "../session/session-runtime-interactions.js";
 
 export function resolveExecutionOwner(meta) {
     const policy = resolvePlanExecutionPolicy(meta);
@@ -33,7 +32,7 @@ export const PairPauseReasons = Object.freeze({
  * @returns {boolean}
  */
 export function supportsPairExecution(hostedSession) {
-    return supportsHostedSessionInteraction(hostedSession, RuntimeInteractionTypes.PAIR_CHECKPOINT);
+    return Boolean(hostedSession?.getInteractionAdapter?.());
 }
 
 /**

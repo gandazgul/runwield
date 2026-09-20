@@ -15,6 +15,7 @@ import {
     workflowContextsEqual,
 } from "./workflow-context-session.js";
 import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runtime-events.js";
+import { clearPairCheckpoint } from "./pair-checkpoint-session.ts";
 
 /**
  * @typedef {Object} AgentInfo
@@ -953,6 +954,7 @@ export class HostedSession {
 
     clearActiveExecutionWorkflow() {
         this.assertActive();
+        clearPairCheckpoint(this, "workflow_cleared");
         this.activeExecutionWorkflow = null;
         this.pendingTaskCompletion = null;
     }

@@ -94,6 +94,13 @@ export function readRequestAttemptEntries(sessionManager: SessionManager): Reque
         .filter((entry): entry is RequestAttemptEntry => Boolean(entry));
 }
 
+export function recordRequestAttemptSnapshot(
+    sessionManager: SessionManager,
+    attempt: RequestAttemptEntry,
+): void {
+    sessionManager.appendCustomEntry("runwield.request_attempt", { ...attempt });
+}
+
 function appendAttempt(
     sessionManager: SessionManager,
     prepared: PreparedRequestDispatch,
