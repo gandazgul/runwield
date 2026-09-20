@@ -1,5 +1,5 @@
 /** Shared select/text/approval question controls for Workspace-style browser surfaces. */
-import { type FormEvent, useEffect, useState } from "react";
+import { type SubmitEvent, useEffect, useState } from "react";
 import { isApprovalAcceptedValue } from "../../../shared/session/session-runtime-interactions.js";
 
 type SessionQuestionOption = {
@@ -69,11 +69,11 @@ export function SessionQuestionForm(
     const title = prompt || (isText ? "Answer question" : isApproval ? "Approve?" : "Choose one");
     const choices = options?.length ? options : defaultOptions(mode);
 
-    async function submitQuestion(event: FormEvent<HTMLFormElement>) {
+    async function submitQuestion(event: SubmitEvent<HTMLFormElement>) {
         event.preventDefault();
         setCurrentState("submitting");
         setCurrentError("");
-        const submitter = (event.nativeEvent as SubmitEvent).submitter;
+        const submitter = event.nativeEvent.submitter;
         const form = new FormData(event.currentTarget);
         if (submitter instanceof HTMLButtonElement && submitter.name) form.set(submitter.name, submitter.value);
         if (onResponse) {

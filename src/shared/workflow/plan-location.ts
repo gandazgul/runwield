@@ -3,6 +3,7 @@ import { canonicalizeStoredPlanName, loadPlan } from "../../plan-store.js";
 import { resolvePrimaryCheckoutRoot } from "../primary-checkout.ts";
 import { findActiveByPlanName } from "../worktree-registry.js";
 import { listControllerDocumentWorktrees } from "./controller-registry.ts";
+import { isPublicationCleanupPending } from "./publication-attempt.ts";
 import {
     executionWorktreePathExists,
     type MissingExecutionWorktreeRecovery,
@@ -25,7 +26,7 @@ export async function resolveWorkflowPlanLocation(
     const registryRoot = resolvePrimaryCheckoutRoot(cwd);
     const registryReadOptions = options.migrateRegistry === false ? { migrate: false } : undefined;
     const attempt = await findActiveByPlanName(registryRoot, planName, registryReadOptions);
-    if (attempt) {
+    if (attempt && !isPublicationCleanupPending(attempt.publication)) {
         let plan = await loadPlan(attempt.path, planName);
         let recoveredWorktree: MissingExecutionWorktreeRecovery | undefined;
         if (!plan && !await executionWorktreePathExists(attempt.path)) {
