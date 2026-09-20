@@ -51,8 +51,14 @@ identity is immutable.
 
 On restart, RunWield reads the record and current Git facts. It may advance a missing receipt only when Git proves the
 external effect already happened—for example, an integration commit exists in the saved publication clone or the remote
-target already equals the recorded integration commit. Otherwise it retries the current phase. It never reruns
-validation or regenerates committed artifacts merely because publication was interrupted.
+target contains the recorded integration commit. Otherwise it retries the current phase. It never reruns validation or
+regenerates committed artifacts merely because publication was interrupted.
+
+Later target commits do not invalidate publication or cleanup. Recovery verifies ancestry against the recorded upstream
+(or the local target in local-only mode), preserving the original publication commit as the receipt. Remote checks use
+an independent temporary repository when needed, including after the publication clone has been removed; they never
+fetch into the primary checkout. Missing or unreachable upstream history cannot fall back to a stale local branch as
+proof. Exact target-head checks remain required for the pre-publication push lease, not post-publication cleanup.
 
 `artifactCommit` is the immutable source-branch boundary. Publication does not commit or otherwise advance the source
 branch after that phase. During cleanup, the normal proof is that the published target contains the source-branch tip.

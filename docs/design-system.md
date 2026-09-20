@@ -102,6 +102,18 @@ Primitive visual components such as buttons, cards, badges, notices, tabs, input
 RunWield-owned without a headless interaction dependency unless they require non-trivial keyboard, focus, portal, or
 ARIA behavior.
 
+### Shared Markdown artifact reader
+
+`ArtifactReadSurface` is the single read-only Markdown reader for Plans, PRDs, ADRs, Work Records, Epic artifacts, and
+reports. Artifact kind changes labels and document metadata, never the reader implementation. All launches use its
+full-window logo/title header, one Contents header, shared sidebar controls, and read-only document body.
+
+Workspace Session links and Ideator PRD/ADR review prompts use the registered-artifact route. TUI artifact review
+prompts, the Session artifact picker, `wld plans read`, and `wld wr read` use `startArtifactReadSurface`, which renders
+the same component. Workspace launches return to the originating Session; local launches use Close. Feedback remains in
+the owning Session interaction; opening or closing a reader does not approve a Plan. Surface Lab has one Read-only
+Markdown fixture for the shared reader.
+
 ### Phone review layout
 
 Embedded reviews constrain the Workspace grid column to the viewport. At phone widths, header actions and document
@@ -161,10 +173,19 @@ Composers accept images by paste, drag-and-drop, or **Attach image**, including 
 before sending with a Remove action, and preserve it in the conversation after sending and reloading. Use the shared
 `.rw-image-previews` treatment. Save image drafts in IndexedDB; browser storage limits must never block Send.
 
-Keep the composer footer in one row, including on phones: a small **+** attachment button on the left, Agent,
-provider/model, Thinking, and an icon-only Send button. Stop and Queue also use labeled icons while working. Preserve
-accessible names and tooltips for icon buttons; model options include their provider. Enabled settings use normal text
-contrast, a visible control background and border, and a pointer cursor; only disabled controls look muted.
+On desktop and mobile, the composer starts collapsed and collapses when focus leaves it. Its compact row contains
+Attach, a single line with Agent, provider/model and Thinking, and the primary action. Mark retained text or images as
+Draft. Focusing the summary opens and focuses the textarea; moving focus among composer controls keeps it expanded.
+Retain mounted text, images, pending messages and settings through collapse/expand. Show dropdowns, previews, queue and
+command choices only while expanded. Animate composer height with the shared control duration and easing; reduced motion
+switches immediately. As its height changes, preserve the bottom visible line of history, keeping live followers at the
+bottom and readers at their current place.
+
+Keep the expanded composer footer in one row, including on phones: a small **+** attachment button on the left, Agent,
+provider/model, Thinking, and one primary icon button: Stop while work runs and the draft is empty, Send/Steer when text
+or images are present. Queue remains a separate expanded-only action. Preserve accessible names and tooltips for icon
+buttons; model options include their provider. Enabled settings use normal text contrast, a visible control background
+and border, and a pointer cursor; only disabled controls look muted.
 
 The TUI is the behavior reference for Session controls and commands. Agent selection loads that Agent's settings,
 including the active model preset. Displaying these defaults does not create a manual override. Explicit model and
@@ -194,6 +215,22 @@ small in-memory queue directly above the composer input—not in transcript hist
 accepted after Session Control becomes idle. Workspace keeps this array only in the current browser tab. The TUI uses
 the same placement immediately above its editor.
 
+Session and review workbenches constrain the outer shell to `100dvh` with no document scrolling. Only the transcript,
+sidebar, and review panes scroll. Do not retain a `100vh` minimum on their shell or navigation pane: mobile browser
+chrome can make that larger than the visible workspace and scroll header controls offscreen.
+
+### Compact Plan Review
+
+At 980px and below, follow Plannotator's document-first mobile layout: both review sidebars start collapsed, a compact
+header retains the title and approval action, and secondary execution/annotation controls use `RunWieldMenu`. Keep View,
+Edit, Changes, Contents, and Annotations reachable in a single document toolbar. Use 44px touch targets for mobile
+review navigation. Preserve the existing desktop layout.
+
+An expanded review panel fills the workbench below the header, with square edges, its own scrolling content, and tabs
+beside its close control. Show one panel at a time; closing it restores the document's position and focus. Choosing a
+Contents entry or comparison version returns to the document. Resizing into the compact range collapses both panels;
+manual reopening remains available until the next breakpoint change.
+
 ### Session context sidebar
 
 Every persisted Session has one durable context sidebar beside its transcript. Do not show the sidebar for the
@@ -208,24 +245,30 @@ narrower, hide the sidebar on entry and when crossing that breakpoint, regardles
 explicit reopening; restore the desktop choice when widening again. Narrow-screen toggles do not overwrite that choice.
 The sidebar has three peer tabs: **Workflow**, **Session**, and **Artifacts**. Default to Workflow when the Session has
 an active workflow; otherwise default to Session. Preserve the reader's selected tab while the same Session remains
-open.
+open, except when a new Plan attaches and selects Workflow.
 
 Workflow shows canonical workflow stages and their state, not a second transcript. When the active Plan explicitly
 belongs to an Epic, show **Epic** and its name above **Plan** and the child Plan name; omit Epic for standalone Plans.
-Workspace and TUI render the same `sessionSidebarFields` list, including labels, precision, and unavailable values.
-Session shows durable, user-facing facts such as its name, message and tool-call counts, compaction count, queued
-prompts, and context composition. Context composition shows used versus model capacity and splits the used context into
-**System & setup** (agent instructions, tools, instruction files, memories, skills, and Project state) versus
-**Conversation** (Session chat and provider overhead). Do not expose storage generation or restate that the Session
-being viewed is active. In the TUI, do not repeat agent, model, thinking, cost, folder, or branch details from the
-footer; the detailed context breakdown may expand on the footer's compact context percentage. Artifacts lists only
-explicitly registered, Project-relative Markdown artifacts; never infer an artifact by scraping transcript text. Each
-artifact opens in the shared read-only artifact surface and returns to the owning Session.
+Workspace and TUI share `sessionSidebarFields`, including labels, precision, and unavailable values. Workspace adds the
+current **Agent**, **Model** (`provider/model`), and **Thinking** at the top, omitting the name already in the header.
+Use the active Session snapshot rather than staged composer selections. Live operation updates keep these fields and the
+workflow association current before the turn finishes. Attaching a new Plan selects Workflow once; subsequent updates
+preserve the chosen tab. Workflow progress refreshes independently of transcript streaming. Session shows durable,
+user-facing facts such as its name, message and tool-call counts, compaction count, queued prompts, and context
+composition. Context composition shows used versus model capacity and splits the used context into **System & setup**
+(agent instructions, tools, instruction files, memories, skills, and Project state) versus **Conversation** (Session
+chat and provider overhead). Do not expose storage generation or restate that the Session being viewed is active. In the
+TUI, do not repeat agent, model, thinking, cost, folder, or branch details from the footer; the detailed context
+breakdown may expand on the footer's compact context percentage. Artifacts lists only explicitly registered,
+Project-relative Markdown artifacts; never infer an artifact by scraping transcript text. Each artifact opens in the
+shared read-only artifact surface and returns to the owning Session.
 
-Embedded artifact readers use Workspace’s header for their title and Back to Session action; the standalone logo/title
-bar is omitted. The document toolbar uses `RunWieldPanelToggle` for Contents, matching review controls. Contents starts
-collapsed at widths of 980 px or less. On phones, opening it fills the document pane; selecting a heading returns to the
-document. The toolbar remains reachable for collapsing or restoring Contents.
+Artifact readers replace the Workspace shell with the same full-window layout as standalone readers. Keep the W. logo,
+artifact title, path, and Back to Session action in their own header. Standalone launches retain Close. The document
+toolbar uses `RunWieldPanelToggle` for Contents, matching review controls. Contents starts collapsed at widths of 980 px
+or less. On phones, opening it fills the document pane; selecting a heading returns to the document. The toolbar remains
+reachable for collapsing or restoring Contents. Show one Contents header and collapse control; hide the imported
+sidebar’s duplicate tab row.
 
 Use the `.session-context-*` classes and `--rw-*` semantic tokens for the tab rail, fields, workflow rows, and artifact
 links. The sidebar is a flat adjacent pane with dividers, not a stack of floating cards. At narrow browser widths it
@@ -244,8 +287,8 @@ Sidebar transitions are scoped separately from page navigation and do not animat
 The TUI uses the same Session projection. Wide terminals show the context pane on the right, pinned to the top of the
 visible terminal viewport while transcript blocks scroll independently, and cycle the three tabs with **Ctrl+]**. Its
 two-line footer remains full width below both panes. Narrow terminals retain the existing transcript-only layout. If a
-TUI user opens an artifact, prefer the configured Workspace reader and fall back to the short-lived local read-only
-reader.
+TUI user presses **Alt+]**, show a picker of registered Session artifacts and open the selection in the shared browser
+reader through a token-protected local launch. Close stops that reader without changing the artifact or running turn.
 
 Workspace navigation uses a draggable `.rw-panel-resize-handle` on its right edge. Keep the sidebar between 220 and
 480px while reserving at least 420px for the main pane. Remember its width separately from its collapsed state. The
@@ -397,7 +440,11 @@ Use tabs for peer workspace views, such as active, closed, and on-hold Plan grou
 
 Tab rules:
 
-- use the shared `.rw-underline-tabs` rail for Plan Board views, Session context, and review annotation/chat views;
+- use the shared `.rw-underline-tabs` rail for Plan Board views, Session context, and both review sidebars;
+- in every standalone and Workspace Plan/Code Review, put the Annotations/chat tabs in the right sidebar header beside
+  its collapse control. Do not add a separate Annotations heading above them. Without chat, retain the simple heading;
+- use the same tabs for Plan Contents/Versions and Code Files/Changes in the left sidebar header; keep both labels
+  visible and the collapse control beside the rail;
 - keep the rail and its links/buttons square, with no enclosing box; a thin baseline runs under the tabs;
 - active tabs use strong text and a thicker 3px accent underline; links use `aria-current`, buttons use `aria-selected`;
 - hover states use `--rw-surface-muted`; keyboard focus has a visible inset outline;
@@ -405,6 +452,14 @@ Tab rules:
 - tabs may include a trailing utility slot, such as search, when it filters the current view.
 
 Do not use tabs for one-off actions. Use action buttons instead.
+
+### Segmented controls
+
+Use `RunWieldSegmentedControl` for compact selectors. Imported controls use its shared `attachSegmentedSelection`
+adapter. Both reserve enough width for the longest selected label, keeping the toolbar's footprint steady. Labels and
+button sizes switch immediately; only the selection highlight slides for 180ms. Never animate button width, padding, or
+gaps. Use `--rw-control-motion-duration` and `--rw-control-motion-ease`, including for imported controls. Reduced-motion
+preferences disable the transition. Selection and tool behavior update immediately.
 
 ### Action controls
 
@@ -627,7 +682,7 @@ Workspace Plan Review and Code Review replace the entire owner shell with `Revie
 layout used by standalone reviews. Their own compact toolbar contains branding, options, and decision controls; only the
 review's Contents/Files and Annotations sidebars are present. Do not mount the Workspace Project/Session sidebar, its
 restore control, or a second header on review routes. Workspace Plan Review keeps its wide document canvas. Read-only
-artifact readers remain inside the owner shell and use its main header for title and Back to Session.
+artifact readers use that full-window shell too, with their own logo/title header and Back to Session.
 
 Plannotator-specific mapping:
 
@@ -702,8 +757,8 @@ The Plan Board, Plan Review, and Code Review each have one surface body. Shells 
   separators between them, with one empty message per column and no duplicate whole-board empty notice. Keep the drag
   feedback region hidden until there is an actual move or rejection to report; omit the default instruction card;
 - `PlanReviewSurface` and `CodeReviewSurface` use their default full-window presentation in `ReviewLayout.astro` for
-  both TUI-launched browser windows and Workspace review routes. Workspace payloads retain their own APIs and
-  navigation;
+  both TUI-launched browser windows and Workspace review routes. `ArtifactReadSurface` uses this same full-window shell
+  for Session artifacts, with its own title and return action. Workspace payloads retain their own APIs and navigation;
 - behavior, payload interpretation, annotations, and decision controls stay in the shared surface. Do not fork a
   Workspace-only copy of either review.
 
@@ -725,6 +780,10 @@ the review surface.
 The `/dev` routes are fixture-only and return 404 in production. The standalone `/review/plan` and `/review/code` routes
 remain the real token-protected TUI launch targets. Live Workspace Plan and Code Review decisions return to the same
 Session interaction through owner Workspace endpoints.
+
+Linked source-file dialogs keep code rows at their natural line height, even for short files in tall dialogs. The shared
+review stylesheet gives the imported reader a content-sized grid track; its surrounding pane scrolls long files. Keep
+this rule shared by standalone and Workspace reviews.
 
 ## Guided Review Explainer blocks
 
@@ -797,3 +856,12 @@ workflow records close the block even when a tool stops its own turn before a pr
 events and reloaded history show the same information once per call. Do not infer acceptance from tool arguments.
 
 Message images open in the shared dialog styling with an explicit Close action and Escape support.
+
+Activity groups retain their open/closed state as events arrive; group identity must not depend on the event count.
+Opening or closing Activity also opens or closes its Thinking rows. New Thinking rows inherit the group's current state.
+Tool rows keep their own disclosure state. Individual Thinking rows remain independently toggleable between group
+toggles.
+
+Session history and live activity form one chronological timeline. Reconcile workflow/tool copies by call identity
+before grouping; accepted report times survive delayed tool results. Activity contains only consecutive completed tools
+and Thinking, ending at every message, special block, or system notice. Never move activity across a user message.

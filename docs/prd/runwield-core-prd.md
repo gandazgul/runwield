@@ -428,6 +428,10 @@ Recovery requirements:
   same Session and repair worktree instead of failing because storage and execution roots differ.
 - When publication succeeds, follow-up returns to the primary checkout or the parent Epic’s next action; it does not
   operate in a removed worktree.
+- Given publication succeeded and the target branch gained later commits, loading the Plan finishes interrupted cleanup
+  automatically when that branch still contains the published commits, even if temporary checkouts are already gone. It
+  does not repeat publication, alter primary-checkout edits, or ask the user to repair normal Git history. If the
+  published commits cannot be confirmed on the target, remaining files are kept.
 - When interrupted validation resumes, preserved work is reused without silently repeating completed actions or deleting
   unmerged changes.
 - Given stale locks, inconsistent settings/storage, or mismatched Plan bookkeeping during a workflow, when RunWield
@@ -979,6 +983,8 @@ Required outcomes:
 - open surfaces update when another surface saves work, while preserving unsent drafts;
 - a long conversation or completed Plan does not by itself disable the next user message;
 - retrying a request after a connection failure does not submit the same work twice;
+- automatic workflow and repair handoffs retain the original request as context without emitting it as a new user
+  message;
 - leaving or reloading the browser does not cancel running work;
 - after a process failure, saved history remains available and the user receives a clear next action without silent
   repetition of unfinished work;
@@ -991,6 +997,8 @@ create additional product restrictions on which screen the owner may use.
 
 **Acceptance scenarios:**
 
+- When validation starts another repair, observers see the repair activity without a second copy of the user's original
+  request. Workflow reports keep their call identity across live delivery and saved replay.
 - Given an idle open TUI, when its owner sends the next message from a phone, the same Session continues and the TUI
   updates when the owner returns.
 - When a browser reloads or a completed Plan receives a follow-up, saved history remains usable and unsent drafts
