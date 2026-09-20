@@ -49,6 +49,7 @@ import { retainTestEvidence } from "./retain-test-evidence.js";
 import { basename, dirname, fromFileUrl, join, relative, resolve } from "@std/path";
 import { listCiFiles } from "./ci-files.ts";
 import { runWithSnip, writeSnipCommandResult } from "./run-with-snip.ts";
+import { mergeTestTimings, orderTestsByTiming, readTestTimings, writeTestTimings } from "./test-timings.js";
 
 const REPO_ROOT = dirname(dirname(fromFileUrl(import.meta.url)));
 const TEST_FILE_PATTERN = /(^|\/)(test|.+[._]test)\.(js|mjs|jsx|ts|tsx|mts)$/;
@@ -166,6 +167,8 @@ async function printSingleRunTestNames(args) {
 /**
  * @typedef {Object} RunnerArguments
  * @property {string[]} excludedPaths absolute file or directory paths to drop from discovery
+ * @property {boolean} failFast stop scheduling files after the first failure
+ * @property {string | undefined} timingsFile timing history input and output path
  * @property {string[]} rest every remaining argument, in the order it was given
  */
 
@@ -173,21 +176,34 @@ async function printSingleRunTestNames(args) {
  * @param {string[]} args
  * @returns {RunnerArguments}
  */
-function parseRunnerArguments(args) {
+export function parseRunnerArguments(args) {
     /** @type {string[]} */
     const excludedPaths = [];
     /** @type {string[]} */
     const rest = [];
+    let failFast = false;
+    let timingsFile;
     for (let index = 0; index < args.length; index += 1) {
-        if (args[index] !== "--exclude") {
-            rest.push(args[index]);
+        const arg = args[index];
+        if (arg === "--fail-fast") {
+            failFast = true;
+            continue;
+        }
+        if (arg === "--timings-file") {
+            const value = args[++index];
+            if (!value) throw new Error("--timings-file requires a path.");
+            timingsFile = resolve(REPO_ROOT, value);
+            continue;
+        }
+        if (arg !== "--exclude") {
+            rest.push(arg);
             continue;
         }
         const value = args[++index];
         if (!value) throw new Error("--exclude requires a test file or directory.");
         excludedPaths.push(resolve(REPO_ROOT, value));
     }
-    return { excludedPaths, rest };
+    return { excludedPaths, failFast, timingsFile, rest };
 }
 
 /**
@@ -218,9 +234,10 @@ function isExcluded(file, excludedPaths) {
  * @param {string} denoDir
  * @param {string[]} [roots]
  * @param {string[]} [excludedPaths]
+ * @param {{ failFast?: boolean, timingsFile?: string }} [options]
  * @returns {Promise<number>} process exit code
  */
-async function runIsolatedSuite(sandboxRoot, denoDir, roots = [REPO_ROOT], excludedPaths = []) {
+async function runIsolatedSuite(sandboxRoot, denoDir, roots = [REPO_ROOT], excludedPaths = [], options = {}) {
     const discovered = new Set();
     const repositoryFiles = (await listCiFiles(REPO_ROOT)).map((file) => resolve(REPO_ROOT, file));
     for (const root of roots) {
@@ -242,7 +259,9 @@ async function runIsolatedSuite(sandboxRoot, denoDir, roots = [REPO_ROOT], exclu
         }
         for await (const file of findTestFiles(path)) discovered.add(file);
     }
-    const files = [...discovered].filter((file) => !isExcluded(file, excludedPaths)).sort();
+    const discoveredFiles = [...discovered].filter((file) => !isExcluded(file, excludedPaths)).sort();
+    const previousTimings = options.timingsFile ? await readTestTimings(options.timingsFile) : {};
+    const files = orderTestsByTiming(discoveredFiles, REPO_ROOT, previousTimings);
 
     const prewarmEnv = await createSandboxEnv(sandboxRoot, "prewarm", denoDir);
     await prewarmDenoDir(prewarmEnv, ["-A", "--no-check", "--quiet", ...files]);
@@ -258,16 +277,20 @@ async function runIsolatedSuite(sandboxRoot, denoDir, roots = [REPO_ROOT], exclu
     const queue = [...files];
     /** @type {Array<{ file: string, failureLogPath: string }>} */
     const failures = [];
+    /** @type {Array<{ file: string, durationMs: number }>} */
+    const observedTimings = [];
     let completed = 0;
+    let stopScheduling = false;
     const startedAt = Date.now();
 
     /** @param {number} slot */
     const worker = async (slot) => {
         let slotRuns = 0;
-        while (queue.length > 0) {
+        while (queue.length > 0 && !stopScheduling) {
             const file = queue.shift();
             if (!file) return;
             const name = relative(REPO_ROOT, file);
+            const fileStartedAt = Date.now();
             console.error(`[tests] start ${name}`);
             const env = await createSandboxEnv(sandboxRoot, `slot-${slot}-file-${slotRuns}`, denoDir);
             slotRuns += 1;
@@ -276,13 +299,16 @@ async function runIsolatedSuite(sandboxRoot, denoDir, roots = [REPO_ROOT], exclu
                 env,
                 failureLabel: "tests",
             });
-            console.error(`[tests] done ${name}: exit ${result.code}`);
+            const durationMs = Date.now() - fileStartedAt;
+            observedTimings.push({ file: name, durationMs });
+            console.error(`[tests] done ${name}: exit ${result.code} (${(durationMs / 1000).toFixed(1)}s)`);
             completed += 1;
             if (result.code !== 0) {
                 failures.push({
                     file: name,
                     failureLogPath: result.failureLogPath || "failure log unavailable",
                 });
+                if (options.failFast) stopScheduling = true;
             }
         }
     };
@@ -291,66 +317,81 @@ async function runIsolatedSuite(sandboxRoot, denoDir, roots = [REPO_ROOT], exclu
 
     failures.sort((left, right) => left.file.localeCompare(right.file));
     for (const failure of failures) console.log(`FAIL ${failure.file} — failure log: ${failure.failureLogPath}`);
+    const slowest = [...observedTimings].sort((left, right) => right.durationMs - left.durationMs).slice(0, 10);
+    if (slowest.length) {
+        console.log("\nSlowest test files:");
+        for (const timing of slowest) console.log(`  ${(timing.durationMs / 1000).toFixed(1)}s  ${timing.file}`);
+    }
+    if (options.timingsFile) {
+        await writeTestTimings(options.timingsFile, mergeTestTimings(previousTimings, observedTimings));
+        console.log(`Test timings: ${relative(REPO_ROOT, options.timingsFile)}`);
+    }
     const seconds = ((Date.now() - startedAt) / 1000).toFixed(1);
     console.log(
         `\n${failures.length === 0 ? "ok" : "FAILED"} | ${completed - failures.length} files passed | ` +
-            `${failures.length} failed (${seconds}s, ${concurrency} at a time)`,
+            `${failures.length} failed | ${files.length - completed} skipped (${seconds}s, ${concurrency} at a time)`,
     );
     return failures.length === 0 ? 0 : 1;
 }
 
-const sandboxRoot = await Deno.makeTempDir({ prefix: "runwield-test-sandboxes-" });
-const denoDir = join(sandboxRoot, "deno-dir");
-await Deno.mkdir(denoDir, { recursive: true });
+export async function main(args = Deno.args) {
+    const sandboxRoot = await Deno.makeTempDir({ prefix: "runwield-test-sandboxes-" });
+    const denoDir = Deno.env.get("WLD_TEST_DENO_DIR") || join(sandboxRoot, "deno-dir");
+    await Deno.mkdir(denoDir, { recursive: true });
 
-// Deliberately not Deno.exit() inside try/finally: Deno.exit terminates without
-// running finally blocks, which left ~600MB of sandboxes behind per run.
-let exitCode = 0;
-const { excludedPaths, rest: runnerArgs } = parseRunnerArguments(Deno.args);
-try {
-    if (runnerArgs[0] === "--isolated") {
-        const roots = runnerArgs.slice(1);
-        if (roots.length === 0) throw new Error("--isolated requires at least one test file or directory.");
-        exitCode = await runIsolatedSuite(sandboxRoot, denoDir, roots, excludedPaths);
-    } else if (runnerArgs.length > 0) {
-        // Explicit paths or flags: one sandboxed process, arguments passed through.
-        const env = await createSandboxEnv(sandboxRoot, "single", denoDir);
-        // Grant full permissions unless the caller passed their own permission
-        // flags — `-A` conflicts with explicit `--allow-*` grants, so it cannot
-        // be injected unconditionally. `--deny-*` narrows allow-all safely.
-        const hasPermissionFlags = runnerArgs.some((arg) =>
-            arg === "-A" || arg === "--allow-all" || arg.startsWith("--allow-")
-        );
-        const testArgs = hasPermissionFlags ? runnerArgs : ["-A", ...runnerArgs];
-        // Match the full-suite path (runIsolatedSuite) and every task invocation
-        // (test:golden-tui, workspace:test) by running tests with `--no-check`
-        // unless the caller already asked for type-checking. Type-checking here
-        // resolves deno.json's whole `compilerOptions.types` graph — the
-        // `"vite/client"` entry pulls npm:vite and its dependencies on every
-        // invocation, a large registry download on any machine without a warm
-        // cache that can blow past minute-scale budgets before a single test
-        // runs. `deno task check` owns type-checking; these children are
-        // sandboxed executions, not the type gate.
-        if (!testArgs.includes("--no-check")) testArgs.push("--no-check");
-        await prewarmDenoDir(env, testArgs);
-        const result = await runWithSnip("deno", ["test", ...testArgs], {
-            env,
-            stdin: "inherit",
-            failureLabel: "tests",
-        });
-        await writeSnipCommandResult(result);
-        if (result.code === 0) await printSingleRunTestNames(runnerArgs);
-        exitCode = result.code;
-    } else {
-        exitCode = await runIsolatedSuite(sandboxRoot, denoDir, [REPO_ROOT], excludedPaths);
+    // Deliberately do not call Deno.exit() inside try/finally: it terminates without
+    // running finally blocks, which left ~600MB of sandboxes behind per run.
+    let exitCode = 0;
+    const { excludedPaths, failFast, timingsFile, rest: runnerArgs } = parseRunnerArguments(args);
+    try {
+        if (runnerArgs[0] === "--isolated") {
+            const roots = runnerArgs.slice(1);
+            if (roots.length === 0) throw new Error("--isolated requires at least one test file or directory.");
+            exitCode = await runIsolatedSuite(sandboxRoot, denoDir, roots, excludedPaths, { failFast, timingsFile });
+        } else if (runnerArgs.length > 0) {
+            // Explicit paths or flags: one sandboxed process, arguments passed through.
+            const env = await createSandboxEnv(sandboxRoot, "single", denoDir);
+            // Grant full permissions unless the caller passed their own permission
+            // flags — `-A` conflicts with explicit `--allow-*` grants, so it cannot
+            // be injected unconditionally. `--deny-*` narrows allow-all safely.
+            const hasPermissionFlags = runnerArgs.some((arg) =>
+                arg === "-A" || arg === "--allow-all" || arg.startsWith("--allow-")
+            );
+            const testArgs = hasPermissionFlags ? runnerArgs : ["-A", ...runnerArgs];
+            // Match the full-suite path (runIsolatedSuite) and every task invocation
+            // (test:golden-tui, workspace:test) by running tests with `--no-check`
+            // unless the caller already asked for type-checking. Type-checking here
+            // resolves deno.json's whole `compilerOptions.types` graph — the
+            // `"vite/client"` entry pulls npm:vite and its dependencies on every
+            // invocation, a large registry download on any machine without a warm
+            // cache that can blow past minute-scale budgets before a single test
+            // runs. `deno task check` owns type-checking; these children are
+            // sandboxed executions, not the type gate.
+            if (!testArgs.includes("--no-check")) testArgs.push("--no-check");
+            await prewarmDenoDir(env, testArgs);
+            const result = await runWithSnip("deno", ["test", ...testArgs], {
+                env,
+                stdin: "inherit",
+                failureLabel: "tests",
+            });
+            await writeSnipCommandResult(result);
+            if (result.code === 0) await printSingleRunTestNames(runnerArgs);
+            exitCode = result.code;
+        } else {
+            exitCode = await runIsolatedSuite(sandboxRoot, denoDir, [REPO_ROOT], excludedPaths, {
+                failFast,
+                timingsFile,
+            });
+        }
+    } finally {
+        if (exitCode !== 0) {
+            const destination = `${sandboxRoot}-evidence`;
+            await retainTestEvidence(sandboxRoot, destination);
+            console.error(`Retained test evidence: ${destination}`);
+        }
+        await Deno.remove(sandboxRoot, { recursive: true }).catch(() => {});
     }
-} finally {
-    if (exitCode !== 0) {
-        const destination = `${sandboxRoot}-evidence`;
-        await retainTestEvidence(sandboxRoot, destination);
-        console.error(`Retained test evidence: ${destination}`);
-    }
-    await Deno.remove(sandboxRoot, { recursive: true }).catch(() => {});
+    return exitCode;
 }
 
-Deno.exit(exitCode);
+if (import.meta.main) Deno.exit(await main());

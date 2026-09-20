@@ -46,9 +46,9 @@ tests; do not run `deno test` directly, because the test runner sandboxes `HOME`
 
 The ordinary test task does not include the Golden TUI Scenario portfolio; it is too slow for the everyday loop.
 `deno task test` excludes `src/ui/tui/golden-scenarios` and `src/ui/tui/testing`, and `deno task test:golden-tui` runs
-exactly those. `deno task pr:check` is the full gate — `deno task ci` followed by the portfolio — and it is the same
-command the GitHub PR workflow runs. `deno task test:golden-tui:extensive` is the release-tier alias, which
-`deno task release:check` runs.
+exactly those. `deno task pr:check` is the full local gate: `deno task ci` followed by the portfolio. GitHub runs those
+two gates in parallel for pull requests. `deno task test:golden-tui:extensive` is the release-tier alias. The release
+workflow runs it in parallel with source quality and binary smoke checks.
 
 Interactive RunWield sessions expect these helper binaries in `PATH`:
 
@@ -100,16 +100,24 @@ runtime. Run them with:
 
 ```bash
 deno task test:golden-tui
-# release-tier alias, run by deno task release:check
+# release-tier alias
 deno task test:golden-tui:extensive
 ```
 
 Each test file runs in its own sandboxed process. That is most of the portfolio's wall time and is what keeps the
 scenarios isolated, but it also made the portfolio too expensive for `deno task ci`, which every change waits on. The
-portfolio now runs at the two slower gates instead:
+portfolio now runs at slower gates instead:
 
-- `deno task pr:check` locally and the `pr-gate` GitHub workflow on every pull request.
-- `deno task release:check` locally and in the release workflow's `release-check` job.
+- `deno task pr:check` locally and a parallel `golden` job on every pull request.
+- the `golden-tui` workflow after pushes to `main` and `release/**`.
+- a fail-fast `golden` job during release qualification. Local `deno task release:check` still runs the full check.
+
+CI records each file duration, prints the ten slowest files, and stores `.ci-cache/golden-timings.json`. Later runs use
+that history to start slow files first after three measured runs. New files start near the historical median until they
+have enough data. CI uses three workers by default. Manually dispatch `golden-tui` with four workers to compare capacity
+without changing the default. Set `WLD_TEST_CONCURRENCY` locally to reproduce either setting. The test runner can also
+reuse a safe dependency cache through `WLD_TEST_DENO_DIR`; HOME and mutable RunWield state remain isolated per worker
+slot.
 
 Run `deno task test:golden-tui` yourself whenever you change the TUI or the workflow runtime; `deno task ci` alone will
 not catch a composed scenario regression.

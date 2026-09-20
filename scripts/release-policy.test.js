@@ -132,13 +132,25 @@ Deno.test("release-tier Golden TUI alias does not run TODO goldens", async () =>
     assertStringIncludes(extensiveGoldenTest, "src/ui/tui/golden-scenarios");
 });
 
-Deno.test("release qualification owns the only Golden TUI run in the release workflow", async () => {
+Deno.test("release workflow runs source, Golden, and binary qualification in parallel", async () => {
     const releaseCheck = await Deno.readTextFile(new URL("./release-check.js", import.meta.url));
     const workflow = await Deno.readTextFile(".github/workflows/release.yml");
 
     assertStringIncludes(releaseCheck, '["task", "test:golden-tui:extensive"]');
-    assertStringIncludes(workflow, "deno task release:check --build-version");
-    assertEquals(workflow.includes("deno task test:golden-tui"), false);
+    assertStringIncludes(workflow, "deno task release:check --binary-only --build-version");
+    assertStringIncludes(workflow, "deno task test:golden-tui:extensive --fail-fast --timings-file");
+    assertMatch(workflow, /golden:\n[\s\S]*?needs: metadata/);
+    assertMatch(workflow, /release-check:\n[\s\S]*?needs: metadata/);
+    assertMatch(workflow, /build:\n[\s\S]*?- ci\n\s+- golden\n\s+- release-check/);
+});
+
+Deno.test("Golden workflow covers direct main and release branch pushes with measured concurrency", async () => {
+    const workflow = await Deno.readTextFile(".github/workflows/golden.yml");
+
+    assertMatch(workflow, /push:\n\s+branches:\n\s+- main\n\s+- "release\/\*\*"/);
+    assertStringIncludes(workflow, "WLD_TEST_CONCURRENCY: ${{ inputs.concurrency || '3' }}");
+    assertStringIncludes(workflow, '                    - "4"');
+    assertStringIncludes(workflow, "--timings-file .ci-cache/golden-timings.json");
 });
 
 Deno.test("release CLI publishes tags without owning qualification or host release mutation", async () => {
@@ -175,7 +187,7 @@ Deno.test("published recovery skips builds and verifies existing bytes before pa
     assertStringIncludes(workflow, "if: needs.metadata.outputs.published != 'true'");
     assertStringIncludes(workflow, 'gh release download "$RELEASE_TAG"');
     assertStringIncludes(workflow, 'release-upload "$RELEASE_TAG" published');
-    assertStringIncludes(workflow, "Retain release qualification failure evidence");
+    assertStringIncludes(workflow, "Retain Golden failure evidence");
 });
 
 for (const jobName of ["homebrew-check", "homebrew-package"]) {

@@ -20,13 +20,16 @@ Deno.test("the everyday test task leaves the Golden TUI portfolio to its own tas
     }
 });
 
-Deno.test("the PR gate runs source quality and then the Golden TUI portfolio", async () => {
+Deno.test("the PR gate runs source quality and Golden TUI jobs in parallel", async () => {
     const { tasks } = await readDenoConfig();
     const workflow = await Deno.readTextFile(new URL("../.github/workflows/pr.yml", import.meta.url));
 
     assertEquals(tasks["pr:check"], "deno task ci && deno task test:golden-tui");
     assertStringIncludes(workflow, "pull_request:");
-    assertStringIncludes(workflow, "deno task pr:check");
+    assertStringIncludes(workflow, "    ci:");
+    assertStringIncludes(workflow, "run: deno task ci");
+    assertStringIncludes(workflow, "    golden:");
+    assertStringIncludes(workflow, "run: deno task test:golden-tui --timings-file");
 });
 
 Deno.test("the test runner skips excluded paths it would otherwise discover", async () => {

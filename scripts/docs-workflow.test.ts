@@ -5,6 +5,8 @@ interface ReleaseState {
     cancelled: boolean;
     kind: string;
     published: string;
+    ciResult: string;
+    goldenResult: string;
     releaseCheckResult: string;
     buildResult: string;
     assetsResult: string;
@@ -45,6 +47,8 @@ function evaluateReleaseCondition(condition: string, state: ReleaseState): boole
         "!cancelled()": !state.cancelled,
         "needs.metadata.outputs.kind": state.kind,
         "needs.metadata.outputs.published": state.published,
+        "needs.ci.result": state.ciResult,
+        "needs.golden.result": state.goldenResult,
         "needs.release-check.result": state.releaseCheckResult,
         "needs.build.result": state.buildResult,
         "needs.assets.result": state.assetsResult,
@@ -82,6 +86,8 @@ const successfulRelease: ReleaseState = {
     cancelled: false,
     kind: "stable",
     published: "false",
+    ciResult: "success",
+    goldenResult: "success",
     releaseCheckResult: "success",
     buildResult: "success",
     assetsResult: "success",
@@ -120,7 +126,10 @@ Deno.test("fresh and existing releases traverse the actual qualification conditi
     assertEquals(evaluateReleaseCondition(jobCondition(assets), recovery), true);
     assertEquals(evaluateReleaseCondition(jobCondition(release), recovery), true);
     assertEquals(evaluateReleaseCondition(jobCondition(publish), recovery), true);
-    assertStringIncludes(jobBlock(workflow, "release-check"), "- ci");
+    assertStringIncludes(jobBlock(workflow, "release-check"), "needs: metadata");
+    assertStringIncludes(jobBlock(workflow, "golden"), "needs: metadata");
+    assertStringIncludes(assets, "needs.ci.result == 'success'");
+    assertStringIncludes(assets, "needs.golden.result == 'success'");
     assertStringIncludes(assets, "needs.release-check.result == 'success'");
     assertStringIncludes(release, "needs.assets.result == 'success'");
 });
