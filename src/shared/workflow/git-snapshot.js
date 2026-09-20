@@ -3,7 +3,7 @@
  * Git tree snapshots for workflow-scoped validation diffs.
  */
 
-import { join } from "@std/path";
+import { dirname, isAbsolute, join } from "@std/path";
 import { assertGitRepository, GitRepositoryRequiredError } from "../git.js";
 
 export class WorktreeReviewTargetError extends Error {
@@ -107,15 +107,22 @@ export async function listCommitsTouchingPathsSince(cwd, since, paths) {
  */
 export async function captureWorktreeTree(cwd) {
     await assertGitRepository(cwd, "Capturing an execution baseline tree");
-    const tempDir = await Deno.makeTempDir({ prefix: "runwield-git-index-" });
-    const indexPath = join(tempDir, "index");
+    const realIndex = (await runGit(cwd, ["rev-parse", "--git-path", "index"])).trim();
+    const realIndexPath = isAbsolute(realIndex) ? realIndex : join(cwd, realIndex);
+    const indexPath = await Deno.makeTempFile({ dir: dirname(realIndexPath), prefix: "runwield-index-" });
     const env = { GIT_INDEX_FILE: indexPath };
 
     try {
+        try {
+            await Deno.writeFile(indexPath, await Deno.readFile(realIndexPath));
+        } catch (error) {
+            if (!(error instanceof Deno.errors.NotFound)) throw error;
+            await Deno.remove(indexPath);
+        }
         await runGit(cwd, ["add", "-A", "--", "."], env);
         return (await runGit(cwd, ["write-tree"], env)).trim();
     } finally {
-        await Deno.remove(tempDir, { recursive: true }).catch(() => {});
+        await Deno.remove(indexPath).catch(() => {});
     }
 }
 

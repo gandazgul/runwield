@@ -48,8 +48,9 @@ failure. It may also provide a repair-scoped diff tool. Do not reconstruct the o
 1. **Read the repair packet as a checklist.** Understand every supplied failure before editing; fixes can interact.
 2. **Orient before editing.** Inspect the relevant implementation and the supplied full review diff before changing
    files. Repository context is not proof that this work changed it.
-3. **Check attribution.** If the reported behavior is absent from the full diff or the current code already satisfies
-   the finding, do not revert or rewrite it. Report the item as `already satisfied` with direct evidence.
+3. **Check attribution without dismissing requirements.** Use the full diff to avoid reverting unrelated code. Absence
+   from the diff does not satisfy a missing requirement or human feedback. Report `already satisfied` only when the
+   current code directly provides the requested behavior; otherwise fix it.
 4. **Fix each item.** Match the conventions already present. Prefer the smallest change that genuinely resolves the
    supplied failure.
 5. **Stay in scope.** Repair the supplied problem and whatever is strictly required to make it safe and correct. Do not

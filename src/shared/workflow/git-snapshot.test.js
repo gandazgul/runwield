@@ -136,6 +136,75 @@ Deno.test("getWorktreeReviewDiff returns one net patch and preserves checkout st
     }
 });
 
+Deno.test("getWorktreeReviewDiff preserves unchanged tracked files that match ignore rules", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-review-diff-test-" });
+    try {
+        await git(dir, ["init", "-b", "target"]);
+        await git(dir, ["config", "user.email", "test@example.com"]);
+        await git(dir, ["config", "user.name", "Test User"]);
+        await Deno.writeTextFile(`${dir}/.gitignore`, "ignored.txt\n");
+        await Deno.writeTextFile(`${dir}/ignored.txt`, "tracked target bytes\n");
+        await git(dir, ["add", ".gitignore"]);
+        await git(dir, ["add", "-f", "ignored.txt"]);
+        await git(dir, ["commit", "-m", "target"]);
+        await git(dir, ["switch", "-c", "execution"]);
+
+        const diff = await getWorktreeReviewDiff(dir, "target");
+
+        assertEquals(diff, "");
+        assertEquals(await Deno.readTextFile(`${dir}/ignored.txt`), "tracked target bytes\n");
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
+Deno.test("getWorktreeReviewDiff includes ignored files tracked only by the real index", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-review-diff-test-" });
+    try {
+        await git(dir, ["init", "-b", "target"]);
+        await git(dir, ["config", "user.email", "test@example.com"]);
+        await git(dir, ["config", "user.name", "Test User"]);
+        await Deno.writeTextFile(`${dir}/.gitignore`, "ignored.txt\n");
+        await git(dir, ["add", ".gitignore"]);
+        await git(dir, ["commit", "-m", "target"]);
+        await git(dir, ["switch", "-c", "execution"]);
+        await Deno.writeTextFile(`${dir}/ignored.txt`, "staged ignored bytes\n");
+        await git(dir, ["add", "-f", "ignored.txt"]);
+
+        const diff = await getWorktreeReviewDiff(dir, "target");
+
+        assertStringIncludes(diff, "ignored.txt");
+        assertStringIncludes(diff, "+staged ignored bytes");
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
+Deno.test("getWorktreeReviewDiff does not delete a restored ignored file tracked by the real index", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-review-diff-test-" });
+    try {
+        await git(dir, ["init", "-b", "target"]);
+        await git(dir, ["config", "user.email", "test@example.com"]);
+        await git(dir, ["config", "user.name", "Test User"]);
+        await Deno.writeTextFile(`${dir}/.gitignore`, "ignored.txt\n");
+        await Deno.writeTextFile(`${dir}/ignored.txt`, "target bytes\n");
+        await git(dir, ["add", ".gitignore"]);
+        await git(dir, ["add", "-f", "ignored.txt"]);
+        await git(dir, ["commit", "-m", "target"]);
+        await git(dir, ["switch", "-c", "execution"]);
+        await git(dir, ["rm", "ignored.txt"]);
+        await git(dir, ["commit", "-m", "delete ignored file"]);
+        await Deno.writeTextFile(`${dir}/ignored.txt`, "target bytes\n");
+        await git(dir, ["add", "-f", "ignored.txt"]);
+
+        const diff = await getWorktreeReviewDiff(dir, "target");
+
+        assertEquals(diff, "");
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
 Deno.test("getWorktreeReviewDiff compares directly with the latest target tip", async () => {
     const dir = await Deno.makeTempDir({ prefix: "runwield-review-diff-test-" });
     try {

@@ -249,7 +249,7 @@ Deno.test("runValidationPhase reviews the target-relative worktree diff from val
     assertEquals(plan?.attrs.status, "validated_reviewer");
 });
 
-Deno.test("Semantic Review supplies the target-relative patch through review_diff", async () => {
+Deno.test("AI review and repair receive the same target-relative patch", async () => {
     const projectRoot = await makeValidationProjectRoot("p", {
         classification: "QUICK_FIX",
         status: "validated_ci",
@@ -258,6 +258,7 @@ Deno.test("Semantic Review supplies the target-relative patch through review_dif
     await git(projectRoot, ["init", "-b", "target"]);
     await git(projectRoot, ["config", "user.email", "runwield@example.com"]);
     await git(projectRoot, ["config", "user.name", "RunWield Test"]);
+    await Deno.writeTextFile(`${projectRoot}/.gitignore`, "docs/plans/\n");
     await git(projectRoot, ["add", "."]);
     await git(projectRoot, ["commit", "-m", "execution baseline"]);
     const baselineTree = await git(projectRoot, ["rev-parse", "HEAD^{tree}"]);
@@ -265,7 +266,11 @@ Deno.test("Semantic Review supplies the target-relative patch through review_dif
     await git(projectRoot, ["add", "inherited.js"]);
     await git(projectRoot, ["commit", "-m", "target behavior"]);
     await git(projectRoot, ["switch", "-c", "execution"]);
-    await Deno.writeTextFile(`${projectRoot}/plan-change.js`, "export const planned = true;\n");
+    const implementation = Array.from(
+        { length: 40 },
+        (_, index) => `export const planned${index} = true;`,
+    ).join("\n") + "\n";
+    await Deno.writeTextFile(`${projectRoot}/plan-change.js`, implementation);
     hostedSession.setActiveExecutionWorkflow({
         planName: "p",
         triageMeta: { classification: "QUICK_FIX", status: "validated_ci" },
@@ -278,8 +283,7 @@ Deno.test("Semantic Review supplies the target-relative patch through review_dif
         worktreeBranch: "execution",
         worktreeBaseBranch: "target",
     });
-    const expectedDiff = await getWorktreeReviewDiff(projectRoot, "target");
-    let suppliedDiff = "";
+    let aiPatch = "";
 
     const result = await runValidationPhase({
         hostedSession,
@@ -288,24 +292,47 @@ Deno.test("Semantic Review supplies the target-relative patch through review_dif
         triageMeta: { classification: "QUICK_FIX", status: "validated_ci" },
         supportsSemanticRepairHandoff: true,
         semanticReviewPort: reviewPort({
-            runIsolatedAgentSession: (/** @type {any} */ opts) => {
+            runIsolatedAgentSession: async (/** @type {any} */ opts) => {
                 const tool = opts.customTools.find((/** @type {any} */ candidate) => candidate.name === "review_diff");
-                suppliedDiff = String(tool.__runwieldReviewDiffs.full || "");
-                return Promise.resolve(reviewerMessages({
+                const listed = await tool.execute("list", { command: "list", scope: "full" });
+                assertStringIncludes(listed.content[0].text, "plan-change.js");
+                const paths = Array.from(
+                    String(listed.content[0].text).matchAll(/^\| `([^`]+)` \|/gm),
+                    (match) => match[1],
+                );
+                for (const path of paths) {
+                    let offsetBytes = 0;
+                    for (;;) {
+                        const page = await tool.execute(`show-${path}-${offsetBytes}`, {
+                            command: "show",
+                            scope: "full",
+                            path,
+                            offsetBytes,
+                            maxBytes: 256,
+                        });
+                        const content = String(page.content[0].text).match(/```diff\n([\s\S]*?)\n```$/)?.[1];
+                        assertExists(content);
+                        aiPatch += content;
+                        if (!page.details.truncated) break;
+                        offsetBytes = page.details.nextOffsetBytes;
+                    }
+                }
+                return reviewerMessages({
                     approved: false,
                     feedback: "Missing guard",
                     findings: [{ title: "Missing guard", requirement: "Step 1", evidence: "plan-change.js" }],
-                }));
+                });
             },
         }),
     });
 
-    assertEquals(suppliedDiff, expectedDiff);
-    assertStringIncludes(suppliedDiff, "plan-change.js");
-    assertStringIncludes(suppliedDiff, "+export const planned = true;");
-    assertEquals(suppliedDiff.includes("inherited.js"), false);
     assertEquals(result.kind, "semantic_repair_handoff");
-    assertEquals(result.semanticRepairHandoff?.diffText, expectedDiff);
+    const repairPatch = result.semanticRepairHandoff?.diffText;
+    const expectedDiff = await getWorktreeReviewDiff(projectRoot, "target");
+
+    assertEquals(aiPatch, expectedDiff);
+    assertEquals(repairPatch, expectedDiff);
+    assertEquals(expectedDiff.includes("inherited.js"), false);
 });
 
 Deno.test("runValidationPhase configures Semantic Reviewer with diff tools and isolated session", async () => {
