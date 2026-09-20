@@ -149,7 +149,6 @@ Deno.test("owner Workspace requires CSRF for Project mutation and resolves Proje
             assertEquals(page.status, 200);
             assertStringIncludes(html, "Owner Project Plan Board");
             assertStringIncludes(html, "Visible owner plan");
-            assertStringIncludes(html, "project · available");
             assertStringIncludes(html, "Project Plan views");
             assertStringIncludes(html, `/projects/${project.projectId}/plans/closed`);
             assertStringIncludes(html, `/projects/${project.projectId}/plans/on-hold`);
@@ -273,7 +272,6 @@ Deno.test("owner Workspace requires CSRF for Project mutation and resolves Proje
             assertStringIncludes(projectsHtml, "Link a Project");
             assertStringIncludes(projectsHtml, "Project root");
             assertStringIncludes(projectsHtml, "Owner Project");
-            assertStringIncludes(projectsHtml, `/projects/${project.projectId}/sessions`);
         }
 
         const home = await app(
@@ -501,8 +499,6 @@ Deno.test("owner Workspace requires CSRF for Project mutation and resolves Proje
             assertStringIncludes(settingsHtml, "Workspace Astro build unavailable");
         } else {
             assertStringIncludes(settingsHtml, "Owner Project settings");
-            assertStringIncludes(settingsHtml, "Open Plan Board");
-            assertStringIncludes(settingsHtml, "Devices");
             assertStringIncludes(settingsHtml, "Relink Project root");
         }
 

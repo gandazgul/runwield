@@ -655,7 +655,7 @@ export function devOwnerPlanProgress(): OwnerPlanProgress {
             },
             {
                 id: "semantic",
-                label: "AI code review",
+                label: "AI review",
                 state: "running",
                 detail: "Checking module references and production CI paths.",
                 updatedAt,

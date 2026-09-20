@@ -1,6 +1,6 @@
 /**
  * @module shared/workflow/validation-human-review
- * The Local Human Code Review phase: asking the user to review the diff, handling
+ * The Code Review phase: asking the user to review the diff, handling
  * approval/feedback/closed-window, and persisting the review metadata.
  */
 
@@ -49,7 +49,7 @@ export async function runHumanReviewPhase(
             kind: "paused",
             planName: args.planName,
             projectRoot: context.projectRoot,
-            reason: "Local Human Code Review is not required.",
+            reason: "Code Review is not required.",
             continueValidation: true,
         };
     }
@@ -84,7 +84,7 @@ export async function runHumanReviewPhase(
                 kind: "paused",
                 planName: args.planName,
                 projectRoot: context.projectRoot,
-                reason: "Local Human Code Review skipped by user.",
+                reason: "Code Review skipped by user.",
                 continueValidation: true,
             };
         }
@@ -181,7 +181,7 @@ export async function runHumanReviewPhase(
                     kind: "paused",
                     planName: args.planName,
                     projectRoot: context.projectRoot,
-                    reason: "Local Human Code Review approved.",
+                    reason: "Code Review approved.",
                     continueValidation: true,
                 },
             };
@@ -243,7 +243,7 @@ export async function runHumanReviewPhase(
                         kind: "paused",
                         planName: args.planName,
                         projectRoot: context.projectRoot,
-                        reason: "Human review feedback repair dispatched.",
+                        reason: "Code review feedback repair dispatched.",
                         continueValidation: true,
                     },
                 };

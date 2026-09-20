@@ -1,6 +1,7 @@
 ---
 import LoadingSurface from "../../../../components/LoadingSurface.astro";
 import WorkspaceLayout from "../../../../layouts/WorkspaceLayout.astro";
+import ReviewLayout from "../../../../layouts/ReviewLayout.astro";
 import { PlanDetail } from "../../../../components/PlanDetail.jsx";
 import { PlanReviewSurface } from "../../../../react/PlanReviewSurface.tsx";
 import { serializeCanonicalPlanError } from "../../../../server/astro-canonical-data.js";
@@ -81,10 +82,10 @@ const reviewPayload = plan && liveReview
         }`,
     }
     : null;
+const Layout = reviewPayload ? ReviewLayout : WorkspaceLayout;
 ---
-<WorkspaceLayout
+<Layout
     title={plan ? `${plan.planName} · RunWield Workspace` : "Project Plan · RunWield Workspace"}
-    surfaceTitle={reviewPayload ? `Plan Review — ${plan.title || plan.planName || planId}` : ""}
     selectedTab="projects"
     url={Astro.url.href}
 >
@@ -95,10 +96,10 @@ const reviewPayload = plan && liveReview
             <p>{error.repair}</p>
         </section>
     ) : reviewPayload ? (
-        <PlanReviewSurface payload={reviewPayload} presentation="workspace" client:only="react">
+        <PlanReviewSurface payload={reviewPayload} client:only="react">
             <LoadingSurface slot="fallback" label="Loading Plan review" />
         </PlanReviewSurface>
     ) : (
         <PlanDetail plan={plan} url={Astro.url.href} editIntent={false} client:load />
     )}
-</WorkspaceLayout>
+</Layout>

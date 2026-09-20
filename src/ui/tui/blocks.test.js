@@ -326,7 +326,7 @@ Deno.test("ValidationHandoffBlock renders owner validation labels and latest han
     assertBlockBackground(lines, w, "ValidationHandoffBlock");
     assertEquals(plain.includes("Repair paused"), true);
     assertEquals(
-        plain.includes("Tests and CI failed, AI code review pending, Human review pending, Combining commits pending"),
+        plain.includes("Tests and CI failed, AI review pending, Code review pending, Combining commits pending"),
         true,
     );
     assertEquals(plain.includes("Round 2/3"), false);
@@ -335,7 +335,7 @@ Deno.test("ValidationHandoffBlock renders owner validation labels and latest han
     assertEquals(plain.includes("Mechanical Validation"), false);
     assertEquals(plain.includes("Semantic review"), false);
     assertEquals(plain.includes("Engineer latest completion report"), true);
-    assertEquals(plain.includes("Reviewer latest AI code review — rejected (feedback addressed; rechecking)"), true);
+    assertEquals(plain.includes("Reviewer latest AI review — rejected (feedback addressed; rechecking)"), true);
 });
 
 Deno.test("ValidationHandoffBlock renders tests and CI wording for QUICK_FIX progress", () => {
@@ -358,7 +358,7 @@ Deno.test("ValidationHandoffBlock renders tests and CI wording for QUICK_FIX pro
     assertEquals(runningPlain.includes("Human skipped"), false);
     assertEquals(runningPlain.includes("Merge skipped"), false);
     assertEquals(runningPlain.includes("Engineer latest completion report"), true);
-    assertEquals(runningPlain.includes("Reviewer latest AI code review"), false);
+    assertEquals(runningPlain.includes("Reviewer latest AI review"), false);
 
     const verifiedBlock = new ValidationHandoffBlock({
         progress: {

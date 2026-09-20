@@ -623,14 +623,11 @@ Plan Detail, Plan Review, and read-only Plan are modes of the same Plan workbenc
 review shell, compact title toolbar, document canvas, and pane boundaries. Change the available controls and side-rail
 content for each mode; do not give one mode a separate dashboard-detail layout.
 
-When a review or artifact reader is embedded in Workspace, the Workspace main header is its only title and decision bar.
-Code Review puts its options and approval there; an artifact reader puts Back to Session there. For Plan Review, Show
-`Plan Review — [Plan title]` on the left and the execution-policy controls plus approval action on the right. Begin the
-embedded surface directly with the Plan workbench: do not repeat the logo/title/options header or the Project/Session
-breadcrumb strip. Reuse the Session screen's `workspace-main-header` height, title alignment, and shell spacing; do not
-create review-specific header geometry. Keep one `--rw-space-panel` gap below that shared header before the embedded
-workbench begins. Workspace Plan Review defaults to the wide document canvas. Standalone review keeps its compact
-launcher header because it has no owner Workspace shell.
+Workspace Plan Review and Code Review replace the entire owner shell with `ReviewLayout.astro`, the same full-window
+layout used by standalone reviews. Their own compact toolbar contains branding, options, and decision controls; only the
+review's Contents/Files and Annotations sidebars are present. Do not mount the Workspace Project/Session sidebar, its
+restore control, or a second header on review routes. Workspace Plan Review keeps its wide document canvas. Read-only
+artifact readers remain inside the owner shell and use its main header for title and Back to Session.
 
 Plannotator-specific mapping:
 
@@ -704,8 +701,9 @@ The Plan Board, Plan Review, and Code Review each have one surface body. Shells 
   checkout health above the board. Narrow screens may wrap search below the tabs. Columns have square edges and only
   separators between them, with one empty message per column and no duplicate whole-board empty notice. Keep the drag
   feedback region hidden until there is an actual move or rejection to report; omit the default instruction card;
-- `PlanReviewSurface` and `CodeReviewSurface` use `presentation="standalone"` for TUI-launched browser windows and
-  `presentation="workspace"` when a live Session opens the review in the Workspace shell;
+- `PlanReviewSurface` and `CodeReviewSurface` use their default full-window presentation in `ReviewLayout.astro` for
+  both TUI-launched browser windows and Workspace review routes. Workspace payloads retain their own APIs and
+  navigation;
 - behavior, payload interpretation, annotations, and decision controls stay in the shared surface. Do not fork a
   Workspace-only copy of either review.
 
@@ -713,8 +711,10 @@ Astro development entrypoints:
 
 - `deno task workspace:dev` starts the development server and opens `/dev`, the catalog for every paired presentation;
 - `/` and `/projects/dev-project/plans` compare the local and Workspace Plan Board shells;
-- `/dev/plan-review` and `/dev/workspace/plan-review` compare standalone and in-situ Plan Review;
-- `/dev/code-review` and `/dev/workspace/code-review` compare standalone and in-situ Code Review;
+- `/dev/plan-review` and `/dev/workspace/plan-review` exercise standalone and Workspace-launched full-window Plan
+  Review;
+- `/dev/code-review` and `/dev/workspace/code-review` exercise standalone and Workspace-launched full-window Code
+  Review;
 - `/projects/dev-project/sessions/choose-terraform-folder-name` exercises the Session shell and timeline: user and Agent
   messages, collapsed Activity, individual tool states, thinking, Plan and Code Review prompts, every special workflow
   tool (including triage, completion, and QA), and system notices.

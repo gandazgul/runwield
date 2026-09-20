@@ -338,7 +338,7 @@ export function createUiApi(
     };
 
     /**
-     * Human review can leave a tool pending for hours. Stop its repaint loop
+     * Code review can leave a tool pending for hours. Stop its repaint loop
      * along with the spinner; keep the block and start time for continuation.
      * @param {boolean} paused
      */

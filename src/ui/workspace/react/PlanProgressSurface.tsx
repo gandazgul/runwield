@@ -20,7 +20,7 @@ const BASE_PROGRESS = {
     overall: {
         state: "running",
         label: "running",
-        detail: "AI code review is running.",
+        detail: "AI review is running.",
         updatedAt: "2026-08-20T21:30:00-04:00",
         settled: false,
     },
@@ -41,9 +41,9 @@ const BASE_PROGRESS = {
         },
         {
             id: "semantic",
-            label: "AI code review",
+            label: "AI review",
             state: "running",
-            detail: "AI code review is running.",
+            detail: "AI review is running.",
             updatedAt: "2026-08-20T21:30:00-04:00",
         },
         { id: "repair", label: "Repair", state: "not_required", detail: "No repair is active.", updatedAt: null },
@@ -51,7 +51,7 @@ const BASE_PROGRESS = {
             id: "delivery",
             label: "Delivery",
             state: "pending",
-            detail: "Waiting for AI code review.",
+            detail: "Waiting for AI review.",
             updatedAt: null,
         },
         {
@@ -87,10 +87,10 @@ const FIXTURE_VARIANTS = {
             ...BASE_PROGRESS.overall,
             state: "repairing",
             label: "repairing",
-            detail: "AI code review repair is active.",
+            detail: "AI review repair is active.",
         },
         stages: BASE_PROGRESS.stages.map((stage) =>
-            stage.id === "repair" ? { ...stage, state: "running", detail: "AI code review repair is active." } : stage
+            stage.id === "repair" ? { ...stage, state: "running", detail: "AI review repair is active." } : stage
         ),
     },
     publicationFailure: {
@@ -111,7 +111,7 @@ const FIXTURE_VARIANTS = {
                         "Delivery failed while publishing the work. This is a long failure message that wraps without hiding the next action or creating horizontal page overflow.",
                 }
                 : stage.id === "semantic"
-                ? { ...stage, state: "passed", detail: "AI code review passed." }
+                ? { ...stage, state: "passed", detail: "AI review passed." }
                 : stage
         ),
     },
@@ -308,7 +308,7 @@ export function PlanProgressSurface({
                         <label className="plan-progress-fixture-picker">
                             Fixture state
                             <select value={fixtureKey} onChange={(event) => setFixtureKey(event.currentTarget.value)}>
-                                <option value="semantic">AI code review</option>
+                                <option value="semantic">AI review</option>
                                 <option value="repair">Repair running</option>
                                 <option value="publicationFailure">Publication failure</option>
                                 <option value="completed">Completed</option>

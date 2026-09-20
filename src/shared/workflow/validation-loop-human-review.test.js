@@ -162,7 +162,7 @@ Deno.test("runValidationLoop ask mode can skip human review and merge", async ()
     assertEquals(plan?.attrs.humanReviewDecision, "skipped");
 });
 
-Deno.test("runValidationLoop ask mode opens human review before merge when approved", async () => {
+Deno.test("runValidationLoop ask mode opens code review before merge when approved", async () => {
     const projectRoot = await makeValidationProjectRoot("p", {
         classification: "QUICK_FIX",
         status: "validated_reviewer",

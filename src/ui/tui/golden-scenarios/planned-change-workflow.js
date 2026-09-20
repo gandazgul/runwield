@@ -337,7 +337,7 @@ export const plannedChangeReviewRepairValidationScenario = {
             assert(result.state.editorUsable === true, "Expected input to remain ready after the follow-up.");
         }),
         // The inline verdict block, asserted where it renders. `Reviewer:` is its own
-        // header — the pinned panel titles the same report "Reviewer latest AI code review" —
+        // header — the pinned panel titles the same report "Reviewer latest AI review" —
         // and the verdict line is the body it exists to show.
         assertsGoldenCoverage("block:review-result", (result) => {
             const transcript = `${result.scrollbackText || ""}\n${result.screenText || ""}`;
@@ -354,7 +354,7 @@ export const plannedChangeReviewRepairValidationScenario = {
             // line also contains — it passed with the panel fully disabled.
             const transcript = `${result.scrollbackText || ""}\n${result.screenText || ""}`;
             assertStringIncludes(transcript, "Validation passed");
-            assertStringIncludes(transcript, "reviewer latest AI code review");
+            assertStringIncludes(transcript, "reviewer latest AI review");
         }),
     ],
 };

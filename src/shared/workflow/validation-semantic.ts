@@ -1,6 +1,6 @@
 /**
  * @module shared/workflow/validation-semantic
- * The Semantic Code Review phase: reviewer rounds with ledger convergence, repair
+ * The Semantic Review phase: reviewer rounds with ledger convergence, repair
  * dispatch, and the round-limit decision when the automatic rounds are spent.
  */
 
@@ -63,7 +63,7 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
             kind: "paused",
             planName: args.planName,
             projectRoot: context.projectRoot,
-            reason: "Semantic Code Review skipped for non-Git execution.",
+            reason: "Semantic Review skipped for non-Git execution.",
             continueValidation: true,
         };
     }
@@ -103,7 +103,7 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
             kind: "paused",
             planName: args.planName,
             projectRoot: context.projectRoot,
-            reason: "Semantic Code Review skipped because the diff is empty.",
+            reason: "Semantic Review skipped because the diff is empty.",
             continueValidation: true,
         };
     }
@@ -133,7 +133,7 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
                 kind: "paused",
                 planName: args.planName,
                 projectRoot: context.projectRoot,
-                reason: "Semantic Code Review round limit reached; Local Human Code Review requested.",
+                reason: "Semantic Review round limit reached; Code Review requested.",
                 continueValidation: true,
             };
         }
@@ -281,7 +281,7 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
                 kind: "paused",
                 planName: args.planName,
                 projectRoot: context.projectRoot,
-                reason: "Semantic Code Review passed.",
+                reason: "Semantic Review passed.",
                 continueValidation: true,
             };
         }
@@ -328,7 +328,7 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
             context.projectRoot,
             "semantic_review_feedback",
             "validated_ci",
-            review.outcome.feedback || "Semantic Code Review requested changes.",
+            review.outcome.feedback || "Semantic Review requested changes.",
             { validationCheckpoint: repairCheckpoint },
         );
         args.session.setActiveWorkflow({

@@ -258,7 +258,7 @@ Deno.test("Workspace API and detail route return readable editable Plan body met
             assertStringIncludes(html, "tree-detail");
             assertStringIncludes(html, "Worktree branch");
             assertStringIncludes(html, "runwield/worktree/detail");
-            assertStringIncludes(html, "Human review decision");
+            assertStringIncludes(html, "Code review decision");
             assertStringIncludes(html, "approved");
             assertStringIncludes(html, "Custom Priority");
             assertStringIncludes(html, "urgent");

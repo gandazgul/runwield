@@ -395,7 +395,7 @@ Deno.test("runValidationPhase nudges the same reviewer session when review_compl
     assertStringIncludes(reviewOpts[1].userRequest, "No review_complete was accepted");
     assertEquals(reviewOpts[1].userRequest.includes("Approved Plan"), false);
     assertEquals(reviewOpts[0].sessionManager, reviewOpts[1].sessionManager);
-    assertStringIncludes(uiAPI.messages.join(" "), "AI code review needs more time");
+    assertStringIncludes(uiAPI.messages.join(" "), "AI review needs more time");
 });
 
 Deno.test("runValidationPhase nudges the same Reviewer after real argument validation rejects review_complete", async () => {
@@ -481,7 +481,7 @@ Deno.test("runValidationPhase stops after one unknown Reviewer failure", async (
     assertEquals(reviewCalls, 1);
     assertEquals(result.kind, "failed");
     assertEquals(plan?.attrs.status, "validated_ci");
-    assertStringIncludes(uiAPI.messages.join(" "), "AI code review for p stopped.");
+    assertStringIncludes(uiAPI.messages.join(" "), "AI review for p stopped.");
     assertEquals(uiAPI.messages.join(" ").includes("Context window exceeded"), false);
     assertStringIncludes(
         await Deno.readTextFile(join(getHomeDir(), ".wld", "debug", "validation-errors.jsonl")),
@@ -515,7 +515,7 @@ Deno.test("runValidationPhase treats a Reviewer 404 as an operational retry with
     assertEquals(reviewOpts[1].userRequest.includes("have not called review_complete"), false);
     assertEquals(plan?.attrs.status, "validated_reviewer");
     assertEquals(plan?.attrs.validationSemanticRounds, 1);
-    assertStringIncludes(uiAPI.messages.join(" "), "The model provider could not complete AI code review");
+    assertStringIncludes(uiAPI.messages.join(" "), "The model provider could not complete AI review");
 });
 
 Deno.test("runValidationPhase pauses a Reviewer outage without recording feedback or advancing its round", async () => {
@@ -597,7 +597,7 @@ Deno.test("runValidationPhase dispatches semantic review feedback to Reviewer-Fe
     assertEquals(hostedSession.getActiveExecutionWorkflow()?.executionAgent, "frontend-engineer");
     assertEquals(plan?.attrs.status, "implemented");
     assertEquals(plan?.attrs.validationSemanticRounds, 1);
-    assertStringIncludes(uiAPI.messages.join(" "), "AI code review 1 of 3 has begun");
+    assertStringIncludes(uiAPI.messages.join(" "), "AI review 1 of 3 has begun");
 });
 
 Deno.test("runValidationPhase carries existing ledger identities and repair report into the next semantic round", async () => {
@@ -904,7 +904,7 @@ Deno.test("runValidationPhase narrows semantic review to verification mode after
     assertStringIncludes(reviewPrompts[0], "R2-2");
 });
 
-Deno.test("runValidationPhase offers Local Human Code Review after automatic semantic rounds", async () => {
+Deno.test("runValidationPhase offers Code Review after automatic semantic rounds", async () => {
     const { projectRoot, hostedSession } = await makeValidatedCiRun({ validationSemanticRounds: 2 });
     const interactions = /** @type {any[]} */ ([]);
 

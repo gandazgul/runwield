@@ -222,12 +222,12 @@ function transcriptRequirementFor(id: ValidationWorkflowBranchId): string[] {
     if (id.includes("plan-amendment")) return ["Plan amendment"];
     if (id.includes(":ci:")) return ["CI"];
     if (id.startsWith("semantic:round-limit:")) return ["Look once more, read it, or stop."];
-    if (id === "semantic:provider-error-retry") return ["The model provider could not complete AI code review"];
+    if (id === "semantic:provider-error-retry") return ["The model provider could not complete AI review"];
     if (id.startsWith("semantic:nudge:")) return ["Semantic review approved"];
-    if (id === "semantic:entry:non-git-skip") return ["AI code review skipped"];
-    if (id === "semantic:entry:empty-diff-skip") return ["AI code review skipped"];
+    if (id === "semantic:entry:non-git-skip") return ["AI review skipped"];
+    if (id === "semantic:entry:empty-diff-skip") return ["AI review skipped"];
     if (id === "semantic:entry:plan-only-diff-fails") return ["No implementation changes detected"];
-    if (id.startsWith("semantic:")) return ["AI code review"];
+    if (id.startsWith("semantic:")) return ["AI review"];
     if (id === "human-review:none") return ["Validation passed"];
     if (id === "human-review:ask-skip") return ["Validation passed"];
     if (id === "human-review:no-answer-retry" || id === "human-review:no-answer-stop") {
@@ -327,7 +327,7 @@ function interactionValuesFor(id: ValidationWorkflowBranchId): string[] {
 }
 
 function transcriptExcludesFor(id: ValidationWorkflowBranchId): string[] {
-    if (id === "human-review:none") return ["human review before merge"];
+    if (id === "human-review:none") return ["code review before merge"];
     if (id === "semantic:provider-error-retry") {
         return ["Semantic review rejected", "have not called review_complete"];
     }
