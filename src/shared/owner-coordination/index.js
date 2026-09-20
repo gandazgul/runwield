@@ -24,7 +24,6 @@ import {
     relinkProject,
     removeProject,
     requireEnabledProjectRoot,
-    restoreProject,
     setProjectEnabled,
 } from "./projects.js";
 import { listDevices, revokeDevice, verifyDeviceCredential, verifyDeviceCsrf } from "./devices.js";
@@ -56,8 +55,7 @@ export { OWNER_CSRF_COOKIE, OWNER_DEVICE_COOKIE, OWNER_DEVICE_MAX_AGE_SECONDS } 
  * @property {(projectId: string) => ReturnType<typeof getProjectHealth>} getProjectHealth
  * @property {(projectId: string) => ReturnType<typeof listProjectRootEvidence>} listProjectRootEvidence
  * @property {(projectId: string, enabled: boolean, options?: Parameters<typeof setProjectEnabled>[3]) => ReturnType<typeof setProjectEnabled>} setProjectEnabled
- * @property {(projectId: string, options?: Parameters<typeof removeProject>[2]) => ReturnType<typeof removeProject>} removeProject
- * @property {(projectId: string, options?: Parameters<typeof restoreProject>[2]) => ReturnType<typeof restoreProject>} restoreProject
+ * @property {(projectId: string) => ReturnType<typeof removeProject>} removeProject
  * @property {(options: Parameters<typeof relinkProject>[1]) => ReturnType<typeof relinkProject>} relinkProject
  * @property {(projectId: string) => ReturnType<typeof requireEnabledProjectRoot>} requireEnabledProjectRoot
  * @property {(projectId: string) => string} requireSessionProjectRoot
@@ -140,8 +138,7 @@ export function openOwnerCoordinationStore(options = {}) {
                 : listProjectRootEvidence(database, projectId),
         setProjectEnabled: (projectId, enabled, projectOptions) =>
             setProjectEnabled(database, projectId, enabled, projectOptions),
-        removeProject: (projectId, projectOptions) => removeProject(database, projectId, projectOptions),
-        restoreProject: (projectId, projectOptions) => restoreProject(database, projectId, projectOptions),
+        removeProject: (projectId) => removeProject(database, projectId),
         relinkProject: (projectOptions) => relinkProject(database, projectOptions),
         requireEnabledProjectRoot: (projectId) => requireEnabledProjectRoot(database, projectId),
         requireSessionProjectRoot: (projectId) =>

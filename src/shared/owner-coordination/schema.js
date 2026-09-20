@@ -4,7 +4,7 @@
  * Session cataloging, and Session activation state.
  */
 
-export const OWNER_COORDINATION_SCHEMA_VERSION = 9;
+export const OWNER_COORDINATION_SCHEMA_VERSION = 10;
 
 export const OWNER_COORDINATION_SCHEMA_V1_SQL = `
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -549,4 +549,25 @@ ALTER TABLE owner_session_operations_v9 RENAME TO owner_session_operations;
 
 CREATE UNIQUE INDEX idx_owner_session_operations_request
     ON owner_session_operations(COALESCE(device_id, '__owner_device_null__'), runwield_session_id, request_id);
+`;
+
+// Preserve legacy evidence while registered; removing the registration also
+// removes its retired SQLite catalog, never the file-authoritative Sessions.
+export const OWNER_COORDINATION_SCHEMA_V10_SQL = `
+DROP TRIGGER trg_session_generations_no_delete;
+CREATE TRIGGER trg_session_generations_no_delete
+BEFORE DELETE ON session_committed_generations
+WHEN EXISTS (SELECT 1 FROM projects WHERE id = OLD.project_id AND lifecycle <> 'removed')
+BEGIN
+    SELECT RAISE(ABORT, 'session generations are append-only');
+END;
+
+DROP TRIGGER trg_session_segments_sealed_no_delete;
+CREATE TRIGGER trg_session_segments_sealed_no_delete
+BEFORE DELETE ON session_transcript_segments
+WHEN OLD.sealed_at IS NOT NULL
+ AND EXISTS (SELECT 1 FROM projects WHERE id = OLD.project_id AND lifecycle <> 'removed')
+BEGIN
+    SELECT RAISE(ABORT, 'sealed transcript segments are immutable');
+END;
 `;

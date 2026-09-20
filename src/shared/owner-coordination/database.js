@@ -3,10 +3,12 @@
  * SQLite opener and migration runner for owner-only coordination state.
  */
 
+import { deleteProjectRegistration } from "./project-removal.ts";
 import { DatabaseSync } from "node:sqlite";
 import { dirname, extname } from "@std/path";
 import { ensureOwnerDatabaseDirectory, getOwnerCoordinationDatabasePath } from "./paths.js";
 import {
+    OWNER_COORDINATION_SCHEMA_V10_SQL,
     OWNER_COORDINATION_SCHEMA_V1_SQL,
     OWNER_COORDINATION_SCHEMA_V2_SQL,
     OWNER_COORDINATION_SCHEMA_V3_SQL,
@@ -131,6 +133,13 @@ export function runOwnerCoordinationMigrations(db, options = {}) {
         if (versionAtLock < 9) {
             db.exec(OWNER_COORDINATION_SCHEMA_V9_SQL);
             recordMigration(db, 9, options.now);
+        }
+        if (versionAtLock < 10) {
+            db.exec(OWNER_COORDINATION_SCHEMA_V10_SQL);
+            for (const project of db.prepare("SELECT id FROM projects WHERE lifecycle = 'removed'").all()) {
+                deleteProjectRegistration(db, String(project.id));
+            }
+            recordMigration(db, 10, options.now);
         }
         db.exec("COMMIT");
     } catch (error) {
