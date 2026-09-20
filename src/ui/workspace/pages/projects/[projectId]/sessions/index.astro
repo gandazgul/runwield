@@ -1,4 +1,5 @@
 ---
+import LoadingSurface from "../../../../components/LoadingSurface.astro";
 import WorkspaceLayout from "../../../../layouts/WorkspaceLayout.astro";
 import SessionSurface from "../../../../islands/SessionSurface.jsx";
 
@@ -16,5 +17,7 @@ const planId = Astro.url.searchParams.get("plan") || "";
         <h1>Project Sessions</h1>
         <p>Create a Session, inspect its committed timeline, and continue it from a phone when Session control allows.</p>
     </section>
-    <SessionSurface projectId={projectId} mode="list" planId={planId} client:only="react" />
+    <SessionSurface projectId={projectId} mode="list" planId={planId} client:only="react">
+        <LoadingSurface slot="fallback" label="Loading Session" />
+    </SessionSurface>
 </WorkspaceLayout>

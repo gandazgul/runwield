@@ -1,8 +1,22 @@
 /** @module ui/workspace/server/astro-owner-data */
 
-import { devOwnerProjects } from "./dev-owner-fixtures.ts";
+import {
+    DEV_OWNER_PROJECT,
+    DEV_OWNER_WORKFLOW_PLAN,
+    devOwnerPlanProgress,
+    devOwnerProjects,
+} from "./dev-owner-fixtures.ts";
 import { currentWorkspaceCwd } from "./cwd.js";
-import { dirname, relative, resolve, sep as SEPARATOR } from "node:path";
+import { listOwnerProjects, requireOwnerProjectRoot, sessionBelongsToOwnerProject } from "./owner-projects.js";
+import { loadCanonicalBoard, loadCanonicalWorkspaceDetail } from "./astro-canonical-data.js";
+import { readSessionArtifact } from "../../../shared/session/read-session-artifact.ts";
+
+const BUNDLED_PLAN_ADAPTER_KEY = Symbol.for("runwield.workspace.plan-adapter-module");
+// Production needs the bundled adapter; dev uses the canonical loader's native
+// Deno import so Vite does not try to resolve Core's JSR imports through Node.
+if (!import.meta.env?.DEV) {
+    Reflect.set(globalThis, BUNDLED_PLAN_ADAPTER_KEY, import("./plan-adapter.js"));
+}
 
 export const OWNER_WORKSPACE_STORE_KEY = Symbol.for("runwield.workspace.owner-store");
 export const OWNER_WORKSPACE_SESSION_CONTINUATION_KEY = Symbol.for("runwield.workspace.session-continuation");
@@ -29,47 +43,42 @@ export function getAstroOwnerWorkspaceSessionContinuation() {
 
 export async function loadOwnerProjects() {
     const store = getAstroOwnerWorkspaceStore();
-    if (!store && import.meta.env.DEV) return devOwnerProjects();
+    if (!store && import.meta.env?.DEV) return devOwnerProjects();
     if (!store) throw new Error("Owner Workspace store is not available.");
-    const { listOwnerProjects } = await import("./owner-projects.js");
-    return listOwnerProjects(store);
+    return await listOwnerProjects(store);
 }
 
 /** @param {string} projectId */
 export async function loadOwnerProjectBoard(projectId) {
     const store = getAstroOwnerWorkspaceStore();
-    if (!store && import.meta.env.DEV) {
-        const { loadCanonicalBoard } = await import("./astro-canonical-data.js");
+    if (!store && import.meta.env?.DEV) {
         return await loadCanonicalBoard(currentWorkspaceCwd());
     }
     if (!store) throw new Error("Owner Workspace store is not available.");
-    const [{ requireOwnerProjectRoot }, { loadBoard }] = await Promise.all([
-        import("./owner-projects.js"),
-        import("./plan-adapter.js"),
-    ]);
     const root = requireOwnerProjectRoot(store, projectId);
-    return await loadBoard(root);
+    return await loadCanonicalBoard(root);
 }
 
 /** @param {string} projectId @param {string} planId */
 export async function loadOwnerProjectPlanDetail(projectId, planId) {
     const store = getAstroOwnerWorkspaceStore();
-    if (!store && import.meta.env.DEV) {
-        const { loadCanonicalWorkspaceDetail } = await import("./astro-canonical-data.js");
+    if (!store && import.meta.env?.DEV) {
         return await loadCanonicalWorkspaceDetail(currentWorkspaceCwd(), planId);
     }
     if (!store) throw new Error("Owner Workspace store is not available.");
-    const [{ requireOwnerProjectRoot }, { loadWorkspaceDetail }] = await Promise.all([
-        import("./owner-projects.js"),
-        import("./plan-adapter.js"),
-    ]);
     const root = requireOwnerProjectRoot(store, projectId);
-    return await loadWorkspaceDetail(root, planId);
+    return await loadCanonicalWorkspaceDetail(root, planId);
 }
 
 /** @param {string} projectId @param {string} planId @param {string | null} runwieldSessionId */
 export async function loadOwnerProjectPlanProgress(projectId, planId, runwieldSessionId = null) {
     const store = getAstroOwnerWorkspaceStore();
+    if (
+        !store && import.meta.env?.DEV && projectId === DEV_OWNER_PROJECT.projectId &&
+        planId === DEV_OWNER_WORKFLOW_PLAN.planId
+    ) {
+        return devOwnerPlanProgress();
+    }
     if (!store) throw new Error("Owner Workspace store is not available.");
     const { loadOwnerPlanProgress } = await import("./owner-plan-progress.ts");
     return await loadOwnerPlanProgress(store, { projectId, planId, runwieldSessionId });
@@ -79,7 +88,6 @@ export async function loadOwnerProjectPlanProgress(projectId, planId, runwieldSe
 export async function loadOwnerSessionArtifact(projectId, runwieldSessionId, artifactId) {
     const store = getAstroOwnerWorkspaceStore();
     if (!store) throw new Error("Owner Workspace store is not available.");
-    const { requireOwnerProjectRoot, sessionBelongsToOwnerProject } = await import("./owner-projects.js");
     const root = requireOwnerProjectRoot(store, projectId);
     const session = store.getSessionById(runwieldSessionId);
     if (!session || !sessionBelongsToOwnerProject(store, session, projectId)) throw new Error("Session not found.");
@@ -89,15 +97,5 @@ export async function loadOwnerSessionArtifact(projectId, runwieldSessionId, art
             (candidate) => candidate.artifactId === artifactId,
         );
     if (!artifact) throw new Error("Session artifact not found.");
-    const canonicalRoot = await Deno.realPath(root);
-    const absolutePath = await Deno.realPath(resolve(canonicalRoot, artifact.path));
-    const artifactRelativePath = relative(canonicalRoot, absolutePath);
-    if (!artifactRelativePath || artifactRelativePath === ".." || artifactRelativePath.startsWith(`..${SEPARATOR}`)) {
-        throw new Error("Session artifact is outside its Project.");
-    }
-    return {
-        ...artifact,
-        markdown: await Deno.readTextFile(absolutePath),
-        imageBaseDir: dirname(absolutePath),
-    };
+    return await readSessionArtifact(root, artifact);
 }

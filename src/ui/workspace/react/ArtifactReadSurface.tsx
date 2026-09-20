@@ -1,6 +1,7 @@
 // @ts-nocheck: Workspace React islands compile TSX, but this module uses JSDoc-style JavaScript only.
+import { animateSidebarUpdate } from "../../design-system/components/react/sidebar-motion.ts";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ThemeProvider } from "@plannotator/ui/components/ThemeProvider.tsx";
 import { TooltipProvider } from "@plannotator/ui/components/Tooltip.tsx";
 import { Viewer } from "@plannotator/ui/components/Viewer.tsx";
@@ -11,6 +12,8 @@ import { usePrintMode } from "@plannotator/ui/hooks/usePrintMode.ts";
 import { useConfigValue } from "@plannotator/ui/config/index.ts";
 import { extractFrontmatter, parseMarkdownToBlocks } from "@plannotator/ui/utils/parser.ts";
 import { getUIPreferences, PLAN_WIDTH_OPTIONS } from "@plannotator/ui/utils/uiPreferences.ts";
+import { RunWieldPanelToggle, RunWieldThinkingDots } from "../../design-system/components/react/RunWieldPrimitives.jsx";
+import { sessionArtifactKindLabel } from "../../../shared/session/session-sidebar.ts";
 import "./plannotator.css";
 
 const DEFAULT_READ_PAYLOAD = {
@@ -23,15 +26,6 @@ const DEFAULT_READ_PAYLOAD = {
     notices: [],
 };
 
-const ARTIFACT_LABELS = {
-    plan: "Plan",
-    prd: "PRD",
-    adr: "ADR",
-    "work-record": "Work Record",
-    "epic-artifact": "Epic Artifact",
-    report: "Report",
-};
-
 function workspaceNavigate(href) {
     const event = new CustomEvent("runwield:workspace-navigate", {
         cancelable: true,
@@ -40,16 +34,14 @@ function workspaceNavigate(href) {
     if (document.dispatchEvent(event)) globalThis.location.assign(href);
 }
 
-export function ArtifactReadSurface({ payload, presentation = "standalone" }) {
+export function ArtifactReadSurface({ payload }) {
     usePrintMode();
     const initialPayload = useMemo(() => payload || readEmbeddedPayload("review-payload") || DEFAULT_READ_PAYLOAD, [
         payload,
     ]);
     const markdown = initialPayload.markdown || initialPayload.plan || "";
-    const artifactKind = Object.hasOwn(ARTIFACT_LABELS, initialPayload.artifactKind)
-        ? initialPayload.artifactKind
-        : "report";
-    const artifactLabel = ARTIFACT_LABELS[artifactKind];
+    const artifactKind = initialPayload.artifactKind || "report";
+    const artifactLabel = sessionArtifactKindLabel(artifactKind);
     const title = initialPayload.title || `Untitled ${artifactLabel}`;
     const notices = Array.isArray(initialPayload.notices) ? initialPayload.notices.filter(Boolean) : [];
     const [activeSection, setActiveSection] = useState(null);
@@ -59,6 +51,17 @@ export function ArtifactReadSurface({ payload, presentation = "standalone" }) {
     const [closeBlocked, setCloseBlocked] = useState(false);
     const [error, setError] = useState("");
     const uiPreferences = useMemo(() => getUIPreferences(), []);
+    const [sidebarOpen, setSidebarOpen] = useState(() =>
+        !globalThis.matchMedia("(max-width: 980px)").matches && uiPreferences.tocEnabled
+    );
+    useEffect(() => {
+        const narrow = globalThis.matchMedia("(max-width: 980px)");
+        const collapseOnPhone = () => {
+            if (narrow.matches) setSidebarOpen(false);
+        };
+        narrow.addEventListener("change", collapseOnPhone);
+        return () => narrow.removeEventListener("change", collapseOnPhone);
+    }, []);
     const gridEnabled = useConfigValue("gridEnabled");
     const planMaxWidth = useMemo(
         () => PLAN_WIDTH_OPTIONS.find((option) => option.id === uiPreferences.planWidth)?.px || 832,
@@ -74,7 +77,7 @@ export function ArtifactReadSurface({ payload, presentation = "standalone" }) {
 
     async function closeReadSurface() {
         if (closing || closed) return;
-        if (presentation === "workspace" && initialPayload.returnHref) {
+        if (initialPayload.returnHref) {
             workspaceNavigate(initialPayload.returnHref);
             return;
         }
@@ -110,6 +113,23 @@ export function ArtifactReadSurface({ payload, presentation = "standalone" }) {
         }
     }
 
+    const closeAction = (
+        <button
+            className="rw-artifact-close-button rw-review-action-button"
+            type="button"
+            onClick={closeReadSurface}
+            disabled={closing || closed}
+        >
+            {initialPayload.returnHref
+                ? "Back to Session"
+                : closing
+                ? <RunWieldThinkingDots label="Closing" />
+                : closed
+                ? "Closed"
+                : "Close"}
+        </button>
+    );
+
     return (
         <ThemeProvider
             defaultTheme="dark"
@@ -119,9 +139,7 @@ export function ArtifactReadSurface({ payload, presentation = "standalone" }) {
         >
             <TooltipProvider>
                 <div
-                    className={`rw-plannotator-host rw-plan-review rw-artifact-read ${
-                        presentation === "workspace" ? "rw-review-embedded" : ""
-                    }`}
+                    className="rw-plannotator-host rw-plan-review rw-artifact-read"
                     data-artifact-kind={artifactKind}
                 >
                     <header className="rw-plannotator-toolbar">
@@ -134,23 +152,20 @@ export function ArtifactReadSurface({ payload, presentation = "standalone" }) {
                                 )}
                             </div>
                         </div>
-                        <div className="rw-plannotator-actions">
-                            <button
-                                className="rw-artifact-close-button rw-review-action-button"
-                                type="button"
-                                onClick={closeReadSurface}
-                                disabled={closing || closed}
-                            >
-                                {presentation === "workspace"
-                                    ? initialPayload.returnLabel || "Back to Session"
-                                    : closing
-                                    ? "Closing…"
-                                    : closed
-                                    ? "Closed"
-                                    : "Close"}
-                            </button>
-                        </div>
+                        <div className="rw-plannotator-actions">{closeAction}</div>
                     </header>
+                    <div className="rw-artifact-document-toolbar" data-sidebar-open={sidebarOpen}>
+                        <div className="rw-artifact-contents-heading">
+                            {sidebarOpen && <span>Contents</span>}
+                            <RunWieldPanelToggle
+                                side="left"
+                                collapsed={!sidebarOpen}
+                                label="Contents"
+                                controls="artifact-contents"
+                                onClick={() => animateSidebarUpdate(() => setSidebarOpen((open) => !open))}
+                            />
+                        </div>
+                    </div>
                     {error && <p className="rw-review-error" role="alert">{error}</p>}
                     {closed && closeBlocked && (
                         <div className="rw-artifact-close-notice" role="status">
@@ -162,35 +177,54 @@ export function ArtifactReadSurface({ payload, presentation = "standalone" }) {
                         </div>
                     )}
                     <ScrollViewportContext.Provider value={scrollViewport}>
-                        <div className="rw-plannotator-plan-layout rw-artifact-read-layout" data-sidebar-open="true">
-                            <SidebarContainer
-                                activeTab="toc"
-                                onTabChange={() => {}}
-                                onClose={() => {}}
-                                width={280}
-                                blocks={parsed.blocks}
-                                annotations={[]}
-                                activeSection={activeSection}
-                                onTocNavigate={setActiveSection}
-                                showFilesTab={false}
-                                showVersionsTab={false}
-                                versionInfo={null}
-                                versions={[]}
-                                selectedBaseVersion={null}
-                                onSelectBaseVersion={() => {}}
-                                isPlanDiffActive={false}
-                                hasPreviousVersion={false}
-                                onActivatePlanDiff={() => {}}
-                                isLoadingVersions={false}
-                                isSelectingVersion={false}
-                                fetchingVersion={null}
-                                onFetchVersions={() => {}}
-                                showArchiveTab={false}
-                                archivePlans={[]}
-                                selectedArchiveFile={null}
-                                onArchiveSelect={() => {}}
-                                isLoadingArchive={false}
-                            />
+                        <div
+                            className="rw-plannotator-plan-layout rw-artifact-read-layout"
+                            data-sidebar-open={sidebarOpen}
+                            data-annotations-open="false"
+                        >
+                            {sidebarOpen && (
+                                <div
+                                    id="artifact-contents"
+                                    className="rw-artifact-contents"
+                                    onKeyDown={(event) => {
+                                        if (event.key === "Escape") animateSidebarUpdate(() => setSidebarOpen(false));
+                                    }}
+                                >
+                                    <SidebarContainer
+                                        activeTab="toc"
+                                        onTabChange={() => {}}
+                                        onClose={() => animateSidebarUpdate(() => setSidebarOpen(false))}
+                                        width={280}
+                                        blocks={parsed.blocks}
+                                        annotations={[]}
+                                        activeSection={activeSection}
+                                        onTocNavigate={(section) => {
+                                            setActiveSection(section);
+                                            if (globalThis.matchMedia("(max-width: 980px)").matches) {
+                                                animateSidebarUpdate(() => setSidebarOpen(false));
+                                            }
+                                        }}
+                                        showFilesTab={false}
+                                        showVersionsTab={false}
+                                        versionInfo={null}
+                                        versions={[]}
+                                        selectedBaseVersion={null}
+                                        onSelectBaseVersion={() => {}}
+                                        isPlanDiffActive={false}
+                                        hasPreviousVersion={false}
+                                        onActivatePlanDiff={() => {}}
+                                        isLoadingVersions={false}
+                                        isSelectingVersion={false}
+                                        fetchingVersion={null}
+                                        onFetchVersions={() => {}}
+                                        showArchiveTab={false}
+                                        archivePlans={[]}
+                                        selectedArchiveFile={null}
+                                        onArchiveSelect={() => {}}
+                                        isLoadingArchive={false}
+                                    />
+                                </div>
+                            )}
                             <main className="rw-plannotator-main-pane">
                                 {notices.length > 0 && (
                                     <section className="rw-artifact-notices" aria-label={`${artifactLabel} notices`}>
@@ -215,6 +249,7 @@ export function ArtifactReadSurface({ payload, presentation = "standalone" }) {
                                                 inputMethod="drag"
                                                 taterMode={false}
                                                 stickyActions={false}
+                                                copyLabel="Copy Markdown"
                                                 gridEnabled={gridEnabled}
                                                 maxWidth={planMaxWidth}
                                                 imageBaseDir={initialPayload.imageBaseDir}

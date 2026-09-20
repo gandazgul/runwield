@@ -1,0 +1,26 @@
+---
+import DefaultHead from "@astrojs/starlight/components/Head.astro";
+---
+
+<DefaultHead {...Astro.props} />
+
+<script>
+    async function ensureSearchStarts() {
+        if (import.meta.env.DEV) return;
+        await customElements.whenDefined("site-search");
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        if (document.querySelector("#starlight__search input")) return;
+        // Starlight can register its search element after DOMContentLoaded in a Deno-built site.
+        const { PagefindUI } = await import("@pagefind/default-ui");
+        new PagefindUI({
+            element: "#starlight__search",
+            baseUrl: "/",
+            bundlePath: "/pagefind/",
+            showImages: false,
+            showSubResults: true,
+        });
+    }
+
+    if (document.readyState === "complete") ensureSearchStarts();
+    else window.addEventListener("load", ensureSearchStarts, { once: true });
+</script>

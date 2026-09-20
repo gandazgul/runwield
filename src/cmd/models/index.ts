@@ -5,11 +5,16 @@
 
 import { getModelRegistry } from "../../shared/models/model-registry.ts";
 import { parseProviderModel } from "../../shared/models/model-validation.ts";
-import { setActiveSessionModel, setDefaultModelSelection } from "../../shared/session/model-selection.ts";
+import { setDefaultModelSelection } from "../../shared/session/model-selection.ts";
+import {
+    applyUserModelSelection,
+    listUserModelOptions,
+    parseUserModelSelection,
+} from "../../shared/session/user-selection.ts";
 import type { SessionRuntime } from "../../shared/session/session-runtime.js";
 import { getCwd } from "../../constants.js";
 import { COMMAND_NAMES } from "../registry.js";
-import { printCommandHelp } from "../help/index.js";
+import { formatCommandHelp, printCommandHelp } from "../help/index.js";
 export { getModelCompletions } from "./getArgumentCompletions.js";
 
 interface ModelSelectItem {
@@ -17,14 +22,9 @@ interface ModelSelectItem {
     label: string;
 }
 
-interface ModelSelectorResult {
-    selected: boolean;
-}
-
 interface ModelsCommandUi {
     appendSystemMessage(message: string, isError?: boolean): void;
     promptSelect(title: string, options: ModelSelectItem[]): Promise<string | null>;
-    showModelSelector?(): Promise<ModelSelectorResult | void> | ModelSelectorResult | void;
 }
 
 interface ModelsCommandEditor {
@@ -39,15 +39,16 @@ interface ModelsCommandOptions {
     sessionRuntime?: SessionRuntime;
 }
 
-const INTERACTIVE_SESSION_REQUIRED = "Model switching requires an interactive RunWield session.";
-
 async function activateModel(
     options: ModelsCommandOptions,
     model: string,
     provider: string,
 ) {
     if (!options.sessionRuntime || !options.sessionId) return null;
-    return await setActiveSessionModel(options.sessionRuntime, options.sessionId, model, provider);
+    const result = await applyUserModelSelection(options.sessionRuntime, options.sessionId, model, provider);
+    const snapshot = options.sessionRuntime.getSessionSnapshot(options.sessionId);
+    if (result.ok && !snapshot?.activeAgent) await setDefaultModelSelection(snapshot?.cwd || getCwd(), model, provider);
+    return result;
 }
 
 export async function runModelsCommand(argv: string[], options: ModelsCommandOptions = {}): Promise<void> {
@@ -55,7 +56,9 @@ export async function runModelsCommand(argv: string[], options: ModelsCommandOpt
     const firstArg = argv[0]?.trim();
 
     if (firstArg === "help" || firstArg === "--help" || firstArg === "-h") {
-        printCommandHelp(COMMAND_NAMES.MODEL);
+        const help = formatCommandHelp(COMMAND_NAMES.MODEL);
+        if (uiAPI && help) uiAPI.appendSystemMessage(help);
+        else printCommandHelp(COMMAND_NAMES.MODEL);
         return;
     }
 
@@ -63,49 +66,50 @@ export async function runModelsCommand(argv: string[], options: ModelsCommandOpt
     await modelRegistry.getRuntime();
 
     if (!firstArg) {
-        if (!uiAPI || !editor) {
+        if (!uiAPI) {
             console.log("Usage: wld model <provider>/<model_id>");
             return;
         }
 
-        if (uiAPI.showModelSelector) {
-            await uiAPI.showModelSelector();
+        const available = await listUserModelOptions();
+        if (available.length === 0) {
+            uiAPI.appendSystemMessage("No models available.");
         } else {
-            const available = modelRegistry.getAvailable();
-            if (available.length === 0) {
-                uiAPI.appendSystemMessage("No models available.");
-            } else {
-                const selection = await uiAPI.promptSelect(
-                    "Select model",
-                    available.map((model) => ({ value: `${model.provider}/${model.id}`, label: model.name })),
-                );
-                if (selection) {
-                    const parsed = parseProviderModel(selection);
-                    if (parsed.ok) {
-                        const found = modelRegistry.find(parsed.provider, parsed.id);
-                        if (found) {
-                            const activation = await activateModel(options, found.id, found.provider);
-                            if (!activation) {
-                                uiAPI.appendSystemMessage(INTERACTIVE_SESSION_REQUIRED);
-                                editor.setText("");
-                                editor.disableSubmit = false;
-                                return;
-                            }
-                            uiAPI.appendSystemMessage(
-                                activation?.status === "deferred"
-                                    ? activation.message ||
-                                        `Saved ${found.provider}/${found.id} for later. The current Session was not switched.`
-                                    : `Switched model to ${found.provider}/${found.id}`,
-                            );
-                        } else {
-                            uiAPI.appendSystemMessage(`Unknown model: ${selection}. Use /model to switch.`, true);
-                        }
+            const selection = await uiAPI.promptSelect(
+                "Select model",
+                available.map((model) => ({
+                    value: `${model.provider}/${model.id}`,
+                    label: model.name
+                        ? `${model.name} (${model.provider}/${model.id})`
+                        : `${model.provider}/${model.id}`,
+                })),
+            );
+            if (selection) {
+                try {
+                    const parsed = parseUserModelSelection(selection);
+                    const activation = await activateModel(options, parsed.model, parsed.provider);
+                    if (!activation) {
+                        await setDefaultModelSelection(getCwd(), parsed.model, parsed.provider);
+                        uiAPI.appendSystemMessage(`Set default model to ${parsed.provider}/${parsed.model}`);
+                        editor?.setText("");
+                        if (editor) editor.disableSubmit = false;
+                        return;
                     }
+                    if (!activation.ok) {
+                        uiAPI.appendSystemMessage(
+                            `Could not switch model to ${parsed.provider}/${parsed.model}: ${activation.error}. The active model did not change.`,
+                            true,
+                        );
+                    } else {
+                        uiAPI.appendSystemMessage(`Switched model to ${activation.provider}/${activation.model}`);
+                    }
+                } catch (error) {
+                    uiAPI.appendSystemMessage(error instanceof Error ? error.message : String(error), true);
                 }
             }
         }
-        editor.setText("");
-        editor.disableSubmit = false;
+        editor?.setText("");
+        if (editor) editor.disableSubmit = false;
         return;
     }
 
@@ -128,18 +132,14 @@ export async function runModelsCommand(argv: string[], options: ModelsCommandOpt
 
     const activation = await activateModel(options, targetModel.id, targetModel.provider);
     if (!activation) {
-        if (uiAPI) {
-            uiAPI.appendSystemMessage(INTERACTIVE_SESSION_REQUIRED);
-        } else {
-            await setDefaultModelSelection(getCwd(), targetModel.id, targetModel.provider);
-            console.log(`Set default model to ${targetModel.provider}/${targetModel.id}`);
-        }
+        await setDefaultModelSelection(getCwd(), targetModel.id, targetModel.provider);
+        if (uiAPI) uiAPI.appendSystemMessage(`Set default model to ${targetModel.provider}/${targetModel.id}`);
+        else console.log(`Set default model to ${targetModel.provider}/${targetModel.id}`);
         return;
     }
-    const message = activation?.status === "deferred"
-        ? activation.message ||
-            `Saved ${targetModel.provider}/${targetModel.id} for later. The current Session was not switched.`
-        : `Switched model to ${targetModel.provider}/${targetModel.id}`;
-    if (uiAPI) uiAPI.appendSystemMessage(message);
+    const message = activation.ok
+        ? `Switched model to ${activation.provider}/${activation.model}`
+        : `Could not switch model to ${targetModel.provider}/${targetModel.id}: ${activation.error}. The active model did not change.`;
+    if (uiAPI) uiAPI.appendSystemMessage(message, !activation.ok);
     else console.log(message);
 }

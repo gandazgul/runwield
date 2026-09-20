@@ -221,6 +221,8 @@ Behavior:
 - Text-only active model with fallback: image paste/submission is allowed, RunWield warns that `visionFallback.model`
   will describe images, raw image bytes are withheld from the primary model, and `see_image` can inspect
   `attachment:<uuid>` or safe project-relative image paths.
+- Fallback settings are resolved from the active Project, not from the process working directory. RunWield validates
+  fallback model support and credentials when an image is sent or inspected, not when a text-only Session starts.
 - Text-only active model without fallback: image paste/submission is blocked non-destructively with:
 
 ```text
@@ -317,8 +319,9 @@ Model resolution for an agent invocation:
 2. Invocation-specific model, such as a prompt-template `model` frontmatter value.
 3. Active preset `modelPresets.<activeModelPreset>.agents.<agent>.model`.
 4. Base `agents.<agent>.model`.
-5. `defaultProvider` plus `defaultModel`.
-6. Layered agent definition frontmatter `model` (`./.wld` > `~/.wld` > bundled).
+5. For non-Engineer Agents with no earlier model, Engineer's configured model.
+6. `defaultProvider` plus `defaultModel`.
+7. Layered agent definition frontmatter `model` (`./.wld` > `~/.wld` > bundled).
 
 If none of these resolve to a registered, authenticated model, RunWield reports an error instead of falling through to
 the underlying agent library's built-in fallback.
@@ -327,8 +330,9 @@ Thinking level resolution:
 
 1. Active preset `modelPresets.<activeModelPreset>.agents.<agent>.thinkingLevel`.
 2. Base `agents.<agent>.thinkingLevel`.
-3. `defaultThinkingLevel`.
-4. Layered agent definition frontmatter `thinkingLevel` (`./.wld` > `~/.wld` > bundled).
+3. For Validation Repair Engineer with no earlier thinking level, Engineer's configured thinking level.
+4. `defaultThinkingLevel`.
+5. Layered agent definition frontmatter `thinkingLevel` (`./.wld` > `~/.wld` > bundled).
 
 Temperature resolution:
 
@@ -727,3 +731,10 @@ Concrete CLI model names ending in `-low`, `-medium`, or `-high` are execution d
 This backend does not accept image attachments. Setup explains and requests approval before installing its global custom
 agent and MCP configuration. Replay includes assistant messages, RunWield tool results, and backend status;
 Antigravity's internal file, shell, and tool activity stays in the CLI.
+
+RunWield passes the Session's current working directory with `--add-dir`, including execution worktrees. This gives
+Antigravity the workspace context needed for normal project file access; it does not change global permissions or bypass
+tool approval. Actions that still require approval cannot prompt in noninteractive mode. RunWield reports the blocked
+action and any available file target once, with sensitive details redacted. Review the action through Antigravity's
+`/permissions`, then retry in RunWield. See the
+[Antigravity headless permissions documentation](https://antigravity.google/docs/cli/headless/#permissions-in-headless-mode).

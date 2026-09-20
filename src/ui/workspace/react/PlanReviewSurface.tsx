@@ -1,5 +1,10 @@
 // @ts-nocheck: Workspace React islands compile TSX, but this module uses JSDoc-style JavaScript only.
+import { RunWieldMenu, RunWieldMenuItem } from "../../design-system/components/react/RunWieldMenu.tsx";
+import { RunWieldIconButton } from "../../design-system/components/react/RunWieldIconButton.tsx";
+import { animateSidebarUpdate } from "../../design-system/components/react/sidebar-motion.ts";
+import { RunWieldThinkingDots } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 
+import { RunWieldSegmentedControl } from "../../design-system/components/react/RunWieldSegmentedControl.tsx";
 import { RunWieldTabs } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ThemeProvider } from "@plannotator/ui/components/ThemeProvider.tsx";
@@ -62,6 +67,10 @@ function workspaceNavigate(href, history = "push") {
         if (history === "replace") globalThis.location.replace(href);
         else globalThis.location.assign(href);
     }
+}
+
+function isStaleReviewError(message) {
+    return /Review is out of date|Plan changed while review was open|stale/i.test(message || "");
 }
 
 export function PlanReviewSurface({ payload, presentation = "standalone" }) {
@@ -149,9 +158,33 @@ function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup,
     const [isPlanDiffActive, setIsPlanDiffActive] = useState(false);
     const [planDiffMode, setPlanDiffMode] = useState("clean");
     const [uiPreferences, setUiPreferences] = useState(() => getUIPreferences());
-    const [sidebarOpen, setSidebarOpen] = useState(() => getUIPreferences().tocEnabled);
+    const [compactLayout, setCompactLayout] = useState(() =>
+        globalThis.matchMedia?.("(max-width: 980px)").matches ?? false
+    );
+    const [sidebarOpen, setSidebarOpen] = useState(() => !compactLayout && getUIPreferences().tocEnabled);
     const [sidebarTab, setSidebarTab] = useState("toc");
-    const [annotationsOpen, setAnnotationsOpen] = useState(true);
+    const [annotationsOpen, setAnnotationsOpen] = useState(() => !compactLayout);
+    useEffect(() => {
+        const media = globalThis.matchMedia("(max-width: 980px)");
+        const syncLayout = () => {
+            setCompactLayout(media.matches);
+            setSidebarOpen(!media.matches && getUIPreferences().tocEnabled);
+            setAnnotationsOpen(!media.matches);
+        };
+        syncLayout();
+        media.addEventListener("change", syncLayout);
+        return () => media.removeEventListener("change", syncLayout);
+    }, []);
+    const reviewRef = useRef(null);
+    useEffect(() => {
+        if (!compactLayout || (!sidebarOpen && !annotationsOpen)) return;
+        const triggerLabel = sidebarOpen ? "Open contents sidebar" : "Open annotations sidebar";
+        const closeLabel = sidebarOpen ? "Collapse contents sidebar" : "Collapse annotations sidebar";
+        reviewRef.current?.querySelector(`[aria-label="${closeLabel}"]`)?.focus({ preventScroll: true });
+        return () => {
+            reviewRef.current?.querySelector(`[aria-label="${triggerLabel}"]`)?.focus({ preventScroll: true });
+        };
+    }, [compactLayout, sidebarOpen, annotationsOpen]);
     const [rightSidebarView, setRightSidebarView] = useState("annotations");
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [exportOpen, setExportOpen] = useState(false);
@@ -168,6 +201,7 @@ function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup,
     const [submitted, setSubmitted] = useState(null);
     const [error, setError] = useState("");
     const [recoveryRequest, setRecoveryRequest] = useState(null);
+    const staleReviewError = isStaleReviewError(error);
     const [pendingReviewDraft, setPendingReviewDraft] = useState(null);
     const [reviewDraftReady, setReviewDraftReady] = useState(false);
     const [reviewDraftStorageError, setReviewDraftStorageError] = useState("");
@@ -194,7 +228,9 @@ function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup,
     const hasReviewFeedback = annotations.length > 0 || codeAnnotations.length > 0 || globalAttachments.length > 0 ||
         directlyEditedPlan !== null;
     const hasGroupFeedback = hasReviewFeedback || Boolean(reviewGroup?.hasFeedback);
-    const planWidthMode = presentation === "workspace" ? "wide" : uiPreferences.planWidth;
+    const planWidthMode = initialPayload.mode === "workspace" || presentation === "workspace"
+        ? "wide"
+        : uiPreferences.planWidth;
     const planMaxWidth = useMemo(
         () =>
             planWidthMode === "wide"
@@ -714,13 +750,17 @@ function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup,
     async function selectPlanVersion(version) {
         if (editorMode === "edit" && editorDirty) saveEditor();
         await planDiff.selectBaseVersion(version);
+        if (compactLayout) setSidebarOpen(false);
         setEditorMode("view");
         setIsPlanDiffActive(true);
     }
 
     function openSidebarTab(tab) {
-        setSidebarTab(tab);
-        setSidebarOpen(true);
+        animateSidebarUpdate(() => {
+            setSidebarTab(tab);
+            setSidebarOpen(true);
+            if (compactLayout) setAnnotationsOpen(false);
+        });
     }
 
     function applyUIPreferences(next) {
@@ -847,6 +887,31 @@ function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup,
         });
     }
 
+    const reviewTools = (
+        <>
+            {affectedPaths.length > 0 && <AffectedFilesMenu paths={affectedPaths} onOpen={codeFilePopout.open} />}
+            {isPlanDiffActive
+                ? (
+                    <span className="rw-plan-diff-context" role="status">
+                        Comparing current revision with {selectedVersionLabel}
+                    </span>
+                )
+                : editorMode === "view"
+                ? (
+                    <RunWieldAnnotationToolstrip
+                        inputMethod={inputMethod}
+                        onInputMethodChange={setInputMethod}
+                        mode={annotationMode}
+                        onModeChange={setAnnotationMode}
+                        taterMode={false}
+                        compact
+                        showHelpLink={false}
+                    />
+                )
+                : null}
+        </>
+    );
+
     // Plannotator supplies behavior; the Workspace bridge owns the active palette.
     return (
         <ThemeProvider
@@ -860,6 +925,16 @@ function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup,
                     className={`rw-plannotator-host rw-plan-review ${
                         presentation === "workspace" ? "rw-review-embedded" : ""
                     }`}
+                    ref={reviewRef}
+                    onKeyDown={(event) => {
+                        if (compactLayout && event.key === "Escape" && (sidebarOpen || annotationsOpen)) {
+                            event.stopPropagation();
+                            animateSidebarUpdate(() => {
+                                setSidebarOpen(false);
+                                setAnnotationsOpen(false);
+                            });
+                        }
+                    }}
                     data-review-mode={initialPayload.mode}
                     data-plan-width={planWidthMode}
                 >
@@ -867,6 +942,7 @@ function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup,
                         ? (active && (
                             <WorkspaceHeaderActionsPortal>
                                 <PlanReviewHeaderActions
+                                    compactLayout={compactLayout}
                                     showExecutionPolicyControls={showExecutionPolicyControls}
                                     executionAgent={executionAgent}
                                     collaborationRecommendation={collaborationRecommendation}
@@ -897,6 +973,7 @@ function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup,
                                     )}
                                 </div>
                                 <PlanReviewHeaderActions
+                                    compactLayout={compactLayout}
                                     showExecutionPolicyControls={showExecutionPolicyControls}
                                     executionAgent={executionAgent}
                                     collaborationRecommendation={collaborationRecommendation}
@@ -948,7 +1025,22 @@ function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup,
                     {reviewDraftStorageError && (
                         <p className="rw-review-error" role="alert">{reviewDraftStorageError}</p>
                     )}
-                    {error && <p className="rw-review-error" role="alert">{error}</p>}
+                    {error && !staleReviewError && <p className="rw-review-error" role="alert">{error}</p>}
+                    {staleReviewError
+                        ? (
+                            <section className="rw-plan-review-notice state-recovery" role="alert">
+                                <strong>Review is out of date</strong>
+                                <p>{error}</p>
+                                <button
+                                    type="button"
+                                    className="rw-plan-review-recovery-action"
+                                    onClick={() => globalThis.location.reload()}
+                                >
+                                    Reload review
+                                </button>
+                            </section>
+                        )
+                        : null}
                     {recoveryRequest
                         ? (
                             <section className="rw-plan-review-notice state-recovery" role="alert">
@@ -962,7 +1054,9 @@ function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup,
                                             disabled={submitting !== null}
                                             onClick={runRecoveryAction}
                                         >
-                                            {submitting === "recovery" ? "Recovering…" : "Recover in Workspace"}
+                                            {submitting === "recovery"
+                                                ? <RunWieldThinkingDots label="Recovering" />
+                                                : "Recover in Workspace"}
                                         </button>
                                     )
                                     : null}
@@ -975,14 +1069,15 @@ function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup,
                             data-sidebar-open={sidebarOpen}
                             data-annotations-open={annotationsOpen}
                         >
-                            {sidebarOpen && versionInfo !== null && (
+                            {sidebarOpen && (
                                 <div
-                                    className="rw-plan-sidebar-tab-toggle rw-segmented-toggle"
+                                    className="rw-plan-sidebar-tab-toggle rw-underline-tabs rw-review-sidebar-tabs"
                                     role="tablist"
                                     aria-label="Plan sidebar"
                                 >
                                     <button
                                         type="button"
+                                        role="tab"
                                         aria-selected={sidebarTab === "toc"}
                                         onClick={() => setSidebarTab("toc")}
                                         title="Contents"
@@ -990,22 +1085,25 @@ function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup,
                                         <ToggleIcon name="contents" />
                                         <span>Contents</span>
                                     </button>
-                                    <button
-                                        type="button"
-                                        aria-selected={sidebarTab === "versions"}
-                                        onClick={() => setSidebarTab("versions")}
-                                        title="Versions"
-                                    >
-                                        <ToggleIcon name="versions" />
-                                        <span>Versions</span>
-                                    </button>
+                                    {versionInfo !== null && (
+                                        <button
+                                            type="button"
+                                            role="tab"
+                                            aria-selected={sidebarTab === "versions"}
+                                            onClick={() => setSidebarTab("versions")}
+                                            title="Versions"
+                                        >
+                                            <ToggleIcon name="versions" />
+                                            <span>Versions</span>
+                                        </button>
+                                    )}
                                 </div>
                             )}
                             {sidebarOpen && (
                                 <SidebarContainer
                                     activeTab={sidebarTab}
                                     onTabChange={setSidebarTab}
-                                    onClose={() => setSidebarOpen(false)}
+                                    onClose={() => animateSidebarUpdate(() => setSidebarOpen(false))}
                                     width={280}
                                     blocks={parsed.blocks}
                                     annotations={annotations}
@@ -1013,6 +1111,7 @@ function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup,
                                     onTocNavigate={(blockId) => {
                                         showPlanView();
                                         setActiveSection(blockId);
+                                        if (compactLayout) setSidebarOpen(false);
                                     }}
                                     showFilesTab={false}
                                     showVersionsTab={versionInfo !== null}
@@ -1035,33 +1134,34 @@ function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup,
                                 />
                             )}
                             {sidebarOpen && (
-                                <button
+                                <RunWieldIconButton
                                     className="rw-plan-review-sidebar-collapse"
                                     type="button"
-                                    onClick={() => setSidebarOpen(false)}
+                                    onClick={() => animateSidebarUpdate(() => setSidebarOpen(false))}
                                     title="Collapse contents sidebar"
                                     aria-label="Collapse contents sidebar"
                                 >
                                     <PanelCollapseIcon side="left" />
-                                </button>
+                                </RunWieldIconButton>
                             )}
                             <main className="rw-plannotator-main-pane">
                                 <div className="rw-review-toolbar rw-plan-review-controls">
                                     <div className="rw-review-toolbar-edge rw-review-toolbar-edge-left rw-plan-review-sidebar-restore rw-plan-review-sidebar-restore-left">
                                         {!sidebarOpen && (
-                                            <button
-                                                className="rw-toolbar-button"
+                                            <RunWieldIconButton
                                                 type="button"
+                                                aria-label="Open contents sidebar"
+                                                title="Contents"
                                                 onClick={() => openSidebarTab("toc")}
                                             >
                                                 <ToggleIcon name="contents" />
                                                 <span>Contents</span>
-                                            </button>
+                                            </RunWieldIconButton>
                                         )}
                                     </div>
                                     <div className="rw-review-toolbar-center rw-plan-review-mode-actions">
-                                        <div
-                                            className="rw-document-mode-toggle rw-segmented-toggle"
+                                        <RunWieldSegmentedControl
+                                            className="rw-document-mode-toggle"
                                             role="tablist"
                                             aria-label="Plan review mode"
                                         >
@@ -1094,29 +1194,16 @@ function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup,
                                                     <span>Changes</span>
                                                 </button>
                                             )}
-                                        </div>
-                                        {affectedPaths.length > 0 && (
-                                            <AffectedFilesMenu paths={affectedPaths} onOpen={codeFilePopout.open} />
-                                        )}
-                                        {isPlanDiffActive
+                                        </RunWieldSegmentedControl>
+                                        {compactLayout
                                             ? (
-                                                <span className="rw-plan-diff-context" role="status">
-                                                    Comparing current revision with {selectedVersionLabel}
-                                                </span>
+                                                editorMode !== "edit" && (
+                                                    <RunWieldMenu label="Review tools" align="end">
+                                                        <div className="rw-compact-review-tools">{reviewTools}</div>
+                                                    </RunWieldMenu>
+                                                )
                                             )
-                                            : editorMode === "view"
-                                            ? (
-                                                <RunWieldAnnotationToolstrip
-                                                    inputMethod={inputMethod}
-                                                    onInputMethodChange={setInputMethod}
-                                                    mode={annotationMode}
-                                                    onModeChange={setAnnotationMode}
-                                                    taterMode={false}
-                                                    compact
-                                                    showHelpLink={false}
-                                                />
-                                            )
-                                            : null}
+                                            : reviewTools}
                                     </div>
                                     <div className="rw-review-toolbar-edge rw-review-toolbar-edge-right rw-plan-review-sidebar-restore rw-plan-review-sidebar-restore-right">
                                         {editorMode === "edit" && !isPlanDiffActive && (
@@ -1135,14 +1222,19 @@ function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup,
                                             </div>
                                         )}
                                         {!annotationsOpen && (
-                                            <button
-                                                className="rw-toolbar-button"
+                                            <RunWieldIconButton
                                                 type="button"
-                                                onClick={() => setAnnotationsOpen(true)}
+                                                aria-label="Open annotations sidebar"
+                                                title="Annotations"
+                                                onClick={() =>
+                                                    animateSidebarUpdate(() => {
+                                                        setAnnotationsOpen(true);
+                                                        if (compactLayout) setSidebarOpen(false);
+                                                    })}
                                             >
                                                 <ToggleIcon name="annotations" />
                                                 <span>Annotations</span>
-                                            </button>
+                                            </RunWieldIconButton>
                                         )}
                                     </div>
                                 </div>
@@ -1229,67 +1321,79 @@ function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup,
                                     className="rw-plan-review-annotation-sidebar"
                                     data-annotation-panel="true"
                                     data-plan-sidebar="right"
-                                    aria-labelledby="rw-plan-review-annotations-heading"
+                                    aria-label="Review sidebar"
                                 >
-                                    <div className="rw-plan-review-annotation-heading">
-                                        <div>
-                                            <ToggleIcon name="annotations" />
-                                            <h2 id="rw-plan-review-annotations-heading">Annotations</h2>
-                                            {annotations.length + codeAnnotations.length > 0 && (
-                                                <span>{annotations.length + codeAnnotations.length}</span>
+                                    <div className="rw-plan-review-annotation-heading p-2">
+                                        {conversationEnabled
+                                            ? (
+                                                <div
+                                                    className="rw-underline-tabs rw-review-sidebar-tabs"
+                                                    role="tablist"
+                                                    aria-label="Review sidebar"
+                                                >
+                                                    <button
+                                                        className={rightSidebarView === "annotations" ? "active" : ""}
+                                                        type="button"
+                                                        role="tab"
+                                                        aria-selected={rightSidebarView === "annotations"}
+                                                        onClick={() => setRightSidebarView("annotations")}
+                                                        title="Annotations"
+                                                    >
+                                                        <ToggleIcon name="annotations" />
+                                                        <span>Annotations</span>
+                                                        {annotations.length + codeAnnotations.length > 0 && (
+                                                            <span className="rw-review-annotation-count">
+                                                                {annotations.length + codeAnnotations.length}
+                                                            </span>
+                                                        )}
+                                                    </button>
+                                                    <button
+                                                        className={rightSidebarView === "planner" ? "active" : ""}
+                                                        type="button"
+                                                        role="tab"
+                                                        aria-selected={rightSidebarView === "planner"}
+                                                        onClick={() => setRightSidebarView("planner")}
+                                                        title={agentLabel}
+                                                    >
+                                                        <PlannerChatIcon />
+                                                        <span>{agentLabel}</span>
+                                                    </button>
+                                                </div>
+                                            )
+                                            : (
+                                                <div>
+                                                    <ToggleIcon name="annotations" />
+                                                    <h2 id="rw-plan-review-annotations-heading">Annotations</h2>
+                                                    {annotations.length + codeAnnotations.length > 0 && (
+                                                        <span className="rw-review-annotation-count">
+                                                            {annotations.length + codeAnnotations.length}
+                                                        </span>
+                                                    )}
+                                                </div>
                                             )}
-                                        </div>
-                                        <button
+                                        <RunWieldIconButton
                                             className="rw-plan-review-annotation-close"
                                             type="button"
-                                            onClick={() => setAnnotationsOpen(false)}
+                                            onClick={() => animateSidebarUpdate(() => setAnnotationsOpen(false))}
                                             title="Collapse annotations sidebar"
                                             aria-label="Collapse annotations sidebar"
                                         >
                                             <PanelCollapseIcon side="right" />
-                                        </button>
+                                        </RunWieldIconButton>
                                     </div>
-                                    {conversationEnabled && (
-                                        <div
-                                            className="rw-review-sidebar-tabs rw-segmented-toggle"
-                                            role="tablist"
-                                            aria-label="Review sidebar"
-                                        >
-                                            <button
-                                                className={rightSidebarView === "annotations" ? "active" : ""}
-                                                type="button"
-                                                role="tab"
-                                                aria-selected={rightSidebarView === "annotations"}
-                                                onClick={() => setRightSidebarView("annotations")}
-                                                title="Annotations"
-                                            >
-                                                <ToggleIcon name="annotations" />
-                                                <span>Annotations</span>
-                                            </button>
-                                            <button
-                                                className={rightSidebarView === "planner" ? "active" : ""}
-                                                type="button"
-                                                role="tab"
-                                                aria-selected={rightSidebarView === "planner"}
-                                                onClick={() => setRightSidebarView("planner")}
-                                                title={agentLabel}
-                                            >
-                                                <PlannerChatIcon />
-                                                <span>{agentLabel}</span>
-                                            </button>
-                                        </div>
-                                    )}
                                     {rightSidebarView === "annotations"
                                         ? (
                                             <>
-                                                <div className="rw-review-feedback-action rw-review-action">
+                                                <div className="rw-review-feedback-action rw-review-action p-2">
                                                     <FeedbackButton
                                                         onClick={submitFeedback}
                                                         disabled={!hasGroupFeedback || submitting !== null ||
                                                             plannerWorking}
                                                         isLoading={submitting === "feedback"}
                                                         label="Send Annotations"
-                                                        loadingLabel="Sending Annotations…"
+                                                        loadingLabel={
+                                                            <RunWieldThinkingDots label="Sending Annotations" />
+                                                        }
                                                         title={!hasReviewFeedback
                                                             ? "Add a Plan or file annotation, attachment, or direct Plan edit before sending annotations"
                                                             : "Send annotations"}
@@ -1470,6 +1574,7 @@ function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup,
 }
 
 function PlanReviewHeaderActions({
+    compactLayout,
     showExecutionPolicyControls,
     executionAgent,
     collaborationRecommendation,
@@ -1480,6 +1585,27 @@ function PlanReviewHeaderActions({
     isLoading,
     sequenceCount,
 }) {
+    const executionControls = (
+        <ExecutionPolicyControls
+            executionAgent={executionAgent}
+            collaborationRecommendation={collaborationRecommendation}
+            onAgentChange={(value) =>
+                setExecutionPolicy((current) =>
+                    updatePlanReviewExecutionPolicy(current, {
+                        field: "executionAgent",
+                        value,
+                    })
+                )}
+            onRecommendationChange={(value) =>
+                setExecutionPolicy((current) =>
+                    updatePlanReviewExecutionPolicy(current, {
+                        field: "collaborationRecommendation",
+                        value,
+                    })
+                )}
+            disabled={disabled}
+        />
+    );
     return (
         <div
             className={`rw-plannotator-actions rw-plan-review-header-actions ${
@@ -1489,27 +1615,13 @@ function PlanReviewHeaderActions({
             {sequenceCount !== undefined && (
                 <span className="rw-sequence-review-scope">Sequence and {sequenceCount} Plans</span>
             )}
-            {showExecutionPolicyControls && (
-                <ExecutionPolicyControls
-                    executionAgent={executionAgent}
-                    collaborationRecommendation={collaborationRecommendation}
-                    onAgentChange={(value) =>
-                        setExecutionPolicy((current) =>
-                            updatePlanReviewExecutionPolicy(current, {
-                                field: "executionAgent",
-                                value,
-                            })
-                        )}
-                    onRecommendationChange={(value) =>
-                        setExecutionPolicy((current) =>
-                            updatePlanReviewExecutionPolicy(current, {
-                                field: "collaborationRecommendation",
-                                value,
-                            })
-                        )}
-                    disabled={disabled}
-                />
-            )}
+            {showExecutionPolicyControls && (compactLayout
+                ? (
+                    <RunWieldMenu label="Execution options" align="end">
+                        <div className="rw-compact-review-tools">{executionControls}</div>
+                    </RunWieldMenu>
+                )
+                : executionControls)}
             <PlanApprovalSplitButton
                 sequence={sequenceCount !== undefined}
                 primaryAction={primaryApprovalAction}
@@ -1552,8 +1664,14 @@ function PlanApprovalSplitButton({ primaryAction, onApprove, disabled, isLoading
                         aria-label={primaryLabel}
                         iconLeft={<CheckIcon />}
                     >
-                        <span className="md:hidden">{isLoading ? "…" : primaryMobileLabel}</span>
-                        <span className="hidden md:inline">{isLoading ? loadingLabel : primaryLabel}</span>
+                        <span className="md:hidden">
+                            {isLoading
+                                ? <RunWieldThinkingDots label="Approving" showLabel={false} />
+                                : primaryMobileLabel}
+                        </span>
+                        <span className="hidden md:inline">
+                            {isLoading ? <RunWieldThinkingDots label={loadingLabel} /> : primaryLabel}
+                        </span>
                     </Button>
                     <Button
                         variant="success"
@@ -1626,7 +1744,7 @@ function SegmentedPolicyControl({ label, tooltip, value, onChange, disabled, opt
         <Tooltip content={tooltip} side="bottom" align="center" wide>
             <fieldset className="rw-plan-review-segmented-policy" aria-label={label}>
                 <legend className="rw-visually-hidden">{label}</legend>
-                <div className="rw-segmented-toggle">
+                <RunWieldSegmentedControl>
                     {options.map((option) => (
                         <button
                             key={option.value}
@@ -1641,7 +1759,7 @@ function SegmentedPolicyControl({ label, tooltip, value, onChange, disabled, opt
                             <span>{option.label}</span>
                         </button>
                     ))}
-                </div>
+                </RunWieldSegmentedControl>
             </fieldset>
         </Tooltip>
     );
@@ -1697,33 +1815,10 @@ function normalizeReferencedPath(path) {
 
 function PlanReviewOptionsMenu({ iconOnly = false, onOpenExport, onOpenSettings, onPrint }) {
     return (
-        <ActionMenu
-            panelClassName={iconOnly
-                ? "absolute top-full left-0 mt-1 w-56 rounded-lg border border-border bg-popover py-1 shadow-xl z-[90]"
-                : undefined}
-            renderTrigger={({ isOpen, toggleMenu }) => (
-                <button
-                    type="button"
-                    onClick={toggleMenu}
-                    className={`relative flex items-center gap-1.5 p-1.5 ${
-                        iconOnly ? "" : "md:px-2.5 md:py-1"
-                    } rounded-md text-xs font-medium transition-colors ${
-                        isOpen
-                            ? "bg-muted text-foreground"
-                            : "text-muted-foreground hover:text-foreground hover:bg-muted"
-                    }`}
-                    title="Options"
-                    aria-label="Options"
-                    aria-expanded={isOpen}
-                >
-                    <MenuIcon />
-                    {!iconOnly && <span className="hidden md:inline">Options</span>}
-                </button>
-            )}
-        >
+        <RunWieldMenu label="Options" iconOnly={iconOnly} align={iconOnly ? "start" : "end"}>
             {({ closeMenu }) => (
                 <>
-                    <ActionMenuItem
+                    <RunWieldMenuItem
                         onClick={() => {
                             closeMenu();
                             onOpenExport();
@@ -1731,7 +1826,7 @@ function PlanReviewOptionsMenu({ iconOnly = false, onOpenExport, onOpenSettings,
                         icon={<ExportIcon />}
                         label="Export review feedback"
                     />
-                    <ActionMenuItem
+                    <RunWieldMenuItem
                         onClick={() => {
                             closeMenu();
                             onPrint();
@@ -1739,7 +1834,7 @@ function PlanReviewOptionsMenu({ iconOnly = false, onOpenExport, onOpenSettings,
                         icon={<PrintIcon />}
                         label="Print / Save PDF"
                     />
-                    <ActionMenuItem
+                    <RunWieldMenuItem
                         onClick={() => {
                             closeMenu();
                             onOpenSettings();
@@ -1749,7 +1844,7 @@ function PlanReviewOptionsMenu({ iconOnly = false, onOpenExport, onOpenSettings,
                     />
                 </>
             )}
-        </ActionMenu>
+        </RunWieldMenu>
     );
 }
 
@@ -1826,14 +1921,6 @@ function PanelCollapseIcon({ side }) {
             <path d="M5 4v16" strokeWidth="1.5" strokeLinecap="round" />
             <path d="M19 4v16" strokeWidth="1.5" strokeLinecap="round" />
             <path d={path} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-    );
-}
-
-function MenuIcon() {
-    return (
-        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
         </svg>
     );
 }

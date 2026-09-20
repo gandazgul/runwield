@@ -60,11 +60,6 @@ const tabs = [
     { view: "onHold", label: "On Hold", href: boardHref(`${routePrefix}/on-hold`) },
 ] as const;
 const heading = context === "workspace" && project ? `${project.displayName} Plan Board` : "Plan Board";
-const description = context === "workspace"
-    ? project
-        ? `${project.rootLabel} · ${project.healthStatus}`
-        : "Registered Project Plans"
-    : "Plans in this checkout";
 const pageTitle = context === "workspace" ? `${heading} · RunWield Workspace` : "RunWield Plans";
 ---
 <WorkspaceLayout
@@ -72,13 +67,10 @@ const pageTitle = context === "workspace" ? `${heading} · RunWield Workspace` :
     selectedTab={context === "workspace" ? "projects" : view === "onHold" ? "on-hold" : view}
     shell={context === "workspace" ? "workspace" : "local"}
     url={Astro.url.href}
+    boardHeader
 >
     {board ? <PlanBoardToolbar slot="toolbar" board={board} view={view} url={Astro.url.href} client:load /> : null}
-    <section class="page-header plan-board-page-header">
-        <h1>{heading}</h1>
-        <p>{description}</p>
-    </section>
-    <nav class="tabs plan-board-tabs" aria-label={context === "workspace" ? "Project Plan views" : "Plan Board views"}>
+    <nav slot="header-tabs" class="rw-underline-tabs plan-board-tabs" aria-label={context === "workspace" ? "Project Plan views" : "Plan Board views"}>
         {tabs.map((tab) => (
             <a href={tab.href} class:list={{ active: tab.view === view }} aria-current={tab.view === view ? "page" : undefined}>
                 {tab.label}

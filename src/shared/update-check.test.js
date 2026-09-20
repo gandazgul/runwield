@@ -1,5 +1,6 @@
 import { assertEquals, assertRejects } from "@std/assert";
 import {
+    fetchLatestRunWieldRcRelease,
     fetchLatestRunWieldRelease,
     getCachedUpdateAvailability,
     getTagPinnedInstallerUrls,
@@ -10,6 +11,8 @@ import {
     parseRunWieldReleaseVersion,
     readUpdateCheckCache,
     refreshUpdateCheckCache,
+    RELEASES_API_URL,
+    RELEASES_WEB_URL,
     writeUpdateCheckCache,
 } from "./update-check.js";
 
@@ -142,6 +145,65 @@ Deno.test("latest release lookup falls back to GitHub web redirect after API 403
         version: "v4.5.6",
     });
     assertEquals(calls, [LATEST_RELEASE_API_URL, LATEST_RELEASE_WEB_URL]);
+});
+
+Deno.test("latest RC lookup selects the highest published candidate", async () => {
+    /** @type {string[]} */
+    const calls = [];
+    /** @param {string | URL | Request} url */
+    const fetchImpl = (url) => {
+        calls.push(String(url));
+        return Promise.resolve(
+            new Response(
+                JSON.stringify([
+                    { tag_name: "v1.2.3-rc.1", prerelease: true, draft: false },
+                    { tag_name: "v1.2.3", prerelease: false, draft: false },
+                    { tag_name: "v1.2.4-rc.2", prerelease: true, draft: false },
+                    { tag_name: "v1.2.4-rc.3", prerelease: true, draft: true },
+                ]),
+                { status: 200 },
+            ),
+        );
+    };
+
+    assertEquals(await fetchLatestRunWieldRcRelease({ fetch: /** @type {typeof globalThis.fetch} */ (fetchImpl) }), {
+        tagName: "v1.2.4-rc.2",
+        version: "v1.2.4-rc.2",
+    });
+    assertEquals(calls, [RELEASES_API_URL]);
+});
+
+Deno.test("latest RC lookup falls back to the releases page when the API rate limit is exhausted", async () => {
+    /** @type {string[]} */
+    const calls = [];
+    /** @param {string | URL | Request} url */
+    const fetchImpl = (url) => {
+        calls.push(String(url));
+        if (String(url) === RELEASES_API_URL) return Promise.resolve(new Response("rate limited", { status: 403 }));
+        return Promise.resolve(
+            new Response(
+                '<a href="/gandazgul/runwield/releases/tag/v1.2.3">Stable</a>' +
+                    '<a href="/gandazgul/runwield/releases/tag/v1.2.4-rc.2">Candidate</a>' +
+                    '<a href="/gandazgul/runwield/releases/tag/v1.2.4-rc.1">Older candidate</a>',
+                { status: 200 },
+            ),
+        );
+    };
+
+    assertEquals(await fetchLatestRunWieldRcRelease({ fetch: /** @type {typeof globalThis.fetch} */ (fetchImpl) }), {
+        tagName: "v1.2.4-rc.2",
+        version: "v1.2.4-rc.2",
+    });
+    assertEquals(calls, [RELEASES_API_URL, RELEASES_WEB_URL]);
+});
+
+Deno.test("latest RC lookup reports when no candidate is published", async () => {
+    const fetchImpl = () => Promise.resolve(new Response(JSON.stringify([{ tag_name: "v1.2.3", prerelease: false }])));
+    await assertRejects(
+        () => fetchLatestRunWieldRcRelease({ fetch: /** @type {typeof globalThis.fetch} */ (fetchImpl) }),
+        Error,
+        "No RunWield release candidate is published.",
+    );
 });
 
 Deno.test("constructs tag-pinned installer URLs", () => {

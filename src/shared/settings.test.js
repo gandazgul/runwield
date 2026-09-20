@@ -377,7 +377,7 @@ settingsTest("getResolvedVisionFallbackModelSetting prefers active preset over t
         );
         __resetSettingsForTests();
 
-        assertEquals(getResolvedVisionFallbackModelSetting(), "preset/model");
+        assertEquals(getResolvedVisionFallbackModelSetting(tempProject), "preset/model");
     } finally {
         __resetSettingsForTests();
         Deno.chdir(originalCwd);
@@ -385,6 +385,43 @@ settingsTest("getResolvedVisionFallbackModelSetting prefers active preset over t
         else Deno.env.set("HOME", originalHome);
         await removeTempDir(tempHome);
         await removeTempDir(tempProject);
+    }
+});
+
+settingsTest("getResolvedVisionFallbackModelSetting reads the requested Project root", async () => {
+    const originalHome = Deno.env.get("HOME");
+    const originalCwd = Deno.cwd();
+    const tempHome = await Deno.makeTempDir({ prefix: "runwield-vision-root-home-" });
+    const projectA = await Deno.makeTempDir({ prefix: "runwield-vision-root-a-" });
+    const projectB = await Deno.makeTempDir({ prefix: "runwield-vision-root-b-" });
+    try {
+        Deno.env.set("HOME", tempHome);
+        await Deno.mkdir(join(projectA, ".wld"), { recursive: true });
+        await Deno.writeTextFile(
+            join(projectA, ".wld", "settings.json"),
+            JSON.stringify({
+                visionFallback: { model: "wrong/model" },
+            }),
+        );
+        await Deno.mkdir(join(projectB, ".wld"), { recursive: true });
+        await Deno.writeTextFile(
+            join(projectB, ".wld", "settings.json"),
+            JSON.stringify({
+                visionFallback: { model: "right/model" },
+            }),
+        );
+        Deno.chdir(projectA);
+        __resetSettingsForTests();
+
+        assertEquals(getResolvedVisionFallbackModelSetting(projectB), "right/model");
+    } finally {
+        __resetSettingsForTests();
+        Deno.chdir(originalCwd);
+        if (originalHome === undefined) Deno.env.delete("HOME");
+        else Deno.env.set("HOME", originalHome);
+        await removeTempDir(tempHome);
+        await removeTempDir(projectA);
+        await removeTempDir(projectB);
     }
 });
 

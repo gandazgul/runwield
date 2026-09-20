@@ -11,7 +11,6 @@
 import { extractYaml } from "@std/front-matter";
 import { AGENTS } from "../../constants.js";
 import { recordWorkflowMetric } from "./metrics.js";
-import { getWorkflowDiff } from "./git-snapshot.js";
 import { recordPlanEvent } from "./plan-lifecycle.js";
 import { resolveValidationExecutionContext } from "./execution-context.ts";
 import { normalizeLedger } from "./review-ledger.ts";
@@ -113,10 +112,6 @@ export function getProjectRoot(args: ValidationLoopArgs): string {
     const projectRoot = activeWorkflow?.projectRoot || args.executionContext?.projectRoot || args.session.cwd;
     if (!projectRoot) throw new Error("runValidationLoop: hostedSession or active workflow projectRoot is required");
     return projectRoot;
-}
-
-export async function getDiffText(baselineTree: string | undefined, cwd: string): Promise<string> {
-    return await getWorkflowDiff(cwd, baselineTree);
 }
 
 export async function recordMetric(

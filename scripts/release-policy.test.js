@@ -10,6 +10,7 @@ Deno.test("release prompt starts with the three release choices before policy di
     assertStringIncludes(prompt, "Create Candidate");
     assertStringIncludes(prompt, "Promote Candidate");
     assertStringIncludes(prompt, "Create Stable Directly");
+    assertStringIncludes(prompt, "agent: engineer");
     assertStringIncludes(prompt, "You are running inside the wld harness");
     assertStringIncludes(prompt, "Follow repository-specific policy first");
     assertMatch(prompt, /If no repository-specific release-note scope is\s+documented/);
@@ -19,6 +20,12 @@ Deno.test("release prompt starts with the three release choices before policy di
     assertStringIncludes(prompt, "shared Candidate source commit");
     assertStringIncludes(prompt, "empty release");
     assertStringIncludes(prompt, "When the repository policy says CI creates the host release");
+    assertStringIncludes(prompt, "source selected by the repository's policy");
+    assertStringIncludes(
+        prompt.replace(/\s+/g, " "),
+        "Do not introduce branch rules that its policy does not define",
+    );
+    assertEquals(prompt.includes("release/vX.Y.Z"), false);
     assertEquals(prompt.includes("tools:"), false);
 });
 
@@ -32,12 +39,17 @@ Deno.test("wld release policy distinguishes repository-specific policy from gene
     assertStringIncludes(policy, "Do not store a duplicate source commit hash");
     assertStringIncludes(policy, "Promoted-From: <candidate-tag>");
     assertStringIncludes(
-        policy,
+        policy.replace(/\s+/g, " "),
         "must not call `gh release create`, `gh release edit`, `glab release create`, or `glab release edit`",
     );
     assertStringIncludes(policy, "bash install.sh vX.Y.Z-rc.N");
     assertStringIncludes(policy, "gh auth status");
     assertStringIncludes(policy, "permission to read releases before tagging");
+    assertStringIncludes(policy, "`release/vMAJOR.MINOR.PATCH` as its Release Branch");
+    assertStringIncludes(policy, "Later Candidates resolve the live pushed Release Branch from `origin`");
+    assertStringIncludes(policy, "Never merge `main` into an active Release Branch");
+    assertStringIncludes(policy, "explicitly forward-port the fix to `main`");
+    assertStringIncludes(policy, "This fixed list does not grow automatically");
 });
 
 Deno.test("release workflow keeps tag publication and manual recovery channel-safe", async () => {
@@ -54,14 +66,60 @@ Deno.test("release workflow keeps tag publication and manual recovery channel-sa
     assertStringIncludes(workflow, "WLD_BUILD_VERSION");
     assertStringIncludes(workflow, "prerelease: ${{ needs.metadata.outputs.prerelease }}");
     assertStringIncludes(workflow, "make_latest: ${{ needs.metadata.outputs.make_latest }}");
+    assertStringIncludes(workflow, "preserve_order: true");
+    assertStringIncludes(workflow, "overwrite_files: false");
     assertStringIncludes(workflow, "config.schema.json");
-    assertStringIncludes(workflow, "release-artifacts/**/*.sha256");
-    assertStringIncludes(workflow, "release-artifacts/SHA256SUMS");
+    assertStringIncludes(workflow, "release-upload/*");
+    assertStringIncludes(workflow, "scripts/release-assets.js");
     assertStringIncludes(workflow, "wld-${VERSION}-${{ matrix.asset_suffix }}");
 
     const policy = await Deno.readTextFile("docs/releasing.md");
     assertStringIncludes(policy, "required-tag manual dispatch solely for recovery");
-    assertMatch(policy, /Never use manual recovery to bypass a genuine failure in tagged product\s+source/);
+    assertStringIncludes(
+        policy.replace(/\s+/g, " "),
+        "Never use manual recovery to bypass a genuine failure in tagged product source",
+    );
+});
+
+Deno.test("Stable releases submit generated WinGet manifests without exposing the token as an argument", async () => {
+    const workflow = await Deno.readTextFile(".github/workflows/release.yml");
+    const submitStart = workflow.indexOf("    winget-submit:");
+    const submitEnd = workflow.indexOf("\n    homebrew-package:", submitStart);
+    const submitJob = workflow.slice(submitStart, submitEnd);
+
+    assertEquals(submitStart >= 0, true);
+    assertEquals(submitEnd > submitStart, true);
+    assertStringIncludes(
+        workflow,
+        "ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || needs.metadata.outputs.tag }}",
+    );
+    assertStringIncludes(submitJob, "needs.metadata.outputs.kind == 'stable'");
+    assertStringIncludes(submitJob, "- winget-package");
+    assertStringIncludes(submitJob, "WINGET_CREATE_GITHUB_TOKEN: ${{ secrets.WINGET_CREATE_GITHUB_TOKEN }}");
+    assertStringIncludes(submitJob, "wingetcreate.exe");
+    assertStringIncludes(submitJob, "manifests/g/Gandazgul/RunWield/$version");
+    assertStringIncludes(submitJob, "is:pr is:open in:title");
+    assertStringIncludes(submitJob, "submit $manifestPath --prtitle $prTitle --no-open");
+    assertEquals(submitJob.includes("submit $manifestPath --token"), false);
+});
+
+Deno.test("Stable releases validate on macOS before publishing the Homebrew tap", async () => {
+    const workflow = await Deno.readTextFile(".github/workflows/release.yml");
+    const jobStart = workflow.indexOf("    homebrew-package:");
+    const job = workflow.slice(jobStart);
+    const dependencyTapIndex = job.indexOf("brew tap 1broseidon/tap");
+    const checkIndex = job.indexOf("deno task package:homebrew:check --tap homebrew-tap");
+    const pushIndex = job.indexOf("git push origin HEAD:main");
+
+    assertEquals(jobStart >= 0, true);
+    assertStringIncludes(job, "runs-on: macos-15");
+    assertStringIncludes(job, "needs.metadata.outputs.kind == 'stable'");
+    assertStringIncludes(job, "repository: gandazgul/homebrew-tap");
+    assertStringIncludes(job, "token: ${{ secrets.HOMEBREW_TAP_TOKEN }}");
+    assertStringIncludes(job, "HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}");
+    assertEquals(dependencyTapIndex >= 0, true);
+    assertEquals(checkIndex > dependencyTapIndex, true);
+    assertEquals(pushIndex > checkIndex, true);
 });
 
 Deno.test("release-tier Golden TUI alias does not run TODO goldens", async () => {
@@ -100,4 +158,53 @@ Deno.test("release CLI publishes tags without owning qualification or host relea
 Deno.test("README links to wld release policy", async () => {
     const readme = await Deno.readTextFile(new URL("../README.md", import.meta.url));
     assertStringIncludes(readme, "[releasing](docs/releasing.md)");
+});
+
+Deno.test("release publication waits for Candidate and Stable Homebrew checks", async () => {
+    const workflow = await Deno.readTextFile(".github/workflows/release.yml");
+    const release = workflow.slice(workflow.indexOf("    release:"), workflow.indexOf("    winget-package:"));
+    assertStringIncludes(release, "- homebrew-check");
+    const check = workflow.slice(workflow.indexOf("    homebrew-check:"), workflow.indexOf("    release:"));
+    assertEquals(check.split("        steps:")[0].includes("kind == 'stable'"), false);
+    assertStringIncludes(check, "--test-only");
+    assertStringIncludes(check, "brew tap 1broseidon/tap");
+});
+
+Deno.test("published recovery skips builds and verifies existing bytes before packaging", async () => {
+    const workflow = await Deno.readTextFile(".github/workflows/release.yml");
+    assertStringIncludes(workflow, "if: needs.metadata.outputs.published != 'true'");
+    assertStringIncludes(workflow, 'gh release download "$RELEASE_TAG"');
+    assertStringIncludes(workflow, 'release-upload "$RELEASE_TAG" published');
+    assertStringIncludes(workflow, "Retain release qualification failure evidence");
+});
+
+for (const jobName of ["homebrew-check", "homebrew-package"]) {
+    Deno.test(`${jobName} trusts only the required dependency formulas before validation`, async () => {
+        const workflow = await Deno.readTextFile(".github/workflows/release.yml");
+        const start = workflow.indexOf(`    ${jobName}:`);
+        assertEquals(start >= 0, true);
+        const nextJob = workflow.slice(start + 1).search(/\n {4}[a-z][a-z-]*:/);
+        const end = nextJob < 0 ? -1 : start + 1 + nextJob;
+        const job = workflow.slice(start, end < 0 ? undefined : end);
+        const updateIndex = job.indexOf("brew update\n");
+        const tapIndex = job.indexOf("brew tap 1broseidon/tap");
+        const trustIndex = job.indexOf("brew trust --formula 1broseidon/tap/cymbal\n");
+        const checkIndex = job.indexOf("deno task package:homebrew:check");
+        assertEquals(updateIndex >= 0, true, "Explicitly refresh Core metadata even when auto-update is disabled");
+        assertEquals(tapIndex > updateIndex, true);
+        assertEquals(trustIndex > tapIndex, true, "Trust Cymbal after registering its tap");
+        assertEquals(checkIndex > trustIndex, true);
+        assertEquals(job.includes("brew trust 1broseidon/tap"), false);
+        assertEquals(job.includes("1broseidon/tap/ketch"), false);
+        assertEquals(workflow.includes("HOMEBREW_NO_REQUIRE_TAP_TRUST"), false);
+    });
+}
+
+Deno.test("native Homebrew jobs use a bottle-supported runner and a bounded timeout", async () => {
+    const workflow = await Deno.readTextFile(".github/workflows/release.yml");
+    for (const name of ["homebrew-check", "homebrew-package"]) {
+        const job = workflow.slice(workflow.indexOf(`    ${name}:`)).split(/\n {4}[a-z][a-z-]+:/)[0];
+        assertStringIncludes(job, "runs-on: macos-15");
+        assertStringIncludes(job, "timeout-minutes: 30");
+    }
 });

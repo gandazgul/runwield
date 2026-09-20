@@ -95,6 +95,7 @@ interface ArtifactReadSurfaceOptions {
     artifactKind: "plan" | "prd" | "adr" | "work-record" | "epic-artifact" | "report";
     title: string;
     path?: string;
+    imageBaseDir?: string;
     notices?: string[];
     token?: string;
     browser: BrowserPort;
@@ -105,7 +106,7 @@ interface CodeReviewSurfaceOptions {
     rawPatch: string;
     gitRef: string;
     agentCwd: string;
-    baselineTree?: string;
+    targetBranch?: string;
     planName?: string;
     planTitle?: string;
     planContent?: string;
@@ -122,7 +123,7 @@ interface CodeReviewPayload extends Record<string, unknown> {
     rawPatch: string;
     gitRef: string;
     agentCwd: string;
-    baselineTree?: string;
+    targetBranch?: string;
     planName?: string;
     planTitle?: string;
     reviewStatus: CodeReviewStatus;
@@ -375,6 +376,7 @@ export async function startArtifactReadSurface<TDecision = ReviewDecisionValue>(
     artifactKind,
     title,
     path,
+    imageBaseDir,
     notices = [],
     token = crypto.randomUUID(),
     browser,
@@ -391,6 +393,7 @@ export async function startArtifactReadSurface<TDecision = ReviewDecisionValue>(
             artifactKind,
             title,
             artifactPath: path,
+            imageBaseDir,
             notices,
         },
         reviewType: "plan",
@@ -405,7 +408,7 @@ export async function startCodeReviewSurface<TDecision = ReviewDecisionValue>({
     rawPatch,
     gitRef,
     agentCwd,
-    baselineTree,
+    targetBranch,
     planName,
     planTitle,
     planContent,
@@ -424,7 +427,7 @@ export async function startCodeReviewSurface<TDecision = ReviewDecisionValue>({
         rawPatch,
         gitRef,
         agentCwd,
-        baselineTree,
+        targetBranch,
         planName,
         planTitle,
         reviewStatus,

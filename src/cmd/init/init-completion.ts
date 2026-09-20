@@ -15,8 +15,8 @@ export async function hasProjectInitArtifact(projectRoot = getCwd()): Promise<bo
     }
 }
 
-export async function isProjectInitComplete(): Promise<boolean> {
-    return await isInitDone() && await hasProjectInitArtifact();
+export async function isProjectInitComplete(projectRoot = getCwd()): Promise<boolean> {
+    return await isInitDone(projectRoot) && await hasProjectInitArtifact(projectRoot);
 }
 
 export async function requireProjectInitArtifact(projectRoot = getCwd()): Promise<void> {

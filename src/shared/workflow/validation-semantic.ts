@@ -1,16 +1,17 @@
 /**
  * @module shared/workflow/validation-semantic
- * The Semantic Code Review phase: reviewer rounds with ledger convergence, repair
+ * The Semantic Review phase: reviewer rounds with ledger convergence, repair
  * dispatch, and the round-limit decision when the automatic rounds are spent.
  */
 
 import { AGENTS } from "../../constants.js";
-import { captureWorktreeTree } from "./git-snapshot.js";
-import { buildDiffInspectionSection, createReviewDiffTool } from "./review-diff-tool.js";
+import { captureWorktreeTree, getWorkflowDiff, getWorktreeReviewDiff } from "./git-snapshot.js";
+import { buildDiffInspectionSection, createReviewDiffTool, parseDiffFiles } from "./review-diff-tool.js";
+import { ReviewInspection } from "./review-inspection.ts";
 import { logValidationFailure } from "./validation-state-errors.ts";
 import {
     applyRoundFindings,
-    hasOpenItems,
+    claimReviewFixes,
     openItems,
     renderOpenItems,
     renderResolvedItems,
@@ -27,7 +28,6 @@ import type {
     ValidationPhaseResult,
 } from "./validation-types.ts";
 import {
-    getDiffText,
     hasFinalHumanReviewDecision,
     readHumanReviewMetadata,
     readSemanticRoundState,
@@ -62,7 +62,7 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
             kind: "paused",
             planName: args.planName,
             projectRoot: context.projectRoot,
-            reason: "Semantic Code Review skipped for non-Git execution.",
+            reason: "Semantic Review skipped for non-Git execution.",
             continueValidation: true,
         };
     }
@@ -85,7 +85,7 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
     const state = readSemanticRoundState(args, context);
     const round = state.semanticRound;
     const ledger = state.reviewLedger;
-    const diffText = await getDiffText(context.baselineTree, context.executionCwd);
+    const diffText = await getWorktreeReviewDiff(context.executionCwd, context.worktreeBaseBranch || "");
     if (requiresImplementationDiff(args.triageMeta) && !hasImplementationDiff(diffText, args.planName)) {
         const planOnly = Boolean(diffText.trim());
         const reason = planOnly
@@ -102,7 +102,7 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
             kind: "paused",
             planName: args.planName,
             projectRoot: context.projectRoot,
-            reason: "Semantic Code Review skipped because the diff is empty.",
+            reason: "Semantic Review skipped because the diff is empty.",
             continueValidation: true,
         };
     }
@@ -132,7 +132,7 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
                 kind: "paused",
                 planName: args.planName,
                 projectRoot: context.projectRoot,
-                reason: "Semantic Code Review round limit reached; Local Human Code Review requested.",
+                reason: "Semantic Review round limit reached; Code Review requested.",
                 continueValidation: true,
             };
         }
@@ -165,7 +165,7 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
             args.session.setActiveWorkflow({
                 ...context.workflowBase,
                 semanticRound: round,
-                reviewLedger: ledger,
+                reviewLedger: claimReviewFixes(ledger),
                 repairBaselineTree: state.repairBaselineTree,
                 lastRepairReport: repair.report,
             });
@@ -188,17 +188,15 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
         }
     }
 
-    // The first review sweeps the whole implementation. Once findings exist, every
-    // later review focuses on those findings and the repair delta. A resumed Plan
-    // whose older findings were not persisted gets one broad recovery review,
-    // regardless of its numeric round, then returns to focused verification.
+    // The first two rounds review the whole implementation. Subsequent rounds
+    // verify the ledger and repair delta, without reopening general discovery.
     // Each round below the limit ends by handing the
     // Plan back to `implemented`, so the tests run over the repair before the next
     // review. At the limit the user takes the wheel, and their "look again" re-enters
     // right here — another focused round on the repaired diff, no detour.
     for (;;) {
         const nextRound = round + 1;
-        const reviewMode = hasOpenItems(ledger) ? "verify" : "discovery";
+        const reviewMode = nextRound <= 2 ? "discovery" : "verify";
         // The reviewer runs in its own session, so without this the whole round is
         // silent: the user sees the Engineer finish, then nothing, and the verdict
         // lands only in the Plan's failure reason. Say a round is starting, and say
@@ -251,6 +249,7 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
                     approvedByRoundTwo: nextRound <= 2,
                     resolvedThisRound: review.resolvedCount,
                     advisoryCount: review.outcome.advisories.length,
+                    ...reviewFindingMetrics(review.outcome.findings, nextRound),
                 },
             });
             emitProgress(args, buildValidationUserMessage({ kind: "semantic_approved", round: nextRound }), "success", {
@@ -259,12 +258,29 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
                 maxCycles: SEMANTIC_REVIEW_CYCLES,
                 checks: { semanticReview: "passed" },
             });
-            await recordLifecycleEvent(args, context.projectRoot, "semantic_review_passed", "validated_ci");
+            const priorCheckpoint = args.validationCheckpoint || args.triageMeta.validationCheckpoint;
+            const reviewState: ValidationReviewState = {
+                ...state,
+                semanticRound: nextRound,
+                reviewLedger: review.ledger,
+            };
+            const checkpoint = makeValidationCheckpoint({
+                attemptId: context.worktreeId || "in-place",
+                generation: priorCheckpoint?.generation || crypto.randomUUID(),
+                status: "validated_reviewer",
+                phase: "delivery",
+                state: "ready",
+                reviewState,
+            });
+            await recordLifecycleEvent(args, context.projectRoot, "semantic_review_passed", "validated_ci", undefined, {
+                validationCheckpoint: checkpoint,
+            });
+            args.session.setActiveWorkflow({ ...context.workflowBase, ...reviewState });
             return {
                 kind: "paused",
                 planName: args.planName,
                 projectRoot: context.projectRoot,
-                reason: "Semantic Code Review passed.",
+                reason: "Semantic Review passed.",
                 continueValidation: true,
             };
         }
@@ -283,6 +299,7 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
                 resolvedThisRound: review.resolvedCount,
                 appendedThisRound: review.appendedCount,
                 advisoryCount: review.outcome.advisories.length,
+                ...reviewFindingMetrics(review.outcome.findings, nextRound),
             },
         });
 
@@ -310,7 +327,7 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
             context.projectRoot,
             "semantic_review_feedback",
             "validated_ci",
-            review.outcome.feedback || "Semantic Code Review requested changes.",
+            review.outcome.feedback || "Semantic Review requested changes.",
             { validationCheckpoint: repairCheckpoint },
         );
         args.session.setActiveWorkflow({
@@ -405,6 +422,17 @@ export async function runReviewerRound(
     let inspectedDiff = false;
     let latestOutcome: ValidationReviewOutcome | null = null;
     let operationalAttempt = 1;
+    const repairDiffText = state.repairBaselineTree
+        ? await getWorkflowDiff(context.executionCwd, state.repairBaselineTree)
+        : "";
+    const requiredScope = reviewMode === "discovery" ? "full" : "repair";
+    const inspection = new ReviewInspection(
+        parseDiffFiles(requiredScope === "full" ? diffText : repairDiffText).map((file) => ({
+            scope: requiredScope,
+            path: file.path,
+            byteLength: file.byteLength,
+        })),
+    );
 
     function preserveReviewerRoundState(): void {
         emitStatus(args, validationReviewerPauseMessage(args.planName), "warning");
@@ -430,10 +458,16 @@ export async function runReviewerRound(
                 "info",
             );
         }
-        const repairDiffText = state.repairBaselineTree
-            ? await getDiffText(state.repairBaselineTree, context.executionCwd)
-            : "";
-        const config = buildSemanticReviewAttempt(attempt, nudgeReason, state, reviewMode, diffText, repairDiffText);
+        const config = buildSemanticReviewAttempt(
+            attempt,
+            nudgeReason,
+            state,
+            reviewMode,
+            diffText,
+            repairDiffText,
+            args.planContent,
+            inspection,
+        );
         nudgeReason = undefined;
         try {
             const sessionOutcome = await args.session.runIsolatedAgentSession({
@@ -488,13 +522,19 @@ export async function runReviewerRound(
             const outcome = sessionOutcome.reviewOutcome;
             const unaccounted = unaccountedOpenItems(state.reviewLedger, outcome?.findings);
             if (!outcome) {
+                const correction = inspection.feedback() ||
+                    (unaccounted.length
+                        ? `Account for every open finding: ${
+                            unaccounted.join(", ")
+                        }. Reuse the existing identities exactly; confirm or reject each fix with a reason.`
+                        : "");
                 const failure = classifyValidationOperationalError({
                     source: "reviewer_protocol",
                     kind: "missing_review_complete",
                     operation: "semantic_review",
-                    message: "Semantic Reviewer finished without calling review_complete.",
+                    message: "Semantic Reviewer finished without an accepted review_complete.",
                     required:
-                        "You have not called review_complete yet. Finish this review now by calling review_complete with your decision.",
+                        `No review_complete was accepted. Follow any tool rejection instructions and retry without restarting the review. ${correction}`,
                 });
                 const decision = decideValidationRecovery({
                     failure,
@@ -685,6 +725,8 @@ export function buildSemanticReviewAttempt(
     reviewMode: "discovery" | "verify",
     diffText: string,
     repairDiffText = "",
+    planContent = "",
+    inspection?: ReviewInspection,
 ): {
     prompt: string;
     customTools: OpaqueToolDefinition[];
@@ -693,7 +735,10 @@ export function buildSemanticReviewAttempt(
     const toolDiffs = hasRepairScope ? { full: diffText, repair: repairDiffText } : { full: diffText };
     // `createReviewDiffTool` returns a Pi ToolDefinition; the engine brands it opaque
     // here so the adapter can un-brand it once at the port boundary.
-    const customTools = [createReviewDiffTool(toolDiffs) as unknown as OpaqueToolDefinition];
+    const customTools = [createReviewDiffTool(toolDiffs, {
+        inspection,
+        ledger: state.reviewLedger,
+    }) as unknown as OpaqueToolDefinition];
     if (attempt > 1) {
         return {
             prompt: nudgeReason ||
@@ -703,13 +748,17 @@ export function buildSemanticReviewAttempt(
     }
 
     const sections = [`You are reviewing ${state.semanticRound}. This is review round ${state.semanticRound}.`, ""];
-    if (reviewMode === "discovery" && hasOpenItems(state.reviewLedger)) {
+    if (reviewMode === "discovery" && state.reviewLedger.items.length > 0) {
         sections.push(
-            "A previous round opened the findings below and a repair has been attempted since. Sweep the Plan as usual **and** independently verify each open finding against the code.",
+            "Previous findings are listed below. Sweep the Plan as usual **and** independently verify each open finding against the code.",
             "",
             "### Open Findings",
             "",
             renderOpenItems(state.reviewLedger),
+            "",
+            "### Already Resolved",
+            "",
+            renderResolvedItems(state.reviewLedger),
             "",
         );
     } else if (reviewMode === "verify") {
@@ -737,11 +786,14 @@ export function buildSemanticReviewAttempt(
         );
     }
     sections.push(
-        buildDiffInspectionSection(diffText, { hasRepairScope }),
+        buildDiffInspectionSection(reviewMode === "verify" ? repairDiffText : diffText, {
+            hasRepairScope,
+            scope: reviewMode === "verify" ? "repair" : "full",
+        }),
         "",
         "### Approved Plan",
         "",
-        "Plan content is supplied by the validation request.",
+        planContent,
     );
     return {
         prompt: sections.join("\n"),
@@ -790,6 +842,9 @@ export async function dispatchReviewFeedbackRepair(
         const taskReport = sessionOutcome.taskReport;
         args.session.setActiveWorkflow({
             ...workflowState,
+            ...(sessionOutcome.taskReport.completed && workflowState.reviewLedger
+                ? { reviewLedger: claimReviewFixes(workflowState.reviewLedger) }
+                : {}),
             lastRepairReport: taskReport.report,
         });
         if (!taskReport.completed) {
@@ -808,6 +863,22 @@ export async function dispatchReviewFeedbackRepair(
             reason: "The repair could not finish. Your changes are safe. Continue the repair to try again.",
         };
     }
+}
+
+/** Origin is diagnostic attribution, never a repair state or approval criterion. */
+export function reviewFindingMetrics(findings: ValidationReviewOutcome["findings"], round: number) {
+    return {
+        initialFindingCount: round === 1 ? findings.filter((finding) => !finding.id).length : 0,
+        missedOriginalCount: round > 1
+            ? findings.filter((finding) => !finding.id && finding.origin === "missed_original").length
+            : 0,
+        repairRegressionCount: round > 1
+            ? findings.filter((finding) => !finding.id && finding.origin === "repair_regression").length
+            : 0,
+        unclassifiedNewCount: round > 1 ? findings.filter((finding) => !finding.id && !finding.origin).length : 0,
+        existingStillOpenCount: findings.filter((finding) => finding.id && !finding.resolved).length,
+        fixConfirmedCount: findings.filter((finding) => finding.id && finding.resolved).length,
+    };
 }
 
 /**

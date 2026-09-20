@@ -3,7 +3,7 @@
  * Export current interactive session to HTML (default) or JSONL.
  */
 
-import { join } from "@std/path";
+import { isAbsolute, join } from "@std/path";
 
 /**
  * @param {string} value
@@ -14,12 +14,13 @@ function sanitizeFilenameSegment(value) {
 }
 
 /**
+ * @param {string} projectRoot
  * @param {string} sessionStartIso
  * @returns {string}
  */
-function buildDefaultExportPath(sessionStartIso) {
+function buildDefaultExportPath(projectRoot, sessionStartIso) {
     const safeIso = sanitizeFilenameSegment(sessionStartIso).replace(/\.\d{3}Z$/, "");
-    return join(Deno.cwd(), `session-${safeIso}.html`);
+    return join(projectRoot, `session-${safeIso}.html`);
 }
 
 /**
@@ -30,16 +31,21 @@ function buildDefaultExportPath(sessionStartIso) {
  */
 export async function runExportCommand(argv, options = {}) {
     const { uiAPI, editor, sessionRuntime, sessionId, sessionStartedAt } = options;
-    if (!uiAPI || !editor || !sessionRuntime || !sessionId) {
+    if (!uiAPI || !sessionRuntime || !sessionId) {
         return;
     }
 
     uiAPI.appendSystemMessage("");
 
     const requestedPath = argv.join(" ").trim();
+    const projectRoot = typeof sessionRuntime.getSessionSnapshot === "function"
+        ? sessionRuntime.getSessionSnapshot(sessionId)?.cwd || Deno.cwd()
+        : Deno.cwd();
 
     const fallbackIso = sessionStartedAt || new Date().toISOString();
-    const outputPath = requestedPath || buildDefaultExportPath(fallbackIso);
+    const outputPath = requestedPath
+        ? isAbsolute(requestedPath) ? requestedPath : join(projectRoot, requestedPath)
+        : buildDefaultExportPath(projectRoot, fallbackIso);
 
     try {
         const filePath = await sessionRuntime.exportSession(sessionId, outputPath);
@@ -50,7 +56,9 @@ export async function runExportCommand(argv, options = {}) {
             true,
         );
     } finally {
-        editor.setText("");
-        editor.disableSubmit = false;
+        if (editor) {
+            editor.setText("");
+            editor.disableSubmit = false;
+        }
     }
 }

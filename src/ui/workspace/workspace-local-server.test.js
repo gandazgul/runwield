@@ -40,10 +40,14 @@ Deno.test("Workspace wrapper protects page routes and serves public assets witho
         }
         const tokensCss = await app(new Request("http://localhost/tokens.css"));
         assertEquals(tokensCss.status, 200);
-        assertStringIncludes(await tokensCss.text(), "--rw-page-bg:");
+        assertStringIncludes(await tokensCss.text(), "--rw-font-sans:");
         const componentsCss = await app(new Request("http://localhost/components.css"));
         assertEquals(componentsCss.status, 200);
         assertStringIncludes(await componentsCss.text(), ".primary-action");
+        const sidebarMotion = await app(new Request("http://localhost/design-system/sidebar-motion.js"));
+        assertEquals(sidebarMotion.status, 200);
+        assertEquals(sidebarMotion.headers.get("content-type"), "text/javascript; charset=utf-8");
+        assertStringIncludes(await sidebarMotion.text(), "export function animateSidebarChange");
         const workspaceCss = await app(new Request("http://localhost/workspace.css"));
         assertEquals(workspaceCss.status, 200);
         assertStringIncludes(await workspaceCss.text(), ".workspace-shell");
@@ -254,7 +258,7 @@ Deno.test("Workspace API and detail route return readable editable Plan body met
             assertStringIncludes(html, "tree-detail");
             assertStringIncludes(html, "Worktree branch");
             assertStringIncludes(html, "runwield/worktree/detail");
-            assertStringIncludes(html, "Human review decision");
+            assertStringIncludes(html, "Code review decision");
             assertStringIncludes(html, "approved");
             assertStringIncludes(html, "Custom Priority");
             assertStringIncludes(html, "urgent");

@@ -1,0 +1,41 @@
+{
+    "packageIdentifier": "Gandazgul.RunWield",
+    "helpers": [
+        {
+            "name": "mnemoteca",
+            "version": "v0.3.3",
+            "url": "https://github.com/gandazgul/mnemoteca/releases/download/v0.3.3/mnemoteca_0.3.3_windows_amd64.zip",
+            "sha256": "f6ed3f2136a8b4b459ff34ba06f46eef9e46faa5d05258794a284ce0bce185c6",
+            "license": "MIT",
+            "licenseUrl": "https://github.com/gandazgul/mnemoteca/blob/v0.3.3/LICENSE",
+            "requiredFiles": ["mnemoteca.exe"]
+        },
+        {
+            "name": "cymbal",
+            "version": "v0.15.0",
+            "url": "https://github.com/1broseidon/cymbal/releases/download/v0.15.0/cymbal_v0.15.0_windows_x86_64.zip",
+            "sha256": "5fa159158f9ae51cc01495bb868f0ccc802245a576727924450fa7cbbc388063",
+            "license": "MIT",
+            "licenseUrl": "https://github.com/1broseidon/cymbal/blob/v0.15.0/LICENSE",
+            "requiredFiles": ["cymbal.exe"]
+        },
+        {
+            "name": "ketch",
+            "version": "v0.16.2",
+            "url": "https://github.com/1broseidon/ketch/releases/download/v0.16.2/ketch_0.16.2_windows_x86_64.zip",
+            "sha256": "e0229f5d98c5c0c6c80488aac2a5c7937de5cd277b0f69798252bb458bb8f531",
+            "license": "MIT",
+            "licenseUrl": "https://github.com/1broseidon/ketch/blob/v0.16.2/LICENSE",
+            "requiredFiles": ["ketch.exe"]
+        },
+        {
+            "name": "agent-browser",
+            "version": "v0.37.1",
+            "url": "https://github.com/vercel-labs/agent-browser/releases/download/v0.37.1/agent-browser-win32-x64.exe",
+            "sha256": "29a003139ff4eb96fa4d1ed341830b26eb3e082843bf776b4e88ad3443bb8fde",
+            "license": "Apache-2.0",
+            "licenseUrl": "https://github.com/vercel-labs/agent-browser/blob/v0.37.1/LICENSE",
+            "requiredFiles": ["agent-browser.exe"]
+        }
+    ]
+}

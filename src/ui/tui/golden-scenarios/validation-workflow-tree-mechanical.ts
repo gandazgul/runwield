@@ -191,6 +191,9 @@ export const validationTreeValidationExhaustedRetryScenario = withValidationBran
                 requiredTools: ["review_diff", "review_complete"],
                 toolCalls: [
                     { name: "review_diff", arguments: { command: "list" } },
+                    { name: "review_diff", arguments: { command: "show", path: "golden-validation-exhausted.txt" } },
+                    { name: "review_diff", arguments: { command: "show", path: ".wld/settings.json" } },
+                    { name: "review_diff", arguments: { command: "show", path: "docs/plans/validation-exhausted.md" } },
                     { name: "review_complete", arguments: { approved: true, feedback: "Exhausted retry approved." } },
                 ],
             },

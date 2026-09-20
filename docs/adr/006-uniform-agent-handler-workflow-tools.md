@@ -22,6 +22,11 @@ The Agent Handler does not infer workflow transitions from returned messages or 
 Custom Tools publish typed Workflow Tool Events. The handler or validation owner claims the event once and settles it
 after the durable lifecycle or validation checkpoint is safe to retry.
 
+The message stream is human-readable output, never authority for approval, execution, or completion. An Agent ending a
+turn, emitting completion prose, or failing to call a workflow tool cannot end an active delivery workflow. Typed tool
+events advance it under the [Core completion contract](../prd/runwield-core-prd.md#execution-validation-and-recovery);
+tool acceptance alone is not proof of publication.
+
 - `triage_report` publishes routing data and starts post-triage workflow dispatch.
 - `plan_written` publishes the Plan review outcome and starts execution, starts decomposition, or keeps planning active.
 - `task_completed` publishes the accepted completion and continues active execution or Workflow Validation when

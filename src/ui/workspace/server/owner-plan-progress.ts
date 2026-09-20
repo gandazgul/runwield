@@ -128,7 +128,7 @@ export type OwnerPlanProgress = {
         settled: boolean;
     };
     stages: ProgressStage[];
-    progressFacts: WorkflowProgressFact[];
+    progressFacts?: WorkflowProgressFact[];
     session: {
         runwieldSessionId: string;
         displayName: string;
@@ -230,8 +230,12 @@ function toProgressStageState(id: string, state: string): ProgressStageState {
     return "pending";
 }
 
-function progressFromSharedPresentation(evidence: PlanEvidence, registry: WorktreeRegistryEntry | null) {
-    const status = text(evidence.attrs.status, "draft");
+function progressFromSharedPresentation(
+    evidence: PlanEvidence,
+    registry: WorktreeRegistryEntry | null,
+    published = false,
+) {
+    const status = published ? "verified" : text(evidence.attrs.status, "draft");
     const updatedAt = text(evidence.attrs.updatedAt) || text(evidence.attrs.verifiedAt) || registry?.updatedAt || null;
     const facts = progressFactsFromEvidence(evidence, registry);
     const presentation = buildWorkflowPresentation({
@@ -254,6 +258,10 @@ function progressFromSharedPresentation(evidence: PlanEvidence, registry: Worktr
             updatedAt,
         )
     );
+    if (published) {
+        const delivery = stages.find((item) => item.id === "delivery");
+        if (delivery) delivery.state = "completed";
+    }
     const priority = stages.find((item) => ["failed", "needs_attention", "paused", "running"].includes(item.state)) ||
         stages.at(-1);
     const overallState: ProgressOverallState = priority?.state === "failed" || priority?.state === "needs_attention"
@@ -369,7 +377,7 @@ export async function loadOwnerPlanProgress(
             error instanceof Error ? error.message : String(error),
         );
     }
-    const derived = progressFromSharedPresentation(authoritative, registry);
+    const derived = progressFromSharedPresentation(authoritative, registry, published);
     const session = await sessionProjection(store, options.projectId, primary.planId, options.runwieldSessionId || "");
     const settled = derived.overallState === "completed" || derived.overallState === "needs_attention" ||
         derived.overallState === "paused";

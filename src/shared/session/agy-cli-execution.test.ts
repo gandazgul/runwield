@@ -1,3 +1,5 @@
+import { createSessionRuntime } from "./session-runtime.js";
+import type { SessionRuntimeEvent } from "./session-runtime-events.js";
 import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
@@ -264,7 +266,7 @@ async function main(): Promise<void> {
         console.error("missing model or effort");
         Deno.exit(2);
     }
-    if (!hasArg(args, "--disable-slash-commands") || readArg(args, "--print-timeout") !== "24h" || hasArg(args, "--conversation") || hasArg(args, "--continue") || hasArg(args, "--dangerously-skip-permissions")) {
+    if (Deno.realPathSync(readArg(args, "--add-dir")) !== Deno.realPathSync(Deno.cwd()) || !hasArg(args, "--disable-slash-commands") || readArg(args, "--print-timeout") !== "24h" || hasArg(args, "--conversation") || hasArg(args, "--continue") || hasArg(args, "--dangerously-skip-permissions")) {
         console.error("bad flags");
         Deno.exit(2);
     }
@@ -294,6 +296,19 @@ async function main(): Promise<void> {
         return;
     }
 
+    if (prompt.includes("fixture-denied-file-read")) {
+        emit({ event: "init", conversation_id: "denied-file-conversation", init: { agent, model: model + "-" + effort } });
+        emit({ event: "step_update", step_update: {
+            step_type: "tool", state: "ERROR", tool_name: "view_file", tool_info: {
+                name: "view_file", parameters: { AbsolutePath: joinPath(home, "project", "check.test.js") },
+                error: { type: "TOOL_ERROR", message: "permission check failed for read_file" },
+            },
+        } });
+        emit({ event: "result", result: {
+            status: "SUCCESS", response: "", denied_actions: [{ action: "read_file", display_name: "ViewFile" }],
+        } });
+        return;
+    }
     if (Deno.env.get("RUNWIELD_AGY_PERMISSION_RESULT") === "1") {
         emit({ event: "init", conversation_id: "conversation-" + crypto.randomUUID(), init: { agent, model: reportedModel } });
         emit({ event: "result", result: { response: "permission result", status: "blocked", error: "permission denied by Antigravity", usage: { input_tokens: 1, output_tokens: 2 } } });
@@ -1360,5 +1375,95 @@ Deno.test("Agy CLI abort kills the active process", async () => {
         root.session.isStreaming = false;
         await root.session.dispose();
         await assertNoTemporaryAgents(home);
+    });
+});
+
+Deno.test("Agy empty SUCCESS with a denied read persists actionable failure", async () => {
+    await withAgyExecutionFixture(async (home, cwd) => {
+        const manager = SessionManager.inMemory(cwd);
+        const hostedSession = createHostedSession(cwd, manager);
+        const root = await ensureRootAgentSession({ hostedSession, agentName: AGENTS.GUIDE }) as never as AgyRootRef;
+        try {
+            await assertRejects(
+                () => runRootTurn({ hostedSession, agentName: AGENTS.GUIDE, userRequest: "fixture-denied-file-read" }),
+                Error,
+                "Blocked: view_file: [redacted-home]/project/check.test.js",
+            );
+            const entries = getRootSessionBranchEntries(manager) as BranchEntryRecord[];
+            const statuses = entries.filter((entry) => entry.customType === "runwield.backend_status");
+            assertEquals(statuses.length, 1);
+            assertEquals(statuses[0].data?.kind, "permission_denied");
+            assertEquals(statuses[0].data?.exitCode, 0);
+            assertStringIncludes(String(statuses[0].data?.message), "/permissions");
+            assertEquals(String(statuses[0].data?.message).includes(home), false);
+            assertEquals(entries.some((entry) => entry.message?.role === "assistant"), false);
+            assertStringIncludes(JSON.stringify(entries), "denied-file-conversation");
+        } finally {
+            await root.session.dispose();
+        }
+    });
+});
+
+Deno.test("Agy permission failure settles the runtime with one visible notice and remains replayable", async () => {
+    await withAgyExecutionFixture(async (_home, cwd) => {
+        const runtime = createSessionRuntime();
+        const events: SessionRuntimeEvent[] = [];
+        try {
+            const sessionId = await runtime.createPromptReadySession({
+                cwd,
+                agentName: AGENTS.GUIDE,
+                deferPersistenceUntilFirstMessage: true,
+            });
+            runtime.subscribeSessionEvents(sessionId, (event) => {
+                events.push(event);
+            });
+            await runtime.reconfigureSessionModel(sessionId, "gemini-3.8-flash", "agy-cli");
+            await assertRejects(
+                () =>
+                    runtime.promptUserTurn(sessionId, {
+                        initialRequest: "fixture-denied-file-read",
+                    }),
+                Error,
+                "Blocked: view_file:",
+            );
+            const notices = events.filter((event) =>
+                event.type === "system_status" && event.message.includes("Blocked:")
+            );
+            const failures = events.filter((event) => event.type === "terminal_error");
+            assertEquals(notices.length, 1);
+            assertEquals(failures.length, 1);
+            assertEquals(failures[0].messageAlreadyReported, true);
+            assertEquals(events.some((event) => event.type === "turn_end" && !event.ok), true);
+            events.length = 0;
+            assertEquals((await runtime.replaySession(sessionId)).ok, true);
+            const replay = events;
+            assertEquals(
+                replay.filter((event) => event.type === "system_status" && event.message.includes("Blocked:")).length,
+                1,
+            );
+        } finally {
+            await runtime.closeAllSessionsWhenIdle();
+        }
+    });
+});
+
+Deno.test("Agy accepts the requested model family echoed by current CLI versions", async () => {
+    await withAgyExecutionFixture(async (_home, cwd) => {
+        Deno.env.set("RUNWIELD_AGY_REPORTED_MODEL", "gemini-3.8-flash");
+        const manager = SessionManager.inMemory(cwd);
+        const hostedSession = createHostedSession(cwd, manager);
+        const root = await ensureRootAgentSession({ hostedSession, agentName: AGENTS.GUIDE }) as never as AgyRootRef;
+        try {
+            const messages = await runRootTurn({
+                hostedSession,
+                agentName: AGENTS.GUIDE,
+                userRequest: "echoed family",
+            });
+            assertEquals(messages.some((message) => message.role === "assistant"), true);
+            const entries = getRootSessionBranchEntries(manager) as BranchEntryRecord[];
+            assertEquals(entries.some((entry) => entry.customType === "runwield.backend_status"), false);
+        } finally {
+            await root.session.dispose();
+        }
     });
 });

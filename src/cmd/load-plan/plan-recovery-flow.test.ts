@@ -1054,6 +1054,113 @@ Deno.test("recovery cancel at the first menu leaves unrelated repairable state u
     }
 });
 
+Deno.test("recovery abandon: deletes unchanged branch from Plan base commit when registry is missing", async () => {
+    const project = await makeRealRecoveryProject({ status: "failed" });
+    const root = project.projectRoot;
+    const parent = await Deno.makeTempDir({ prefix: "rw-discard-missing-registry-" });
+    const branch = "worktree/missing-registry";
+    const path = `${parent}/missing`;
+    try {
+        await runGit(root, ["switch", "-c", "target"]);
+        await Deno.writeTextFile(`${root}/target.txt`, "target\n");
+        await runGit(root, ["add", "target.txt"]);
+        await runGit(root, ["commit", "-m", "target base"]);
+        const baseCommit = await runGit(root, ["rev-parse", "HEAD"]);
+        await runGit(root, ["switch", "main"]);
+        await Deno.writeTextFile(`${root}/main.txt`, "main\n");
+        await runGit(root, ["add", "main.txt"]);
+        await runGit(root, ["commit", "-m", "main diverged"]);
+        await runGit(root, ["branch", branch, baseCommit]);
+        const beforeUpdate = await loadPlan(root, project.plan.planName);
+        if (!beforeUpdate) throw new Error("fixture Plan missing");
+        await updatePlanFrontMatter(
+            root,
+            project.plan.planName,
+            { status: "failed" },
+            beforeUpdate.attrs,
+            { expectedRevision: beforeUpdate.revision },
+        );
+        await writeControllerState(
+            root,
+            { planName: project.plan.planName, planId: "plan-1" },
+            { executionMode: "worktree", documentWorktreeId: "missing-registry-attempt" },
+            {
+                recovery: {
+                    worktreeId: "missing-registry-attempt",
+                    worktreePath: path,
+                    worktreeBranch: branch,
+                    worktreeBaseBranch: "target",
+                    worktreeBaseCommit: baseCommit,
+                    worktreeStatus: "active",
+                },
+            },
+        );
+        const plan = await loadPlan(root, project.plan.planName);
+        if (!plan) throw new Error("fixture Plan missing");
+        const ui = makeUi(["confirm"]);
+        const context = makeActionContext(root, { ...plan, planName: project.plan.planName }, ui);
+        context.worktreeContext = await resolveRecoveryWorktree(root, context.plan);
+        await abandonRecoveryPlan(context);
+        assertEquals(await runGit(root, ["branch", "--list", branch]), "");
+        assertEquals(await findWorktreeRegistryEntryById(root, "missing-registry-attempt"), null);
+    } finally {
+        await Deno.remove(root, { recursive: true });
+        await Deno.remove(parent, { recursive: true });
+    }
+});
+
+Deno.test("held reset keep: restores abandoned rescue record when registry is missing", async () => {
+    const project = await makeRealRecoveryProject({ status: "on_hold" });
+    const root = project.projectRoot;
+    const parent = await Deno.makeTempDir({ prefix: "rw-held-keep-missing-registry-" });
+    const branch = "worktree/held-keep";
+    const path = `${parent}/held`;
+    try {
+        const baseCommit = await runGit(root, ["rev-parse", "HEAD"]);
+        await runGit(root, ["worktree", "add", "-b", branch, path, baseCommit]);
+        const beforeUpdate = await loadPlan(root, project.plan.planName);
+        if (!beforeUpdate) throw new Error("fixture Plan missing");
+        await updatePlanFrontMatter(
+            root,
+            project.plan.planName,
+            { status: "on_hold" },
+            beforeUpdate.attrs,
+            { expectedRevision: beforeUpdate.revision },
+        );
+        await writeControllerState(
+            root,
+            { planName: project.plan.planName, planId: "plan-1" },
+            { executionMode: "worktree", documentWorktreeId: "held-keep-attempt" },
+            {
+                recovery: {
+                    worktreeId: "held-keep-attempt",
+                    worktreePath: path,
+                    worktreeBranch: branch,
+                    worktreeBaseBranch: "main",
+                    worktreeBaseCommit: baseCommit,
+                    worktreeStatus: "active",
+                },
+            },
+        );
+        const plan = await loadPlan(root, project.plan.planName);
+        if (!plan) throw new Error("fixture Plan missing");
+        const ui = makeUi(["reset_keep"]);
+        await resetHeldPlanToDraft({
+            projectRoot: root,
+            plan: { ...plan, planName: project.plan.planName },
+            uiAPI: ui,
+        });
+        const record = await findWorktreeRegistryEntryById(root, "held-keep-attempt");
+        assertEquals(record?.status, "abandoned");
+        assertEquals(record?.path, path);
+        assertEquals(await Deno.stat(path).then(() => true).catch(() => false), true);
+    } finally {
+        await runGit(root, ["worktree", "remove", "--force", path]).catch(() => Promise.resolve());
+        await Deno.remove(root, { recursive: true });
+        await Deno.remove(parent, { recursive: true });
+    }
+});
+
 for (const action of ["abandon", "held_reset", "recreate"]) {
     for (
         const scenario of [

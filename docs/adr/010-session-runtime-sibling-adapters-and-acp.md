@@ -28,6 +28,10 @@ stay outside the core runtime. The ACP adapter maps `SessionRuntime` events and 
 using standard ACP primitives where possible and RunWield-specific ACP extensions/fallbacks where no standard primitive
 exists.
 
+The command registry owns shared built-in command names, aliases, descriptions, hints, and surface availability. ACP and
+Workspace consume that registry instead of keeping separate command policy, while TUI-only presentation and process
+controls stay unavailable outside the TUI. Built-in names remain reserved before prompt-template or Skill expansion.
+
 Each Hosted Session carries an absolute project root. Shared catalogs, layered settings, Plans, workflow metrics, memory
 commands, validation, and Worktree operations resolve from that root rather than the server process cwd. A Hosted
 Session id is an in-process runtime identity and is deliberately distinct from both persisted SessionManager ids and
@@ -48,7 +52,8 @@ runtime actions, and interaction requests only.
 - The first ACP MVP carries medium complexity because it includes the shared runtime seam, not just JSON-RPC method
   handlers.
 - Rich external workflow UX can evolve incrementally on top of the interaction contract without requiring another
-  TUI-to-core refactor.
+  TUI-to-core refactor. Local browser question pages are adapter presentation for select, text, and approval fallback;
+  they do not create a new Session or a new workflow authority.
 - Same-session turn exclusion and cancellation settlement are runtime invariants. Cancellation does not release the turn
   or permit disposal until the underlying Agent Session prompt settles; different Hosted Sessions remain independently
   promptable.

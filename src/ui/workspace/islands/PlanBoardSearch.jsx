@@ -92,12 +92,10 @@ function syncQueryInWorkspaceLinks(query) {
  */
 export function applyPlanSearchDomState(scope, visiblePlanIds, hasQuery) {
     const cards = [...scope.querySelectorAll("[data-plan-search-card]")];
-    let visibleCount = 0;
     for (const card of cards) {
         const planId = /** @type {HTMLElement} */ (card).dataset.planSearchCard || "";
         const visible = !hasQuery || visiblePlanIds.has(planId);
         /** @type {HTMLElement} */ (card).hidden = !visible;
-        if (visible) visibleCount += 1;
     }
 
     for (const column of scope.querySelectorAll("[data-plan-search-column]")) {
@@ -123,9 +121,6 @@ export function applyPlanSearchDomState(scope, visiblePlanIds, hasQuery) {
         const filteredEmpty = laneElement.querySelector("[data-filtered-empty]");
         if (filteredEmpty) /** @type {HTMLElement} */ (filteredEmpty).hidden = !hasQuery || laneVisibleCount > 0;
     }
-
-    const noResults = scope.querySelector("[data-plan-search-no-results]");
-    if (noResults) /** @type {HTMLElement} */ (noResults).hidden = !hasQuery || visibleCount > 0;
 }
 
 /** @param {PlanBoardSearchProps} props */

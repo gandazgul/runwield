@@ -1,5 +1,10 @@
 // @ts-nocheck: Workspace React islands compile TSX, but this module uses JSDoc-style JavaScript only.
+import { RunWieldMenu, RunWieldMenuItem } from "../../design-system/components/react/RunWieldMenu.tsx";
+import { RunWieldIconButton } from "../../design-system/components/react/RunWieldIconButton.tsx";
+import { animateSidebarUpdate } from "../../design-system/components/react/sidebar-motion.ts";
+import { RunWieldThinkingDots } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 
+import { RunWieldSegmentedControl } from "../../design-system/components/react/RunWieldSegmentedControl.tsx";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import mermaid from "mermaid";
 import { GuideView } from "@plannotator/guide-viewer/GuideView.tsx";
@@ -9,7 +14,6 @@ import { ThemeProvider } from "@plannotator/ui/components/ThemeProvider.tsx";
 import { TooltipProvider } from "@plannotator/ui/components/Tooltip.tsx";
 import { ApproveButton, FeedbackButton } from "@plannotator/ui/components/ToolbarButtons.tsx";
 import { CompletionOverlay } from "@plannotator/ui/components/CompletionOverlay.tsx";
-import { ActionMenu, ActionMenuItem } from "@plannotator/ui/components/ActionMenu.tsx";
 import { CommentPopover } from "@plannotator/ui/components/CommentPopover.tsx";
 import { configStore, setReviewPanelView, useConfigValue } from "@plannotator/ui/config/index.ts";
 import { AllFilesCodeView } from "../../../../third_party/plannotator/packages/review-editor/components/AllFilesCodeView.tsx";
@@ -19,6 +23,7 @@ import { SectionsPanel } from "../../../../third_party/plannotator/packages/revi
 import { parseDiffToFiles } from "../../../../third_party/plannotator/packages/review-editor/utils/diffParser.ts";
 import { exportReviewFeedback } from "../../../../third_party/plannotator/packages/review-editor/utils/exportFeedback.ts";
 import { PlanReviewSettings } from "./PlanReviewSettings.tsx";
+import { WorkspaceHeaderActionsPortal } from "./WorkspaceHeaderActionsPortal.tsx";
 import { ReviewContextBar } from "./ReviewContextBar.tsx";
 import { ArtifactConversationSidebar } from "./ArtifactConversationSidebar.tsx";
 import { buildArtifactConversationFeedback, collectArtifactConversationReply } from "./artifact-conversation.ts";
@@ -803,6 +808,30 @@ export function CodeReviewSurface({ payload, presentation = "standalone" }) {
         });
     }
 
+    const reviewOptions = (
+        <CodeReviewOptionsMenu
+            iconOnly
+            annotationsOpen={annotationsOpen}
+            fileTreeOpen={fileTreeOpen}
+            onOpenSettings={() => setSettingsOpen(true)}
+            onToggleAnnotations={() => animateSidebarUpdate(() => setAnnotationsOpen((open) => !open))}
+            onToggleFileTree={() => animateSidebarUpdate(() => setFileTreeOpen((open) => !open))}
+        />
+    );
+
+    const reviewActions = (
+        <div className="rw-plannotator-actions">
+            {presentation === "workspace" && reviewOptions}
+            <ApproveButton
+                loadingLabel={<RunWieldThinkingDots label="Approving" />}
+                mobileLoadingLabel={<RunWieldThinkingDots label="Approving" showLabel={false} />}
+                onClick={submitApprove}
+                disabled={submitting !== null || agentWorking}
+                isLoading={submitting === "approve"}
+            />
+        </div>
+    );
+
     return (
         <ThemeProvider
             defaultTheme="dark"
@@ -817,33 +846,26 @@ export function CodeReviewSurface({ payload, presentation = "standalone" }) {
                     }`}
                     data-review-mode={initialPayload.mode}
                 >
-                    <header className="rw-plannotator-toolbar">
-                        <div className="rw-plan-review-heading">
-                            <CodeReviewOptionsMenu
-                                iconOnly
-                                annotationsOpen={annotationsOpen}
-                                fileTreeOpen={fileTreeOpen}
-                                onOpenSettings={() => setSettingsOpen(true)}
-                                onToggleAnnotations={() => setAnnotationsOpen((open) => !open)}
-                                onToggleFileTree={() => setFileTreeOpen((open) => !open)}
-                            />
-                            <img src="/brand/logo.svg" alt="" aria-hidden="true" />
-                            <h1 title={codeReviewHeading}>{codeReviewHeading}</h1>
-                            {initialPayload.mode === "dev" && (
-                                <p className="rw-plan-review-dev-notice" role="status">
-                                    DEV MODE — Feedback and approval won’t go anywhere.
-                                </p>
-                            )}
-                        </div>
-                        <div className="rw-plannotator-actions">
-                            <ApproveButton
-                                onClick={submitApprove}
-                                disabled={submitting !== null || agentWorking}
-                                isLoading={submitting === "approve"}
-                            />
-                        </div>
-                    </header>
-                    <ReviewContextBar context={initialPayload.reviewContext} artifactLabel="Code review" />
+                    {presentation === "workspace"
+                        ? <WorkspaceHeaderActionsPortal>{reviewActions}</WorkspaceHeaderActionsPortal>
+                        : (
+                            <>
+                                <header className="rw-plannotator-toolbar">
+                                    <div className="rw-plan-review-heading">
+                                        {reviewOptions}
+                                        <img src="/brand/logo.svg" alt="" aria-hidden="true" />
+                                        <h1 title={codeReviewHeading}>{codeReviewHeading}</h1>
+                                        {initialPayload.mode === "dev" && (
+                                            <p className="rw-plan-review-dev-notice" role="status">
+                                                DEV MODE — Feedback and approval won’t go anywhere.
+                                            </p>
+                                        )}
+                                    </div>
+                                    {reviewActions}
+                                </header>
+                                <ReviewContextBar context={initialPayload.reviewContext} artifactLabel="Code review" />
+                            </>
+                        )}
                     {error && <p className="rw-review-error" role="alert">{error}</p>}
                     <div
                         className="rw-plannotator-code-layout"
@@ -855,7 +877,11 @@ export function CodeReviewSurface({ payload, presentation = "standalone" }) {
                         {fileTreeOpen && (
                             <aside className="rw-review-file-tree">
                                 <div className="rw-code-file-tabs">
-                                    <div className="rw-segmented-toggle" role="tablist" aria-label="Code review files">
+                                    <div
+                                        className="rw-underline-tabs rw-review-sidebar-tabs"
+                                        role="tablist"
+                                        aria-label="Code review files"
+                                    >
                                         <button
                                             aria-selected={filePanelMode === "tree"}
                                             className={filePanelMode === "tree" ? "active" : ""}
@@ -879,15 +905,15 @@ export function CodeReviewSurface({ payload, presentation = "standalone" }) {
                                             <span>Changes</span>
                                         </button>
                                     </div>
-                                    <button
+                                    <RunWieldIconButton
                                         className="rw-code-file-sidebar-close"
                                         type="button"
-                                        onClick={() => setFileTreeOpen(false)}
+                                        onClick={() => animateSidebarUpdate(() => setFileTreeOpen(false))}
                                         title="Collapse file sidebar"
                                         aria-label="Collapse file sidebar"
                                     >
                                         <PanelCollapseIcon side="left" />
-                                    </button>
+                                    </RunWieldIconButton>
                                 </div>
                                 <div
                                     aria-label="Resize file panel"
@@ -949,8 +975,8 @@ export function CodeReviewSurface({ payload, presentation = "standalone" }) {
                                 onChange={setDiffStyle}
                                 fileTreeOpen={fileTreeOpen}
                                 annotationsOpen={annotationsOpen}
-                                onRestoreFiles={() => setFileTreeOpen(true)}
-                                onRestoreAnnotations={() => setAnnotationsOpen(true)}
+                                onRestoreFiles={() => animateSidebarUpdate(() => setFileTreeOpen(true))}
+                                onRestoreAnnotations={() => animateSidebarUpdate(() => setAnnotationsOpen(true))}
                                 guideReady={guideReady}
                                 guideOpen={guideOpen}
                                 guideGenerating={guideGenerating}
@@ -959,16 +985,22 @@ export function CodeReviewSurface({ payload, presentation = "standalone" }) {
                                 guideCapabilities={guideCapabilities}
                                 guidePolicy={guidePolicy}
                                 onToggleGuide={() => {
-                                    if (!guideOpen) setFileTreeOpen(false);
-                                    if (guideReady) setGuideOpen(!guideOpen);
-                                    else generateGuide();
+                                    animateSidebarUpdate(() => {
+                                        if (!guideOpen) setFileTreeOpen(false);
+                                        if (guideReady) setGuideOpen(!guideOpen);
+                                    });
+                                    if (!guideReady) generateGuide();
                                 }}
                                 globalCommentButtonRef={globalCommentButtonRef}
                                 onToggleGlobalComment={() => setGlobalCommentOpen((open) => !open)}
                             />
                             <div className="rw-code-diff-stage">
                                 {!highlightingReady
-                                    ? <div className="rw-empty-diff">Preparing syntax highlighting…</div>
+                                    ? (
+                                        <div className="rw-empty-diff">
+                                            <RunWieldThinkingDots label="Preparing syntax highlighting" />
+                                        </div>
+                                    )
                                     : guideOpen && guide
                                     ? (
                                         <GuidedReviewExplainer
@@ -1068,51 +1100,63 @@ export function CodeReviewSurface({ payload, presentation = "standalone" }) {
                         {annotationsOpen && (
                             <div className="rw-code-review-annotation-sidebar">
                                 <div className="rw-review-annotation-heading">
-                                    <div>
-                                        <CommentIcon />
-                                        <h2>Annotations</h2>
-                                        {annotations.length > 0 && <span>{annotations.length}</span>}
-                                    </div>
-                                    <button
+                                    {conversationEnabled
+                                        ? (
+                                            <div
+                                                className="rw-underline-tabs rw-review-sidebar-tabs"
+                                                role="tablist"
+                                                aria-label="Review sidebar"
+                                            >
+                                                <button
+                                                    className={rightSidebarView === "annotations" ? "active" : ""}
+                                                    type="button"
+                                                    role="tab"
+                                                    aria-selected={rightSidebarView === "annotations"}
+                                                    onClick={() => setRightSidebarView("annotations")}
+                                                    title="Annotations"
+                                                >
+                                                    <CommentIcon />
+                                                    <span>Annotations</span>
+                                                    {annotations.length > 0 && (
+                                                        <span className="rw-review-annotation-count">
+                                                            {annotations.length}
+                                                        </span>
+                                                    )}
+                                                </button>
+                                                <button
+                                                    className={rightSidebarView === "agent" ? "active" : ""}
+                                                    type="button"
+                                                    role="tab"
+                                                    aria-selected={rightSidebarView === "agent"}
+                                                    onClick={() => setRightSidebarView("agent")}
+                                                    title={agentLabel}
+                                                >
+                                                    <CommentIcon />
+                                                    <span>{agentLabel}</span>
+                                                </button>
+                                            </div>
+                                        )
+                                        : (
+                                            <div>
+                                                <CommentIcon />
+                                                <h2>Annotations</h2>
+                                                {annotations.length > 0 && (
+                                                    <span className="rw-review-annotation-count">
+                                                        {annotations.length}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        )}
+                                    <RunWieldIconButton
                                         className="rw-code-annotation-sidebar-close"
                                         type="button"
-                                        onClick={() => setAnnotationsOpen(false)}
+                                        onClick={() => animateSidebarUpdate(() => setAnnotationsOpen(false))}
                                         title="Collapse annotations sidebar"
                                         aria-label="Collapse annotations sidebar"
                                     >
                                         <PanelCollapseIcon side="right" />
-                                    </button>
+                                    </RunWieldIconButton>
                                 </div>
-                                {conversationEnabled && (
-                                    <div
-                                        className="rw-review-sidebar-tabs rw-segmented-toggle"
-                                        role="tablist"
-                                        aria-label="Review sidebar"
-                                    >
-                                        <button
-                                            className={rightSidebarView === "annotations" ? "active" : ""}
-                                            type="button"
-                                            role="tab"
-                                            aria-selected={rightSidebarView === "annotations"}
-                                            onClick={() => setRightSidebarView("annotations")}
-                                            title="Annotations"
-                                        >
-                                            <CommentIcon />
-                                            <span>Annotations</span>
-                                        </button>
-                                        <button
-                                            className={rightSidebarView === "agent" ? "active" : ""}
-                                            type="button"
-                                            role="tab"
-                                            aria-selected={rightSidebarView === "agent"}
-                                            onClick={() => setRightSidebarView("agent")}
-                                            title={agentLabel}
-                                        >
-                                            <CommentIcon />
-                                            <span>{agentLabel}</span>
-                                        </button>
-                                    </div>
-                                )}
                                 {rightSidebarView === "annotations"
                                     ? (
                                         <>
@@ -1123,7 +1167,7 @@ export function CodeReviewSurface({ payload, presentation = "standalone" }) {
                                                         agentWorking}
                                                     isLoading={submitting === "feedback"}
                                                     label="Send Annotations"
-                                                    loadingLabel="Sending Annotations…"
+                                                    loadingLabel={<RunWieldThinkingDots label="Sending Annotations" />}
                                                     title={annotations.length === 0
                                                         ? "Add an annotation before sending annotations"
                                                         : "Send annotations"}
@@ -1143,7 +1187,7 @@ export function CodeReviewSurface({ payload, presentation = "standalone" }) {
                                             <ReviewSidebar
                                                 isOpen
                                                 width={352}
-                                                onClose={() => setAnnotationsOpen(false)}
+                                                onClose={() => animateSidebarUpdate(() => setAnnotationsOpen(false))}
                                                 activeTab="annotations"
                                                 annotations={annotations}
                                                 files={files}
@@ -1264,10 +1308,10 @@ function DiffStyleToggle({
             <div className="rw-review-toolbar-edge rw-review-toolbar-edge-left rw-code-diff-left-controls">
                 <div className="rw-code-diff-sidebar-restore rw-code-diff-sidebar-restore-left">
                     {!fileTreeOpen && (
-                        <button className="rw-toolbar-button" type="button" onClick={onRestoreFiles}>
+                        <RunWieldIconButton type="button" onClick={onRestoreFiles}>
                             <FileTreeIcon />
                             <span>Files</span>
-                        </button>
+                        </RunWieldIconButton>
                     )}
                 </div>
                 <div className="rw-guide-actions">
@@ -1279,7 +1323,7 @@ function DiffStyleToggle({
                         title="Guided Review generation uses an additional LLM call when backed by an agent provider."
                     >
                         {guideGenerating
-                            ? "Generating guided review…"
+                            ? <RunWieldThinkingDots label="Generating guided review" />
                             : guideReady
                             ? (guideOpen ? "Back to diff" : "Guided Review ready")
                             : "Generate guided review"}
@@ -1291,7 +1335,7 @@ function DiffStyleToggle({
             </div>
             <div className="rw-review-toolbar-edge rw-review-toolbar-edge-right rw-code-diff-layout-controls">
                 <span>Diff view</span>
-                <div className="rw-segmented-toggle rw-code-diff-style-toggle" role="group" aria-label="Diff layout">
+                <RunWieldSegmentedControl className="rw-code-diff-style-toggle" role="group" aria-label="Diff layout">
                     <button
                         aria-pressed={diffStyle === "split"}
                         className={diffStyle === "split" ? "active" : ""}
@@ -1312,7 +1356,7 @@ function DiffStyleToggle({
                         <CodeToggleIcon name="unified" />
                         <span>Unified</span>
                     </button>
-                </div>
+                </RunWieldSegmentedControl>
                 <button
                     ref={globalCommentButtonRef}
                     className="rw-toolbar-button"
@@ -1324,10 +1368,10 @@ function DiffStyleToggle({
                 </button>
                 <div className="rw-code-diff-sidebar-restore rw-code-diff-sidebar-restore-right">
                     {!annotationsOpen && (
-                        <button className="rw-toolbar-button" type="button" onClick={onRestoreAnnotations}>
+                        <RunWieldIconButton type="button" onClick={onRestoreAnnotations}>
                             <CommentIcon />
                             <span>Annotations</span>
-                        </button>
+                        </RunWieldIconButton>
                     )}
                 </div>
             </div>
@@ -1627,33 +1671,10 @@ function CodeReviewOptionsMenu({
     onToggleFileTree,
 }) {
     return (
-        <ActionMenu
-            panelClassName={iconOnly
-                ? "absolute top-full left-0 mt-1 w-56 rounded-lg border border-border bg-popover py-1 shadow-xl z-[70]"
-                : undefined}
-            renderTrigger={({ isOpen, toggleMenu }) => (
-                <button
-                    type="button"
-                    onClick={toggleMenu}
-                    className={`relative flex items-center gap-1.5 p-1.5 ${
-                        iconOnly ? "" : "md:px-2.5 md:py-1"
-                    } rounded-md text-xs font-medium transition-colors ${
-                        isOpen
-                            ? "bg-muted text-foreground"
-                            : "text-muted-foreground hover:text-foreground hover:bg-muted"
-                    }`}
-                    title="Options"
-                    aria-label="Options"
-                    aria-expanded={isOpen}
-                >
-                    <MenuIcon />
-                    {!iconOnly && <span className="hidden md:inline">Options</span>}
-                </button>
-            )}
-        >
+        <RunWieldMenu label="Options" iconOnly={iconOnly} align={iconOnly ? "start" : "end"}>
             {({ closeMenu }) => (
                 <>
-                    <ActionMenuItem
+                    <RunWieldMenuItem
                         onClick={() => {
                             closeMenu();
                             onToggleFileTree();
@@ -1661,7 +1682,7 @@ function CodeReviewOptionsMenu({
                         icon={<FileTreeIcon />}
                         label={fileTreeOpen ? "Hide file tree" : "Show file tree"}
                     />
-                    <ActionMenuItem
+                    <RunWieldMenuItem
                         onClick={() => {
                             closeMenu();
                             onToggleAnnotations();
@@ -1669,7 +1690,7 @@ function CodeReviewOptionsMenu({
                         icon={<CommentIcon />}
                         label={annotationsOpen ? "Hide annotations" : "Show annotations"}
                     />
-                    <ActionMenuItem
+                    <RunWieldMenuItem
                         onClick={() => {
                             closeMenu();
                             onOpenSettings();
@@ -1679,7 +1700,7 @@ function CodeReviewOptionsMenu({
                     />
                 </>
             )}
-        </ActionMenu>
+        </RunWieldMenu>
     );
 }
 
@@ -1699,14 +1720,6 @@ function CodeToggleIcon({ name }) {
             strokeWidth={2}
         >
             <path strokeLinecap="round" strokeLinejoin="round" d={paths[name]} />
-        </svg>
-    );
-}
-
-function MenuIcon() {
-    return (
-        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
         </svg>
     );
 }

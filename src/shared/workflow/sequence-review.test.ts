@@ -7,7 +7,12 @@ import { HostedSession } from "../session/hosted-session.js";
 import { defineCommittedGitFixture } from "../git-test-fixture.ts";
 import { loadPlan, resolveSiblingChildPlanDependencies, savePlan, updatePlanFrontMatter } from "../../plan-store.js";
 import { applySequenceReviewDecision, prepareSequenceReview } from "./sequence-review.ts";
-import { listPendingWorkflowToolEvents, waitForWorkflowToolEvent } from "./workflow-tool-events.ts";
+import {
+    claimWorkflowToolEvent,
+    listPendingWorkflowToolEvents,
+    waitForWorkflowToolEvent,
+} from "./workflow-tool-events.ts";
+import type { PlanWrittenEventPayload } from "./workflow-tool-events.ts";
 import { normalizePlanApprovalAction, primaryPlanApprovalActionForClassification } from "./plan-approval.js";
 import { isEpicPlan, isProjectPlan, isSequencePlan, projectPlanType } from "../project-plan.ts";
 import { createPlanWrittenTool } from "../../tools/plan-written.ts";
@@ -64,6 +69,7 @@ for (const approvalAction of ["run", "later"] as const) {
     Deno.test(`Sequence ${approvalAction} settles every child and publishes one correct handoff`, async () => {
         const { cwd, hostedSession } = await setup();
         try {
+            hostedSession.setWorkflowPlanName("sequence");
             const documents = await prepareSequenceReview(cwd, "sequence");
             const result = await applySequenceReviewDecision({
                 cwd,
@@ -82,8 +88,13 @@ for (const approvalAction of ["run", "later"] as const) {
             }
             const events = listPendingWorkflowToolEvents(hostedSession);
             assertEquals(events.length, 1);
-            assertEquals(result.workflowOutcome?.planName, approvalAction === "run" ? "sequence/index" : "sequence");
+            const expectedPlanName = approvalAction === "run" ? "sequence/index" : "sequence";
+            assertEquals(result.workflowOutcome?.planName, expectedPlanName);
             assertEquals(result.workflowOutcome?.outcome, approvalAction === "run" ? "approved_execute" : "saved");
+            const event = claimWorkflowToolEvent(hostedSession, { kinds: ["plan_written"], owningSession: null });
+            assertEquals(event?.kind, "plan_written");
+            const payload = event?.payload as PlanWrittenEventPayload | undefined;
+            assertEquals(payload?.planName, expectedPlanName);
         } finally {
             await Deno.remove(cwd, { recursive: true });
         }

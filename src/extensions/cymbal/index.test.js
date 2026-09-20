@@ -176,7 +176,18 @@ Deno.test("code_batch runs show and outline operations in order", async () => {
         ],
     });
 
-    assertEquals(result.details, { operationCount: 2, truncated: false });
+    assertEquals(result.details, {
+        operationCount: 2,
+        truncated: false,
+        results: [
+            { operation: { op: "show", target: "buildAgentSession" }, status: "success", truncated: false },
+            {
+                operation: { op: "outline", file: "src/extensions/cymbal/index.js" },
+                status: "success",
+                truncated: false,
+            },
+        ],
+    });
     assertStringIncludes(firstText(result), "## 1. show buildAgentSession");
     assertStringIncludes(firstText(result), "show buildAgentSession output");
     assertStringIncludes(firstText(result), "## 2. outline src/extensions/cymbal/index.js");
@@ -205,7 +216,15 @@ Deno.test("code_batch isolates per-operation errors and normalizes empty output"
         ],
     });
 
-    assertEquals(result.details, { operationCount: 2, truncated: false });
+    assertEquals(result.isError, false);
+    assertEquals(result.details, {
+        operationCount: 2,
+        truncated: false,
+        results: [
+            { operation: { op: "show", target: "Missing" }, status: "error", truncated: false },
+            { operation: { op: "outline", file: "src/empty.js" }, status: "success", truncated: false },
+        ],
+    });
     const text = firstText(result);
     assertStringIncludes(text, "## 1. show Missing");
     assertStringIncludes(text, "Error (exit 2): bad target");
@@ -239,10 +258,14 @@ Deno.test("code_batch truncates large combined output", async () => {
         operations: [{ op: "show", target: "Huge" }],
     });
 
-    assertEquals(result.details, { operationCount: 1, truncated: true });
+    assertEquals(result.details, {
+        operationCount: 1,
+        truncated: true,
+        results: [{ operation: { op: "show", target: "Huge" }, status: "success", truncated: true }],
+    });
     const text = firstText(result);
-    assert(text.length > 50_000);
-    assertStringIncludes(text, "[code_batch output truncated at 50000 characters.");
+    assert(text.length <= 50_000);
+    assertStringIncludes(text, "[Result truncated.");
 });
 
 Deno.test("cymbal tools normalize empty, non-zero, and thrown command results", async () => {
@@ -268,6 +291,49 @@ Deno.test("cymbal tools normalize empty, non-zero, and thrown command results", 
         firstText(await executeTool(thrownSetup.getTool("code_show"), { target: "src/mod.js" })),
         "Error running cymbal: missing binary",
     );
+});
+
+Deno.test("cymbal result hook forwards failed calls to Pi and consumes the status once", async () => {
+    const { getTool, getHandler } = setup(() => ({ code: 1, stdout: "", stderr: "missing symbol" }));
+    const result = await executeTool(getTool("code_show"), { target: "Missing" });
+    assertEquals(result.isError, true);
+    const event = {
+        toolName: "code_show",
+        toolCallId: "tool-call-1",
+        input: { target: "Missing" },
+        content: result.content,
+        details: result.details,
+        isError: false,
+    };
+    const handler = getHandler("tool_result");
+    assert(handler);
+    assertEquals(await handler(event, {}), { isError: true });
+    assertEquals(await handler(event, {}), undefined);
+});
+
+Deno.test("cymbal result hook distinguishes total batch failure from partial success", async () => {
+    for (const partial of [false, true]) {
+        const { getTool, getHandler } = setup(() => ({
+            code: 0,
+            stdout: JSON.stringify({
+                results: {
+                    A: { error: "missing A" },
+                    B: partial ? { file: "b.ts", lines: [] } : { error: "missing B" },
+                },
+            }),
+            stderr: "",
+        }));
+        const result = await executeTool(getTool("code_batch"), {
+            operations: [{ op: "show", target: "A" }, { op: "show", target: "B" }],
+        });
+        const handler = getHandler("tool_result");
+        assert(handler);
+        assertEquals(
+            await handler({ toolCallId: "tool-call-1", toolName: "code_batch", isError: false }, {}),
+            partial ? undefined : { isError: true },
+        );
+        assertEquals(result.isError, !partial);
+    }
 });
 
 Deno.test("cymbal nudge correctly intercepts bash and grep", async () => {

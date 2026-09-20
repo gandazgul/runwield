@@ -6,7 +6,7 @@ hosts.
 Keep this document as current product guidance. Fold lasting requirements from completed feature PRDs here;
 implementation steps belong in Plans, architectural choices in ADRs, and delivery evidence in Work Records.
 
-Last updated: 2026-08-04
+Last updated: 2026-09-11
 
 ## Objective
 
@@ -83,9 +83,30 @@ External Agent Host priority is:
 
 This order is a product and distribution priority, not a judgment that later hosts have weaker extension APIs.
 
-## Resolved Assumptions
+## Capability Requirements
 
-### Per-Request Opt-In
+These are agreed Connect product requirements, not evidence that each adapter has shipped. The release strategy below
+sets Preview and stable acceptance. Core owns shared workflow behavior; Connect owns host activation, model ownership,
+compatibility, privacy at the host boundary, and host-specific continuation.
+
+- [Explicit per-request activation](#explicit-per-request-activation)
+- [Host-owned reasoning](#host-owned-reasoning)
+- [Shared Plan and verification outcomes](#shared-plan-and-verification-outcomes)
+- [Isolated implementation](#isolated-implementation)
+- [Artifact privacy and records](#artifact-privacy-and-records)
+- [Lazy project setup and recovery](#lazy-project-setup-and-recovery)
+- [Compatibility and honest availability](#compatibility-and-honest-availability)
+- [First-class Connect use](#first-class-connect-use)
+
+<a id="per-request-opt-in"></a>
+<a id="installation-and-inactive-use"></a>
+<a id="starting-an-attached-workflow-with-connect"></a>
+
+### Explicit per-request activation
+
+**Scope and maturity:** Target for the first Claude Code Preview and all later adapters.
+
+**Requirement: Leave ordinary host work unchanged outside explicit activation.**
 
 - Installing a RunWield Connect plugin must not alter ordinary External Agent Host behavior.
 - A user explicitly starts one Attached Workflow for one User Request, conceptually through `/runwield <request>` or the
@@ -94,103 +115,6 @@ This order is a product and distribution priority, not a judgment that later hos
 - The host returns to ordinary behavior after the workflow reaches an outcome.
 - Existing RunWield closure and recovery choices govern an active workflow; Connect does not introduce a separate
   partially governed lifecycle.
-
-### Host-Owned Model Execution
-
-- Every LLM call is made by the External Agent Host using the user's existing host model access.
-- This includes Triage, planning, ideation, implementation, semantic review, repair, recording, and delegated worker
-  calls.
-- RunWield Connect does not require separate RunWield model credentials or a RunWield account.
-- RunWield may inject its Agent prompts and Skills or ask the host to create isolated workers, but it must not silently
-  substitute a RunWield-owned Agent Session.
-
-### RunWield-Owned Workflow Truth
-
-RunWield Core remains the sole authority for:
-
-- canonical Plan files and Plan Lifecycle transitions;
-- approval and readiness decisions;
-- Plan Lifecycle authority and recovery evidence;
-- execution baselines, worktree registration, merge-back, and cleanup decisions;
-- Mechanical Validation and Workflow Validation outcomes;
-- canonical Work Records and their provenance;
-- project memory and derived search/index state.
-
-The External Agent Host submits requests, structured outcomes, completion evidence, and review results. Host prose or a
-host-local task state cannot independently make a Plan Ready For Work, Implemented, or Verified.
-
-### One Verification Meaning
-
-- A Verified Plan means the same thing in RunWield Connect and RunWield Core, regardless of Core Execution Backend.
-- RunWield Connect must not introduce host-specific "verified-ish" Plan statuses.
-- If a host cannot satisfy a required invariant, RunWield must fail visibly, use an existing explicit fallback, or
-  produce an existing non-verified outcome.
-- Host capability differences belong in a disclosed compatibility matrix rather than weaker durable truth.
-
-### Shared Product Behavior
-
-The [Core PRD](runwield-core-prd.md) owns the lasting requirements for Epic decomposition, holding and resuming Plans,
-bounded semantic review and human review, frontend Pair execution, and Work Records. Connect preserves their applicable
-user outcomes with host-appropriate controls and disclosed limitations. It must not duplicate their policies or import
-TUI-specific theme, attachment-storage, or compaction implementation into the external host. The host continues to own
-its conversation and model calls.
-
-### Host Compatibility
-
-Each integration uses the host's reliable capabilities to deliver the same RunWield behavior. Unsupported actions and
-weaker guarantees must be disclosed before users depend on them. A host's API list alone is not evidence that a RunWield
-journey works there.
-
-### Isolation-First Planned Execution
-
-- Planned FEATURE execution remains isolated in a RunWield-owned worktree by default.
-- The invoking host conversation may supervise a host-native implementation worker operating in that worktree.
-- All worker model calls still come from the External Agent Host.
-- QUICK_FIX retains its existing in-place, no-Plan behavior.
-- When a host cannot support a safe worktree handoff, RunWield may use its existing explicit in-place consent path and
-  must disclose the reduced recovery assurance.
-- External hosts must not create an independent worktree lifecycle that competes with RunWield's registry, baseline,
-  validation, or recovery state.
-
-### Structured Evidence, Not Transcript Import
-
-- Ordinary host conversations remain completely outside RunWield.
-- During an Attached Workflow, RunWield persists only the explicit request, structured workflow outcomes, canonical
-  artifacts, review decisions, worktree evidence, validation evidence, and derived Work Records or Memories needed for
-  the workflow.
-- RunWield does not copy or index the raw External Agent Host conversation transcript.
-- Raw host conversations remain private working space. Organizational knowledge continues to come from explicit durable
-  artifacts and synthesis rather than chat-history ingestion.
-
-### Lazy Project Onboarding
-
-- A user must be able to run the first Attached Workflow in an uninitialized trusted repository.
-- Full `wld init` is not an entrance requirement.
-- RunWield creates only the artifacts required by the invoked workflow and clearly previews material repo-local changes.
-- Richer context and memory seeding remain available through a namespaced host action such as `/runwield:init`.
-- Supporting actions may be namespaced under RunWield, but internal lifecycle transitions must not become a cluttered
-  command suite.
-
-### Local, On-Demand Core
-
-- The first Connect release does not require an always-running daemon or Session Host.
-- The host adapter may invoke local RunWield Core capabilities on demand.
-- Saved Plans, work, review outcomes, and recovery evidence must allow useful continuation or explicit retry after
-  process loss.
-- A persistent local service may be added later for performance or cross-client continuity, but it is not part of the
-  acquisition prerequisite.
-
-### First-Class Product, Organic Conversion
-
-- RunWield Connect is a supported destination for users who never adopt another RunWield surface.
-- Primary product outcomes are successful verified work, retained use, and trustworthy recovery.
-- Movement to direct Core use or Workspace is a secondary organic outcome.
-- Product-family messaging may explain genuine integration and collaboration advantages but must not reserve feasible
-  Connect capabilities solely to manufacture conversion pressure.
-
-## Product Experience
-
-### Installation and Inactive Use
 
 The user installs the first-party RunWield Connect plugin through the External Agent Host's normal extension mechanism.
 Installation must establish or obtain compatible local RunWield Core dependencies without requiring separate model
@@ -204,8 +128,6 @@ After installation:
 - RunWield-specific actions are discoverable through the host's normal command or Skill UI;
 - uninstalling or disabling the adapter returns the host to its prior behavior without removing canonical project
   artifacts.
-
-### Starting an Attached Workflow with Connect
 
 The primary experience is conceptually:
 
@@ -229,7 +151,257 @@ A user can explicitly initialize richer project context through a namespaced act
 
 Initialization is optional and may occur before or after the first Attached Workflow.
 
-### Claude FEATURE Preview Journey
+**Acceptance scenarios:**
+
+- Given Connect installed but inactive, when the user sends an ordinary host prompt, RunWield does not inspect it,
+  inject instructions, or restrict tools.
+- When the user explicitly invokes RunWield for a trusted Project request, only that Attached Workflow becomes active;
+  unrelated conversations and later ordinary prompts remain unaffected.
+- When the user disables or uninstalls the adapter, ordinary host behavior returns and canonical project artifacts
+  remain intact.
+
+<a id="host-owned-model-execution"></a>
+
+### Host-owned reasoning
+
+**Scope and maturity:** Target for every Connect workflow.
+
+**Requirement: Use the external host for every model call.**
+
+- Every LLM call is made by the External Agent Host using the user's existing host model access.
+- This includes Triage, planning, ideation, implementation, semantic review, repair, recording, and delegated worker
+  calls.
+- RunWield Connect does not require separate RunWield model credentials or a RunWield account.
+- RunWield may inject its Agent prompts and Skills or ask the host to create isolated workers, but it must not silently
+  substitute a RunWield-owned Agent Session.
+
+**Acceptance scenarios:**
+
+- Given a complete attached change, when planning, implementation, review, repairs, and recording run, every model call
+  uses the host’s model access.
+- When an isolated worker is needed, the adapter uses a host-owned worker or discloses the limitation; it does not
+  substitute a hidden RunWield model session or ask for separate model credentials.
+
+<a id="runwield-owned-workflow-truth"></a>
+<a id="one-verification-meaning"></a>
+<a id="shared-product-behavior"></a>
+<a id="review-experience"></a>
+
+### Shared Plan and verification outcomes
+
+**Scope and maturity:** Target; Core owns the shared requirements.
+
+**Requirement: Keep Core approval and verification authoritative.**
+
+RunWield Core remains the sole authority for:
+
+- canonical Plan files and Plan Lifecycle transitions;
+- approval and readiness decisions;
+- Plan Lifecycle authority and recovery evidence;
+- execution baselines, worktree registration, merge-back, and cleanup decisions;
+- Mechanical Validation and Workflow Validation outcomes;
+- canonical Work Records and their provenance;
+- project memory and derived search/index state.
+
+The External Agent Host submits requests, structured outcomes, completion evidence, and review results. Host prose or a
+host-local task state cannot independently make a Plan Ready For Work, Implemented, or Verified.
+
+- A Verified Plan means the same thing in RunWield Connect and RunWield Core, regardless of Core Execution Backend.
+- RunWield Connect must not introduce host-specific "verified-ish" Plan statuses.
+- If a host cannot satisfy a required invariant, disclose the limitation and offer an explicit supported continuation or
+  deliberate abandonment. An active delivery workflow does not end automatically with a non-verified failure.
+- Host capability differences belong in a disclosed compatibility matrix rather than weaker durable truth.
+
+The [Core capability requirements](runwield-core-prd.md#capability-requirements) owns the lasting requirements for Epic
+decomposition, holding and resuming Plans, bounded semantic review and human review, frontend Pair execution, and Work
+Records. Connect preserves their applicable user outcomes with host-appropriate controls and disclosed limitations. It
+must not duplicate their policies or import TUI-specific theme, attachment-storage, or compaction implementation into
+the external host. The host continues to own its conversation and model calls.
+
+- Plannotator remains the rich Plan and code-review surface.
+- Attached adapters should open or present the same review outcome rather than rebuild host-specific review products.
+- Feedback and approval must return as structured workflow outcomes, not inferred from chat prose.
+- The External Agent Host may summarize review progress, but RunWield remains the authority for the resulting lifecycle
+  transition.
+
+**Acceptance scenarios:**
+
+- Given a host message claiming completion, when required checks or delivery evidence are missing, the Plan does not
+  become Verified.
+- When the user submits browser review feedback, it returns to the same attached planning flow; approval is recorded
+  through Core for the reviewed Plan.
+- When a host cannot satisfy a required verification condition, it exposes the limitation and a supported continuation
+  or deliberate abandonment without weakening Verified or silently ending the workflow.
+
+<a id="isolation-first-planned-execution"></a>
+
+### Isolated implementation
+
+**Scope and maturity:** Target for planned attached work; QUICK_FIX retains Core’s lighter path.
+
+**Requirement: Execute planned work within its approved isolation.**
+
+- Planned FEATURE execution remains isolated in a RunWield-owned worktree by default.
+- The invoking host conversation may supervise a host-native implementation worker operating in that worktree.
+- All worker model calls still come from the External Agent Host.
+- QUICK_FIX retains its existing in-place, no-Plan behavior.
+- When a host cannot support a safe worktree handoff, RunWield may use its existing explicit in-place consent path and
+  must disclose the reduced recovery assurance.
+- External hosts must not create an independent worktree lifecycle that competes with RunWield's registry, baseline,
+  validation, or recovery state.
+
+**Acceptance scenarios:**
+
+- Given an approved ready Plan, when a host implementation worker starts, it works in the RunWield-owned execution
+  worktree and preserves the invoking checkout.
+- When safe worktree handoff is unavailable, only an existing explicit in-place consent path may proceed, with reduced
+  recovery assurance disclosed.
+
+<a id="structured-evidence-not-transcript-import"></a>
+
+### Artifact privacy and records
+
+**Scope and maturity:** Target for every Connect workflow; Core owns record semantics.
+
+**Requirement: Record structured outcomes without importing host transcripts.**
+
+- Ordinary host conversations remain completely outside RunWield.
+- During an Attached Workflow, RunWield persists only the explicit request, structured workflow outcomes, canonical
+  artifacts, review decisions, worktree evidence, validation evidence, and derived Work Records or Memories needed for
+  the workflow.
+- RunWield does not copy or index the raw External Agent Host conversation transcript.
+- Raw host conversations remain private working space. Organizational knowledge continues to come from explicit durable
+  artifacts and synthesis rather than chat-history ingestion.
+
+Shared requirements: [Core Work records](runwield-core-prd.md#work-records) and
+[capability-organized PRD authoring](runwield-core-prd.md#capability-organized-product-requirements). Attached planning
+uses the same guidance within each user project’s own PRD structure.
+
+**Acceptance scenarios:**
+
+- When an attached change completes, eligible Work Records are synthesized from its explicit request, artifacts, and
+  structured outcomes without importing the host transcript.
+- Given ordinary host conversations outside RunWield, when project memory or record search runs, those conversations
+  have not been passively ingested.
+
+<a id="lazy-project-onboarding"></a>
+<a id="local-on-demand-core"></a>
+<a id="recovery-experience"></a>
+
+### Lazy project setup and recovery
+
+**Scope and maturity:** Target for the first Preview; no always-running service prerequisite.
+
+**Requirement: Start with necessary setup and preserve work after interruption.**
+
+- A user must be able to run the first Attached Workflow in an uninitialized trusted repository.
+- Full `wld init` is not an entrance requirement.
+- RunWield creates only the artifacts required by the invoked workflow and clearly previews material repo-local changes.
+- Richer context and memory seeding remain available through a namespaced host action such as `/runwield:init`.
+- Supporting actions may be namespaced under RunWield, but internal lifecycle transitions must not become a cluttered
+  command suite.
+
+- The first Connect release does not require an always-running daemon or Session Host.
+- The host adapter may invoke local RunWield Core capabilities on demand.
+- Saved Plans, work, review outcomes, and recovery evidence must allow useful continuation or explicit retry after
+  process loss.
+- A persistent local service may be added later for performance or cross-client continuity, but it is not part of the
+  acquisition prerequisite.
+
+- Process loss must preserve Plans, implementation work, completed results, and useful recovery evidence.
+- RunWield must distinguish safe continuation from uncertain external side effects.
+- Recovery first reconciles partial effects from available evidence. RunWield automatically repairs its own locks,
+  settings, storage, and Plan synchronization without asking users to operate that machinery. Only a remaining external
+  prerequisite or consequential user choice requires input; uncertain external effects are never blindly repeated.
+- Connect follows [Core execution and recovery](runwield-core-prd.md#execution-validation-and-recovery): publication or
+  deliberate user abandonment are the only delivery conclusions. Host turn cancellation and retry limits preserve the
+  workflow for continuation.
+- RunWield Connect does not promise exact continuation at an interrupted token or exactly-once replay of arbitrary host
+  tool calls.
+
+**Acceptance scenarios:**
+
+- Given a trusted uninitialized repository, when the user starts their first attached change, full `wld init` is
+  optional and material required repository changes are previewed.
+- When host or Core processes stop, saved Plans and work remain available for useful continuation or explicit retry.
+- When an interrupted command may already have changed external state, recovery reconciles available evidence and asks
+  for a user decision only if external uncertainty remains; it never blindly replays the command.
+
+<a id="host-compatibility"></a>
+<a id="product-constraints-and-compatibility"></a>
+<a id="documentation-and-positioning"></a>
+
+### Compatibility and honest availability
+
+**Scope and maturity:** Target, assessed separately for each supported host/version.
+
+**Requirement: Disclose tested host support and limitations.**
+
+Each integration uses the host's reliable capabilities to deliver the same RunWield behavior. Unsupported actions and
+weaker guarantees must be disclosed before users depend on them. A host's API list alone is not evidence that a RunWield
+journey works there.
+
+Connect keeps the external host responsible for every model call while RunWield supplies consistent planning,
+validation, recovery, and records. ACP serves a different journey: an external client talks to a RunWield-executed
+Session. Users must understand which mode they are choosing.
+
+Before starting work, disclose whether the host can:
+
+- prevent implementation changes until planning and approval permit them;
+- run isolated implementation and independent review;
+- use the required tools and review interactions;
+- cancel and recover work reliably;
+- install, update, disable, and remove the integration cleanly.
+
+Do not claim a hard planning restriction when the host cannot enforce it, or independent verification when review lacks
+independence. Preserve the user's host permissions. A model's claim of completion cannot replace actual validation and
+delivery evidence.
+
+Maintain tested host-version ranges and clear Preview or stable labels. Architecture and implementation Plans choose
+transports, role dispatch, tool contracts, and host-specific hooks; this PRD defines the outcomes those choices support.
+
+- The README must position RunWield as the planning, verification, and organizational-memory layer for AI software
+  development and explain Connect, Core, and Workspace together.
+- RunWield Connect must appear as a distinct plugin ecosystem, with current Preview or stable availability shown per
+  External Agent Host.
+- Host-specific guides must cover installation, `/runwield` activation, optional `/runwield:init`, review, permissions,
+  local artifacts, privacy boundaries, recovery, updates, disablement, and uninstall.
+- Documentation must distinguish available adapters from planned targets and must not imply parity based only on a
+  host's listed APIs.
+- Core and Workspace comparisons may explain genuine workflow, integration, and collaboration advantages without
+  suggesting that Connect is an intentionally incomplete trial.
+
+**Acceptance scenarios:**
+
+- When a user chooses an adapter, its guide shows tested versions, Preview/stable availability, permission requirements,
+  and unsupported interactions before they depend on them.
+- Given a host that cannot enforce planning restrictions or independent review, when compatibility is presented, prompt
+  guidance is not described as hard enforcement.
+- When the user compares Connect with Core execution backends or ACP clients, documentation identifies who owns the
+  conversation and makes model calls.
+
+<a id="first-class-product-organic-conversion"></a>
+
+### First-class Connect use
+
+**Scope and maturity:** Lasting product commitment; delivery follows the adapter stages below.
+
+**Requirement: Support users who choose to remain in their external host.**
+
+- RunWield Connect is a supported destination for users who never adopt another RunWield surface.
+- Primary product outcomes are successful verified work, retained use, and trustworthy recovery.
+- Movement to direct Core use or Workspace is a secondary organic outcome.
+- Product-family messaging may explain genuine integration and collaboration advantages but must not reserve feasible
+  Connect capabilities solely to manufacture conversion pressure.
+
+**Acceptance scenarios:**
+
+- Given a user who stays permanently in their external host, when an applicable workflow is supported, they receive its
+  full feasible behavior without being forced into Workspace or direct Core use.
+- When adoption is evaluated, successful verified work, recovery, and retained use matter directly; conversion is not
+  manufactured by removing feasible features.
+
+## End-to-End Preview Acceptance Journey
 
 The Claude Code Preview is complete only when a user can perform this bounded end-to-end journey:
 
@@ -253,57 +425,6 @@ The Claude Code Preview is complete only when a user can perform this bounded en
 15. Cancel, restart, or lose either host or Core processes at supported boundaries and recover or retry without blind
     replay or silent lifecycle corruption.
 16. Continue using the same Claude Code installation normally for requests that do not invoke RunWield.
-
-### Review Experience
-
-- Plannotator remains the rich Plan and code-review surface.
-- Attached adapters should open or present the same review outcome rather than rebuild host-specific review products.
-- Feedback and approval must return as structured workflow outcomes, not inferred from chat prose.
-- The External Agent Host may summarize review progress, but RunWield remains the authority for the resulting lifecycle
-  transition.
-
-### Recovery Experience
-
-- Process loss must preserve Plans, implementation work, completed results, and useful recovery evidence.
-- RunWield must distinguish safe continuation from uncertain external side effects.
-- Recovery must ask the user when a host command, filesystem change, merge, or validation action may have partially
-  completed.
-- RunWield Connect does not promise exact continuation at an interrupted token or exactly-once replay of arbitrary host
-  tool calls.
-
-### Documentation and Positioning
-
-- The README must position RunWield as the planning, verification, and organizational-memory layer for AI software
-  development and explain Connect, Core, and Workspace together.
-- RunWield Connect must appear as a distinct plugin ecosystem, with current Preview or stable availability shown per
-  External Agent Host.
-- Host-specific guides must cover installation, `/runwield` activation, optional `/runwield:init`, review, permissions,
-  local artifacts, privacy boundaries, recovery, updates, disablement, and uninstall.
-- Documentation must distinguish available adapters from planned targets and must not imply parity based only on a
-  host's listed APIs.
-- Core and Workspace comparisons may explain genuine workflow, integration, and collaboration advantages without
-  suggesting that Connect is an intentionally incomplete trial.
-
-## Product Constraints and Compatibility
-
-Connect keeps the external host responsible for every model call while RunWield supplies consistent planning,
-validation, recovery, and records. ACP serves a different journey: an external client talks to a RunWield-executed
-Session. Users must understand which mode they are choosing.
-
-Before starting work, disclose whether the host can:
-
-- prevent implementation changes until planning and approval permit them;
-- run isolated implementation and independent review;
-- use the required tools and review interactions;
-- cancel and recover work reliably;
-- install, update, disable, and remove the integration cleanly.
-
-Do not claim a hard planning restriction when the host cannot enforce it, or independent verification when review lacks
-independence. Preserve the user's host permissions. A model's claim of completion cannot replace actual validation and
-delivery evidence.
-
-Maintain tested host-version ranges and clear Preview or stable labels. Architecture and implementation Plans choose
-transports, role dispatch, tool contracts, and host-specific hooks; this PRD defines the outcomes those choices support.
 
 ## Release Strategy
 
@@ -428,7 +549,8 @@ experience without changing Verified semantics.
 
 ## External Feasibility Evidence
 
-Current official host documentation supports the product direction while confirming capability differences:
+The following research references informed the product direction. They are feasibility evidence, not a fresh
+host-version compatibility audit:
 
 - [Claude Code hooks](https://docs.anthropic.com/en/docs/claude-code/hooks-guide) can inject context, block tool use,
   continue stopped turns, participate in permission decisions, and package through plugins or active Skills. Hook

@@ -263,7 +263,7 @@ export function attachTuiRuntimeAdapter({
                     terminalValidationPanelVisible = false;
                     hiddenValidationReportCached = false;
                 }
-                uiAPI.appendSystemMessage(value.message, true);
+                if (!value.messageAlreadyReported) uiAPI.appendSystemMessage(value.message, true);
                 break;
             case RuntimeEventTypes.CANCELLATION:
                 if (value.message) uiAPI.appendSystemMessage(value.message, false, "RunWield");

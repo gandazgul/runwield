@@ -13,6 +13,7 @@ import {
     getRootSessionRebuildOptions,
     runIsolatedAgentSession,
     runRootTurn,
+    steerActiveSessionWithTarget,
 } from "./session.js";
 import { ClaudeCliBackendError } from "./backends/claude-cli/failure.ts";
 import { CLAUDE_CLI_MCP_PROVENANCE } from "./backends/claude-cli/mcp-bridge.ts";
@@ -98,6 +99,7 @@ async function withClaudeExecutionFixture(
         const previousText = Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_TEXT");
         const previousCalls = Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_MCP_CALLS");
         const previousSleep = Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_SLEEP_MS");
+        const previousBeforeMcpSleep = Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_BEFORE_MCP_SLEEP_MS");
         const previousPostTerminal = Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_POST_TERMINAL_TEXT");
         const home = await Deno.makeTempDir({ prefix: "runwield-claude-exec-home-" });
         const cwd = join(home, "project");
@@ -124,6 +126,8 @@ async function withClaudeExecutionFixture(
             else Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_MCP_CALLS", previousCalls);
             if (previousSleep === undefined) Deno.env.delete("RUNWIELD_CLAUDE_FIXTURE_SLEEP_MS");
             else Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_SLEEP_MS", previousSleep);
+            if (previousBeforeMcpSleep === undefined) Deno.env.delete("RUNWIELD_CLAUDE_FIXTURE_BEFORE_MCP_SLEEP_MS");
+            else Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_BEFORE_MCP_SLEEP_MS", previousBeforeMcpSleep);
             if (previousPostTerminal === undefined) Deno.env.delete("RUNWIELD_CLAUDE_FIXTURE_POST_TERMINAL_TEXT");
             else Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_POST_TERMINAL_TEXT", previousPostTerminal);
             await removeTempDir(home);
@@ -493,6 +497,45 @@ Deno.test("^Claude CLI MCP lifecycle bridge black-box contract$", async () => {
             ),
             true,
         );
+    });
+});
+
+Deno.test("Claude CLI plan_written rejects once when live user steering is pending", async () => {
+    await withClaudeExecutionFixture(async (_home, cwd, logPath) => {
+        Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_BEFORE_MCP_SLEEP_MS", "250");
+        const manager = SessionManager.inMemory(cwd);
+        const hostedSession = createHostedSession(cwd, manager);
+        const callsPath = join(cwd, "mcp-calls-plan-written.json");
+        await Deno.writeTextFile(
+            callsPath,
+            JSON.stringify([{ name: "runwield_plan_written", arguments: { planName: "draft-plan" } }]),
+        );
+        Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_MCP_CALLS", callsPath);
+
+        const run = runIsolatedAgentSession({
+            hostedSession,
+            agentName: AGENTS.PLANNER,
+            userRequest: "draft plan",
+            sessionManager: manager,
+        });
+        await waitForLogText(logPath, "draft plan");
+
+        const steered = await steerActiveSessionWithTarget(hostedSession, "include the timeout case", []);
+        assertEquals(steered !== null, true);
+        const messages = await run;
+
+        const callsLine = (await Deno.readTextFile(logPath)).trim().split("\n")
+            .map((line) => JSON.parse(line))
+            .find((line) => line.mcp?.calls);
+        assertEquals(callsLine.mcp.calls[0].isError, true);
+        assertStringIncludes(callsLine.mcp.calls[0].text, "include the timeout case");
+        const planResults = messages.filter((message) =>
+            message.role === "toolResult" && message.toolName === "plan_written"
+        );
+        assertEquals(planResults.length, 1);
+        const rejected = planResults[0] as ToolResultMessage;
+        assertEquals(rejected.isError, true);
+        assertStringIncludes(rejected.details?.reason || "", "include the timeout case");
     });
 });
 

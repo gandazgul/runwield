@@ -1,4 +1,5 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
+import { getRunWieldRuntimeDir } from "../../constants.js";
 import {
     type Context,
     fauxAssistantMessage,
@@ -255,16 +256,16 @@ async function assertImplementedFollowUpRebindsFromAgent(initialAgentName: strin
                     editor: ui.editor,
                 });
 
-                const rebound = runtime.getSessionSnapshot(replacementId);
-                assertEquals(Boolean(replacementId && replacementId !== sessionId), true);
+                const rebound = runtime.getSessionSnapshot(sessionId);
+                assertEquals(replacementId, sessionId);
                 assertEquals(rebound?.activeAgent, "plan-engineer");
                 assertEquals(rebound?.activeExecutionWorkflow?.planName, fixture.planName);
                 assertEquals(rebound?.activeExecutionWorkflow?.executionAgent, "engineer");
                 assertEquals(rebound?.activeExecutionWorkflow?.executionCwd, fixture.worktreePath);
                 assertEquals(modelCalls, 0);
 
-                await runtime.promptSession(replacementId, { initialRequest: "Review the implemented change." });
-                const afterTurn = runtime.getSessionSnapshot(replacementId);
+                await runtime.promptSession(sessionId, { initialRequest: "Review the implemented change." });
+                const afterTurn = runtime.getSessionSnapshot(sessionId);
                 assertEquals(afterTurn?.activeExecutionWorkflow?.executionCwd, fixture.worktreePath);
                 assertEquals(modelCalls, 1);
                 assertStringIncludes(systemPrompt, "You are the Plan Engineer");
@@ -308,15 +309,15 @@ Deno.test("load-plan follow-up replaces the TUI Session with one rooted in the e
                     editor: ui.editor,
                 });
 
-                const replacement = runtime.getSessionSnapshot(replacementId);
-                assertEquals(Boolean(replacementId && replacementId !== sessionId), true);
+                const replacement = runtime.getSessionSnapshot(sessionId);
+                assertEquals(replacementId, sessionId);
                 assertEquals(replacement?.cwd, fixture.worktreePath);
                 assertEquals(replacement?.activeAgent, "plan-engineer");
                 assertEquals(replacement?.activeExecutionWorkflow?.executionCwd, fixture.worktreePath);
                 assertEquals(await git(fixture.worktreePath, ["branch", "--show-current"]), fixture.worktreeBranch);
 
-                await runtime.promptSession(replacementId, { initialRequest: "Review the implemented change." });
-                const afterTurn = runtime.getSessionSnapshot(replacementId);
+                await runtime.promptSession(sessionId, { initialRequest: "Review the implemented change." });
+                const afterTurn = runtime.getSessionSnapshot(sessionId);
                 assertEquals(afterTurn?.cwd, fixture.worktreePath);
                 assertEquals(afterTurn?.activeExecutionWorkflow?.executionCwd, fixture.worktreePath);
                 assertStringIncludes(systemPrompt, "You are the Plan Engineer");
@@ -435,7 +436,9 @@ Deno.test("load-plan offers lifecycle actions for a validated Plan already publi
         await git(projectRoot, ["commit", "--allow-empty", "-m", "fixture baseline"]);
         const executionCommit = await git(projectRoot, ["rev-parse", "HEAD"]);
         await writePlan(projectRoot, "published", {
+            planId: "published-plan",
             status: "validated",
+            targetBranch: "main",
             executionMode: "worktree",
             deliveryEvidence: {
                 version: 1,
@@ -445,6 +448,10 @@ Deno.test("load-plan offers lifecycle actions for a validated Plan already publi
                 targetHeadBeforeMerge: executionCommit,
             },
         });
+        await git(projectRoot, ["add", "docs/plans/published.md"]);
+        await git(projectRoot, ["commit", "-m", "Publish validated Plan"]);
+        // Completed Plans must remain usable after all controller bookkeeping is lost.
+        await Deno.remove(`${getRunWieldRuntimeDir(projectRoot)}/controller`, { recursive: true });
         const { runtime, sessionId } = await createRuntime(projectRoot);
         const ui = makeUi(["archive"]);
         try {
@@ -458,6 +465,29 @@ Deno.test("load-plan offers lifecycle actions for a validated Plan already publi
             assertEquals(ui.prompts.includes("What would you like to do?"), true);
             assertEquals(await loadPlan(projectRoot, "published"), null);
             assertEquals((await loadArchivedPlan(projectRoot, "published"))?.attrs.archivedFromStatus, "validated");
+        } finally {
+            runtime.closeAllSessions();
+        }
+    });
+});
+
+Deno.test("load-plan offers completed actions for a validated non-Git Plan without controller state", async () => {
+    await withRuntimeCommandFixture("runwield-load-plan-non-git-completed-", async ({ projectRoot }) => {
+        await writePlan(projectRoot, "finished", { status: "validated" });
+        await Deno.remove(`${getRunWieldRuntimeDir(projectRoot)}/controller`, { recursive: true }).catch((error) => {
+            if (!(error instanceof Deno.errors.NotFound)) throw error;
+        });
+        const { runtime, sessionId } = await createRuntime(projectRoot);
+        const ui = makeUi(["archive"]);
+        try {
+            await runLoadPlanCommand(["finished"], {
+                sessionRuntime: runtime,
+                sessionId,
+                uiAPI: ui.uiAPI,
+                editor: ui.editor,
+            });
+            assertEquals(ui.prompts.some((prompt) => prompt.startsWith("Plan recovery")), false);
+            assertEquals((await loadArchivedPlan(projectRoot, "finished"))?.attrs.archivedFromStatus, "validated");
         } finally {
             runtime.closeAllSessions();
         }
@@ -729,6 +759,39 @@ Deno.test("load-plan marks an Epic done enough only after the real lifecycle wri
             assertEquals(epic?.attrs.status, "validated");
             assertEquals(typeof epic?.attrs.epicDoneEnoughAt, "string");
             assertEquals((await loadPlan(projectRoot, "epic/child"))?.attrs.status, "ready_for_work");
+        } finally {
+            runtime.closeAllSessions();
+        }
+    });
+});
+
+Deno.test("load-plan distinguishes validated Epic children from pending publication", async () => {
+    await withRuntimeCommandFixture("runwield-epic-publication-", async ({ projectRoot }) => {
+        await prepareValidatedPublicationPlan(projectRoot, "epic/child", {
+            status: "validated",
+            parentPlan: "epic",
+            order: 1,
+        }, async () => {
+            await writePlan(projectRoot, "epic", {
+                classification: "PROJECT",
+                status: "validated",
+                epicCompletionMode: "done_enough",
+                epicDoneEnoughSummary: "All child plans are completed.",
+            });
+        });
+        const { runtime, sessionId } = await createRuntime(projectRoot);
+        const ui = makeUi(["publish:epic/child", "cancel"]);
+        try {
+            await runLoadPlanCommand(["epic"], {
+                sessionRuntime: runtime,
+                sessionId,
+                uiAPI: ui.uiAPI,
+                editor: ui.editor,
+            });
+            assertStringIncludes(ui.messages.join("\n"), "Publication is still pending for epic/child");
+            assertEquals(ui.messages.some((message) => message.includes("All child plans are completed")), false);
+            assertEquals(ui.promptOptions.flat().some((option) => option.value === "publish:epic/child"), true);
+            assertStringIncludes(ui.messages.join("\n"), "Plan loaded: epic/child");
         } finally {
             runtime.closeAllSessions();
         }

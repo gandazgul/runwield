@@ -3,6 +3,8 @@
  * Shared startup/execution preflight checks.
  */
 
+import { readRunWieldPackageInstallSync } from "./package-install.ts";
+
 const RUNWIELD_INSTALL_URL = "https://github.com/gandazgul/runwield#installation";
 const RUNWIELD_INSTALL_COMMAND =
     "curl -fsSL https://raw.githubusercontent.com/gandazgul/runwield/main/install.sh | bash";
@@ -40,6 +42,16 @@ async function hasRequiredBinary(binary: RuntimeBinary): Promise<boolean> {
 }
 
 function missingBinaryError(displayName: string): Error {
+    const packageInstall = readRunWieldPackageInstallSync();
+    if (packageInstall) {
+        return new Error(
+            [
+                `[RunWield] ${displayName} binary not found in PATH.`,
+                `RunWield is managed by ${packageInstall.packageIdentifier}. Repair the package instead of running the shell installer.`,
+                `Command: ${packageInstall.repairCommand}`,
+            ].join("\n"),
+        );
+    }
     return new Error(
         [
             `[RunWield] ${displayName} binary not found in PATH.`,

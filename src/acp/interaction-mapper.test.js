@@ -89,7 +89,52 @@ Deno.test("ACP interaction adapter distinguishes approval acceptance from declin
     });
 });
 
-Deno.test("ACP interaction adapter returns unsupported without form capabilities", async () => {
+Deno.test("ACP interaction adapter browser fallback cancels with the request signal", async () => {
     const adapter = createAcpInteractionAdapter({ acpSessionId: "acp-1", clientCapabilities: {}, context: {} });
-    assertEquals((await adapter.requestInteraction({ type: "text", prompt: "Name?" })).outcome, "unsupported");
+    const controller = new AbortController();
+    const pending = adapter.requestInteraction({ type: "text", prompt: "Name?" }, controller.signal);
+    controller.abort();
+    assertEquals(await pending, { outcome: "canceled", message: "Interaction canceled." });
+});
+
+Deno.test("ACP browser fallback rejects answer submissions without same-origin proof", async () => {
+    /** @type {PromiseWithResolvers<string>} */
+    const notified = Promise.withResolvers();
+    const adapter = createAcpInteractionAdapter({
+        acpSessionId: "acp-session-1",
+        clientCapabilities: {},
+        context: {
+            notify: (
+                /** @type {string} */ _method,
+                /** @type {{ update: { _meta: { runwield: { questionUrl: string } } } }} */ params,
+            ) => {
+                notified.resolve(params.update._meta.runwield.questionUrl);
+            },
+        },
+    });
+    const controller = new AbortController();
+    const pending = adapter.requestInteraction({
+        id: "question-1",
+        type: "text",
+        prompt: "Name?",
+    }, controller.signal);
+    const ready = await Promise.race([
+        notified.promise.then((questionUrl) => ({ questionUrl })),
+        Promise.resolve(pending).then((response) => ({ response })),
+    ]);
+    if ("response" in ready) {
+        assertEquals(ready.response.outcome, "unsupported");
+        return;
+    }
+    const questionUrl = ready.questionUrl;
+
+    const noOrigin = await fetch(questionUrl.replace("/session-question", "/api/session-question/answer"), {
+        method: "POST",
+        body: new URLSearchParams({ answer: "Ada" }),
+    });
+    assertEquals(noOrigin.status, 403);
+    await noOrigin.body?.cancel();
+
+    controller.abort();
+    assertEquals(await pending, { outcome: "canceled", message: "Interaction canceled." });
 });

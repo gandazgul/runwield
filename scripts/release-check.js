@@ -629,6 +629,21 @@ export async function runReleaseCheck(options, port) {
             stderr: "piped",
         }, runner);
         if (options.buildVersion) assertBinaryVersionOutput(`${smoke.stdout}${smoke.stderr}`, options.buildVersion);
+        const imageSmoke = await mustRun(
+            "Smoke test packaged image resize",
+            output,
+            ["package-smoke", "image-resize"],
+            {
+                cwd: tempDir,
+                env: { WLD_INTERNAL_PACKAGE_CHECK: "1", HOME: tempDir, USERPROFILE: tempDir },
+                stdout: "piped",
+                stderr: "piped",
+            },
+            runner,
+        );
+        if (imageSmoke.stderr.trim()) {
+            throw new Error(`Packaged image resize wrote unexpected terminal output: ${imageSmoke.stderr}`);
+        }
         await port.smokeTestBundledAgentReferenceExtraction(output, tempDir);
         await port.smokeTestBinaryPlansUiSurface(output, tempDir);
         await port.smokeTestBinaryReviewSurface(output, tempDir);
@@ -640,7 +655,7 @@ export async function runReleaseCheck(options, port) {
             "Run Golden TUI release gate",
             "deno",
             ["task", "test:golden-tui:extensive"],
-            { cwd: rootDir },
+            { cwd: rootDir, env: { WLD_TEST_CONCURRENCY: "2" } },
             runner,
         );
     } finally {

@@ -2,6 +2,7 @@ import { assertEquals, assertStringIncludes } from "@std/assert";
 import stripAnsi from "strip-ansi";
 import {
     composePinnedSessionSidebar,
+    isSessionArtifactOpenKey,
     isSessionSidebarActionKey,
     isSessionSidebarCycleKey,
     TuiSessionSidebar,
@@ -69,6 +70,13 @@ Deno.test("TUI Session Sidebar defaults to workflow and cycles through shared ta
     const artifacts = stripAnsi(sidebar.render(34).join("\n"));
     assertStringIncludes(artifacts, "Session Sidebar");
     assertStringIncludes(artifacts, "PRD");
+    assertStringIncludes(artifacts, "alt+] open artifact");
+});
+
+Deno.test("artifact reader shortcut does not consume the sidebar cycle key or ordinary typing", () => {
+    assertEquals(isSessionArtifactOpenKey("\u001b]"), true);
+    assertEquals(isSessionArtifactOpenKey("\u001d"), false);
+    assertEquals(isSessionArtifactOpenKey("]"), false);
 });
 
 Deno.test("TUI Session Sidebar reuses the snapshot already loaded for the frame", () => {

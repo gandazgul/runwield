@@ -20,6 +20,11 @@ export const PUBLICATION_PHASES = [
 
 export type PublicationPhase = (typeof PUBLICATION_PHASES)[number];
 
+/** Published attempts retain cleanup evidence, not ownership of an execution document. */
+export function isPublicationCleanupPending(attempt: PublicationAttempt | undefined): boolean {
+    return attempt?.phase === "publication_verified" || attempt?.phase === "cleanup_complete";
+}
+
 export type PublicationFailure = {
     phase: PublicationPhase;
     kind: string;

@@ -21,7 +21,7 @@ Deno.test("Code Review styles inherited annotation modals with CSS only", async 
     assertStringIncludes(workspaceStyles, ".rw-code-review button.review-toolbar-btn.primary");
     assertStringIncludes(workspaceStyles, '.fixed.inset-0[class*="z-"] button.review-toolbar-btn.primary');
     assertStringIncludes(workspaceStyles, "min-height: 2.25rem !important;");
-    assertStringIncludes(workspaceStyles, "border-radius: 0.625rem !important;");
+    assertStringIncludes(workspaceStyles, "border-radius: var(--rw-radius-control) !important;");
     assertStringIncludes(workspaceStyles, "background: color-mix(in srgb, var(--primary, var(--rw-accent)) 84%");
     assertStringIncludes(
         workspaceStyles,

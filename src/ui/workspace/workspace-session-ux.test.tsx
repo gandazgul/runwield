@@ -4,10 +4,12 @@ import {
     activePlanProgressApiUrl,
     draftRecoveryDecision,
     isAtLiveScrollEdge,
+    mergeLiveSessionInfo,
     newSessionDraftInstanceStorageKey,
     reduceOperationTransientItems,
     serializeSessionImageForRequest,
     sessionAttachmentsKey,
+    SessionComposer,
     sessionDraftKey,
     shouldApplyOperationPoll,
     shouldRefreshSessionAvailability,
@@ -18,10 +20,141 @@ import {
     compactToolLine,
     displayAgentName,
     formatSessionTimelineTime,
+    mergeSessionTimelineItems,
     reduceSessionEvents,
     sessionInteractionChoiceResponse,
     sessionInteractionTypedResponse,
+    SessionTimeline,
 } from "./components/SessionTimeline.jsx";
+
+function RejectedImageDraftHarness({ createElement, useState, submissions }) {
+    const [draft, setDraft] = useState("describe bad image");
+    const [images, setImages] = useState([
+        { id: "image-1", name: "bad.png", mimeType: "image/png", base64: btoa("bad") },
+    ]);
+    return createElement(SessionComposer, {
+        id: "session-request-text",
+        draft,
+        disabled: false,
+        canSend: draft.trim().length > 0 || images.length > 0,
+        submitting: false,
+        imageAttachments: images,
+        onDraftChange: setDraft,
+        onSubmit() {
+            submissions.push({ text: draft, images: images.map((image) => image.name) });
+            if (submissions.length === 1) return;
+            setDraft("");
+            setImages([]);
+        },
+        onRemoveImage(id) {
+            setImages((current) => current.filter((image) => image.id !== id));
+        },
+    });
+}
+
+Deno.test("Session composer keeps provider/model identities and opens slash choices before the first message", async () => {
+    const { createElement } = await import("react");
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const props = {
+        id: "new-session-request-text",
+        draft: "",
+        disabled: false,
+        canSend: false,
+        submitting: false,
+        agents: [{ name: "guide", displayName: "Guide" }],
+        agentValue: "guide",
+        models: [{ provider: "openai-codex", id: "gpt-5.6-luna", name: "Luna" }],
+        modelValue: "openai-codex\u001fgpt-5.6-luna",
+        thinkingLevels: ["low"],
+        thinkingValue: "low",
+        commands: [{ name: "model", description: "Switch AI model", kind: "action" }],
+        onDraftChange() {},
+        onSubmit() {},
+        onAgentChange() {},
+        onModelChange() {},
+        onThinkingChange() {},
+    };
+    const empty = renderToStaticMarkup(createElement(SessionComposer, props));
+    assertEquals(empty.includes("openai-codex/gpt-5.6-luna</option>"), true);
+    assertEquals(empty.match(/<select[^>]*disabled/g), null);
+    assertEquals(empty.includes('aria-label="Attach image"'), true);
+    assertEquals(empty.includes('title="Send"'), true);
+    const commands = renderToStaticMarkup(createElement(SessionComposer, { ...props, draft: "/mo", canSend: true }));
+    assertEquals(commands.includes('role="listbox" aria-label="Commands"'), true);
+    assertEquals(commands.includes('aria-expanded="false"'), true);
+    assertEquals(commands.includes('aria-activedescendant="new-session-request-text-commands-0"'), true);
+    assertEquals(commands.includes("<strong>/model</strong>"), true);
+    const models = renderToStaticMarkup(
+        createElement(SessionComposer, { ...props, draft: "/model luna", canSend: true }),
+    );
+    assertEquals(models.includes("<strong>openai-codex/gpt-5.6-luna</strong>"), true);
+});
+
+Deno.test("Session composer renders restored image draft previews ready for corrected send", async () => {
+    const { createElement } = await import("react");
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const html = renderToStaticMarkup(
+        createElement(SessionComposer, {
+            id: "session-request-text",
+            draft: "  describe again  ",
+            disabled: false,
+            canSend: true,
+            submitting: false,
+            imageAttachments: [{ id: "image-1", name: "draft.png", mimeType: "image/png", base64: btoa("img") }],
+            onDraftChange() {},
+            onSubmit() {},
+            onRemoveImage() {},
+        }),
+    );
+
+    assertEquals(html.includes("  describe again  "), true);
+    assertEquals(html.includes('aria-label="Attached images"'), true);
+    assertEquals(html.includes("draft.png · image/png"), true);
+    assertEquals(html.includes('aria-label="Send"'), true);
+    assertEquals(html.includes('aria-label="Sending"'), false);
+});
+
+Deno.test("Session composer restores a rejected draft and sends the corrected image draft", async () => {
+    const previousDocument = globalThis.document;
+    const previousActFlag = globalThis.IS_REACT_ACT_ENVIRONMENT;
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    globalThis.document = { getElementById: () => null };
+    try {
+        const { createElement, useState } = await import("react");
+        const { act, create } = await import("react-test-renderer");
+        const submissions = [];
+        let renderer;
+        await act(() => {
+            renderer = create(createElement(RejectedImageDraftHarness, { createElement, useState, submissions }));
+        });
+        const form = () => renderer.root.findByType("form");
+        const textarea = () => renderer.root.findByType("textarea");
+        await act(() => {
+            form().props.onSubmit({ preventDefault() {} });
+        });
+        assertEquals(textarea().props.value, "describe bad image");
+        assertEquals(
+            renderer.root.findAllByType("span").some((item) => item.children.join("").includes("bad.png")),
+            true,
+        );
+        await act(() => {
+            textarea().props.onChange({ currentTarget: { value: "describe good image", style: {}, scrollHeight: 32 } });
+        });
+        await act(() => {
+            form().props.onSubmit({ preventDefault() {} });
+        });
+        assertEquals(submissions, [
+            { text: "describe bad image", images: ["bad.png"] },
+            { text: "describe good image", images: ["bad.png"] },
+        ]);
+        assertEquals(textarea().props.value, "");
+    } finally {
+        if (previousDocument === undefined) delete globalThis.document;
+        else globalThis.document = previousDocument;
+        if (previousActFlag === undefined) delete globalThis.IS_REACT_ACT_ENVIRONMENT;
+        else globalThis.IS_REACT_ACT_ENVIRONMENT = previousActFlag;
+    }
+});
 
 Deno.test("Session surface preserves drafts and replaces a lost live wait with one interruption line", () => {
     assertEquals(sessionDraftKey("project-1", "session-1"), "runwield:owner:project:project-1:session:session-1:draft");
@@ -280,6 +413,68 @@ Deno.test("Session timeline groups completed technical activity after agent cont
     assertEquals(items[1]?.items?.[0]?.output, "src/app.js");
 });
 
+Deno.test("Activity stays open as it grows and only synchronizes Thinking disclosures", async () => {
+    const { createElement } = await import("react");
+    const { create, act } = await import("react-test-renderer");
+    const previousActFlag = globalThis.IS_REACT_ACT_ENVIRONMENT;
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    let renderer;
+    const activity = (extra = false) =>
+        reduceSessionEvents([
+            { type: "tool_start", eventId: "t1s", toolCallId: "t1", toolName: "read" },
+            { type: "tool_end", eventId: "t1e", toolCallId: "t1", toolName: "read", output: "first file" },
+            { type: "assistant_thinking_delta", eventId: "th1", messageId: "thinking-1", delta: "Checking" },
+            { type: "assistant_thinking_end", eventId: "th1e", messageId: "thinking-1" },
+            ...(extra
+                ? [
+                    { type: "tool_end", eventId: "t2e", toolCallId: "t2", toolName: "read", output: "second file" },
+                    { type: "assistant_thinking_delta", eventId: "th2", messageId: "thinking-2", delta: "More checks" },
+                    { type: "assistant_thinking_end", eventId: "th2e", messageId: "thinking-2" },
+                ]
+                : []),
+            { type: "assistant_text_delta", eventId: "a1", messageId: "a1", delta: "Done" },
+        ]).filter((item) => item.kind === "activity");
+    const initial = activity();
+    const expanded = activity(true);
+    assertEquals(initial[0].key, expanded[0].key);
+    const group = () => renderer.root.findByProps({ className: "session-activity-group" });
+    const thinking = () =>
+        renderer.root.findAllByType("details").filter((node) => node.props.className.includes("activity-thinking"));
+    const tools = () =>
+        renderer.root.findAllByType("details").filter((node) => node.props.className.includes("activity-tool"));
+    const toggle = async (node, open) => {
+        const target = { open };
+        await act(() => node.props.onToggle({ currentTarget: target, target }));
+    };
+    try {
+        await act(() => {
+            renderer = create(createElement(SessionTimeline, { items: initial }));
+        });
+        const firstTool = tools()[0];
+        assertEquals(group().props.open, false);
+        await toggle(group(), true);
+        assertEquals(thinking()[0].props.open, true);
+        await toggle(thinking()[0], false);
+        assertEquals(group().props.open, true);
+        await act(() => renderer.update(createElement(SessionTimeline, { items: expanded })));
+        assertEquals(group().props.open, true);
+        assertEquals(thinking().map((node) => node.props.open), [false, true]);
+        assertEquals(tools()[0] === firstTool, true);
+        assertEquals(tools().every((node) => node.props.open === undefined && node.props.onToggle === undefined), true);
+        await toggle(group(), false);
+        assertEquals(thinking().map((node) => node.props.open), [false, false]);
+        await toggle(group(), true);
+        assertEquals(thinking().map((node) => node.props.open), [true, true]);
+        // Nested toggle events must never change the parent disclosure.
+        await act(() => group().props.onToggle({ currentTarget: { open: false }, target: {} }));
+        assertEquals(group().props.open, true);
+    } finally {
+        if (renderer) await act(() => renderer.unmount());
+        if (previousActFlag === undefined) delete globalThis.IS_REACT_ACT_ENVIRONMENT;
+        else globalThis.IS_REACT_ACT_ENVIRONMENT = previousActFlag;
+    }
+});
+
 Deno.test("Session timeline keeps trailing or running technical activity visible", () => {
     const trailing = reduceSessionEvents([
         { type: "tool_start", eventId: "t1s", toolCallId: "t1", toolName: "read", title: "read src/app.js" },
@@ -309,6 +504,48 @@ Deno.test("Existing Session route lets the shared chat shell own the page headin
     assertEquals(route.includes("Session Continuation"), false);
     assertEquals(route.includes("Committed transcript history"), false);
     assertEquals(route.includes("SessionSurface"), true);
+});
+
+Deno.test("live Plan attachment updates sidebar state without replacing committed history", () => {
+    const initial = {
+        events: [{ eventId: "committed-1", text: "Start with Ideator" }],
+        nextCursor: "committed-1",
+        generation: 1,
+        snapshot: {
+            activeAgent: "ideator",
+            workflowContext: null,
+            planAssociations: [{ planName: "old-plan", planId: "plan-1" }],
+        },
+    };
+    const planning = mergeLiveSessionInfo(initial, {
+        activeAgent: "planner",
+        activeModel: { provider: "openai", model: "planner-model" },
+        thinkingLevel: "high",
+        workflowContext: { planName: "new-plan" },
+        planAssociations: [{ planName: "new-plan", planId: "plan-2" }],
+        activeExecutionWorkflow: null,
+    });
+    assertEquals(
+        activePlanProgressApiUrl("project", "session", planning.snapshot),
+        "/api/owner/projects/project/plans/plan-2/progress?session=session",
+    );
+    assertEquals(planning.events, initial.events);
+    assertEquals(planning.nextCursor, "committed-1");
+    assertEquals(planning.generation, 1);
+    assertEquals(planning.snapshot.activeAgent, "planner");
+    assertEquals(planning.snapshot.planAssociations.map((item) => item.planId), ["plan-1", "plan-2"]);
+    assertEquals(mergeLiveSessionInfo(planning, planning.snapshot).snapshot.planAssociations.length, 2);
+    assertEquals(planning.snapshot.thinkingLevel, "high");
+    const executing = mergeLiveSessionInfo(planning, {
+        activeAgent: "engineer",
+        activeExecutionWorkflow: { planName: "child-plan", triageMeta: { planId: "child-id" } },
+    });
+    assertEquals(
+        activePlanProgressApiUrl("project", "session", executing.snapshot),
+        "/api/owner/projects/project/plans/child-id/progress?session=session",
+    );
+    assertEquals(mergeLiveSessionInfo(executing, null), executing);
+    assertEquals(initial.snapshot.activeAgent, "ideator");
 });
 
 Deno.test("Session workflow sidebar uses canonical progress stages", async () => {
@@ -356,20 +593,39 @@ Deno.test("Persisted Sessions expose the shared context sidebar tabs", async () 
     assertEquals(surface.includes('title="Workflow"'), true);
 });
 
-Deno.test("Session sidebar shares TUI fields without duplicating composer or backend details", async () => {
+Deno.test("Session sidebar adds current runtime settings to shared TUI fields", async () => {
     const surface = await Deno.readTextFile(new URL("./islands/SessionSurface.jsx", import.meta.url));
-    assertEquals(surface.includes("sessionSidebarFields(sessionSidebar).map"), true);
+    assertEquals(
+        surface.includes('sessionSidebarFields(sessionSidebar).filter((field) => field.label !== "Session")'),
+        true,
+    );
+    assertEquals(surface.includes('label: "Agent"'), true);
+    assertEquals(surface.includes('label: "Model"'), true);
+    assertEquals(surface.includes('label: "Thinking"'), true);
+    assertEquals(surface.includes('const currentAgent = timeline?.snapshot?.activeAgent || ""'), true);
+    assertEquals(surface.includes("value: activeThinking"), true);
+    assertEquals(surface.includes('[activeProvider, activeModelId].filter(Boolean).join("/")'), true);
     assertEquals(surface.includes("Execution Backend"), false);
     assertEquals(surface.includes("<dd>{displayedThinking}</dd>"), false);
     assertEquals(surface.includes("modelValue={stagedModelKey}"), true);
     assertEquals(surface.includes("thinkingValue={displayedThinking}"), true);
 });
 
-Deno.test("Session sidebar places collapse before tabs and omits repeated inner headings", async () => {
+Deno.test("Session sidebar keeps one toggle and its tabs in the shared header", async () => {
     const surface = await Deno.readTextFile(new URL("./islands/SessionSurface.jsx", import.meta.url));
-    const header = surface.slice(surface.indexOf('<div className="session-context-header">'));
-    assertEquals(header.indexOf("<RunWieldPanelToggle") < header.indexOf('className="session-context-tabs"'), true);
-    assertEquals(header.includes('className="kicker"'), false);
+    const header = surface.slice(
+        surface.indexOf("<WorkspaceHeaderActionsPortal>"),
+        surface.indexOf("</WorkspaceHeaderActionsPortal>"),
+    );
+    assertEquals(
+        header.indexOf("<RunWieldPanelToggle") < header.indexOf('className="rw-underline-tabs session-context-tabs"'),
+        true,
+    );
+    assertEquals(header.includes("collapsed={contextCollapsed}"), true);
+    assertEquals(surface.match(/<RunWieldPanelToggle/g)?.length, 1);
+    const sidebar = surface.slice(surface.indexOf('id="session-context-sidebar"'));
+    assertEquals(sidebar.includes('className="session-context-header"'), false);
+    assertEquals(sidebar.includes('className="kicker"'), false);
 });
 
 Deno.test("Session image attachments use a Session-scoped draft key and request payload", () => {
@@ -399,6 +655,30 @@ Deno.test("idle Sessions can continue with planning or execution history", () =>
     });
     assertEquals(execution.key, "available");
     assertEquals(execution.canContinue, true);
+});
+
+Deno.test("review_diff stays collapsed while review_complete is an expanded workflow step", async () => {
+    const { SessionTimeline } = await import("./components/SessionTimeline.jsx");
+    const { createElement } = await import("react");
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const started = { type: "tool_start", toolCallId: "diff", toolName: "review_diff" };
+    const completed = { type: "tool_end", toolCallId: "diff", toolName: "review_diff", output: "README diff" };
+    for (const events of [[started], [started, completed], [completed]]) {
+        const items = reduceSessionEvents(events);
+        assertEquals(items[0].kind, "tool");
+        const html = renderToStaticMarkup(createElement(SessionTimeline, { items }));
+        assertEquals(html.includes('<details class="session-tool '), true);
+        assertEquals(html.includes(" open="), false);
+        assertEquals(html.includes("rw-workflow-block"), false);
+    }
+    const items = reduceSessionEvents([
+        completed,
+        { type: "tool_end", toolCallId: "read", toolName: "read", output: "Plan requirements" },
+        { type: "tool_end", toolCallId: "review", toolName: "review_complete", output: "Review approved." },
+    ]);
+    assertEquals(items.map((item) => item.kind), ["activity", "workflow"]);
+    assertEquals(items[0].items.map((item) => item.toolName), ["review_diff", "read"]);
+    assertEquals(items[1].workflowMessage, "review_complete");
 });
 
 Deno.test("all workflow tools remain expanded outside routine activity, with accepted reports preserved", async () => {
@@ -520,4 +800,288 @@ Deno.test("image-only user messages survive the browser timeline reducer", () =>
     const items = reduceSessionEvents([{ type: "user_message", messageId: "image", text: "", images }]);
     assertEquals(items[0].images, images);
     assertEquals(items[0].role, "user");
+});
+
+Deno.test("Core busy events show Thinking at the live edge before any assistant output and clear on idle", async () => {
+    const { createElement } = await import("react");
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const events = [
+        { type: "user_message", messageId: "request", text: "Hello" },
+        { type: "busy_changed", busy: true },
+    ];
+    let items = reduceOperationTransientItems(events);
+    const html = renderToStaticMarkup(createElement(SessionTimeline, { items }));
+    assertEquals(html.includes('aria-label="Thinking..."'), true);
+    assertEquals(html.includes('class="rw-thinking-glyph"'), true);
+    assertEquals(items.at(-1).kind, "busy");
+    events.push({ type: "assistant_text_delta", messageId: "reply", delta: "Hello back" });
+    events.push({ type: "busy_changed", busy: true });
+    items = reduceOperationTransientItems(events);
+    assertEquals(items.filter((item) => item.kind === "busy").length, 1);
+    assertEquals(items.at(-1).kind, "busy");
+    events.push({ type: "busy_changed", busy: false });
+    assertEquals(reduceOperationTransientItems(events).some((item) => item.kind === "busy"), false);
+    // An old busy event must not turn a reopened transcript into a running Session.
+    assertEquals(reduceSessionEvents(events.slice(0, 2)).some((item) => item.kind === "busy"), false);
+    assertEquals(reduceOperationTransientItems([]).length, 0);
+});
+
+Deno.test("Workspace displays a reported backend denial once", () => {
+    const items = reduceSessionEvents([
+        { type: "system_status", level: "error", message: "Blocked: read_file" },
+        { type: "terminal_error", message: "Blocked: read_file", messageAlreadyReported: true },
+        { type: "terminal_error", message: "A different failure" },
+    ]);
+    assertEquals(items.filter((item) => item.kind === "system-event").map((item) => item.text), [
+        "Blocked: read_file\nA different failure",
+    ]);
+});
+
+Deno.test("Session composer preserves drafts across focus changes and shares one Stop or Send action", async () => {
+    const previousDocument = globalThis.document;
+    const previousActFlag = globalThis.IS_REACT_ACT_ENVIRONMENT;
+    globalThis.document = { getElementById: () => null };
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    const { createElement } = await import("react");
+    const { act, create } = await import("react-test-renderer");
+    let renderer;
+    let stopped = 0;
+    let sent = 0;
+    let focused = 0;
+    const props = {
+        id: "focus-composer",
+        draft: "",
+        disabled: false,
+        canSend: false,
+        submitting: false,
+        agentValue: "planner",
+        agents: [{ name: "planner", displayName: "Planner" }],
+        modelValue: "openai\u001fgpt-model",
+        thinkingValue: "high",
+        onDraftChange() {},
+        onSubmit() {
+            sent++;
+        },
+        onStop() {
+            stopped++;
+        },
+    };
+    try {
+        await act(() => {
+            renderer = create(createElement(SessionComposer, props), {
+                createNodeMock(element) {
+                    return element.type === "textarea"
+                        ? {
+                            style: {},
+                            scrollHeight: 48,
+                            focus() {
+                                focused++;
+                            },
+                        }
+                        : null;
+                },
+            });
+        });
+        const form = () => renderer.root.findByType("form");
+        const textarea = () => renderer.root.findByType("textarea");
+        const primary = () =>
+            renderer.root.findAllByType("button").find((button) =>
+                button.props.className?.includes("session-send-button")
+            );
+        const summary = () => renderer.root.findByProps({ className: "session-composer-summary" });
+        assertEquals(form().props["data-expanded"], false);
+        assertEquals(textarea().props.hidden, true);
+        assertEquals(summary().props.title, "Planner · openai/gpt-model · high");
+        assertEquals(primary().props["aria-label"], "Stop");
+        assertEquals(primary().props.disabled, false);
+        await act(() => primary().props.onClick());
+        assertEquals(stopped, 1);
+        assertEquals(sent, 0);
+        await act(() => summary().props.onFocus());
+        assertEquals(form().props["data-expanded"], true);
+        assertEquals(textarea().props.hidden, false);
+        assertEquals(focused, 1);
+        const settings = {};
+        await act(() =>
+            form().props.onBlurCapture({
+                currentTarget: { contains: (target) => target === settings },
+                relatedTarget: settings,
+            })
+        );
+        assertEquals(form().props["data-expanded"], true);
+        await act(() =>
+            renderer.update(createElement(SessionComposer, {
+                ...props,
+                draft: "Keep this draft",
+                canSend: true,
+                imageAttachments: [{ id: "image-1", name: "draft.png", mimeType: "image/png", base64: "aW1n" }],
+            }))
+        );
+        assertEquals(primary().props["aria-label"], "Send");
+        assertEquals(primary().props.type, "submit");
+        await act(() => form().props.onBlurCapture({ currentTarget: { contains: () => false }, relatedTarget: null }));
+        assertEquals(form().props["data-expanded"], false);
+        assertEquals(textarea().props.value, "Keep this draft");
+        assertEquals(summary().children[0].children[0].startsWith("Draft · Planner"), true);
+        assertEquals(renderer.root.findByProps({ "aria-label": "Attached images" }).props.hidden, true);
+        await act(() => summary().props.onClick());
+        assertEquals(textarea().props.value, "Keep this draft");
+        assertEquals(renderer.root.findByProps({ "aria-label": "Attached images" }).props.hidden, false);
+        await act(() => form().props.onSubmit({ preventDefault() {} }));
+        assertEquals(sent, 1);
+        await act(() =>
+            renderer.update(createElement(SessionComposer, {
+                ...props,
+                draft: " ",
+                canSend: true,
+                imageAttachments: [{ id: "image-1", name: "draft.png", mimeType: "image/png", base64: "aW1n" }],
+            }))
+        );
+        assertEquals(primary().props["aria-label"], "Send");
+        await act(() => renderer.update(createElement(SessionComposer, { ...props, draft: " " })));
+        assertEquals(primary().props["aria-label"], "Stop");
+    } finally {
+        if (renderer) await act(() => renderer.unmount());
+        if (previousDocument === undefined) delete globalThis.document;
+        else globalThis.document = previousDocument;
+        if (previousActFlag === undefined) delete globalThis.IS_REACT_ACT_ENVIRONMENT;
+        else globalThis.IS_REACT_ACT_ENVIRONMENT = previousActFlag;
+    }
+});
+
+Deno.test("saved and live reports reconcile by call and retain chronological Activity boundaries", () => {
+    const time = (minute) => `2026-09-19T20:${minute}:00.000Z`;
+    const report = (call, minute) => [
+        { type: "tool_end", toolName: "task_completed", toolCallId: call, timestamp: time(minute) },
+        {
+            type: "assistant_text_delta",
+            workflowMessage: "task_completed",
+            toolCallId: call,
+            messageId: `report-${call}`,
+            delta: `Report ${call}`,
+            timestamp: time(minute),
+        },
+    ];
+    const tools = (prefix, minute) =>
+        [1, 2].map((n) => ({
+            type: "tool_end",
+            toolName: "read",
+            toolCallId: `${prefix}-${n}`,
+            timestamp: time(minute),
+        }));
+    const saved = reduceSessionEvents([
+        ...report("first", "24"),
+        ...tools("saved", "25"),
+        ...report("second", "53"),
+    ]);
+    const live = reduceSessionEvents([
+        ...report("first", "24"),
+        ...tools("saved", "25"),
+        { type: "assistant_thinking_end", messageId: "review-thinking", timestamp: time("28") },
+        ...tools("review", "29"),
+        {
+            type: "assistant_text_delta",
+            workflowMessage: "review_complete",
+            toolCallId: "review",
+            messageId: "review-report",
+            delta: "Repair required",
+            timestamp: time("30"),
+        },
+        ...report("second", "53"),
+    ], { source: "transient" });
+    const items = mergeSessionTimelineItems(saved, live);
+    assertEquals(items.map((item) => item.workflowMessage || item.kind), [
+        "task_completed",
+        "activity",
+        "review_complete",
+        "task_completed",
+    ]);
+    assertEquals(items.filter((item) => item.kind === "workflow").map((item) => item.timestamp), [
+        time("24"),
+        time("30"),
+        time("53"),
+    ]);
+    assertEquals(items[1].items.map((item) => item.toolCallId || item.kind), [
+        "saved-1",
+        "saved-2",
+        "thinking",
+        "review-1",
+        "review-2",
+    ]);
+    assertEquals(new Set(items[1].items.map((item) => item.key)).size, 5);
+});
+
+Deno.test("Activity never spans a user message or special report", () => {
+    const tool = (id) => ({ type: "tool_end", toolName: "read", toolCallId: id });
+    const items = reduceSessionEvents([
+        tool("a"),
+        tool("b"),
+        { type: "user_message", messageId: "user", text: "Earlier request" },
+        tool("c"),
+        { type: "assistant_thinking_end", messageId: "thinking" },
+        { type: "tool_end", toolName: "manual_qa_completed", toolCallId: "qa" },
+        tool("d"),
+        tool("e"),
+        { type: "assistant_text_delta", messageId: "reply", delta: "Done" },
+    ]);
+    assertEquals(items.map((item) => item.kind), [
+        "activity",
+        "message",
+        "activity",
+        "workflow",
+        "activity",
+        "message",
+    ]);
+    assertEquals(
+        items.filter((item) => item.kind === "activity").map((item) => item.items.map((entry) => entry.kind)),
+        [["tool", "tool"], ["tool", "thinking"], ["tool", "tool"]],
+    );
+});
+
+Deno.test("nested completion reports keep their call identity and accepted time after late results", () => {
+    const time = (minute) => `2026-09-19T20:${minute}:00.000Z`;
+    const items = reduceSessionEvents([
+        { type: "tool_start", toolName: "task_completed", toolCallId: "outer", timestamp: time("23") },
+        { type: "tool_start", toolName: "task_completed", toolCallId: "inner", timestamp: time("24") },
+        {
+            type: "assistant_text_delta",
+            workflowMessage: "task_completed",
+            toolCallId: "outer",
+            messageId: "outer-report",
+            delta: "Outer report",
+            timestamp: time("25"),
+        },
+        {
+            type: "assistant_text_delta",
+            workflowMessage: "task_completed",
+            toolCallId: "inner",
+            messageId: "inner-report",
+            delta: "Inner report",
+            timestamp: time("26"),
+        },
+        { type: "tool_end", toolName: "task_completed", toolCallId: "outer", timestamp: time("53") },
+        { type: "tool_end", toolName: "task_completed", toolCallId: "inner", timestamp: time("54") },
+    ]);
+    assertEquals(items.map((item) => [item.toolCallId, item.markdown, item.timestamp]), [[
+        "outer",
+        "Outer report",
+        time("25"),
+    ], ["inner", "Inner report", time("26")]]);
+});
+
+Deno.test("live updates finish saved running tools without dropping later repeated user text", () => {
+    const saved = reduceSessionEvents([
+        { type: "user_message", messageId: "saved-user", text: "Continue", timestamp: "2026-09-19T20:00:01Z" },
+        { type: "tool_start", toolCallId: "call", toolName: "read", timestamp: "2026-09-19T20:01:00Z" },
+    ]);
+    const live = reduceSessionEvents([
+        { type: "user_message", messageId: "live-user", text: "Continue", timestamp: "2026-09-19T20:00:00Z" },
+        { type: "tool_end", toolCallId: "call", toolName: "read", output: "Result", timestamp: "2026-09-19T20:02:00Z" },
+        { type: "user_message", messageId: "later-user", text: "Continue", timestamp: "2026-09-19T20:03:00Z" },
+    ], { source: "transient" });
+    const items = mergeSessionTimelineItems(saved, live);
+    assertEquals(items.map((item) => item.kind), ["message", "tool", "message"]);
+    assertEquals(items[1].status, "completed");
+    assertEquals(items[1].output, "Result");
+    assertEquals(items[2].timestamp, "2026-09-19T20:03:00Z");
 });

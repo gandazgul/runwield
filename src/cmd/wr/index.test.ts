@@ -142,6 +142,38 @@ Deno.test("wld wr backfill --dry-run previews a real completed Plan without writ
     });
 });
 
+Deno.test("wld wr backfill accepts older Result headings without rewriting records", async () => {
+    await withRuntimeCommandFixture("wr-backfill-result-", async ({ projectRoot }) => {
+        Deno.chdir(projectRoot);
+        await saveVerifiedPlan(projectRoot);
+        await writeFixtureRecords(projectRoot);
+        const path = `${projectRoot}/docs/work-records/2026-07-14-current.md`;
+        const legacy = (await Deno.readTextFile(path)).replace("## Summary", "## Result");
+        await Deno.writeTextFile(path, legacy);
+        const output = await captureCommand(["backfill", "--dry-run"]);
+        assertStringIncludes(output, "standalone");
+        assertStringIncludes(output, "Dry run only");
+        assertEquals(await Deno.readTextFile(path), legacy);
+    });
+});
+
+Deno.test("wld wr backfill names an invalid existing record without crashing or writing", async () => {
+    await withRuntimeCommandFixture("wr-backfill-invalid-", async ({ projectRoot }) => {
+        Deno.chdir(projectRoot);
+        await saveVerifiedPlan(projectRoot);
+        await writeFixtureRecords(projectRoot);
+        const path = `${projectRoot}/docs/work-records/2026-07-14-current.md`;
+        const invalid = (await Deno.readTextFile(path)).replace("## Summary", "## Unrelated");
+        await Deno.writeTextFile(path, invalid);
+        const output = await captureCommand(["backfill", "--yes"]);
+        assertStringIncludes(output, "docs/work-records/2026-07-14-current.md");
+        assertStringIncludes(output, "Summary");
+        assertStringIncludes(output, "No files were changed");
+        assertEquals(await Deno.readTextFile(path), invalid);
+        assertEquals((await loadPlan(projectRoot, "standalone"))?.attrs.workRecord, undefined);
+    });
+});
+
 Deno.test("wld wr backfill --yes writes a Work Record and its Plan backlink", async () => {
     await withRuntimeCommandFixture("wr-backfill-write-", async ({ projectRoot, setModelMessages }) => {
         Deno.chdir(projectRoot);

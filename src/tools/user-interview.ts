@@ -519,6 +519,7 @@ async function askSelect(
         prompt: question.prompt,
         options,
         defaultValue,
+        otherOptionValue: OTHER_VALUE,
         _meta: { source: "user_interview", questionType: question.type, questionId: question.id },
     });
     const brokerFailure = brokerFailureToAnswer(brokerResponse, question);
@@ -526,6 +527,9 @@ async function askSelect(
     const selected = brokerResponse.value;
     if (selected === null || typeof selected === "undefined") return { canceled: true };
     const option = options.find((item) => item.value === selected);
+    if (selected === OTHER_VALUE && brokerResponse.otherText !== undefined) {
+        return otherAnswerFromText(question, brokerResponse.otherText);
+    }
     return { value: String(selected), valueLabel: brokerResponse.valueLabel || option?.label };
 }
 
@@ -543,7 +547,10 @@ async function askOther(
     });
     const otherFailure = brokerFailureToAnswer(otherResponse, question);
     if (otherFailure) return otherFailure;
-    const otherText = String(otherResponse.value ?? "");
+    return otherAnswerFromText(question, String(otherResponse.value ?? ""));
+}
+
+function otherAnswerFromText(question: InterviewQuestion, otherText: string): InterviewAnswer {
     const normalized = otherText.trim();
     if (!normalized) {
         return {
@@ -576,6 +583,7 @@ async function askQuestion(
             );
             if ("canceled" in selected || "error" in selected) return selected;
             if (selected.value === OTHER_VALUE) {
+                if (selected.otherText !== undefined) return selected;
                 const otherAnswer = await askOther(question, hostedSession);
                 if ("canceled" in otherAnswer) continue;
                 return otherAnswer;
@@ -605,6 +613,7 @@ async function askQuestion(
             const selected = await askSelect(question, options, hostedSession, question.default);
             if ("canceled" in selected || "error" in selected) return selected;
             if (selected.value === OTHER_VALUE) {
+                if (selected.otherText !== undefined) return selected;
                 const otherAnswer = await askOther(question, hostedSession);
                 if ("canceled" in otherAnswer) continue;
                 return otherAnswer;

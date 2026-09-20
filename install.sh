@@ -596,7 +596,13 @@ if ! download "${BASE_URL}/${ASSET}" "${TMP_DIR}/${ASSET}"; then
   download "${BASE_URL}/${ASSET}" "${TMP_DIR}/${ASSET}"
 fi
 download "${BASE_URL}/SHA256SUMS" "${TMP_DIR}/SHA256SUMS"
-sha_verify "${TMP_DIR}/SHA256SUMS" "$ASSET"
+if ! sha_verify "${TMP_DIR}/SHA256SUMS" "$ASSET"; then
+  echo "[wld installer] Published checksum manifest did not match ${ASSET}; checking GitHub's release asset digest." >&2
+  if ! sha_verify_asset_digest "$REPO" "$VERSION" "$ASSET" "${TMP_DIR}/${ASSET}"; then
+    echo "[wld installer] Checksum verification failed for ${ASSET}." >&2
+    exit 1
+  fi
+fi
 extract_archive "${TMP_DIR}/${ASSET}" "$TMP_DIR"
 
 if [[ ! -x "${TMP_DIR}/wld" ]]; then

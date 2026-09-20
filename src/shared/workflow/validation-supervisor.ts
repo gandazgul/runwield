@@ -21,9 +21,10 @@ import { retryValidationLater } from "./validation-recovery.ts";
 import { logValidationFailure, ValidationStateError } from "./validation-state-errors.ts";
 import type { WorkflowValidationResult } from "./validation-types.ts";
 import { validationUserMessage } from "./validation-user-messages.ts";
-import { emitStatus } from "./validation-emit.ts";
-import { getDiffText, resolvePhaseContext } from "./validation-context.ts";
-import { renderOpenItems } from "./review-ledger.ts";
+import { emitProgress, emitStatus } from "./validation-emit.ts";
+import { resolvePhaseContext } from "./validation-context.ts";
+import { getWorktreeReviewDiff } from "./git-snapshot.js";
+import { claimReviewFixes, renderOpenItems } from "./review-ledger.ts";
 import { PLAN_STATUSES } from "./plan-lifecycle.js";
 import { resolveWorkflowPlanLocation } from "./plan-location.ts";
 import { resolvePrimaryCheckoutRoot } from "../primary-checkout.ts";
@@ -223,7 +224,13 @@ export async function recordValidationRepairCompletion(args: {
             repairGeneration: checkpoint.repairGeneration,
             repairCompletedOperationId: args.repairGeneration,
             lastSettledOperationId: checkpoint.lastSettledOperationId,
-            reviewState: reviewState ? { ...reviewState, lastRepairReport: args.report } : undefined,
+            reviewState: reviewState
+                ? {
+                    ...reviewState,
+                    reviewLedger: claimReviewFixes(reviewState.reviewLedger),
+                    lastRepairReport: args.report,
+                }
+                : undefined,
         });
         try {
             await updatePlanFrontMatter(
@@ -254,7 +261,7 @@ async function rebuildSemanticRepairHandoff(
     const phase = await resolvePhaseContext(engineArgs);
     if (phase.kind === "blocked") return phase.result;
     const context = phase.context;
-    const diffText = await getDiffText(context.baselineTree, context.executionCwd);
+    const diffText = await getWorktreeReviewDiff(context.executionCwd, context.worktreeBaseBranch || "");
     const activeWorkflow = {
         ...context.workflowBase,
         semanticRound: reviewState.semanticRound,
@@ -324,6 +331,29 @@ function pausedResult(
         reason: message,
         recovery: retryValidationLater(code, message, phase),
     };
+}
+
+function presentPausedProgress(args: ContinueWorkflowValidationArgs, result: WorkflowValidationResult): void {
+    if (result.kind !== "paused" || result.continueValidation) return;
+    const engine = createEngineValidationArgs(args);
+    const current = engine.session.getCurrentProgress();
+    const message = result.reason || validationUserMessage("retry_pause");
+    if (!current) {
+        emitStatus(engine, message, "warning");
+        return;
+    }
+    if (current.outcome !== "running") return;
+    emitProgress(engine, message, "warning", {
+        outcome: "paused",
+        stage: "terminal",
+        message,
+        checks: {
+            ci: current.checks.ci === "running" ? "canceled" : current.checks.ci,
+            semanticReview: current.checks.semanticReview === "running" ? "canceled" : current.checks.semanticReview,
+            humanReview: current.checks.humanReview === "running" ? "canceled" : current.checks.humanReview,
+            merge: current.checks.merge === "running" ? "canceled" : current.checks.merge,
+        },
+    });
 }
 
 /** Reconcile canonical Plan state, claim one owner, run, and durably settle. */
@@ -432,6 +462,7 @@ async function continueValidationAttempt(
         if (result.kind === "verified") {
             args.hostedSession.clearActiveExecutionWorkflow();
         }
+        presentPausedProgress(args, result);
         return result;
     } catch (error) {
         const failure = error instanceof Error ? error : new Error(String(error));
@@ -457,7 +488,7 @@ async function continueValidationAttempt(
         ) {
             return await continueValidationAttempt(args, retry + 1);
         }
-        emitStatus(createEngineValidationArgs(args), result.reason || validationUserMessage("retry_pause"), "warning");
+        presentPausedProgress(args, result);
         return result;
     }
 }

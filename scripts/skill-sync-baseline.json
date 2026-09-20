@@ -1,0 +1,41 @@
+{
+    "skills": [
+        {
+            "source": "src/agent-definitions/ideator.md",
+            "sourceHash": "513e19542da20afb86ba212d8deec2ef65ad7af0f34c9456eb7be7ba195998c6",
+            "skill": "skills/ideator/SKILL.md",
+            "skillHash": "090937d2d4ed0d51dbff8e6b413d001445a861d6e1a7335d4157954a7fb66bd2",
+            "supportFiles": [
+                {
+                    "path": "skills/ideator/PRD-FORMAT.md",
+                    "hash": "f72f9268103f03641efd47b2777b1c1dafd601049cade2bc214a0b0de5707f0a"
+                }
+            ]
+        },
+        {
+            "source": "src/agent-definitions/guide.md",
+            "sourceHash": "bc2b0fd0d8de904d66d24c800e0d70e9a1549f78b04437333dbd20de15269c51",
+            "skill": "skills/guide/SKILL.md",
+            "skillHash": "67212de1d80d7f2542f3e3e41594f96cba1df46be385653538298a629c4d580f",
+            "supportFiles": []
+        },
+        {
+            "skill": "skills/review/SKILL.md",
+            "skillHash": "8daf4b957d392f5dcfc005bfde1a2f951d981bc7cd34a74b59aab58b0ded940e",
+            "supportFiles": [
+                {
+                    "path": "skills/review/github.md",
+                    "hash": "d3c6b80e82ecd4b2a0ec00b034d2c329e00ae29689fa5add01dfe6d3e32ce27f"
+                },
+                {
+                    "path": "skills/review/gitlab.md",
+                    "hash": "9222f736dfd20b201ef4ee837edc8b71da2ab7ebe47ba1a897c8d9e1084ba93b"
+                },
+                {
+                    "path": "skills/review/pull-requests.md",
+                    "hash": "dd8e445ab2dfc2c0414ca644317babc9687ee47350a22b7d4d248024d046e066"
+                }
+            ]
+        }
+    ]
+}

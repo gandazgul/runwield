@@ -2,7 +2,7 @@
 
 This file defines the practical RunWield brand direction for product UI, marketing images, and brand-system mockups. It
 extends [`docs/design-system.md`](../docs/design-system.md); it does not replace it. For browser UI, the current Plan
-Review and Code Review surfaces remain the source of truth.
+Review and Code Review surfaces remain the compact layout reference; browser colors use the approved brand below.
 
 Use [`brandboard.png`](brandboard.png) in this folder as inspiration.
 
@@ -59,7 +59,10 @@ Rules:
 ## Color
 
 Use the product design-system colors as the brand base. Catppuccin Mocha can inform warmth, but it must not become a
-copy of the Catppuccin palette.
+copy of the Catppuccin palette. Browser runtime colors live in `src/ui/design-system/themes/dark.ts`, separate from
+geometry and typography in `tokens.css`. The current browser identity is dark even with light OS or TUI settings. Keep
+the browser theme renderer and separate token sets ready for future light/custom themes; no theme picker or light theme
+is shipped. TUI appearance is unchanged. Generated palettes are reference material, not brand replacements.
 
 | Role           | Color     | Use                                                     |
 | -------------- | --------- | ------------------------------------------------------- |
@@ -78,7 +81,7 @@ copy of the Catppuccin palette.
 Palette rules:
 
 - Dark slate is the dominant color.
-- Mint and blue are signals, not decoration.
+- Mint marks the sidebar brand rail; blue marks the selected working context and primary actions.
 - Green appears only for proof or success.
 - Amber appears only for risk or caution.
 - Avoid random rainbow accents.
@@ -86,9 +89,10 @@ Palette rules:
 
 ## Typography
 
-Use a refined sans system with monospace accents.
+Use Outfit Variable for headings, body, and controls, with IBM Plex Mono for code and technical metadata. Browser fonts
+are locally bundled in `src/ui/design-system/fonts.css`, matching the sibling `../runwield.dev/` website.
 
-- Headings: clear neo-grotesk or geometric sans, medium to semibold weight.
+- Headings: Outfit Variable, medium to semibold weight.
 - Body and controls: compact sans, readable at 12-14px in product UI.
 - Labels and technical markers: small uppercase monospace with wide tracking and lower opacity.
 - Reserve large type for document headings, brand lockups, and marketing boards.

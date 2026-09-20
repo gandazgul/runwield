@@ -5,9 +5,8 @@ description: Generates a concise commit message, stages changes, and pushes to t
 # Commit
 
 Generate a concise, informative commit message and commit the current pending changes in the repo staged or not, even
-unrelated to your current context. If the changes seem very different and unrelated then feel free to make several
-commits instead of one. Always group together docs or plans or other markdown files with a headline and a list of all
-the docs changed.
+unrelated to your current context. If the changes seem very different and unrelated, then make several commits instead
+of one. Always group together docs or plans or other Markdown files with a headline and a list of all the docs changed.
 
 **Execution Steps:**
 

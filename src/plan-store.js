@@ -195,6 +195,7 @@ export function getStoredPlanPath(cwd, planName) {
  * @property {string|null} [epicDoneEnoughAt] - ISO timestamp when an Epic was marked done enough for now
  * @property {string|null} [epicDoneEnoughSummary] - Human-readable summary captured when an Epic was marked done enough for now
  * @property {string} [targetBranch] - User-selected target branch, independent of the current execution attempt
+ * @property {string|null} [validatedCommit] - Validated implementation commit; durable after runtime cleanup
  * @property {PlanFrontMatter["status"]|null} [heldFromStatus] - Status captured before the Plan moved to on_hold
  * @property {string|null} [heldAt] - ISO timestamp when the Plan was put on hold
  * @property {string|null} [holdReason] - Optional human reason for the hold
@@ -237,6 +238,7 @@ export function getStoredPlanPath(cwd, planName) {
  * @property {string|null} [devServerUrl] - Local URL expected for browser verification, if known.
  * @property {boolean|null} [devServerHmr] - Whether the dev server is expected to support hot module reload.
  * @property {string|null} [worktreeBaseBranch] - Target branch this child FEATURE should execute from and merge back into.
+ * @property {string|null} [worktreeBaseCommit] - Recorded base commit for worktree recovery.
  * @property {string} [targetBranch] - User-selected target branch for this child.
  * @property {string[]} dependencies - Sibling child plan names or identifiers required first.
  * @property {import('./shared/ticket-references.js').TicketReference[]} [tickets] - Direct child Ticket References; omitted preserves existing child references, [] clears.
@@ -452,6 +454,7 @@ function formatFrontMatter(fm) {
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.worktreeBranch, fm.worktreeBranch);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.worktreeBaseBranch, fm.worktreeBaseBranch);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.targetBranch, fm.targetBranch);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.validatedCommit, fm.validatedCommit);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.worktreeStatus, fm.worktreeStatus);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.heldFromStatus, fm.heldFromStatus);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.heldAt, fm.heldAt);
@@ -1075,6 +1078,7 @@ export function injectFrontMatter(markdown, overrides = {}) {
         worktreeBranch: optionalFrontMatterValue(overrides, existingFm, "worktreeBranch"),
         worktreeBaseBranch: optionalFrontMatterValue(overrides, existingFm, "worktreeBaseBranch"),
         targetBranch: optionalStringValue(overrides, existingFm, "targetBranch"),
+        validatedCommit: optionalFrontMatterValue(overrides, existingFm, "validatedCommit"),
         worktreeStatus: normalizeWorktreeStatus(
             Object.hasOwn(overrides, "worktreeStatus") ? overrides.worktreeStatus : existingFm.worktreeStatus,
         ),
@@ -1202,6 +1206,7 @@ export function parsePlanFrontMatter(markdown, opts = {}) {
             epicDoneEnoughSummary: attrs.epicDoneEnoughSummary,
             executionMode: normalizeExecutionMode(attrs.executionMode),
             deliveryEvidence: normalizeDeliveryEvidence(attrs.deliveryEvidence),
+            validatedCommit: typeof attrs.validatedCommit === "string" ? attrs.validatedCommit : undefined,
             executionBaselineTree: attrs.executionBaselineTree,
             worktreeId: attrs.worktreeId,
             worktreePath: attrs.worktreePath,
@@ -1239,10 +1244,11 @@ export function summarizePlanBody(body) {
 export function planDocumentMarkdown(markdown) {
     if (!hasFrontMatter(markdown)) return markdown;
     const { attrs } = parsePlanFrontMatter(markdown);
+    const raw = extractYaml(markdown).attrs;
     /** @type {Partial<PlanFrontMatter>} */
     const removed = { summary: undefined };
     for (const field of PLAN_RUNTIME_FIELDS) Object.assign(removed, { [field]: undefined });
-    if (attrs.targetBranch) removed.targetBranch = attrs.targetBranch;
+    if (attrs.targetBranch && raw.targetBranch !== attrs.targetBranch) removed.targetBranch = attrs.targetBranch;
     return mergeFrontMatterText(markdown, removed);
 }
 
@@ -2376,9 +2382,22 @@ export async function updatePlanFrontMatter(
         }
         const attrs = { ...recoveryAttrs, ...updates, updatedAt: updates.updatedAt ?? new Date().toISOString() };
         const normalizedAttrs = parsePlanFrontMatter(injectFrontMatter(result.markdown, attrs)).attrs;
+        const previousValues = new Map(Object.entries(result.attrs));
+        const storedValues = new Map(
+            Object.entries(hasFrontMatter(result.markdown) ? extractYaml(result.markdown).attrs : {}),
+        );
+        const nextValues = new Map(Object.entries(normalizedAttrs));
         /** @type {Partial<PlanFrontMatter>} */
         const normalizedOverrides = {};
         for (const key of Object.keys(attrs)) {
+            // Recovery attributes often contain the entire loaded Plan. Replacing
+            // unchanged fields reformats YAML lists and invalidates sealed commits
+            // during controller-only operations such as claiming a retry.
+            // Explicit document updates must compare against the stored value:
+            // parsing may already normalize a retired status that still needs
+            // to be repaired on disk. Recovery defaults are not explicit edits.
+            const previous = Object.hasOwn(updates, key) ? storedValues.get(key) : previousValues.get(key);
+            if (JSON.stringify(nextValues.get(key)) === JSON.stringify(previous)) continue;
             /** @type {Record<string, unknown>} */ (normalizedOverrides)[key] =
                 /** @type {Record<string, unknown>} */ (normalizedAttrs)[key];
         }
@@ -2391,85 +2410,13 @@ export async function updatePlanFrontMatter(
                 ...(updates.worktreeId === null ? { recovery: null } : {}),
             },
         );
-        const withFm = planDocumentMarkdown(mergeFrontMatterText(result.markdown, normalizedOverrides));
+        const changesDocument = Object.keys(stripRuntimeFields(updates)).some((key) => key !== "summary");
+        const withFm = planDocumentMarkdown(
+            changesDocument ? mergeFrontMatterText(result.markdown, normalizedOverrides) : result.markdown,
+        );
         if (withFm !== result.markdown) await writePlanMarkdownWithRevision(result.path, withFm, result.revision);
         return (await withControllerMetadata(result.path, parsePlanFrontMatter(withFm).attrs)).attrs;
     });
-}
-
-/**
- * Remove the retired Objective Check fields from one active Plan without
- * normalizing or rewriting any unrelated Front Matter or body bytes.
- *
- * @param {string} cwd
- * @param {string} planName
- * @param {{ expectedRevision: string, dryRun?: boolean }} options
- * @returns {Promise<{ status: "changed"|"already_clean"|"skipped_terminal", removed: string[] }>}
- */
-export async function cleanupObsoleteObjectiveCheckMetadata(cwd, planName, options) {
-    return await withPlanLock(cwd, planName, async () => {
-        const result = await loadPlanStrict(cwd, planName);
-        if (result.kind === "not_found") throw new Error(`Plan not found: ${planName}`);
-        if (result.kind === "malformed") throw result.error;
-        if (result.kind !== "loaded") {
-            throw new PlanFileIssueError(
-                result.path,
-                result.kind,
-                planIssueMessage(result) || `Plan could not be cleaned: ${result.path}`,
-            );
-        }
-        if (result.revision !== options.expectedRevision) {
-            throw new StalePlanWriteError(options.expectedRevision, result.revision);
-        }
-        if (isTerminalArchivableStatus(result.attrs.status)) {
-            return { status: "skipped_terminal", removed: [] };
-        }
-        const { attrs } = extractYaml(result.markdown);
-        const removed = OBSOLETE_OBJECTIVE_CHECK_FRONT_MATTER_KEYS.filter((key) => Object.hasOwn(attrs, key));
-        if (!removed.length) return { status: "already_clean", removed };
-        if (!options.dryRun) {
-            const removals = Object.fromEntries(removed.map((key) => [key, undefined]));
-            const cleaned = mergeFrontMatterText(result.markdown, removals);
-            await writePlanMarkdownWithRevision(result.path, cleaned, result.revision);
-        }
-        return { status: "changed", removed };
-    });
-}
-
-/**
- * Clean every active Plan under docs/plans while leaving the archived directory
- * byte-for-byte untouched. Terminal Plans are sealed even before archival.
- *
- * @param {string} cwd
- * @param {{ dryRun?: boolean }} [options]
- * @returns {Promise<Array<{ planName: string, status: "changed"|"already_clean"|"skipped_terminal"|"failed", removed: string[], error?: string }>>}
- */
-export async function cleanupActivePlanObjectiveCheckMetadata(cwd, options = {}) {
-    const plans = await listPlans(cwd);
-    /** @type {Array<{ planName: string, status: "changed"|"already_clean"|"skipped_terminal"|"failed", removed: string[], error?: string }>} */
-    const results = [];
-    for (const plan of plans) {
-        const loaded = await loadPlan(cwd, plan.name);
-        if (!loaded) {
-            results.push({ planName: plan.name, status: "failed", removed: [], error: "Plan disappeared." });
-            continue;
-        }
-        try {
-            const result = await cleanupObsoleteObjectiveCheckMetadata(cwd, plan.name, {
-                expectedRevision: loaded.revision,
-                dryRun: options.dryRun === true,
-            });
-            results.push({ planName: plan.name, ...result });
-        } catch (error) {
-            results.push({
-                planName: plan.name,
-                status: "failed",
-                removed: [],
-                error: formatErrorMessage(error),
-            });
-        }
-    }
-    return results;
 }
 
 /**

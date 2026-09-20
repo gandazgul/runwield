@@ -35,13 +35,14 @@ export function formatTaskCompletedMarkdown(message) {
  * @param {import('./hosted-session.js').HostedSession} hostedSession
  * @param {string} agentName
  * @param {unknown} message
+ * @param {string} [toolCallId]
  */
-export function emitTaskCompletedMessage(hostedSession, agentName, message) {
+export function emitTaskCompletedMessage(hostedSession, agentName, message, toolCallId) {
     emitAssistantMessage(
         hostedSession,
         agentName || "RunWield",
         formatTaskCompletedMarkdown(message),
-        { messageKind: "workflow", workflowMessage: "task_completed" },
+        { messageKind: "workflow", workflowMessage: "task_completed", toolCallId },
     );
 }
 
@@ -52,7 +53,7 @@ export function emitTaskCompletedMessage(hostedSession, agentName, message) {
  * for `/resume` replay.
  *
  * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined | null} sessionManager
- * @param {{ agentName?: string, text: string, name?: string, classification?: string }} checklist
+ * @param {{ agentName?: string, text: string, name?: string, classification?: string, toolCallId?: string }} checklist
  */
 export function recordManualQaChecklistMessage(sessionManager, checklist) {
     if (!sessionManager?.appendCustomEntry) return;
@@ -61,6 +62,7 @@ export function recordManualQaChecklistMessage(sessionManager, checklist) {
     sessionManager.appendCustomEntry(MANUAL_QA_CHECKLIST_CUSTOM_TYPE, {
         agentName: checklist.agentName || "Operator",
         text,
+        ...(checklist.toolCallId ? { toolCallId: checklist.toolCallId } : {}),
         ...(checklist.name ? { name: checklist.name } : {}),
         ...(checklist.classification ? { classification: checklist.classification } : {}),
     });
@@ -68,18 +70,19 @@ export function recordManualQaChecklistMessage(sessionManager, checklist) {
 
 /**
  * @param {unknown} entry
- * @returns {{ agentName: string, text: string } | null}
+ * @returns {{ agentName: string, text: string, toolCallId?: string } | null}
  */
 export function readManualQaChecklistMessage(entry) {
     if (!entry || typeof entry !== "object") return null;
     const customType = /** @type {{ customType?: unknown }} */ (entry).customType;
     if (customType !== MANUAL_QA_CHECKLIST_CUSTOM_TYPE) return null;
-    const data = /** @type {{ data?: { agentName?: unknown, text?: unknown } }} */ (entry).data;
+    const data = /** @type {{ data?: { agentName?: unknown, text?: unknown, toolCallId?: string } }} */ (entry).data;
     const text = typeof data?.text === "string" ? data.text.trim() : "";
     if (!text) return null;
     return {
         agentName: typeof data?.agentName === "string" && data.agentName.trim() ? data.agentName.trim() : "Operator",
         text,
+        ...(data?.toolCallId ? { toolCallId: data.toolCallId } : {}),
     };
 }
 
@@ -88,12 +91,14 @@ export function readManualQaChecklistMessage(entry) {
  * @param {string} agentName
  * @param {unknown} message
  * @param {boolean} approved
+ * @param {string} [toolCallId]
  */
-export function emitReviewResultMessage(hostedSession, agentName, message, approved) {
+export function emitReviewResultMessage(hostedSession, agentName, message, approved, toolCallId) {
     const markdown = typeof message === "string" && message.trim() ? message.trim() : "Review complete.";
     emitAssistantMessage(hostedSession, agentName || "Reviewer", markdown, {
         messageKind: "review_result",
         approved,
         workflowMessage: "review_complete",
+        toolCallId,
     });
 }

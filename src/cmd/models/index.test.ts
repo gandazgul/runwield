@@ -202,17 +202,13 @@ Deno.test("runModelsCommand fallback selector lists and switches real configured
     });
 });
 
-Deno.test("runModelsCommand delegates the interactive picker and restores the editor", async () => {
+Deno.test("runModelsCommand uses the shared picker and restores the editor", async () => {
     await withRuntimeCommandFixture("runwield-model-command-", async () => {
-        const ui = makeUi();
-        let selectorShown = false;
-        ui.uiAPI.showModelSelector = () => {
-            selectorShown = true;
-        };
+        const ui = makeUi(FIXTURE_MODEL);
 
         await runModelsCommand([], { uiAPI: ui.uiAPI, editor: ui.editor });
 
-        assertEquals(selectorShown, true);
+        assertEquals(ui.messages, [{ text: `Set default model to ${FIXTURE_MODEL}`, isError: false }]);
         assertEquals(ui.editor.disableSubmit, false);
     });
 });

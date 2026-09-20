@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno run --allow-read --allow-write=scripts/injection-seam-baseline.json
+#!/usr/bin/env -S deno run --allow-read --allow-run --allow-write=scripts/injection-seam-baseline.json
 
 /**
  * Ratchet for test-injection seams.
@@ -68,7 +68,11 @@
  * still rejected.
  */
 
+import { dirname, fromFileUrl } from "@std/path";
+import { listCiFiles } from "./ci-files.ts";
+
 const BASELINE_PATH = new URL("./injection-seam-baseline.json", import.meta.url);
+const REPO_ROOT = dirname(dirname(fromFileUrl(import.meta.url)));
 const SOURCE_ROOT = new URL("../src/", import.meta.url);
 const SCRIPTS_ROOT = new URL("./", import.meta.url);
 const PRODUCTION_ROOTS = Object.freeze([
@@ -928,6 +932,7 @@ export function collectConditionalSeamKeys(text) {
 export async function collectSeams(roots = PRODUCTION_ROOTS) {
     /** @type {SeamEntry} */
     const seams = {};
+    const ciFiles = roots === PRODUCTION_ROOTS ? new Set(await listCiFiles(REPO_ROOT)) : null;
 
     /** @param {URL} directoryUrl @param {string} relativeDirectory @param {string} pathPrefix */
     async function walk(directoryUrl, relativeDirectory, pathPrefix) {
@@ -940,6 +945,7 @@ export async function collectSeams(roots = PRODUCTION_ROOTS) {
             }
             if (!isProductionSourcePath(relativePath)) continue;
             const productionPath = `${pathPrefix}/${relativePath}`;
+            if (ciFiles && !ciFiles.has(productionPath)) continue;
             if (SCAN_EXCLUDED_PATHS.has(productionPath)) continue;
             const text = await Deno.readTextFile(new URL(entry.name, directoryUrl));
             // Scan every production source file. A known-spelling prefilter made the

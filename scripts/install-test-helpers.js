@@ -143,7 +143,7 @@ export async function createFixture(options = {}) {
     await Deno.writeTextFile(join(fixtureDir, "SHA256SUMS"), `${wldSums.join("\n")}\n`);
     await Deno.writeTextFile(join(fixtureDir, "checksums.txt"), `${helperSums.join("\n")}\n`);
 
-    for (const name of HELPER_NAMES) {
+    for (const name of RELEASE_BINARY_NAMES) {
         const assetDigest = options.omitDigestFor === name || !digests[name] ? null : `sha256:${digests[name]}`;
         await Deno.writeTextFile(
             join(fixtureDir, `${name}-release.json`),
@@ -223,6 +223,10 @@ case "$url" in
   *github.com/1broseidon/cymbal/releases/latest*) effective_url='https://github.com/1broseidon/cymbal/releases/tag/${VERSIONS.cymbal}' ;;
   *github.com/1broseidon/ketch/releases/latest*) effective_url='https://github.com/1broseidon/ketch/releases/tag/${VERSIONS.ketch}' ;;
   *github.com/edouard-claude/snip/releases/latest*) effective_url='https://github.com/edouard-claude/snip/releases/tag/${VERSIONS.snip}' ;;
+  *api.github.com/repos/gandazgul/runwield/releases/tags/*)
+    [[ "$release_api_failures" == *' runwield '* ]] && exit 22
+    file='${join(fixtureDir, "wld-release.json")}'
+    ;;
   *api.github.com/repos/1broseidon/cymbal/releases/tags/*)
     [[ "$release_api_failures" == *' cymbal '* ]] && exit 22
     file='${join(fixtureDir, "cymbal-release.json")}'

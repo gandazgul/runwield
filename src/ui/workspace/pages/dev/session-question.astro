@@ -1,0 +1,22 @@
+---
+import WorkspaceLayout from "../../layouts/WorkspaceLayout.astro";
+import { SessionQuestionForm } from "../../components/SessionQuestionForm.tsx";
+
+if (!import.meta.env.DEV) {
+    return new Response("Not found", { status: 404 });
+}
+
+const mode = Astro.url.searchParams.get("mode") || "select";
+const state = Astro.url.searchParams.get("state") || "pending";
+const error = Astro.url.searchParams.get("error") || "";
+---
+<WorkspaceLayout title="Session Question" selectedTab="dev" shell="local" url={Astro.url.href}>
+    <section class="page-header dev-surface-header">
+        <p class="kicker">Development</p>
+        <h1>Session question</h1>
+        <p>Standalone browser fallback states for select, text, and approval interactions.</p>
+    </section>
+    <div class="rw-question-fixture">
+        <SessionQuestionForm client:load mode={mode} state={state} error={error} />
+    </div>
+</WorkspaceLayout>

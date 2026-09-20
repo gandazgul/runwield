@@ -1,5 +1,6 @@
 ---
-import WorkspaceLayout from "../../../../../../layouts/WorkspaceLayout.astro";
+import LoadingSurface from "../../../../../../components/LoadingSurface.astro";
+import ReviewLayout from "../../../../../../layouts/ReviewLayout.astro";
 import { ArtifactReadSurface } from "../../../../../../react/ArtifactReadSurface.tsx";
 import { loadOwnerSessionArtifact } from "../../../../../../server/astro-owner-data.js";
 
@@ -29,11 +30,8 @@ const payload = artifact
     }
     : null;
 ---
-<WorkspaceLayout
+<ReviewLayout
     title={artifact ? `${artifact.title} · RunWield Workspace` : "Session Artifact · RunWield Workspace"}
-    surfaceTitle={artifact ? artifact.title : "Session Artifact"}
-    selectedTab="projects"
-    url={Astro.url.href}
 >
     {error ? (
         <section class="error-panel">
@@ -42,6 +40,8 @@ const payload = artifact
             <a href={returnHref}>Back to Session</a>
         </section>
     ) : (
-        <ArtifactReadSurface payload={payload} presentation="workspace" client:only="react" />
+        <ArtifactReadSurface payload={payload} client:only="react">
+            <LoadingSurface slot="fallback" label="Loading artifact" />
+        </ArtifactReadSurface>
     )}
-</WorkspaceLayout>
+</ReviewLayout>

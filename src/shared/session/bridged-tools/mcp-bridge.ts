@@ -109,6 +109,8 @@ export interface RunWieldMcpBridgeOptions {
     provenance: BridgedToolProvenance;
     /** Optional host-specific notice when the listener ends before close(). */
     onUnexpectedDisconnect?: () => void;
+    /** Consume live user steering before a lifecycle call is accepted. */
+    consumePendingSteering?: () => string[];
 }
 
 export interface RunWieldMcpBridgeHandle {
@@ -199,6 +201,11 @@ function stampDetails(details: JsonObject | null | undefined, provenance: Bridge
 
 function rejectionText(reason: string): string {
     return `runwield lifecycle call rejected: ${reason}`;
+}
+
+function formatPendingSteeringRejection(messages: string[]): string {
+    const formatted = messages.map((message) => `- ${message}`).join("\n");
+    return `user steering is pending. Read this user message before calling the lifecycle tool again:\n${formatted}`;
 }
 
 function mergeAbortSignals(first?: AbortSignal, second?: AbortSignal): AbortSignal | undefined {
@@ -371,6 +378,10 @@ export async function startRunWieldMcpBridge(
                 callId,
                 args ?? {},
             );
+        }
+        const pendingSteering = entry.kind === "lifecycle" ? options.consumePendingSteering?.() || [] : [];
+        if (pendingSteering.length > 0) {
+            return rejectedResult(formatPendingSteeringRejection(pendingSteering), entry, callId, args ?? {});
         }
 
         let params: JsonObject;

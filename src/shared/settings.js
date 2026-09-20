@@ -612,19 +612,22 @@ export async function setDefaultPlanServerUrl(value, scope = "project") {
  * 2. Top-level `visionFallback.model`
  * 3. Disabled when unset or not a string
  *
+ * @param {string} projectRoot
  * @returns {string | undefined}
  */
-export function getResolvedVisionFallbackModelSetting() {
-    const activeModelPreset = /** @type {string | undefined} */ (getMergedCustomSetting("activeModelPreset"));
+export function getResolvedVisionFallbackModelSetting(projectRoot) {
+    const activeModelPreset =
+        /** @type {string | undefined} */ (getMergedCustomSetting("activeModelPreset", projectRoot));
     if (activeModelPreset) {
         const modelPresets = /** @type {Record<string, { visionFallback?: { model?: unknown } }> | undefined} */ (
-            getMergedCustomSetting("modelPresets")
+            getMergedCustomSetting("modelPresets", projectRoot)
         );
         const presetModel = modelPresets?.[activeModelPreset]?.visionFallback?.model;
         if (typeof presetModel === "string" && presetModel.trim()) return presetModel.trim();
     }
 
-    const visionFallback = /** @type {{ model?: unknown } | undefined} */ (getMergedCustomSetting("visionFallback"));
+    const visionFallback =
+        /** @type {{ model?: unknown } | undefined} */ (getMergedCustomSetting("visionFallback", projectRoot));
     const model = visionFallback?.model;
     return typeof model === "string" && model.trim() ? model.trim() : undefined;
 }

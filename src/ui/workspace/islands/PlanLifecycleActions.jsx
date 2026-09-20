@@ -1,3 +1,4 @@
+import { RunWieldThinkingDots } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 import { useState } from "react";
 import { RunWieldButton } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 import {
@@ -372,7 +373,13 @@ export function PlanLifecycleActions({
                 )
                 : null}
             {message ? <p className="notice lifecycle-message">{message}</p> : null}
-            {pending ? <p className="notice muted">Applying lifecycle action…</p> : null}
+            {pending
+                ? (
+                    <p className="notice muted">
+                        <RunWieldThinkingDots label="Applying lifecycle action" />
+                    </p>
+                )
+                : null}
         </section>
     );
 }

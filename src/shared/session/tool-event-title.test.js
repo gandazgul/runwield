@@ -44,17 +44,17 @@ Deno.test("Runtime provides one stable tool descriptor for live, replay, TUI, AC
     );
     assertEquals(describeRuntimeTool("memory", { action: "recall", query: "docs style" }), {
         toolName: "memory",
-        title: "memory docs style",
+        title: "memory - recall: docs style",
         kind: "search",
     });
     assertEquals(describeRuntimeTool("memory", { action: "store", content: "Keep docs concise" }), {
         toolName: "memory",
-        title: "memory Keep docs concise",
+        title: "memory - store: Keep docs concise",
         kind: "edit",
     });
     assertEquals(describeRuntimeTool("memory", { action: "delete", id: 42 }), {
         toolName: "memory",
-        title: "memory id: 42",
+        title: "memory - delete: id: 42",
         kind: "delete",
     });
     assertEquals(describeRuntimeTool("memory_store", { content: "Historical transcript memory" }), {
@@ -71,6 +71,26 @@ Deno.test("Runtime provides one stable tool descriptor for live, replay, TUI, AC
         toolName: "work_record_search",
         title: "work_record_search prior auth work",
         kind: "search",
+    });
+    assertEquals(describeRuntimeTool("web_search", { query: "current Deno docs" }), {
+        toolName: "web_search",
+        title: "web_search current Deno docs",
+        kind: "search",
+    });
+    assertEquals(describeRuntimeTool("web_code_search", { query: "Deno.Command", lang: "ts" }), {
+        toolName: "web_code_search",
+        title: "web_code_search Deno.Command",
+        kind: "search",
+    });
+    assertEquals(describeRuntimeTool("web_docs_search", { query: "useEffect cleanup", library: "react" }), {
+        toolName: "web_docs_search",
+        title: "web_docs_search react useEffect cleanup",
+        kind: "search",
+    });
+    assertEquals(describeRuntimeTool("web_fetch", { url: "https://deno.com/manual" }), {
+        toolName: "web_fetch",
+        title: "web_fetch https://deno.com/manual",
+        kind: "fetch",
     });
     assertEquals(describeRuntimeTool("work_record_read", { recordId: "11111111-1111-4111-8111-111111111111" }), {
         toolName: "work_record_read",

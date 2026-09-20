@@ -17,26 +17,31 @@ Proposed language belongs in PRDs and Plans until implementation makes it true.
 
 ## Layouts
 
-**Single context:** one project glossary at `docs/domain-language.md`.
+**Project glossary:** one glossary at `docs/domain-language.md`. It may describe several contexts, using sections and
+qualified terms where meanings differ.
 
-**Multiple contexts:** one project map at `docs/domain-language-map.md`. The map lists contexts, where they live, and
-which per-context glossary applies. Each context directory owns its glossary as `domain-language.md` directly in that
-directory.
+**Separate glossaries:** when distinct terminology makes separate glossaries useful, use a project map at
+`docs/domain-language-map.md`. The map lists contexts, their responsibilities, and the applicable `domain-language.md`
+paths. Glossaries may live with relevant code or in documentation directories; no code reorganization is required.
+
+Choose the layout for clarity. Discover model boundaries from the project's behavior, terminology, and ownership,
+independently of glossary layout. Do not split files merely because several contexts exist.
 
 Example map:
 
 ```markdown
 # Domain Language Map
 
-- [Ordering](./src/ordering/domain-language.md) — receives and tracks customer orders
-- [Billing](./src/billing/domain-language.md) — generates invoices and processes payments
-- [Fulfillment](./src/fulfillment/domain-language.md) — manages warehouse picking and shipping
+- [Ordering](./contexts/ordering/domain-language.md) — receives and tracks customer orders
+- [Billing](./contexts/billing/domain-language.md) — generates invoices and processes payments
+- [Fulfillment](./contexts/fulfillment/domain-language.md) — manages warehouse picking and shipping
 ```
 
 ## Discovery
 
 - If `docs/domain-language-map.md` exists, read it to find the relevant context glossary.
-- If only `docs/domain-language.md` exists, treat the repository as a single-context project.
+- If only `docs/domain-language.md` exists, use it as the project glossary without inferring model boundaries from its
+  layout.
 - If neither exists, create `docs/domain-language.md` lazily when the first implemented term needs to be recorded.
 - Do not assign RunWield domain-language meaning to other harness context filenames or case variants.
 

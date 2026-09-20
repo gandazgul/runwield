@@ -120,9 +120,9 @@ export async function runGoldenScenarioChildProcess(request) {
     if (!request.keepArtifacts) await removeChildEnvironmentRoot(childPayload);
     const childReportedFailure = childPayload && typeof childPayload === "object" && "ok" in childPayload &&
         !/** @type {{ ok?: unknown }} */ (childPayload).ok;
-    const childReportedSuccessBeforeTimeout = childPayload && typeof childPayload === "object" &&
-        /** @type {{ ok?: unknown }} */ (childPayload).ok === true && result.timedOut && !expectedCleanExit;
-    if (childReportedFailure || (!result.success && !childReportedSuccessBeforeTimeout)) {
+    // A success report does not excuse a hung process or unfinished teardown.
+    // The scenario must both satisfy its assertions and exit successfully.
+    if (childReportedFailure || !result.success || result.timedOut) {
         const artifactDir = await writeChildFailureArtifact(normalizedRequest, result, childPayload);
         const childArtifact = childPayload && typeof childPayload === "object" && "artifactDir" in childPayload
             ? `; childArtifactDir=${String(/** @type {{ artifactDir?: unknown }} */ (childPayload).artifactDir || "")}`

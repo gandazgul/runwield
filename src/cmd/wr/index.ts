@@ -19,6 +19,7 @@ import {
     rejectWorkRecordSupersessionProposal,
     runWorkRecordBackfill,
     searchWorkRecords,
+    WorkRecordReadError,
 } from "../../shared/work-records/index.ts";
 import type { WorkRecordMnemotecaPort } from "../../shared/work-records/mnemoteca-port.ts";
 import { NO_OPEN_BROWSER_PORT, SYSTEM_BROWSER_PORT } from "../../shared/browser-port.ts";
@@ -157,31 +158,43 @@ export async function runWorkRecordsCommand(
         }
         rejectUnknownFlags(parsed, ["yes", "y", "dry-run"]);
         if (parsed.yes && parsed["dry-run"]) throw new Error("Cannot combine --yes with --dry-run.");
-        const preview = await previewWorkRecordBackfill(getCwd());
-        console.log(formatWorkRecordBackfillPreview(preview));
-        if (parsed["dry-run"]) {
-            console.log("[RunWield] Dry run only; no Work Records or Plan backlinks were written.");
-            return;
-        }
-        if (!preview.eligible.length) return;
-        const confirmed = parsed.yes || promptForBackfillConfirmation(
-            `[RunWield] Backfill will process ${preview.eligible.length} eligible source(s).`,
-        );
-        if (!confirmed) {
-            console.log("[RunWield] Backfill canceled; no Work Records or Plan backlinks were written.");
-            return;
-        }
-        const result = await runWorkRecordBackfill(getCwd(), { mnemotecaPort });
-        console.log(formatWorkRecordBackfillOutcomes(result.outcomes));
-        for (const outcome of result.outcomes) {
-            if (
-                (outcome.status === "generated" || outcome.status === "linked") && outcome.recordId &&
-                outcome.supersessionProposals?.length
-            ) {
-                await resolveCommandProposals(outcome.recordId, outcome.supersessionProposals, options);
+        let backfillFinished = false;
+        try {
+            const preview = await previewWorkRecordBackfill(getCwd());
+            console.log(formatWorkRecordBackfillPreview(preview));
+            if (parsed["dry-run"]) {
+                console.log("[RunWield] Dry run only; no Work Records or Plan backlinks were written.");
+                return;
             }
+            if (!preview.eligible.length) return;
+            const confirmed = parsed.yes || promptForBackfillConfirmation(
+                `[RunWield] Backfill will process ${preview.eligible.length} eligible source(s).`,
+            );
+            if (!confirmed) {
+                console.log("[RunWield] Backfill canceled; no Work Records or Plan backlinks were written.");
+                return;
+            }
+            const result = await runWorkRecordBackfill(getCwd(), { mnemotecaPort });
+            backfillFinished = true;
+            console.log(formatWorkRecordBackfillOutcomes(result.outcomes));
+            for (const outcome of result.outcomes) {
+                if (
+                    (outcome.status === "generated" || outcome.status === "linked") && outcome.recordId &&
+                    outcome.supersessionProposals?.length
+                ) {
+                    await resolveCommandProposals(outcome.recordId, outcome.supersessionProposals, options);
+                }
+            }
+            return;
+        } catch (error) {
+            if (!(error instanceof WorkRecordReadError)) throw error;
+            console.log(
+                `[RunWield] Backfill stopped at ${error.filePath}. ${error.reason} ${
+                    backfillFinished ? "Saved records were kept." : "No files were changed."
+                } Fix this record, then run wld wr backfill again.`,
+            );
+            return;
         }
-        return;
     }
 
     if (subcommand === "supersede") {

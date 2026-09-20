@@ -1,4 +1,5 @@
 ---
+import LoadingSurface from "../../../../components/LoadingSurface.astro";
 import WorkspaceLayout from "../../../../layouts/WorkspaceLayout.astro";
 import SessionSurface from "../../../../islands/SessionSurface.jsx";
 
@@ -6,5 +7,7 @@ const projectId = Astro.params.projectId ?? "";
 const runwieldSessionId = Astro.params.runwieldSessionId ?? "";
 ---
 <WorkspaceLayout title="Project Session" selectedTab="projects" url={Astro.url.href}>
-    <SessionSurface projectId={projectId} runwieldSessionId={runwieldSessionId} mode="detail" client:only="react" />
+    <SessionSurface projectId={projectId} runwieldSessionId={runwieldSessionId} mode="detail" client:only="react">
+        <LoadingSurface slot="fallback" label="Loading Session" />
+    </SessionSurface>
 </WorkspaceLayout>

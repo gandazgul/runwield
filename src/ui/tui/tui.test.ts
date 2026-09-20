@@ -1,7 +1,8 @@
 import { assertEquals, assertStrictEquals, assertThrows } from "@std/assert";
 import { type TUI, TuiMainScreen } from "@earendil-works/pi-tui";
+import type { BrowserPort } from "../../shared/browser-port.ts";
 import { VirtualTerminal } from "./testing/virtual-terminal.js";
-import { getTUI, initTUIWithPair, stopTUI } from "./tui.ts";
+import { getTUI, initTUIWithPair, RunWieldTui, stopTUI } from "./tui.ts";
 
 class CompatibleVirtualTerminal extends VirtualTerminal {
     override drainInput(): Promise<void> {
@@ -34,6 +35,36 @@ Deno.test("TUI singleton uses Pi TuiMainScreen regular mode", () => {
         assertEquals(terminal.started, true);
     } finally {
         stopTUI();
+    }
+});
+
+Deno.test("RunWield TUI opens a rendered hyperlink when clicked", async () => {
+    const terminal = new CompatibleVirtualTerminal({ columns: 100, rows: 30 });
+    const opened: string[] = [];
+    const browser: BrowserPort = {
+        open(url) {
+            opened.push(url);
+            return Promise.resolve(true);
+        },
+    };
+    const tui = new RunWieldTui(terminal, browser);
+    const url = "https://runwield.dev/docs";
+    tui.setLayoutRoot({
+        render: () => [`\x1b]8;;${url}\x07RunWield docs\x1b]8;;\x07`],
+        invalidate() {},
+    });
+
+    try {
+        tui.start();
+        tui.requestRender();
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        await terminal.flush();
+        terminal.input("\x1b[<0;1;1M");
+        terminal.input("\x1b[<0;1;1m");
+
+        assertEquals(opened, [url]);
+    } finally {
+        tui.stop();
     }
 });
 

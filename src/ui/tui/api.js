@@ -23,6 +23,7 @@ const WORKFLOW_TOOL_NAME_SET = new Set(WORKFLOW_TOOL_NAMES);
 /**
  * @typedef {Object} ToolElapsedTimerState
  * @property {ReturnType<typeof setTimeout> | null} renderTimer
+ * @typedef {ToolExecutionGroupBlock | ToolExecutionBlock} VisibleToolBlock
  */
 
 /**
@@ -101,6 +102,7 @@ export function createFooterOnlyUiApi(parentUiAPI) {
  * @param {{ addChild: (child: any) => void, removeChild: (child: any) => void, clear?: () => void, children: any[] }} [validationPanelContainer]
  * @param {{ addChild: (child: any) => void, removeChild: (child: any) => void, clear?: () => void, children: any[] }} [activeInteractionContainer]
  * @param {{ addChild: (child: any) => void, removeChild: (child: any) => void, clear?: () => void, children: any[] }} [queuedInputContainer]
+ * @param {() => VisibleToolBlock[]} [getVisibleToolBlocks]
  * @returns {import('./types.js').UiAPI}
  */
 export function createUiApi(
@@ -111,6 +113,7 @@ export function createUiApi(
     validationPanelContainer,
     activeInteractionContainer,
     queuedInputContainer,
+    getVisibleToolBlocks,
 ) {
     const activeToolBlocks = new Map();
     /** @type {Map<string, { block: SystemMessageBlock, spacer: Spacer }>} */
@@ -138,12 +141,12 @@ export function createUiApi(
     /** @type {(() => void) | null} */
     let activePromptFocus = null;
 
-    let toolsExpanded = false;
     /** @type {ToolExecutionGroupBlock | null} */
     let currentToolGroup = null;
     let outputSuppressed = false;
     let runtimeBusy = false;
     let promptActive = false;
+    let toolElapsedTimersPaused = false;
     /** @type {(import('@earendil-works/pi-tui').Component & import('@earendil-works/pi-tui').Focusable) | null} */
     let busyBlurredFocus = null;
     /** @type {import('../../shared/session/session-runtime-events.js').RuntimeValidationProgress | null} */
@@ -287,12 +290,14 @@ export function createUiApi(
         promptActive = true;
         spinner.setBusy(false, spinner.tasks);
         stopBusyFrameTimer();
+        setToolElapsedTimersPaused(true);
         restoreFocusedCursorAfterBusy();
     };
 
     const endPromptWait = () => {
         promptActive = false;
         spinner.setBusy(runtimeBusy, spinner.tasks);
+        setToolElapsedTimersPaused(!runtimeBusy);
         if (runtimeBusy) {
             suppressFocusedCursorForBusy();
             startBusyFrameTimer();
@@ -315,6 +320,7 @@ export function createUiApi(
      */
     const startToolElapsedTimer = (id, block) => {
         clearToolElapsedTimer(id);
+        if (toolElapsedTimersPaused || outputSuppressed || block.ended) return;
         const timer = /** @type {ToolElapsedTimerState} */ ({
             renderTimer: null,
         });
@@ -332,6 +338,21 @@ export function createUiApi(
         };
         toolElapsedTimers.set(id, timer);
         renderElapsedFrame();
+    };
+
+    /**
+     * Code review can leave a tool pending for hours. Stop its repaint loop
+     * along with the spinner; keep the block and start time for continuation.
+     * @param {boolean} paused
+     */
+    const setToolElapsedTimersPaused = (paused) => {
+        if (toolElapsedTimersPaused === paused) return;
+        toolElapsedTimersPaused = paused;
+        if (paused) {
+            for (const id of toolElapsedTimers.keys()) clearToolElapsedTimer(id);
+        } else {
+            for (const [id, block] of activeToolBlocks) startToolElapsedTimer(id, block);
+        }
     };
 
     return {
@@ -548,15 +569,19 @@ export function createUiApi(
                 if (!outputSuppressed) tui.requestRender();
             };
             activeToolBlocks.set(id, block);
-            if (WORKFLOW_TOOL_NAME_SET.has(toolName)) {
+            const isLocalShellCommand = title.startsWith("! ") || title.startsWith("!! ");
+            if (isLocalShellCommand) {
                 closeCurrentToolGroup();
-                block.setExpanded(toolsExpanded);
+                block.setExpanded(true);
+                appendMessageListChild(block);
+                appendMessageListChild(new Spacer(1));
+            } else if (WORKFLOW_TOOL_NAME_SET.has(toolName)) {
+                closeCurrentToolGroup();
                 appendMessageListChild(block);
                 appendMessageListChild(new Spacer(1));
             } else {
                 if (!currentToolGroup || !messageList.children.includes(currentToolGroup)) {
                     currentToolGroup = new ToolExecutionGroupBlock();
-                    currentToolGroup.setExpanded(toolsExpanded);
                     appendMessageListChild(currentToolGroup);
                     appendMessageListChild(new Spacer(1));
                 }
@@ -569,12 +594,18 @@ export function createUiApi(
         },
 
         toggleToolOutputsExpanded: () => {
-            toolsExpanded = !toolsExpanded;
-            for (const child of messageList.children) {
-                if (child instanceof ToolExecutionGroupBlock || child instanceof ToolExecutionBlock) {
-                    child.setExpanded(toolsExpanded);
-                }
-            }
+            const toolBlocks = /** @type {VisibleToolBlock[]} */ (
+                messageList.children.filter((child) =>
+                    child instanceof ToolExecutionGroupBlock || child instanceof ToolExecutionBlock
+                )
+            );
+            const retainedToolBlocks = new Set(toolBlocks);
+            const requestedBlocks = getVisibleToolBlocks?.() ?? toolBlocks.slice(-1);
+            const visibleToolBlocks = requestedBlocks.filter((block) => retainedToolBlocks.has(block));
+            if (visibleToolBlocks.length === 0) return;
+
+            const expand = !visibleToolBlocks.some((block) => block.expanded);
+            for (const block of visibleToolBlocks) block.setExpanded(expand);
             tui.requestRender();
         },
 
@@ -654,6 +685,7 @@ export function createUiApi(
             runtimeBusy = busy;
             const displayBusy = busy && !promptActive;
             spinner.setBusy(displayBusy, spinner.tasks);
+            setToolElapsedTimersPaused(!displayBusy);
             if (displayBusy) {
                 suppressFocusedCursorForBusy();
                 startBusyFrameTimer();

@@ -1,4 +1,6 @@
 ---
+import { sessionArtifactKindLabel } from "../../../../shared/session/session-sidebar.ts";
+import LoadingSurface from "../../components/LoadingSurface.astro";
 import ReviewLayout from "../../layouts/ReviewLayout.astro";
 import { ArtifactReadSurface } from "../../react/ArtifactReadSurface.tsx";
 import { PlanReviewSurface } from "../../react/PlanReviewSurface.tsx";
@@ -16,25 +18,17 @@ if (!payload) {
 }
 const isArtifactRead = payload.surface === "artifact-read";
 const artifactKind = typeof payload.artifactKind === "string" ? payload.artifactKind : "";
-const artifactLabel = artifactKind === "plan"
-    ? "Plan"
-    : artifactKind === "prd"
-    ? "PRD"
-    : artifactKind === "adr"
-    ? "ADR"
-    : artifactKind === "work-record"
-    ? "Work Record"
-    : artifactKind === "epic-artifact"
-    ? "Epic Artifact"
-    : artifactKind === "report"
-    ? "Report"
-    : "Artifact";
+const artifactLabel = sessionArtifactKindLabel(artifactKind);
 const pageTitle = isArtifactRead ? `${artifactLabel} · RunWield Workspace` : "Plan Review · RunWield Workspace";
 const embeddedPayload = escapeReviewPayloadJson(JSON.stringify(payload));
 ---
 <ReviewLayout title={pageTitle}>
     <script is:inline type="application/json" data-review-payload set:html={embeddedPayload} />
     {isArtifactRead
-        ? <ArtifactReadSurface payload={payload} client:only="react" />
-        : <PlanReviewSurface payload={payload} client:only="react" />}
+        ? <ArtifactReadSurface payload={payload} client:only="react">
+            <LoadingSurface slot="fallback" label="Loading artifact" />
+        </ArtifactReadSurface>
+        : <PlanReviewSurface payload={payload} client:only="react">
+            <LoadingSurface slot="fallback" label="Loading Plan review" />
+        </PlanReviewSurface>}
 </ReviewLayout>

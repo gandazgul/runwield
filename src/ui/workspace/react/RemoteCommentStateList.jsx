@@ -1,3 +1,4 @@
+import { RunWieldThinkingDots } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 /**
  * @typedef {Object} RemoteCommentStateItem
  * @property {string} id
@@ -58,7 +59,9 @@ export function RemoteCommentStateList({ comments, selectedId, closed, pendingId
                                                 disabled={closed || pendingId === selectedComment.id}
                                                 onClick={() => onReopen(selectedComment.id)}
                                             >
-                                                {pendingId === selectedComment.id ? "Reopening…" : "Reopen"}
+                                                {pendingId === selectedComment.id
+                                                    ? <RunWieldThinkingDots label="Reopening" />
+                                                    : "Reopen"}
                                             </button>
                                         )
                                         : (
@@ -67,7 +70,9 @@ export function RemoteCommentStateList({ comments, selectedId, closed, pendingId
                                                 disabled={closed || pendingId === selectedComment.id}
                                                 onClick={() => onResolve(selectedComment.id)}
                                             >
-                                                {pendingId === selectedComment.id ? "Resolving…" : "Resolve"}
+                                                {pendingId === selectedComment.id
+                                                    ? <RunWieldThinkingDots label="Resolving" />
+                                                    : "Resolve"}
                                             </button>
                                         )
                                 )

@@ -83,12 +83,12 @@ export const STATUS_META = {
     validated_ci: {
         status: "validated_ci",
         label: "CI Validated",
-        description: "Mechanical Validation passed; Semantic Code Review is next.",
+        description: "Tests and CI passed; AI review is next.",
     },
     validated_reviewer: {
         status: "validated_reviewer",
         label: "Reviewer Validated",
-        description: "Semantic Code Review passed; final verification is next.",
+        description: "AI review passed; code review or delivery is next.",
     },
     validated: {
         status: "validated",

@@ -1,6 +1,8 @@
 ---
 name: awwwards-motion-design
 description: Motion design pipeline for building Awwwards/Apple-tier animations, micro-interactions, scroll sequences, page transitions, and kinetic typography. Enforces the principles that separate award-winning motion from generic CSS transitions — intentional easing, scroll-linked choreography, staggered reveals, magnetic interactions, text splitting, parallax depth, morphing state transitions, and the invisible micro-animations that make interfaces feel alive. Every animation must justify its existence, respect reduced-motion, and run at 60fps. Motion is choreography, not decoration.
+metadata:
+    internal: true
 ---
 
 # Awwwards-Tier Motion Design

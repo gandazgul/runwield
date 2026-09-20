@@ -124,6 +124,24 @@ Deno.test("AgentMessageBlock renders without background (like Pi)", () => {
     assertEquals(plain.includes("TestAgent:"), true, "Should contain agent name");
 });
 
+Deno.test("AgentMessageBlock renders Markdown URLs with BEL-delimited terminal hyperlinks", () => {
+    const capabilities = getCapabilities();
+    setCapabilities({ ...capabilities, hyperlinks: true });
+    try {
+        const url = "https://github.com/gandazgul/runwield/pull/80";
+        const block = new AgentMessageBlock("Operator");
+        block.appendText(`Opened draft PR #80: ${url}.`);
+
+        const rendered = block.render(140).join("\n");
+
+        assertEquals(stripAnsi(rendered).includes(`Opened draft PR #80: ${url}.`), true);
+        assertEquals(rendered.includes(`\x1b]8;;${url}\x07`), true);
+        assertEquals(rendered.includes("\x1b]8;;\x07."), true);
+    } finally {
+        setCapabilities(capabilities);
+    }
+});
+
 Deno.test("AgentMessageBlock renders completed Mermaid fences as Unicode diagrams", () => {
     const block = new AgentMessageBlock("Planner");
     block.appendText("```mermaid\ngraph TD\n  A --> B\n```");
@@ -308,7 +326,7 @@ Deno.test("ValidationHandoffBlock renders owner validation labels and latest han
     assertBlockBackground(lines, w, "ValidationHandoffBlock");
     assertEquals(plain.includes("Repair paused"), true);
     assertEquals(
-        plain.includes("Tests and CI failed, AI code review pending, Human review pending, Combining commits pending"),
+        plain.includes("Tests and CI failed, AI review pending, Code review pending, Combining commits pending"),
         true,
     );
     assertEquals(plain.includes("Round 2/3"), false);
@@ -317,7 +335,7 @@ Deno.test("ValidationHandoffBlock renders owner validation labels and latest han
     assertEquals(plain.includes("Mechanical Validation"), false);
     assertEquals(plain.includes("Semantic review"), false);
     assertEquals(plain.includes("Engineer latest completion report"), true);
-    assertEquals(plain.includes("Reviewer latest AI code review — rejected (feedback addressed; rechecking)"), true);
+    assertEquals(plain.includes("Reviewer latest AI review — rejected (feedback addressed; rechecking)"), true);
 });
 
 Deno.test("ValidationHandoffBlock renders tests and CI wording for QUICK_FIX progress", () => {
@@ -340,7 +358,7 @@ Deno.test("ValidationHandoffBlock renders tests and CI wording for QUICK_FIX pro
     assertEquals(runningPlain.includes("Human skipped"), false);
     assertEquals(runningPlain.includes("Merge skipped"), false);
     assertEquals(runningPlain.includes("Engineer latest completion report"), true);
-    assertEquals(runningPlain.includes("Reviewer latest AI code review"), false);
+    assertEquals(runningPlain.includes("Reviewer latest AI review"), false);
 
     const verifiedBlock = new ValidationHandoffBlock({
         progress: {
@@ -535,6 +553,19 @@ Deno.test("ToolExecutionBlock expansion and truncation logic", () => {
 
     // The expanded render should be taller than the collapsed render
     assertEquals(expandedLines.length > collapsedLines.length, true);
+});
+
+Deno.test("ToolExecutionBlock limits expanded output while preserving its start and end", () => {
+    const block = new ToolExecutionBlock("bash", "$ print many lines");
+    block.setOutput(Array.from({ length: 1_000 }, (_, index) => `line ${index}`).join("\n"));
+    block.setExpanded(true);
+
+    const plain = block.render(100).map((line) => stripAnsi(line)).join("\n");
+
+    assertEquals(plain.includes("line 0"), true);
+    assertEquals(plain.includes("line 999"), true);
+    assertEquals(plain.includes("line 500"), false);
+    assertEquals(plain.includes("501 lines omitted"), true);
 });
 
 Deno.test("ToolExecutionGroupBlock bolds only the tool name in compact rows", () => {

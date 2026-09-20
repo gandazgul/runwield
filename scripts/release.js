@@ -14,6 +14,15 @@ const WLD_RELEASE_ASSET_SUFFIXES = Object.freeze([
     "linux-arm64",
     "windows-x64",
 ]);
+const LEGACY_CANDIDATE_SERIES = new Set([
+    "v0.8.16",
+    "v0.9.0",
+    "v0.9.2",
+    "v0.9.3",
+    "v0.9.4",
+    "v0.9.6",
+    "v0.10.1",
+]);
 
 /**
  * @typedef {"candidate" | "stable"} ReleaseKind
@@ -45,7 +54,14 @@ const WLD_RELEASE_ASSET_SUFFIXES = Object.freeze([
 /**
  * @typedef {Object} ReleasePort
  * @property {CommandRunner} run
- * @property {(message?: unknown, ...optionalParams: unknown[]) => void} log
+ * @property {(message: string) => void} log
+ */
+
+/**
+ * @typedef {Object} CandidateSource
+ * @property {string} commit
+ * @property {string} branch
+ * @property {"legacy-head" | "new-branch" | "remote-branch"} mode
  */
 
 /**
@@ -289,6 +305,115 @@ export async function resolveRemoteTagCommit(deps, tag) {
 
 /**
  * @param {ReleasePort} deps
+ * @param {string} branch
+ * @returns {Promise<string | undefined>}
+ */
+async function resolveRemoteBranchCommit(deps, branch) {
+    const ref = `refs/heads/${branch}`;
+    const result = await deps.run("git", ["ls-remote", "--heads", "origin", ref]);
+    if (!result.success) {
+        throw new Error(`Failed to inspect remote branch ${branch}: ${result.stderr || result.stdout}`);
+    }
+    for (const line of splitLines(result.stdout)) {
+        const [objectId, remoteRef] = line.split(/\s+/);
+        if (remoteRef === ref) return objectId;
+    }
+    return undefined;
+}
+
+/**
+ * Fetch one remote ref's objects without moving local branches, tags, or remote-tracking refs.
+ *
+ * @param {ReleasePort} deps
+ * @param {string} ref
+ */
+async function fetchRemoteObjects(deps, ref) {
+    await mustRun(deps, `Fetch ${ref}`, "git", [
+        "fetch",
+        "--no-tags",
+        "--no-write-fetch-head",
+        "--refmap=",
+        "origin",
+        ref,
+    ]);
+}
+
+/**
+ * @param {ReleasePort} deps
+ * @param {string} commit
+ */
+async function assertCommitAvailable(deps, commit) {
+    await mustRun(deps, `Read commit ${commit}`, "git", ["cat-file", "-e", `${commit}^{commit}`]);
+}
+
+/**
+ * @param {ReleasePort} deps
+ * @param {string} branch
+ * @returns {Promise<string | undefined>}
+ */
+async function loadRemoteBranchCommit(deps, branch) {
+    const commit = await resolveRemoteBranchCommit(deps, branch);
+    if (!commit) return undefined;
+
+    const ref = `refs/heads/${branch}`;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+        await fetchRemoteObjects(deps, ref);
+        const current = await resolveRemoteBranchCommit(deps, branch);
+        if (!current) throw new Error(`Remote release branch disappeared during preflight: ${branch}`);
+        if (current !== commit) {
+            throw new Error(
+                `Remote release branch ${branch} changed during preflight. Expected ${commit}, found ${current}. Run the Candidate preflight again.`,
+            );
+        }
+        const available = await deps.run("git", ["cat-file", "-e", `${commit}^{commit}`]);
+        if (available.success) return commit;
+    }
+    throw new Error(`Could not read remote release branch commit during preflight: ${branch} at ${commit}`);
+}
+
+/**
+ * @param {ReleasePort} deps
+ * @param {string} branch
+ * @param {string | undefined} expectedCommit
+ */
+async function assertRemoteBranchUnchanged(deps, branch, expectedCommit) {
+    const current = await resolveRemoteBranchCommit(deps, branch);
+    if (current !== expectedCommit) {
+        throw new Error(
+            `Remote release branch ${branch} changed during preflight. Expected ${
+                expectedCommit || "no branch"
+            }, found ${current || "no branch"}. Run the Candidate preflight again.`,
+        );
+    }
+}
+
+/**
+ * @param {ReleasePort} deps
+ * @param {string} tag
+ * @param {string | undefined} branch
+ * @param {Error} cause
+ * @returns {Promise<Error>}
+ */
+async function describePushFailure(deps, tag, branch, cause) {
+    try {
+        const remoteTag = await resolveRemoteTagCommit(deps, tag);
+        const remoteBranch = branch ? await resolveRemoteBranchCommit(deps, branch) : undefined;
+        const branchState = branch ? `; origin ${branch} is ${remoteBranch || "absent"}` : "";
+        return new Error(
+            `${cause.message}\nPublication state: local tag ${tag} remains; origin tag is ${
+                remoteTag || "absent"
+            }${branchState}.`,
+        );
+    } catch (inspectionError) {
+        const message = inspectionError instanceof Error ? inspectionError.message : String(inspectionError);
+        return new Error(
+            `${cause.message}\nPublication state: local tag ${tag} remains; remote state could not be verified: ${message}`,
+        );
+    }
+}
+
+/**
+ * @param {ReleasePort} deps
  * @param {string} tag
  */
 async function assertTagAvailable(deps, tag) {
@@ -384,7 +509,12 @@ async function createAndPushTag(deps, tag, targetCommit, message, dryRun) {
         return;
     }
     await mustRun(deps, "Create annotated release tag", "git", ["tag", "-a", tag, targetCommit, "-m", message]);
-    await mustRun(deps, "Push release tag", "git", ["push", "origin", `refs/tags/${tag}`]);
+    try {
+        await mustRun(deps, "Push release tag", "git", ["push", "origin", `refs/tags/${tag}`]);
+    } catch (error) {
+        const cause = error instanceof Error ? error : new Error(String(error));
+        throw await describePushFailure(deps, tag, undefined, cause);
+    }
 }
 
 /**
@@ -398,13 +528,112 @@ async function headCommit(deps) {
 
 /**
  * @param {ReleasePort} deps
+ * @param {ReleaseTag} parsed
+ * @returns {Promise<CandidateSource>}
+ */
+async function selectCandidateSource(deps, parsed) {
+    const branch = `release/${parsed.stableTag}`;
+    if (LEGACY_CANDIDATE_SERIES.has(parsed.stableTag)) {
+        return { commit: await headCommit(deps), branch, mode: "legacy-head" };
+    }
+
+    const branchCommit = await loadRemoteBranchCommit(deps, branch);
+    if (parsed.rc === 1) {
+        if (branchCommit) return { commit: branchCommit, branch, mode: "remote-branch" };
+        return { commit: await headCommit(deps), branch, mode: "new-branch" };
+    }
+    if (!branchCommit) {
+        throw new Error(`Remote release branch does not exist for ${parsed.tag}: ${branch}`);
+    }
+
+    const previousTag = `${parsed.stableTag}-rc.${(parsed.rc || 1) - 1}`;
+    const previousCommit = await resolveRemoteTagCommit(deps, previousTag);
+    if (!previousCommit) throw new Error(`Previous Candidate tag does not exist on origin: ${previousTag}`);
+    await fetchRemoteObjects(deps, `refs/tags/${previousTag}`);
+    await assertCommitAvailable(deps, previousCommit);
+    const ancestry = await deps.run("git", ["merge-base", "--is-ancestor", previousCommit, branchCommit]);
+    if (ancestry.code === 1) {
+        throw new Error(
+            `Remote release branch ${branch} at ${branchCommit} does not descend from ${previousTag} at ${previousCommit}.`,
+        );
+    }
+    if (!ancestry.success) {
+        throw new Error(`Could not verify Candidate ancestry: ${ancestry.stderr || ancestry.stdout}`.trim());
+    }
+    return { commit: branchCommit, branch, mode: "remote-branch" };
+}
+
+/**
+ * @param {ReleasePort} deps
+ * @param {string} tag
+ * @param {CandidateSource} source
+ * @param {boolean} dryRun
+ */
+async function publishCandidate(deps, tag, source, dryRun) {
+    const message = `Release Candidate ${tag}`;
+    deps.log(`Candidate source: ${source.mode === "legacy-head" ? "HEAD" : source.branch} at ${source.commit}`);
+    deps.log(`Candidate target tag: ${tag}`);
+    deps.log(
+        source.mode === "new-branch"
+            ? `Candidate publication: create ${source.branch} and ${tag} atomically on origin`
+            : `Candidate publication: push ${tag} to origin`,
+    );
+
+    if (source.mode === "legacy-head") {
+        await createAndPushTag(deps, tag, source.commit, message, dryRun);
+        return;
+    }
+    if (dryRun) {
+        if (source.mode === "new-branch") {
+            deps.log(`[dry-run] would create ${source.branch} at ${source.commit}`);
+            deps.log(`[dry-run] would atomically push refs/heads/${source.branch} and refs/tags/${tag} to origin`);
+        } else {
+            deps.log(`[dry-run] would create annotated tag ${tag} at ${source.commit}`);
+            deps.log(`[dry-run] would push refs/tags/${tag} to origin from ${source.branch}`);
+        }
+        return;
+    }
+
+    await assertRemoteBranchUnchanged(
+        deps,
+        source.branch,
+        source.mode === "new-branch" ? undefined : source.commit,
+    );
+    await mustRun(deps, "Create annotated release tag", "git", [
+        "tag",
+        "-a",
+        tag,
+        source.commit,
+        "-m",
+        message,
+    ]);
+    try {
+        if (source.mode === "new-branch") {
+            await mustRun(deps, "Push release branch and tag", "git", [
+                "push",
+                "--atomic",
+                `--force-with-lease=refs/heads/${source.branch}:`,
+                "origin",
+                `${source.commit}:refs/heads/${source.branch}`,
+                `refs/tags/${tag}`,
+            ]);
+            return;
+        }
+        await mustRun(deps, "Push release tag", "git", ["push", "origin", `refs/tags/${tag}`]);
+    } catch (error) {
+        const cause = error instanceof Error ? error : new Error(String(error));
+        throw await describePushFailure(deps, tag, source.branch, cause);
+    }
+}
+
+/**
+ * @param {ReleasePort} deps
  * @param {string} tag
  * @param {boolean} dryRun
  */
 export async function createCandidate(deps, tag, dryRun = false) {
     const parsed = parseReleaseTag(tag);
     if (parsed.kind !== "candidate") throw new Error(`Candidate release requires an rc tag: ${tag}`);
-    const commit = await headCommit(deps);
     const existingTags = await listAllReleaseTags(deps);
     const previous = previousStableTag(existingTags);
     if (!previous) throw new Error("Cannot create a Candidate because no previous Stable release tag exists.");
@@ -427,7 +656,8 @@ export async function createCandidate(deps, tag, dryRun = false) {
     await assertTagAvailable(deps, tag);
     await assertTagAvailable(deps, parsed.stableTag);
     await assertHostReleaseAbsent(deps, tag);
-    await createAndPushTag(deps, tag, commit, `Release Candidate ${tag}`, dryRun);
+    const source = await selectCandidateSource(deps, parsed);
+    await publishCandidate(deps, tag, source, dryRun);
 }
 
 /**
@@ -486,6 +716,8 @@ export async function promoteCandidate(deps, candidateTag, dryRun = false) {
             `Local Candidate tag ${candidateTag} resolves to ${localCandidateCommit}, but origin resolves to ${candidateCommit}. Delete or refresh the stale local tag before promotion.`,
         );
     }
+    await fetchRemoteObjects(deps, `refs/tags/${candidateTag}`);
+    await assertCommitAvailable(deps, candidateCommit);
     await assertCandidatePublished(deps, candidateTag);
 
     await createAndPushTag(

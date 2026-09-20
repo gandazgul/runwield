@@ -18,6 +18,14 @@ export interface PlanAssociation {
     recordedAt: string;
 }
 
+/** Keep committed associations while overlaying live evidence, without growing on every update. */
+export function mergePlanAssociations(
+    committed: PlanAssociation[] = [],
+    live: PlanAssociation[] = [],
+): PlanAssociation[] {
+    return [...new Map([...committed, ...live].map((entry) => [JSON.stringify(entry), entry])).values()];
+}
+
 export interface ManifestPlanAssociation extends PlanAssociation {
     committedGeneration: number | null;
 }

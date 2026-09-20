@@ -33,14 +33,16 @@ deno task cli "your request"
 deno task check
 deno task test
 deno task ci
+deno task docs:dev
+deno task docs:check
 deno task compile
 ```
 
-`deno task ci` starts the eight pre-test gates together: submodule checks, Snip filter checks, Deno checks, Workspace
-checks, lint, language-policy checks, seam checks, and doc-link checks. Tests start only after all eight gates pass. The
-test task still uses `scripts/write-version.js` and the safe `scripts/run-tests.js` runner. Always use `deno task test`
-or `deno run -A scripts/run-tests.js <deno test args>` for tests; do not run `deno test` directly, because the test
-runner sandboxes `HOME` and process-global state per file.
+`deno task ci` starts the nine pre-test gates together: submodule checks, Snip filter checks, Deno checks, Workspace
+checks, lint, language-policy checks, seam checks, repository doc-link checks, and the public documentation build. Tests
+start only after all eight gates pass. The test task still uses `scripts/write-version.js` and the safe
+`scripts/run-tests.js` runner. Always use `deno task test` or `deno run -A scripts/run-tests.js <deno test args>` for
+tests; do not run `deno test` directly, because the test runner sandboxes `HOME` and process-global state per file.
 
 The ordinary test task does not include the Golden TUI Scenario portfolio; it is too slow for the everyday loop.
 `deno task test` excludes `src/ui/tui/golden-scenarios` and `src/ui/tui/testing`, and `deno task test:golden-tui` runs
@@ -56,8 +58,10 @@ Interactive RunWield sessions expect these helper binaries in `PATH`:
 - [`snip`](https://github.com/edouard-claude/snip) for compact command-output rewriting. Snip is optional at runtime and
   fail-open, but local validation tasks may invoke it when installed by the standard setup path.
 
-The installer is the normal recovery path for missing helper binaries. RunWield also ships bundled Snip filters for Deno
-validation output; install or remove user-level copies with:
+The shell installer is the normal standalone recovery path for missing helper binaries. Package-managed installs should
+be repaired with their package manager instead. The prepared Homebrew formula uses `gandazgul/tap/mnemoteca`,
+`1broseidon/tap/cymbal`, `ketch`, `agent-browser`, and `git`; it does not run helper setup during formula installation.
+RunWield also ships bundled Snip filters for Deno validation output; install or remove user-level copies with:
 
 ```bash
 wld snip-filters install
@@ -163,6 +167,18 @@ rewriting, and focused tests.
   `src/testing/process-global-lock.js`.
 - Preserve the layered customization model: project `.wld/` overrides home `~/.wld/`, which overrides bundled defaults.
 - Keep docs, plans, ADRs, PRDs, and Work Records as Markdown.
+
+## Public documentation
+
+The public manual uses the selected Markdown guides in `docs/`; `docs/index.md` is its home. `deno task docs:dev` starts
+the Starlight preview at `http://localhost:4322`. `deno task docs:check` validates and builds the published pages. PRDs,
+Plans, Work Records, audits, and research remain in the repository but are not public manual pages.
+
+`docs/stable` is the source for `docs.runwield.dev`. It identifies the Stable release it describes. Make corrections to
+that branch through normal review, then forward-port the same correction to `main`. Do not add unreleased product
+behavior to `docs/stable`. A Stable release merges its tagged source into the branch without force-pushing, so retained
+corrections survive. Resolve a merge conflict by checking the instruction against the released product; a failed merge
+leaves the existing site live.
 
 ## Pull request checklist
 

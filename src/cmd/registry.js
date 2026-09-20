@@ -4,16 +4,8 @@
  */
 
 import { CLI_BIN, DEV_CLI_RUN } from "../constants.js";
-import { runPlansCommand } from "./plans/index.ts";
-import { runWorkRecordsCommand } from "./wr/index.ts";
-import { runRouterCommand } from "./router/index.ts";
-import { runSleepCommand, SYSTEM_SLEEP_MNEMOTECA_PORT } from "./sleep/index.ts";
-import { runHelpCommand } from "./help/index.js";
-import { getAgentCompletions, runAgentsCommand } from "./agents/index.ts";
-import { getModelCompletions, runModelsCommand } from "./models/index.ts";
 import { runLoginCommand, runLogoutCommand, runStatusCommand } from "./auth/index.ts";
 import { runQuitCommand } from "./quit/index.ts";
-import { getLoadPlanCompletions, runLoadPlanCommand } from "./load-plan/index.ts";
 import { runExportCommand } from "./export/index.js";
 import { runNewCommand } from "./new/index.ts";
 import { runNameCommand } from "./name/index.ts";
@@ -21,12 +13,9 @@ import { runSessionCommand } from "./session/index.js";
 import { runContextCommand } from "./context/index.js";
 import { runShareCommand, SYSTEM_GITHUB_CLI_PORT } from "./share/index.ts";
 import { runResumeCommand } from "./resume/index.ts";
-import { runInitCommand } from "./init/index.ts";
-import { runThemeCommand } from "./theme/index.ts";
 import { runInstallCommand } from "./install/index.ts";
 import { runRemoveCommand } from "./remove/index.ts";
 import { runCompactCommand } from "./compact/index.js";
-import { runSettingsCommand } from "./settings/index.ts";
 import { runCopyCommand } from "./copy/index.js";
 import { runReloadCommand } from "./reload/index.js";
 import { runVersionCommand } from "./version/index.js";
@@ -38,11 +27,9 @@ import {
     SYSTEM_UPDATE_NETWORK_PORT,
 } from "./update/index.ts";
 import { runSnipFiltersCommand } from "./snip-filters/index.ts";
-import { runAcpCommand } from "./acp/index.js";
 import { getMcpCompletions, runMcpCommand } from "./mcp/index.ts";
 import { runWorkspaceCommand } from "./workspace/index.ts";
 import { getAgentDisplayName } from "../shared/session/agents.js";
-import { SYSTEM_INTERACTIVE_SESSION_PORT } from "../ui/tui/interactive-session-port.ts";
 import { SYSTEM_WORK_RECORD_MNEMOTECA_PORT } from "../shared/work-records/mnemoteca-port.ts";
 
 /** Known CLI / slash command names. Defined alongside the registry so adding a new command only touches one file. */
@@ -116,6 +103,7 @@ function requireInteractiveCommandContext(options) {
  * @property {"new" | "continue"} [sessionStartMode]
  * @property {(nextSessionId: string) => void} [replaceRuntimeSession]
  * @property {(eventName: string, options?: object) => void | Promise<unknown>} [notifyRunWieldEvent]
+ * @property {"tui" | "acp" | "workspace"} [slashSurface]
  * @property {boolean} [skipPostLoginSetup]
  */
 
@@ -134,6 +122,7 @@ function requireInteractiveCommandContext(options) {
  * @property {string[]} [notes]
  * @property {CommandHandler} execute
  * @property {("cli" | "slash")[]} surfaces
+ * @property {("tui" | "acp" | "workspace")[]} [slashSurfaces]
  * @property {(argumentPrefix: string) => Promise<CommandCompletionItem[]>} [getArgumentCompletions]
  */
 
@@ -153,8 +142,13 @@ export const commandRegistry = {
             "This is the default command when no explicit command is provided.",
             `Source-run fallback: ${DEV_CLI_RUN} "<user request>"`,
         ],
-        execute: (argv, options) =>
-            runRouterCommand(argv, { ...options, sessionPort: SYSTEM_INTERACTIVE_SESSION_PORT }),
+        execute: async (argv, options) => {
+            const [{ runRouterCommand }, { SYSTEM_INTERACTIVE_SESSION_PORT }] = await Promise.all([
+                import("./router/index.ts"),
+                import("../ui/tui/interactive-session-port.ts"),
+            ]);
+            await runRouterCommand(argv, { ...options, sessionPort: SYSTEM_INTERACTIVE_SESSION_PORT });
+        },
         surfaces: ["cli"],
     },
     [COMMAND_NAMES.ACP]: {
@@ -170,7 +164,7 @@ export const commandRegistry = {
             "CLI only: stdout is reserved for ACP JSON-RPC protocol frames.",
             "Handles initialize, session new/load/prompt/close, and session cancellation; other ACP methods return structured unimplemented errors.",
         ],
-        execute: runAcpCommand,
+        execute: async (argv) => await (await import("./acp/index.js")).runAcpCommand(argv),
         surfaces: ["cli"],
     },
     [COMMAND_NAMES.MCP]: {
@@ -207,10 +201,17 @@ export const commandRegistry = {
             "Bypasses the router triage flow — sends prompts directly to the agent.",
             "Use /agent inside the TUI to switch agents at any time.",
         ],
-        execute: (argv, options) =>
-            runAgentsCommand(argv, { ...options, sessionPort: SYSTEM_INTERACTIVE_SESSION_PORT }),
+        execute: async (argv, options) => {
+            const [{ runAgentsCommand }, { SYSTEM_INTERACTIVE_SESSION_PORT }] = await Promise.all([
+                import("./agents/index.ts"),
+                import("../ui/tui/interactive-session-port.ts"),
+            ]);
+            await runAgentsCommand(argv, { ...options, sessionPort: SYSTEM_INTERACTIVE_SESSION_PORT });
+        },
         surfaces: ["cli", "slash"],
-        getArgumentCompletions: getAgentCompletions,
+        slashSurfaces: ["tui", "acp", "workspace"],
+        getArgumentCompletions: async (argumentPrefix) =>
+            await (await import("./agents/index.ts")).getAgentCompletions(argumentPrefix),
     },
     [COMMAND_NAMES.MODEL]: {
         name: COMMAND_NAMES.MODEL,
@@ -229,9 +230,11 @@ export const commandRegistry = {
             "The slash command switches the current runtime Session; the CLI command sets the default for future Sessions.",
             "Inside the interactive session, use '/model <tab>' for autocomplete.",
         ],
-        execute: runModelsCommand,
+        execute: async (argv, options) => await (await import("./models/index.ts")).runModelsCommand(argv, options),
         surfaces: ["cli", "slash"],
-        getArgumentCompletions: getModelCompletions,
+        slashSurfaces: ["tui", "acp", "workspace"],
+        getArgumentCompletions: async (argumentPrefix) =>
+            await (await import("./models/index.ts")).getModelCompletions(argumentPrefix),
     },
     [COMMAND_NAMES.LOGIN]: {
         name: COMMAND_NAMES.LOGIN,
@@ -255,6 +258,7 @@ export const commandRegistry = {
             "Credentials are stored in RunWield config at ~/.wld/auth.json.",
             "Use /status to inspect configured providers.",
         ],
+        slashSurfaces: ["tui"],
         execute: async (argv, options) => {
             if (options?.uiAPI) {
                 await runLoginCommand(argv, requireInteractiveCommandContext(options));
@@ -281,6 +285,7 @@ export const commandRegistry = {
         ],
         execute: (argv, options) => runLogoutCommand(argv, requireInteractiveCommandContext(options)),
         surfaces: ["slash"],
+        slashSurfaces: ["tui", "acp"],
     },
     [COMMAND_NAMES.STATUS]: {
         name: COMMAND_NAMES.STATUS,
@@ -295,6 +300,7 @@ export const commandRegistry = {
         ],
         execute: (argv, options) => runStatusCommand(argv, requireInteractiveCommandContext(options)),
         surfaces: ["slash"],
+        slashSurfaces: ["tui", "acp"],
     },
     [COMMAND_NAMES.LOAD_PLAN]: {
         name: COMMAND_NAMES.LOAD_PLAN,
@@ -311,9 +317,12 @@ export const commandRegistry = {
         notes: [
             "If the plan is approved, you can proceed, re-open review, or inspect details.",
         ],
-        execute: runLoadPlanCommand,
+        execute: async (argv, options) =>
+            await (await import("./load-plan/index.ts")).runLoadPlanCommand(argv, options),
         surfaces: ["cli", "slash"],
-        getArgumentCompletions: getLoadPlanCompletions,
+        slashSurfaces: ["tui", "acp"],
+        getArgumentCompletions: async (argumentPrefix) =>
+            await (await import("./load-plan/index.ts")).getLoadPlanCompletions(argumentPrefix),
     },
     [COMMAND_NAMES.RESUME]: {
         name: COMMAND_NAMES.RESUME,
@@ -329,6 +338,7 @@ export const commandRegistry = {
         ],
         execute: runResumeCommand,
         surfaces: ["cli", "slash"],
+        slashSurfaces: ["tui", "workspace"],
     },
     [COMMAND_NAMES.NEW]: {
         name: COMMAND_NAMES.NEW,
@@ -344,6 +354,7 @@ export const commandRegistry = {
         ],
         execute: runNewCommand,
         surfaces: ["slash"],
+        slashSurfaces: ["tui", "workspace"],
     },
     [COMMAND_NAMES.NAME]: {
         name: COMMAND_NAMES.NAME,
@@ -359,6 +370,7 @@ export const commandRegistry = {
         ],
         execute: runNameCommand,
         surfaces: ["slash"],
+        slashSurfaces: ["tui", "acp"],
     },
     [COMMAND_NAMES.SESSION]: {
         name: COMMAND_NAMES.SESSION,
@@ -373,6 +385,7 @@ export const commandRegistry = {
         ],
         execute: runSessionCommand,
         surfaces: ["slash"],
+        slashSurfaces: ["tui", "acp", "workspace"],
     },
     [COMMAND_NAMES.CONTEXT]: {
         name: COMMAND_NAMES.CONTEXT,
@@ -388,6 +401,7 @@ export const commandRegistry = {
         ],
         execute: runContextCommand,
         surfaces: ["slash"],
+        slashSurfaces: ["tui", "acp", "workspace"],
     },
     [COMMAND_NAMES.SHARE]: {
         name: COMMAND_NAMES.SHARE,
@@ -403,6 +417,7 @@ export const commandRegistry = {
         ],
         execute: (argv, options) => runShareCommand(argv, { ...options, githubCli: SYSTEM_GITHUB_CLI_PORT }),
         surfaces: ["slash"],
+        slashSurfaces: ["tui", "acp"],
     },
     [COMMAND_NAMES.EXPORT]: {
         name: COMMAND_NAMES.EXPORT,
@@ -420,6 +435,7 @@ export const commandRegistry = {
         ],
         execute: runExportCommand,
         surfaces: ["slash"],
+        slashSurfaces: ["tui", "acp"],
     },
     [COMMAND_NAMES.PLANS]: {
         name: COMMAND_NAMES.PLANS,
@@ -431,7 +447,6 @@ export const commandRegistry = {
             `${bin("plans")}`,
             `${bin("plans read <plan-name-or-id> [--help]")}`,
             `${bin("plans doctor [--repair] [--help]")}`,
-            `${bin("plans clean-objective-checks [--dry-run] [--help]")}`,
             `${bin("plans share <plan-name-or-id> [--plan-server <url>] [--project-secrets] [--help]")}`,
             `${
                 bin("plans pull <maintainer-url-or-plan-name-or-id> [--plan-server <url>] [--project-secrets] [--to <plan-name>] [--help]")
@@ -464,8 +479,9 @@ export const commandRegistry = {
             "Use --bind/--host only for explicit non-loopback exposure; RunWield prints a plaintext Plan-content warning.",
             "Workspace HTML and APIs require the per-server token in the launch URL or x-runwield-workspace-token header.",
         ],
-        execute: runPlansCommand,
+        execute: async (argv) => await (await import("./plans/index.ts")).runPlansCommand(argv),
         surfaces: ["cli"],
+        slashSurfaces: ["workspace"],
     },
     [COMMAND_NAMES.WORKSPACE]: {
         name: COMMAND_NAMES.WORKSPACE,
@@ -518,8 +534,11 @@ export const commandRegistry = {
             "Backfill asks about each generated supersession proposal even with --yes. Proposal decisions do not change whether backfill succeeded.",
             "Manual create remains deferred to later Work Records slices.",
         ],
-        execute: (argv, options) =>
-            runWorkRecordsCommand(argv, { ...options, mnemotecaPort: SYSTEM_WORK_RECORD_MNEMOTECA_PORT }),
+        execute: async (argv, options) =>
+            await (await import("./wr/index.ts")).runWorkRecordsCommand(argv, {
+                ...options,
+                mnemotecaPort: SYSTEM_WORK_RECORD_MNEMOTECA_PORT,
+            }),
         surfaces: ["cli"],
     },
     [COMMAND_NAMES.SLEEP]: {
@@ -537,13 +556,19 @@ export const commandRegistry = {
             "Starts or switches to Engineer and keeps that Agent active for follow-up questions.",
             "You can also run /sleep directly inside the interactive TUI.",
         ],
-        execute: (argv, options) =>
-            runSleepCommand(argv, {
+        execute: async (argv, options) => {
+            const [sleep, { SYSTEM_INTERACTIVE_SESSION_PORT }] = await Promise.all([
+                import("./sleep/index.ts"),
+                import("../ui/tui/interactive-session-port.ts"),
+            ]);
+            await sleep.runSleepCommand(argv, {
                 ...options,
-                mnemotecaPort: SYSTEM_SLEEP_MNEMOTECA_PORT,
+                mnemotecaPort: sleep.SYSTEM_SLEEP_MNEMOTECA_PORT,
                 sessionPort: SYSTEM_INTERACTIVE_SESSION_PORT,
-            }),
+            });
+        },
         surfaces: ["cli", "slash"],
+        slashSurfaces: ["tui", "acp"],
     },
     [COMMAND_NAMES.HELP]: {
         name: COMMAND_NAMES.HELP,
@@ -558,8 +583,9 @@ export const commandRegistry = {
             `${bin("<command> --help")}`,
         ],
         notes: [],
-        execute: runHelpCommand,
+        execute: async (argv, options) => await (await import("./help/index.js")).runHelpCommand(argv, options),
         surfaces: ["cli", "slash"],
+        slashSurfaces: ["tui", "acp", "workspace"],
     },
     [COMMAND_NAMES.VERSION]: {
         name: COMMAND_NAMES.VERSION,
@@ -574,21 +600,25 @@ export const commandRegistry = {
         notes: [],
         execute: runVersionCommand,
         surfaces: ["cli", "slash"],
+        slashSurfaces: ["tui", "acp"],
     },
     [COMMAND_NAMES.UPDATE]: {
         name: COMMAND_NAMES.UPDATE,
         aliases: ["upgrade"],
         displayName: "Update",
-        description: "Install the latest Stable release",
-        summary: "Update RunWield by running the public Stable-channel installer.",
+        description: "Update RunWield",
+        summary: "Update RunWield with the correct installer or package manager.",
         usage: [
-            `${bin("update")}`,
-            `${bin("upgrade")}`,
+            `${bin("update")} [--rc | --to <tag>] [--downgrade] [--yes]`,
+            `${bin("upgrade")} [--rc | --to <tag>] [--downgrade] [--yes]`,
         ],
         notes: [
-            "Installs the latest Stable RunWield release; Candidate prereleases are not selected by this command.",
-            "When possible, WLD_INSTALL_DIR is set to the current wld binary directory before running install.sh.",
-            "Set WLD_INSTALL_DIR yourself to choose a specific installation directory.",
+            "Without flags, installs the latest Stable RunWield release.",
+            "Use --rc to install the latest Candidate prerelease after confirmation.",
+            "Use --to <tag> to install an exact tag. Older tags also require --downgrade.",
+            "Use --yes to skip confirmation for scripted Candidate or downgrade installs.",
+            "Standalone Unix installs use the tag-pinned shell installer.",
+            "Package-managed installs print the package-manager upgrade command.",
         ],
         execute: (argv, options) =>
             runUpdateCommand(argv, {
@@ -608,6 +638,7 @@ export const commandRegistry = {
         notes: [],
         execute: runQuitCommand,
         surfaces: ["slash"],
+        slashSurfaces: ["tui"],
     },
     [COMMAND_NAMES.EXIT]: {
         name: COMMAND_NAMES.EXIT,
@@ -618,6 +649,7 @@ export const commandRegistry = {
         notes: [],
         execute: runQuitCommand,
         surfaces: ["slash"],
+        slashSurfaces: ["tui"],
     },
     [COMMAND_NAMES.INIT]: {
         name: COMMAND_NAMES.INIT,
@@ -635,19 +667,26 @@ export const commandRegistry = {
             "Safe to run multiple times — subsequent runs in the same directory will warn and exit.",
             "This command is also available as /init inside the interactive TUI.",
         ],
-        execute: (argv, options) =>
-            options?.sessionRuntime && options.sessionId
+        execute: async (argv, options) => {
+            const [{ runInitCommand }, { SYSTEM_INTERACTIVE_SESSION_PORT }] = await Promise.all([
+                import("./init/index.ts"),
+                import("../ui/tui/interactive-session-port.ts"),
+            ]);
+            await (options?.sessionRuntime && options.sessionId
                 ? runInitCommand(argv, {
                     uiAPI: options.uiAPI,
                     sessionPort: SYSTEM_INTERACTIVE_SESSION_PORT,
                     sessionRuntime: options.sessionRuntime,
                     sessionId: options.sessionId,
+                    projectRoot: options.sessionRuntime.getSessionSnapshot(options.sessionId)?.cwd,
                 })
                 : runInitCommand(argv, {
                     uiAPI: options?.uiAPI,
                     sessionPort: SYSTEM_INTERACTIVE_SESSION_PORT,
-                }),
+                }));
+        },
         surfaces: ["cli", "slash"],
+        slashSurfaces: ["tui", "acp"],
     },
     [COMMAND_NAMES.THEME]: {
         name: COMMAND_NAMES.THEME,
@@ -662,8 +701,9 @@ export const commandRegistry = {
         notes: [
             "Inside the TUI, /theme opens an interactive picker with live previews.",
         ],
-        execute: runThemeCommand,
+        execute: async (argv, options) => await (await import("./theme/index.ts")).runThemeCommand(argv, options),
         surfaces: ["cli", "slash"],
+        slashSurfaces: ["tui"],
     },
     [COMMAND_NAMES.INSTALL]: {
         name: COMMAND_NAMES.INSTALL,
@@ -733,6 +773,7 @@ export const commandRegistry = {
         ],
         execute: runCompactCommand,
         surfaces: ["slash"],
+        slashSurfaces: ["tui", "acp"],
     },
     [COMMAND_NAMES.SETTINGS]: {
         name: COMMAND_NAMES.SETTINGS,
@@ -746,8 +787,9 @@ export const commandRegistry = {
             "Slash command only (interactive session).",
             "Exposes compaction settings (auto-compact, reserve tokens, keep-recent tokens) and model preset selection (activeModelPreset).",
         ],
-        execute: runSettingsCommand,
+        execute: async (argv, options) => await (await import("./settings/index.ts")).runSettingsCommand(argv, options),
         surfaces: ["slash"],
+        slashSurfaces: ["tui", "acp", "workspace"],
     },
     [COMMAND_NAMES.COPY]: {
         name: COMMAND_NAMES.COPY,
@@ -763,6 +805,7 @@ export const commandRegistry = {
         ],
         execute: runCopyCommand,
         surfaces: ["slash"],
+        slashSurfaces: ["tui"],
     },
     [COMMAND_NAMES.RELOAD]: {
         name: COMMAND_NAMES.RELOAD,
@@ -778,16 +821,24 @@ export const commandRegistry = {
         ],
         execute: runReloadCommand,
         surfaces: ["slash"],
+        slashSurfaces: ["tui", "acp"],
     },
 };
 
 /**
+ * @typedef {"tui" | "acp" | "workspace"} SlashSurface
+ */
+
+/**
  * @param {CommandDefinition} command
  * @param {"cli" | "slash"} surface
+ * @param {SlashSurface} [slashSurface]
  * @returns {boolean}
  */
-export function hasCommandSurface(command, surface) {
-    return command.surfaces.includes(surface);
+export function hasCommandSurface(command, surface, slashSurface = "tui") {
+    if (surface !== "slash") return command.surfaces.includes(surface);
+    if (command.surfaces.includes("slash")) return (command.slashSurfaces || ["tui"]).includes(slashSurface);
+    return (command.slashSurfaces || []).includes(slashSurface);
 }
 
 /**
@@ -809,10 +860,11 @@ export function getCliCommandDefinitions() {
 }
 
 /**
+ * @param {SlashSurface} [slashSurface]
  * @returns {CommandDefinition[]}
  */
-export function getSlashCommandDefinitions() {
-    return Object.values(commandRegistry).filter((command) => hasCommandSurface(command, "slash"));
+export function getSlashCommandDefinitions(slashSurface = "tui") {
+    return Object.values(commandRegistry).filter((command) => hasCommandSurface(command, "slash", slashSurface));
 }
 
 /**
@@ -824,18 +876,20 @@ export function getCommandInvocationNames(command) {
 }
 
 /**
+ * @param {SlashSurface} [slashSurface]
  * @returns {string[]}
  */
-export function getSlashCommandInvocationNames() {
-    return getSlashCommandDefinitions().flatMap(getCommandInvocationNames);
+export function getSlashCommandInvocationNames(slashSurface = "tui") {
+    return getSlashCommandDefinitions(slashSurface).flatMap(getCommandInvocationNames);
 }
 
 /**
  * @param {string | undefined} commandName
+ * @param {SlashSurface} [slashSurface]
  * @returns {CommandDefinition | undefined}
  */
-export function getSlashCommandDefinition(commandName) {
+export function getSlashCommandDefinition(commandName, slashSurface = "tui") {
     const command = getCommandDefinition(commandName);
-    if (!command || !hasCommandSurface(command, "slash")) return undefined;
+    if (!command || !hasCommandSurface(command, "slash", slashSurface)) return undefined;
     return command;
 }

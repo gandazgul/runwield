@@ -1,4 +1,5 @@
 import { assertEquals, assertRejects } from "@std/assert";
+import { join } from "@std/path";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import {
     createRootSessionManager,
@@ -6,11 +7,65 @@ import {
     getRootSessionBranchEntries,
     getRunWieldSessionDir,
     getRunWieldSessionMemoryBackupDir,
+    isPathInside,
     listCatalogSafeRootSessionLocators,
     listPersistedRootSessions,
     openPersistedRootSession,
     readCatalogSafeRootSessionLocator,
+    resolveCreatedRootSessionPath,
 } from "./root-session.js";
+
+Deno.test("root-session path containment accepts children but rejects sibling prefixes", () => {
+    const base = join("root", "sessions");
+    assertEquals(isPathInside(base, base), true);
+    assertEquals(isPathInside(join(base, "session.jsonl"), base), true);
+    assertEquals(isPathInside(`${base}-other`, base), false);
+});
+
+Deno.test("root-session persists a new transcript without Pi's private rewrite method", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const previousHome = Deno.env.get("HOME");
+        const home = await Deno.makeTempDir();
+        const cwd = join(home, "repo");
+        Deno.env.set("HOME", home);
+        await Deno.mkdir(cwd);
+        try {
+            const manager = await createRootSessionManager("new", cwd);
+            for (const method of ["_rewriteFile", "_persist"]) {
+                Object.defineProperty(manager, method, {
+                    configurable: true,
+                    value: () => {
+                        throw new Error(`private ${method} must not be used`);
+                    },
+                });
+            }
+            const transcriptPath = await resolveCreatedRootSessionPath(cwd, manager);
+            manager.appendModelChange("anthropic", "test-model");
+            const lines = (await Deno.readTextFile(transcriptPath)).trim().split("\n").map((line) => JSON.parse(line));
+            assertEquals(lines[0].id, manager.getSessionId());
+            assertEquals(lines[1].type, "model_change");
+
+            const reopened = await openPersistedRootSession({
+                cwd,
+                sessionId: manager.getSessionId(),
+                sessionPath: transcriptPath,
+            });
+            Object.defineProperty(reopened.sessionManager, "_persist", {
+                configurable: true,
+                value: () => {
+                    throw new Error("private persistence must not be used after reopen");
+                },
+            });
+            reopened.sessionManager.appendModelChange("anthropic", "reopened-model");
+            const reopenedLines = (await Deno.readTextFile(transcriptPath)).trim().split("\n");
+            assertEquals(reopenedLines.length, 3);
+        } finally {
+            if (previousHome === undefined) Deno.env.delete("HOME");
+            else Deno.env.set("HOME", previousHome);
+            await Deno.remove(home, { recursive: true });
+        }
+    });
+});
 
 Deno.test("root-session cwd directory encoding stays inside filename limits for long worktree paths", () => {
     const longWorktreeCwd = `/tmp/${"deep-directory-name-".repeat(12)}/.wld/worktrees/${
@@ -20,6 +75,107 @@ Deno.test("root-session cwd directory encoding stays inside filename limits for 
     assertEquals(encoded.length < 255, true);
     assertEquals(encoded.startsWith("--follow-up-repaint-"), true);
     assertEquals(encoded.endsWith("--"), true);
+});
+
+Deno.test("root-session opens a validated transcript stored under the Project session directory with a worktree cwd", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const previousHome = Deno.env.get("HOME");
+        const home = await Deno.makeTempDir();
+        Deno.env.set("HOME", home);
+        let manager;
+        let opened;
+        try {
+            const { SessionManager } = await import("@earendil-works/pi-coding-agent");
+            const projectRoot = `${home}/repo`;
+            const worktreeRoot = `${home}/worktree`;
+            await Deno.mkdir(projectRoot, { recursive: true });
+            await Deno.mkdir(worktreeRoot, { recursive: true });
+            const projectSessionDir = getRunWieldSessionDir(projectRoot);
+            manager = SessionManager.create(worktreeRoot, projectSessionDir, { id: "worktree-header" });
+            manager.appendMessage(
+                /** @type {any} */ ({
+                    role: "user",
+                    timestamp: Date.now(),
+                    content: [{ type: "text", text: "repair context" }],
+                }),
+            );
+            const transcriptPath = manager.getSessionFile?.();
+            if (!transcriptPath) throw new Error("Expected a persisted transcript path");
+            const writableManager = /** @type {any} */ (manager);
+            if (typeof writableManager._rewriteFile === "function") writableManager._rewriteFile();
+
+            await assertRejects(
+                () =>
+                    openPersistedRootSession({
+                        cwd: worktreeRoot,
+                        sessionId: "worktree-header",
+                        sessionPath: transcriptPath,
+                    }),
+                Error,
+                "outside the RunWield session directory",
+            );
+
+            await assertRejects(
+                () =>
+                    openPersistedRootSession({
+                        cwd: worktreeRoot,
+                        sessionId: "worktree-header",
+                        sessionPath: transcriptPath,
+                        sessionDir: projectSessionDir,
+                    }),
+                Error,
+                "managed Project evidence",
+            );
+
+            await assertRejects(
+                () =>
+                    openPersistedRootSession({
+                        cwd: projectRoot,
+                        sessionId: "worktree-header",
+                        sessionPath: transcriptPath,
+                        sessionDir: projectSessionDir,
+                        managedProjectRoot: projectRoot,
+                        managedSegmentCwd: projectRoot,
+                    }),
+                Error,
+                "Persisted session cwd does not match requested cwd",
+            );
+
+            opened = await openPersistedRootSession({
+                cwd: worktreeRoot,
+                sessionId: "worktree-header",
+                sessionPath: transcriptPath,
+                sessionDir: projectSessionDir,
+                managedProjectRoot: projectRoot,
+                managedSegmentCwd: worktreeRoot,
+            });
+            assertEquals(opened.resolved.cwd, await Deno.realPath(worktreeRoot));
+            assertEquals(opened.resolved.sessionDir, projectSessionDir);
+            assertEquals(opened.resolved.sessionPath, transcriptPath);
+            assertEquals(opened.sessionManager.getSessionId(), "worktree-header");
+            assertEquals(getRootSessionBranchEntries(opened.sessionManager).length, 1);
+
+            await assertRejects(
+                () =>
+                    openPersistedRootSession({
+                        cwd: worktreeRoot,
+                        sessionId: "wrong-session",
+                        sessionPath: transcriptPath,
+                        sessionDir: projectSessionDir,
+                        managedProjectRoot: projectRoot,
+                        managedSegmentCwd: worktreeRoot,
+                    }),
+                Error,
+                "Persisted session not found",
+            );
+        } finally {
+            await Promise.resolve((/** @type {any} */ (opened?.sessionManager))?.dispose?.());
+            await Promise.resolve((/** @type {any} */ (manager))?.dispose?.());
+            if (previousHome === undefined) Deno.env.delete("HOME");
+            else Deno.env.set("HOME", previousHome);
+            await removeTempDirBestEffort(home);
+        }
+    });
 });
 
 Deno.test("root-session persisted helpers list open and guard cwd paths", async () => {

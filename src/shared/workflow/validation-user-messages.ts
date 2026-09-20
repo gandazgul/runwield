@@ -61,6 +61,7 @@ export type ValidationMessageRequest =
         targetBranch: string;
     }
     | { kind: "merge_dispatch" }
+    | { kind: "publication_files_preserved"; path: string }
     | {
         kind: "publication_blocked";
         planName: string;
@@ -162,40 +163,40 @@ export function buildValidationUserMessage(request: ValidationMessageRequest): s
             return `Tests and CI failed. ${request.agent} will fix it now.`;
         case "semantic_round":
             return request.mode === "discovery"
-                ? `AI code review ${request.round} of ${request.maxRounds} has begun. It will check all the work.`
-                : `AI code review ${request.round} of ${request.maxRounds} has begun. It will check the last fixes.`;
+                ? `AI review ${request.round} of ${request.maxRounds} has begun. It will check all the work.`
+                : `AI review ${request.round} of ${request.maxRounds} has begun. It will check the last fixes.`;
         case "semantic_diff_missing":
             return request.planOnly
                 ? "RunWield found Plan edits but no code. Ask the Engineer to restore the code, then try again."
                 : "RunWield found no code. Ask the Engineer to restore the code, then try again.";
         case "semantic_skipped":
             return request.reason === "non_git"
-                ? "AI code review skipped: this work is not in Git."
-                : "AI code review skipped: there are no code changes to read.";
+                ? "AI review skipped: this work is not in Git."
+                : "AI review skipped: there are no code changes to read.";
         case "semantic_approved":
-            return `AI code review ${request.round} is done. It found no need for a fix.`;
+            return `AI review ${request.round} is done. It found no need for a fix.`;
         case "review_repair":
             return request.repairKind === "human_feedback"
-                ? "Your human review found issues. A repair will start now."
-                : "AI code review found issues. A repair will start now.";
+                ? "Your code review found issues. A repair will start now."
+                : "AI review found issues. A repair will start now.";
         case "repair_feedback_prompt":
             return "Tell the Repair Engineer what to try next.";
         case "repair_feedback_default":
             return "Revisit the remaining findings using my guidance, verify the repair, and report again.";
         case "reviewer_nudge":
-            return `AI code review needs more time for round ${request.round}. Try ${request.attempt} of 3.`;
+            return `AI review needs more time for round ${request.round}. Try ${request.attempt} of 3.`;
         case "semantic_limit":
-            return `AI code review checked ${request.planName} ${request.rounds} times. ${request.openCount} item(s) stay open. Tests and CI ${
+            return `AI review checked ${request.planName} ${request.rounds} times. ${request.openCount} item(s) stay open. Tests and CI ${
                 request.testsPass ? "pass" : "do not pass"
             }. Look once more, read it, or stop.`;
         case "human_review_offer":
-            return "AI code review passed. Do you want human review before merge?";
+            return "AI review passed. Do you want code review before merge?";
         case "human_review_wait":
             return request.reviewUrl ? `Need your review: ${request.reviewUrl}` : "Need your review.";
         case "human_review_prompt":
             return `Read the changes for ${request.planName}.`;
         case "human_review_approved":
-            return "Human review is done. You approved the work.";
+            return "Code review is done. You approved the work.";
         case "qa_prepare":
             return `Making the test list for ${request.planName}.`;
         case "qa_ready":
@@ -245,6 +246,8 @@ export function buildValidationUserMessage(request: ValidationMessageRequest): s
                     return exhaustiveStage;
                 }
             }
+        case "publication_files_preserved":
+            return `Leftover files were saved at ${request.path}.`;
         case "publication_cleanup_incomplete": {
             const facts = request.details.map((detail) => `- ${detail}`).join("\n");
             const checks = [
@@ -328,7 +331,7 @@ export function validationUserMessage(key: ValidationUserMessageKey): string {
 
 export function validationPhasePauseMessage(phase?: "mechanical" | "semantic" | "delivery"): string {
     if (!phase) return "The check is on hold. Your work is safe.";
-    const names = { mechanical: "tests and CI", semantic: "AI code review", delivery: "combining commits" } as const;
+    const names = { mechanical: "tests and CI", semantic: "AI review", delivery: "combining commits" } as const;
     return `The check stopped before the ${names[phase]}. Your work is safe.`;
 }
 
@@ -342,7 +345,7 @@ export function validationMergeRepairMessage(
 }
 
 export function validationReviewerPauseMessage(planName: string): string {
-    return `AI code review for ${planName} stopped. Your work is safe. Try again.`;
+    return `AI review for ${planName} stopped. Your work is safe. Try again.`;
 }
 
 export type PlanRecoveryMessageKey =
@@ -397,6 +400,7 @@ export type PlanRecoveryMessageRequest =
         targetBranch: string;
         complete: boolean;
         details: string[];
+        preservedFiles?: string;
     }
     | {
         kind: "recovery_report";
@@ -491,12 +495,16 @@ export function buildPlanRecoveryUserMessage(request: PlanRecoveryMessageRequest
                 : "The saved worktree details are clear. The files were left in place.";
         case "abandon_definition_missing":
             return "The worktree is gone. No saved Plan file is left. Restore the Plan from Git or a backup, then load it again.";
-        case "publication_cleanup_resumed":
-            return request.complete
+        case "publication_cleanup_resumed": {
+            const message = request.complete
                 ? `Cleanup is done for ${request.planName}. The commits are on ${request.targetBranch}.`
                 : `Cleanup stopped for ${request.planName}. ${
                     request.details.join(" ")
-                } Your files are kept. Fix this Git issue, then load the Plan to retry.`;
+                } Your files are kept. Load the Plan to check again.`;
+            return request.preservedFiles
+                ? `${message} Leftover files were saved at ${request.preservedFiles}.`
+                : message;
+        }
         case "recovery_report": {
             const parts = [request.summary];
             if (request.lastRunStopped) parts.push("The last run stopped before it was done.");

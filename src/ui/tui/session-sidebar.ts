@@ -132,6 +132,10 @@ export function isSessionSidebarActionKey(data: string): boolean {
     return !isKeyRelease(data) && !isKeyRepeat(data) && matchesKey(data, Key.ctrl("enter"));
 }
 
+export function isSessionArtifactOpenKey(data: string): boolean {
+    return !isKeyRelease(data) && !isKeyRepeat(data) && matchesKey(data, Key.alt("]"));
+}
+
 function field(label: string, value: string, width: number): string[] {
     return [theme.fg("dim", fit(label.toUpperCase(), width)), fit(value, width)];
 }
@@ -222,6 +226,9 @@ export class TuiSessionSidebar {
             }
         }
         content.push("", theme.fg("dim", fit("ctrl+] switch tab", inner)));
+        if (this.#activeTab === "artifacts" && projection.artifacts.length > 0) {
+            content.push(theme.fg("dim", fit("alt+] open artifact", inner)));
+        }
         const border = theme.fg("dim", "│");
         return content.map((line) => `${border} ${fit(line, inner)}`);
     }

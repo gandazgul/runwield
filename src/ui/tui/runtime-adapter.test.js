@@ -843,3 +843,25 @@ Deno.test("a second TUI adapter for one Runtime session fails instead of duplica
         "assistant:Engineer:still active",
     ]);
 });
+
+Deno.test("TUI displays an already reported backend error once while preserving other failures", () => {
+    const { runtime, sessionId } = makeRuntimeHarness("backend-error-once");
+    const { transcript, uiAPI } = makeUi();
+    const adapter = attachTuiRuntimeAdapter({ runtime, sessionId, uiAPI });
+    runtime.emitSessionEvent(sessionId, {
+        type: RuntimeEventTypes.SYSTEM_STATUS,
+        level: "error",
+        message: "Blocked: read_file",
+    });
+    runtime.emitSessionEvent(sessionId, {
+        type: RuntimeEventTypes.TERMINAL_ERROR,
+        message: "Blocked: read_file",
+        messageAlreadyReported: true,
+    });
+    runtime.emitSessionEvent(sessionId, {
+        type: RuntimeEventTypes.TERMINAL_ERROR,
+        message: "A different failure",
+    });
+    assertEquals(transcript, ["system:error:Blocked: read_file", "system:error:A different failure"]);
+    adapter.dispose();
+});

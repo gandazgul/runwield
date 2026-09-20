@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { WORKFLOW_TOOL_NAMES } from "../../../tools/registry.js";
 import {
     isApprovalAcceptedValue,
@@ -6,12 +6,14 @@ import {
     RuntimeInteractionTypes,
 } from "../../../shared/session/session-runtime-interactions.js";
 import { MarkdownView } from "./MarkdownView.jsx";
+import { SessionQuestionForm } from "./SessionQuestionForm.tsx";
 import { RunWieldLink, RunWieldThinkingDots } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 
 const MESSAGE_TYPES = new Set([
     "workflow",
     "message",
     "thinking",
+    "busy",
     "tool",
     "status",
     "usage",
@@ -54,6 +56,46 @@ export function formatSessionTimelineTime(timestamp) {
     return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }).toLowerCase().replace(" ", "");
 }
 
+/** @typedef {ReturnType<typeof reduceSessionEvents>[number]} TimelineItem */
+
+/** @param {TimelineItem[]} rawItems */
+function compactCompletedActivity(rawItems) {
+    /** @type {Array<Record<string, any>>} */
+    const compacted = [];
+    /** @type {Array<Record<string, any>>} */
+    let activity = [];
+    const isCompletedActivity = (/** @type {Record<string, any>} */ item) =>
+        (item.kind === "tool" && ["completed", "failed"].includes(text(item.status))) ||
+        (item.kind === "thinking" && item.done === true);
+    const flushActivity = () => {
+        if (!activity.length) return;
+        if (activity.length === 1) {
+            compacted.push(activity[0]);
+        } else {
+            compacted.push({
+                kind: "activity",
+                key: `activity:${activity[0]?.key || compacted.length}`,
+                title: "Activity",
+                count: activity.length,
+                source: activity.some((item) => item.source === "transient") ? "transient" : "committed",
+                timestamp: activity.at(-1)?.timestamp || activity[0]?.timestamp || "",
+                items: activity,
+            });
+        }
+        activity = [];
+    };
+    for (const item of rawItems) {
+        if (isCompletedActivity(item)) {
+            activity.push(item);
+            continue;
+        }
+        flushActivity();
+        compacted.push(item);
+    }
+    compacted.push(...activity);
+    return compacted;
+}
+
 /**
  * @param {Array<Record<string, any>>} events
  * @param {{ source?: "committed" | "transient", startIndex?: number }} [options]
@@ -66,6 +108,7 @@ export function reduceSessionEvents(events, options = {}) {
     const byKey = new Map();
     const source = options.source || "committed";
     const startIndex = options.startIndex || 0;
+    let busy = false;
     let lastSegmentKey = null;
     /** @type {Record<string, any> | null} */
     let lastAssistantMessage = null;
@@ -73,6 +116,7 @@ export function reduceSessionEvents(events, options = {}) {
         const existing = byKey.get(key);
         if (existing) return existing;
         byKey.set(key, item);
+        item.orderTimestamp = item.timestamp;
         items.push(item);
         return item;
     };
@@ -87,52 +131,19 @@ export function reduceSessionEvents(events, options = {}) {
             if (item.timestamp) previous.timestamp = item.timestamp;
             return previous;
         }
+        item.orderTimestamp = item.timestamp;
         item.lines = [item.text];
         items.push(item);
         return item;
-    };
-    const compactCompletedActivity = (/** @type {Array<Record<string, any>>} */ rawItems) => {
-        /** @type {Array<Record<string, any>>} */
-        const compacted = [];
-        /** @type {Array<Record<string, any>>} */
-        let activity = [];
-        const isCompletedActivity = (/** @type {Record<string, any>} */ item) =>
-            item.kind === "usage" ||
-            (item.kind === "tool" && ["completed", "failed"].includes(text(item.status))) ||
-            (item.kind === "thinking" && item.done === true);
-        const flushActivity = () => {
-            if (!activity.length) return;
-            if (activity.length === 1) {
-                compacted.push(activity[0]);
-            } else {
-                compacted.push({
-                    kind: "activity",
-                    key: `activity:${activity[0]?.key || compacted.length}:${activity.length}`,
-                    title: "Activity",
-                    count: activity.length,
-                    source: activity.some((item) => item.source === "transient") ? "transient" : source,
-                    timestamp: activity.at(-1)?.timestamp || activity[0]?.timestamp || "",
-                    items: activity,
-                });
-            }
-            activity = [];
-        };
-        for (const item of rawItems) {
-            if (isCompletedActivity(item)) {
-                activity.push(item);
-                continue;
-            }
-            if (item.kind === "message" && item.role === "assistant") flushActivity();
-            else if (activity.length && item.kind !== "message") flushActivity();
-            compacted.push(item);
-        }
-        compacted.push(...activity);
-        return compacted;
     };
 
     events.forEach((raw, index) => {
         const event = asRecord(raw);
         const type = text(event.type);
+        if (type === "busy_changed") {
+            busy = event.busy === true;
+            return;
+        }
         const id = text(event.messageId || event.toolCallId || event.eventId || `${source}:${startIndex + index}`);
         const timestamp = text(event.timestamp);
         const segmentOrdinal = Number.isInteger(event.segmentOrdinal) ? event.segmentOrdinal : null;
@@ -177,20 +188,26 @@ export function reduceSessionEvents(events, options = {}) {
                 const workflowMessage = event.workflowMessage === "manual_qa_checklist"
                     ? "manual_qa_completed"
                     : text(event.workflowMessage);
-                const item = items.findLast((item) =>
-                    item.kind === "workflow" && item.workflowMessage === workflowMessage && !item.semanticMessage
-                ) || ensure(`workflow:${id}`, {
+                const toolKey = event.toolCallId ? `tool:${event.toolCallId}` : "";
+                const previous = items.at(-1);
+                const legacyMatch = !toolKey && previous?.kind === "workflow" &&
+                        previous.workflowMessage === workflowMessage && !previous.semanticMessage
+                    ? previous
+                    : null;
+                const item = (toolKey ? byKey.get(toolKey) : legacyMatch) || ensure(toolKey || `workflow:${id}`, {
                     kind: "workflow",
                     key: event.eventId || `workflow:${id}`,
                     workflowMessage,
                     title: displayAgentName(workflowMessage.replaceAll("_", "-")),
                     source,
                 });
+                if (event.toolCallId) item.toolCallId = text(event.toolCallId);
                 item.markdown = text(event.delta);
                 item.semanticMessage = true;
                 item.status = "completed";
                 item.agentName = text(event.agentName);
                 item.timestamp = timestamp;
+                item.orderTimestamp = timestamp;
                 return;
             }
             const item = ensure(`assistant:${id}`, {
@@ -226,9 +243,11 @@ export function reduceSessionEvents(events, options = {}) {
             const toolId = text(event.toolCallId || id);
             const workflow = WORKFLOW_TOOL_NAMES.includes(text(event.toolName));
             if (workflow && !byKey.has(`tool:${toolId}`)) {
-                const message = items.findLast((item) =>
-                    item.workflowMessage === event.toolName && item.semanticMessage && !item.toolCallId
-                );
+                const previous = items.at(-1);
+                const message = previous?.workflowMessage === event.toolName && previous.semanticMessage &&
+                        !previous.toolCallId
+                    ? previous
+                    : null;
                 if (message) byKey.set(`tool:${toolId}`, message);
             }
             const item = ensure(`tool:${toolId}`, {
@@ -247,7 +266,11 @@ export function reduceSessionEvents(events, options = {}) {
             if (event.details) item.details = { ...asRecord(item.details), ...asRecord(event.details) };
             if (type !== "tool_start") item.output = text(event.output || item.output);
             if (type === "tool_end") item.status = event.isError ? "failed" : "completed";
-            if (timestamp) item.timestamp = timestamp;
+            if (timestamp && !item.semanticMessage) item.timestamp = timestamp;
+            if (workflow && type === "tool_end" && !item.orderCompleted) {
+                item.orderTimestamp = item.semanticMessage ? item.timestamp : timestamp;
+                item.orderCompleted = true;
+            }
             return;
         }
         if (type === "interaction_requested") {
@@ -300,7 +323,8 @@ export function reduceSessionEvents(events, options = {}) {
             type === "recovery_event"
         ) {
             if (event.header === "Triage") {
-                const item = items.findLast((item) => item.workflowMessage === "triage_report") ||
+                const previous = items.at(-1);
+                const item = (previous?.workflowMessage === "triage_report" && !previous.markdown ? previous : null) ||
                     ensure(`workflow:${id}`, {
                         kind: "workflow",
                         key: `workflow:${id}`,
@@ -312,6 +336,7 @@ export function reduceSessionEvents(events, options = {}) {
                 item.timestamp = timestamp;
                 return;
             }
+            if (type === "terminal_error" && event.messageAlreadyReported) return;
             const level = type === "terminal_error" ? "error" : text(event.level || "info");
             const header = type === "recovery_event" ? "Recovery" : type === "cancellation" ? "Cancellation" : "System";
             appendSystemEvent({
@@ -335,7 +360,55 @@ export function reduceSessionEvents(events, options = {}) {
             }
         }
     });
-    return compactCompletedActivity(items.filter((item) => MESSAGE_TYPES.has(item.kind)));
+    const visibleItems = mergeSessionTimelineItems(items.filter((item) => MESSAGE_TYPES.has(item.kind)), []);
+    // Runtime activity belongs at the live edge, never in saved conversation history.
+    if (source === "transient" && busy) {
+        visibleItems.push({ kind: "busy", key: "runtime-busy", source });
+    }
+    return visibleItems;
+}
+
+/**
+ * Reconcile saved history with the running operation before grouping Activity.
+ * Saved tool results win over their live copies; live-only review/status events remain visible.
+ * @param {TimelineItem[]} committed
+ * @param {TimelineItem[]} transient
+ */
+export function mergeSessionTimelineItems(committed, transient) {
+    const flatten = (/** @type {TimelineItem[]} */ items) =>
+        items.flatMap((item) => item.kind === "activity" ? item.items : [item]);
+    const saved = flatten(committed);
+    const live = flatten(transient);
+    const savedCalls = new Map(saved.flatMap((item, index) => item.toolCallId ? [[item.toolCallId, index]] : []));
+    const savedEnd = Math.max(0, ...saved.map((item) => Date.parse(item.timestamp) || 0));
+    const matched = new Set();
+    const remaining = live.filter((item) => {
+        if (item.toolCallId && savedCalls.has(item.toolCallId)) {
+            const index = savedCalls.get(item.toolCallId);
+            const previous = saved[index];
+            if (previous.status === "running") saved[index] = { ...previous, ...item, key: previous.key };
+            return false;
+        }
+        if (
+            !["message", "thinking"].includes(item.kind) || !item.text ||
+            !(Date.parse(item.timestamp) <= savedEnd)
+        ) return true;
+        const index = saved.findIndex((candidate, index) =>
+            !matched.has(index) && candidate.kind === item.kind && candidate.role === item.role &&
+            candidate.text === item.text && Date.parse(candidate.timestamp) >= Date.parse(item.timestamp)
+        );
+        if (index < 0) return true;
+        matched.add(index);
+        return false;
+    });
+    const ordered = [...saved, ...remaining].sort((a, b) => {
+        const left = Date.parse(a.orderTimestamp || a.timestamp);
+        const right = Date.parse(b.orderTimestamp || b.timestamp);
+        if (!Number.isFinite(left)) return Number.isFinite(right) ? 1 : 0;
+        if (!Number.isFinite(right)) return -1;
+        return left - right;
+    });
+    return compactCompletedActivity(ordered);
 }
 
 /** Full workflow output is never truncated or folded into routine tool activity. */
@@ -485,7 +558,7 @@ function activityRowDetail(activityItem) {
 }
 
 function SessionInteractionCard({ item }) {
-    const [value, setValue] = useState(text(item.request?.defaultValue));
+    const value = text(item.request?.defaultValue);
     const [error, setError] = useState("");
     const [submitting, setSubmitting] = useState(false);
     const requestType = text(item.request?.type || RuntimeInteractionTypes.TEXT);
@@ -499,6 +572,7 @@ function SessionInteractionCard({ item }) {
             await answer(response);
         } catch (caught) {
             setError(caught instanceof Error ? caught.message : String(caught || "Could not send answer."));
+            throw caught;
         } finally {
             setSubmitting(false);
         }
@@ -522,93 +596,90 @@ function SessionInteractionCard({ item }) {
                     </RunWieldLink>
                 )
                 : null}
-            {choices.length
+            {answer
                 ? (
-                    <div className="session-interaction-choice-row">
-                        {choices.map((choice) => {
+                    <SessionQuestionForm
+                        mode={requestType}
+                        state={submitting ? "submitting" : "pending"}
+                        error={error}
+                        prompt=""
+                        value={value}
+                        placeholder={item.request?.placeholder || "Answer…"}
+                        allowEmpty={item.request?.allowEmpty === true}
+                        options={choices.map((choice) => {
                             const choiceRecord = typeof choice === "string" ? { value: choice, label: choice } : choice;
-                            const choiceLabel = text(choiceRecord.label || choiceRecord.value);
-                            const choiceValue = text(choiceRecord.value || choiceLabel);
-                            return (
-                                <button
-                                    key={String(choiceValue)}
-                                    type="button"
-                                    disabled={submitting}
-                                    onClick={() =>
-                                        sendAnswer(
-                                            sessionInteractionChoiceResponse(
-                                                requestType,
-                                                asRecord(item.request),
-                                                choice,
-                                            ),
-                                        )}
-                                >
-                                    {choiceLabel}
-                                </button>
-                            );
+                            return {
+                                value: text(choiceRecord.value || choiceRecord.label),
+                                label: text(choiceRecord.label || choiceRecord.value),
+                                description: text(choiceRecord.description),
+                                ...(choiceRecord._meta && typeof choiceRecord._meta === "object"
+                                    ? { _meta: choiceRecord._meta }
+                                    : {}),
+                            };
                         })}
-                    </div>
+                        onResponse={sendAnswer}
+                    />
                 )
                 : null}
-            {answer && requestType === RuntimeInteractionTypes.APPROVAL && !choices.length
-                ? (
-                    <div className="session-interaction-choice-row">
-                        <button
-                            type="button"
-                            disabled={submitting}
-                            onClick={() => sendAnswer({ outcome: RuntimeInteractionOutcomes.ACCEPTED, value: true })}
-                        >
-                            Approve
-                        </button>
-                        <button
-                            type="button"
-                            disabled={submitting}
-                            onClick={() => sendAnswer({ outcome: RuntimeInteractionOutcomes.CANCELED, value: false })}
-                        >
-                            Decline
-                        </button>
-                    </div>
-                )
-                : null}
-            {answer && requestType !== RuntimeInteractionTypes.APPROVAL
-                ? (
-                    <form
-                        className="session-interaction-answer-form"
-                        onSubmit={(event) => {
-                            event.preventDefault();
-                            const nextValue = item.request?.allowEmpty ? value : value.trim();
-                            if (nextValue || item.request?.allowEmpty) {
-                                sendAnswer(sessionInteractionTypedResponse(requestType, nextValue, choices.length > 0));
-                            }
-                        }}
-                    >
-                        <label>
-                            <span className="sr-only">
-                                {choices.length ? "Other answer" : "Answer"}
-                            </span>
-                            <input
-                                value={value}
-                                onChange={(event) => setValue(event.currentTarget.value)}
-                                placeholder={item.request?.placeholder || (choices.length ? "Other…" : "Answer…")}
-                                disabled={submitting}
-                            />
-                        </label>
-                        <button type="submit" disabled={submitting || (!value.trim() && !item.request?.allowEmpty)}>
-                            {submitting
-                                ? <RunWieldThinkingDots label="Sending" />
-                                : choices.length
-                                ? "Send other"
-                                : "Send"}
-                        </button>
-                    </form>
-                )
-                : null}
-            {error ? <p className="session-interaction-error" role="alert">{error}</p> : null}
         </article>
     );
 }
 
 /** @param {{ items?: Array<Record<string, any>>, events?: Array<Record<string, any>>, emptyMessage?: string }} props */
+function SessionActivityRow({ item, groupOpen }) {
+    const [thinkingOpen, setThinkingOpen] = useState(groupOpen);
+    useEffect(() => {
+        if (item.kind === "thinking") setThinkingOpen(groupOpen);
+    }, [groupOpen, item.kind]);
+    return (
+        <details
+            className={`session-activity-row activity-${item.kind || "item"} status-${item.status || "complete"}`}
+            {...(item.kind === "thinking"
+                ? {
+                    open: thinkingOpen,
+                    onToggle: (event) => {
+                        if (event.target === event.currentTarget) setThinkingOpen(event.currentTarget.open);
+                    },
+                }
+                : {})}
+        >
+            <summary>
+                <ActivityChevronIcon />
+                <span>{activityRowSummary(item)}</span>
+            </summary>
+            <p>{activityRowDetail(item)}</p>
+        </details>
+    );
+}
+
+function SessionActivityGroup({ item }) {
+    const [open, setOpen] = useState(false);
+    return (
+        <details
+            className="session-activity-group"
+            open={open}
+            onToggle={(event) => {
+                if (event.target === event.currentTarget) setOpen(event.currentTarget.open);
+            }}
+        >
+            <summary className="session-activity-group-summary">
+                <ActivityChevronIcon />
+                <strong>{item.title || "Activity"}</strong>
+                <span>{item.count || item.items?.length || 0} events</span>
+            </summary>
+            <div className="session-activity-rows">
+                {(Array.isArray(item.items) ? item.items : []).map((activityItem, index) => (
+                    <SessionActivityRow
+                        key={activityItem.key || `activity:${index}`}
+                        item={activityItem}
+                        groupOpen={open}
+                    />
+                ))}
+            </div>
+        </details>
+    );
+}
+
 export function SessionTimeline({ items, events, emptyMessage = "", sessionPath = "" }) {
     const timelineItems = items || reduceSessionEvents(events || []);
     if (!timelineItems.length) {
@@ -624,7 +695,7 @@ export function SessionTimeline({ items, events, emptyMessage = "", sessionPath 
         <ol className="session-timeline" aria-label="Session timeline">
             {timelineItems.map((item, index) => (
                 <li key={item.key || `${item.kind}:${index}`} className={`session-timeline-item item-${item.kind}`}>
-                    {item.kind === "workflow"
+                    {item.kind === "busy" ? <RunWieldThinkingDots label="Thinking..." /> : item.kind === "workflow"
                         ? (
                             <article
                                 className={`rw-workflow-block status-${item.status}`}
@@ -738,34 +809,7 @@ export function SessionTimeline({ items, events, emptyMessage = "", sessionPath 
                             </details>
                         )
                         : item.kind === "activity"
-                        ? (
-                            <details className="session-activity-group">
-                                <summary className="session-activity-group-summary">
-                                    <ActivityChevronIcon />
-                                    <strong>{item.title || "Activity"}</strong>
-                                    <span>{item.count || item.items?.length || 0} events</span>
-                                </summary>
-                                <div className="session-activity-rows">
-                                    {(Array.isArray(item.items) ? item.items : []).map((
-                                        activityItem,
-                                        activityIndex,
-                                    ) => (
-                                        <details
-                                            className={`session-activity-row activity-${
-                                                activityItem.kind || "item"
-                                            } status-${activityItem.status || "complete"}`}
-                                            key={activityItem.key || `activity:${activityIndex}`}
-                                        >
-                                            <summary>
-                                                <ActivityChevronIcon />
-                                                <span>{activityRowSummary(activityItem)}</span>
-                                            </summary>
-                                            <p>{activityRowDetail(activityItem)}</p>
-                                        </details>
-                                    ))}
-                                </div>
-                            </details>
-                        )
+                        ? <SessionActivityGroup item={item} />
                         : item.kind === "interaction"
                         ? <SessionInteractionCard item={item} />
                         : item.kind === "plan-review" || item.kind === "code-review"

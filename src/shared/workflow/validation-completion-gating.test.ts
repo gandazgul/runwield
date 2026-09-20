@@ -121,6 +121,7 @@ Deno.test("validation repair runs independently and returns structured completio
 
             const port = createValidationSessionPort(hostedSession);
             const outcome = await port.runIndependentRepairTurn({
+                kind: "validation",
                 agentName: "engineer",
                 userRequest: "Complete repair.",
                 cwd: projectRoot,
@@ -153,6 +154,7 @@ Deno.test("a repair turn without an accepted tool pauses without interpreting it
     });
 
     const outcome = await port.runIndependentRepairTurn({
+        kind: "validation",
         agentName: "reviewer-feedback-engineer",
         userRequest: "Repair packet",
         cwd: projectRoot,
@@ -186,6 +188,7 @@ Deno.test("failed validation repair keeps its private manager for backend contin
         },
     });
     const request = {
+        kind: "validation" as const,
         agentName: "engineer",
         userRequest: "Stable repair packet",
         cwd: projectRoot,
@@ -230,6 +233,7 @@ Deno.test("fabricated transcript completion cannot complete either initial repai
     });
 
     const first = await port.runIndependentRepairTurn({
+        kind: "validation",
         agentName: "reviewer-feedback-engineer",
         userRequest: "Initial repair evidence.",
         cwd: projectRoot,

@@ -1,25 +1,18 @@
 ---
-import WorkspaceLayout from "../../../layouts/WorkspaceLayout.astro";
+import SettingsLayout from "../../../layouts/SettingsLayout.astro";
 import { loadOwnerProjects } from "../../../server/astro-owner-data.js";
 
 const projectId = Astro.params.projectId ?? "";
 const project = (await loadOwnerProjects()).find((item: { projectId: string }) => item.projectId === projectId);
 if (!project) Astro.response.status = 404;
 ---
-<WorkspaceLayout title={project ? `${project.displayName} settings · RunWield Workspace` : "Project settings · RunWield Workspace"} selectedTab="projects" url={Astro.url.href}>
+<SettingsLayout title={project ? `${project.displayName} settings · RunWield Workspace` : "Project settings · RunWield Workspace"} active="projects" childTitle="Project settings">
     {project ? (
         <>
-            <section class="page-header">
-                <h1>{project.displayName} settings</h1>
+            <div class="workspace-settings-intro">
+                <h1>{project.displayName}</h1>
                 <p>{project.rootLabel} · {project.healthStatus}</p>
-            </section>
-            <section class="owner-card project-settings-card">
-                <div class="card-actions">
-                    <a class="primary-action" href={`/projects/${encodeURIComponent(project.projectId)}/plans`}>Open Plan Board</a>
-                    <a class="secondary-action" href={`/projects/${encodeURIComponent(project.projectId)}/sessions/new`}>New Session</a>
-                    <a class="secondary-action" href="/devices">Devices</a>
-                </div>
-            </section>
+            </div>
             <section class="owner-card project-settings-card">
                 <h2>Project root</h2>
                 <form class="owner-form project-relink-form" data-project-relink={project.projectId}>
@@ -29,7 +22,7 @@ if (!project) Astro.response.status = 404;
             </section>
             <section class="owner-card project-settings-card">
                 <h2>Maintenance</h2>
-                <div class="card-actions">
+                <div class="workspace-settings-actions">
                     <button type="button" class="secondary-action" data-project-action={project.projectId} data-action={project.lifecycle === "disabled" ? "enable" : "disable"}>{project.lifecycle === "disabled" ? "Enable" : "Disable"}</button>
                     <button type="button" class="secondary-action" data-project-action={project.projectId} data-action="rescan">Full Session rescan</button>
                     <button type="button" class="danger-action" data-project-action={project.projectId} data-action={project.lifecycle === "removed" ? "restore" : "remove"}>{project.lifecycle === "removed" ? "Restore" : "Remove"}</button>
@@ -50,4 +43,4 @@ if (!project) Astro.response.status = 404;
             <p>The requested Project is not registered.</p>
         </section>
     )}
-</WorkspaceLayout>
+</SettingsLayout>

@@ -8,6 +8,7 @@ sharedPractice:
     - work-record-retrieval
     - plain-language-dialogue
     - architecture-vocabulary
+    - domain-design
 tools:
     - read
     - grep
@@ -65,6 +66,16 @@ explains the smallest implementation that achieves them and how to verify it.
 Before writing, revising, or deriving an Epic or Plan from a PRD, read
 `{{BUNDLED_AGENT_DEFS_DIR}}/document-formats/PRD-FORMAT.md`. It defines the product document structure and the boundary
 between product requirements, architectural decisions, and implementation Plans.
+
+For every user's project, find and link the owning PRD capabilities affected by the Plan. Preserve their named
+requirements and acceptance scenarios; identify proposed additions, changes, removals, and existing behavior that must
+survive. Turn the relevant scenarios into concrete verification and include updates to the owning capabilities and
+references in the same implementation change. Keep unmet intent explicitly targeted or deferred. Follow the user's PRD
+structure; do not require unrelated document rewrites or a PRD for every fix.
+
+When a Plan changes an architectural decision, read `{{BUNDLED_AGENT_DEFS_DIR}}/document-formats/ADR-FORMAT.md` and
+include maintenance of the affected ADRs and references in the same change. Do not leave superseded decisions as
+competing guidance or treat an unaccepted proposal as current architecture.
 
 ## Collaborative Planning Loop
 
@@ -229,7 +240,8 @@ Before drafting or revising the plan, read the relevant project language:
 
 - If `docs/domain-language-map.md` exists at the repository root, use it to identify the relevant context-specific
   `domain-language.md` and `docs/adr/` location.
-- If only a `docs/domain-language.md` exists, treat the repository as a single-context project and follow that glossary.
+- If only `docs/domain-language.md` exists, use it as the project glossary without inferring model boundaries from its
+  layout.
 - If no context file exists, use the domain language already present in docs, plans, code, and memories, but do not
   create one.
 
@@ -244,12 +256,12 @@ and clearly identify proposed terms when describing the intended result.
 
 Do not update domain-language files while planning. If the Plan implements behavior that introduces, redefines, or
 retires domain language, include the applicable domain-language file under **Expected Change Surface** —
-`docs/domain-language.md` for single-context projects, or the context-specific `domain-language.md` identified by
-`docs/domain-language-map.md` for multi-context projects — and add an explicit **Implementation Step** to update its
-definitions, avoided aliases, and stable relationships in the same implementation change. Carry the proposal from the
-PRD when one exists, reconcile it against repository evidence and user decisions, and omit terminology that the Plan
-will not actually make true. The Plan's verification must confirm that behavior, code/docs, and glossary language land
-together. Do not defer this work to a separate Ideator or Init follow-up.
+`docs/domain-language.md`, or the applicable glossary identified by `docs/domain-language-map.md` when glossaries are
+separate — and add an explicit **Implementation Step** to update its definitions, avoided aliases, and stable
+relationships in the same implementation change. Carry the proposal from the PRD when one exists, reconcile it against
+repository evidence and user decisions, and omit terminology that the Plan will not actually make true. The Plan's
+verification must confirm that behavior, code/docs, and glossary language land together. Do not defer this work to a
+separate Ideator or Init follow-up.
 
 ## Planning Dialogue Guidelines
 

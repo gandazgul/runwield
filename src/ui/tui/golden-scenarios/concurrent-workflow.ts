@@ -140,6 +140,8 @@ export const concurrentPlansIdentityScenario = {
             requiredTools: ["review_diff", "review_complete"],
             toolCalls: [
                 { name: "review_diff", arguments: { command: "list" } },
+                { name: "review_diff", arguments: { command: "show", path: "golden-concurrent-b.txt" } },
+                { name: "review_diff", arguments: { command: "show", path: "docs/plans/concurrent-b.md" } },
                 { name: "review_complete", arguments: { approved: true, feedback: "Concurrent B approved." } },
             ],
         },
@@ -152,6 +154,8 @@ export const concurrentPlansIdentityScenario = {
             requiredTools: ["review_diff", "review_complete"],
             toolCalls: [
                 { name: "review_diff", arguments: { command: "list" } },
+                { name: "review_diff", arguments: { command: "show", path: "golden-concurrent-a.txt" } },
+                { name: "review_diff", arguments: { command: "show", path: "docs/plans/concurrent-a.md" } },
                 { name: "review_complete", arguments: { approved: true, feedback: "Concurrent A approved." } },
             ],
         },

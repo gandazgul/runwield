@@ -1,3 +1,4 @@
+import { RunWieldThinkingDots } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 import { useCallback, useEffect, useState } from "react";
 import { RunWieldButton } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 
@@ -89,7 +90,9 @@ export function DeviceList() {
     if (loading) {
         return (
             <section className="owner-card" aria-busy="true">
-                <p>Loading paired devices…</p>
+                <p>
+                    <RunWieldThinkingDots label="Loading paired devices" />
+                </p>
             </section>
         );
     }
@@ -106,29 +109,28 @@ export function DeviceList() {
     return (
         <>
             {error ? <p className="notice danger" role="alert">{error}</p> : null}
-            <section className="project-grid" aria-label="Paired devices">
+            <section className="workspace-device-list" aria-label="Paired devices">
                 {activeDevices.length
                     ? activeDevices.map((device) => (
-                        <article className="owner-card" key={device.deviceId}>
-                            <div className="card-header">
-                                <div>
-                                    <p className="kicker">Paired device</p>
+                        <article className="owner-card workspace-device-card" key={device.deviceId}>
+                            <div className="workspace-device-info">
+                                <div className="workspace-device-title">
                                     <h2>{device.label}</h2>
-                                    <p>
-                                        Paired {displayTime(device.createdAt)} · Last seen{" "}
-                                        {displayTime(device.lastSeenAt)}
-                                    </p>
+                                    {device.deviceId === payload.currentDeviceId
+                                        ? <span className="badge">Current</span>
+                                        : null}
                                 </div>
-                                {device.deviceId === payload.currentDeviceId
-                                    ? <span className="status-badge">Current</span>
-                                    : null}
+                                <p>
+                                    Paired {displayTime(device.createdAt)} · Last seen {displayTime(device.lastSeenAt)}
+                                </p>
                             </div>
                             <RunWieldButton
                                 variant="danger"
                                 disabled={revoking === device.deviceId}
-                                onClick={() => void revoke(device)}
+                                onClick={() =>
+                                    void revoke(device)}
                             >
-                                {revoking === device.deviceId ? "Revoking…" : "Revoke"}
+                                {revoking === device.deviceId ? <RunWieldThinkingDots label="Revoking" /> : "Revoke"}
                             </RunWieldButton>
                         </article>
                     ))

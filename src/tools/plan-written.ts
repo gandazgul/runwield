@@ -23,6 +23,7 @@ import { ensurePlanIdentity, loadPlan, resolvePlanExecutionPolicy, updatePlanFro
 import { assertNotReservedEpicArtifactPlanName } from "../shared/epic-artifacts.ts";
 import { recordPlanEvent } from "../shared/workflow/plan-lifecycle.js";
 import { loadPlanActionEvidence } from "../shared/workflow/plan-actions.ts";
+import { resolveWorkflowPlanLocation } from "../shared/workflow/plan-location.ts";
 import { normalizePlanApprovalAction, PLAN_APPROVAL_ACTIONS } from "../shared/workflow/plan-approval.js";
 import { recordWorkflowMetric } from "../shared/workflow/metrics.js";
 import {
@@ -411,7 +412,9 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
             }
 
             if (!cwd) throw new Error("plan_written: cwd or hostedSession cwd is required");
-            const planPath = join(cwd, PLANS_DIR_NAME, `${planName}.md`);
+            const location = await resolveWorkflowPlanLocation(cwd, planName);
+            const reviewCwd = location.plan ? location.documentRoot : cwd;
+            const planPath = location.plan?.path || join(reviewCwd, PLANS_DIR_NAME, `${planName}.md`);
             try {
                 const stat = await Deno.stat(planPath);
                 if (!stat.isFile) {
@@ -431,12 +434,12 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
                 // Footer-context persistence is fail-open and must not block Plan review.
             }
 
-            let effectiveMeta = await resolveTriageMeta(triageMeta, planName, cwd);
+            let effectiveMeta = await resolveTriageMeta(triageMeta, planName, reviewCwd);
             let sequenceDocuments: SequenceReviewDocument[] | undefined;
             try {
                 projectPlanType(effectiveMeta);
                 if (isSequencePlan(effectiveMeta)) {
-                    sequenceDocuments = await prepareSequenceReview(cwd, planName, params.plans);
+                    sequenceDocuments = await prepareSequenceReview(reviewCwd, planName, params.plans);
                     effectiveMeta = { ...effectiveMeta, ...sequenceDocuments[0].frontmatter };
                 } else if (params.plans) {
                     throw new Error("Multiple Plans require a PROJECT container with type: sequence.");
@@ -480,7 +483,7 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
             }
 
             if (Object.keys(policyOverrides).length > 0) {
-                const loadedPlan = await loadPlan(cwd, planName);
+                const loadedPlan = await loadPlan(reviewCwd, planName);
                 if (!loadedPlan?.revision) {
                     return textResult(
                         `plan_written: could not load docs/plans/${planName}.md for execution-policy persistence. Call plan_written again after saving the Plan.`,
@@ -489,7 +492,7 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
                     );
                 }
                 await updatePlanFrontMatter(
-                    cwd,
+                    reviewCwd,
                     planName,
                     policyOverrides,
                     {},
@@ -501,7 +504,7 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
             const appendPlanAssociationFailure = (text: string) =>
                 planAssociationFailure ? `${text}\n\n${planAssociationFailure}` : text;
             try {
-                const identified = await ensurePlanIdentity(cwd, planName);
+                const identified = await ensurePlanIdentity(reviewCwd, planName);
                 const identifiedAttrs: TriageMeta = { ...identified.attrs };
                 if (identifiedAttrs.workKind === undefined || identifiedAttrs.workKind === null) {
                     delete identifiedAttrs.workKind;
@@ -565,7 +568,10 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
                 return recordWorkflowMetric(metric, cwd);
             }
 
-            const initialReviewEvidence = await loadPlanActionEvidence(cwd, String(effectiveMeta.planId || ""));
+            const initialReviewEvidence = await loadPlanActionEvidence(
+                location.registryRoot,
+                String(effectiveMeta.planId || ""),
+            );
             const canonicalReviewEvidence = initialReviewEvidence.kind === "success"
                 ? initialReviewEvidence.evidence
                 : null;
@@ -616,7 +622,7 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
                             type: RuntimeInteractionTypes.PLAN_REVIEW,
                             prompt: `Review plan "${planName}"`,
                             _meta: {
-                                cwd,
+                                cwd: reviewCwd,
                                 planId: canonicalReviewEvidence?.planId || effectiveMeta.planId,
                                 planName: canonicalReviewEvidence?.planName || planName,
                                 planPath,
@@ -678,7 +684,7 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
                 reviewResponse.outcome !== RuntimeInteractionOutcomes.CANCELED
             ) {
                 const accepted = await applySequenceReviewDecision({
-                    cwd,
+                    cwd: reviewCwd,
                     documents: sequenceDocuments,
                     decision: reviewMeta.sequenceDecision,
                     hostedSession,
@@ -847,7 +853,7 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
             if (approvedMeta.classification === "PROJECT") {
                 const projectMeta = { ...approvedMeta };
                 await recordPlanEvent({
-                    cwd,
+                    cwd: reviewCwd,
                     planName,
                     event: "epic_readiness_passed",
                     currentStatus: "approved",
@@ -934,7 +940,7 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
             }
 
             await recordPlanEvent({
-                cwd,
+                cwd: reviewCwd,
                 planName,
                 event: "readiness_passed",
                 currentStatus: "approved",

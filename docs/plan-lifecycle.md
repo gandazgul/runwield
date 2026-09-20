@@ -3,6 +3,44 @@
 Plan status is the durable state machine for saved Plans. Workflow code records facts as Plan Events, and the Plan
 Lifecycle decides the next status and front matter updates.
 
+The [Core completion requirement](prd/runwield-core-prd.md#execution-validation-and-recovery) distinguishes workflow
+conclusions from implementation statuses: delivery ends only after confirmed publication or deliberate user abandonment.
+Failed or blocked states, cancelled turns, and verification attestations alone do not conclude an undelivered workflow.
+RunWield must automatically reconcile its own state while preserving the workflow. The statuses and mechanisms below
+describe implementation; their existence does not prove every recovery path meets this requirement.
+
+## Plan body ownership and external adoption
+
+The owning product requirements are
+[Plan authoring and external adoption](prd/runwield-core-prd.md#plan-authoring-and-external-adoption). RunWield owns
+front matter; the user owns the body and can edit it at any time with any tool. The body does not need to parse as
+RunWield data.
+
+- Metadata lifecycle decisions compare `getPlanFrontMatterRevisionForText()` / the loaded `frontMatterRevision`, not
+  whole-file Plan bytes. Changed product intent still requires the applicable review.
+- Whole-file compare-and-set protects writers that would replace the body, including review Markdown apply, Workspace
+  body saves, and Agent file edits.
+- Failed metadata transitions restore only their owned front matter onto the latest body, never an older whole file.
+- Malformed front matter diagnostics identify the leading block between `---` markers. User prose is not metadata and
+  cannot be the reason that block is invalid.
+
+A plain Markdown file in `docs/plans/` is a valid external Plan. Passive reads and listings use defaults without
+modifying bytes, assigning identity, or reporting absent metadata as corruption or drift. Deliberate `/load-plan`
+adoption calls `onboardExternalPlan()` in [plan-store.js](../src/plan-store.js), persists identity and defaults, and
+preserves the body exactly.
+
+Adoption defaults are a generated `planId`, `classification: PLANNED_CHANGE`, `complexity: MEDIUM`, `summary: ""`,
+`affectedPaths: []`, `status: draft`, and `origin: external`. Record `updatedAt` as now in its owning state store.
+Capture `createdAt` from the file's creation time before writing: atomic replacement changes birthtime. The current
+implementation falls back to modification time, then the current time, when creation time is unavailable. Leave
+`workKind`, `executionAgent`, and `collaborationRecommendation` unset so unknown intent stays unknown and policy
+supplies applicable defaults.
+
+Adoption is idempotent. Existing front matter is not reinitialized; identity can be ensured without resetting lifecycle
+decisions or age. Recheck under the lock so concurrent adoption cannot replace an identity already established.
+
+## State ownership
+
 Before execution starts, Plan lifecycle metadata is canonical in the target project's Plan file. Once RunWield activates
 an execution worktree, that worktree's Plan file is authoritative for the attempt through execution, recovery,
 validation, and publication. The corresponding file in the user's checkout may remain behind and must never be used to
@@ -51,14 +89,14 @@ and child FEATURE Plans can be selected; the Epic itself is still a container, n
 when one is recorded.
 
 `implemented`: Implementation work finished in the execution worktree and is ready for the next Mechanical Validation
-phase. CI failure or semantic/human feedback returns here so the next validation call restarts at CI with durable retry
-counters.
+phase. CI failure or Semantic Review or Code Review feedback returns here so the next validation call restarts at CI
+with durable retry counters.
 
 `validated_ci`: Mechanical Validation passed for the current implementation. The next Workflow Validation call resumes
-at Semantic Code Review and must not rerun CI first.
+at Semantic Review and must not rerun CI first.
 
-`validated_reviewer`: Semantic Code Review passed for the current implementation. The next Workflow Validation call
-handles durable Local Human Code Review metadata and publication; only this status may produce `validation_passed`.
+`validated_reviewer`: Semantic Review passed for the current implementation. The next Workflow Validation call handles
+durable Code Review metadata and publication; only this status may produce `validation_passed`.
 
 `validated`: Workflow Validation succeeded. For worktree-backed execution this status is committed to the execution
 branch before publication begins and never changes again. The separate publication attempt record proves whether those
@@ -69,7 +107,7 @@ validated commits reached the target branch and whether cleanup finished.
 loadable. New worktree-backed Planned Changes finish validation at `validated`.
 
 `closed_without_verification`: A terminal manual closure outcome. The user intentionally ended the Plan without Workflow
-Validation passing. It is distinct from `verified` and does not set `verifiedAt`, human review metadata, or Epic
+Validation passing. It is distinct from `verified` and does not set `verifiedAt`, code review metadata, or Epic
 done-enough metadata.
 
 `on_hold`: A paused-but-resumable Plan. Holding preserves the previous status in `heldFromStatus` plus hold metadata so
@@ -119,7 +157,7 @@ changing the Plan state machine.
 | `execution_failed`                   | `in_progress`                                                                                   | `failed`                      | Sets `failureReason`, `failedAt`, and `worktreeStatus: "execution_failed"` when a reason is available.                                                                                                                         |
 | `implementation_finished`            | `in_progress`                                                                                   | `implemented`                 | Sets `implementedAt` and `worktreeStatus: "completed"`; Workflow Validation still needs to run.                                                                                                                                |
 | `mechanical_validation_failed`       | `implemented`                                                                                   | `implemented`                 | Increments `validationCiAttempts`, resets semantic rounds, records CI failure context, and returns for a later validation call.                                                                                                |
-| `mechanical_validation_passed`       | `implemented`                                                                                   | `validated_ci`                | Resets `validationCiAttempts`, clears CI failure state, and returns before Semantic Code Review.                                                                                                                               |
+| `mechanical_validation_passed`       | `implemented`                                                                                   | `validated_ci`                | Resets `validationCiAttempts`, clears CI failure state, and returns before Semantic Review.                                                                                                                                    |
 | `semantic_review_feedback`           | `validated_ci`                                                                                  | `implemented`                 | Increments `validationSemanticRounds`, resets CI attempts, dispatches/records semantic repair context, and returns so fresh CI runs next.                                                                                      |
 | `semantic_review_passed`             | `validated_ci`                                                                                  | `validated_reviewer`          | Records the semantic approval boundary; terminal verification and publication cannot bypass it.                                                                                                                                |
 | `validation_failed`                  | `implemented`, `validated_ci`, `validated_reviewer`                                             | `implemented`                 | Records terminal failed validation-attempt metadata, sets `worktreeStatus: "validation_failed"` where applicable, and resets phase counters on implemented re-entry.                                                           |
@@ -263,17 +301,17 @@ block with an exact path and reason so the user can inspect or recover the workt
 ## Workflow Validation and Merge-Back
 
 Workflow Validation applies only to executable Plan work. It advances through durable Plan Statuses one phase per call:
-`implemented` runs Mechanical Validation, `validated_ci` runs Semantic Code Review, and `validated_reviewer` handles
-Local Human Code Review plus publication. Operational retries, operational pauses, and fatal operational halts do not
-advance or reset Plan Status. They preserve the last valid status so a later run resumes from the same phase. Workflow
-Validation promotes worktree-backed Plans to `validated` after local validation, semantic review, any configured human
-code review gate, and delivery evidence succeed. Publication then advances independently through its proof-bearing
-registry record. Worktree-backed FEATURE Plans fail closed when the execution mode or worktree publication context is
-unknown; missing volatile Session state is not treated as proof that validation should run in the primary checkout.
+`implemented` runs Mechanical Validation, `validated_ci` runs Semantic Review, and `validated_reviewer` handles Code
+Review plus publication. Operational retries, operational pauses, and fatal operational halts do not advance or reset
+Plan Status. They preserve the last valid status so a later run resumes from the same phase. Workflow Validation
+promotes worktree-backed Plans to `validated` after local validation, Semantic Review, any configured Code Review gate,
+and delivery evidence succeed. Publication then advances independently through its proof-bearing registry record.
+Worktree-backed FEATURE Plans fail closed when the execution mode or worktree publication context is unknown; missing
+volatile Session state is not treated as proof that validation should run in the primary checkout.
 
 Normal owner-facing progress uses shorter labels for these same phases. Mechanical Validation appears as **tests and
-CI**. Semantic Code Review appears as **AI code review**. Local Human Code Review appears as **human review**. Raw Plan
-Status values stay in technical details and diagnostics.
+CI**. Semantic Review appears as **AI review**. Code Review appears as **code review**. Raw Plan Status values stay in
+technical details and diagnostics.
 
 For worktree-backed plans:
 
@@ -288,7 +326,13 @@ For worktree-backed plans:
 3. Workflow Validation reads `validationCiAttempts` and `validationSemanticRounds` from the current controller record,
    runs exactly one lifecycle phase for the current Plan Status, records at most one Plan Event for that phase, and
    returns. Repeated calls resume from durable status instead of an in-memory validation loop.
-4. The `validated_ci` phase computes the workflow diff and starts semantic review rounds in the execution worktree.
+4. The `validated_ci` phase computes one full review patch directly from the recorded target branch's current commit to
+   all current execution-worktree files and starts Semantic Review rounds. One shared function supplies that patch to AI
+   review, repair context, and Code Review, including reload and continuation. It does not compare with the execution
+   recovery baseline or a shared ancestor. The separate repair patch still compares the pre-repair tree with current
+   files. A missing target fails the comparison without falling back to `main`, `HEAD`, the recovery baseline, or an
+   empty patch.
+
    Review narrows as rounds progress: rounds one and two review the implementation against the whole Plan, and rounds
    three and above only verify the open findings and check the latest repair for regressions. Two full sweeps give a
    requirement overlooked in round one a second independent look; narrowing after that is what lets the loop terminate
@@ -304,20 +348,21 @@ For worktree-backed plans:
    seeded with the Plan, the findings, and diff access. It does not inherit the execution transcript, and it reports a
    per-item disposition that the next round independently verifies — a repair claim is evidence, never resolution.
 6. After three automatic rounds without approval, RunWield stops and asks whether to run another verification round or
-   open human code review now. There is no dead end: the work is never left with nowhere to go.
-7. If `codereview` is `ask` or `always`, RunWield opens or offers Plannotator human code review after semantic review
-   passes and before merge-back. The optional `guidedReview` setting can generate a Guided Review Explainer inside that
-   already-open human review, but it does not create a Plan Status, Plan Event, or Front Matter field. Human feedback
-   goes to the Reviewer-Feedback Engineer in the same fresh-session way, along with the annotations and images, and
-   human review then reopens. Human review always sees the full workflow diff, never a repair-scoped one. Human approval
-   reached through the round-limit escape hatch is authoritative and permits merge-back even though semantic review
+   open Code Review now. There is no dead end: the work is never left with nowhere to go.
+7. If `codereview` is `ask` or `always`, RunWield opens or offers Plannotator Code Review after Semantic Review passes
+   and before merge-back. The optional `guidedReview` setting can generate a Guided Review Explainer inside that
+   already-open Code Review, but it does not create a Plan Status, Plan Event, or Front Matter field. User feedback goes
+   to the Reviewer-Feedback Engineer in the same fresh-session way, along with the annotations and images, and Code
+   Review then reopens. Code Review always sees the same full target-relative patch as AI review, never a repair-scoped
+   one. Reload resolves the recorded target again and includes current committed and uncommitted files. User approval
+   reached through the round-limit escape hatch is authoritative and permits merge-back even though Semantic Review
    never approved; the record distinguishes that case.
 
    Once the change is in a human's hands the loop belongs to them: CI reruns and code review reopens after every
-   feedback round, for as many rounds as they give, and automatic semantic rounds do not resume. **The only exits are
-   approval or quitting the review.** Feedback never exhausts a budget, and the three-round semantic cap does not apply
-   — it counts automatic rounds, not human ones. Interrupting and resuming mid-cycle returns to code review rather than
-   restarting semantic review.
+   feedback round, for as many rounds as they give, and automatic Semantic Review rounds do not resume. **The only exits
+   are approval or quitting the review.** Feedback never exhausts a budget, and the three-round semantic cap does not
+   apply—it counts automatic rounds, not user rounds. Interrupting and resuming mid-cycle returns to Code Review rather
+   than restarting Semantic Review.
 8. If validation fails, RunWield keeps Plan Status `implemented`, records `worktreeStatus: "validation_failed"`, and
    leaves the worktree for recovery.
 9. If validation passes, RunWield checkpoints the implementation first. The resulting commit is the immutable
@@ -340,11 +385,11 @@ For worktree-backed plans:
 Publication recovery is defined by [ADR-016](./adr/016-proof-bearing-publication-state-machine.md). RunWield does not
 translate partial states from retired publication flows.
 
-Human code review does not add a new primary Plan Status. While human review is pending, returning feedback, or
-canceled, the Plan remains `implemented`. Final `validation_passed` metadata records whether human review was not
-required, skipped, or approved. Manual recovery and legacy staged worktrees preserve canonical human-review mode,
-decision, and timestamp evidence when no newer review result is supplied. RunWield clears stale human-review metadata
-when execution starts again, when recovery resets a plan, or when a plan is re-opened for review.
+Code review does not add a new primary Plan Status. While code review is pending, returning feedback, or canceled, the
+Plan remains `implemented`. Final `validation_passed` metadata records whether code review was not required, skipped, or
+approved. Manual recovery and legacy staged worktrees preserve canonical human-review mode, decision, and timestamp
+evidence when no newer review result is supplied. RunWield clears stale human-review metadata when execution starts
+again, when recovery resets a plan, or when a plan is re-opened for review.
 
 After the push is remotely verified, registry updates, metrics, and cleanup are post-publication bookkeeping. Their
 failures never rewrite the validated Plan. Inconclusive remote verification retains the worktree and registry entry.
@@ -401,14 +446,14 @@ updates do not change Plan bytes. Failed lifecycle transitions restore only writ
 `verifiedAt`: Timestamp set when Workflow Validation passes and merge-back succeeds, or when an Epic is marked done
 enough for now.
 
-`humanReviewMode`: Human code review mode used for final validation: `none`, `ask`, or `always`.
+`humanReviewMode`: Code review mode used for final validation: `none`, `ask`, or `always`.
 
-`humanReviewDecision`: Human code review outcome included in final validation: `not_required`, `skipped`, or `approved`.
+`humanReviewDecision`: Code review outcome included in final validation: `not_required`, `skipped`, or `approved`.
 `changes_requested` is the one non-final value: the user read the diff and asked for changes. It makes the user the
 owner of this Plan's review, so the repair round runs the tests and hands the diff straight back to them instead of
-sweeping it with the Semantic Code Reviewer again.
+sweeping it with the Semantic Reviewer again.
 
-`humanReviewedAt`: Timestamp set when a human code review approved final validation.
+`humanReviewedAt`: Legacy-named timestamp set when the user approves Code Review.
 
 `executionMode`: Explicit execution publication mode. `worktree` means implementation must be validated and published
 through a Git-backed execution worktree. `non_git_in_place` means validation ran against the primary checkout by an
@@ -493,7 +538,7 @@ The parenthesized value is the recorded worktree branch when available, otherwis
 - `user_verified` is terminal user attestation and never implies RunWield Workflow Validation passed.
 - `closed_without_verification` is terminal manual closure and never implies validation passed.
 - `on_hold` is a pause state; resume/reset must clear hold metadata.
-- Human code review is optional Workflow Validation metadata, not a separate Plan Status.
+- Code review is optional Workflow Validation metadata, not a separate Plan Status.
 - Executable FEATURE validation cannot pass with an empty or Plan-document-only workflow diff.
 - Workflow code should record Plan Events instead of directly mutating Plan Status.
 
@@ -502,7 +547,7 @@ The parenthesized value is the recorded worktree branch when available, otherwis
 `user_verified` is a terminal Plan Status for outcomes the user personally verified outside RunWield Workflow
 Validation. The canonical event is `manual_user_verified`; it requires a trimmed, non-empty `userVerificationNote` and
 records `userVerifiedAt`. It does not set `verifiedAt`, synthesize Delivery Evidence, clean up worktrees, erase prior
-`failureReason`, or relabel human review/validation history.
+`failureReason`, or relabel code review/validation history.
 
 User Verified Plans satisfy child dependencies and Epic completion accounting, but reports must keep them separate from
 proof-bearing RunWield `verified` Plans. A mixed Epic can advance when every child is either RunWield Verified with

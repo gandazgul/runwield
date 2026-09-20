@@ -90,9 +90,8 @@ function emptyClosedStream(): ReadableStream<Uint8Array> {
  *
  * The Unix group signal is only ever sent to a pid this module spawned with
  * `detached`, so the negative pid names exactly that command's group — never
- * RunWield's own. On Windows `taskkill` is fire-and-forget so a slow or
- * failing taskkill cannot hang cancellation; the direct-child kill afterward
- * is best-effort cleanup, not the tree guarantee.
+ * RunWield's own. On Windows `taskkill /T` is the tree guarantee, so the
+ * direct-child kill waits until taskkill has had a chance to find descendants.
  */
 function terminateProcessTree(child: Deno.ChildProcess): void {
     if (Deno.build.os === "windows") {
@@ -102,14 +101,28 @@ function terminateProcessTree(child: Deno.ChildProcess): void {
                 stdout: "null",
                 stderr: "null",
             }).spawn();
-            killer.status.then(() => {}, () => {});
+            killer.status.then(
+                () => {
+                    try {
+                        child.kill();
+                    } catch {
+                        // The process may have exited between termination and the kill.
+                    }
+                },
+                () => {
+                    try {
+                        child.kill();
+                    } catch {
+                        // The process may have exited between termination and the kill.
+                    }
+                },
+            );
         } catch {
-            // taskkill itself failed to start; the direct kill below still applies.
-        }
-        try {
-            child.kill();
-        } catch {
-            // The process may have exited between termination and the kill.
+            try {
+                child.kill();
+            } catch {
+                // The process may have exited between termination and the kill.
+            }
         }
         return;
     }

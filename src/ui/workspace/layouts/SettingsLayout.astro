@@ -1,0 +1,32 @@
+---
+import WorkspaceLayout from "./WorkspaceLayout.astro";
+
+interface Props {
+    title: string;
+    active: "projects" | "devices";
+    childTitle?: string;
+}
+
+const { title, active, childTitle = "" } = Astro.props;
+---
+<WorkspaceLayout title={title} selectedTab="settings" url={Astro.url.href}>
+    <Fragment slot="header-tabs">
+        {childTitle ? (
+            <div class="workspace-settings-heading">
+                <a class="rw-icon-button workspace-settings-back" href="/projects" aria-label="Back to Projects" title="Back to Projects">
+                    <svg aria-hidden="true" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5m7-7-7 7 7 7" /></svg>
+                    <span>Projects</span>
+                </a>
+                <strong class="workspace-main-session-name" data-workspace-surface-title>{childTitle}</strong>
+            </div>
+        ) : (
+            <nav class="rw-underline-tabs workspace-settings-tabs" aria-label="Workspace settings views">
+                <a href="/projects" class:list={[active === "projects" && "active"]} aria-current={active === "projects" ? "page" : undefined}>Projects</a>
+                <a href="/devices" class:list={[active === "devices" && "active"]} aria-current={active === "devices" ? "page" : undefined}>Devices</a>
+            </nav>
+        )}
+    </Fragment>
+    <div class="workspace-settings-content">
+        <slot />
+    </div>
+</WorkspaceLayout>

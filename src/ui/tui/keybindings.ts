@@ -82,8 +82,16 @@ export function installKeybindings(ctx: KeybindingsContext): (data: string) => v
     }
 
     const originalHandleInput = editor.handleInput.bind(editor);
+    let pendingClipboardRead: Promise<ImageAttachment | null> | null = null;
 
     editor.handleInput = async (data: string): Promise<void> => {
+        if (pendingClipboardRead) {
+            try {
+                await pendingClipboardRead;
+            } catch {
+                // The paste handler reports clipboard failures. Keep later input responsive.
+            }
+        }
         if (matchesKey(data, Key.escape)) {
             hideKeyboardHelp?.();
             await recallQueuedSubmissionsToEditor();
@@ -111,7 +119,14 @@ export function installKeybindings(ctx: KeybindingsContext): (data: string) => v
         }
 
         if (matchesKey(data, Key.ctrl("v"))) {
-            const img = await readClipboardImage();
+            const imageRead = readClipboardImage();
+            pendingClipboardRead = imageRead;
+            let img: ImageAttachment | null;
+            try {
+                img = await imageRead;
+            } finally {
+                if (pendingClipboardRead === imageRead) pendingClipboardRead = null;
+            }
             if (img) {
                 pastedImages.push(img);
                 previewImages.addChild(createPastedImagePreview(img));

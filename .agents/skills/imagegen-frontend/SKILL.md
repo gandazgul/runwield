@@ -1,6 +1,8 @@
 ---
 name: imagegen-frontend-web
 description: Elite frontend image-direction skill for generating premium, conversion-aware website design reference images via ChatGPT image generation. Fires when the user asks to generate website mockups, landing page concepts, section design references, or UI comp images. Enforces ONE separate horizontal image PER section, composition variety (bans the default left-text/right-image on every section), background-image freedom, varied CTAs, varied hero scales, narrative concept spine, second-read moments, and a single consistent palette across all images. Outputs structured prompt blueprints that produce Awwwards-tier visual references a developer or coding model can accurately recreate. Image generation only — does not write code.
+metadata:
+    internal: true
 ---
 
 # Elite Frontend Image Art Direction

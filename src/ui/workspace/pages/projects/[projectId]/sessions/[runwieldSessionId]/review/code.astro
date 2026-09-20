@@ -1,5 +1,6 @@
 ---
-import WorkspaceLayout from "../../../../../../layouts/WorkspaceLayout.astro";
+import LoadingSurface from "../../../../../../components/LoadingSurface.astro";
+import ReviewLayout from "../../../../../../layouts/ReviewLayout.astro";
 import { CodeReviewSurface } from "../../../../../../react/CodeReviewSurface.tsx";
 import { getAstroOwnerWorkspaceSessionContinuation } from "../../../../../../server/astro-owner-data.js";
 
@@ -47,9 +48,13 @@ const payload = codeReview
     }
     : null;
 ---
-<WorkspaceLayout title="Code Review · RunWield Workspace" selectedTab="projects" url={Astro.url.href}>
+<ReviewLayout
+    title="Code Review · RunWield Workspace"
+>
     {payload ? (
-        <CodeReviewSurface payload={payload} presentation="workspace" client:only="react" />
+        <CodeReviewSurface payload={payload} client:only="react">
+            <LoadingSurface slot="fallback" label="Loading code review" />
+        </CodeReviewSurface>
     ) : (
         <section class="error-panel">
             <h1>Code Review is no longer available</h1>
@@ -57,4 +62,4 @@ const payload = codeReview
             <a class="secondary-action" href={sessionHref}>Return to Session</a>
         </section>
     )}
-</WorkspaceLayout>
+</ReviewLayout>

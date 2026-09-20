@@ -12,10 +12,12 @@ call the work done until CI and a separate reviewer agree it matches the plan yo
 ideate -> plan -> execute -> record -> use records to plan better
 ```
 
-<p align="center"><img src="brand/runwield-tui.png" alt="RunWield terminal interface" /></p>
+[![Watch the 90-second RunWield demo: Plan Review, execution, validation, Code Review, and Workspace](brand/runwield-demo-poster.jpg)](brand/runwield-demo.mp4)
+
+[Watch the 90-second demo](brand/runwield-demo.mp4)
 
 [Website](https://runwield.dev) · [Install](#install-in-30-seconds) · [How it works](#the-problem) ·
-[Documentation](docs/index.md)
+[Documentation](https://docs.runwield.dev)
 
 ---
 
@@ -40,7 +42,8 @@ run `/init` once to let it explore the repo and build project context, and just 
 
 macOS and Linux, installs to `~/.local/bin`, no root required.
 
-For setup details, including model provider authentication, runtime helpers, and running from source, see the [Quickstart Guide](docs/quickstart.md).
+For setup details, including model provider authentication, runtime helpers, and running from source, see the
+[Quickstart Guide](docs/quickstart.md).
 
 > **I'm looking for five developers to try RunWield on one real, non-trivial change.** I'll personally help you get
 > running, fix anything that blocks you within a day, and give you a direct say in the roadmap.
@@ -138,9 +141,6 @@ Every one of those steps is a place you can interrupt, redirect, or stop. That's
 **Yes, if** you work on codebases where a bad change is expensive, you want to steer before code exists instead of
 after, and you're tired of "done!" meaning "the model stopped typing."
 
-**Probably not, if** most of your work is quick one-shot edits. RunWield would be more ceremony than you need —
-[Pi](https://pi.dev) or another lightweight harness will be faster and you'll be happier.
-
 ---
 
 ## Try it with me
@@ -186,8 +186,9 @@ Everything RunWield owns lives under `~/.wld/` (sessions, settings, global instr
 _your project_ stays in your repo as plain markdown: `docs/plans/`, `.wld/`, `docs/domain-language.md`. No lock-in, no
 database, all greppable.
 
-**Documentation:** [full docs index](docs/index.md) · [usage](docs/usage.md) · [plans and workflows](docs/workflows.md)
-· [settings](docs/settings.md) · [customization](docs/customization.md) · [collaboration](docs/collaboration.md) ·
+**Documentation:** [public manual](https://docs.runwield.dev) · [usage](https://docs.runwield.dev/usage/) ·
+[plans and workflows](https://docs.runwield.dev/workflows/) · [settings](docs/settings.md) ·
+[customization](docs/customization.md) · [collaboration](docs/collaboration.md) ·
 [troubleshooting](docs/troubleshooting.md)
 
 ### Contributing

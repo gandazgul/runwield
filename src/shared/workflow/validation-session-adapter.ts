@@ -39,11 +39,13 @@ import { makeValidationCheckpoint } from "./validation-checkpoint.ts";
 import { renderOpenItems } from "./review-ledger.ts";
 import { recordValidationRepairCompletion } from "./validation-supervisor.ts";
 import { createReviewDiffTool } from "./review-diff-tool.js";
+import { createReviewCompletedTool } from "../../tools/review-complete.ts";
 import { createQaChecklistGeneratedTool } from "../../tools/qa-checklist-generated.ts";
 import { settleWorkflowToolEvent } from "./workflow-tool-events.ts";
 import { switchActiveAgent } from "../session/agent-switching.js";
 import type {
     AgentTurnOutcome,
+    IndependentRepairTurnRequest,
     IsolatedAgentSessionOutcome,
     IsolatedAgentSessionRequest,
     OpaqueToolDefinition,
@@ -194,7 +196,7 @@ function readReviewerProviderFailure(messages: AgentMessage[]): ValidationOperat
         if (message.stopReason !== "error") return undefined;
         return classifyProviderFailure(
             "semantic_review",
-            "The model provider could not complete AI code review.",
+            "The model provider could not complete AI review.",
             { kind: "service_unavailable", code: "provider/turn_failed" },
         );
     }
@@ -204,16 +206,24 @@ function readReviewerProviderFailure(messages: AgentMessage[]): ValidationOperat
 type ReviewDiffToolOptions = Parameters<typeof createReviewDiffTool>[1];
 type ReviewDiffToolWithOptions = ToolDefinition & {
     __runwieldReviewDiffs?: Parameters<typeof createReviewDiffTool>[0];
+    __runwieldReviewOptions?: ReviewDiffToolOptions;
 };
 type QaChecklistToolOptions = Parameters<typeof createQaChecklistGeneratedTool>[0];
 type QaChecklistToolWithOptions = ToolDefinition & { __runwieldQaChecklistOptions?: QaChecklistToolOptions };
 
 function bindReviewDiffTools(hostedSession: HostedSession, customTools: OpaqueToolDefinition[]): ToolDefinition[] {
-    return (customTools as unknown as ToolDefinition[]).map((tool) => {
+    return (customTools as unknown as ToolDefinition[]).flatMap((tool) => {
         const tagged = tool as ReviewDiffToolWithOptions;
         if (tagged.name !== "review_diff" || tagged.__runwieldReviewDiffs === undefined) return tool;
-        const options: ReviewDiffToolOptions = { hostedSession };
-        return createReviewDiffTool(tagged.__runwieldReviewDiffs, options);
+        const options: ReviewDiffToolOptions = { ...tagged.__runwieldReviewOptions, hostedSession };
+        return [
+            createReviewDiffTool(tagged.__runwieldReviewDiffs, options),
+            createReviewCompletedTool({
+                hostedSession,
+                inspection: options.inspection,
+                ledger: options.ledger,
+            }),
+        ];
     });
 }
 
@@ -348,6 +358,7 @@ async function runIsolatedRequest(
 async function acceptedRepairOutcome(
     hostedSession: HostedSession,
     event: import("./workflow-tool-events.ts").WorkflowToolEvent | null,
+    kind: IndependentRepairTurnRequest["kind"] = "validation",
 ): Promise<AgentTurnOutcome> {
     if (event?.kind !== "task_completed") {
         return {
@@ -358,7 +369,7 @@ async function acceptedRepairOutcome(
     }
     const payload = event.payload as import("./workflow-tool-events.ts").TaskCompletedEventPayload;
     const workflow = event.workflow;
-    if (workflow?.validationRepairGeneration && workflow.executionCwd) {
+    if (kind === "validation" && workflow?.validationRepairGeneration && workflow.executionCwd) {
         await recordValidationRepairCompletion({
             projectRoot: workflow.executionCwd,
             planName: workflow.planName,
@@ -443,10 +454,19 @@ export function createValidationSessionPort(
             ),
         registerActiveInteraction: (id, abortController) => hostedSession.addActiveInteraction(id, { abortController }),
         unregisterActiveInteraction: (id) => hostedSession.removeActiveInteraction(id),
-        runIndependentRepairTurn: async ({ userRequest, cwd }) => {
+        runIndependentRepairTurn: async ({ kind, userRequest, cwd }) => {
             const agentName = SUBAGENTS.REVIEWER_FEEDBACK_ENGINEER;
             const repairManager = getPendingRepairManager(hostedSession, cwd, userRequest);
-            await prepareRepairInvocation(hostedSession, cwd);
+            if (kind === "validation") {
+                await prepareRepairInvocation(hostedSession, cwd);
+            } else {
+                // Publication owns its saved attempt and Git checkout. It must not
+                // manufacture a CI/review checkpoint in that independent clone.
+                const workflow = hostedSession.getActiveExecutionWorkflow();
+                if (workflow) {
+                    hostedSession.setActiveExecutionWorkflow({ ...workflow, validationRepairGeneration: undefined });
+                }
+            }
             const { event } = await runValidationAgentUntilEvent(isolatedSessions, {
                 hostedSession,
                 agentName,
@@ -456,13 +476,15 @@ export function createValidationSessionPort(
                 subAgentDefinition: { id: SUBAGENTS.REVIEWER_FEEDBACK_ENGINEER },
                 sessionManager: repairManager,
             }, "task_completed");
-            const completion = await acceptedRepairOutcome(hostedSession, event);
-            lastRepairSessions.set(hostedSession, {
-                manager: repairManager,
-                cwd,
-                agentName,
-                planName: hostedSession.getActiveExecutionWorkflow()?.planName,
-            });
+            const completion = await acceptedRepairOutcome(hostedSession, event, kind);
+            if (kind === "validation") {
+                lastRepairSessions.set(hostedSession, {
+                    manager: repairManager,
+                    cwd,
+                    agentName,
+                    planName: hostedSession.getActiveExecutionWorkflow()?.planName,
+                });
+            }
             if (completion.completed) clearPendingRepairManager(hostedSession, cwd, userRequest);
             return completion;
         },

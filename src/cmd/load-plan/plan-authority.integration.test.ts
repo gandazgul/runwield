@@ -93,7 +93,7 @@ for (const action of ["hold", "review", "validate"]) {
                     );
                     assertEquals(
                         (await findById(projectRoot, "authority-attempt"))?.status,
-                        action === "hold" ? "active" : "abandoned",
+                        "active",
                     );
                 }
                 assertEquals(await Deno.readTextFile(primaryPath), primaryBytes);

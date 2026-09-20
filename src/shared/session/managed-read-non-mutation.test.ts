@@ -256,6 +256,12 @@ Deno.test("managed read sweep drives read paths without writable Pi calls or tra
             await run("preflightSessionImages", async () => {
                 await runtime.preflightSessionImages(adopted.sessionId, []);
             });
+            await run("preflightUserTurnImages", async () => {
+                await runtime.preflightUserTurnImages(adopted.sessionId, {
+                    initialRequest: "hello",
+                    initialImages: [],
+                });
+            });
             await run("requestSessionHelp", () => {
                 runtime.requestSessionHelp(adopted.sessionId);
             });

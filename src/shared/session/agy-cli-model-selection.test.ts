@@ -222,7 +222,7 @@ Deno.test("fresh Agy CLI model selection offers first-time MCP setup before the 
     });
 });
 
-Deno.test("explicit approved Agy CLI selection persists and updates the active runtime Session model", async () => {
+Deno.test("explicit approved Agy CLI selection updates the active runtime Session model without persisting defaults", async () => {
     await withRuntimeCommandFixture("runwield-agy-cli-selection-", async ({ homeDir, projectRoot }) => {
         const runtime = createSessionRuntime();
         const messages: string[] = [];

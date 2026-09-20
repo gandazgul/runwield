@@ -1,9 +1,12 @@
 ---
+import LoadingSurface from "../../../../components/LoadingSurface.astro";
 import WorkspaceLayout from "../../../../layouts/WorkspaceLayout.astro";
 import SessionSurface from "../../../../islands/SessionSurface.jsx";
 
 const projectId = Astro.params.projectId ?? "";
 ---
 <WorkspaceLayout title="New Project Session" selectedTab="projects" url={Astro.url.href}>
-    <SessionSurface projectId={projectId} mode="new" client:only="react" />
+    <SessionSurface projectId={projectId} mode="new" client:only="react">
+        <LoadingSurface slot="fallback" label="Loading Session" />
+    </SessionSurface>
 </WorkspaceLayout>

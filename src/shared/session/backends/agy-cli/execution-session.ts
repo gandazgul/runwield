@@ -261,6 +261,7 @@ export class AgyCliExecutionSession {
             }
 
             const command = prepareAgyCliStreamCommand({
+                cwd: this.cwd,
                 agentName: this.ownership.name,
                 model: this.model.id,
                 userRequest: serializedConversation,
@@ -327,8 +328,19 @@ export class AgyCliExecutionSession {
                 bridgeDisconnected,
                 expectedAgent: this.ownership.name,
                 expectedModel: expectedBackendModel,
+                requestedModel: this.model.id,
                 signalAborted: combinedSignal.aborted,
             });
+            if (parsed && failure?.kind !== "selection_mismatch") {
+                appendExecutionBackendEntry(this.sessionManager, this.model, {
+                    requestId: options.requestId,
+                    attemptId: options.attemptId,
+                    externalConversationId: parsed.metadata.sessionId,
+                    thinkingLevel: this.thinkingLevel || "off",
+                    effort,
+                    backendModel: parsed.metadata.model,
+                });
+            }
             if (failure) {
                 process.kill();
                 emitFailure(failure, acceptedTerminal);
@@ -353,14 +365,6 @@ export class AgyCliExecutionSession {
             if (this.persistModelChange) this.sessionManager.appendModelChange(this.model.provider, this.model.id);
             const assistantMessage = makeAssistantMessage(parsed.text, this.model, parsed.metadata.usage);
             this.sessionManager.appendMessage(assistantMessage);
-            appendExecutionBackendEntry(this.sessionManager, this.model, {
-                requestId: options.requestId,
-                attemptId: options.attemptId,
-                externalConversationId: parsed.metadata.sessionId,
-                thinkingLevel: this.thinkingLevel || "off",
-                effort,
-                backendModel: parsed.metadata.model,
-            });
             this.messages.push(assistantMessage as AgentMessage);
             emitHostedSessionRuntimeEvent(this.hostedSession, {
                 type: RuntimeEventTypes.USAGE,
@@ -472,10 +476,20 @@ function classifyTurnFailure(options: {
     bridgeDisconnected: boolean;
     expectedAgent: string;
     expectedModel: string;
+    requestedModel: string;
     signalAborted: boolean;
 }): ClassifiedFailure | null {
-    const { parsed, parseError, status, stderrText, bridgeDisconnected, expectedAgent, expectedModel, signalAborted } =
-        options;
+    const {
+        parsed,
+        parseError,
+        status,
+        stderrText,
+        bridgeDisconnected,
+        expectedAgent,
+        expectedModel,
+        requestedModel,
+        signalAborted,
+    } = options;
     if (status.terminatedBy === "abort" && signalAborted) return { kind: "canceled", exitCode: status.code };
     if (status.terminatedBy === "timeout") return { kind: "timeout", exitCode: status.code };
     const processDetail = stderrText || parsed?.metadata.errorText || parsed?.text || "";
@@ -501,7 +515,8 @@ function classifyTurnFailure(options: {
     if (parsed.metadata.agent && parsed.metadata.agent !== expectedAgent) {
         return { kind: "selection_mismatch", exitCode: status.code };
     }
-    if (parsed.metadata.model !== expectedModel) {
+    // CLI versions report either the requested family or the resolved effort-specific model.
+    if (parsed.metadata.model !== expectedModel && parsed.metadata.model !== requestedModel) {
         return {
             kind: "selection_mismatch",
             exitCode: status.code,
@@ -510,13 +525,16 @@ function classifyTurnFailure(options: {
             } instead of ${expectedModel}.`,
         };
     }
+    if (parsed.metadata.permissionDenied && !parsed.text) {
+        return { kind: "permission_denied", exitCode: status.code, message: permissionFailureMessage(parsed) };
+    }
     if (!isResultStatusSuccess(parsed.metadata.status)) {
         if (parsed.text && (parsed.metadata.permissionDenied || parsed.metadata.mcpUnavailable)) return null;
         if (parsed.metadata.authFailed) {
             return { kind: "auth_failed", exitCode: status.code, message: parsed.metadata.errorText };
         }
         if (parsed.metadata.permissionDenied) {
-            return { kind: "permission_denied", exitCode: status.code, message: parsed.metadata.errorText };
+            return { kind: "permission_denied", exitCode: status.code, message: permissionFailureMessage(parsed) };
         }
         if (parsed.metadata.mcpUnavailable) {
             return { kind: "mcp_unavailable", exitCode: status.code, message: parsed.metadata.errorText };
@@ -530,12 +548,21 @@ function classifyTurnFailure(options: {
 function classifySoftResultStatus(parsed: AgyCliParseResult): ClassifiedFailure | null {
     if (!parsed.text) return null;
     if (parsed.metadata.permissionDenied) {
-        return { kind: "permission_denied", exitCode: 0, message: parsed.metadata.errorText || parsed.text };
+        return { kind: "permission_denied", exitCode: 0, message: permissionFailureMessage(parsed) };
     }
     if (parsed.metadata.mcpUnavailable) {
         return { kind: "mcp_unavailable", exitCode: 0, message: parsed.metadata.errorText || parsed.text };
     }
     return null;
+}
+
+function permissionFailureMessage(parsed: AgyCliParseResult): string {
+    return [
+        "Antigravity could not approve an action in noninteractive mode.",
+        ...parsed.metadata.permissionDetails.map((detail) => `Blocked: ${detail}`),
+        parsed.metadata.errorText,
+        "Review the action in Antigravity's /permissions, then retry this turn.",
+    ].filter(Boolean).join("\n");
 }
 
 function isResultStatusSuccess(status: string): boolean {

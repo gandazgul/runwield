@@ -11,6 +11,7 @@ export { isEpicPlan, isProjectPlan, isSequencePlan } from "../project-plan.ts";
 
 import { isPlannedChangeClassification } from "../../constants.js";
 import {
+    getDeclaredPlanStatus,
     getPlanDocumentRoot,
     isPlanDependencySatisfiedStatus,
     loadPlan,
@@ -505,7 +506,7 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
             : 0;
         updates.validationSemanticRounds = currentRounds + 1;
         updates.validationCiAttempts = 0;
-        updates.failureReason = details.failureReason || "Semantic Code Review requested changes.";
+        updates.failureReason = details.failureReason || "Semantic Review requested changes.";
         // The open Review Issues and repair identity must commit with the status
         // move back to implemented. A later Session projection cannot fill this
         // in safely after the fact: the process may stop between these writes.
@@ -517,7 +518,7 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
     if (event === "semantic_review_passed") {
         updates.failureReason = null;
         updates.failedAt = null;
-        updates.validationCheckpoint = null;
+        updates.validationCheckpoint = details.validationCheckpoint ?? null;
     }
 
     if (event === "manual_closed_without_verification") {
@@ -760,6 +761,8 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         }
         updates.executionMode = executionMode;
         updates.deliveryEvidence = deliveryEvidence;
+        updates.validatedCommit = deliveryEvidence?.mode === "worktree_merge" ? deliveryEvidence.executionCommit : null;
+        if (deliveryEvidence?.mode === "worktree_merge") updates.targetBranch = deliveryEvidence.targetBranch;
         // The registry remains the publication/recovery authority until the push is
         // confirmed. The validated Plan is immutable and must not retain a pointer
         // that would require another front-matter rewrite after publication.
@@ -821,19 +824,17 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         updates.verifiedAt = null;
         updates.userVerifiedAt = null;
         updates.userVerificationNote = null;
-        updates.executionMode = null;
+        updates.validatedAt = null;
         updates.deliveryEvidence = null;
         updates.humanReviewMode = null;
         updates.humanReviewDecision = null;
         updates.humanReviewedAt = null;
-        updates.executionBaselineTree = null;
-        updates.worktreeId = null;
-        updates.worktreePath = null;
-        updates.worktreeBranch = null;
-        updates.worktreeBaseBranch = null;
-        updates.worktreeStatus = "abandoned";
+        // Replanning invalidates review evidence, not the implementation attempt.
+        // Only explicit reset/abandon actions retire the registered worktree.
     }
 
+    // A new execution or review must not retain the previous implementation's stamp.
+    if (updates.deliveryEvidence === null) updates.validatedCommit = null;
     return updates;
 }
 
@@ -1135,7 +1136,17 @@ export async function stageValidationPassedInExecutionWorktree({
     const executionPlan = await loadPlan(executionCwd, planName);
     if (!executionPlan) throw new Error(`Plan not found in its execution worktree: ${planName}`);
     if (executionPlan.attrs.status === "validated") {
-        return { attrs: executionPlan.attrs, planPaths: [planPath] };
+        if (getDeclaredPlanStatus(executionPlan.markdown) === "validated") {
+            return { attrs: executionPlan.attrs, planPaths: [planPath] };
+        }
+        const attrs = await updatePlanFrontMatter(
+            executionCwd,
+            planName,
+            { status: "validated" },
+            executionPlan.attrs,
+            { expectedRevision: executionPlan.revision },
+        );
+        return { attrs, planPaths: [planPath] };
     }
     if (executionPlan.attrs.status === "verified" && executionPlan.attrs.deliveryEvidence?.mode === "worktree_merge") {
         const attrs = await updatePlanFrontMatter(
@@ -1180,9 +1191,9 @@ export function isExecutablePlanStatus(status) {
  * Whether a review decision can be recorded from `status` as-is.
  *
  * Any other status means the Plan has already passed readiness or execution, so
- * recording a decision requires first detaching it from that generation — a
- * `review_reopened` transition covering both the Plan and its worktree registry
- * entry. This lives here, beside `ALLOWED_FROM`, because it is the same rule:
+ * recording a decision requires first invalidating its prior review evidence.
+ * `review_reopened` preserves the implementation and its worktree. This lives
+ * here, beside `ALLOWED_FROM`, because it is the same rule:
  * `review_approved` and `review_feedback` are legal only from these statuses,
  * and two modules keeping private copies of it is how the reopen came to run
  * twice, once against a stale status.

@@ -14,35 +14,52 @@ Deno.test("Phone Plan review keeps full editing annotations and actions reachabl
     assertStringIncludes(surface, "Edit");
     assertStringIncludes(surface, "Annotations");
     assertStringIncludes(surface, "Feedback");
+    const styles = await Deno.readTextFile("src/ui/workspace/react/plannotator.css");
+    // A base mobile selector loses to desktop selectors with sidebar-state attributes,
+    // leaving a 320px annotations column inside a 390px phone viewport.
+    const phoneStyles = styles.slice(styles.indexOf("@media (max-width: 980px)"));
+    assertStringIncludes(phoneStyles, ".rw-plannotator-plan-layout[data-sidebar-open][data-annotations-open]");
+    assertStringIncludes(phoneStyles, ".rw-plannotator-code-layout[data-file-tree-open][data-annotations-open]");
+    assertStringIncludes(phoneStyles, "grid-template-columns: minmax(0, 1fr)");
+    assertEquals(styles.includes("min-height: 72vh"), false);
 });
 
-Deno.test("Workspace Plan Review uses the owner header and starts directly at the wide workbench", async () => {
-    const route = await Deno.readTextFile(ROUTE_PATH);
+Deno.test("Workspace reviews replace the owner shell with the shared full-window review layout", async () => {
+    const planRoute = await Deno.readTextFile(ROUTE_PATH);
+    const codeRoute = await Deno.readTextFile(
+        "src/ui/workspace/pages/projects/[projectId]/sessions/[runwieldSessionId]/review/code.astro",
+    );
+    const layout = await Deno.readTextFile("src/ui/workspace/layouts/ReviewLayout.astro");
+    assertStringIncludes(planRoute, "const Layout = reviewPayload ? ReviewLayout : WorkspaceLayout");
+    assertStringIncludes(planRoute, '<PlanReviewSurface payload={reviewPayload} client:only="react">');
+    assertStringIncludes(codeRoute, "<ReviewLayout");
+    assertStringIncludes(codeRoute, '<CodeReviewSurface payload={payload} client:only="react">');
+    assertEquals(codeRoute.includes("WorkspaceLayout"), false);
+    assertStringIncludes(layout, "data-astro-review-shell");
+    assertEquals(layout.includes("workspace-sidebar"), false);
+    assertEquals(layout.includes("workspace-shell.js"), false);
+    assertEquals(layout.includes("workspace-main-header"), false);
+    // Full-window presentation must retain Workspace-specific actions and return destinations.
+    for (const route of [planRoute, codeRoute]) {
+        assertStringIncludes(route, 'mode: "workspace"');
+        assertStringIncludes(route, "sessionHref");
+        assertStringIncludes(route, "interactionAnswerUrl");
+    }
     const surface = await Deno.readTextFile(SURFACE_PATH);
+    assertStringIncludes(surface, 'initialPayload.mode === "workspace" || presentation === "workspace"');
+});
+
+Deno.test("Owner shell retains its shared navigation and header outside reviews", async () => {
     const layout = await Deno.readTextFile("src/ui/workspace/layouts/WorkspaceLayout.astro");
     const shell = await Deno.readTextFile("src/ui/workspace/static/workspace-shell.ts");
-    const portal = await Deno.readTextFile("src/ui/workspace/react/WorkspaceHeaderActionsPortal.tsx");
-    const workspaceStyles = await Deno.readTextFile("src/ui/workspace/static/workspace.css");
-
-    assertStringIncludes(route, "const surfaceTitle = reviewPayload && plan ? `Plan Review — ${plan.title");
-    assertStringIncludes(route, "surfaceTitle={surfaceTitle}");
+    const workspaceMenu = await Deno.readTextFile("src/ui/workspace/react/WorkspaceMenu.tsx");
     assertStringIncludes(layout, 'class="workspace-main-session-name" data-workspace-surface-title');
     assertStringIncludes(shell, 'header.querySelector("[data-workspace-main-session-name]")?.remove()');
-    assertStringIncludes(layout, '<BrowserNotificationPermissionControl client:only="react" />');
+    assertStringIncludes(layout, "<WorkspaceMenu client:load />");
+    assertStringIncludes(workspaceMenu, 'href="https://docs.runwield.dev"');
+    assertStringIncludes(workspaceMenu, "Documentation");
     assertStringIncludes(layout, "data-workspace-header-actions");
-    assertEquals(
-        layout.indexOf('<BrowserNotificationPermissionControl client:only="react" />') <
-            layout.indexOf("data-workspace-header-actions"),
-        true,
-    );
-    assertStringIncludes(portal, 'document.querySelector<HTMLElement>("[data-workspace-header-actions]")');
-    assertStringIncludes(workspaceStyles, "row-gap: var(--rw-space-panel);");
-    assertStringIncludes(surface, 'presentation === "workspace" ? "wide" : uiPreferences.planWidth');
-    assertStringIncludes(surface, "<WorkspaceHeaderActionsPortal>");
-    assertStringIncludes(surface, 'presentation === "workspace"');
-    if (surface.includes("ReviewContextBar")) {
-        throw new Error("Plan Review must not repeat Project and Session breadcrumbs inside the workbench");
-    }
+    assertEquals(layout.includes("BrowserNotificationPermissionControl"), false);
 });
 
 Deno.test("Plan Review fixture navigation lives in the Surface Lab instead of the review page", async () => {
@@ -50,7 +67,7 @@ Deno.test("Plan Review fixture navigation lives in the Surface Lab instead of th
     const catalog = await Deno.readTextFile("src/ui/workspace/pages/dev/index.astro");
 
     assertStringIncludes(catalog, 'id: "feature"');
-    assertStringIncludes(catalog, 'id: "read-work-record"');
+    assertStringIncludes(catalog, 'href: "/dev/plan-review?variant=read-only"');
     assertStringIncludes(catalog, "/dev/plan-review?variant=${variant.id}");
     assertStringIncludes(catalog, "/dev/workspace/plan-review?variant=${variant.id}");
     if (devSurface.includes('"aria-label": "Plan Review dev fixtures"')) {
@@ -83,6 +100,15 @@ Deno.test("Plan review exposes Workspace recovery when live Plan evidence requir
     assertStringIncludes(surface, "runRecoveryAction");
 });
 
+Deno.test("Plan review stale errors offer a clear reload action", async () => {
+    const surface = await Deno.readTextFile(SURFACE_PATH);
+
+    assertStringIncludes(surface, "staleReviewError");
+    assertStringIncludes(surface, "Review is out of date");
+    assertStringIncludes(surface, "Reload review");
+    assertStringIncludes(surface, "globalThis.location.reload()");
+});
+
 Deno.test("Plan feedback action sits above the annotation list with theme accent styling", async () => {
     const surface = await Deno.readTextFile(SURFACE_PATH);
     const styles = await Deno.readTextFile("src/ui/workspace/react/plannotator.css");
@@ -92,7 +118,7 @@ Deno.test("Plan feedback action sits above the annotation list with theme accent
 
     const components = await Deno.readTextFile("src/ui/design-system/components.css");
 
-    assertStringIncludes(surface, 'className="rw-review-feedback-action rw-review-action"');
+    assertStringIncludes(surface, 'className="rw-review-feedback-action rw-review-action');
     assertStringIncludes(styles, ".rw-review-feedback-action");
     assertStringIncludes(components, ".rw-review-action-button");
     assertStringIncludes(components, "var(--rw-accent)");
@@ -132,7 +158,7 @@ Deno.test("Code feedback action matches the Plan annotation sidebar treatment", 
     const actionIndex = surface.indexOf('label="Send Annotations"');
     const listIndex = surface.indexOf("<ReviewSidebar", sidebarIndex);
 
-    assertStringIncludes(surface, 'className="rw-review-feedback-action rw-review-action"');
+    assertStringIncludes(surface, 'className="rw-review-feedback-action rw-review-action');
     assertStringIncludes(surface, 'label="Send Annotations"');
     if (sidebarIndex < 0 || actionIndex < sidebarIndex || listIndex < actionIndex) {
         throw new Error("Code Review's Send Annotations action must sit above the annotation list");
@@ -157,24 +183,27 @@ Deno.test("Code Review reuses artifact chat and reloads the republished file dif
     assertStringIncludes(surface, 'label="Send Annotations"');
 });
 
-Deno.test("Code Review options menu matches Plan Review header placement", async () => {
+Deno.test("Code Review uses the Workspace header when embedded and preserves standalone controls", async () => {
     const surface = await Deno.readTextFile(CODE_SURFACE_PATH);
     const headingIndex = surface.indexOf('className="rw-plan-review-heading"');
-    const optionsIndex = surface.indexOf("<CodeReviewOptionsMenu", headingIndex);
+    const optionsIndex = surface.indexOf("{reviewOptions}", headingIndex);
     const logoIndex = surface.indexOf('<img src="/brand/logo.svg"', headingIndex);
     const actionsIndex = surface.indexOf('className="rw-plannotator-actions"');
     const approveIndex = surface.indexOf("<ApproveButton", actionsIndex);
-    const misplacedOptionsIndex = surface.indexOf("<CodeReviewOptionsMenu", actionsIndex);
+    assertStringIncludes(surface, "<WorkspaceHeaderActionsPortal>{reviewActions}</WorkspaceHeaderActionsPortal>");
+    assertStringIncludes(surface, '{presentation === "workspace" && reviewOptions}');
 
     assertStringIncludes(surface, "function CodeReviewOptionsMenu({\n    iconOnly = false,");
-    assertStringIncludes(surface, "!iconOnly && <span");
+    assertStringIncludes(surface, '<RunWieldMenu label="Options" iconOnly={iconOnly}');
+    const menu = await Deno.readTextFile("src/ui/design-system/components/react/RunWieldMenu.tsx");
+    assertStringIncludes(menu, "!iconOnly && <span");
     assertStringIncludes(surface, "const codeReviewHeading = `Code Review - ${codeReviewPlanTitle}`;");
     assertStringIncludes(surface, "<h1 title={codeReviewHeading}>{codeReviewHeading}</h1>");
     if (headingIndex < 0 || optionsIndex < headingIndex || logoIndex < optionsIndex) {
         throw new Error("Code Review options must be icon-only before the logo, matching Plan Review");
     }
-    if (actionsIndex < 0 || approveIndex < actionsIndex || misplacedOptionsIndex >= 0) {
-        throw new Error("Code Review top-right actions must not contain the options menu");
+    if (actionsIndex < 0 || approveIndex < actionsIndex) {
+        throw new Error("Code Review header actions must retain approval");
     }
 });
 
@@ -222,7 +251,7 @@ Deno.test("Plan and Code review use shared toolbar structure with edge-aligned r
 
     assertStringIncludes(surface, "data-plan-width={planWidthMode}");
     assertStringIncludes(surface, 'className="rw-review-toolbar rw-plan-review-controls"');
-    assertStringIncludes(surface, 'className="rw-plan-sidebar-tab-toggle rw-segmented-toggle"');
+    assertStringIncludes(surface, 'className="rw-plan-sidebar-tab-toggle rw-underline-tabs rw-review-sidebar-tabs"');
     assertStringIncludes(surface, 'aria-label="Plan sidebar"');
     assertStringIncludes(surface, '<ToggleIcon name="contents" />');
     assertStringIncludes(surface, '<ToggleIcon name="versions" />');
@@ -243,8 +272,8 @@ Deno.test("Plan and Code review use shared toolbar structure with edge-aligned r
     assertStringIncludes(surface, '{ value: "pair", label: "Pair Execution", icon: "pair" }');
     assertStringIncludes(surface, '{ value: "autonomous", label: "Autonomous", icon: "autonomous" }');
     assertStringIncludes(styles, ".rw-plan-review .rw-plannotator-plan-layout:has(> .rw-plan-sidebar-tab-toggle)");
-    assertStringIncludes(styles, "top: calc((var(--rw-review-toolbar-h, 4rem) - 2.25rem) / 2);");
-    assertStringIncludes(surface, "compact\n                                                    showHelpLink={false}");
+    assertStringIncludes(styles, ".rw-plan-sidebar-tab-toggle {\n    position: absolute;\n    top: 0;");
+    assertStringIncludes(surface.replace(/\s+/g, " "), "compact showHelpLink={false}");
     assertStringIncludes(codeSurface, 'className="rw-review-toolbar rw-code-diff-toolbar"');
     assertStringIncludes(codeSurface, "<FileTreeIcon />");
     assertStringIncludes(codeSurface, "<CommentIcon />");
@@ -272,7 +301,8 @@ Deno.test("Plan and Code review use shared toolbar structure with edge-aligned r
     assertStringIncludes(surface, '<PanelCollapseIcon side="left" />');
     assertStringIncludes(surface, 'title="Collapse annotations sidebar"');
     assertStringIncludes(surface, 'aria-label="Collapse annotations sidebar"');
-    assertStringIncludes(surface, "z-[90]");
+    const sharedStyles = await Deno.readTextFile("src/ui/design-system/components.css");
+    assertStringIncludes(sharedStyles, ".rw-menu-positioner {\n    z-index: 90;");
     assertStringIncludes(surface, 'planWidthMode === "wide"');
     assertStringIncludes(surface, "function PanelCollapseIcon({ side })");
     assertStringIncludes(styles, ".fixed.inset-0.z-50.bg-black\\/50.backdrop-blur-\\[2px\\]");
@@ -417,4 +447,42 @@ Deno.test("Plan reviews recover unfinished work and send direct edits as feedbac
     assertStringIncludes(surface, "disabled={!hasGroupFeedback || submitting !== null ||");
     assertStringIncludes(surface, "plannerWorking || reviewGroup?.busy}");
     assertStringIncludes(surface, "buildPlanReviewFeedback");
+});
+
+Deno.test("Plan and Code annotation tabs occupy the shared header in every presentation", async () => {
+    for (
+        const [path, headingClass] of [
+            [SURFACE_PATH, "rw-plan-review-annotation-heading"],
+            [CODE_SURFACE_PATH, "rw-review-annotation-heading"],
+        ]
+    ) {
+        const source = await Deno.readTextFile(path);
+        const heading = source.indexOf(`className="${headingClass}`);
+        const tabs = source.indexOf('role="tablist"', heading);
+        const collapse = source.indexOf('title="Collapse annotations sidebar"', heading);
+        const actions = source.indexOf('className="rw-review-feedback-action rw-review-action', heading);
+        assertEquals(heading >= 0 && tabs > heading && tabs < collapse && collapse < actions, true);
+        assertEquals(source.slice(heading, actions).includes("presentation ==="), false);
+        assertStringIncludes(source.slice(heading, tabs), "conversationEnabled");
+    }
+});
+Deno.test("Compact Plan Review starts collapsed and keeps panel controls outside document scrolling", async () => {
+    const surface = await Deno.readTextFile(SURFACE_PATH);
+    const styles = await Deno.readTextFile("src/ui/workspace/react/plannotator.css");
+    assertStringIncludes(surface, 'globalThis.matchMedia?.("(max-width: 980px)")');
+    assertStringIncludes(surface, "!compactLayout && getUIPreferences().tocEnabled");
+    assertStringIncludes(surface, "useState(() => !compactLayout)");
+    assertStringIncludes(surface, 'media.addEventListener("change", syncLayout)');
+    assertStringIncludes(surface, 'media.removeEventListener("change", syncLayout)');
+    assertStringIncludes(surface, "if (compactLayout) setAnnotationsOpen(false)");
+    assertStringIncludes(surface, "if (compactLayout) setSidebarOpen(false)");
+    assertStringIncludes(surface, 'aria-label="Open contents sidebar"');
+    assertStringIncludes(surface, 'aria-label="Open annotations sidebar"');
+    assertStringIncludes(surface, '<RunWieldMenu label="Review tools"');
+    assertStringIncludes(surface, '<RunWieldMenu label="Execution options"');
+    const mobilePanels = styles.slice(styles.indexOf("/* Compact review follows Plannotator"));
+    assertStringIncludes(mobilePanels, "position: absolute;");
+    assertStringIncludes(mobilePanels, "inset: 0;");
+    assertStringIncludes(mobilePanels, "max-height: none;");
+    assertStringIncludes(mobilePanels, "visibility: hidden;");
 });

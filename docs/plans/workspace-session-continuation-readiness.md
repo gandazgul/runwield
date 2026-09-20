@@ -14,6 +14,11 @@ frontend: true
 createdAt: "2026-09-07T23:05:28.350448-04:00"
 status: "validated"
 origin: "internal"
+workRecord:
+    status: "generated"
+    recordId: "b9297c76-43e2-40d5-a225-d4575c787ced"
+    path: "docs/work-records/2026-09-08-workspace-session-continuation-and-steering.md"
+    lastAttemptAt: "2026-09-20T03:13:51.924Z"
 ---
 
 # Restore Ordinary Workspace Session Continuation

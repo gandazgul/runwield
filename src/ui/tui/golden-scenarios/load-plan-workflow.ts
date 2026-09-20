@@ -439,6 +439,8 @@ export const loadPlanWorktreeInspectResetScenario = {
             requiredTools: ["review_diff", "review_complete"],
             toolCalls: [
                 { name: "review_diff", arguments: { command: "list" } },
+                { name: "review_diff", arguments: { command: "show", path: "recover-reset.txt" } },
+                { name: "review_diff", arguments: { command: "show", path: "docs/plans/recover-reset.md" } },
                 { name: "review_complete", arguments: { approved: true, feedback: "Recovery reset approved." } },
             ],
         },
@@ -571,6 +573,9 @@ export const loadPlanImplementedFollowUpRepaintsScenario = {
             requiredTools: ["review_diff", "review_complete"],
             toolCalls: [
                 { name: "review_diff", arguments: { command: "list" } },
+                { name: "review_diff", arguments: { command: "show", path: "follow-up-repaint.txt" } },
+                { name: "review_diff", arguments: { command: "show", path: "follow-up-repaint-validation.txt" } },
+                { name: "review_diff", arguments: { command: "show", path: "docs/plans/follow-up-repaint.md" } },
                 { name: "review_complete", arguments: { approved: true, feedback: "Follow-up approved." } },
             ],
         },
@@ -594,6 +599,7 @@ export const loadPlanImplementedFollowUpRepaintsScenario = {
         { type: "waitForEvent", event: "runtime:session-replaced:execution_follow_up", timeoutMs: 30000 },
         { type: "waitForScreen", text: "Plan Engineer", timeoutMs: 30000 },
         { type: "captureProjectState", planNames: ["follow-up-repaint"], key: "afterFollowUpReplacement" },
+        { type: "waitForIdle", timeoutMs: 30000 },
         { type: "type", text: "Please finish the follow-up." },
         { type: "enter" },
         { type: "waitForEvent", event: "runtime:tool:start:task_completed", timeoutMs: 60000 },
@@ -617,7 +623,7 @@ export const loadPlanImplementedFollowUpRepaintsScenario = {
             );
             assert(entry?.path, "Expected the seeded worktree registry entry to record its path.");
             assertEquals(snapshot?.cwd, entry.path);
-            assertEquals(snapshot?.activeAgent, "plan-engineer");
+            assertEquals(snapshot?.activeExecutionWorkflow?.planName, "follow-up-repaint");
             assertEquals(planStatus(result, "follow-up-repaint"), "validated");
         }),
         assertsGoldenCoverage("workflow:follow-up-validation", (result: GoldenScenarioResult) => {
@@ -673,6 +679,8 @@ export const loadPlanContinueUsesExecutionPlanAuthorityScenario = {
             requiredTools: ["review_diff", "review_complete"],
             toolCalls: [
                 { name: "review_diff", arguments: { command: "list" } },
+                { name: "review_diff", arguments: { command: "show", path: "continue-authority.txt" } },
+                { name: "review_diff", arguments: { command: "show", path: "docs/plans/continue-authority.md" } },
                 { name: "review_complete", arguments: { approved: true, feedback: "Continuation approved." } },
             ],
         },

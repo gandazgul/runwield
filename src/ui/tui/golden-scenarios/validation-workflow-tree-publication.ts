@@ -92,7 +92,7 @@ function assertPublishedWithoutPrimaryMutation(result: PublicationState, deliver
 
 function isolatedPublicationScenario(
     name: string,
-    options: { advanceRemote?: boolean } = {},
+    options: { advanceRemote?: boolean; repairConflict?: boolean; agentCommits?: boolean; resumeRepair?: boolean } = {},
 ) {
     const deliveredPath = `${name}.txt`;
     const deliveredText = `delivered ${name}`;
@@ -106,10 +106,54 @@ function isolatedPublicationScenario(
             committedProjectFiles: [
                 { path: ".wld/settings.json", text: `${JSON.stringify({ verification_command: "true" }, null, 4)}\n` },
                 { path: "user-work.txt", text: "committed user work\n" },
+                ...(options.repairConflict ? [{ path: deliveredPath, text: "original\n" }] : []),
                 { path: `docs/plans/${name}.md`, text: publicationPlan(name) },
             ],
             initialProjectFiles: [],
-            scriptedInteractions: [{ type: "select", promptIncludes: "Plan recovery", value: "validate" }],
+            scriptedInteractions: [
+                { type: "select", promptIncludes: "Plan recovery", value: "validate" },
+                ...(options.resumeRepair
+                    ? [
+                        { type: "select", promptIncludes: "could not combine", value: "stop" },
+                        { type: "select", promptIncludes: "Plan recovery", value: "validate" },
+                    ]
+                    : []),
+            ],
+            script: options.repairConflict
+                ? [
+                    {
+                        id: "stage-publication-conflict-resolution",
+                        agent: "engineer",
+                        phase: "engineer",
+                        ordinal: 1,
+                        requiredTools: ["bash"],
+                        toolCalls: [{
+                            name: "bash",
+                            arguments: {
+                                command:
+                                    `git rev-parse --verify MERGE_HEAD && git diff --name-only --diff-filter=U | grep -Fx '${deliveredPath}' && printf '%s\\n' '${deliveredText}' > '${deliveredPath}' && git add '${deliveredPath}'` +
+                                    (options.agentCommits ? " && git commit --no-edit" : ""),
+                            },
+                        }],
+                    },
+                    {
+                        id: "complete-publication-conflict-repair",
+                        agent: "engineer",
+                        phase: "engineer",
+                        ordinal: 2,
+                        ...(options.resumeRepair ? { text: "The conflict resolution is staged. Pausing here." } : {}),
+                        requiredTools: options.resumeRepair ? [] : ["task_completed"],
+                        toolCalls: options.resumeRepair ? [] : [{
+                            name: "task_completed",
+                            arguments: {
+                                message: options.agentCommits
+                                    ? "Resolved and committed the merge."
+                                    : "Resolved and staged the conflict. No commit made.",
+                            },
+                        }],
+                    },
+                ]
+                : [],
             actions: [
                 {
                     type: "seedActiveWorktree",
@@ -132,9 +176,29 @@ function isolatedPublicationScenario(
                         text: "remote work landed first\n",
                     }]
                     : []),
+                ...(options.repairConflict
+                    ? [{
+                        type: "advancePlanRemoteTarget",
+                        planName: name,
+                        path: deliveredPath,
+                        text: "upstream edit\n",
+                    }]
+                    : []),
                 { type: "type", text: `/load-plan ${name}` },
                 { type: "enter" },
                 { type: "enter" },
+                ...(options.resumeRepair
+                    ? [
+                        // A stable screen can precede /load-plan dispatch. Restart only after
+                        // the repair has run and the user has chosen to pause publication.
+                        { type: "waitForEvent", event: "runtime:tool:end:bash", timeoutMs: 90000 },
+                        { type: "waitForIdle", timeoutMs: 90000 },
+                        { type: "restartTui" },
+                        { type: "type", text: `/load-plan ${name}` },
+                        { type: "enter" },
+                        { type: "enter" },
+                    ]
+                    : []),
                 { type: "waitForRemotePlanStatus", planName: name, statuses: ["validated"], timeoutMs: 90000 },
                 { type: "waitForWorktreeRegistryStatus", planName: name, statuses: ["absent"], timeoutMs: 90000 },
                 { type: "waitForIdle", timeoutMs: 90000 },
@@ -143,6 +207,17 @@ function isolatedPublicationScenario(
             assertions: [
                 (result: PublicationState) => {
                     assertPublishedWithoutPrimaryMutation(result, deliveredText);
+                    if (options.resumeRepair) {
+                        assertEquals(
+                            result.state.scriptedInteractions?.map((entry) => entry.interaction?.value),
+                            ["validate", "stop", "validate"],
+                            "Expected publication to pause after repair, then resume after restarting the TUI.",
+                        );
+                    }
+                    if (options.repairConflict) {
+                        const text = `${result.scrollbackText || ""}\n${result.screenText || ""}`;
+                        assert(!text.includes("Validation paused before it could finish"));
+                    }
                     if (options.advanceRemote) {
                         assert(
                             String(result.state.publication?.remoteTree || "").includes("concurrent-remote-change.txt"),
@@ -154,9 +229,26 @@ function isolatedPublicationScenario(
         },
         name,
         [name],
-        [options.advanceRemote ? "publication:remote-target-advance" : "publication:isolated-dirty-primary"],
+        options.repairConflict
+            ? []
+            : [options.advanceRemote ? "publication:remote-target-advance" : "publication:isolated-dirty-primary"],
     );
 }
+
+export const validationTreePublicationRepairCompletionScenario = isolatedPublicationScenario(
+    "validation-tree-publication-repair-completion",
+    { repairConflict: true },
+);
+
+export const validationTreePublicationCommittedRepairCompletionScenario = isolatedPublicationScenario(
+    "validation-tree-publication-committed-repair-completion",
+    { repairConflict: true, agentCommits: true },
+);
+
+export const validationTreePublicationResumedRepairCompletionScenario = isolatedPublicationScenario(
+    "validation-tree-publication-resumed-repair-completion",
+    { repairConflict: true, resumeRepair: true },
+);
 
 const dirtyPublicationPlanName = "validation-tree-publication-dirty-checkout";
 
@@ -437,6 +529,9 @@ export const validationTreePublicationMissingTargetBranchScenario = withValidati
 );
 
 export const validationWorkflowPublicationScenarios = [
+    validationTreePublicationResumedRepairCompletionScenario,
+    validationTreePublicationRepairCompletionScenario,
+    validationTreePublicationCommittedRepairCompletionScenario,
     validationTreePublicationDirtyCheckoutScenario,
     validationTreePublicationIsolatedDirtyPrimaryScenario,
     validationTreePublicationRemoteTargetAdvanceScenario,

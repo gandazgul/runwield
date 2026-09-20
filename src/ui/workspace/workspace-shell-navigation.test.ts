@@ -7,6 +7,8 @@ import {
     currentRouteFromUrl,
     installSidebarResize,
     installWorkspaceShellBrowser,
+    LAST_SESSION_KEY,
+    refreshSidebarForPage,
     renderSidebar,
     shouldApplySidebarRefresh,
     sidebarProjectOrder,
@@ -18,6 +20,50 @@ Deno.test("Workspace sidebar resizing respects panel and conversation bounds", (
     assertEquals(clampSidebarWidth(360, 1440), 360);
     assertEquals(clampSidebarWidth(700, 1440), 480);
     assertEquals(clampSidebarWidth(480, 870), 450);
+});
+
+Deno.test("Workspace home renders and reuses its sidebar while opening the remembered Session", async () => {
+    const { document, sidebar } = installFakeBrowser("/");
+    const stored = new Map([[
+        LAST_SESSION_KEY,
+        JSON.stringify({ projectId: "project-a", runwieldSessionId: "session-a" }),
+    ]]);
+    Object.defineProperty(globalThis, "localStorage", {
+        configurable: true,
+        value: { getItem: (key) => stored.get(key) || null, setItem: (key, value) => stored.set(key, value) },
+    });
+    const previousFetch = globalThis.fetch;
+    let requests = 0;
+    globalThis.fetch = () => {
+        requests++;
+        return Promise.resolve(Response.json({
+            projects: [{
+                projectId: "project-a",
+                displayName: "Project A",
+                enabled: true,
+                sessions: [{ runwieldSessionId: "session-a", displayName: "Recent conversation" }],
+            }],
+        }));
+    };
+    const destinations = [];
+    document.addEventListener("runwield:workspace-navigate", (event) => {
+        event.preventDefault();
+        destinations.push(event.detail.href);
+        assert(sidebar.querySelector('[data-sidebar-session="session-a"]'));
+        globalThis.location.pathname = event.detail.href;
+        globalThis.location.href = `http://workspace.local${event.detail.href}`;
+    });
+    try {
+        await refreshSidebarForPage();
+        const row = sidebar.querySelector('[data-sidebar-session="session-a"]');
+        await refreshSidebarForPage();
+        assertEquals(destinations, ["/projects/project-a/sessions/session-a"]);
+        assertEquals(requests, 1);
+        assertStrictEquals(sidebar.querySelector('[data-sidebar-session="session-a"]'), row);
+        assertEquals(document.querySelector('[aria-label="RunWield Workspace home"]').href, destinations[0]);
+    } finally {
+        globalThis.fetch = previousFetch;
+    }
 });
 
 class FakeClassList {
@@ -114,6 +160,13 @@ class FakeElement {
             node.parentElement = this;
             this.children.push(node);
         }
+    }
+    prepend(...nodes) {
+        for (const node of nodes) {
+            node.parentElement?.removeChild(node);
+            node.parentElement = this;
+        }
+        this.children.unshift(...nodes);
     }
     before(...nodes) {
         const parent = this.parentElement;
@@ -212,7 +265,11 @@ function installFakeBrowser(pathname = "/projects/project-a/sessions/session-a")
     document.append(shell);
     globalThis.document = document;
     globalThis.location = { href: `http://workspace.local${pathname}`, pathname, assign() {}, replace() {} };
-    globalThis.localStorage = { getItem: () => null, setItem() {} };
+    Object.defineProperty(globalThis, "localStorage", {
+        configurable: true,
+        writable: true,
+        value: { getItem: () => null, setItem() {} },
+    });
     globalThis.CSS = { escape: (value) => String(value) };
     return { document, sidebar };
 }
@@ -404,7 +461,37 @@ Deno.test("Workspace sidebar active route uses both Project and Session keys", (
     assertStringIncludes(globalThis.document.querySelector("[data-workspace-main-session-name]").textContent, "Right");
 });
 
-Deno.test("Workspace shell installs one sidebar refresh per page-load navigation", async () => {
+Deno.test("Plan Board navigation stays active across board views and clears on Session navigation", () => {
+    const { document } = installFakeBrowser("/projects/project-a/plans");
+    const payload = {
+        projects: ["project-a", "project-b"].map((projectId) => ({
+            projectId,
+            displayName: projectId,
+            enabled: true,
+            sessions: [],
+        })),
+    };
+    renderSidebar(payload, currentRouteFromUrl("/projects/project-a/plans"));
+    const first = document.querySelector('[data-sidebar-plan-board="project-a"]');
+    const second = document.querySelector('[data-sidebar-plan-board="project-b"]');
+    assert(first.classList.contains("active"));
+    assertEquals(first.getAttribute("aria-current"), "page");
+    assertEquals(second.classList.contains("active"), false);
+    for (const suffix of ["", "/closed", "/on-hold/"]) {
+        const route = currentRouteFromUrl(`/projects/project-b/plans${suffix}?q=search`);
+        applyActiveRoute(route);
+        assertEquals(first.classList.contains("active"), false);
+        assertEquals(first.getAttribute("aria-current"), null);
+        assert(second.classList.contains("active"));
+        assertEquals(second.getAttribute("aria-current"), "page");
+    }
+    applyActiveRoute(currentRouteFromUrl("/projects/project-b/sessions/session-a"));
+    assertEquals(second.classList.contains("active"), false);
+    assertEquals(second.getAttribute("aria-current"), null);
+    assertEquals(currentRouteFromUrl("/projects/project-b/plans/a-plan").kind, "project");
+});
+
+Deno.test("Workspace shell shares an in-flight sidebar request across startup events", async () => {
     const { document } = installFakeBrowser();
     let refreshes = 0;
     globalThis.fetch = () => {
@@ -416,7 +503,7 @@ Deno.test("Workspace shell installs one sidebar refresh per page-load navigation
     document.dispatchEvent(new CustomEvent("astro:page-load"));
     document.dispatchEvent(new CustomEvent("astro:page-load"));
     await Promise.resolve();
-    assertEquals(refreshes, 3);
+    assertEquals(refreshes, 1);
 });
 
 Deno.test("Workspace sidebar resize supports keyboard, pointer, and persisted width", () => {
@@ -461,4 +548,21 @@ Deno.test("Workspace owner layout persists the real sidebar and owns navigation"
     assertStringIncludes(layout, 'document.addEventListener("runwield:workspace-navigate"');
     assertEquals(layout.includes("__runwieldWorkspaceNavigate"), false);
     assertStringIncludes(layout, '<script is:inline type="module" src="/workspace-shell.js"></script>');
+});
+
+Deno.test("artifact and review headers keep one surface title and a reachable Workspace restore control", () => {
+    const { document } = installFakeBrowser("/projects/project-a/sessions/session-a/artifacts/artifact-a");
+    const header = document.querySelector("[data-workspace-main-header-left]");
+    const title = document.createElement("strong");
+    title.dataset.workspaceSurfaceTitle = "";
+    title.textContent = "Artifact title";
+    header.append(title);
+    const payload = { projects: [{ projectId: "project-a", displayName: "Project A", enabled: true, sessions: [] }] };
+    const current = currentRouteFromUrl(globalThis.location.href);
+    renderSidebar(payload, current);
+    renderSidebar(payload, current);
+    assertEquals(header.querySelector("[data-workspace-main-session-name]"), null);
+    assertEquals(header.children.length, 2);
+    assertStrictEquals(header.children[1], title);
+    assertEquals(header.children[0].getAttribute("aria-label"), "Open Workspace sidebar");
 });

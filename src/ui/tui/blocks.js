@@ -3,7 +3,6 @@ import {
     Image,
     Input,
     Key,
-    Markdown,
     matchesKey,
     SelectList,
     Spacer,
@@ -25,6 +24,8 @@ import stripAnsi from "strip-ansi";
  * @property {string} base64
  * @property {string} mimeType
  */
+
+const TOOL_OUTPUT_LINE_LIMIT = 500;
 
 // ─── Utilities ───────────────────────────────────────────────────────────────
 
@@ -370,8 +371,10 @@ export class ReviewResultBlock {
         this.bgToken = approved ? "toolSuccessBg" : "toolErrorBg";
 
         this.container.addChild(new Text(theme.fg("success", theme.bold(`${this.agentName}:`)), 0, 0));
-        this.markdown = new Markdown(this.markdownText, 0, 0, getMarkdownTheme());
-        this.container.addChild(this.markdown);
+        this.markdown = new MermaidMarkdown(this.markdownText, 0, 0, getMarkdownTheme());
+        this.container.addChild(
+            /** @type {import('@earendil-works/pi-tui').Component} */ (/** @type {unknown} */ (this.markdown)),
+        );
         this.block = new StyledBlock(this.bgToken, 2, 1, this.container);
     }
 
@@ -435,7 +438,7 @@ export class ValidationHandoffBlock {
     appendMarkdownSection(lines, title, markdownText, width) {
         lines.push("");
         lines.push(theme.fg("accent", theme.bold(title)));
-        const markdown = new Markdown(markdownText || "(no report text)", 0, 0, getMarkdownTheme());
+        const markdown = new MermaidMarkdown(markdownText || "(no report text)", 0, 0, getMarkdownTheme());
         lines.push(...markdown.render(width));
     }
 
@@ -468,7 +471,7 @@ export class ValidationHandoffBlock {
             const verdict = reviewer.approved ? "approved" : "rejected";
             this.appendMarkdownSection(
                 lines,
-                `${reviewer.agentName || "Reviewer"} latest AI code review — ${verdict}${stale}`,
+                `${reviewer.agentName || "Reviewer"} latest AI review — ${verdict}${stale}`,
                 reviewer.markdown || (reviewer.approved ? "Approved." : "Rejected without detailed feedback."),
                 width,
             );
@@ -684,9 +687,19 @@ export class ToolExecutionBlock {
     /** @private */
     updateBodyText() {
         const lines = this.getOutputLines();
-        const shown = !this.expanded && lines.length > this.previewLineLimit
-            ? lines.slice(0, this.previewLineLimit)
-            : lines;
+        let shown = lines;
+        if (!this.expanded && lines.length > this.previewLineLimit) {
+            shown = lines.slice(0, this.previewLineLimit);
+        } else if (this.expanded && lines.length > TOOL_OUTPUT_LINE_LIMIT) {
+            const headLineCount = Math.ceil((TOOL_OUTPUT_LINE_LIMIT - 1) / 2);
+            const tailLineCount = TOOL_OUTPUT_LINE_LIMIT - headLineCount - 1;
+            const omittedLineCount = lines.length - headLineCount - tailLineCount;
+            shown = [
+                ...lines.slice(0, headLineCount),
+                `… ${omittedLineCount} lines omitted …`,
+                ...lines.slice(-tailLineCount),
+            ];
+        }
         const renderedText = shown.map((line) => {
             if (!this.isError && line.startsWith("Review Plan:")) {
                 return theme.fg("success", theme.bold(line));

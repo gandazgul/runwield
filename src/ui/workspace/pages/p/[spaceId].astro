@@ -1,4 +1,5 @@
 ---
+import LoadingSurface from "../../components/LoadingSurface.astro";
 import ReviewLayout from "../../layouts/ReviewLayout.astro";
 import { RemotePlanReview } from "../../react/RemotePlanReview.tsx";
 import { isRemoteDevelopmentModeEnabled } from "../../server/remote-mode.js";
@@ -17,5 +18,7 @@ if (
 const spaceId = Astro.params.spaceId ?? "";
 ---
 <ReviewLayout title="Remote Plan Review · RunWield Workspace">
-    <RemotePlanReview spaceId={spaceId} client:only="react" />
+    <RemotePlanReview spaceId={spaceId} client:only="react">
+        <LoadingSurface slot="fallback" label="Loading Shared Space" />
+    </RemotePlanReview>
 </ReviewLayout>

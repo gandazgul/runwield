@@ -3,6 +3,14 @@
  * Prompt loop boundary for HostedSession-based interactive turns.
  */
 
+export {
+    getConfiguredAgentModel,
+    getConfiguredAgentThinkingLevel,
+    listPromptTemplates,
+    listSkills,
+} from "./session.js";
+
+import { AgyCliBackendError } from "./backends/agy-cli/failure.ts";
 import { AGENTS, SUBAGENTS } from "../../constants.js";
 import {
     readPersistedManualModelState,
@@ -11,7 +19,7 @@ import {
     resolveResumeAgentName,
 } from "./active-agent-session.js";
 import { resolveActiveWorkflowRuntimeAgent, resolvePlanExecutionRuntimeAgent } from "../workflow/execution-agent.ts";
-import { getAgentDisplayName } from "./agents.js";
+import { getAgentDisplayName, loadAgentDef } from "./agents.js";
 import { runActiveAgentTurn, switchActiveAgent } from "./agent-switching.js";
 import {
     abortActiveSession as abortActiveSessionFn,
@@ -24,6 +32,7 @@ import {
     listLoadedAgentMdFiles,
     listPromptTemplates,
     listSkills,
+    resolveModel,
     runIsolatedAgentSession,
     steerActiveSessionWithTarget,
     steerAgentSessionWithTarget,
@@ -38,6 +47,7 @@ import {
     exportRootSessionToJsonl,
     getRootSessionBranchEntries,
     getRunWieldSessionMemoryBackupDir,
+    isPathInside,
     listCatalogSafeRootSessionLocators,
     listPersistedRootSessions,
     openPersistedRootSession,
@@ -78,6 +88,7 @@ import { getModelRegistry, SYSTEM_MODEL_DISCOVERY_NETWORK } from "../models/mode
 import { parseProviderModel } from "../models/model-validation.ts";
 import { spawnForegroundShell } from "../foreground-process.ts";
 import { openFileSessionStore } from "./file-session-store.ts";
+import { sessionDirForRoot } from "./file-session-storage.ts";
 import { FileSessionStoreOwner } from "./file-session-store-owner.ts";
 import { listRecentResumableSessions } from "./session-resume-list.ts";
 import { buildSessionContextReport } from "./session-context-report.js";
@@ -211,6 +222,8 @@ async function resolvePersistedRootConfiguration(agentName, sessionManager, cwd)
  * @property {boolean} [emitInitialEvents]
  * @property {boolean} [suppressEpicContinuation]
  * @property {string} [modelRequest]
+ * @property {string} [modelOverride]
+ * @property {string} [preparedModelOverride]
  * @property {import('./named-invocation.ts').NamedInvocationPayload} [namedInvocationPayload]
  * @property {AbortSignal} [signal]
  */
@@ -744,6 +757,7 @@ export class SessionRuntime {
             activeTurnId: session.getActiveTurnId(),
             queuedMessages: this.getQueuedMessages(session.id),
             workflowContext: workflowContext ? { ...workflowContext } : null,
+            planAssociations: activeSessionInfo?.planAssociations || [],
             artifacts,
             activeExecutionWorkflow: activeExecutionWorkflow ? { ...activeExecutionWorkflow } : null,
             systemContextTokens,
@@ -1072,13 +1086,21 @@ export class SessionRuntime {
         const managedRejection = this.#rejectManagedPublicMutation(hostedSession, "steerSession", capability);
         if (managedRejection) return { ...managedRejection, queued: false };
         if (hostedSession.isAgentTransitioning?.()) {
-            hostedSession.queueAgentTransitionSteering(text, images);
-            return { ok: true, queued: true };
+            const activeTarget = /** @type {any} */ (hostedSession.getActiveSteeringTargetSession?.());
+            const imagePreflight = await this.#preflightImagesForAgentSession(
+                hostedSession,
+                images,
+                activeTarget || hostedSession.getRootAgentSession(),
+            );
+            if (!imagePreflight.ok) throw new Error(imagePreflight.message);
+            if (hostedSession.queueAgentTransitionSteering(text, images)) return { ok: true, queued: true };
         }
         const activeTarget = /** @type {any} */ (hostedSession.getActiveSteeringTargetSession?.());
         const rootSession = /** @type {any} */ (hostedSession.getRootAgentSession());
         const expectedTarget = activeTarget?.isStreaming ? activeTarget : rootSession;
         if (!expectedTarget?.isStreaming) return { ok: true, queued: false, reason: "not_streaming" };
+        const imagePreflight = await this.#preflightImagesForAgentSession(hostedSession, images, expectedTarget);
+        if (!imagePreflight.ok) throw new Error(imagePreflight.message);
 
         this.#ensureQueueSourceSubscription(hostedSession, expectedTarget);
         const sourceSession = await steerActiveSessionWithTarget(hostedSession, text, images);
@@ -1600,6 +1622,7 @@ export class SessionRuntime {
             session.id,
             {
                 name: "workflow_operation",
+                emitPromptEvents: false,
                 options: {
                     ...options,
                     expectedGeneration: managed.generation ?? undefined,
@@ -1917,12 +1940,16 @@ export class SessionRuntime {
             }
             session.setActiveExecutionWorkflow(/** @type {any} */ (continuation.activeWorkflow));
             const { buildValidationRepairPrompt } = await import("../workflow/validation-repair-prompt.ts");
+            const { getWorktreeReviewDiff } = await import("../workflow/git-snapshot.js");
             const { createReviewDiffTool, buildDiffInspectionSection } = await import(
                 "../workflow/review-diff-tool.js"
             );
             const { acknowledgeTaskCompletion, claimPendingTaskCompletion } = await import(
                 "./task-completion-session.ts"
             );
+            const diffText = workflow.executionMode === "non_git_in_place" || workflow.nonGitInPlace
+                ? continuation.repair.diffText
+                : await getWorktreeReviewDiff(executionCwd, workflow.worktreeBaseBranch || "");
             await runActiveAgentTurn({
                 hostedSession: session,
                 agentName: AGENTS.REVIEWER_FEEDBACK_ENGINEER,
@@ -1939,7 +1966,7 @@ export class SessionRuntime {
                         "",
                         continuation.repair.findingsSection || "(no findings text supplied)",
                         "",
-                        buildDiffInspectionSection(continuation.repair.diffText),
+                        buildDiffInspectionSection(diffText),
                     ].join("\n"),
                     completionInstruction:
                         "Report a disposition for every finding, then call task_completed. If a finding is still open because something blocked you, stop in plain text instead and name it.",
@@ -1947,7 +1974,7 @@ export class SessionRuntime {
                 cwd: executionCwd,
                 dispatchKind: "validation_repair",
                 subAgentDefinition: { id: SUBAGENTS.REVIEWER_FEEDBACK_ENGINEER },
-                customTools: [createReviewDiffTool({ full: continuation.repair.diffText }, { hostedSession: session })],
+                customTools: [createReviewDiffTool({ full: diffText }, { hostedSession: session })],
             });
             const acceptedCompletion = claimPendingTaskCompletion(session, null);
             const completed = Boolean(acceptedCompletion);
@@ -2145,20 +2172,135 @@ export class SessionRuntime {
     async preflightSessionImages(sessionId, images) {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) return { ok: false, message: "Runtime session not found." };
-        const rootAgentSession = /** @type {any} */ (session.getRootAgentSession());
+        return await this.#preflightImagesForAgentSession(session, images, session.getRootAgentSession());
+    }
+
+    /**
+     * @param {import('./hosted-session.js').HostedSession} session
+     * @param {import('./types.js').ImageAttachment[]} images
+     * @param {any} agentSession
+     */
+    async #preflightImagesForAgentSession(session, images, agentSession) {
         const modelState = session.getActiveModelState();
         const managed = session.getManagedMetadata?.();
         const modelProvider = modelState.provider || managed?.provider || "";
         const modelId = modelState.model || managed?.model || "";
-        const modelRegistry = rootAgentSession?.modelRegistry || getModelRegistry();
-        const activeModel = rootAgentSession?.model ||
+        const modelRegistry = agentSession?.modelRegistry || getModelRegistry();
+        const activeModel = agentSession?.model ||
             (modelProvider && modelId ? modelRegistry.find(modelProvider, modelId) : undefined);
+        return await this.#preflightImagesForModel(session, images, activeModel, modelRegistry);
+    }
+
+    /**
+     * @param {unknown} activeModel
+     * @returns {string | undefined}
+     */
+    #modelReference(activeModel) {
+        const model = /** @type {{ provider?: string, id?: string, model?: string }} */ (activeModel || {});
+        if (model.provider && model.id) return `${model.provider}/${model.id}`;
+        if (model.provider && model.model) return `${model.provider}/${model.model}`;
+        return undefined;
+    }
+
+    /**
+     * @param {import('./hosted-session.js').HostedSession} session
+     * @param {import('./types.js').ImageAttachment[]} images
+     * @param {unknown} activeModel
+     * @param {any} modelRegistry
+     */
+    async #preflightImagesForModel(session, images, activeModel, modelRegistry) {
+        if (!images || images.length === 0) return { ok: true, mode: "none" };
+        const modelProvider =
+            /** @type {{ provider?: string, executionBackend?: string }} */ (activeModel || {}).provider;
+        const executionBackend = /** @type {{ executionBackend?: string }} */ (activeModel || {}).executionBackend;
+        if (modelProvider === "agy-cli" || executionBackend === "agy-cli") {
+            return { ok: false, message: "Antigravity CLI sessions do not support image attachments." };
+        }
         let fallbackModelRef;
-        if (images.length > 0 && !modelSupportsImageInput(activeModel)) {
-            fallbackModelRef = (await resolveVisionFallbackModel(modelRegistry, SYSTEM_MODEL_DISCOVERY_NETWORK))
-                ?.modelRef;
+        if (!modelSupportsImageInput(activeModel)) {
+            try {
+                fallbackModelRef = (await resolveVisionFallbackModel(
+                    modelRegistry,
+                    SYSTEM_MODEL_DISCOVERY_NETWORK,
+                    session.cwd,
+                ))?.modelRef;
+            } catch (error) {
+                return { ok: false, message: error instanceof Error ? error.message : String(error) };
+            }
         }
         return preflightImageAttachments(images, { activeModel, fallbackModelRef });
+    }
+
+    /**
+     * @param {string} sessionId
+     * @param {PromptSessionOptions} options
+     */
+    async preflightUserTurnImages(sessionId, options) {
+        const session = this.#sessionHost.getSession(sessionId);
+        if (!session) return { ok: false, message: "Runtime session not found." };
+        const images = options.initialImages || [];
+        if (images.length === 0) return { ok: true, mode: "none" };
+        const namedInvocation = await resolveNamedInvocation({
+            cwd: session.cwd,
+            text: options.initialRequest,
+            images,
+        });
+        const activeAgentInfo = session.getActiveAgentInfo?.() || null;
+        const agentName = namedInvocation.kind === "prompt_template"
+            ? namedInvocation.agentName
+            : options.agentName || activeAgentInfo?.agentName || session.getRootAgentName?.() || AGENTS.ROUTER;
+        const modelOverride = namedInvocation.kind === "prompt_template"
+            ? options.preparedModelOverride || namedInvocation.model
+            : options.preparedModelOverride || options.modelOverride;
+        const ignoreManualModelOverride = namedInvocation.kind === "prompt_template";
+        const agentDef = await loadAgentDef(agentName, session.cwd);
+        const modelRegistry = getModelRegistry();
+        let sessionManager = /** @type {import('@earendil-works/pi-coding-agent').SessionManager | null} */ (
+            session.getRootSessionManager?.() || null
+        );
+        let openedSessionManager = /** @type {DisposableSessionManager | null} */ (null);
+        try {
+            if (!sessionManager) {
+                const managed = session.getManagedMetadata?.();
+                if (managed?.transcriptPath && managed?.piSessionId) {
+                    const opened = await openPersistedRootSession({
+                        cwd: session.cwd,
+                        sessionId: managed.piSessionId,
+                        sessionPath: managed.transcriptPath,
+                    });
+                    sessionManager = opened.sessionManager;
+                    openedSessionManager = /** @type {DisposableSessionManager} */ (opened.sessionManager);
+                }
+            }
+            let effectiveModelOverride = modelOverride;
+            if (!ignoreManualModelOverride && !effectiveModelOverride && sessionManager) {
+                const resumeAgent = await resolveResumeAgentName(sessionManager);
+                const persistedManualModel = readPersistedManualModelState(sessionManager, agentName || resumeAgent);
+                const persistedModel = agentName === resumeAgent
+                    ? resolvePersistedResumeModel(sessionManager)
+                    : undefined;
+                effectiveModelOverride = persistedManualModel
+                    ? persistedManualModel.provider
+                        ? `${persistedManualModel.provider}/${persistedManualModel.model}`
+                        : persistedManualModel.model
+                    : persistedModel;
+            }
+            const activeModel = await resolveModel(
+                effectiveModelOverride,
+                agentDef,
+                agentName,
+                modelRegistry,
+                session,
+                session.cwd,
+                { ignoreManualModelOverride },
+            );
+            const result = await this.#preflightImagesForModel(session, images, activeModel, modelRegistry);
+            return result.ok ? { ...result, preparedModelOverride: this.#modelReference(activeModel) } : result;
+        } catch (error) {
+            return { ok: false, message: error instanceof Error ? error.message : String(error) };
+        } finally {
+            openedSessionManager?.dispose?.();
+        }
     }
 
     /**
@@ -2938,6 +3080,11 @@ export class SessionRuntime {
             ? this.#sessionHost.getSession(sessionId)?.getRootSessionManager()?.getSessionName?.() || undefined
             : undefined;
         const enrichedEvent = /** @type {any} */ (sessionName ? { ...event, sessionName } : event);
+        // Agy backend failures already emitted a durable, sanitized system notice.
+        // Keep the terminal event for settlement without displaying it twice.
+        if (event.type === RuntimeEventTypes.TERMINAL_ERROR && event.error instanceof AgyCliBackendError) {
+            enrichedEvent.messageAlreadyReported = true;
+        }
         const runtimeEvent = createSessionRuntimeEvent(sessionId, enrichedEvent);
         const liveEvents = this.#liveSessionEvents.get(sessionId);
         if (liveEvents) appendLiveSessionEvent(liveEvents, runtimeEvent);
@@ -3707,6 +3854,14 @@ export class SessionRuntime {
                     let result = null;
                     if (!hostedSession.beginTurn(turnId)) throw new SessionTurnInProgressError(hostedSession.id);
                     try {
+                        const imagePreflight = await this.preflightUserTurnImages(hostedSession.id, {
+                            initialRequest: invocation.payload.compactInvocation,
+                            initialImages: options.initialImages || [],
+                            agentName: invocation.agentName,
+                            preparedModelOverride: options.preparedModelOverride,
+                            modelOverride: invocation.model,
+                        });
+                        if (!imagePreflight.ok) throw new Error(imagePreflight.message);
                         const images = await this.#persistPendingPromptImages(
                             hostedSession,
                             options.initialImages || [],
@@ -3741,7 +3896,7 @@ export class SessionRuntime {
                                     images,
                                     sessionManager,
                                     cwd,
-                                    modelOverride: invocation.model,
+                                    modelOverride: options.preparedModelOverride || invocation.model,
                                     thinkingLevelOverride: invocation.thinkingLevel,
                                     workflowAuthority: false,
                                     ignoreManualModelOverride: true,
@@ -3829,23 +3984,34 @@ export class SessionRuntime {
         let displayRequest = submittedRequest;
         if (namedInvocation.kind === "prompt_template") displayRequest = namedInvocation.expandedRequest;
         if (namedInvocation.kind === "skill") displayRequest = namedInvocation.payload.compactInvocation;
+        let preparedModelOverride = options.preparedModelOverride;
+        if ((options.initialImages || []).length > 0) {
+            const imagePreflight = await this.preflightUserTurnImages(sessionId, options);
+            if (!imagePreflight.ok) throw new Error(imagePreflight.message);
+            if ("preparedModelOverride" in imagePreflight) {
+                preparedModelOverride ||= imagePreflight.preparedModelOverride;
+            }
+        }
         let managed = hostedSession.getManagedMetadata?.() || null;
         const isDeferredFirstTurn = !managed && this.#pendingManagedCreationProjects.has(sessionId);
         const deferredFirstTurnId = isDeferredFirstTurn ? crypto.randomUUID() : "";
         let deferredBusyStarted = false;
         if (isDeferredFirstTurn) {
-            this.#emitSessionEvent(hostedSession.id, {
-                type: RuntimeEventTypes.USER_MESSAGE,
-                turnId: deferredFirstTurnId,
-                text: displayRequest,
-                images: (options.initialImages || []).map((image) => ({ ...image })),
-            });
-            this.#emitSessionEvent(hostedSession.id, {
-                type: RuntimeEventTypes.TURN_START,
-                turnId: deferredFirstTurnId,
-            });
-            this.#beginBusyOperation(sessionId, deferredFirstTurnId);
-            deferredBusyStarted = true;
+            const hasInitialImages = (options.initialImages || []).length > 0;
+            if (!hasInitialImages) {
+                this.#emitSessionEvent(hostedSession.id, {
+                    type: RuntimeEventTypes.USER_MESSAGE,
+                    turnId: deferredFirstTurnId,
+                    text: displayRequest,
+                    images: (options.initialImages || []).map((image) => ({ ...image })),
+                });
+                this.#emitSessionEvent(hostedSession.id, {
+                    type: RuntimeEventTypes.TURN_START,
+                    turnId: deferredFirstTurnId,
+                });
+                this.#beginBusyOperation(sessionId, deferredFirstTurnId);
+                deferredBusyStarted = true;
+            }
             const activeAgentInfo = hostedSession.getActiveAgentInfo?.() || null;
             const agentName = options.agentName || activeAgentInfo?.agentName || AGENTS.ROUTER;
             hostedSession.mergePendingManagedTurnIntent?.({ agentName });
@@ -3873,8 +4039,14 @@ export class SessionRuntime {
             managed = hostedSession.getManagedMetadata() || managed;
         }
         const requestOptions = deferredFirstTurnId
-            ? { ...options, initialRequest: displayRequest, turnId: deferredFirstTurnId, emitInitialEvents: false }
-            : { ...options, initialRequest: displayRequest };
+            ? {
+                ...options,
+                initialRequest: displayRequest,
+                preparedModelOverride,
+                turnId: deferredFirstTurnId,
+                emitInitialEvents: (options.initialImages || []).length > 0 ? undefined : false,
+            }
+            : { ...options, initialRequest: displayRequest, preparedModelOverride };
         const buildResult = (
             /** @type {{ ok: boolean, turns: number, error?: string }} */ result,
         ) => ({
@@ -4070,17 +4242,40 @@ export class SessionRuntime {
             activeProof = this.#sessionStore.changeSessionActivationPhase(activeProof, "hydrated");
             capability.updateProof(activeProof);
             hydrated = true;
+            const transcriptProjectRoot = managed?.projectId
+                ? this.#sessionStore.requireSessionProjectRoot(managed.projectId)
+                : null;
+            const transcriptProjectSessionDir = transcriptProjectRoot
+                ? sessionDirForRoot(this.#sessionStore.path, transcriptProjectRoot)
+                : "";
+            const transcriptPath = generationSegment?.transcriptPath || managed.transcriptPath;
+            const managedProjectSessionDir = generationSegment && transcriptProjectSessionDir && isPathInside(
+                    transcriptPath,
+                    transcriptProjectSessionDir,
+                )
+                ? transcriptProjectSessionDir
+                : undefined;
             const { sessionManager } = await openPersistedRootSession({
                 cwd: generationSegment?.transcriptCwd || hostedSession.cwd,
                 sessionId: generationSegment?.piSessionId || managed.piSessionId,
-                sessionPath: generationSegment?.transcriptPath || managed.transcriptPath,
+                sessionPath: transcriptPath,
+                sessionDir: managedProjectSessionDir,
+                managedProjectRoot: managedProjectSessionDir && transcriptProjectRoot
+                    ? transcriptProjectRoot
+                    : undefined,
+                managedSegmentCwd: managedProjectSessionDir ? generationSegment?.transcriptCwd : undefined,
             });
             hostedSession.setRootSessionManager(/** @type {any} */ (sessionManager), capability);
-            const pendingModel = pendingIntent.model || pendingIntent.provider
-                ? pendingIntent.provider && pendingIntent.model
-                    ? `${pendingIntent.provider}/${pendingIntent.model}`
-                    : pendingIntent.model || undefined
+            const preparedModelOverride = "preparedModelOverride" in options &&
+                    typeof options.preparedModelOverride === "string"
+                ? options.preparedModelOverride
                 : undefined;
+            const pendingModel = preparedModelOverride ||
+                (pendingIntent.model || pendingIntent.provider
+                    ? pendingIntent.provider && pendingIntent.model
+                        ? `${pendingIntent.provider}/${pendingIntent.model}`
+                        : pendingIntent.model || undefined
+                    : undefined);
             if (pendingIntent.model || pendingIntent.provider) {
                 hostedSession.setActiveModelState(pendingIntent.model || "", pendingIntent.provider || "", true);
             }
@@ -4233,15 +4428,30 @@ export class SessionRuntime {
         if (!hostedSession) throw new Error("SessionRuntime.promptManagedSession: session not found");
         const managed = hostedSession.getManagedMetadata?.();
         if (!managed) throw new Error("SessionRuntime.promptManagedSession: segmented Session metadata is unavailable");
+        let operationOptions = options;
+        if ((options.initialImages || []).length > 0 && !options.preparedModelOverride) {
+            const imagePreflight = await this.preflightUserTurnImages(sessionId, options);
+            if (!imagePreflight.ok) throw new Error(imagePreflight.message);
+            operationOptions = {
+                ...options,
+                preparedModelOverride: "preparedModelOverride" in imagePreflight
+                    ? imagePreflight.preparedModelOverride
+                    : undefined,
+            };
+        }
         const result = await this.#runManagedOperation(
             sessionId,
-            { name: "prompt", options, emitPromptEvents: options.emitInitialEvents === false ? false : undefined },
+            {
+                name: "prompt",
+                options: operationOptions,
+                emitPromptEvents: operationOptions.emitInitialEvents === false ? false : undefined,
+            },
             async ({ acceptedTurnId, hasPendingImages, capability }) =>
                 await this.promptSession(sessionId, {
-                    ...options,
+                    ...operationOptions,
                     turnId: acceptedTurnId,
                     onTurnStarted: undefined,
-                    emitInitialEvents: options.emitInitialEvents === false ? false : hasPendingImages,
+                    emitInitialEvents: operationOptions.emitInitialEvents === false ? false : hasPendingImages,
                     suppressEpicContinuation: true,
                     signal: capability.signal,
                 }, capability),
@@ -4595,44 +4805,76 @@ export class SessionRuntime {
         if (!executionAgent) {
             throw new Error("SessionRuntime.replaceSessionForExecutionFollowUp requires an execution Agent");
         }
-        const created = await this.createInteractiveSession({
-            cwd: executionCwd,
-            mode: "new",
-            deferManagedActivationUntilAgentReady: true,
-        });
-        const newSessionId = created.sessionId;
-        const newSession = this.#sessionHost.getSession(newSessionId);
-        if (!newSession) throw new Error("Execution follow-up replacement session was not retained");
+        const originalCwd = oldSession.cwd;
+        const originalAgent = this.getRuntimeActiveAgentName(oldSession.id);
+        const originalWorkflow = oldSession.getActiveExecutionWorkflow?.() || null;
         try {
-            newSession.setInteractionAdapter(oldSession.getInteractionAdapter());
-            await this.#activateSessionAgent(newSession, {
+            const switched = await this.switchAgent(oldSession.id, {
                 agentName: executionAgent,
+                cwd: executionCwd,
                 mcpRootTools: oldSession.getMcpRootTools?.() || [],
             });
-            newSession.setActiveExecutionWorkflow(workflow);
+            if (!switched?.ok) throw new Error(switched?.error || "Execution follow-up Agent switch failed");
+            oldSession.setActiveExecutionWorkflow(workflow);
+            const managed = oldSession.getManagedMetadata?.();
+            if (managed) {
+                await this.rollManagedSessionSegment(oldSession.id, {
+                    kind: "execution",
+                    continuation: JSON.parse(JSON.stringify({
+                        kind: "execution",
+                        activeWorkflow: workflow,
+                        executionOwner: executionAgent,
+                    })),
+                    expectedGeneration: managed.generation,
+                });
+            }
             const planId = typeof workflow?.triageMeta?.planId === "string" ? workflow.triageMeta.planId : "";
             const planName = typeof workflow?.planName === "string" ? workflow.planName : "";
             if (planId && planName) {
-                const recorded = await this.recordPlanAssociation(newSessionId, {
+                const recorded = await this.recordPlanAssociation(oldSession.id, {
                     planId,
                     planName,
                     purpose: "execution",
                 });
                 if (recorded?.ok === false) throw new Error(recorded.error || "Execution Plan Association failed");
             }
-            if (workflow.planName) await this.renameSession(newSessionId, workflow.planName);
-            oldSession.moveMcpStateTo?.(newSession);
+            if (workflow.planName) await this.renameSession(oldSession.id, workflow.planName);
             this.#emitSessionEvent(oldSession.id, {
                 type: RuntimeEventTypes.SESSION_REPLACED,
                 oldSessionId: oldSession.id,
-                newSessionId,
+                newSessionId: oldSession.id,
                 reason: "execution_follow_up",
                 planName: workflow.planName || "Plan follow-up",
             });
-            await this.closeSession(oldSession.id);
-            return newSessionId;
+            return oldSession.id;
         } catch (error) {
-            await this.closeSession(newSessionId);
+            oldSession.rebindProjectRoot(originalCwd);
+            oldSession.setActiveExecutionWorkflow(originalWorkflow);
+            if (originalAgent && originalAgent !== this.getRuntimeActiveAgentName(oldSession.id)) {
+                let restored;
+                try {
+                    restored = await this.switchAgent(oldSession.id, {
+                        agentName: originalAgent,
+                        mcpRootTools: oldSession.getMcpRootTools?.() || [],
+                        releaseActiveWorkflow: false,
+                    });
+                } catch (restoreError) {
+                    throw new Error(
+                        `Execution follow-up failed and the original Agent could not be restored: ${
+                            restoreError instanceof Error ? restoreError.message : String(restoreError)
+                        }`,
+                        { cause: error },
+                    );
+                }
+                if (!restored?.ok) {
+                    throw new Error(
+                        `Execution follow-up failed and the original Agent could not be restored: ${
+                            restored?.error || "restore_failed"
+                        }`,
+                        { cause: error },
+                    );
+                }
+            }
             throw error;
         }
     }
@@ -4728,10 +4970,19 @@ export class SessionRuntime {
         let opened = null;
         let agentName = "";
         try {
+            const transcriptProjectRoot = ownerCoordinationStore.requireSessionProjectRoot(managedSession.projectId);
+            const transcriptProjectSessionDir = sessionDirForRoot(ownerCoordinationStore.path, transcriptProjectRoot);
+            const managedTranscriptPath = sessionPath || managedSession.transcriptPath;
+            const managedProjectSessionDir = isPathInside(managedTranscriptPath, transcriptProjectSessionDir)
+                ? transcriptProjectSessionDir
+                : undefined;
             opened = await openPersistedRootSession({
                 cwd: options.cwd,
                 sessionId: options.sessionId,
-                sessionPath,
+                sessionPath: managedTranscriptPath,
+                sessionDir: managedProjectSessionDir,
+                managedProjectRoot: managedProjectSessionDir ? transcriptProjectRoot : undefined,
+                managedSegmentCwd: managedProjectSessionDir ? managedSegment.transcriptCwd : undefined,
             });
             const sessionManager = opened.sessionManager;
             recordSegmentLineageEvidence(sessionManager, {
@@ -5095,6 +5346,8 @@ export class SessionRuntime {
             /** @type {{ ok: boolean, turns: number, error?: string, replacementSessionId?: string } | null} */ (null);
 
         try {
+            const imagePreflight = await this.preflightSessionImages(sessionId, images);
+            if (!imagePreflight.ok) throw new Error(imagePreflight.message);
             const cleanup = options.onTurnStarted?.({ turnId });
             if (typeof cleanup === "function") cleanupTurn = cleanup;
             images = await this.#persistPendingPromptImages(hostedSession, images);

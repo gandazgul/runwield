@@ -22,6 +22,7 @@ jobs:
     metadata:
         runs-on: ubuntu-latest
         outputs:
+            published: ${{ steps.existing.outputs.published }}
             tag: ${{ steps.metadata.outputs.tag }}
             kind: ${{ steps.metadata.outputs.kind }}
             build_version: ${{ steps.metadata.outputs.build_version }}
@@ -57,6 +58,19 @@ jobs:
                     ];
                     await Deno.writeTextFile(Deno.env.get("GITHUB_OUTPUT"), lines.join("\n") + "\n", { append: true });
                   '
+
+            - name: Detect existing release without hiding API failures
+              id: existing
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+              run: |
+                  gh api --paginate "repos/$GITHUB_REPOSITORY/releases" --jq '.[].tag_name' > release-tags.txt
+                  if grep -Fxq "$RELEASE_TAG" release-tags.txt; then
+                    echo "published=true" >> "$GITHUB_OUTPUT"
+                  else
+                    echo "published=false" >> "$GITHUB_OUTPUT"
+                  fi
 
     ci:
         runs-on: ubuntu-latest
@@ -97,6 +111,7 @@ jobs:
                   echo "$RUNNER_TEMP/runwield-ci-bin" >> "$GITHUB_PATH"
 
             - name: Run source-quality gate
+              timeout-minutes: 15
               run: deno task ci
 
             - name: Print source-quality failure logs
@@ -172,7 +187,18 @@ jobs:
                     fi
                   done
 
+            - name: Retain release qualification failure evidence
+              if: failure()
+              uses: actions/upload-artifact@v5
+              with:
+                  name: release-qualification-failure-${{ github.run_attempt }}
+                  include-hidden-files: true
+                  path: |
+                      /tmp/tests-failure-*.log
+                      /tmp/runwield-test-sandboxes-*-evidence/**
+
     build:
+        if: needs.metadata.outputs.published != 'true'
         runs-on: ubuntu-latest
         needs:
             - metadata
@@ -236,6 +262,9 @@ jobs:
                   tar -cf - "${{ matrix.binary_name }}" | zstd -10 -T0 -o "${ASSET_BASE}.tar.zst"
                   sha256sum "${ASSET_BASE}.tar.gz" > "${ASSET_BASE}.tar.gz.sha256"
                   sha256sum "${ASSET_BASE}.tar.zst" > "${ASSET_BASE}.tar.zst.sha256"
+                  if [[ "${{ matrix.asset_suffix }}" == "windows-x64" ]]; then
+                    deno task package:windows --tag "$VERSION" --binary "${{ matrix.binary_name }}" --output .
+                  fi
 
             - name: Upload build artifact
               uses: actions/upload-artifact@v5
@@ -244,40 +273,383 @@ jobs:
                   path: |
                       *.tar.gz
                       *.tar.zst
+                      *.zip
+                      runwield-windows-package.json
                       *.sha256
 
-    release:
+    assets:
         runs-on: ubuntu-latest
-        needs:
-            - metadata
-            - build
-
+        if: ${{ !cancelled() && needs.release-check.result == 'success' && (needs.build.result == 'success' || needs.metadata.outputs.published == 'true') }}
+        needs: [metadata, release-check, build]
         steps:
-            - name: Checkout
+            - name: Checkout release tooling
+              uses: actions/checkout@v5
+              with:
+                  ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || needs.metadata.outputs.tag }}
+
+            - name: Checkout tagged schema
+              if: needs.metadata.outputs.published != 'true'
               uses: actions/checkout@v5
               with:
                   ref: ${{ needs.metadata.outputs.tag }}
+                  path: release-source
+
+            - name: Setup Deno
+              uses: denoland/setup-deno@v2
+              with:
+                  deno-version: v2.9.3
 
             - name: Download matrix artifacts
+              if: needs.metadata.outputs.published != 'true'
               uses: actions/download-artifact@v5
               with:
                   path: release-artifacts
                   pattern: wld-*
                   merge-multiple: false
 
-            - name: Consolidate checksums
+            - name: Prepare unique checked upload set
+              if: needs.metadata.outputs.published != 'true'
+              env:
+                  RELEASE_TAG: ${{ needs.metadata.outputs.tag }}
               run: |
-                  find release-artifacts -name "*.sha256" -exec cat {} \; > release-artifacts/SHA256SUMS
+                  cp release-source/config.schema.json release-artifacts/config.schema.json
+                  deno run -A scripts/release-assets.js release-artifacts release-upload "$RELEASE_TAG"
+
+            - name: Reuse and verify published assets
+              if: needs.metadata.outputs.published == 'true'
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  RELEASE_TAG: ${{ needs.metadata.outputs.tag }}
+              run: |
+                  gh release download "$RELEASE_TAG" --dir release-artifacts
+                  gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" > published-release.json
+                  deno run -A scripts/release-assets.js release-artifacts release-upload "$RELEASE_TAG" published published-release.json
+
+            - name: Retain checked release bytes
+              uses: actions/upload-artifact@v5
+              with:
+                  name: release-upload
+                  path: release-upload/*
+
+    windows-package-check:
+        if: ${{ !cancelled() && needs.assets.result == 'success' }}
+        runs-on: windows-latest
+        needs: [metadata, assets]
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v5
+              with:
+                  ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || needs.metadata.outputs.tag }}
+
+            - name: Setup Deno
+              uses: denoland/setup-deno@v2
+              with:
+                  deno-version: v2.9.3
+
+            - name: Download Windows package artifact
+              uses: actions/download-artifact@v5
+              with:
+                  name: release-upload
+                  path: windows-package
+
+            - name: Run native Windows package checks
+              shell: pwsh
+              run: |
+                  $zip = Get-ChildItem windows-package -Filter "wld-*-windows-x64.zip" | Select-Object -First 1
+                  if (-not $zip) { throw "Windows package ZIP not found" }
+                  deno task package:windows:check --package $zip.FullName
+
+    homebrew-check:
+        if: ${{ !cancelled() && needs.assets.result == 'success' }}
+        runs-on: macos-15
+        timeout-minutes: 30
+        needs: [metadata, assets]
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v5
+              with:
+                  ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || needs.metadata.outputs.tag }}
+
+            - name: Setup Deno
+              uses: denoland/setup-deno@v2
+              with:
+                  deno-version: v2.9.3
+
+            - name: Verify Stable package credentials
+              if: needs.metadata.outputs.kind == 'stable'
+              env:
+                  HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+                  WINGET_CREATE_GITHUB_TOKEN: ${{ secrets.WINGET_CREATE_GITHUB_TOKEN }}
+              run: |
+                  test -n "$HOMEBREW_TAP_TOKEN"
+                  test -n "$WINGET_CREATE_GITHUB_TOKEN"
+                  GH_TOKEN="$HOMEBREW_TAP_TOKEN" gh api repos/gandazgul/homebrew-tap --jq '.permissions.push' | grep -Fx true
+
+            - name: Download checked release bytes
+              uses: actions/download-artifact@v5
+              with:
+                  name: release-upload
+                  path: release-upload
+
+            - name: Register Homebrew dependency tap
+              run: |
+                  # Runner images can disable auto-update and carry stale Core API data.
+                  brew update
+                  brew tap 1broseidon/tap
+                  brew trust --formula 1broseidon/tap/cymbal
+
+            - name: Validate Homebrew before publication
+              env:
+                  RELEASE_TAG: ${{ needs.metadata.outputs.tag }}
+              run: |
+                  python3 -m http.server 8765 --bind 127.0.0.1 --directory release-upload > "$RUNNER_TEMP/release-http.log" 2>&1 &
+                  server_pid=$!
+                  trap 'kill "$server_pid"' EXIT
+                  for attempt in {1..30}; do
+                    if curl --fail --silent http://127.0.0.1:8765/SHA256SUMS > /dev/null; then break; fi
+                    sleep 1
+                  done
+                  deno task package:homebrew --wld-tag "$RELEASE_TAG" --mnemoteca-tag v0.3.3 \
+                    --output homebrew-check --test-only --wld-base-url http://127.0.0.1:8765
+                  deno task package:homebrew:check --tap homebrew-check
+
+    release:
+        if: ${{ !cancelled() && needs.assets.result == 'success' && needs.windows-package-check.result == 'success' && needs.homebrew-check.result == 'success' }}
+        runs-on: ubuntu-latest
+        needs:
+            - metadata
+            - assets
+            - windows-package-check
+            - homebrew-check
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v5
+              with:
+                  ref: ${{ needs.metadata.outputs.tag }}
+
+            - name: Download checked release bytes
+              if: needs.metadata.outputs.published != 'true'
+              uses: actions/download-artifact@v5
+              with:
+                  name: release-upload
+                  path: release-upload
 
             - name: Publish release assets
+              if: needs.metadata.outputs.published != 'true'
               uses: softprops/action-gh-release@v3
               with:
                   tag_name: ${{ needs.metadata.outputs.tag }}
                   prerelease: ${{ needs.metadata.outputs.prerelease }}
                   make_latest: ${{ needs.metadata.outputs.make_latest }}
-                  files: |
-                      release-artifacts/**/*.tar.gz
-                      release-artifacts/**/*.tar.zst
-                      release-artifacts/**/*.sha256
-                      release-artifacts/SHA256SUMS
-                      config.schema.json
+                  preserve_order: true
+                  overwrite_files: false
+                  fail_on_unmatched_files: true
+                  files: release-upload/*
+
+    winget-package:
+        runs-on: ubuntu-latest
+        if: ${{ !cancelled() && needs.release.result == 'success' && needs.metadata.outputs.kind == 'stable' }}
+        needs:
+            - metadata
+            - release
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v5
+              with:
+                  ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || needs.metadata.outputs.tag }}
+
+            - name: Setup Deno
+              uses: denoland/setup-deno@v2
+              with:
+                  deno-version: v2.9.3
+
+            - name: Render WinGet manifest artifact
+              run: |
+                  deno task package:winget --tag "${{ needs.metadata.outputs.tag }}" --output winget-manifests
+                  tar -czf "runwield-winget-manifests-${{ needs.metadata.outputs.tag }}.tar.gz" -C winget-manifests .
+                  shasum -a 256 "runwield-winget-manifests-${{ needs.metadata.outputs.tag }}.tar.gz" > "runwield-winget-manifests-${{ needs.metadata.outputs.tag }}.tar.gz.sha256"
+
+            - name: Upload WinGet manifest artifact
+              uses: actions/upload-artifact@v5
+              with:
+                  name: runwield-winget-manifests-${{ needs.metadata.outputs.tag }}
+                  path: |
+                      runwield-winget-manifests-${{ needs.metadata.outputs.tag }}.tar.gz
+                      runwield-winget-manifests-${{ needs.metadata.outputs.tag }}.tar.gz.sha256
+
+    winget-submit:
+        runs-on: windows-latest
+        if: ${{ !cancelled() && needs.winget-package.result == 'success' && needs.metadata.outputs.kind == 'stable' }}
+        needs:
+            - metadata
+            - winget-package
+
+        steps:
+            - name: Download WinGet manifest artifact
+              uses: actions/download-artifact@v5
+              with:
+                  name: runwield-winget-manifests-${{ needs.metadata.outputs.tag }}
+                  path: winget-package
+
+            - name: Submit WinGet pull request
+              shell: pwsh
+              env:
+                  WINGET_CREATE_GITHUB_TOKEN: ${{ secrets.WINGET_CREATE_GITHUB_TOKEN }}
+              run: |
+                  if ([string]::IsNullOrWhiteSpace($env:WINGET_CREATE_GITHUB_TOKEN)) {
+                      throw "WINGET_CREATE_GITHUB_TOKEN is not configured"
+                  }
+
+                  $version = "${{ needs.metadata.outputs.build_version }}".TrimStart("v")
+                  $prTitle = "New version: Gandazgul.RunWield version $version"
+                  $headers = @{
+                      Authorization = "Bearer $env:WINGET_CREATE_GITHUB_TOKEN"
+                      Accept = "application/vnd.github+json"
+                      "X-GitHub-Api-Version" = "2022-11-28"
+                  }
+
+                  $catalogUri = "https://api.github.com/repos/microsoft/winget-pkgs/contents/manifests/g/Gandazgul/RunWield/$version"
+                  try {
+                      Invoke-RestMethod $catalogUri -Headers $headers -ErrorAction Stop | Out-Null
+                      Write-Host "Gandazgul.RunWield $version is already in the WinGet catalog; submission is complete."
+                      exit 0
+                  } catch {
+                      if ([int]$_.Exception.Response.StatusCode -ne 404) { throw }
+                  }
+
+                  $query = [uri]::EscapeDataString("repo:microsoft/winget-pkgs is:pr is:open in:title `"$prTitle`"")
+                  $search = Invoke-RestMethod "https://api.github.com/search/issues?q=$query" -Headers $headers
+                  $existingPr = $search.items | Where-Object { $_.title -eq $prTitle } | Select-Object -First 1
+                  if ($existingPr) {
+                      Write-Host "WinGet submission already exists: $($existingPr.html_url)"
+                      exit 0
+                  }
+
+                  $archive = Join-Path $PWD "winget-package/runwield-winget-manifests-${{ needs.metadata.outputs.tag }}.tar.gz"
+                  $checksumFile = "$archive.sha256"
+                  $expectedChecksum = ((Get-Content $checksumFile -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
+                  $actualChecksum = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+                  if ($actualChecksum -ne $expectedChecksum) {
+                      throw "WinGet manifest artifact checksum mismatch"
+                  }
+
+                  $manifestRoot = Join-Path $PWD "winget-manifests"
+                  New-Item -ItemType Directory -Path $manifestRoot | Out-Null
+                  tar -xzf $archive -C $manifestRoot
+
+                  $wingetCreateVersion = "1.12.13.0"
+                  $wingetCreateChecksum = "24042bd37915805615e6cf969ac57c6439124c3fe85823327f5f3fb24bd9ffea"
+                  $wingetCreate = Join-Path $PWD "wingetcreate.exe"
+                  $wingetCreateUrl = "https://github.com/microsoft/winget-create/releases/download/v$wingetCreateVersion/wingetcreate.exe"
+                  Invoke-WebRequest $wingetCreateUrl -OutFile $wingetCreate
+                  $actualToolChecksum = (Get-FileHash $wingetCreate -Algorithm SHA256).Hash.ToLowerInvariant()
+                  if ($actualToolChecksum -ne $wingetCreateChecksum) {
+                      throw "WingetCreate checksum mismatch"
+                  }
+
+                  $manifestPath = Join-Path $manifestRoot "Gandazgul.RunWield/$version"
+                  & $wingetCreate submit $manifestPath --prtitle $prTitle --no-open
+                  if ($LASTEXITCODE -ne 0) {
+                      throw "WingetCreate submission failed with exit code $LASTEXITCODE"
+                  }
+
+    homebrew-package:
+        runs-on: macos-15
+        timeout-minutes: 30
+        if: ${{ !cancelled() && needs.release.result == 'success' && needs.metadata.outputs.kind == 'stable' }}
+        needs:
+            - metadata
+            - release
+        concurrency:
+            group: homebrew-tap-publication
+            cancel-in-progress: false
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v5
+              with:
+                  ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || needs.metadata.outputs.tag }}
+
+            - name: Setup Deno
+              uses: denoland/setup-deno@v2
+              with:
+                  deno-version: v2.9.3
+
+            - name: Verify Homebrew tap credential
+              env:
+                  HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+              run: |
+                  if [[ -z "$HOMEBREW_TAP_TOKEN" ]]; then
+                    echo "HOMEBREW_TAP_TOKEN is required to publish Stable releases" >&2
+                    exit 1
+                  fi
+
+            - name: Render Homebrew tap
+              run: |
+                  deno task package:homebrew \
+                    --wld-tag "${{ needs.metadata.outputs.tag }}" \
+                    --mnemoteca-tag "v0.3.3" \
+                    --output homebrew-tap
+
+            - name: Register Homebrew dependency tap
+              run: |
+                  # Runner images can disable auto-update and carry stale Core API data.
+                  brew update
+                  brew tap 1broseidon/tap
+                  brew trust --formula 1broseidon/tap/cymbal
+
+            - name: Validate Homebrew tap
+              run: deno task package:homebrew:check --tap homebrew-tap
+
+            - name: Archive verified Homebrew tap
+              run: |
+                  tar -czf "runwield-homebrew-tap-${{ needs.metadata.outputs.tag }}.tar.gz" \
+                    -C homebrew-tap Formula README.md runwield-homebrew-package.json
+                  shasum -a 256 "runwield-homebrew-tap-${{ needs.metadata.outputs.tag }}.tar.gz" > "runwield-homebrew-tap-${{ needs.metadata.outputs.tag }}.tar.gz.sha256"
+
+            - name: Upload verified Homebrew tap artifact
+              uses: actions/upload-artifact@v5
+              with:
+                  name: runwield-homebrew-tap-${{ needs.metadata.outputs.tag }}
+                  path: |
+                      runwield-homebrew-tap-${{ needs.metadata.outputs.tag }}.tar.gz
+                      runwield-homebrew-tap-${{ needs.metadata.outputs.tag }}.tar.gz.sha256
+
+            - name: Checkout Homebrew tap repository
+              uses: actions/checkout@v5
+              with:
+                  repository: gandazgul/homebrew-tap
+                  token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+                  path: homebrew-tap-publish
+                  fetch-depth: 0
+
+            - name: Publish verified Homebrew tap
+              run: |
+                  cp homebrew-tap/Formula/wld.rb homebrew-tap-publish/Formula/wld.rb
+                  cp homebrew-tap/Formula/mnemoteca.rb homebrew-tap-publish/Formula/mnemoteca.rb
+                  cp homebrew-tap/README.md homebrew-tap-publish/README.md
+                  cp homebrew-tap/runwield-homebrew-package.json homebrew-tap-publish/runwield-homebrew-package.json
+                  cd homebrew-tap-publish
+                  git config user.name "github-actions[bot]"
+                  git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+                  git add Formula README.md runwield-homebrew-package.json
+                  if git diff --cached --quiet; then
+                    echo "Homebrew tap already matches ${{ needs.metadata.outputs.tag }}"
+                    exit 0
+                  fi
+                  git commit -m "Update RunWield to ${{ needs.metadata.outputs.tag }}"
+                  git push origin HEAD:main
+
+    publish-docs:
+        if: ${{ !cancelled() && needs.metadata.outputs.kind == 'stable' && needs.release.result == 'success' }}
+        needs:
+            - metadata
+            - release
+        uses: ./.github/workflows/docs.yml
+        with:
+            tag: ${{ needs.metadata.outputs.tag }}
+        permissions:
+            contents: write
+            pages: write
+            id-token: write

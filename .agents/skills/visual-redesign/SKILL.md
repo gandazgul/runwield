@@ -1,6 +1,8 @@
 ---
 name: visual-redesign
 description: Surgical aesthetic upgrade pipeline for existing React codebases. Takes ugly, functional code (Bootstrap defaults, generic Tailwind, amateur CSS) and transforms it to Awwwards-tier quality WITHOUT touching or breaking the underlying JavaScript logic — states, effects, API calls, event handlers, routing, and data flow are sacred and untouchable. Audits the existing code across 7 layers (tokens, typography, spacing, color, components, atmosphere, motion), classifies every element as Sacred (JS logic — do not touch) or Slop (visual cruft — upgrade), then executes precise CSS-only surgery layer by layer. The skill that turns a developer's "make this look better" into a controlled, non-destructive visual transformation.
+metadata:
+    internal: true
 ---
 
 # Visual Redesign: Surgical Aesthetic Upgrade

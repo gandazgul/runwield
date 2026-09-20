@@ -2,6 +2,7 @@ import { assertEquals, assertStringIncludes, assertThrows } from "@std/assert";
 import {
     assertCompileDenoVersion,
     buildCompileArgs,
+    canSmokeTestCompiledBinary,
     DENO_COMPILE_MINIMUM_VERSION,
     parseCompileOptions,
 } from "./compile.js";
@@ -47,6 +48,8 @@ Deno.test("buildCompileArgs uses Deno compile flags and bundled resource include
     assertStringIncludes(args.join("\n"), "src/skills");
     assertStringIncludes(args.join("\n"), "src/snip-filters");
     assertStringIncludes(args.join("\n"), "src/ui/theme/catppuccin-mocha.json");
+    assertStringIncludes(args.join("\n"), "image-resize-worker.js");
+    assertStringIncludes(args.join("\n"), "node_modules/@earendil-works/pi-coding-agent/dist/utils/");
     assertEquals(args.some((arg) => arg.includes("plannotator-pi-extension-compiled")), false);
 });
 
@@ -87,4 +90,9 @@ Deno.test("standalone compiler version allows the minimum Deno version or newer"
     assertCompileDenoVersion("3.0.0");
     assertThrows(() => assertCompileDenoVersion("2.9.2"), Error, DENO_COMPILE_MINIMUM_VERSION);
     assertThrows(() => assertCompileDenoVersion("2.8.0"), Error, DENO_COMPILE_MINIMUM_VERSION);
+});
+
+Deno.test("native compilation runs the binary startup smoke test", () => {
+    assertEquals(canSmokeTestCompiledBinary(undefined), true);
+    assertEquals(canSmokeTestCompiledBinary("unsupported-target"), false);
 });
