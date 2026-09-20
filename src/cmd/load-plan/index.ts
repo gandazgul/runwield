@@ -67,12 +67,13 @@ import {
 } from "../../shared/workflow/validation-user-messages.ts";
 import { openFileSessionStore } from "../../shared/session/file-session-store.ts";
 import { findPlanAssociatedSessions, verifyPlanAssociatedSession } from "../../shared/session/plan-session-lookup.ts";
+import { isPublicationCleanupPending } from "../../shared/workflow/publication-attempt.ts";
 
 export { getLoadPlanCompletions } from "./getArgumentCompletions.js";
 
 type TransitionRecoveryRecord = Awaited<ReturnType<typeof healSettledTransitionRecords>>["remaining"][number];
 
-async function finishSavedPublicationCleanup(projectRoot: string, uiAPI: UiAPI, planArg?: string): Promise<boolean> {
+async function finishSavedPublicationCleanup(projectRoot: string, uiAPI: UiAPI, planArg: string): Promise<boolean> {
     const notices = await resumePlanPublicationCleanup(projectRoot, planArg);
     for (const notice of notices) {
         uiAPI.appendSystemMessage(
@@ -81,7 +82,7 @@ async function finishSavedPublicationCleanup(projectRoot: string, uiAPI: UiAPI, 
             "RunWield",
         );
     }
-    return notices.length > 0;
+    return notices.every((notice) => notice.complete);
 }
 
 /**
@@ -106,9 +107,6 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
     }
 
     let [planArg] = parsedArgs._.map(String);
-    // The picker already runs the repository-wide publication-cleanup discovery
-    // before offering Plans; the selected Plan must not pay for it a second time.
-    let publicationCleanupDone = false;
     if (!planArg) {
         if (options.uiAPI) {
             const clearEditor = () => {
@@ -121,11 +119,6 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
             }
             const activeSnapshot = sessionRuntime.getSessionSnapshot(runtimeSessionId);
             if (!activeSnapshot) throw new Error("runLoadPlanCommand runtime session is missing");
-            if (await finishSavedPublicationCleanup(activeSnapshot.cwd, options.uiAPI)) {
-                clearEditor();
-                return;
-            }
-            publicationCleanupDone = true;
             const recoveredWorktrees = await recoverMissingExecutionWorktreesForPlanLoading(activeSnapshot.cwd);
             for (const recovered of recoveredWorktrees) {
                 options.uiAPI.appendSystemMessage(
@@ -269,7 +262,6 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
     let unresolvedLifecycleRecords: TransitionRecoveryRecord[] = [];
 
     try {
-        if (!publicationCleanupDone && await finishSavedPublicationCleanup(projectRoot, uiAPI, planArg)) return;
         const resolved = await resolvePlanWithPrimaryRecovery(projectRoot, planArg);
         const plan = resolved.plan;
         if (resolved.recoveredWorktree?.recovered) {
@@ -345,7 +337,8 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
             );
         }
         const recordedAttempt = await resolveRecoveryWorktree(projectRoot, plan, { migrateRegistry: false });
-        if (recordedAttempt?.path) {
+        let cleanupPending = isPublicationCleanupPending(recordedAttempt?.publication);
+        if (recordedAttempt?.path && !cleanupPending) {
             const executionPlan = await loadPlan(recordedAttempt.path, plan.planName).catch(() => null);
             if (executionPlan) {
                 plan.path = executionPlan.path;
@@ -545,10 +538,10 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
         // from Plan Recovery whatever the Plan's status is. Otherwise a draft or
         // verified Plan is told it is blocked and offered nothing.
         if (
-            ["in_progress", "failed"].includes(plan.attrs.status) ||
-            isInValidation(plan.attrs.status) ||
-            isRecoverableWorktreeStatus(plan.attrs.worktreeStatus) ||
-            Boolean(recordedAttempt?.publication) ||
+            (!cleanupPending && (["in_progress", "failed"].includes(plan.attrs.status) ||
+                isInValidation(plan.attrs.status) ||
+                isRecoverableWorktreeStatus(plan.attrs.worktreeStatus) ||
+                Boolean(recordedAttempt?.publication))) ||
             unresolvedLifecycleRecords.length > 0
         ) {
             restoreAgentName = planFlowRestoreAgent;
@@ -581,10 +574,10 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
 
         if (
             plan.attrs.status === "validated" || plan.attrs.status === "verified" ||
-            plan.attrs.status === "user_verified"
+            plan.attrs.status === "user_verified" || cleanupPending
         ) {
             uiAPI.appendSystemMessage(
-                plan.attrs.status === "validated" || plan.attrs.status === "verified"
+                cleanupPending || plan.attrs.status === "validated" || plan.attrs.status === "verified"
                     ? "This plan is already verified."
                     : "This plan is User Verified by user attestation.",
                 false,
@@ -592,13 +585,24 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
             );
             while (true) {
                 const answer = await uiAPI.promptSelect("What would you like to do?", [
-                    { value: "review", label: "Re-open for review (planner/architect)" },
-                    { value: "archive", label: "Archive plan" },
-                    { value: "view", label: "View plan details" },
+                    ...(cleanupPending
+                        ? [
+                            { value: "view", label: "View plan details" },
+                            { value: "cleanup", label: "Remove published worktree and branch" },
+                        ]
+                        : [
+                            { value: "review", label: "Re-open for review (planner/architect)" },
+                            { value: "archive", label: "Archive plan" },
+                            { value: "view", label: "View plan details" },
+                        ]),
                     { value: "cancel", label: "Cancel" },
                 ]);
                 if (!answer || answer === "cancel") {
                     return;
+                }
+                if (answer === "cleanup") {
+                    if (await finishSavedPublicationCleanup(projectRoot, uiAPI, plan.planName)) cleanupPending = false;
+                    continue;
                 }
                 if (answer === "view") {
                     uiAPI.appendSystemMessage(buildPlanSummary(plan), false, "Plan");

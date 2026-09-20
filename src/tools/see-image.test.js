@@ -55,6 +55,22 @@ async function writeVisionModelConfig(tempHome) {
     );
 }
 
+/** @param {string} path */
+async function removeTempDir(path) {
+    let lastError;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+        try {
+            await Deno.remove(path, { recursive: true });
+            return;
+        } catch (error) {
+            if (error instanceof Deno.errors.NotFound) return;
+            lastError = error;
+            await new Promise((resolve) => setTimeout(resolve, 25 * (attempt + 1)));
+        }
+    }
+    throw lastError;
+}
+
 Deno.test("see_image invokes fallback model with local image and default prompt", async () => {
     await withProcessGlobalTestLock(async () => {
         const originalHome = getHomeDir();
@@ -93,8 +109,8 @@ Deno.test("see_image invokes fallback model with local image and default prompt"
             assertEquals(calls[0].options.apiKey, "key");
         } finally {
             Deno.env.set("HOME", originalHome);
-            await Deno.remove(tempHome, { recursive: true });
-            await Deno.remove(cwd, { recursive: true });
+            await removeTempDir(tempHome);
+            await removeTempDir(cwd);
         }
     });
 });
@@ -139,8 +155,8 @@ Deno.test("see_image returns tool error on auth failure", async () => {
             );
         } finally {
             Deno.env.set("HOME", originalHome);
-            await Deno.remove(tempHome, { recursive: true });
-            await Deno.remove(cwd, { recursive: true });
+            await removeTempDir(tempHome);
+            await removeTempDir(cwd);
         }
     });
 });
@@ -187,8 +203,8 @@ Deno.test("see_image resolves attachment refs from the session image directory",
             assertEquals(calls[0].data, btoa("img"));
         } finally {
             Deno.env.set("HOME", originalHome);
-            await Deno.remove(tempHome, { recursive: true });
-            await Deno.remove(cwd, { recursive: true });
+            await removeTempDir(tempHome);
+            await removeTempDir(cwd);
         }
     });
 });
