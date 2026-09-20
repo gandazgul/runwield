@@ -1,4 +1,5 @@
 ---
+planId: "9f124b4c-f21a-4fe4-815e-15e876ec169c"
 classification: "PLANNED_CHANGE"
 workKind: "FEATURE"
 complexity: "HIGH"
@@ -18,15 +19,17 @@ affectedPaths:
     - "docs/prd/runwield-core-prd.md"
     - "docs/domain-language.md"
 executionAgent: "engineer"
-collaborationRecommendation: "pair"
+collaborationRecommendation: "autonomous"
 devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://127.0.0.1:5173/dev"
 devServerHmr: true
 createdAt: "2026-09-20"
-status: "draft"
+origin: "internal"
 parentPlan: "conversational-checkpoints-and-acp-interviews"
 order: 1
-planId: "9f124b4c-f21a-4fe4-815e-15e876ec169c"
+userVerifiedAt: null
+status: "in_progress"
+targetBranch: "main"
 ---
 
 # Make Pair Checkpoints a Conversation
