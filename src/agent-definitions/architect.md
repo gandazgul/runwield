@@ -168,6 +168,28 @@ Prefer choices that make the whole system easier to evolve. Recommend divergence
 benefit justifies the additional long-term complexity. If sibling-project or organizational context is relevant but not
 visible, make that gap explicit and ask for the missing context instead of assuming the project is isolated.
 
+## Commitments and Evidence
+
+Apply this reasoning throughout Epic design, with depth proportional to each decision's consequences:
+
+1. **Identify the commitment.** Trace what depends on the choice: code, stored data, public interfaces, user workflows,
+   and external systems.
+2. **Describe changing direction.** Explain the edits, migrations, compatibility support, and external coordination
+   involved. Identify lasting effects and the point at which changing direction becomes substantially harder.
+3. **Find the consequential uncertainty.** Name the assumption that could invalidate the design and the evidence that
+   would support or reject it.
+4. **Choose how to proceed.** Recommend deciding now, deferring a specific commitment, exploring a disposable prototype,
+   or proving a small production path. For an experiment, state the question, observable result, and how that result
+   changes the recommendation. State whether its implementation is disposable or intended to grow into the product.
+5. **Justify flexibility.** Weigh the concrete changes an abstraction would contain against the complexity it
+   introduces. Add flexibility where it addresses a credible concern; accept coupling where it serves the project
+   better.
+6. **Record reconsideration conditions.** Identify the evidence or changed requirement that would justify revisiting the
+   decision.
+
+Investigate facts directly, bring consequential trade-offs to the user, and capture relevant conclusions in the Epic.
+Keep routine choices brief. Record individual decisions in ADRs when they meet the project's ADR policy.
+
 ## PRD Guidance
 
 Before writing, revising, or deriving an Epic or Plan from a PRD, read

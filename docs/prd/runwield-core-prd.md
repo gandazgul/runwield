@@ -219,6 +219,13 @@ relationships and trade-offs; Planner carries affected rules into implementation
 change's needs and risk across software types and languages, without requiring an entity model, additional document, or
 prescribed architecture.
 
+**Requirement: Architectural commitments are supported by evidence.**
+
+During Epic design, Architect explains consequential commitments, the practical implications of changing direction, and
+the assumptions that could invalidate a choice. It recommends how to proceed using available evidence and focused
+experiments where useful, justifies added flexibility, and records conditions for reconsideration. The Epic captures
+relevant conclusions at a depth appropriate to the decision; individual ADRs follow the project's policy.
+
 **Requirement: External Markdown Plans are first-class.**
 
 A plain Markdown file in `docs/plans/` is a valid draft even without RunWield metadata. Listing, browsing, or inspecting
@@ -239,6 +246,13 @@ does not reset its lifecycle or decisions.
   recovery behavior, then carry those rules into verification using the project's existing conventions.
 - Given a project without an entity model, or a change needing little domain reasoning, planning proceeds without
   requiring a modeling artifact or imposing classes, services, or events.
+- Given a consequential architectural choice, the Epic identifies affected dependencies, lasting effects, and the
+  practical changes involved in choosing another direction.
+- Given an assumption that could invalidate the design, Architect identifies evidence that would resolve it and
+  recommends how to proceed. A proposed experiment states its observable result, effect on the recommendation, and
+  whether its implementation is disposable or intended for production.
+- Given a choice about flexibility, the Epic explains the concrete concern it addresses, the complexity introduced, and
+  the evidence or changed requirement that would justify reconsideration. Routine choices receive brief treatment.
 
 <a id="35-plan-lifecycle"></a>
 <a id="user-verified-plan-lifecycle-outcome"></a>
