@@ -239,8 +239,8 @@ export function resolvePairCheckpoint(args: ResolvePairCheckpointArgs): ResolveP
         return { ok: false, reason: "later_user_turn_required" };
     }
     if (
-        current.resolution && current.resolution.decision !== "stop" ||
-        current.resolution?.userTurn.requestId === userTurn.requestId
+        current.resolution?.userTurn.requestId === userTurn.requestId ||
+        current.resolution && current.resolution.decision !== "stop" && args.decision !== "revise"
     ) {
         return { ok: false, reason: "checkpoint_already_resolved" };
     }

@@ -232,6 +232,57 @@ Deno.test("task_completed records a final Pair checkpoint before accepting compl
     assertEquals(readCurrentPairCheckpoint(hostedSession), null);
 });
 
+Deno.test("a later revision revokes final Pair assent", async () => {
+    const sessionManager = makeSessionManager(TASK_PROJECT_ROOT);
+    const hostedSession = new HostedSession({
+        id: "task-completed-revised-final-pair",
+        cwd: TASK_PROJECT_ROOT,
+        sessionManager,
+    });
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "revised-plan",
+        triageMeta: { classification: "PLANNED_CHANGE" },
+        executionAgent: "frontend-engineer",
+        executionStarted: true,
+        executionAttemptStartedAtMs: 1000,
+        collaborationStyle: "pair",
+        pairCheckpointCount: 0,
+    });
+    const completionTool = createTaskCompletedTool({ hostedSession, agentName: "Frontend Engineer" });
+    const pairTool = createPairCheckpointTool({ hostedSession });
+    beginRequest(hostedSession, sessionManager, "plan_execution");
+    const pending = await /** @type {any} */ (completionTool.execute)("final-call", {
+        message: "- Final result is ready.",
+        browserPreflightOutcome: "succeeded",
+    });
+
+    beginRequest(hostedSession, sessionManager);
+    const accepted = await /** @type {any} */ (pairTool.execute)("resolve-final", {
+        action: "resolve",
+        checkpointId: pending.details.checkpointId,
+        decision: "continue",
+    });
+    assertEquals(accepted.details.decision, "continue");
+
+    beginRequest(hostedSession, sessionManager);
+    const revised = await /** @type {any} */ (pairTool.execute)("revise-final", {
+        action: "resolve",
+        checkpointId: pending.details.checkpointId,
+        decision: "revise",
+        revisionDirection: "Change the final result before validation.",
+    });
+    assertEquals(revised.details.decision, "revise");
+
+    const replacement = await /** @type {any} */ (completionTool.execute)("replacement-final", {
+        message: "- Revised final result is ready.",
+        browserPreflightOutcome: "succeeded",
+    });
+    assertEquals(replacement.details.outcome, "pair_completion_checkpoint");
+    assertEquals(replacement.details.decision, "pending");
+    assertEquals(replacement.details.checkpointId === pending.details.checkpointId, false);
+    assertEquals(hostedSession.consumePendingTaskCompletion(null), null);
+});
+
 Deno.test("final Pair assent cannot authorize a different execution attempt", async () => {
     const sessionManager = makeSessionManager(TASK_PROJECT_ROOT);
     const hostedSession = new HostedSession({

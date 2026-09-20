@@ -29,7 +29,7 @@ parentPlan: "conversational-checkpoints-and-acp-interviews"
 order: 1
 userVerifiedAt: null
 targetBranch: "main"
-status: "implemented"
+status: "validated_reviewer"
 ---
 
 # Make Pair Checkpoints a Conversation
