@@ -275,6 +275,25 @@ Deno.test("named pull and push use a linked checkout's migrated 0.10 capability"
                         { body: storedBody },
                     );
                     assertEquals((await loadPlan(alternateRoot, planName))?.body, storedBody);
+                    const remoteBody = "# Migrated capability\n\nRemote content encrypted before runtime migration.\n";
+                    adapter.appendRevision(
+                        created.spaceId,
+                        await encryptJsonPayload(
+                            {
+                                planId,
+                                title: "Migrated capability",
+                                metadata: {
+                                    classification: "PLANNED_CHANGE",
+                                    complexity: "LOW",
+                                    status: "approved",
+                                    summary: "Migrated capability",
+                                },
+                                body: remoteBody,
+                            },
+                            await importContentKey(contentKey),
+                        ),
+                        2,
+                    );
                     await Deno.rename(
                         join(projectRoot, ".wld", "internal", "controller"),
                         join(projectRoot, ".wld", "controller"),
@@ -321,11 +340,11 @@ Deno.test("named pull and push use a linked checkout's migrated 0.10 capability"
                         const pulledOutput = await captureConsole(() =>
                             runPlansPullCommand([planName, "--project-secrets"], { sessionRuntime: runtime, sessionId })
                         );
-                        assertStringIncludes(pulledOutput.logs.join("\n"), "revision 1");
+                        assertStringIncludes(pulledOutput.logs.join("\n"), "revision 2");
                     } finally {
                         runtime.closeAllSessions();
                     }
-                    assertEquals((await loadPlan(alternateRoot, planName))?.body, storedBody);
+                    assertEquals((await loadPlan(alternateRoot, planName))?.body, remoteBody);
 
                     const primaryStorePath = resolveProjectRuntimeLayout(alternateRoot).primary.projectSecretStorePath;
                     assertEquals(await Deno.readTextFile(primaryStorePath), legacyStoreBytes);
@@ -342,8 +361,8 @@ Deno.test("named pull and push use a linked checkout's migrated 0.10 capability"
                     const pushedOutput = await captureConsole(() =>
                         runPlansPushCommand([planName, "--project-secrets"])
                     );
-                    assertStringIncludes(pushedOutput.logs.join("\n"), "revision 2");
-                    assertEquals(adapter.getSharedSpace(created.spaceId).latestRevision, 2);
+                    assertStringIncludes(pushedOutput.logs.join("\n"), "revision 3");
+                    assertEquals(adapter.getSharedSpace(created.spaceId).latestRevision, 3);
                     assertEquals(
                         adapter.database.handle.prepare(
                             "SELECT capability_hash FROM space_capabilities WHERE space_id = ? AND scope = ?",
