@@ -3,6 +3,9 @@
 bin/
 dist/
 node_modules/
+docs-site/src/content/docs/
+docs-site/public/docs-assets/
+docs-site/.astro/
 /artifacts/
 
 .history/
