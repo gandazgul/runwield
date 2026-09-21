@@ -3,6 +3,7 @@
 # Targets:
 #   wld-ux-latest  - runs the latest published RunWield release installed by ./install.sh
 #   wld-ux-current - provisions helpers with ./install.sh, then runs ./bin/wld compiled from this checkout
+#   wld-workspace  - persistent owner Workspace; see docs/workspace-container.md
 #
 # Build latest release:
 #   podman build --target wld-ux-latest --build-arg WLD_INSTALL_REFRESH=$(date +%s) -f Containerfile.wld-ux -t runwield-wld-ux:local .
@@ -90,3 +91,15 @@ RUN install -m 755 /tmp/wld-current "$WLD_INSTALL_DIR/wld" \
     && snip --version
 
 ENTRYPOINT ["wld"]
+
+# Persistent owner Workspace; compile bin/wld for the image architecture first.
+FROM wld-ux-current AS wld-workspace
+
+ENV MNEMOTECA_DB_PATH=/home/deno/.wld/mnemoteca.db
+RUN mkdir -p /home/deno/.agents
+COPY --chmod=755 packaging/workspace/entrypoint.sh /usr/local/bin/workspace-entrypoint
+
+EXPOSE 8787
+VOLUME ["/home/deno/.agents"]
+ENTRYPOINT ["/usr/local/bin/workspace-entrypoint"]
+CMD []

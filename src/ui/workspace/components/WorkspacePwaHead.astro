@@ -1,0 +1,12 @@
+---
+import { DARK_BROWSER_THEME } from "../../design-system/themes/dark.ts";
+const enabled = !import.meta.env.DEV;
+---
+{enabled && <>
+    <link rel="manifest" href="/workspace.webmanifest" />
+    <link rel="apple-touch-icon" href="/pwa/apple-touch-icon.png" />
+    <meta name="theme-color" content={DARK_BROWSER_THEME.colors["--rw-surface"]} />
+    <meta name="apple-mobile-web-app-title" content="RunWield" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+</>}

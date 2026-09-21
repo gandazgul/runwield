@@ -27,7 +27,7 @@ import { SidebarContainer } from "@plannotator/ui/components/sidebar/SidebarCont
 import { ScrollViewportContext } from "@plannotator/ui/hooks/useScrollViewport.ts";
 import { usePlanDiff } from "@plannotator/ui/hooks/usePlanDiff.ts";
 import { useCodeFilePopout } from "@plannotator/ui/hooks/useCodeFilePopout.ts";
-import { usePrintMode } from "@plannotator/ui/hooks/usePrintMode.ts";
+import { printDocument, useDocumentPrintMode } from "../../design-system/components/react/useDocumentPrintMode.ts";
 import { useConfigValue } from "@plannotator/ui/config/index.ts";
 import { getPlanSaveSettings } from "@plannotator/ui/utils/planSave.ts";
 import { extractFrontmatter, parseMarkdownToBlocks } from "@plannotator/ui/utils/parser.ts";
@@ -140,7 +140,7 @@ function SequenceReviewSurface({ payload, presentation }) {
 }
 
 function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup, active = true }) {
-    usePrintMode();
+    useDocumentPrintMode();
     const initialPayload = useMemo(() => payload || readEmbeddedPayload("review-payload") || DEFAULT_PLAN_PAYLOAD, [
         payload,
     ]);
@@ -245,6 +245,11 @@ function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup,
             frontmatter: frontmatterResult.frontmatter,
         };
     }, [plan]);
+    const printPlan = editorMode === "edit" ? draftPlan : plan;
+    const printablePlan = useMemo(() => ({
+        blocks: parseMarkdownToBlocks(printPlan),
+        frontmatter: extractFrontmatter(printPlan).frontmatter,
+    }), [printPlan]);
     const legacyPreviousPlan = typeof initialPayload.previousPlan === "string" && initialPayload.previousPlan.trim()
         ? initialPayload.previousPlan
         : null;
@@ -962,7 +967,7 @@ function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup,
                                         iconOnly
                                         onOpenExport={() => setExportOpen(true)}
                                         onOpenSettings={() => setSettingsOpen(true)}
-                                        onPrint={() => globalThis.print?.()}
+                                        onPrint={printDocument}
                                     />
                                     <img src="/brand/logo.svg" alt="" aria-hidden="true" />
                                     <h1>Plan Review</h1>
@@ -1239,10 +1244,28 @@ function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup,
                                     </div>
                                 </div>
                                 <div className="rw-plan-content-area">
+                                    {(editorMode === "edit" || isPlanDiffActive) && (
+                                        <div className="rw-print-document">
+                                            <Viewer
+                                                blocks={printablePlan.blocks}
+                                                markdown={printPlan}
+                                                frontmatter={printablePlan.frontmatter}
+                                                annotations={[]}
+                                                onAddAnnotation={() => {}}
+                                                onSelectAnnotation={() => {}}
+                                                selectedAnnotationId={null}
+                                                mode="comment"
+                                                taterMode={false}
+                                                readOnly
+                                                imageBaseDir={initialPayload.imageBaseDir}
+                                                disableCodePathValidation
+                                            />
+                                        </div>
+                                    )}
                                     {isPlanDiffActive && planDiff.diffBlocks && planDiff.diffStats
                                         ? (
                                             <OverlayScrollArea
-                                                className="rw-plannotator-scroll-area"
+                                                className="rw-plannotator-scroll-area rw-plan-diff-scroll"
                                                 onViewportReady={setScrollViewport}
                                             >
                                                 <div className="rw-plan-document-canvas rw-plan-diff-canvas">
@@ -1829,7 +1852,8 @@ function PlanReviewOptionsMenu({ iconOnly = false, onOpenExport, onOpenSettings,
                     <RunWieldMenuItem
                         onClick={() => {
                             closeMenu();
-                            onPrint();
+                            // Let the menu close before Chrome captures the document.
+                            setTimeout(onPrint, 0);
                         }}
                         icon={<PrintIcon />}
                         label="Print / Save PDF"

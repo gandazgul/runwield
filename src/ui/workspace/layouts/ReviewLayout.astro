@@ -1,6 +1,9 @@
 ---
 import "../../design-system/fonts.css";
+import WorkspacePwaHead from "../components/WorkspacePwaHead.astro";
+import WorkspaceConnection from "../components/WorkspaceConnection.astro";
 const { title = "RunWield Review" } = Astro.props;
+const ownerReview = Astro.url.pathname.startsWith("/projects/");
 ---
 <!doctype html>
 <html lang="en">
@@ -9,6 +12,7 @@ const { title = "RunWield Review" } = Astro.props;
         <meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content" />
         <meta name="generator" content={Astro.generator} />
         <title>{title}</title>
+        {ownerReview && <WorkspacePwaHead />}
         <link rel="icon" href="/brand/logo.svg" type="image/svg+xml" />
         <link rel="stylesheet" href="/tokens.css" />
         <link rel="stylesheet" href="/components.css" />
@@ -19,5 +23,6 @@ const { title = "RunWield Review" } = Astro.props;
         <main class="review-shell" data-astro-review-shell>
             <slot />
         </main>
+        {ownerReview && <WorkspaceConnection />}
     </body>
 </html>

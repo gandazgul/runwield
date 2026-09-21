@@ -210,6 +210,7 @@ The capabilities below own browser-specific requirements. They reference Core fo
 Session behavior. Scope labels distinguish the existing foundation, the required Personal v1 journey, and later team
 work; they do not claim rollout completion.
 
+- [Container hosting](#container-hosting)
 - [Browser appearance and themes](#browser-appearance-and-themes)
 - [Local Plan management](#local-plan-management)
 - [Shared Plan collaboration](#shared-plan-collaboration)
@@ -226,6 +227,27 @@ work; they do not claim rollout completion.
 - [Team artifact privacy and authorship](#team-artifact-privacy-and-authorship)
 - [Team planning intelligence](#team-planning-intelligence)
 - [Team code review and delivery](#team-code-review-and-delivery)
+
+### Container hosting
+
+**Scope and maturity:** Container packaging and an offline Kubernetes example are available. Cluster deployment is a
+separate owner decision.
+
+**Requirement: Run personal Workspace in a persistent container.**
+
+The owner can build a Linux image with Podman and run Workspace on their private Kubernetes server. Projects, `~/.wld`,
+and `~/.agents` have separate persistent mounts. The `.wld` mount also holds memory data. Image replacement preserves
+saved Sessions, device pairing, settings, skills, and registered Projects when mount paths remain unchanged. One
+Workspace instance writes this state; HTTPS and device pairing remain required for remote access. Container packaging
+does not deploy or publish an image automatically. See [Workspace in a container](../workspace-container.md).
+
+**Acceptance scenarios:**
+
+- Build the image, mount the three folders, and start Workspace behind a trusted HTTPS proxy. Pair a browser and
+  register a repository from the projects mount.
+- Replace the container with the same mounts and paths. Saved state and project files remain available. An interrupted
+  agent turn requires a follow-up; it does not automatically resume.
+- Render the Kubernetes example locally without changing cluster resources or Flux configuration.
 
 ### Browser appearance and themes
 
@@ -422,6 +444,26 @@ remain unavailable until the Project is enabled and its root is available.
 Dashboard attention rows use the Plan name from the live review or linked Plan. Questions without a Plan use the Session
 name. The waiting reason belongs in the secondary status text, never as a repeated generic row title.
 
+**Requirement: Install Workspace as an online-only app.**
+
+On supported browsers, Workspace can be installed from its HTTPS origin (or localhost for development), with a RunWield
+icon, standalone window, and the Dashboard as its start destination. Existing device pairing still applies, including
+when the installed app opens a Session, Plan, or review. Installation does not grant access.
+
+Workspace requires a live connection. A failed launch or navigation shows a connection page with a Try again action that
+retries the original destination. A connection lost in an already open page shows a notice while keeping the page and
+its unsent text mounted. Ask the owner to check their network, Workspace server, and Tailscale when used. The service
+worker stores no Workspace content, queues no offline actions, and never automatically resends a failed write. Only its
+generic connection page is available without the server.
+
+**Acceptance scenarios:**
+
+- Install from a supported phone or desktop browser, then launch to the Dashboard or pairing screen as appropriate.
+- After installation, disconnect from the server and open a Session URL: show the connection page instead of stale
+  Session data. Restore connectivity and choose Try again: load that same URL through normal authentication.
+- Lose connectivity with a draft open: show a retry notice without replacing the page or sending the draft. Reconnect:
+  clear the notice after a successful request; failed actions are not queued or replayed.
+
 **Requirement: Open Workspace without repeating startup work.**
 
 Workspace home opens the Attention Dashboard. Logo links return directly to the last visited Session. Navigation
@@ -588,6 +630,10 @@ expose TUI-only process controls.
   message resolve it without changing owner, worktree, working directory, tools, or attempt.
 
 **Requirement: Read Session artifacts comfortably on desktop and phone.**
+
+Print / Save PDF produces a complete, paginated light rendering of the document, including readable Mermaid diagrams,
+without Workspace navigation or review controls. The printed document is independent of screen scroll position and
+dark-mode preferences.
 
 Opening an artifact gives immediate loading feedback until its document is ready. Browser waiting states use one
 consistent dots indicator, familiar from the TUI. One shared Markdown reader serves Plans, PRDs, ADRs, Work Records,

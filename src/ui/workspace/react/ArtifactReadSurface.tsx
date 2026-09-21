@@ -8,7 +8,7 @@ import { Viewer } from "@plannotator/ui/components/Viewer.tsx";
 import { OverlayScrollArea } from "@plannotator/ui/components/OverlayScrollArea.tsx";
 import { SidebarContainer } from "@plannotator/ui/components/sidebar/SidebarContainer.tsx";
 import { ScrollViewportContext } from "@plannotator/ui/hooks/useScrollViewport.ts";
-import { usePrintMode } from "@plannotator/ui/hooks/usePrintMode.ts";
+import { useDocumentPrintMode } from "../../design-system/components/react/useDocumentPrintMode.ts";
 import { useConfigValue } from "@plannotator/ui/config/index.ts";
 import { extractFrontmatter, parseMarkdownToBlocks } from "@plannotator/ui/utils/parser.ts";
 import { getUIPreferences, PLAN_WIDTH_OPTIONS } from "@plannotator/ui/utils/uiPreferences.ts";
@@ -38,7 +38,7 @@ function workspaceNavigate(href) {
 export function ArtifactReadSurface(
     { payload, workflowSidebar = null, showLogo = true, contentsInitiallyOpen = true, embedded = false },
 ) {
-    usePrintMode();
+    useDocumentPrintMode();
     const initialPayload = useMemo(() => payload || readEmbeddedPayload("review-payload") || DEFAULT_READ_PAYLOAD, [
         payload,
     ]);

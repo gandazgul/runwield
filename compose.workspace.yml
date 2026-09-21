@@ -1,37 +1,24 @@
-# Build bin/wld for your container's Linux architecture first. See docs/workspace-container.md.
+# Compile bin/wld for this Linux architecture first. See docs/workspace-container.md.
 services:
     workspace:
+        platform: ${RUNWIELD_PLATFORM:-linux/amd64}
         build:
             context: .
             dockerfile: Containerfile.wld-ux
-            target: wld-ux-current
-        image: runwield-workspace:local
+            target: wld-workspace
+        image: localhost/runwield-workspace:local
         container_name: runwield-workspace
         restart: unless-stopped
         init: true
         working_dir: /workspace/project
-        command:
-            - workspace
-            - serve
-            - --bind
-            - 0.0.0.0
-            - --port
-            - "8787"
-            - --public-origin
-            - ${RUNWIELD_WORKSPACE_ORIGIN:?Set the HTTPS origin used by your proxy or private tunnel}
-            - --trust-tls-terminator
-            - --no-open
         environment:
-            - ANTHROPIC_API_KEY
-            - OPENAI_API_KEY
-            - GOOGLE_API_KEY
+            RUNWIELD_WORKSPACE_ORIGIN: ${RUNWIELD_WORKSPACE_ORIGIN:?Set the HTTPS origin used by your proxy or private tunnel}
+            ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+            OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+            GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
         ports:
             - "127.0.0.1:8787:8787"
         volumes:
-            - ${RUNWIELD_PROJECT_ROOT:?Set the absolute path to your cloned repository}:/workspace/project
-            - runwield-workspace-state:/home/deno/.wld
-            - runwield-workspace-memory:/home/deno/.local/share/mnemoteca
-
-volumes:
-    runwield-workspace-state:
-    runwield-workspace-memory:
+            - ${RUNWIELD_PROJECT_ROOT:?Set the absolute path to your projects folder}:/workspace/project
+            - ${RUNWIELD_STATE_ROOT:?Set the absolute path to your .wld folder}:/home/deno/.wld
+            - ${RUNWIELD_AGENTS_ROOT:?Set the absolute path to your .agents folder}:/home/deno/.agents

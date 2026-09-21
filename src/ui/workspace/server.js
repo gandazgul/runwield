@@ -90,6 +90,7 @@ import { requireOwnerProjectRoot, sessionBelongsToOwnerProject } from "./server/
 import { ownerProjectPlanSessionsApi } from "./server/owner-plan-sessions.ts";
 import { createOwnerConnectionRegistry } from "./server/owner-connections.js";
 import { setAstroOwnerWorkspaceSessionContinuation, setAstroOwnerWorkspaceStore } from "./server/astro-owner-data.js";
+import { WORKSPACE_PWA_PATHS, workspacePwaResponse } from "./server/workspace-pwa.ts";
 
 const WORKSPACE_DIR = join(RUNWIELD_SOURCE_ROOT, "ui", "workspace");
 const ROOT_DIR = RUNWIELD_ROOT;
@@ -959,6 +960,7 @@ function matchRoute(pattern, pathname) {
 
 /** @param {ReturnType<typeof createWorkspaceRouter>} app */
 function registerStaticRoutes(app) {
+    for (const path of WORKSPACE_PWA_PATHS) app.get(path, () => workspacePwaResponse(path));
     app.get("/styles.css", async () => await handleStaticRoute("/styles.css"));
     app.get("/tokens.css", async () => await handleStaticRoute("/tokens.css"));
     app.get("/components.css", async () => await handleStaticRoute("/components.css"));
@@ -1070,7 +1072,7 @@ async function textFileResponse(path, contentType) {
 
 /** @param {string} pathname */
 function isPublicWorkspaceAsset(pathname) {
-    return pathname === "/styles.css" ||
+    return WORKSPACE_PWA_PATHS.includes(pathname) || pathname === "/styles.css" ||
         pathname === "/tokens.css" ||
         pathname === "/components.css" ||
         pathname === "/workspace.css" ||
