@@ -33,5 +33,6 @@ src/shared/version.js
 demo-media/
 
 # BEGIN RunWield owned runtime state
-.wld/
+.wld/internal/
+.wld/plan-staging/
 # END RunWield owned runtime state
