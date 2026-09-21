@@ -5,8 +5,9 @@
 
 import { dirname, join, resolve } from "@std/path";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { CLI_BIN, getRunWieldRuntimeDir, PLAN_TRANSITIONS_DIR_NAME } from "../../constants.js";
+import { CLI_BIN } from "../../constants.js";
 import { pickControllerState, type WorkflowControllerState, WORKTREE_CONTEXT_FIELDS } from "./controller-state.ts";
+import { enterProjectRuntime, resolveProjectRuntimeLayout } from "../project-runtime-layout.ts";
 import {
     controllerStatesEqual,
     restoreOwnControllerWrite,
@@ -19,6 +20,7 @@ import {
     getPlanDocumentRoot,
     getRecordedPlanWriteFrontMatterRevision,
     getRecordedPlanWriteRevision,
+    inspectPlanStrict,
     loadArchivedPlan,
     loadPlan,
     loadPlanStrict,
@@ -171,21 +173,29 @@ function withTrackedPlanLock<T>(projectRoot: string, planName: string, run: () =
 }
 
 export function getTransitionJournalDir(projectRoot: string): string {
-    return join(getRunWieldRuntimeDir(projectRoot), PLAN_TRANSITIONS_DIR_NAME);
+    return resolveProjectRuntimeLayout(projectRoot).selected.transitionJournalsDir;
 }
 
 export function getTransitionJournalPath(projectRoot: string, transitionId: string): string {
     return join(getTransitionJournalDir(projectRoot), `${transitionId}.json`);
 }
 
+async function enteredTransitionJournalDir(projectRoot: string): Promise<string> {
+    return (await enterProjectRuntime(projectRoot)).selected.transitionJournalsDir;
+}
+
+async function enteredTransitionJournalPath(projectRoot: string, transitionId: string): Promise<string> {
+    return join(await enteredTransitionJournalDir(projectRoot), `${transitionId}.json`);
+}
+
 async function writeJournal(projectRoot: string, transitionId: string, record: Record<string, unknown>) {
-    const path = getTransitionJournalPath(projectRoot, transitionId);
+    const path = await enteredTransitionJournalPath(projectRoot, transitionId);
     await Deno.mkdir(dirname(path), { recursive: true });
     await atomicWriteTextFile(path, `${JSON.stringify(record, null, 2)}\n`);
 }
 
 async function removeJournal(projectRoot: string, transitionId: string) {
-    await Deno.remove(getTransitionJournalPath(projectRoot, transitionId)).catch((error) => {
+    await Deno.remove(await enteredTransitionJournalPath(projectRoot, transitionId)).catch((error) => {
         if (!(error instanceof Deno.errors.NotFound)) throw error;
     });
 }
@@ -1287,8 +1297,13 @@ export async function writePlanDocumentAndController(opts: PlanDocumentUpdate) {
 }
 
 /** Return unresolved transition journal records for diagnostics. */
-export async function listTransitionRecoveryRecords(projectRoot: string) {
-    const dir = getTransitionJournalDir(projectRoot);
+export async function listTransitionRecoveryRecords(
+    projectRoot: string,
+    options: { diagnostic?: boolean } = {},
+) {
+    const dir = options.diagnostic
+        ? getTransitionJournalDir(projectRoot)
+        : await enteredTransitionJournalDir(projectRoot);
     /** @type {Array<Record<string, unknown>>} */
     const records = [];
     try {
@@ -1324,7 +1339,7 @@ export async function closeTransitionRecordByAttestation(
     transitionId: string,
     { note }: { note?: string } = {},
 ): Promise<{ closed: boolean; archivedPath?: string; reason?: string }> {
-    const activePath = getTransitionJournalPath(projectRoot, transitionId);
+    const activePath = await enteredTransitionJournalPath(projectRoot, transitionId);
     let record: Record<string, unknown>;
     try {
         record = JSON.parse(await Deno.readTextFile(activePath));
@@ -1336,7 +1351,7 @@ export async function closeTransitionRecordByAttestation(
         // going with what we know rather than making the corner permanent.
         record = { transitionId, unreadable: compactError(error) };
     }
-    const archiveDir = join(getTransitionJournalDir(projectRoot), "attested");
+    const archiveDir = join(await enteredTransitionJournalDir(projectRoot), "attested");
     const archivedPath = join(archiveDir, `${transitionId}.json`);
     await Deno.mkdir(archiveDir, { recursive: true });
     await atomicWriteTextFile(
@@ -1430,9 +1445,14 @@ export interface TransitionReconciliation {
  */
 export async function reconcileTransitionRecoveryRecords(
     projectRoot: string,
-    { apply = false, proveEffect, planName }: { apply?: boolean; proveEffect?: EffectProver; planName?: string } = {},
+    { apply = false, proveEffect, planName, diagnostic = false }: {
+        apply?: boolean;
+        proveEffect?: EffectProver;
+        planName?: string;
+        diagnostic?: boolean;
+    } = {},
 ): Promise<TransitionReconciliation[]> {
-    let records = await listTransitionRecoveryRecords(projectRoot);
+    let records = await listTransitionRecoveryRecords(projectRoot, { diagnostic });
     if (planName !== undefined) {
         records = records.filter((record) => record.planName === planName);
     }
@@ -1508,7 +1528,9 @@ export async function reconcileTransitionRecoveryRecords(
         };
         const journaledPlan = beforeFacts.plan || beforeFacts;
         const journaledRevision = typeof journaledPlan.revision === "string" ? journaledPlan.revision : undefined;
-        const current = await loadPlan(projectRoot, planName).catch(() => null);
+        const current = diagnostic
+            ? await inspectPlanStrict(projectRoot, planName).then((result) => result.kind === "loaded" ? result : null)
+            : await loadPlan(projectRoot, planName).catch(() => null);
         if (journaledRevision === undefined && journaledPlan.missing !== true) {
             // No before-revision to compare, and no effect was ever marked. Completed
             // effects are the only ledger of durable change, so nothing here is known to
@@ -1529,7 +1551,7 @@ export async function reconcileTransitionRecoveryRecords(
         // time, so a record whose Front Matter still matches describes no
         // outstanding RunWield work even though the file bytes differ.
         const unchanged = journaledPlan.missing === true ? !current : Boolean(
-            current &&
+            current && "attrs" in current && "revision" in current &&
                 (!journaledPlan.controllerState ||
                     controllerStatesEqual(journaledPlan.controllerState, current.attrs)) &&
                 (current.revision === journaledRevision ||

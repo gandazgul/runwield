@@ -108,6 +108,30 @@ Plan status, Session status, ownership reason
 **Session Name**: The persisted short human label for a Session, initially derived from Router Triage for fresh user
 requests. It is distinct from the terminal window or tab title. _Avoid_: Tab title, conversation name
 
+**Project Runtime State**: Machine-owned RunWield state inside a Project checkout. The current reserved root is
+`.wld/internal/`. User-derived `.wld/settings.json`, `.wld/agents/`, `.wld/skills/`, and `.wld/prompts/` are not Project
+Runtime State. _Avoid_: project settings, project config, all of `.wld/`
+
+**Project Runtime Entry**: The shared migration-or-verification operation that runs before normal Project Runtime State
+access. It can adopt eligible legacy state, confirm the selected and primary checkout layout, or refuse access with a
+retryable reason and safe paths. It is not Session activation, path resolution, Workspace registration, or a
+command-only check. Doctor inspection can report pending adoption without performing Project Runtime Entry. _Avoid_:
+startup, activation, registration, path getter
+
+**Project Internal Root**: The `.wld/internal/` directory in the checkout that owns a Project Runtime State item. It is
+a path contract only; it does not mean migration or writer cutover is complete. _Avoid_: `.wld`, runtime directory when
+the selected or primary checkout matters
+
+**Primary-Checkout Runtime State**: Project Runtime State shared through the primary checkout. It includes controller
+Plan records, the worktree registry and its lock, registry migration reports, publication staging, the project
+collaboration secret store at `.wld/internal/collaboration-secrets.json`, and the no-home fallback worktrees root. The
+home-directory collaboration secret store stays under `~/.wld/` and is not Project Runtime State. _Avoid_: global
+runtime state, selected-checkout locks
+
+**Selected-Checkout Runtime State**: Project Runtime State owned by the selected checkout. It includes Plan locks, the
+Plan catalog lock, transition journals, and Work Record supersession locks. _Avoid_: primary runtime state, shared
+registry state
+
 ### Triage & Classification
 
 **Triage**: Structured classification of a user request by workflow type and complexity, usually performed by the
@@ -259,9 +283,10 @@ _Avoid_: Phase, stage
 **Plan Event**: A recorded workflow fact that the Plan Lifecycle uses to transition a Plan. _Avoid_: Next step, status
 update
 
-**Plan Action Evidence Check**: The action-time reload of canonical Plan status, Plan revision, and worktree registry
-evidence before a consequential Plan action runs under the Session Writer Lock. _Avoid_: Plan ownership, durable Plan
-lock, separate ownership record
+**Plan Action Evidence Check**: The action-time reload of selected Plan status, Plan revision, and worktree registry
+evidence before a consequential Plan action runs under the Session Writer Lock. For a targeted Epic child, the selected
+Plan can be in a planning worktree before execution starts. _Avoid_: Plan ownership, durable Plan lock, separate
+ownership record
 
 **Approved Plan**: A Plan whose Review Loop ended in user approval but whose pre-execution preparation may still be
 unfinished. _Avoid_: Ready plan, executable plan
@@ -281,8 +306,8 @@ For Work and PROJECT Epics to Ready For Decomposition. _Avoid_: Slicer phase, ex
 **Failed Plan**: A Plan that reached Ready For Work but could not complete execution successfully, with a durable
 failure explanation. _Avoid_: Rejected plan, invalid plan
 
-**In-Progress Plan**: A Plan whose execution has started and whose worktree may contain partial implementation work.
-_Avoid_: Running plan, active plan
+**In-Progress Plan**: A Plan whose execution has started and whose worktree may contain partial implementation work. A
+planning worktree for an Epic child does not make the Plan In Progress. _Avoid_: Running plan, active plan
 
 **On-Hold Plan**: A deferred non-verified Plan that preserves its prior Plan Status and staleness baseline for a future
 Resume Check. _Avoid_: Archived plan, canceled plan, completed plan
@@ -336,12 +361,17 @@ user-facing copy calls this **code review**. _Avoid_: Human Review, Semantic Rev
 Reviewer re-verification. _Avoid_: Review log, durable Plan history, Work Record
 
 **Review Issue**: A blocking Semantic Review finding that shows the target-relative implementation change fails an
-unambiguous approved Plan requirement and must be repaired before approval. If later evidence proves the finding was
-attributed to unchanged target context, independent review can confirm it as already satisfied without a file edit; its
-identity remains stable. _Avoid_: Review Advisory, style note, suggestion
+unambiguous approved Plan requirement. It must be repaired, or resolved by a user-confirmed Plan Deviation that replaces
+the requirement, before approval. If later evidence proves the finding was attributed to unchanged target context,
+independent review can confirm it as already satisfied without a file edit; its identity remains stable. _Avoid_: Review
+Advisory, style note, suggestion
 
 **Review Advisory**: A non-blocking Semantic Review finding that explains an ambiguity in the approved Plan without
 preventing implementation approval. _Avoid_: Review Issue, warning, waived defect
+
+**Review Override**: A proposed one-delivery user decision to accept a specific Review Issue without changing the Plan
+requirement. It is not a Plan Deviation and does not become future Plan authority. _Avoid_: Plan Deviation, Review
+Advisory, permanent waiver
 
 **PRD**: An independent durable product-requirements artifact that may inform multiple Plans and Agent Sessions without
 participating in Plan Lifecycle. _Avoid_: Plan, Work Item, chat transcript
@@ -506,7 +536,8 @@ intended behavior. Recommended for structural or high-risk Plans; never a requir
 Reviewer, red team, adversarial validation
 
 **Epic**: A PROJECT Plan with `type: epic` or no type, containing design and decomposition context. Its approval action
-is Approve & Slice. _Avoid_: Initiative, umbrella task
+is Approve & Slice. For a targeted Epic, the target branch owns current child progress. _Avoid_: Initiative, umbrella
+task
 
 **Sequence**: A PROJECT Plan with `type: sequence` whose brief context and complete child Plans are authored by Planner
 and reviewed together. Approve & Execute starts the first child; normal PROJECT continuation runs subsequent children in
@@ -514,6 +545,7 @@ order. Each child retains its own validation and delivery. A Sequence has no agg
 automatic Epic release branch. _Avoid_: Epic, separate chain manifest
 
 **Child PLANNED_CHANGE Plan**: An executable PLANNED_CHANGE Plan linked to a PROJECT container through `parentPlan`.
+Targeted Epic children can have a planning worktree before execution; approval promotes that same checkout to execution.
 _Avoid_: Child FEATURE Plan, subtask, ticket, DAG node
 
 **Epic Artifact**: A reserved non-Plan Markdown file stored beside an Epic's Child PLANNED_CHANGE Plans. The first Epic
@@ -552,9 +584,17 @@ silently adopt Plan body or definition edits from the execution worktree. Plan S
 Evidence, validation counters, and other lifecycle fields remain RunWield-owned. _Avoid_: active validation gate, silent
 worktree Plan edit, lifecycle edit
 
+**Plan Deviation**: An explicit user-confirmed replacement for an effective Plan requirement during Pair Execution. The
+execution Agent proposes the superseded requirement, replacement requirement, and optional reason through
+`record_plan_deviation`; a typed user confirmation writes it to the authoritative execution Plan. Confirmed Plan
+Deviations supersede conflicting original Plan text for execution, Semantic Code Review, and Work Records. Ordinary Pair
+feedback, transcript text, metrics, arbitrary Plan-file edits, and one-delivery Review Overrides are not Plan
+Deviations. _Avoid_: automatic Plan Amendment, checkpoint feedback, review waiver, silent Plan edit
+
 **Pair Execution**: A user-steered Plan execution style where Plan Engineer or Frontend Engineer delivers coherent
 observable increments and pauses through ordinary Session conversation. It is a collaboration style, not validation
-evidence. _Avoid_: Live pair-design, frontend mode, Manual QA
+evidence. If user feedback conflicts with the effective Plan, it becomes authority only through a confirmed Plan
+Deviation. _Avoid_: Live pair-design, frontend mode, Manual QA
 
 **Pair Checkpoint**: A durable Pair Execution report and its later typed resolution. The report ends the Agent turn so
 the user can discuss the increment in normal conversation. Only a later accepted user turn can authorize continue,
@@ -747,7 +787,10 @@ continuation, database interaction record
   retrieval. Supersession does not change a Work Record's completion mode or remove its applicable confidence notices
   from explicit retrieval.
 - One implementation attempt has at most one temporary **Review Issue Ledger**.
-- A **Review Issue** blocks Semantic Review approval; a **Review Advisory** does not.
+- A **Review Issue** blocks Semantic Review approval until repaired, independently confirmed as already satisfied from
+  unchanged target context, or resolved by a confirmed Plan Deviation.
+- A **Review Advisory** does not block approval.
+- A proposed **Review Override** applies to one delivery only and does not change Plan authority.
 - Denied Plan review produces **Feedback**, and each response to Feedback produces one **Revision**.
 - A **PRD** may inform multiple Plans without participating in Plan Lifecycle.
 - A **Workspace** contains zero or more registered **Projects** and may host live Sessions across them.

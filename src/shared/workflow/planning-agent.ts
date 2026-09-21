@@ -34,6 +34,7 @@ export interface RunPlanningAgentOptions {
      */
     planName?: string;
     associationPurpose?: AssociationPurpose;
+    cwd?: string;
 }
 
 export async function runPlanningAgent(
@@ -46,6 +47,7 @@ export async function runPlanningAgent(
         images,
         planName,
         associationPurpose = "planning",
+        cwd,
     }: RunPlanningAgentOptions,
 ): Promise<PlanOutcomeResult> {
     if (!hostedSession) throw new Error("runPlanningAgent: hostedSession is required");
@@ -68,6 +70,7 @@ export async function runPlanningAgent(
         images,
         sessionManager,
         triageMeta,
+        ...(cwd ? { cwd } : {}),
     });
 
     const event = claimWorkflowToolEvent(hostedSession, {

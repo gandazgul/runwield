@@ -391,7 +391,7 @@ export const validationTreeSemanticNudgeOmittedPriorFindingScenario = withValida
             },
             { type: "type", text: "submit the planned change for review" },
             { type: "enter" },
-            { type: "waitForPlanStatus", planName: "plan", statuses: ["verified"], timeoutMs: 180000 },
+            { type: "waitForPlanStatus", planName: "plan", statuses: ["verified"], timeoutMs: 300000 },
             { type: "assertWorkflowDurability" },
         ],
         assertions: [],
@@ -1202,11 +1202,19 @@ export const validationTreeSemanticRoundModeDiscoveryToVerifyScenario = withVali
                     { name: "review_diff", arguments: { command: "show", scope: "full", path: ".gitignore" } },
                     {
                         name: "review_diff",
-                        arguments: { command: "show", scope: "full", path: "semantic-round-mode-discovery-to-verify.txt" },
+                        arguments: {
+                            command: "show",
+                            scope: "full",
+                            path: "semantic-round-mode-discovery-to-verify.txt",
+                        },
                     },
                     {
                         name: "review_diff",
-                        arguments: { command: "show", scope: "full", path: "docs/plans/semantic-round-mode-discovery-to-verify.md" },
+                        arguments: {
+                            command: "show",
+                            scope: "full",
+                            path: "docs/plans/semantic-round-mode-discovery-to-verify.md",
+                        },
                     },
                 ],
             },

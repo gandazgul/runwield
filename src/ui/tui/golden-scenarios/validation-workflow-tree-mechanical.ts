@@ -192,9 +192,15 @@ export const validationTreeValidationExhaustedRetryScenario = withValidationBran
                 toolCalls: [
                     { name: "review_diff", arguments: { command: "list", scope: "full" } },
                     { name: "review_diff", arguments: { command: "show", scope: "full", path: ".gitignore" } },
-                    { name: "review_diff", arguments: { command: "show", scope: "full", path: "golden-validation-exhausted.txt" } },
+                    {
+                        name: "review_diff",
+                        arguments: { command: "show", scope: "full", path: "golden-validation-exhausted.txt" },
+                    },
                     { name: "review_diff", arguments: { command: "show", scope: "full", path: ".wld/settings.json" } },
-                    { name: "review_diff", arguments: { command: "show", scope: "full", path: "docs/plans/validation-exhausted.md" } },
+                    {
+                        name: "review_diff",
+                        arguments: { command: "show", scope: "full", path: "docs/plans/validation-exhausted.md" },
+                    },
                 ],
             },
             {

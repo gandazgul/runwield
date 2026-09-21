@@ -7,7 +7,7 @@
  */
 
 import { join } from "@std/path";
-import { getRunWieldRuntimeDir, PLAN_STAGING_DIR_NAME } from "../../constants.js";
+import { enterProjectRuntime, resolveProjectRoot, resolveProjectRuntimeLayout } from "../project-runtime-layout.ts";
 import { findById, pruneEntry, updatePublication } from "../worktree-registry.js";
 import { existingPublicationSavedFiles, preserveUnregisteredPublicationFiles } from "./publication-leftover-files.ts";
 import {
@@ -208,13 +208,14 @@ async function publishedEvidence(
 }
 
 export function publicationRootForAttempt(projectRoot: string, attemptId: string): string {
-    return join(getRunWieldRuntimeDir(projectRoot), PLAN_STAGING_DIR_NAME, attemptId);
+    return join(resolveProjectRuntimeLayout(resolveProjectRoot(projectRoot)).primary.publicationStagingRoot, attemptId);
 }
 
 export async function loadPublicationAttempt(
     projectRoot: string,
     attemptId: string,
 ): Promise<PublicationAttempt | null> {
+    await enterProjectRuntime(projectRoot);
     const entry = await findById(projectRoot, attemptId, { migrate: false });
     if (!entry?.publication) return null;
     assertPublicationAttempt(entry.publication);
@@ -231,6 +232,7 @@ export async function startPublicationAttempt(args: {
     validatedCommit: string;
     targetHeadAtSeal: string;
 }): Promise<PublicationAttempt> {
+    await enterProjectRuntime(args.projectRoot);
     const entry = await findById(args.projectRoot, args.attemptId, { migrate: false });
     if (!entry) throw new Error(`Worktree registry entry not found: ${args.attemptId}`);
     if (!entry.planId) throw new Error(`Worktree registry entry ${args.attemptId} has no Plan identity.`);
@@ -272,6 +274,7 @@ export async function advanceStoredPublication(
     phase: PublicationPhase,
     evidence: PublicationPhaseEvidence,
 ): Promise<PublicationAttempt> {
+    await enterProjectRuntime(projectRoot);
     const mismatch = Object.entries(evidence).find(([field, expected]) => {
         if (expected === undefined) return false;
         const actual = current[field as keyof PublicationAttempt];
@@ -306,6 +309,7 @@ export async function failStoredPublication(
     current: PublicationAttempt,
     failure: Omit<PublicationFailure, "phase" | "recordedAt"> & { phase?: PublicationPhase },
 ): Promise<PublicationAttempt> {
+    await enterProjectRuntime(projectRoot);
     const next = recordPublicationFailure(current, failure);
     try {
         await updatePublication(projectRoot, current.attemptId, current.revision, next);
@@ -326,6 +330,7 @@ export async function reconcileStoredPublication(
     projectRoot: string,
     initial: PublicationAttempt,
 ): Promise<PublicationAttempt> {
+    await enterProjectRuntime(projectRoot);
     let current = initial;
     if (current.phase === "candidate_sealed") {
         const evidence = await artifactEvidence(current);
@@ -378,6 +383,7 @@ export async function cleanupStoredPublication(
     projectRoot: string,
     initial: PublicationAttempt,
 ): Promise<PublicationCleanupResult> {
+    await enterProjectRuntime(projectRoot);
     let attempt = await reconcileStoredPublication(projectRoot, initial);
     let preservedFiles = await existingPublicationSavedFiles(attempt.executionCwd);
     if (attempt.phase === "cleanup_complete") {

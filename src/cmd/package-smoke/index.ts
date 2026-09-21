@@ -5,6 +5,7 @@
 import { join } from "@std/path";
 import { WORK_RECORDS_DIR_NAME } from "../../constants.js";
 import { publishExecutionWorktreeIsolated } from "../../shared/isolated-publication.ts";
+import { RUNWIELD_GITIGNORE_BLOCK } from "../../shared/runwield-owned-paths.ts";
 import { checkPackagedImageResize } from "./image-resize.ts";
 
 /** @param {string} name */
@@ -144,7 +145,7 @@ async function checkPublicationFlow(env: Record<string, string>): Promise<void> 
     await run("git", ["init", "-b", "main"], { cwd: project, env });
     await run("git", ["config", "user.email", "runwield-package-check@example.invalid"], { cwd: project, env });
     await run("git", ["config", "user.name", "RunWield Package Check"], { cwd: project, env });
-    await Deno.writeTextFile(join(project, ".gitignore"), ".wld/\n");
+    await Deno.writeTextFile(join(project, ".gitignore"), RUNWIELD_GITIGNORE_BLOCK);
     await Deno.writeTextFile(join(project, "published.txt"), "base package check\n");
     await run("git", ["add", ".gitignore", "published.txt"], { cwd: project, env });
     await run("git", ["commit", "-m", "Initialize package publication fixture"], { cwd: project, env });

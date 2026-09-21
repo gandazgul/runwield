@@ -28,7 +28,7 @@ function createAgentSession(
         id: `agent-runner-${crypto.randomUUID()}`,
         cwd: projectRoot,
         interactionAdapter: {
-            supportsInteraction: (type) => type === "pair_checkpoint",
+            supportsInteraction: (type) => type === "pair_checkpoint" || type === "plan_deviation_confirmation",
             requestInteraction: (request) => {
                 interactionRequests.push(request);
                 return respond(request);

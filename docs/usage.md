@@ -137,7 +137,9 @@ workflow state, not just a generated note.
 
 PROJECT plans are Epic containers by default. Loading an approved or decomposing Epic opens the interactive Slicer so
 you can discuss child FEATURE boundaries and materialize drafts under `docs/plans/<epic-name>/`. Once decomposition is
-finalized, loading the Epic offers child FEATURE selection; loading a child FEATURE runs the normal FEATURE review,
+finalized, loading the Epic offers child FEATURE selection. For an Epic that targets another branch, child selection and
+child planning read that target branch. RunWield creates or reuses a per-child planning worktree before Planner starts.
+Your current checkout does not need to switch branches. Loading a child FEATURE then runs the normal FEATURE review,
 execution, validation, and recovery flow.
 
 After a child FEATURE verifies, RunWield automatically continues the active Epic in strict child order. Verification now
@@ -364,25 +366,35 @@ RunWield uses RunWield-owned paths instead of Pi-owned paths:
 | Project agents               | `.wld/agents/`                             |
 | Project prompts              | `.wld/prompts/`                            |
 | Project plans                | `docs/plans/`                              |
+| Project Runtime State        | `.wld/internal/`                           |
+
+RunWield 0.11 adopts eligible 0.10 Project Runtime State into `.wld/internal/` on first project entry. This change is
+one-way. Do not use a 0.10 binary in that Project after adoption. RunWield preserves and refuses unfinished publication,
+conflicting secret stores, active old writers, tracked runtime files, symlinked runtime authorities, and populated
+project-local fallback worktrees. Use `wld plans doctor --check` to inspect a disposable or inactive 0.10 Project before
+upgrade. Normal execution worktrees under `~/.wld/worktrees/` do not move.
 
 On first use, RunWield imports some Pi config files into `~/.wld/` when the RunWield copy does not exist.
 
 ## Plan recovery and doctor
 
-Use `wld plans doctor` to inspect Plan/worktree lifecycle drift:
+Use `wld plans doctor` to repair safe Plan/worktree lifecycle drift. Use `--check` for a report-only inspection.
+`--repair` is an explicit alias for the default behavior.
 
 ```bash
+wld plans doctor --check
 wld plans doctor
 wld plans doctor --repair
 ```
 
-The default command reports issues without changing the project. `--repair` applies only safe metadata repairs, such as
-marking a registry entry abandoned when its recorded worktree path is missing. Destructive actions like deleting a
-branch, deleting a directory, or abandoning ambiguous work require an explicit recovery choice or a manual command.
+Doctor reports blocked runtime adoption with safe paths and does not enter normal stores. A report-only inspection does
+not migrate, create locks, update metadata, or fetch into the project repository. Repair applies only proven-safe
+metadata repairs. Destructive actions, such as deleting a branch, deleting a directory, or abandoning ambiguous work,
+require an explicit recovery choice or a manual command.
 
-If a lifecycle action is interrupted, RunWield may leave a recovery record in `.wld/plan-transitions/`. The next
-`wld load-plan`, validation retry, or doctor run uses that record to decide whether the action was already completed,
-can be rolled back, or needs user confirmation.
+If a lifecycle action is interrupted, RunWield may leave a recovery record in `.wld/internal/plan-transitions/`. The
+next `wld load-plan`, validation retry, or doctor run uses that record to decide whether the action was already
+completed, can be rolled back, or needs user confirmation.
 
 If the main-checkout Plan file is missing or has unreadable front matter, `wld load-plan <name>` can restore it from the
 one matching execution worktree. RunWield verifies the Plan/worktree identity first. An unreadable file is copied to

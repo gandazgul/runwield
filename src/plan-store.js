@@ -11,30 +11,33 @@ export { isEpicPlan, isProjectPlan, isSequencePlan } from "./shared/project-plan
  */
 
 import { extractYaml, test as hasFrontMatter } from "@std/front-matter";
+import { readLockFileSnapshot, removeLockFileIfSnapshotMatches } from "./shared/lock-file-snapshot.ts";
 import { getLockHostname, isLockHolderGone } from "./shared/process-liveness.ts";
 import { basename, dirname, join, relative, resolve } from "@std/path";
 import { AsyncLocalStorage } from "node:async_hooks";
 import {
     CLI_BIN,
-    getRunWieldRuntimeDir,
     isPlannedChangeClassification,
     normalizePlanClassification,
     normalizeWorkKind,
-    PLAN_LOCKS_DIR_NAME,
     PLANS_DIR_NAME,
     ROUTING_INTENT_PLANNED_CHANGE,
 } from "./constants.js";
 import { PLAN_FRONT_MATTER_KEY_ORDER, PLAN_FRONT_MATTER_KEYS } from "./plan-front-matter.js";
 import { normalizeTicketReferences } from "./shared/ticket-references.js";
+import { normalizePlanDeviations } from "./shared/plan-deviations.ts";
 import { resolveWorkflowPlanLocation } from "./shared/workflow/plan-location.ts";
+import { findTargetBranchPlansByParent } from "./shared/workflow/planning-worktree.ts";
 import { renameRestoredPlanEntry } from "./shared/worktree-registry.js";
 import { resolvePrimaryCheckoutRoot } from "./shared/primary-checkout.ts";
 import { writePlanDocumentAndController } from "./shared/workflow/state-transition.ts";
 import { escapeYamlDoubleQuoted } from "./shared/yaml-scalar.ts";
 import { pickControllerState, PLAN_RUNTIME_FIELDS, stripRuntimeFields } from "./shared/workflow/controller-state.ts";
+import { enterProjectRuntime, ProjectRuntimeEntryRefusedError } from "./shared/project-runtime-layout.ts";
 import {
     bindControllerPlanIdentity,
     finishControllerPlanIdentity,
+    inspectControllerView,
     listControllerDocumentWorktrees,
     loadControllerView,
     writeControllerState,
@@ -54,6 +57,7 @@ import {
 } from "./shared/epic-artifacts.ts";
 
 /** @typedef {import("./shared/epic-artifacts.ts").MoveEpicArtifactResult} MoveEpicArtifactResult */
+/** @typedef {import("./shared/plan-deviations.ts").PlanDeviation} PlanDeviation */
 
 export { PLAN_FRONT_MATTER_KEY_ORDER, PLAN_FRONT_MATTER_KEYS } from "./plan-front-matter.js";
 
@@ -173,6 +177,7 @@ export function getStoredPlanPath(cwd, planName) {
  * @property {string[]} affectedPaths - Files that will be created/modified
  * @property {import('./shared/ticket-references.js').TicketReference[]} [tickets] - Optional provider-neutral Ticket References identified by the user.
  * @property {string[]} [supersedes] - Optional ordered Work Record IDs that this Plan is confirmed to replace.
+ * @property {PlanDeviation[]} [planDeviations] - Ordered user-confirmed replacements to effective Plan requirements.
  * @property {unknown} [executionAgent] - Canonical FEATURE execution owner, preserved raw when invalid for diagnostics
  * @property {unknown} [collaborationRecommendation] - Planner's suggested execution style, preserved raw when invalid for diagnostics
  * @property {boolean} [frontend] - Legacy browser UI/UX marker retained for source compatibility
@@ -415,6 +420,7 @@ function formatFrontMatter(fm) {
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.affectedPaths, fm.affectedPaths);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.tickets, fm.tickets);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.supersedes, fm.supersedes);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.planDeviations, fm.planDeviations);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.executionAgent, fm.executionAgent);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.collaborationRecommendation, fm.collaborationRecommendation);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.frontend, fm.frontend);
@@ -859,6 +865,7 @@ function normalizePlanStatusForOptionalHold(status) {
 function normalizeWorktreeStatus(status) {
     const allowed = new Set([
         "none",
+        "planning",
         "active",
         "completed",
         "execution_failed",
@@ -1009,6 +1016,9 @@ export function injectFrontMatter(markdown, overrides = {}) {
         supersedes: Object.hasOwn(overrides, "supersedes")
             ? normalizeSupersedes(overrides.supersedes)
             : normalizeSupersedes(existingFm.supersedes),
+        planDeviations: Object.hasOwn(overrides, "planDeviations")
+            ? normalizePlanDeviations(overrides.planDeviations)
+            : normalizePlanDeviations(existingFm.planDeviations),
         executionAgent: optionalExecutionPolicyValue(overrides, existingFm, "executionAgent"),
         collaborationRecommendation: optionalExecutionPolicyValue(overrides, existingFm, "collaborationRecommendation"),
         frontend: Object.hasOwn(overrides, "frontend")
@@ -1153,6 +1163,7 @@ export function parsePlanFrontMatter(markdown, opts = {}) {
             affectedPaths: normalizeStringList(attrs.affectedPaths) || DEFAULT_FRONT_MATTER.affectedPaths,
             tickets: normalizeTicketReferences(attrs.tickets),
             supersedes: normalizeSupersedes(attrs.supersedes),
+            planDeviations: normalizePlanDeviations(attrs.planDeviations),
             executionAgent: Object.hasOwn(attrs, "executionAgent") ? attrs.executionAgent ?? undefined : undefined,
             collaborationRecommendation: Object.hasOwn(attrs, "collaborationRecommendation")
                 ? attrs.collaborationRecommendation ?? undefined
@@ -1565,64 +1576,68 @@ function lockSafeSegment(value) {
 }
 
 const PLAN_LOCK_WAIT_TIMEOUT_MS = 5 * 60_000;
-const PLAN_LOCK_STALE_MS = 10 * 60_000;
 const PLAN_LOCK_HEARTBEAT_MS = 10_000;
 
 /** @param {string} lockPath */
 async function acquireSimpleLock(lockPath) {
     await Deno.mkdir(dirname(lockPath), { recursive: true });
     const deadline = Date.now() + PLAN_LOCK_WAIT_TIMEOUT_MS;
+    const token = crypto.randomUUID();
     while (true) {
         try {
-            const file = await Deno.open(lockPath, { createNew: true, write: true });
-            const writeHeartbeat = async () => {
-                await file.truncate(0);
-                await file.seek(0, Deno.SeekMode.Start);
-                await file.write(
-                    new TextEncoder().encode(
-                        // The hostname makes the pid meaningful: a waiter can ask the
-                        // operating system whether this exact holder is still alive
-                        // instead of waiting out a timeout after a crash.
-                        JSON.stringify({ pid: Deno.pid, hostname: getLockHostname(), updatedAtMs: Date.now() }),
-                    ),
-                );
-                await file.sync();
-            };
-            await writeHeartbeat();
-            const heartbeat = setInterval(() => {
-                writeHeartbeat().catch(() => {});
-            }, PLAN_LOCK_HEARTBEAT_MS);
-            return async () => {
-                clearInterval(heartbeat);
+            const file = await Deno.open(lockPath, { createNew: true, read: true, write: true });
+            try {
+                file.lockSync(true);
+                const writeHeartbeat = async () => {
+                    await file.truncate(0);
+                    await file.seek(0, Deno.SeekMode.Start);
+                    await file.write(
+                        new TextEncoder().encode(
+                            // The hostname makes the pid meaningful: a waiter can ask the
+                            // operating system whether this exact holder is still alive
+                            // instead of waiting out a timeout after a crash.
+                            JSON.stringify({
+                                token,
+                                pid: Deno.pid,
+                                hostname: getLockHostname(),
+                                updatedAtMs: Date.now(),
+                            }),
+                        ),
+                    );
+                    await file.sync();
+                };
+                await writeHeartbeat();
+                const heartbeat = setInterval(() => {
+                    writeHeartbeat().catch(() => {});
+                }, PLAN_LOCK_HEARTBEAT_MS);
+                return async () => {
+                    clearInterval(heartbeat);
+                    file.close();
+                    const snapshot = await readLockFileSnapshot(lockPath);
+                    if (snapshot?.token !== token) return;
+                    await removeLockFileIfSnapshotMatches(lockPath, snapshot);
+                };
+            } catch (setupError) {
                 file.close();
-                await Deno.remove(lockPath).catch(() => {});
-            };
+                throw setupError;
+            }
         } catch (error) {
             if (!(error instanceof Deno.errors.AlreadyExists)) throw error;
-            let stale = false;
-            try {
-                const lockContents = await Deno.readTextFile(lockPath);
-                // Deliberately no same-process shortcut here. Re-entrancy is handled by
-                // the AsyncLocalStorage guard in withProcessAwarePlanLock, which knows
-                // whether *this* call chain already holds the lock. Treating any lock
-                // written by this pid as already-held would let two concurrent tasks in
-                // one process both proceed, which is the mutual exclusion this lock
-                // exists to provide.
-                //
-                // A dead holder is reclaimed at once. Age alone cannot tell a crash from
-                // legitimate work, so waiting it out made a killed process block every
-                // operation on this Plan for the whole stale window — RunWield's own
-                // bookkeeping locking the user out of their Plan.
-                stale = await isLockHolderGone(lockContents);
-                if (!stale) {
-                    const stat = await Deno.stat(lockPath);
-                    stale = !stat.mtime || Date.now() - stat.mtime.getTime() > PLAN_LOCK_STALE_MS;
-                }
-            } catch {
-                stale = true;
-            }
-            if (stale) {
-                await Deno.remove(lockPath).catch(() => {});
+            const snapshot = await readLockFileSnapshot(lockPath);
+            if (!snapshot) continue;
+            // Deliberately no same-process shortcut here. Re-entrancy is handled by
+            // the AsyncLocalStorage guard in withProcessAwarePlanLock, which knows
+            // whether *this* call chain already holds the lock. Treating any lock
+            // written by this pid as already-held would let two concurrent tasks in
+            // one process both proceed, which is the mutual exclusion this lock
+            // exists to provide.
+            //
+            // A dead holder is reclaimed at once. Age alone cannot tell a crash from
+            // legitimate work, so waiting it out made a killed process block every
+            // operation on this Plan for the whole stale window — RunWield's own
+            // bookkeeping locking the user out of their Plan.
+            const stale = await isLockHolderGone(snapshot.text);
+            if (stale && await removeLockFileIfSnapshotMatches(lockPath, snapshot)) {
                 continue;
             }
             if (Date.now() > deadline) {
@@ -1669,10 +1684,11 @@ async function withProcessAwarePlanLock(key, lockPath, fn) {
  * @returns {Promise<T>}
  */
 export async function withPlanLock(cwd, planName, fn) {
+    const layout = await enterProjectRuntime(cwd);
     const key = `${resolve(cwd)}:${lockSafeSegment(planName)}`;
     return await withProcessAwarePlanLock(
         key,
-        join(getRunWieldRuntimeDir(cwd), PLAN_LOCKS_DIR_NAME, `${lockSafeSegment(planName)}.lock`),
+        join(layout.selected.planLocksDir, `${lockSafeSegment(planName)}.lock`),
         fn,
     );
 }
@@ -1684,19 +1700,42 @@ export async function withPlanLock(cwd, planName, fn) {
  * @returns {Promise<T>}
  */
 export async function withPlanCatalogLock(cwd, fn) {
+    const layout = await enterProjectRuntime(cwd);
     const key = `${resolve(cwd)}:catalog`;
     return await withProcessAwarePlanLock(
         key,
-        join(getRunWieldRuntimeDir(cwd), PLAN_LOCKS_DIR_NAME, "catalog.lock"),
+        layout.selected.planCatalogLockPath,
         fn,
     );
 }
 
+/** Read one Plan document without controller imports or writes.
+ * @param {string} filePath
+ */
+export async function inspectPlanFileStrict(filePath) {
+    const result = await loadPlanFileStrict(filePath, true);
+    if (result.kind !== "loaded" || !("attrs" in result)) return result;
+    const location = planControllerLocation(filePath);
+    if (!location) return { ...result, pendingControllerRepairs: [] };
+    const view = await inspectControllerView(
+        location.cwd,
+        { planId: result.attrs.planId, planName: location.planName },
+        result.attrs,
+    );
+    return {
+        ...result,
+        attrs: { ...stripRuntimeFields(result.attrs), ...view.state },
+        controllerRevision: view.revision,
+        pendingControllerRepairs: view.pendingRepairs,
+    };
+}
+
 /**
  * @param {string} filePath
+ * @param {boolean} [documentOnly]
  * @returns {Promise<{ kind: "loaded", path: string, markdown: string, attrs: PlanFrontMatter, controllerRevision: number, body: string, revision: string, frontMatterRevision: string|undefined, hasFrontMatter: boolean } | { kind: "not_found", path: string } | { kind: "malformed", path: string, markdown: string, error: PlanFrontMatterParseError, revision: string } | { kind: "not_file", path: string, message: string } | { kind: "unreadable", path: string, error: Error }>}
  */
-export async function loadPlanFileStrict(filePath) {
+export async function loadPlanFileStrict(filePath, documentOnly = false) {
     let stat;
     try {
         stat = await Deno.lstat(filePath);
@@ -1733,13 +1772,14 @@ export async function loadPlanFileStrict(filePath) {
             kind: "loaded",
             path: filePath,
             markdown,
-            ...await withControllerMetadata(filePath, attrs),
+            ...(documentOnly ? { attrs, controllerRevision: 0 } : await withControllerMetadata(filePath, attrs)),
             body,
             revision,
             frontMatterRevision,
             hasFrontMatter: hasFrontMatter(markdown),
         };
     } catch (error) {
+        if (error instanceof ProjectRuntimeEntryRefusedError) throw error;
         return { kind: "unreadable", path: filePath, error: error instanceof Error ? error : new Error(String(error)) };
     }
 }
@@ -1802,6 +1842,16 @@ export async function loadPlanStrict(cwd, planName) {
     const { name, filePath } = getStoredPlanLocation(cwd, planName);
     if (isEpicArtifactPlanName(name)) return { kind: "not_found", path: filePath };
     return await loadPlanFileStrict(filePath);
+}
+
+/** Read raw Plan facts without controller imports or cleanup.
+ * @param {string} cwd
+ * @param {string} planName
+ */
+export async function inspectPlanStrict(cwd, planName) {
+    const { name, filePath } = getStoredPlanLocation(cwd, planName);
+    if (isEpicArtifactPlanName(name)) return { kind: "not_found", path: filePath };
+    return await inspectPlanFileStrict(filePath);
 }
 
 /**
@@ -2598,6 +2648,7 @@ async function collectPlans(dir, prefix, results, parseIssues) {
                 const current = await withControllerMetadata(entryPath, attrs);
                 results.push({ name, path: entryPath, attrs: current.attrs });
             } catch (error) {
+                if (error instanceof ProjectRuntimeEntryRefusedError) throw error;
                 const wrapped = new PlanFrontMatterParseError(entryPath, error);
                 parseIssues?.push({ name, path: entryPath, message: formatErrorMessage(error), error: wrapped });
             }
@@ -2646,6 +2697,37 @@ export async function listPlans(cwd) {
         await collectPlans(dir, [], results, parseIssues);
     } catch (error) {
         if (!(error instanceof Deno.errors.NotFound)) throw error;
+    }
+    for (const projectPlan of [...results]) {
+        const targetBranch = typeof projectPlan.attrs.targetBranch === "string"
+            ? projectPlan.attrs.targetBranch.trim()
+            : "";
+        if (!targetBranch || !isProjectPlan(projectPlan.attrs)) continue;
+        let targetChildren;
+        try {
+            targetChildren = await findTargetBranchPlansByParent(cwd, targetBranch, projectPlan.name);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            if (
+                message.includes("Target branch does not exist") ||
+                message.includes("Could not refresh target branch")
+            ) continue;
+            throw error;
+        }
+        for (const child of targetChildren) {
+            const index = results.findIndex((item) =>
+                item.name === child.name || Boolean(child.attrs.planId && item.attrs.planId === child.attrs.planId)
+            );
+            if (
+                index >= 0 && results[index].name === child.name && results[index].attrs.planId && child.attrs.planId &&
+                results[index].attrs.planId !== child.attrs.planId
+            ) {
+                throw new Error(`Target Plan ${child.name} has a different Plan ID. Your files have not been changed.`);
+            }
+            const item = { name: child.name, path: child.path, attrs: child.attrs };
+            if (index < 0) results.push(item);
+            else results[index] = item;
+        }
     }
     const attempts = await listControllerDocumentWorktrees(cwd);
     for (const attempt of attempts) {
@@ -3932,7 +4014,8 @@ export async function resolvePlan(cwd, arg) {
             const { name } = canonicalizeStoredPlanName(arg);
             return { ...plan, planName: name };
         }
-    } catch {
+    } catch (error) {
+        if (error instanceof ProjectRuntimeEntryRefusedError) throw error;
         // Not a valid stored plan name. Fall through to external path handling.
     }
 

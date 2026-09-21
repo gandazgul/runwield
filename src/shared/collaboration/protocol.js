@@ -237,11 +237,14 @@ export function normalizeAppendCommentPayload(value) {
  */
 export function normalizeEncryptedPlanPayload(value) {
     const record = assertRecord(value, "Encrypted plan payload");
+    if (typeof record.body !== "string" || record.body.trim() === "") {
+        throw new Error("body must be a non-empty string");
+    }
     return {
         planId: assertNonEmptyString(record.planId, "planId"),
         title: assertNonEmptyString(record.title, "title"),
         metadata: { ...assertRecord(record.metadata, "metadata") },
-        body: assertNonEmptyString(record.body, "body"),
+        body: record.body,
     };
 }
 

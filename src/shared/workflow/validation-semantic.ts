@@ -42,6 +42,7 @@ import { ValidationInteractionTypes } from "./validation-ports.ts";
 import { persistHumanReviewMetadata, runHumanReviewPhase } from "./validation-human-review.ts";
 import { runPublicationPhase } from "./validation-publication.ts";
 import { buildValidationRepairPrompt } from "./validation-repair-prompt.ts";
+import { projectEngineerPlanBody } from "./engineer-plan-projection.ts";
 import { makeValidationCheckpoint, type ValidationReviewState } from "./validation-checkpoint.ts";
 import { classifyValidationOperationalError } from "./validation-operational-errors.ts";
 import {
@@ -793,7 +794,7 @@ export function buildSemanticReviewAttempt(
         "",
         "### Approved Plan",
         "",
-        planContent,
+        projectEngineerPlanBody(planContent),
     );
     return {
         prompt: sections.join("\n"),

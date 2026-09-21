@@ -24,7 +24,7 @@ Deno.test("the PR gate runs source quality and Golden TUI jobs in parallel", asy
     const { tasks } = await readDenoConfig();
     const workflow = await Deno.readTextFile(new URL("../.github/workflows/pr.yml", import.meta.url));
 
-    assertEquals(tasks["pr:check"], "deno task ci && deno task test:golden-tui");
+    assertEquals(tasks["pr:check"], "deno task ci && WLD_TEST_CONCURRENCY=2 deno task test:golden-tui");
     assertStringIncludes(workflow, "pull_request:");
     assertStringIncludes(workflow, "    ci:");
     assertStringIncludes(workflow, "run: deno task ci");

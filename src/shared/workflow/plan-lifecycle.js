@@ -1176,7 +1176,19 @@ export async function stageValidationPassedInExecutionWorktree({
         currentStatus: "validated_reviewer",
         details: { ...details, triageMeta: executionPlan.attrs, cleanupMergedWorktrees: false },
     });
-    return { attrs, planPaths: [planPath] };
+    const validatedPlan = await loadPlan(executionCwd, planName);
+    if (!validatedPlan) throw new Error(`Plan not found after validation passed: ${planName}`);
+    if (getDeclaredPlanStatus(validatedPlan.markdown) === "validated") {
+        return { attrs, planPaths: [planPath] };
+    }
+    const persistedAttrs = await updatePlanFrontMatter(
+        executionCwd,
+        planName,
+        { status: "validated" },
+        attrs,
+        { expectedRevision: validatedPlan.revision },
+    );
+    return { attrs: persistedAttrs, planPaths: [planPath] };
 }
 
 /**

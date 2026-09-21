@@ -281,6 +281,7 @@ Deno.test("Plan Engineer reaches a real Pair checkpoint through production dispa
             // Pair is a Plan execution style now, not a Frontend Engineer feature.
             assertEquals(fixture.turns[0]?.agentName, "plan-engineer");
             assertEquals(fixture.turns[0]?.toolNames.includes("pair_checkpoint"), true);
+            assertEquals(fixture.turns[0]?.toolNames.includes("record_plan_deviation"), true);
             assertEquals(checkpointRequests, []);
             assertEquals(result.executionContext?.collaborationStyle, "pair");
             assertEquals(result.executionContext?.executionAgent, "engineer");

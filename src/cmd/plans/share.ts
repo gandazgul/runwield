@@ -26,13 +26,14 @@ import { normalizeSharedSpaceMetadata } from "../../shared/collaboration/protoco
 import {
     deleteSecretRecord,
     ensureProjectSecretStoreIgnored,
-    getGlobalSecretStorePath,
-    getProjectSecretStorePath,
+    getGlobalSecretStoreLocation,
+    getProjectSecretStoreLocation,
     getSecretRecord,
     putSecretRecord,
 } from "../../shared/collaboration/secrets.js";
 import { buildCollaborationUrl, redactCollaborationUrl } from "../../shared/collaboration/urls.js";
 import { getDefaultPlanServerUrl, normalizePlanServerUrl } from "../../shared/settings.js";
+import { enterProjectRuntime } from "../../shared/project-runtime-layout.ts";
 
 interface PlansShareArgs {
     planServer?: string;
@@ -143,13 +144,14 @@ function secretRecordKey(planId: string, spaceId: string): string {
     return `${planId}:${spaceId}`;
 }
 
-/**
- * @param {string} secretStorePath
- * @param {string} planId
- * @param {string} spaceId
- */
+type SecretStoreLocation =
+    | Awaited<ReturnType<typeof getProjectSecretStoreLocation>>
+    | ReturnType<
+        typeof getGlobalSecretStoreLocation
+    >;
+
 async function assertNoConflictingSecretRecord(
-    secretStorePath: string,
+    secretStorePath: SecretStoreLocation,
     planId: string,
     spaceId: string,
 ): Promise<void> {
@@ -205,6 +207,7 @@ export async function sharePlanForReview(
     shareOptions: SharePlanForReviewOptions,
 ): Promise<SharedPlanReviewLink> {
     const cwd = shareOptions.cwd || getCwd();
+    await enterProjectRuntime(cwd);
     const target = shareOptions.target;
     const resource = await resolveActivePlan(cwd, target);
     const args = {
@@ -225,12 +228,10 @@ export async function sharePlanForReview(
         }
         const spaceId = String(resource.attrs.collaborationSpaceId || "");
         if (!spaceId) throw new Error("Shared Plan is missing collaborationSpaceId; cannot reconstruct review URL.");
-        const explicitSecretStorePath = shareOptions.projectSecrets
-            ? getProjectSecretStorePath(cwd)
-            : getGlobalSecretStorePath();
-        const fallbackSecretStorePath = shareOptions.projectSecrets
-            ? getGlobalSecretStorePath()
-            : getProjectSecretStorePath(cwd);
+        const projectSecretStore = await getProjectSecretStoreLocation(cwd);
+        const globalSecretStore = getGlobalSecretStoreLocation();
+        const explicitSecretStorePath = shareOptions.projectSecrets ? projectSecretStore : globalSecretStore;
+        const fallbackSecretStorePath = shareOptions.projectSecrets ? globalSecretStore : projectSecretStore;
         const secretRecord =
             await getSecretRecord(explicitSecretStorePath, secretRecordKey(resource.planId, spaceId)) ||
             await getSecretRecord(explicitSecretStorePath, resource.planId) ||
@@ -297,7 +298,7 @@ export async function sharePlanForReview(
     let created;
     let reviewerUrl = "";
     let maintainerUrl = "";
-    let secretStorePath = "";
+    let secretStorePath: SecretStoreLocation | null = null;
     let localSecretKey = "";
     try {
         created = normalizeCreateResponse(
@@ -318,7 +319,9 @@ export async function sharePlanForReview(
             role: MAINTAINER_SCOPE,
         });
 
-        secretStorePath = args.projectSecrets ? getProjectSecretStorePath(cwd) : getGlobalSecretStorePath();
+        secretStorePath = args.projectSecrets
+            ? await getProjectSecretStoreLocation(cwd)
+            : getGlobalSecretStoreLocation();
         if (args.projectSecrets) {
             await ensureProjectSecretStoreIgnored(cwd);
         }
@@ -367,7 +370,7 @@ export async function sharePlanForReview(
         }
         if (secretStorePath && localSecretKey) {
             try {
-                await deleteSecretRecord(secretStorePath, localSecretKey);
+                if (secretStorePath) await deleteSecretRecord(secretStorePath, localSecretKey);
             } catch (secretCleanupError) {
                 throw new Error(
                     `Share failed after remote creation; remote Shared Space ${created.spaceId} was deleted, but local secret cleanup failed for ${localSecretKey} in ${secretStorePath}. Remove that stale record before retrying. Original error: ${
@@ -411,9 +414,11 @@ export async function runPlansShareCommand(argv: string[]): Promise<void> {
         printShareHelp();
         return;
     }
+    const cwd = getCwd();
+    await enterProjectRuntime(cwd);
     const shared = await sharePlanForReview({
         target: args.target as string,
-        cwd: getCwd(),
+        cwd,
         planServer: args.planServer,
         projectSecrets: args.projectSecrets,
         allowExisting: false,

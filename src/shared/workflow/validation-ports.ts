@@ -95,7 +95,15 @@ export type ValidationWorkflowState = {
 /** A user interaction request (engine-owned mirror of the runtime interaction request). */
 export type ValidationInteractionRequest = {
     id?: string;
-    type: "select" | "text" | "approval" | "link" | "plan_review" | "code_review" | "pair_checkpoint";
+    type:
+        | "select"
+        | "text"
+        | "approval"
+        | "link"
+        | "plan_review"
+        | "code_review"
+        | "pair_checkpoint"
+        | "plan_deviation_confirmation";
     prompt: string;
     options?: Array<{
         value: string;

@@ -31,8 +31,8 @@ the producer's turn to return before claiming its accepted event. That timing di
 | State                                                                                                   | Owner in current code                                                           | What it establishes                                                                                                                |
 | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | Plan definition and lifecycle status                                                                    | Primary Plan before execution; execution-worktree Plan during an active attempt | What the work is and how far validation has progressed.                                                                            |
-| Validation checkpoint, review issues, repair receipt, counters, human review decision, execution report | Controller record under `.wld/controller/plans/`                                | Which phase may resume and which repair/review generation it belongs to. `loadPlan` joins this state into its returned attributes. |
-| Execution attempt and publication phase                                                                 | `.wld/worktrees.json`, backed by Git facts                                      | Which checkout/branch is owned and whether publication and cleanup completed.                                                      |
+| Validation checkpoint, review issues, repair receipt, counters, human review decision, execution report | Controller record under `.wld/internal/controller/plans/`                       | Which phase may resume and which repair/review generation it belongs to. `loadPlan` joins this state into its returned attributes. |
+| Execution attempt and publication phase                                                                 | `.wld/internal/worktrees.json`, backed by Git facts                             | Which checkout/branch is owned and whether publication and cleanup completed.                                                      |
 | Accepted root tool calls and acknowledgements                                                           | Structured custom entries in the Session's JSONL storage                        | Pending handoffs, not a replacement for Plan/controller truth. Isolated event delivery is in memory.                               |
 | Interrupted non-publication mutation                                                                    | State-transition journal                                                        | Which owned effects can be proved, completed, or rolled back. Publication uses its registry record instead.                        |
 
@@ -165,6 +165,12 @@ E2. Agent implements
 │  ├─ U revise + feedback → revise increment → another checkpoint
 │  ├─ U autonomous / unavailable capability → continue autonomously
 │  └─ U stop/cancel → in_progress pause; no completion
+├─ T record_plan_deviation (Pair only, when feedback conflicts with the effective Plan)
+│  ├─ U confirm + unchanged Plan revision → append ordered `planDeviations` entry to execution Plan
+│  │  → replacement becomes effective Plan authority; restart after write recovers by tool-call identity
+│  ├─ U cancel → original Plan requirement remains authority
+│  ├─ loss before write / stale Plan revision / changed execution identity → no write; ask again against current Plan
+│  └─ unsupported confirmation host → pause; no inferred approval
 ├─ ordinary final text / error / interruption without accepted task_completed
 │  → unfinished; remain in_progress, later owner follow-up or R
 └─ T task_completed
@@ -198,13 +204,14 @@ Sources: [Plan executor](../src/shared/workflow/plan-executor.ts),
 [execution runner](../src/shared/workflow/engineer-runner.ts),
 [implementation checkpoint](../src/shared/workflow/implementation-checkpoint.ts),
 [task_completed](../src/tools/task-completed.ts), [Pair tool](../src/tools/pair-checkpoint.ts),
+[Plan Deviation tool](../src/tools/plan-deviation.ts),
 [runtime collaboration](../src/shared/workflow/execution-collaboration.ts).
 
 ## V0 — Validation owner and resume dispatch
 
 ```text
 continueWorkflowValidation
-├─ finish provable legacy amendment recovery; run Plans Doctor reconciliation
+├─ run Plans Doctor reconciliation
 ├─ S locate registered execution Plan and controller checkpoint
 ├─ same completion already settled / no runnable phase → no-op pause result
 ├─ live running owner → pause; do not start a second validation owner

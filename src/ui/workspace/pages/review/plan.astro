@@ -26,9 +26,9 @@ const embeddedPayload = escapeReviewPayloadJson(JSON.stringify(payload));
     <script is:inline type="application/json" data-review-payload set:html={embeddedPayload} />
     {isArtifactRead
         ? <ArtifactReadSurface payload={payload} client:only="react">
-            <LoadingSurface slot="fallback" label="Loading artifact" />
+            <div slot="fallback"><LoadingSurface label="Loading artifact" /></div>
         </ArtifactReadSurface>
         : <PlanReviewSurface payload={payload} client:only="react">
-            <LoadingSurface slot="fallback" label="Loading Plan review" />
+            <div slot="fallback"><LoadingSurface label="Loading Plan review" /></div>
         </PlanReviewSurface>}
 </ReviewLayout>

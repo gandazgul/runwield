@@ -37,7 +37,7 @@ const payload = {
     markdown,
     returnHref: Astro.url.searchParams.get("from") === "dashboard" ? "/dev/owner-dashboard" : "/projects/dev-project/plans",
     returnLabel: Astro.url.searchParams.get("from") === "dashboard" ? "Back to Dashboard" : "Back to Plans",
-    planHref: "/projects/dev/plans/example", 
+    planHref: "/projects/dev/plans/example",
     sessionHref: "/projects/dev-project/sessions/choose-terraform-folder-name",
     workflow: {
         sessionState: "active",

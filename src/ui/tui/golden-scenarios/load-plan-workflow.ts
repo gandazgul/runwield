@@ -362,7 +362,7 @@ export const loadPlanInterruptedRecoveryScenario = {
         { type: "type", text: "/load-plan epic" },
         { type: "enter" },
         { type: "enter" },
-        { type: "sleep", ms: 1000 },
+        { type: "waitForScriptedInteractions", timeoutMs: 30000 },
         { type: "waitForIdle", timeoutMs: 20000 },
     ],
     assertions: [
@@ -488,7 +488,7 @@ export const loadPlanAbandonProgressScenario = {
     composedTui: true,
     initialAgentName: "guide",
     terminal: { columns: 100, rows: 30 },
-    timeoutMs: 60000,
+    timeoutMs: 120000,
     coverage: ["block:abandon-progress", "recovery:load-plan-worktree"],
     initialProjectFiles: [{
         path: "docs/plans/recover-abandon.md",

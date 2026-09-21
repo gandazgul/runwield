@@ -2,6 +2,7 @@ import { assertEquals, assertStringIncludes } from "@std/assert";
 
 import { SUBAGENTS } from "../../constants.js";
 import { loadSubAgentDefinition } from "../session/subagent-definitions.ts";
+import { buildSemanticReviewAttempt } from "./validation-semantic.ts";
 import { loadManualQaPrompt, loadReviewerPrompt } from "./validation.ts";
 
 Deno.test("loadManualQaPrompt returns a bare tool-free prompt", async () => {
@@ -41,6 +42,34 @@ Deno.test("loadReviewerPrompt loads the verification prompt for later rounds", a
 function readBundledPrompt(name) {
     return Deno.readTextFile(new URL(`../../agent-definitions/subagent-definitions/${name}`, import.meta.url));
 }
+
+Deno.test("Semantic review prompt includes the canonical effective Plan projection", () => {
+    const config = buildSemanticReviewAttempt(
+        1,
+        undefined,
+        { semanticRound: 1, reviewLedger: { items: [], sequence: 0 }, repairBaselineTree: "", lastRepairReport: "" },
+        "discovery",
+        "diff --git a/src/app.js b/src/app.js",
+        "",
+        `---
+planDeviations:
+  - id: call-1
+    supersededRequirement: "Replace nav."
+    replacementRequirement: "Keep nav."
+    approvedAt: "2026-09-10T00:00:00.000Z"
+---
+# Plan
+
+Implement the screen.
+`,
+    );
+
+    assertStringIncludes(config.prompt, "### Approved Plan");
+    assertStringIncludes(config.prompt, "# Plan");
+    assertStringIncludes(config.prompt, "## Approved Plan Deviations");
+    assertStringIncludes(config.prompt, "Replacement requirement: Keep nav.");
+    assertEquals(config.prompt.includes("Plan content is supplied by the validation request"), false);
+});
 
 Deno.test("bundled discovery reviewer prompt states an approval default", async () => {
     const prompt = await readBundledPrompt("reviewer-prompt.md");
@@ -128,7 +157,7 @@ Deno.test("bundled verification reviewer prompt treats repair claims as evidence
     const prompt = await readBundledPrompt("reviewer-verify-prompt.md");
 
     assertStringIncludes(prompt, "never proof");
-    assertStringIncludes(prompt, "An item is resolved when you have seen the fix, not when it was claimed");
+    assertStringIncludes(prompt, "only after you confirm the code fix or effective Plan supersession");
     assertStringIncludes(prompt, "Omitting an item does not resolve it");
     assertStringIncludes(prompt, "Never renumber, reuse, or invent identities");
     // An empty diff is neither proof of a fix nor proof an already-satisfied item is broken.

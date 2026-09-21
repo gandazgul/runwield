@@ -280,8 +280,14 @@ export const twoChildProjectContinuationScenario = {
                 { name: "review_diff", arguments: { command: "show", scope: "full", path: ".wld/settings.json" } },
                 { name: "review_diff", arguments: { command: "show", scope: "full", path: "golden-child-one.txt" } },
                 { name: "review_diff", arguments: { command: "show", scope: "full", path: "docs/plans/epic.md" } },
-                { name: "review_diff", arguments: { command: "show", scope: "full", path: "docs/plans/epic/01-child-one.md" } },
-                { name: "review_diff", arguments: { command: "show", scope: "full", path: "docs/plans/epic/02-child-two.md" } },
+                {
+                    name: "review_diff",
+                    arguments: { command: "show", scope: "full", path: "docs/plans/epic/01-child-one.md" },
+                },
+                {
+                    name: "review_diff",
+                    arguments: { command: "show", scope: "full", path: "docs/plans/epic/02-child-two.md" },
+                },
             ],
         },
         {
@@ -348,9 +354,18 @@ export const twoChildProjectContinuationScenario = {
                 { name: "review_diff", arguments: { command: "show", scope: "full", path: "golden-child-one.txt" } },
                 { name: "review_diff", arguments: { command: "show", scope: "full", path: "golden-child-two.txt" } },
                 { name: "review_diff", arguments: { command: "show", scope: "full", path: "docs/plans/epic.md" } },
-                { name: "review_diff", arguments: { command: "show", scope: "full", path: "docs/plans/epic/01-child-one.md" } },
-                { name: "review_diff", arguments: { command: "show", scope: "full", path: "docs/plans/epic/02-child-two.md" } },
-                { name: "review_diff", arguments: { command: "show", scope: "full", path: "docs/plans/epic/manual-qa.md" } },
+                {
+                    name: "review_diff",
+                    arguments: { command: "show", scope: "full", path: "docs/plans/epic/01-child-one.md" },
+                },
+                {
+                    name: "review_diff",
+                    arguments: { command: "show", scope: "full", path: "docs/plans/epic/02-child-two.md" },
+                },
+                {
+                    name: "review_diff",
+                    arguments: { command: "show", scope: "full", path: "docs/plans/epic/manual-qa.md" },
+                },
             ],
         },
         {

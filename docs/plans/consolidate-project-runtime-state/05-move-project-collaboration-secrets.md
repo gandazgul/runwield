@@ -1,4 +1,5 @@
 ---
+planId: "008e8278-adbc-4d9e-8edc-ef4ff0c0bebb"
 classification: "PLANNED_CHANGE"
 workKind: "MAINTENANCE"
 complexity: "MEDIUM"
@@ -12,16 +13,16 @@ affectedPaths:
     - "src/cmd/plans/collaboration-commands.integration.test.ts"
     - "src/shared/collaboration/secrets.test.js"
     - "docs/domain-language.md"
+executionAgent: "engineer"
+collaborationRecommendation: "autonomous"
 createdAt: "2026-08-29T03:04:59.168Z"
-status: "draft"
+status: "validated"
 origin: "internal"
 parentPlan: "consolidate-project-runtime-state"
 order: 5
 dependencies:
     - "04-move-selected-checkout-runtime-stores"
-planId: "008e8278-adbc-4d9e-8edc-ef4ff0c0bebb"
-executionAgent: "engineer"
-collaborationRecommendation: "autonomous"
+userVerifiedAt: null
 targetBranch: "epic/consolidate-project-runtime-state"
 ---
 

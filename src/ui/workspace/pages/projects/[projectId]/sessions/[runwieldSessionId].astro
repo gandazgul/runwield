@@ -8,6 +8,6 @@ const runwieldSessionId = Astro.params.runwieldSessionId ?? "";
 ---
 <WorkspaceLayout title="Project Session" selectedTab="projects" url={Astro.url.href}>
     <SessionSurface projectId={projectId} runwieldSessionId={runwieldSessionId} mode="detail" client:only="react">
-        <LoadingSurface slot="fallback" label="Loading Session" />
+        <div slot="fallback"><LoadingSurface label="Loading Session" /></div>
     </SessionSurface>
 </WorkspaceLayout>

@@ -79,7 +79,7 @@ function assertRealPlanReviewRevisionAndApproval(result) {
         // is a product output the user keeps or discards, not publication residue.
         statusLines.every((line) => {
             const path = line.slice(3).trim();
-            return line.endsWith("docs/plans/plan.md") || line.endsWith(".wld/worktrees.json") ||
+            return line.endsWith("docs/plans/plan.md") || line.endsWith(".wld/internal/worktrees.json") ||
                 line.endsWith("docs/") || line.includes("docs/work-records/") || path === ".gitignore" ||
                 path === ".wld/settings.json";
         }),
@@ -187,7 +187,10 @@ export const plannedChangeReviewRepairValidationScenario = {
             toolCalls: [
                 { name: "review_diff", arguments: { command: "list", scope: "full" } },
                 { name: "review_diff", arguments: { command: "show", scope: "full", path: ".gitignore" } },
-                { name: "review_diff", arguments: { command: "show", scope: "full", path: "golden-planned-change.txt" } },
+                {
+                    name: "review_diff",
+                    arguments: { command: "show", scope: "full", path: "golden-planned-change.txt" },
+                },
                 { name: "review_diff", arguments: { command: "show", scope: "full", path: ".wld/settings.json" } },
                 { name: "review_diff", arguments: { command: "show", scope: "full", path: "docs/plans/plan.md" } },
             ],
@@ -251,7 +254,10 @@ export const plannedChangeReviewRepairValidationScenario = {
             toolCalls: [
                 { name: "review_diff", arguments: { command: "list", scope: "full" } },
                 { name: "review_diff", arguments: { command: "show", scope: "full", path: ".gitignore" } },
-                { name: "review_diff", arguments: { command: "show", scope: "full", path: "golden-planned-change.txt" } },
+                {
+                    name: "review_diff",
+                    arguments: { command: "show", scope: "full", path: "golden-planned-change.txt" },
+                },
                 { name: "review_diff", arguments: { command: "show", scope: "full", path: ".wld/settings.json" } },
                 { name: "review_diff", arguments: { command: "show", scope: "full", path: "docs/plans/plan.md" } },
             ],
@@ -467,7 +473,10 @@ export const plannedChangeCiRepairReentryScenario = {
             toolCalls: [
                 { name: "review_diff", arguments: { command: "list", scope: "full" } },
                 { name: "review_diff", arguments: { command: "show", scope: "full", path: ".gitignore" } },
-                { name: "review_diff", arguments: { command: "show", scope: "full", path: "golden-planned-change.txt" } },
+                {
+                    name: "review_diff",
+                    arguments: { command: "show", scope: "full", path: "golden-planned-change.txt" },
+                },
                 { name: "review_diff", arguments: { command: "show", scope: "full", path: "ci-fix.txt" } },
                 { name: "review_diff", arguments: { command: "show", scope: "full", path: "docs/plans/plan.md" } },
             ],
@@ -716,8 +725,14 @@ export const plannedChangeValidationFailureRetryScenario = {
             toolCalls: [
                 { name: "review_diff", arguments: { command: "list", scope: "full" } },
                 { name: "review_diff", arguments: { command: "show", scope: "full", path: ".gitignore" } },
-                { name: "review_diff", arguments: { command: "show", scope: "full", path: "golden-validation-retry.txt" } },
-                { name: "review_diff", arguments: { command: "show", scope: "full", path: "docs/plans/validation-retry.md" } },
+                {
+                    name: "review_diff",
+                    arguments: { command: "show", scope: "full", path: "golden-validation-retry.txt" },
+                },
+                {
+                    name: "review_diff",
+                    arguments: { command: "show", scope: "full", path: "docs/plans/validation-retry.md" },
+                },
             ],
         },
         {
@@ -985,8 +1000,14 @@ export const plannedChangeFrontendIdentityScenario = {
             toolCalls: [
                 { name: "review_diff", arguments: { command: "list", scope: "full" } },
                 { name: "review_diff", arguments: { command: "show", scope: "full", path: ".gitignore" } },
-                { name: "review_diff", arguments: { command: "show", scope: "full", path: "golden-frontend-identity.txt" } },
-                { name: "review_diff", arguments: { command: "show", scope: "full", path: "docs/plans/frontend-identity.md" } },
+                {
+                    name: "review_diff",
+                    arguments: { command: "show", scope: "full", path: "golden-frontend-identity.txt" },
+                },
+                {
+                    name: "review_diff",
+                    arguments: { command: "show", scope: "full", path: "docs/plans/frontend-identity.md" },
+                },
             ],
         },
         {

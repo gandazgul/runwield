@@ -142,7 +142,10 @@ export const concurrentPlansIdentityScenario = {
                 { name: "review_diff", arguments: { command: "list", scope: "full" } },
                 { name: "review_diff", arguments: { command: "show", scope: "full", path: ".gitignore" } },
                 { name: "review_diff", arguments: { command: "show", scope: "full", path: "golden-concurrent-b.txt" } },
-                { name: "review_diff", arguments: { command: "show", scope: "full", path: "docs/plans/concurrent-b.md" } },
+                {
+                    name: "review_diff",
+                    arguments: { command: "show", scope: "full", path: "docs/plans/concurrent-b.md" },
+                },
             ],
         },
         {
@@ -167,7 +170,10 @@ export const concurrentPlansIdentityScenario = {
                 { name: "review_diff", arguments: { command: "list", scope: "full" } },
                 { name: "review_diff", arguments: { command: "show", scope: "full", path: ".gitignore" } },
                 { name: "review_diff", arguments: { command: "show", scope: "full", path: "golden-concurrent-a.txt" } },
-                { name: "review_diff", arguments: { command: "show", scope: "full", path: "docs/plans/concurrent-a.md" } },
+                {
+                    name: "review_diff",
+                    arguments: { command: "show", scope: "full", path: "docs/plans/concurrent-a.md" },
+                },
             ],
         },
         {

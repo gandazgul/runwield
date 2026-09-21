@@ -359,6 +359,8 @@ Deno.test("plan execution personas can run a Pair checkpoint", async () => {
         assertStringIncludes(systemPrompt, "action `report`");
         assertStringIncludes(systemPrompt, "action `resolve`");
         assertStringIncludes(systemPrompt, "later user turn");
+        assertStringIncludes(systemPrompt, "Use `record_plan_deviation` first");
+        assertStringIncludes(systemPrompt, "Never create a Plan\nDeviation by editing the Plan file directly");
     }
 });
 

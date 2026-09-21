@@ -46,7 +46,7 @@ an execution worktree, that worktree's Plan file is authoritative for the attemp
 validation, and publication. The corresponding file in the user's checkout may remain behind and must never be used to
 move the active attempt backward. Plan Markdown stores the definition, lifecycle status, and human-facing history. The
 controller stores execution mode, validation checkpoints and counters, review decisions, and delivery proof in
-`.wld/controller/plans/<planId>.json`. The worktree registry owns attempt identity, path, branch, baseline, and
+`.wld/internal/controller/plans/<planId>.json`. The worktree registry owns attempt identity, path, branch, baseline, and
 publication state. These facts are not copied into Plan Front Matter and are never compared against obsolete copies
 there.
 
@@ -267,10 +267,10 @@ Plans still go through Planner/Plannotator review before execution.
 ## Execution Worktrees
 
 Before executable implementation starts, RunWield creates or reuses a git worktree for the Plan and records its attempt
-metadata in that worktree's Plan file and `.wld/worktrees.json`. From that point forward, Agent sessions, built-in file
-tools, custom edit tools, lifecycle transitions, local CI, workflow diffs, reviewer sessions, and repair sessions all
-use the execution worktree. RunWield does not use `Deno.chdir()` for this because workflow operations stay scoped to
-their explicit execution context.
+metadata in that worktree's Plan file and `.wld/internal/worktrees.json`. From that point forward, Agent sessions,
+built-in file tools, custom edit tools, lifecycle transitions, local CI, workflow diffs, reviewer sessions, and repair
+sessions all use the execution worktree. RunWield does not use `Deno.chdir()` for this because workflow operations stay
+scoped to their explicit execution context.
 
 The user's primary checkout remains the discovery root for settings and local runtime files, but its copy of an active
 Plan is only a possibly stale checkout. `wld load-plan` resolves a live attempt through its recorded worktree evidence
@@ -372,7 +372,7 @@ For worktree-backed plans:
 10. RunWield assembles publication in a temporary clone, never in the user's primary checkout. It combines the latest
     configured upstream target with the validated execution branch, then pushes the assembled commit to the Plan's
     recorded target branch using a lease. It verifies the exact remote commit before reporting success.
-11. Until remote verification succeeds, `.wld/worktrees.json` retains the execution attempt and its monotonic
+11. Until remote verification succeeds, `.wld/internal/worktrees.json` retains the execution attempt and its monotonic
     publication record: `candidate_sealed`, `artifacts_committed`, `target_integrated`, `target_published`,
     `publication_verified`, then `cleanup_complete`. Each phase carries the Git evidence needed to prove it. Any push
     failure annotates the current phase and leaves the implementation, validated Plan, Work Record, worktree, and branch
@@ -466,7 +466,7 @@ ancestry can prove the delivered implementation and metadata reached the target.
 
 `executionBaselineTree`: Git tree captured in the execution worktree at `execution_started`.
 
-`worktreeId`: Durable id of the matching `.wld/worktrees.json` registry entry.
+`worktreeId`: Durable id of the matching `.wld/internal/worktrees.json` registry entry.
 
 `worktreePath`: Filesystem path to the linked execution worktree.
 
@@ -562,7 +562,7 @@ separate context update; this feature intentionally leaves `docs/domain-language
 Lifecycle-changing code must request one semantic transition instead of sequencing Plan writes, registry writes, Git
 commands, and cleanup in the caller. The transition re-reads the canonical Plan, holds the same-Plan mutation lock while
 it applies the change, writes through atomic Plan persistence, verifies the requested postconditions, and either
-commits, rolls back, or leaves a recovery record under `.wld/plan-transitions/`.
+commits, rolls back, or leaves a recovery record under `.wld/internal/plan-transitions/`.
 
 The lock protects the logical transition, not just the final file rename. Different Plans may still execute at the same
 time. Shared resources, such as a parent Epic, sibling set, target branch, or registry entry, are acquired only when
