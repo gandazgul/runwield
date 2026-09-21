@@ -10,24 +10,34 @@ git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 git fetch origin "refs/tags/$tag:refs/tags/$tag"
 if git ls-remote --exit-code --heads origin docs/stable >/dev/null 2>&1; then
   git fetch origin docs/stable:refs/remotes/origin/docs/stable
-  previous_tag=$(
+  read -r previous_tag previous_source_ref < <(
     git show refs/remotes/origin/docs/stable:docs-site/release.json |
       deno eval '
 const release = JSON.parse(await new Response(Deno.stdin.readable).text());
 if (typeof release.version !== "string" || !/^v\d+\.\d+\.\d+$/.test(release.version)) {
   throw new Error("docs/stable has no valid Stable version");
 }
-console.log(release.version);
+if (typeof release.sourceRef !== "string" || !/^[0-9a-f]{40}$/.test(release.sourceRef)) {
+  throw new Error("docs/stable has no valid source commit");
+}
+console.log(`${release.version} ${release.sourceRef}`);
 '
   )
   git fetch origin "refs/tags/$previous_tag:refs/tags/$previous_tag"
-  git merge-base --is-ancestor "$previous_tag" refs/remotes/origin/docs/stable
+  git merge-base --is-ancestor "$previous_tag" "$previous_source_ref"
+  git merge-base --is-ancestor "$previous_source_ref" refs/remotes/origin/docs/stable
   git checkout -B docs-update "$tag"
-  if ! merge_output=$(git merge-tree --write-tree --merge-base "$previous_tag" "$tag" refs/remotes/origin/docs/stable); then
-    printf '%s\n' "$merge_output" >&2
-    exit 1
+  merge_args=(--write-tree --name-only --merge-base "$previous_source_ref" "$tag" refs/remotes/origin/docs/stable)
+  if merge_output=$(git merge-tree "${merge_args[@]}"); then
+    merge_tree=$(printf '%s\n' "$merge_output" | head -n 1)
+  else
+    conflict_paths=$(printf '%s\n' "$merge_output" | sed -n '2,/^$/p' | sed '/^$/d')
+    if [[ "$conflict_paths" != "docs-site/release.json" ]]; then
+      printf '%s\n' "$merge_output" >&2
+      exit 1
+    fi
+    merge_tree=$(git merge-tree --write-tree --name-only --merge-base "$previous_source_ref" -X ours "$tag" refs/remotes/origin/docs/stable | head -n 1)
   fi
-  merge_tree=$(printf '%s\n' "$merge_output" | head -n 1)
   release_parent=$(git rev-parse "$tag^{commit}")
   docs_parent=$(git rev-parse refs/remotes/origin/docs/stable)
   merge_commit=$(printf 'Merge docs/stable into %s\n' "$tag" | git commit-tree "$merge_tree" -p "$release_parent" -p "$docs_parent")
@@ -46,6 +56,9 @@ else
     scripts/verify-docs-source.ts
 fi
 
+if ! git diff --cached --quiet; then
+  git commit -m "docs: prepare $tag"
+fi
 source_ref=$(git rev-parse HEAD)
 deno eval '
 const [tag, sourceRef] = Deno.args;

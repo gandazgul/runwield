@@ -131,7 +131,10 @@ Deno.test("docs branch publishes Stable content, preserves corrections, and stop
         assertEquals((await Deno.readTextFile(join(work, "docs", "quickstart.md"))).includes("UNRELEASED-B"), false);
         assertStringIncludes(await Deno.readTextFile(join(work, "docs", "index.md")), "Clean home");
         assertStringIncludes(await Deno.readTextFile(join(work, "src", "product.ts")), "STABLE-A");
-        assertEquals(JSON.parse(await Deno.readTextFile(join(work, "docs-site", "release.json"))).version, "v1.0.0");
+        const stableARelease = JSON.parse(await Deno.readTextFile(join(work, "docs-site", "release.json")));
+        assertEquals(stableARelease.version, "v1.0.0");
+        assertEquals(stableARelease.sourceRef === "v1.0.0", false);
+        await run(work, "git", "merge-base", "--is-ancestor", stableARelease.sourceRef, "HEAD");
         await run(work, "git", "merge-base", "--is-ancestor", "v1.0.0", "HEAD");
         const stableAHtml = await buildDocs(work);
         assertStringIncludes(stableAHtml, "STABLE-A");
@@ -284,14 +287,20 @@ Deno.test("docs branch preserves corrections across divergent Stable release bra
 
         await run(work, "git", "checkout", "-b", "release-a");
         await write(join(work, "src", "product.ts"), "export const product = 'STABLE-A';\n");
-        await write(
-            join(work, "docs-site", "release.json"),
-            '{"version":"v1.0.0","sourceRef":"v1.0.0"}\n',
-        );
-        await run(work, "git", "add", ".");
+        await run(work, "git", "add", "src/product.ts");
         await run(work, "git", "commit", "-m", "Stable A");
         await run(work, "git", "tag", "v1.0.0");
         await run(work, "git", "checkout", "-b", "docs/stable");
+        await write(join(work, "docs", "index.md"), "# Published guide\n");
+        await run(work, "git", "add", "docs/index.md");
+        await run(work, "git", "commit", "-m", "Publish Stable A docs");
+        const previousSource = await run(work, "git", "rev-parse", "HEAD");
+        await write(
+            join(work, "docs-site", "release.json"),
+            `{"version":"v1.0.0","sourceRef":"${previousSource}"}\n`,
+        );
+        await run(work, "git", "add", "docs-site/release.json");
+        await run(work, "git", "commit", "-m", "Record Stable A docs source");
         await write(join(work, "docs", "index.md"), "# Corrected guide\n");
         await run(work, "git", "add", "docs/index.md");
         await run(work, "git", "commit", "-m", "Correct Stable A docs");
@@ -299,8 +308,9 @@ Deno.test("docs branch preserves corrections across divergent Stable release bra
         await run(work, "git", "push", "origin", "HEAD:docs/stable", "--tags");
 
         await run(work, "git", "checkout", "-B", "main", baseSha);
+        await write(join(work, "docs", "index.md"), "# Published guide\n");
         await write(join(work, "src", "product.ts"), "export const product = 'STABLE-B';\n");
-        await run(work, "git", "add", "src/product.ts");
+        await run(work, "git", "add", "docs/index.md", "src/product.ts");
         await run(work, "git", "commit", "-m", "Stable B");
         await run(work, "git", "tag", "v1.0.1");
         await run(work, "git", "push", "origin", "main", "--tags");
