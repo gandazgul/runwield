@@ -31,6 +31,7 @@ import { renameRestoredPlanEntry } from "./shared/worktree-registry.js";
 import { resolvePrimaryCheckoutRoot } from "./shared/primary-checkout.ts";
 import { writePlanDocumentAndController } from "./shared/workflow/state-transition.ts";
 import { escapeYamlDoubleQuoted } from "./shared/yaml-scalar.ts";
+import { requestWorkspaceSearchRefresh } from "./shared/workspace-search-refresh.ts";
 import { pickControllerState, PLAN_RUNTIME_FIELDS, stripRuntimeFields } from "./shared/workflow/controller-state.ts";
 import {
     bindControllerPlanIdentity,
@@ -1832,6 +1833,9 @@ export async function writePlanMarkdownWithRevision(filePath, nextMarkdown, expe
     const frontMatterRevision = await getPlanFrontMatterRevisionForText(nextMarkdown);
     recordPlanWriteRevision(filePath, revision, frontMatterRevision);
     rememberFrontMatterRevision(revision, frontMatterRevision);
+    if (basename(dirname(filePath)) === "plans") {
+        requestWorkspaceSearchRefresh(dirname(dirname(dirname(filePath))));
+    }
     return revision;
 }
 

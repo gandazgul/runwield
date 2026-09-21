@@ -7,7 +7,7 @@
  * delegate to the Astro Deno adapter output when it is available.
  */
 
-import { readWorkspaceStyles } from "./workspace-styles.js";
+import { readWorkspaceStyles } from "./workspace-styles.ts";
 import { sessionArtifactKindLabel } from "../../shared/session/session-sidebar.ts";
 import { extname, join, toFileUrl } from "@std/path";
 import { RUNWIELD_ROOT, RUNWIELD_SOURCE_ROOT } from "../../../runtime-root.js";
@@ -54,6 +54,8 @@ import {
     ownerProjectPlanDetailApi,
     ownerProjectPlanProgressApi,
     ownerSidebarApi,
+    ownerWorkspaceSearchApi,
+    ownerWorkspaceSearchRefreshApi,
     pairingClaimApi,
     pairingRequestApi,
     pairingStatusApi,
@@ -92,6 +94,8 @@ import { ownerProjectPlanSessionsApi } from "./server/owner-plan-sessions.ts";
 import { createOwnerConnectionRegistry } from "./server/owner-connections.js";
 import { setAstroOwnerWorkspaceSessionContinuation, setAstroOwnerWorkspaceStore } from "./server/astro-owner-data.js";
 import { WORKSPACE_PWA_PATHS, workspacePwaResponse } from "./server/workspace-pwa.ts";
+import { createWorkspaceSearchService } from "./server/workspace-search.ts";
+import { readProjectArtifact } from "./server/project-artifacts.ts";
 
 const WORKSPACE_DIR = join(RUNWIELD_SOURCE_ROOT, "ui", "workspace");
 const ROOT_DIR = RUNWIELD_ROOT;
@@ -205,9 +209,10 @@ export function createRemoteWorkspaceApp(options = { mode: "remote" }) {
 export function createOwnerWorkspaceApp(options) {
     const app = createWorkspaceRouter();
     const store = options.store;
-    setAstroOwnerWorkspaceStore(store);
+    setAstroOwnerWorkspaceStore(store, readProjectArtifact);
     const connections = createOwnerConnectionRegistry();
     const sessionContinuation = createWorkspaceSessionContinuationService({ store });
+    const workspaceSearch = createWorkspaceSearchService({ store });
     setAstroOwnerWorkspaceSessionContinuation(sessionContinuation);
     const pairingRateLimit = createInProcessRateLimit({ limit: 4, windowMs: 60_000 });
     registerStaticRoutes(app);
@@ -219,6 +224,7 @@ export function createOwnerWorkspaceApp(options) {
             ctx.state.publicOrigin = options.publicOrigin;
             ctx.state.ownerConnections = connections;
             ctx.state.sessionContinuation = sessionContinuation;
+            ctx.state.workspaceSearch = workspaceSearch;
             ctx.state.pairingRateLimit = pairingRateLimit;
             ctx.state.bootstrapProofCookieHeader = (proof) =>
                 `rw_pairing_proof=${encodeURIComponent(proof)}; Max-Age=300; Path=/; SameSite=Strict${
@@ -261,6 +267,7 @@ export function createOwnerWorkspaceApp(options) {
     });
     app.get("/pair", renderRequiredOwnerAstroPage);
     app.get("/devices", renderRequiredOwnerAstroPage);
+    app.get("/search", renderRequiredOwnerAstroPage);
     app.get("/projects", renderRequiredOwnerAstroPage);
     app.get("/projects/:projectId/plans", renderRequiredOwnerAstroPage);
     app.get("/projects/:projectId/plans/closed", renderRequiredOwnerAstroPage);
@@ -268,6 +275,7 @@ export function createOwnerWorkspaceApp(options) {
     app.get("/projects/:projectId/plans/:planId", renderRequiredOwnerAstroPage);
     // Settings manages the registration, including missing and disabled roots.
     app.get("/projects/:projectId/settings", renderRequiredOwnerAstroPage);
+    app.get("/projects/:projectId/artifacts/:artifactType/:sourceId", renderOwnerProjectArtifactPage);
     app.get("/projects/:projectId/sessions", renderOwnerProjectSessionsPage);
     app.get("/projects/:projectId/sessions/new", renderOwnerProjectSessionNewPage);
     app.get(
@@ -285,6 +293,8 @@ export function createOwnerWorkspaceApp(options) {
     app.get("/api/owner/projects", projectsApi);
     app.get("/api/owner/dashboard", ownerDashboardApi);
     app.get("/api/owner/sidebar", ownerSidebarApi);
+    app.get("/api/owner/search", ownerWorkspaceSearchApi);
+    app.post("/api/owner/search/refresh", ownerWorkspaceSearchRefreshApi);
     app.post("/api/owner/projects", registerProjectApi);
     app.post("/api/owner/projects/:projectId/action", projectActionApi);
     app.get("/api/owner/projects/:projectId/plans", ownerProjectBoardApi);
@@ -339,7 +349,15 @@ export function createOwnerWorkspaceApp(options) {
     app.store = store;
     app.ownerConnections = connections;
     app.sessionContinuation = sessionContinuation;
-    app.close = () => sessionContinuation.close();
+    app.workspaceSearch = workspaceSearch;
+    let closePromise;
+    app.close = () => {
+        closePromise ||= Promise.resolve(workspaceSearch.close()).finally(() => {
+            connections.closeAll();
+            return sessionContinuation.close();
+        });
+        return closePromise;
+    };
     return app;
 }
 
@@ -829,6 +847,12 @@ async function renderRequiredOwnerAstroPage(ctx, cwd = Deno.cwd()) {
 
 /** @param {any} component @param {Record<string, unknown>} props */
 /** @param {any} ctx */
+async function renderOwnerProjectArtifactPage(ctx) {
+    const root = requireOwnerProjectRoot(ctx.state.store, ctx.params.projectId);
+    return await renderRequiredOwnerAstroPage(ctx, root);
+}
+
+/** @param {any} ctx */
 async function renderOwnerProjectSessionsPage(ctx) {
     const root = requireOwnerProjectRoot(ctx.state.store, ctx.params.projectId);
     const response = await renderAstroPage(ctx.req, root);
@@ -1157,7 +1181,7 @@ export function startWorkspaceServer(options) {
             token: options.token ?? "",
             mnemotecaPort: SYSTEM_WORK_RECORD_MNEMOTECA_PORT,
         });
-    return Deno.serve(
+    const server = Deno.serve(
         {
             hostname: options.host,
             port: options.port,
@@ -1171,6 +1195,21 @@ export function startWorkspaceServer(options) {
                 : "dev",
         }),
     );
+    if (options.mode !== "owner") return server;
+    const finished = server.finished.finally(() => app.close());
+    return new Proxy(server, {
+        get(target, property) {
+            if (property === "finished") return finished;
+            if (property === "shutdown") {
+                return async () => {
+                    await target.shutdown();
+                    await app.close();
+                };
+            }
+            const value = Reflect.get(target, property, target);
+            return typeof value === "function" ? value.bind(target) : value;
+        },
+    });
 }
 
 /**

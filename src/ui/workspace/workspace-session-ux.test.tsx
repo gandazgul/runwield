@@ -1,5 +1,5 @@
 // @ts-nocheck: Deno test imports are checked by scripts/run-tests.js, not Astro check.
-import { readWorkspaceStyles } from "./workspace-styles.js";
+import { readWorkspaceStyles } from "./workspace-styles.ts";
 import { assertEquals } from "@std/assert";
 import {
     activePlanProgressApiUrl,

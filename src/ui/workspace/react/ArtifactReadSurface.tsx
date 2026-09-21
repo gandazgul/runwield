@@ -84,8 +84,8 @@ export function ArtifactReadSurface(
 
     async function closeReadSurface() {
         if (closing || closed) return;
-        if (initialPayload.returnHref) {
-            workspaceNavigate(initialPayload.returnHref);
+        if (initialPayload.returnHref || initialPayload.launch === "project") {
+            workspaceNavigate(initialPayload.returnHref || "/search");
             return;
         }
         setClosing(true);
@@ -127,8 +127,9 @@ export function ArtifactReadSurface(
             onClick={closeReadSurface}
             disabled={closing || closed}
         >
-            {initialPayload.returnHref
-                ? initialPayload.returnLabel || "Back to Session"
+            {initialPayload.returnHref || initialPayload.launch === "project"
+                ? initialPayload.returnLabel ||
+                    (initialPayload.launch === "project" ? "Back to Search" : "Back to Session")
                 : closing
                 ? <RunWieldThinkingDots label="Closing" />
                 : closed

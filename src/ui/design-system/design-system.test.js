@@ -2,6 +2,7 @@ import { assertEquals, assertFalse, assertStringIncludes } from "@std/assert";
 import { actionClassName } from "./components/Button.jsx";
 import { Dialog } from "./components/Dialog.jsx";
 import { RunWieldButton, RunWieldLink } from "./components/react/RunWieldPrimitives.jsx";
+import { readWorkspaceStyles } from "../workspace/workspace-styles.ts";
 
 /** @typedef {{ href?: string, className?: string }} LinkProps */
 
@@ -55,7 +56,7 @@ Deno.test("design-system exposes review action, modal, and segmented toggle styl
 Deno.test("design-system keeps Workspace controls compact and reserves pills for metadata", async () => {
     const tokens = await Deno.readTextFile(new URL("./tokens.css", import.meta.url));
     const components = await Deno.readTextFile(new URL("./components.css", import.meta.url));
-    const workspace = await Deno.readTextFile(new URL("../workspace/static/workspace.css", import.meta.url));
+    const workspace = await readWorkspaceStyles(new URL("../workspace/static/workspace.css", import.meta.url));
     const docs = await Deno.readTextFile(new URL("../../../docs/design-system.md", import.meta.url));
 
     assertStringIncludes(tokens, "--rw-radius-control: 0.375rem;");

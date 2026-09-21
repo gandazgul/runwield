@@ -4,6 +4,7 @@
  */
 
 import { createHash } from "node:crypto";
+import { requestWorkspaceSearchRefresh } from "../workspace-search-refresh.ts";
 import {
     activationView,
     assertProof,
@@ -231,6 +232,7 @@ export function createFileSessionControl(options: FileSessionControlOptions): Fi
             };
             manifest.artifacts = [...artifacts, artifact];
             manifests.write(manifest, held.manifestPath);
+            requestWorkspaceSearchRefresh(manifest.transcriptCwd);
             return { ...artifact };
         },
 
@@ -274,6 +276,7 @@ export function createFileSessionControl(options: FileSessionControlOptions): Fi
                 manifest.activation = idleActivation(manifest);
                 stampPendingPlanAssociations(manifest, evidence.generation);
                 manifests.write(manifest, held.manifestPath);
+                requestWorkspaceSearchRefresh(manifest.transcriptCwd);
                 return { activation: activationView(manifest), generation: generationView(manifest) };
             } finally {
                 releaseHeldLock(locks, proof);
@@ -531,6 +534,7 @@ export function createFileSessionControl(options: FileSessionControlOptions): Fi
                 manifest.activation = idleActivation(manifest);
                 stampPendingPlanAssociations(manifest, evidence.generation);
                 manifests.write(manifest, held.manifestPath);
+                requestWorkspaceSearchRefresh(manifest.transcriptCwd);
                 return {
                     predecessor: { ...predecessor },
                     successor: { ...successor },

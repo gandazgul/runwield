@@ -11,6 +11,7 @@ import { listOwnerProjects, requireOwnerProjectRoot, sessionBelongsToOwnerProjec
 import { loadCanonicalBoard, loadCanonicalWorkspaceDetail } from "./astro-canonical-data.js";
 import { readSessionArtifact } from "../../../shared/session/read-session-artifact.ts";
 
+const OWNER_PROJECT_ARTIFACT_READER_KEY = Symbol.for("runwield.workspace.project-artifact-reader");
 const BUNDLED_PLAN_ADAPTER_KEY = Symbol.for("runwield.workspace.plan-adapter-module");
 // Production needs the bundled adapter; dev uses the canonical loader's native
 // Deno import so Vite does not try to resolve Core's JSR imports through Node.
@@ -21,9 +22,15 @@ if (!import.meta.env?.DEV) {
 export const OWNER_WORKSPACE_STORE_KEY = Symbol.for("runwield.workspace.owner-store");
 export const OWNER_WORKSPACE_SESSION_CONTINUATION_KEY = Symbol.for("runwield.workspace.session-continuation");
 
-/** @param {any} store */
-export function setAstroOwnerWorkspaceStore(store) {
+/**
+ * @param {any} store
+ * @param {(root: string, artifactType: string, sourceId: string) => Promise<any>} [projectArtifactReader]
+ */
+export function setAstroOwnerWorkspaceStore(store, projectArtifactReader) {
     /** @type {any} */ (globalThis)[OWNER_WORKSPACE_STORE_KEY] = store;
+    if (projectArtifactReader) {
+        /** @type {any} */ (globalThis)[OWNER_PROJECT_ARTIFACT_READER_KEY] = projectArtifactReader;
+    }
 }
 
 /** @param {any} sessionContinuation */
@@ -82,6 +89,16 @@ export async function loadOwnerProjectPlanProgress(projectId, planId, runwieldSe
     if (!store) throw new Error("Owner Workspace store is not available.");
     const { loadOwnerPlanProgress } = await import("./owner-plan-progress.ts");
     return await loadOwnerPlanProgress(store, { projectId, planId, runwieldSessionId });
+}
+
+/** @param {string} projectId @param {string} artifactType @param {string} sourceId */
+export async function loadOwnerProjectArtifact(projectId, artifactType, sourceId) {
+    const store = getAstroOwnerWorkspaceStore();
+    if (!store) throw new Error("Owner Workspace store is not available.");
+    const root = requireOwnerProjectRoot(store, projectId);
+    const readProjectArtifact = /** @type {any} */ (globalThis)[OWNER_PROJECT_ARTIFACT_READER_KEY];
+    if (!readProjectArtifact) throw new Error("Project artifact reader is not available.");
+    return await readProjectArtifact(root, artifactType, sourceId);
 }
 
 /** @param {string} projectId @param {string} runwieldSessionId @param {string} artifactId */

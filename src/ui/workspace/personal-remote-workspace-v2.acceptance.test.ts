@@ -28,11 +28,92 @@ function pairedApp(dir: string) {
         credentialFactory: () => "credential-secret",
         csrfFactory: () => "csrf-secret",
     });
+    const ownerApp = createOwnerWorkspaceApp({ mode: "owner", publicOrigin: "http://127.0.0.1:8787", store });
     return {
         store,
-        app: createOwnerWorkspaceApp({ mode: "owner", publicOrigin: "http://127.0.0.1:8787", store }).handler(),
+        ownerApp,
+        app: ownerApp.handler(),
     };
 }
+
+Deno.test("unified Workspace search ranks canonical sources and opens Project artifacts", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-workspace-search-" });
+    const root = `${dir}/project`;
+    await Deno.mkdir(`${root}/docs/prd`, { recursive: true });
+    await Deno.mkdir(`${root}/docs/adr`, { recursive: true });
+    await Deno.writeTextFile(`${root}/docs/prd/exact.md`, "# Searchable Compass\n\nProduct body needle.\n");
+    await Deno.writeTextFile(
+        `${root}/docs/adr/heading.md`,
+        "# Architecture note\n\n## Searchable Compass\n\nDecision body.\n",
+    );
+    await Deno.writeTextFile(
+        `${root}/docs/design-system.md`,
+        "# Design System\n\nSearchable Compass appears in the body.\n",
+    );
+    await Deno.writeTextFile(
+        `${root}/docs/domain-language.md`,
+        "# Domain Language\n\nWorkspace Search is owner retrieval.\n",
+    );
+    await Deno.writeTextFile(`${root}/source.ts`, "export const forbidden = 'Searchable Compass';\n");
+    await savePlan(root, "compass-plan", "# Plan heading\n\nSearchable Compass in the body.\n", {
+        planId: "compass-plan-id",
+        title: "Compass Plan",
+        classification: "FEATURE",
+        status: "on_hold",
+    });
+    const { store, ownerApp, app } = pairedApp(dir);
+    try {
+        const project = store.registerProject({ root, displayName: "Search Project" });
+        await ownerApp.workspaceSearch.refresh();
+        const headers = { cookie: cookiePair("credential-secret") };
+        const response = await app(
+            new Request("http://127.0.0.1:8787/api/owner/search?q=Searchable%20Compass", { headers }),
+        );
+        assertEquals(response.status, 200);
+        const payload = await response.json();
+        assertEquals(payload.results.map((result: { contentType: string }) => result.contentType), [
+            "prd",
+            "adr",
+            "plan",
+            "design-system",
+        ]);
+        assertEquals(payload.results.some((result: { sourceId: string }) => result.sourceId === "source.ts"), false);
+        assertEquals(
+            payload.results.every((result: { projectId: string }) => result.projectId === project.projectId),
+            true,
+        );
+        const prd = payload.results[0];
+        const opened = await app(
+            new Request(`http://127.0.0.1:8787${prd.destination}?return=%2Fsearch%3Fq%3DSearchable`, { headers }),
+        );
+        const html = await opened.text();
+        assertEquals(opened.status, 200, html);
+        assertStringIncludes(html, "Searchable Compass");
+        assertStringIncludes(html, "Back to Search");
+        assertEquals(html.includes(root), false);
+        assertEquals(html.includes("imageBaseDir"), false);
+
+        await Deno.writeTextFile(`${root}/docs/prd/exact.md`, "# Replaced content\n\nThe old query is gone.\n");
+        const changedResponse = await app(
+            new Request("http://127.0.0.1:8787/api/owner/search?q=Searchable%20Compass", { headers }),
+        );
+        const changed = await changedResponse.json();
+        assertEquals(changed.results.some((result: { contentType: string }) => result.contentType === "prd"), false);
+        const staleDestination = await app(new Request(`http://127.0.0.1:8787${prd.destination}`, { headers }));
+        assertEquals(staleDestination.status, 200);
+        assertStringIncludes(await staleDestination.text(), "Replaced content");
+
+        store.setProjectEnabled(project.projectId, false);
+        const disabledResponse = await app(
+            new Request("http://127.0.0.1:8787/api/owner/search?q=Searchable%20Compass", { headers }),
+        );
+        assertEquals((await disabledResponse.json()).results, []);
+    } finally {
+        await ownerApp.close();
+        store.close();
+        await Deno.remove(dir, { recursive: true });
+    }
+});
 
 Deno.test("Project settings stays accessible when its root disappears or its registration is disabled", async () => {
     const dir = await Deno.makeTempDir({ prefix: "runwield-project-settings-recovery-" });

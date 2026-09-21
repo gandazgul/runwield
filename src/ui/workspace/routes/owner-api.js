@@ -179,6 +179,32 @@ export async function ownerDashboardApi(ctx) {
 }
 
 /** @param {any} ctx */
+export async function ownerWorkspaceSearchApi(ctx) {
+    try {
+        const input = {
+            query: ctx.url.searchParams.get("q") || "",
+            projectId: ctx.url.searchParams.get("project") || "",
+            contentType: ctx.url.searchParams.get("type") || "",
+            page: ctx.url.searchParams.get("page") || "1",
+            pageSize: ctx.url.searchParams.get("pageSize") || "20",
+        };
+        return ownerJson(await ctx.state.workspaceSearch.search(input));
+    } catch (error) {
+        return ownerErrorJson(error);
+    }
+}
+
+/** @param {any} ctx */
+export async function ownerWorkspaceSearchRefreshApi(ctx) {
+    try {
+        await ctx.state.workspaceSearch.refresh();
+        return ownerJson({ refreshed: true });
+    } catch (error) {
+        return ownerErrorJson(error);
+    }
+}
+
+/** @param {any} ctx */
 export async function registerProjectApi(ctx) {
     try {
         const body = await readJson(ctx.req);
