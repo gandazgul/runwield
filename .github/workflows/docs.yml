@@ -68,7 +68,7 @@ jobs:
                   test -n "$tag"
                   test "$tag" = "$latest" || { echo "Refusing to replace current docs with $tag; latest is $latest" >&2; exit 1; }
                   gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json isPrerelease,isDraft --jq 'select(.isPrerelease == false and .isDraft == false)' >/dev/null
-                  git fetch origin "refs/tags/$tag:refs/tags/$tag"
+                  git fetch --force origin "refs/tags/$tag:refs/tags/$tag"
                   echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
             - name: Setup Deno
