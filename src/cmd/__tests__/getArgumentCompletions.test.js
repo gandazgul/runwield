@@ -30,8 +30,18 @@ Deno.test("getModelCompletions can find by provider prefix", async () => {
 });
 
 Deno.test("getLoadPlanCompletions handles missing plans dir", async () => {
-    const items = await getLoadPlanCompletions("anything");
-    assertEquals(Array.isArray(items), true);
+    await withProcessGlobalTestLock(async () => {
+        const originalCwd = Deno.cwd();
+        const tempDir = await Deno.makeTempDir({ prefix: "runwield-missing-plan-completions-" });
+        try {
+            Deno.chdir(tempDir);
+            const items = await getLoadPlanCompletions("anything");
+            assertEquals(Array.isArray(items), true);
+        } finally {
+            Deno.chdir(originalCwd);
+            await Deno.remove(tempDir, { recursive: true });
+        }
+    });
 });
 
 Deno.test("getLoadPlanCompletions sorts loadable plans by workflow priority", async () => {
