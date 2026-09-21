@@ -7,21 +7,21 @@ import type { ManagedSessionMetadata } from "./hosted-session.js";
 import { createRootSessionManager, resolveCreatedRootSessionPath } from "./root-session.js";
 import { captureTranscriptEvidence, syncTranscriptFileAndParent } from "./session-transcript-projection.js";
 import { recordPendingSegmentContinuation, recordSegmentLineageEvidence } from "./workflow-context-session.js";
-
-type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
+import type { SegmentHandoffPayload } from "../workflow/execution-segment-handoff.ts";
 
 type RolloverKind = "execution" | "semantic_repair";
 
+type RuntimeSessionManager = import("./hosted-session.js").MinimalSessionManagerLike;
 type HostedManagedSession = {
     cwd: string;
     getManagedMetadata: () => ManagedSessionMetadata | null;
-    getRootSessionManager: () => { dispose?: () => void | Promise<void> } | null;
+    getRootSessionManager: () => RuntimeSessionManager | null;
     dehydrateManagedSession: () => void;
     replaceManagedTranscriptSegment: (segment: {
         piSessionId: string;
         transcriptPath: string;
         currentSegmentId: string;
-        sessionManager: { dispose?: () => void | Promise<void> };
+        sessionManager: RuntimeSessionManager;
     }) => void;
     setManagedMetadata: (metadata: ManagedSessionMetadata) => void;
 };
@@ -32,7 +32,7 @@ type RollSessionTranscriptSegmentOptions = {
     ownerInstanceId: string;
     ownerProcessKind: "workspace" | "tui" | "acp" | "test";
     kind: RolloverKind;
-    continuation: JsonValue;
+    continuation: SegmentHandoffPayload;
     expectedGeneration?: number | null;
     lineageGroupKey?: string | null;
     operationId?: string;
@@ -47,7 +47,7 @@ export type SegmentRolloverResult = {
     piSessionId: string;
     transcriptPath: string;
     generation: number;
-    continuation: JsonValue;
+    continuation: SegmentHandoffPayload;
 };
 
 export type OrphanRolloverCandidate = {

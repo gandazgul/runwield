@@ -334,13 +334,13 @@ Deno.test("terminal auth setup succeeds against a temporary source mutation wher
         await symlinkEntries(
             join(REPO_ROOT, "src", "shared", "session"),
             join(tempRoot, "src", "shared", "session"),
-            new Set(["session-runtime.js"]),
+            new Set(["session-runtime.ts"]),
         );
         const runtimeSource = await Deno.readTextFile(
-            join(REPO_ROOT, "src", "shared", "session", "session-runtime.js"),
+            join(REPO_ROOT, "src", "shared", "session", "session-runtime.ts"),
         );
         await Deno.writeTextFile(
-            join(tempRoot, "src", "shared", "session", "session-runtime.js"),
+            join(tempRoot, "src", "shared", "session", "session-runtime.ts"),
             runtimeSource.replace(
                 "    async createInteractiveSession(options) {",
                 '    async createInteractiveSession(options) {\n        throw new Error("mutated createInteractiveSession called");',

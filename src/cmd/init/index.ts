@@ -14,7 +14,7 @@ import { AGENTS, getCwd, SUBAGENTS } from "../../constants.js";
 import { COMMAND_NAMES } from "../registry.js";
 import { EMPTY_PROJECT_DIRECTORY_INIT_NOOP_BODY, isEmptyProjectDirectory } from "../../shared/project-state.js";
 import { extractBundledAgentDefs, extractBundledSkills } from "../../shared/session/agent-assets.js";
-import { createSessionRuntime, SessionRuntime } from "../../shared/session/session-runtime.js";
+import { createSessionRuntime, SessionRuntime } from "../../shared/session/session-runtime.ts";
 import { getModelRegistry } from "../../shared/models/model-registry.ts";
 import { getSettingsManager } from "../../shared/settings.js";
 import { printCommandHelp } from "../help/index.ts";
@@ -128,15 +128,12 @@ export async function runInitCommand(argv: string[], options: InitCommandOptions
 
     // Run the canonical hidden init agent, distinct from user-selectable Agents.
     try {
-        const result = await sessionRuntime.runIsolatedAgent(createdSessionId, {
+        await sessionRuntime.runIsolatedAgent(createdSessionId, {
             agentName: AGENTS.INIT,
             userRequest: "Initialize this project for RunWield. Follow the instructions in your system prompt.",
             subAgentDefinition: { id: SUBAGENTS.INIT },
             customTools: [verificationCommandOperation.tool],
         });
-        if (!Array.isArray(result) && result?.ok === false) {
-            throw new Error(`Init agent did not start: ${result.error || "Runtime refused the operation"}`);
-        }
         const confirmedCommand = verificationCommandOperation.getConfirmedCommand();
         if (!confirmedCommand) {
             throw new Error(

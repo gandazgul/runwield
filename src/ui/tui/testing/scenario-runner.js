@@ -4,7 +4,7 @@
  */
 
 import { dirname, join, relative } from "@std/path";
-import { createSessionRuntime } from "../../../shared/session/session-runtime.js";
+import { createSessionRuntime } from "../../../shared/session/session-runtime.ts";
 import { RuntimeEventTypes } from "../../../shared/session/session-runtime-events.js";
 import { openFileSessionStore } from "../../../shared/session/file-session-store.ts";
 import { assert } from "@std/assert";

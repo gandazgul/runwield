@@ -10,7 +10,7 @@ import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { dirname, join } from "@std/path";
 import { AGENTS, getHomeDir } from "../src/constants.js";
-import { createSessionRuntime } from "../src/shared/session/session-runtime.js";
+import { createSessionRuntime } from "../src/shared/session/session-runtime.ts";
 import { readLatestTriageOutcome as readLatestTriageOutcomeFn } from "../src/shared/workflow/orchestrator.ts";
 import {
     parseCsv,

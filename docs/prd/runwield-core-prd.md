@@ -1055,7 +1055,9 @@ Users can work with multiple independent Sessions through the TUI, ACP, and Work
 conversation, selected Agent and model, and workflow context. Starting, loading, sending, cancelling, and reviewing
 history should behave consistently across clients.
 
-Runtime boundaries are documented in [ADR-010](../adr/010-session-runtime-sibling-adapters-and-acp.md).
+Runtime boundaries are documented in [ADR-010](../adr/010-session-runtime-sibling-adapters-and-acp.md). The current
+implementation enters through [`session-runtime.ts`](../../src/shared/session/session-runtime.ts); its private owners
+are under [`runtime/`](../../src/shared/session/runtime/).
 
 Personal Workspace lets the same developer move between TUI, browser, and ACP while keeping one Session, its history,
 and the selected Agent and model. The user can leave an idle TUI open, continue from a phone, and return to see the new

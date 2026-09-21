@@ -1,5 +1,5 @@
 import { listUserModelOptions } from "../shared/session/user-selection.ts";
-import type { SessionRuntime } from "../shared/session/session-runtime.js";
+import type { SessionRuntime } from "../shared/session/session-runtime.ts";
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 
 /**

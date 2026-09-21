@@ -1,6 +1,6 @@
 import { assertEquals, assertRejects } from "@std/assert";
 import { dirname, fromFileUrl, join, relative, resolve } from "@std/path";
-import { createSessionRuntime, SessionRuntime } from "./session-runtime.js";
+import { createSessionRuntime, SessionRuntime } from "./session-runtime.ts";
 
 const REPO_ROOT = resolve(dirname(fromFileUrl(import.meta.url)), "../../..");
 const SKIPPED_SOURCE_DIRECTORIES = new Set([".astro", "dist", "node_modules"]);
@@ -134,11 +134,16 @@ Deno.test("Core session surfaces do not open or import the Workspace database", 
             pattern: /shared\/owner-coordination|openOwnerCoordination|owner-coordination\.sqlite3/,
         },
     ]);
-    const runtimeSource = await Deno.readTextFile(join(REPO_ROOT, "src/shared/session/session-runtime.js"));
+    const runtimeSources = await Promise.all(
+        (await productionSourceFiles(join(REPO_ROOT, "src/shared/session/runtime"))).map((file) =>
+            Deno.readTextFile(file)
+        ),
+    );
+    const runtimeSource = runtimeSources.join("\n");
     const runtimeImportsWorkspaceStore = /from\s+["'][^"']*owner-coordination\/index\.js["']/.test(runtimeSource) ||
         /openOwnerCoordinationStore\s*\(/.test(runtimeSource);
     if (runtimeImportsWorkspaceStore) {
-        violations.push("src/shared/session/session-runtime.js: Workspace database dependency");
+        violations.push("src/shared/session/session-runtime.ts: Workspace database dependency");
     }
     assertEquals(violations, []);
 });
@@ -177,7 +182,10 @@ Deno.test("writable transcript hydration stays inside SessionRuntime lease enfor
     const allowed = new Set([
         "src/shared/session/root-session.js",
         "src/shared/session/segment-rollover.ts",
-        "src/shared/session/session-runtime.js",
+        "src/shared/session/runtime/images.ts",
+        "src/shared/session/runtime/lifecycle-loading.ts",
+        "src/shared/session/runtime/lifecycle.ts",
+        "src/shared/session/runtime/managed-operations.ts",
     ]);
     const violations = await findViolations(["src", "scripts"], [
         {
@@ -201,7 +209,10 @@ Deno.test("Session writer mutators stay behind approved state-machine seams", as
                 path === "src/shared/session/file-session-control.ts" ||
                 path === "src/shared/session/file-session-store-types.ts" ||
                 path === "src/shared/session/segment-rollover.ts" ||
-                path === "src/shared/session/session-runtime.js" ||
+                path === "src/shared/session/runtime/lifecycle-loading.ts" ||
+                path === "src/shared/session/runtime/lifecycle.ts" ||
+                path === "src/shared/session/runtime/managed-operations.ts" ||
+                path === "src/shared/session/runtime/managed-sync.ts" ||
                 path === "src/ui/workspace/server/session-continuation.js" ||
                 path === "src/ui/workspace/server/owner-plan-actions.ts",
         },
@@ -304,7 +315,7 @@ Deno.test("session/Pi coupling in workflow validation stays at the adapter bound
 });
 
 Deno.test("active and isolated Agents have exactly one production lifecycle boundary each", async () => {
-    const files = await productionJavaScriptFiles(join(REPO_ROOT, "src"));
+    const files = await productionSourceFiles(join(REPO_ROOT, "src"));
     const activeMutationModules = new Set([
         "src/shared/session/hosted-session.js",
         "src/shared/session/session.js",
@@ -313,7 +324,9 @@ Deno.test("active and isolated Agents have exactly one production lifecycle boun
     const activeTurnModules = new Set([
         "src/shared/session/session.js",
         "src/shared/session/agent-handler.js",
+        "src/shared/session/agent-handler.ts",
         "src/shared/session/agent-switching.js",
+        "src/shared/workflow/orchestrator.ts",
     ]);
     const violations = [];
 
@@ -353,12 +366,11 @@ Deno.test("command surfaces do not use SessionSnapshot as active runtime authori
 });
 
 Deno.test("managed projection caches do not drive live activation transitions", async () => {
-    const runtimeSource = await Deno.readTextFile(join(REPO_ROOT, "src/shared/session/session-runtime.js"));
-    const workflowOperationIndex = runtimeSource.indexOf("async #runManagedOperation(sessionId, descriptor, body)");
-    const promptManagedIndex = runtimeSource.indexOf("async promptManagedSession(");
-    const activationTail = promptManagedIndex >= 0
-        ? runtimeSource.slice(workflowOperationIndex, promptManagedIndex)
-        : runtimeSource.slice(workflowOperationIndex);
+    const runtimeSource = await Deno.readTextFile(
+        join(REPO_ROOT, "src/shared/session/runtime/managed-operations.ts"),
+    );
+    const workflowOperationIndex = runtimeSource.indexOf("async runManagedOperation<T>(");
+    const activationTail = runtimeSource.slice(workflowOperationIndex);
     const hostedSource = await Deno.readTextFile(join(REPO_ROOT, "src/shared/session/hosted-session.js"));
     const setManagedIndex = hostedSource.indexOf("setManagedMetadata(metadata)");
     const getManagedIndex = hostedSource.indexOf("getManagedMetadata()", setManagedIndex);
@@ -468,6 +480,7 @@ Deno.test("SessionRuntime public surface remains adapter-neutral and explicit", 
     const runtime = createSessionRuntime();
     for (
         const internal of [
+            "engine",
             "sessionHost",
             "switchActiveAgent",
             "abortActiveSession",

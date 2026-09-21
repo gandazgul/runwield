@@ -4,7 +4,7 @@ import { join } from "@std/path";
 import { fauxAssistantMessage, fauxText } from "@earendil-works/pi-ai";
 import type { Context } from "@earendil-works/pi-ai";
 import { withRuntimeCommandFixture } from "../cmd/testing/runtime-command-fixture.ts";
-import { createSessionRuntime } from "../shared/session/session-runtime.js";
+import { createSessionRuntime } from "../shared/session/session-runtime.ts";
 import { listPersistedRootSessions } from "../shared/session/root-session.js";
 import { openOwnerCoordinationStore } from "../shared/owner-coordination/index.js";
 import { WorkspaceSessionContinuationService } from "./workspace/server/session-continuation.js";

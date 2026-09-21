@@ -6,7 +6,7 @@ import { getHomeDir } from "../../constants.js";
 import type { ImageAttachment } from "./types.js";
 import type { RuntimeInteractionRequest, RuntimeInteractionResponse } from "./session-runtime-interactions.js";
 import type { RuntimeQueuedMessage, SessionRuntimeEvent } from "./session-runtime-events.js";
-import type { SessionRuntime, SteerSessionResult } from "./session-runtime.js";
+import type { SessionRuntime, SteerSessionResult } from "./session-runtime.ts";
 import type { HostedSession } from "./hosted-session.js";
 
 type LiveSessionCommand = {
@@ -64,8 +64,15 @@ function socketPath(sessionId: string, operationId: string) {
     return Deno.build.os === "windows" ? `\\\\.\\pipe\\runwield-${key}` : `/tmp/runwield-${key}.sock`;
 }
 
+export interface LiveSessionRuntime {
+    getSessionSnapshot(sessionId: string): ReturnType<SessionRuntime["getSessionSnapshot"]>;
+    getQueuedMessages(sessionId: string): ReturnType<SessionRuntime["getQueuedMessages"]>;
+    steerSession(sessionId: string, text: string, images: ImageAttachment[]): Promise<SteerSessionResult>;
+    cancelSession(sessionId: string): ReturnType<SessionRuntime["cancelSession"]>;
+}
+
 export async function openLiveSessionConnection(
-    runtime: SessionRuntime,
+    runtime: LiveSessionRuntime,
     session: HostedSession,
     operationId: string,
     events: SessionRuntimeEvent[],
