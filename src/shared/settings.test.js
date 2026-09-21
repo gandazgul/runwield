@@ -16,6 +16,7 @@ import {
     getSettingsManager,
     migratePiSettingsOnce,
     normalizePlanServerUrl,
+    ONBOARDING_TUTORIAL_OFFER_HANDLED_SETTING_KEY,
     PLAN_SERVER_URL_SETTING_KEY,
     preserveRunWieldCustomSettingsForWrite,
     setCompactionKeepRecentTokens,
@@ -292,6 +293,17 @@ settingsTest("preserveRunWieldCustomSettingsForWrite keeps RunWield custom keys 
                 },
             },
         },
+    });
+});
+
+settingsTest("model and theme writes preserve permanent onboarding dismissal", () => {
+    const previous = JSON.stringify({ [ONBOARDING_TUTORIAL_OFFER_HANDLED_SETTING_KEY]: true });
+    const next = JSON.stringify({ theme: "light", defaultModel: "model-a" });
+
+    assertEquals(JSON.parse(preserveRunWieldCustomSettingsForWrite(previous, next)), {
+        theme: "light",
+        defaultModel: "model-a",
+        [ONBOARDING_TUTORIAL_OFFER_HANDLED_SETTING_KEY]: true,
     });
 });
 

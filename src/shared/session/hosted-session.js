@@ -7,6 +7,11 @@ import { isAbsolute } from "@std/path";
 import { MAX_DELEGATED_READERS } from "../../constants.js";
 import { normalizePlanAssociation, PLAN_ASSOCIATION_CUSTOM_TYPE } from "./plan-association.ts";
 import {
+    applyTutorialContextUpdate,
+    readPersistedTutorialContext,
+    recordTutorialContext,
+} from "./tutorial-context-session.ts";
+import {
     deriveWorkflowContextFromExecutionWorkflow,
     readPersistedWorkflowContext,
     recordNormalizedWorkflowContext,
@@ -114,6 +119,7 @@ import { clearPairCheckpoint } from "./pair-checkpoint-session.ts";
  * @property {string | null} [provider]
  * @property {string | null} [thinkingLevel]
  * @property {import('./workflow-context-session.js').WorkflowContext | null} workflowContext
+ * @property {import('./tutorial-context-session.ts').TutorialContext | null} [tutorialContext]
  */
 
 /**
@@ -239,6 +245,9 @@ export class HostedSession {
         this.workflowContext = readPersistedWorkflowContext(
             /** @type {import('@earendil-works/pi-coding-agent').SessionManager | null} */ (this.rootSessionManager),
         );
+        /** @type {import('./tutorial-context-session.ts').TutorialContext | null} */
+        this.tutorialContext = readPersistedTutorialContext(this.rootSessionManager) ||
+            options.managed?.tutorialContext || null;
         /** @type {ActiveExecutionWorkflow | null} */
         this.activeExecutionWorkflow = null;
         /** @type {PendingTaskCompletion | null} */
@@ -381,6 +390,7 @@ export class HostedSession {
         this.rootSessionManager = sessionManager;
         if (!sessionManager) return;
 
+        this.tutorialContext = readPersistedTutorialContext(sessionManager);
         const persisted = readPersistedWorkflowContext(
             /** @type {import('@earendil-works/pi-coding-agent').SessionManager} */ (sessionManager),
         );
@@ -423,6 +433,7 @@ export class HostedSession {
             /** @type {import('@earendil-works/pi-coding-agent').SessionManager} */ (segment.sessionManager),
         );
         if (persisted) this.replaceWorkflowContext(persisted, { persist: false });
+        this.tutorialContext = readPersistedTutorialContext(segment.sessionManager);
     }
 
     /** @param {PendingManagedTurnIntent} intent */
@@ -788,6 +799,37 @@ export class HostedSession {
 
     getWorkflowContext() {
         return this.workflowContext ? { ...this.workflowContext } : null;
+    }
+
+    getTutorialContext() {
+        return this.tutorialContext
+            ? { ...this.tutorialContext, shownExplanationIds: [...this.tutorialContext.shownExplanationIds] }
+            : null;
+    }
+
+    /**
+     * @param {import('./tutorial-context-session.ts').TutorialContextUpdate} update
+     * @param {import('./plan-association.ts').ManifestPlanAssociation[]} committedPlanAssociations
+     */
+    updateTutorialContext(update, committedPlanAssociations = []) {
+        if (this.disposed) throw new Error("tutorial_context_not_writable");
+        const capability = this.getManagedOperationCapability?.() || null;
+        this.#assertManagedWritableCapability(capability);
+        if (!this.managed || !this.rootSessionManager?.appendCustomEntry) {
+            throw new Error("tutorial_context_not_writable");
+        }
+        const nextContext = applyTutorialContextUpdate(this.tutorialContext, update);
+        if (!nextContext) throw new Error("tutorial_context_invalid");
+        if (nextContext.planId && nextContext.planId !== this.tutorialContext?.planId) {
+            const hasCommittedAssociation = committedPlanAssociations.some((association) =>
+                association.planId === nextContext.planId && Number.isInteger(association.committedGeneration)
+            );
+            if (!hasCommittedAssociation) throw new Error("tutorial_context_plan_association_required");
+        }
+        const recorded = recordTutorialContext(this.rootSessionManager, nextContext);
+        if (!recorded) throw new Error("tutorial_context_invalid");
+        this.tutorialContext = recorded;
+        return this.getTutorialContext();
     }
 
     /**

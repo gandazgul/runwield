@@ -17,8 +17,8 @@ collaborationRecommendation: "autonomous"
 createdAt: "2026-09-11"
 origin: "internal"
 userVerifiedAt: null
-status: "in_progress"
 targetBranch: "main"
+status: "implemented"
 ---
 
 # Skippable Onboarding Tutorial

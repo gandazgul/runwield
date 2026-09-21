@@ -175,6 +175,7 @@ function findFixturePlanLifecycle(directory, expectedStatus) {
  * @property {"default" | "none" | "provider-without-models"} [modelSetup]
  * @property {Array<{ id: string, name?: string, reasoning?: boolean }>} [models]
  * @property {Record<string, unknown>} [globalSettings]
+ * @property {boolean} [onboardingOfferHandled]
  * @property {boolean} [skipModelWelcome]
  * @property {boolean} [captureModelTurns]
  * @property {boolean} [captureGlobalSettings]
@@ -776,6 +777,22 @@ async function runComposedTuiScenario(scenario, options) {
                     theme: "default",
                     notifications: { enabled: false },
                     ...scenario.globalSettings,
+                }),
+            );
+        }
+        if (runwieldDir && scenario.onboardingOfferHandled !== false) {
+            const settingsPath = join(runwieldDir, "settings.json");
+            let settings = {};
+            try {
+                settings = JSON.parse(await Deno.readTextFile(settingsPath));
+            } catch {
+                settings = {};
+            }
+            await Deno.writeTextFile(
+                settingsPath,
+                JSON.stringify({
+                    ...settings,
+                    onboardingTutorialOfferHandled: true,
                 }),
             );
         }

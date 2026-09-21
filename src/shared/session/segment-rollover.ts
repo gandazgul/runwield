@@ -7,6 +7,7 @@ import type { ManagedSessionMetadata } from "./hosted-session.js";
 import { createRootSessionManager, resolveCreatedRootSessionPath } from "./root-session.js";
 import { captureTranscriptEvidence, syncTranscriptFileAndParent } from "./session-transcript-projection.js";
 import { recordPendingSegmentContinuation, recordSegmentLineageEvidence } from "./workflow-context-session.js";
+import { recordTutorialContext } from "./tutorial-context-session.ts";
 
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 
@@ -15,6 +16,7 @@ type RolloverKind = "execution" | "semantic_repair";
 type HostedManagedSession = {
     cwd: string;
     getManagedMetadata: () => ManagedSessionMetadata | null;
+    getTutorialContext: () => import("./tutorial-context-session.ts").TutorialContext | null;
     getRootSessionManager: () => { dispose?: () => void | Promise<void> } | null;
     dehydrateManagedSession: () => void;
     replaceManagedTranscriptSegment: (segment: {
@@ -73,6 +75,7 @@ export async function rollSessionTranscriptSegment(
     const predecessor = options.ownerCoordinationStore.listSessionTranscriptSegments(managed.runwieldSessionId)
         .find((segment) => segment.segmentId === managed.currentSegmentId);
     if (!predecessor) throw new Error("The current Session transcript segment is unavailable");
+    const tutorialContext = options.hostedSession.getTutorialContext();
 
     let proof = options.ownerCoordinationStore.acquireSessionActivation({
         runwieldSessionId: managed.runwieldSessionId,
@@ -110,6 +113,7 @@ export async function rollSessionTranscriptSegment(
             lineageGroupKey: options.lineageGroupKey ?? predecessor.lineageGroupKey ?? predecessor.segmentId,
             kind: options.kind,
         });
+        if (tutorialContext) recordTutorialContext(successorManager, tutorialContext);
         recordPendingSegmentContinuation(successorManager, options.continuation);
         await disposeManager(successorManager as { dispose?: () => void | Promise<void> });
         await syncTranscriptFileAndParent(successorTranscriptPath);

@@ -26,7 +26,13 @@ import {
 } from "../../shared/project-state.js";
 import { listAvailableAgents } from "../../shared/session/agents.js";
 import { openFileSessionStore } from "../../shared/session/file-session-store.ts";
-import { getSettingsManager, initSettings } from "../../shared/settings.js";
+import {
+    getCustomSetting,
+    getSettingsManager,
+    initSettings,
+    ONBOARDING_TUTORIAL_OFFER_HANDLED_SETTING_KEY,
+    setCustomSetting,
+} from "../../shared/settings.js";
 import {
     isInitDone as isInitDoneFn,
     isInitOffered as isInitOfferedFn,
@@ -41,6 +47,12 @@ import { getSelectedDefaultModelAvailability, maybeShowModelWelcome } from "./mo
 import { createChatFooterController } from "./chat-footer.ts";
 import { createChatView } from "./chat-view.ts";
 import { createChatInputController } from "./chat-input-controller.ts";
+import {
+    createInitialTutorialContext,
+    ONBOARDING_DISCOVERY_EXPLANATION,
+    ONBOARDING_TUTORIAL_REQUEST,
+    ONBOARDING_WARNING,
+} from "./onboarding-content.ts";
 import type { BrowserPort } from "../../shared/browser-port.ts";
 import type { ImageAttachment } from "../../shared/session/types.js";
 import type { UiAPI } from "./types.js";
@@ -65,6 +77,7 @@ export interface StartInteractiveSessionOptions {
     browser: BrowserPort;
     terminal?: TerminalPairPort;
     skipModelWelcome?: boolean;
+    startupIntent?: "onboard";
     configureUiAPI?: (uiAPI: UiAPI) => void;
     onLifecycleReady?: (handle: InteractiveLifecycleHandle) => void;
 }
@@ -177,6 +190,7 @@ export async function startInteractiveSession(
     options.onLifecycleReady?.(lifecycleHandle);
     try {
         const sessionCwd = getCwd();
+        const explicitOnboardingStartup = options.startupIntent === "onboard";
         const createdSession = await sessionRuntime.createInteractiveSession({
             cwd: sessionCwd,
             mode: sessionStartMode,
@@ -279,6 +293,7 @@ export async function startInteractiveSession(
             browser: options.browser,
             notifyRunWieldEvent: notifyRunWieldEventQuietly,
             onSessionReplaced: ({ newSessionId }) => replaceRuntimeSession(newSessionId, { oldRetired: true }),
+            pauseTutorialPresentation: sessionStartMode === "continue",
         });
         disposables.push(() => tuiRuntimeAdapter.dispose());
         const managedSyncController = createManagedSessionSyncController({
@@ -352,8 +367,9 @@ export async function startInteractiveSession(
         };
         refreshPromptTemplateCommandGroups();
         const initStateClaimedDone = options.skipModelWelcome ? true : await isInitDoneFn();
-        const initDone = options.skipModelWelcome ? true : await isProjectInitComplete();
+        let initDone = options.skipModelWelcome ? true : await isProjectInitComplete();
         let initCommandAvailable = !initDone;
+        let startupInitDecisionHandled = false;
         if (!suppressStartupHeader && !sessionStartedEmptyProjectDirectory) {
             await renderBootBanner({
                 uiAPI,
@@ -365,8 +381,19 @@ export async function startInteractiveSession(
                 projectRoot: runtimeSnapshot().cwd,
             });
         }
+        const explicitStartupAvailability = explicitOnboardingStartup
+            ? getSelectedDefaultModelAvailability(runtimeSnapshot().cwd)
+            : null;
         const modelWelcomeResult = options.skipModelWelcome
             ? { shown: false, suppressBootBanner: false, noModel: false, setupCompleted: false }
+            : explicitOnboardingStartup
+            ? {
+                shown: false,
+                suppressBootBanner: false,
+                noModel: !explicitStartupAvailability?.available,
+                setupCompleted: false,
+                availabilityError: explicitStartupAvailability?.error,
+            }
             : await maybeShowModelWelcome({
                 uiAPI,
                 editor: view.editor,
@@ -378,7 +405,7 @@ export async function startInteractiveSession(
                 projectRoot: runtimeSnapshot().cwd,
                 deferRootActivation: shouldDeferManagedActivation,
             });
-        if (!modelWelcomeResult.noModel && shouldDeferManagedActivation) {
+        if (!modelWelcomeResult.noModel && shouldDeferManagedActivation && !explicitOnboardingStartup) {
             sessionRuntime.markPromptReadyAgent(sessionId, {
                 agentName: initialAgentInternalName,
                 model: options.initialAgentModel,
@@ -386,7 +413,13 @@ export async function startInteractiveSession(
         }
         const isModelSetupRecoveryCommand = (userRequest: string): boolean => {
             const commandName = userRequest.trim().slice(1).split(/\s+/, 1)[0];
-            return [COMMAND_NAMES.LOGIN, COMMAND_NAMES.MODEL, COMMAND_NAMES.QUIT, COMMAND_NAMES.EXIT].includes(
+            return [
+                COMMAND_NAMES.LOGIN,
+                COMMAND_NAMES.MODEL,
+                COMMAND_NAMES.ONBOARD,
+                COMMAND_NAMES.QUIT,
+                COMMAND_NAMES.EXIT,
+            ].includes(
                 commandName,
             );
         };
@@ -401,9 +434,13 @@ export async function startInteractiveSession(
             }
             return true;
         };
-        if (!sessionStartedEmptyProjectDirectory && !initDone && !modelWelcomeResult.noModel) {
+        if (
+            !explicitOnboardingStartup && !sessionStartedEmptyProjectDirectory && !initDone &&
+            !modelWelcomeResult.noModel
+        ) {
             const alreadyOffered = await isInitOfferedFn();
             if (!alreadyOffered || initStateClaimedDone) {
+                startupInitDecisionHandled = true;
                 const choice = await uiAPI.promptSelect("Would you like to run /init to bootstrap RunWield?", [{
                     value: "yes",
                     label: "Yes",
@@ -441,7 +478,163 @@ export async function startInteractiveSession(
             view.installAutocompleteProvider(autocompleteProvider);
         };
         installAutocompleteProvider();
-        const inputController = createChatInputController({
+        let inputController: ReturnType<typeof createChatInputController> | null = null;
+        const markOnboardingOfferHandled = async (): Promise<void> => {
+            await setCustomSetting(
+                ONBOARDING_TUTORIAL_OFFER_HANDLED_SETTING_KEY,
+                true,
+                "global",
+                runtimeSnapshot().cwd,
+            );
+        };
+        const beginOnboarding = async (): Promise<void> => {
+            const projectRoot = runtimeSnapshot().cwd;
+            const choice = await uiAPI.promptSelect(
+                `${ONBOARDING_WARNING}\n\nProject: ${projectRoot}`,
+                [
+                    { value: "start", label: "Start tutorial" },
+                    { value: "skip", label: "Skip" },
+                ],
+            );
+            await markOnboardingOfferHandled();
+            if (choice !== "start") {
+                view.focusEditor();
+                view.requestRender();
+                return;
+            }
+
+            let snapshot = runtimeSnapshot();
+            if (snapshot.tutorialContext?.recapShown) {
+                const completedChoice = await uiAPI.promptSelect(
+                    "This Session completed its tutorial. Start another tutorial in a new Session?",
+                    [
+                        { value: "new", label: "Start new Session" },
+                        { value: "cancel", label: "Keep current Session" },
+                    ],
+                );
+                if (completedChoice !== "new") return;
+                await commandRegistry[COMMAND_NAMES.NEW].execute(["Onboarding tutorial"], {
+                    uiAPI,
+                    sessionId,
+                    sessionRuntime,
+                    replaceRuntimeSession,
+                });
+                snapshot = runtimeSnapshot();
+            }
+            if (snapshot.tutorialContext) {
+                const action = await uiAPI.promptSelect(
+                    "This Session already has tutorial guidance. Choose how to continue.",
+                    [
+                        { value: "resume", label: "Continue tutorial" },
+                        { value: "without", label: "Continue without tutorial" },
+                        { value: "pause", label: "Pause tutorial" },
+                    ],
+                );
+                if (action === "without") {
+                    await sessionRuntime.updateTutorialContext(sessionId, { guidanceEnabled: false });
+                    uiAPI.appendSystemMessage(
+                        "Tutorial guidance is off. Your current workflow continues unchanged.",
+                        false,
+                        "Tutorial",
+                    );
+                } else if (action === "pause") {
+                    const result = sessionRuntime.cancelSession(sessionId);
+                    uiAPI.appendSystemMessage(
+                        result.aborted
+                            ? "Cancellation requested. RunWield will report the settled workflow state."
+                            : "No active operation needed cancellation. Your saved work is unchanged.",
+                        false,
+                        "Tutorial",
+                    );
+                } else if (action === "resume") {
+                    await sessionRuntime.updateTutorialContext(sessionId, { guidanceEnabled: true });
+                    uiAPI.appendSystemMessage(
+                        "Tutorial guidance is on. Existing Plan and workflow progress will be reused.",
+                        false,
+                        "Tutorial",
+                    );
+                }
+                view.focusEditor();
+                view.requestRender();
+                return;
+            }
+
+            if (snapshot.workflowContext?.planId || snapshot.activeExecutionWorkflow) {
+                const activeChoice = await uiAPI.promptSelect(
+                    "This Session already has planned work. Start the tutorial in a new Session?",
+                    [
+                        { value: "new", label: "Start new Session" },
+                        { value: "cancel", label: "Keep current Session" },
+                    ],
+                );
+                if (activeChoice !== "new") return;
+                await commandRegistry[COMMAND_NAMES.NEW].execute(["Onboarding tutorial"], {
+                    uiAPI,
+                    sessionId,
+                    sessionRuntime,
+                    replaceRuntimeSession,
+                });
+                snapshot = runtimeSnapshot();
+            }
+
+            if (sessionStartedEmptyProjectDirectory) {
+                uiAPI.appendSystemMessage(
+                    "This project does not contain files to improve yet. Add meaningful project files, then run /onboard.",
+                    false,
+                    "Tutorial",
+                );
+                return;
+            }
+
+            if (shouldBlockForModelSetup()) {
+                const setup = await maybeShowModelWelcome({
+                    uiAPI,
+                    editor: view.editor,
+                    tui,
+                    sessionId,
+                    sessionRuntime,
+                    initialAgentInternalName: AGENTS.PLANNER,
+                    initialAgentModel: options.initialAgentModel,
+                    projectRoot,
+                    deferRootActivation: shouldDeferManagedActivation,
+                    cancelBehavior: "return-to-input",
+                });
+                modelSetupRequired = setup.noModel;
+                if (setup.noModel) return;
+            } else if (explicitOnboardingStartup && shouldDeferManagedActivation) {
+                sessionRuntime.markPromptReadyAgent(sessionId, {
+                    agentName: AGENTS.PLANNER,
+                    model: options.initialAgentModel,
+                });
+            }
+
+            initDone = await isProjectInitComplete(projectRoot);
+            initCommandAvailable = !initDone;
+            if (initCommandAvailable && !startupInitDecisionHandled) {
+                startupInitDecisionHandled = true;
+                const initChoice = await uiAPI.promptSelect(
+                    "Run /init before the tutorial? Init is optional and records useful project context.",
+                    [
+                        { value: "yes", label: "Run Init" },
+                        { value: "no", label: "Continue without Init" },
+                    ],
+                );
+                if (initChoice === "yes") {
+                    await commandRegistry[COMMAND_NAMES.INIT].execute([], { uiAPI, sessionId, sessionRuntime });
+                    initDone = await isProjectInitComplete(projectRoot);
+                    initCommandAvailable = !initDone;
+                } else {
+                    await recordInitOfferedFn(projectRoot);
+                }
+            }
+
+            uiAPI.appendSystemMessage(ONBOARDING_DISCOVERY_EXPLANATION, false, "Tutorial · Choose an improvement");
+            await inputController?.submitTutorialRequest(
+                ONBOARDING_TUTORIAL_REQUEST,
+                createInitialTutorialContext(),
+            );
+        };
+        inputController = createChatInputController({
             view,
             uiAPI,
             runtime: sessionRuntime,
@@ -458,6 +651,7 @@ export async function startInteractiveSession(
             replaceRuntimeSession,
             markCtrlCPendingExit: footer.markCtrlCPendingExit,
             isCtrlCPendingExit: footer.isCtrlCPendingExit,
+            beginOnboarding,
         });
         disposables.push(() => inputController.dispose());
         subscribeCommandCatalog();
@@ -480,7 +674,33 @@ export async function startInteractiveSession(
         }
         if (shouldReplaySessionHistory(options.sessionStartMode)) {
             await sessionRuntime.replaySession(sessionId);
+            const tutorialContext = runtimeSnapshot().tutorialContext;
+            if (tutorialContext?.guidanceEnabled && !tutorialContext.recapShown) {
+                const resumeChoice = await uiAPI.promptSelect(
+                    "Resume tutorial guidance for this saved Session?",
+                    [
+                        { value: "resume", label: "Resume guidance" },
+                        { value: "without", label: "Continue without tutorial" },
+                    ],
+                );
+                if (resumeChoice !== "resume") {
+                    await sessionRuntime.updateTutorialContext(sessionId, { guidanceEnabled: false });
+                    tuiRuntimeAdapter.resumeTutorialPresentation({ discard: true });
+                } else {
+                    tuiRuntimeAdapter.resumeTutorialPresentation();
+                }
+            } else {
+                tuiRuntimeAdapter.resumeTutorialPresentation({ discard: true });
+            }
         }
+        const automaticOnboardingEligible = !explicitOnboardingStartup && sessionStartMode === "new" &&
+            !initialUserRequest && !sessionStartedEmptyProjectDirectory &&
+            getCustomSetting(
+                    ONBOARDING_TUTORIAL_OFFER_HANDLED_SETTING_KEY,
+                    "global",
+                    runtimeSnapshot().cwd,
+                ) !== true;
+        if (explicitOnboardingStartup || automaticOnboardingEligible) await beginOnboarding();
         if (initialUserRequest && !modelWelcomeResult.noModel) {
             view.editor.setText(initialUserRequest);
             await view.editor.onSubmit?.(initialUserRequest);

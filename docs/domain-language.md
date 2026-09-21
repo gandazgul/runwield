@@ -240,6 +240,10 @@ Request. _Avoid_: Semantic Review, duplicate review
 
 ### Plans & Review
 
+**Tutorial**: Optional TUI guidance around one small real Planned Change. It explains normal Plan Review, approved
+execution, Workflow Validation, and delivery as their real events occur. It is not Init, a separate Plan lifecycle, a
+sample project, or a substitute for validation. _Avoid_: Onboarding workflow, training Plan, Workspace tutorial
+
 **Plan**: A markdown file in `docs/plans/` describing the implementation strategy for a user request. Its YAML front
 matter records classification, complexity, status, timestamps, and origin. _Avoid_: Blueprint, spec, design doc
 
@@ -723,6 +727,8 @@ continuation, database interaction record
 
 ## Relationships
 
+- A **Tutorial** explains one real **Planned Change** through normal **Plan Review** and **Workflow Validation**. It
+  does not replace **Init** or own Plan lifecycle state.
 - One **Attached Workflow** governs one user request inside one **External Agent Host**.
 - During an **Attached Workflow**, the **External Agent Host** owns model calls while RunWield owns durable workflow
   truth, review, validation, recovery evidence, Work Records, and organizational memory.

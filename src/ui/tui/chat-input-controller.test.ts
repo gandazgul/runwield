@@ -767,6 +767,33 @@ function createControllerHarness(runtimeOverrides: Record<string, unknown> = {})
     return { controller, editor, pastedImages, previewImages, messages, runtime };
 }
 
+Deno.test("chat input controller submits tutorial discovery as a normal Planner turn", async () => {
+    let submitted: Record<string, unknown> | null = null;
+    const { controller } = createControllerHarness({
+        promptUserTurn: (_sessionId: string, options: Record<string, unknown>) => {
+            submitted = options;
+            return Promise.resolve({ ok: true, turns: 1 });
+        },
+    });
+    const context = {
+        version: 1 as const,
+        guidanceEnabled: true,
+        shownExplanationIds: ["choose-improvement"],
+        recapShown: false,
+        planId: null,
+    };
+
+    await controller.submitTutorialRequest("Choose one small change.", context);
+
+    assertEquals(submitted, {
+        initialRequest: "Choose one small change.",
+        initialImages: [],
+        preparedModelOverride: undefined,
+        agentName: "planner",
+        initialTutorialContext: context,
+    });
+});
+
 Deno.test("chat input controller restores exact draft and previews after image preflight rejection", async () => {
     let promptCalled = false;
     const { editor, pastedImages, previewImages, messages } = createControllerHarness({

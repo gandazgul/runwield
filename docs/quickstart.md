@@ -114,6 +114,27 @@ This bootstraps durable RunWield context:
 
 You can also run `/init` inside an interactive session.
 
+## Guided first change
+
+On the first eligible TUI startup, RunWield offers an optional Tutorial after model setup and the Init decision. It
+shows the current project path and warns that the Tutorial will edit the real project and use the configured model.
+Nothing starts until you select **Start tutorial**.
+
+The Tutorial helps you choose one small improvement, review the real Plan, and follow implementation, project checks, AI
+review, optional Code Review, and delivery. It uses the normal workflow and approvals.
+
+Select **Skip** or cancel the offer to hide automatic offers permanently across projects. You can still start it at any
+time:
+
+```bash
+wld onboard
+```
+
+Inside the TUI, use `/onboard`. At the Plan Review teaching checkpoint, you can continue the Tutorial, continue the
+workflow without Tutorial guidance, or pause by requesting normal Escape cancellation. A saved Session offers to restore
+guidance when you resume it. Guidance state also follows the Session when execution or repair starts a new transcript
+segment. Tutorial guidance is TUI-only; Plan Review and Code Review continue to use the normal browser pages.
+
 ## First routed request
 
 Send a request from the command line:
@@ -157,6 +178,7 @@ wld login                           # configure credentials and choose a default
 wld plans                           # list saved plans
 wld load-plan <name-or-path>        # review, execute, or continue a plan
 wld init                            # bootstrap project context
+wld onboard                         # guide one real first change
 wld theme --list                    # list themes
 wld help
 wld help <command>
