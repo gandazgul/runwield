@@ -18,6 +18,7 @@ order: 7
 dependencies:
     - "06-package-executable-approval-and-metrics-exporter-kind"
 targetBranch: "epic/reliable-usage-dashboard-and-langfuse-export"
+planId: "16c4a0b1-b5a1-4178-ac5b-43b7e795c5a7"
 ---
 
 # Core Export Coordination and Delivery States
