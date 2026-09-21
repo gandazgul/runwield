@@ -32,6 +32,9 @@ src/shared/version.js
 
 demo-media/
 
+# Legacy runtime records retained until migration.
+/.wld/controller/
+
 # BEGIN RunWield owned runtime state
 .wld/internal/
 .wld/plan-staging/
