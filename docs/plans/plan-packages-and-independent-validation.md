@@ -21,11 +21,10 @@ affectedPaths:
     - "docs/domain-language.md"
     - "docs/prd/runwield-core-prd.md"
     - "docs/prd/runwield-workspace-prd.md"
-devServerCommand: null
-devServerUrl: null
-devServerHmr: null
 createdAt: "2026-08-14T00:11:43-04:00"
-status: "draft"
+origin: "internal"
+userVerifiedAt: null
+status: "ready_for_work"
 ---
 
 # Plan Packages and Independent Validation

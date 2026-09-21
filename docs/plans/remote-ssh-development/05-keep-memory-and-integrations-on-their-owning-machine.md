@@ -21,6 +21,7 @@ order: 5
 dependencies:
     - "04-run-and-resume-remote-sessions-with-local-history"
 targetBranch: "epic/remote-ssh-development"
+planId: "c6ff0ec0-9d59-47dd-8232-3e853119a30f"
 ---
 
 # Keep Memory and Integrations on Their Owning Machine

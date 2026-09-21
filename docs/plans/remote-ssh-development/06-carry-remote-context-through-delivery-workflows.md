@@ -22,6 +22,7 @@ dependencies:
     - "04-run-and-resume-remote-sessions-with-local-history"
     - "05-keep-memory-and-integrations-on-their-owning-machine"
 targetBranch: "epic/remote-ssh-development"
+planId: "fca9ebb0-e78c-4f04-ba12-2cbd7ded93b8"
 ---
 
 # Carry Remote Context Through Delivery Workflows

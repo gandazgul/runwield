@@ -28,6 +28,7 @@ dependencies:
     - "06-carry-remote-context-through-delivery-workflows"
     - "07-open-remote-reviews-in-the-local-browser"
 targetBranch: "epic/remote-ssh-development"
+planId: "a65417c5-35b5-4192-9355-c5000440568f"
 ---
 
 # Package and Qualify Remote SSH Support

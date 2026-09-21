@@ -36,7 +36,7 @@ I would order the overlapping group like this:
 
 8. simplify-validation-and-lifecycle-messages.md Better after the error/repair model is stable. - done
 
-9. plan-packages-and-independent-validation.md
+9. plan-packages-and-independent-validation.md - in progress
 
 10. plan-package-frontend-experience-planning.md
 

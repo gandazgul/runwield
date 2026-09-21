@@ -1,4 +1,5 @@
 ---
+planId: "97f595e7-14cc-47da-998e-a601f2040d5e"
 classification: "PROJECT"
 complexity: "HIGH"
 affectedPaths:
@@ -16,8 +17,9 @@ devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://127.0.0.1:5173"
 devServerHmr: true
 createdAt: "2026-09-20T01:12:35-04:00"
-status: "draft"
-planId: "97f595e7-14cc-47da-998e-a601f2040d5e"
+origin: "internal"
+userVerifiedAt: null
+status: "ready_for_work"
 ---
 
 # Reliable Usage, Workspace Dashboard, and Langfuse Export

@@ -21,6 +21,7 @@ order: 2
 dependencies:
     - "01-establish-the-remote-connection-and-matched-runtime"
 targetBranch: "epic/remote-ssh-development"
+planId: "a987b089-d345-4a3e-a882-905d86620a43"
 ---
 
 # Bridge Local Models and Personal Resources

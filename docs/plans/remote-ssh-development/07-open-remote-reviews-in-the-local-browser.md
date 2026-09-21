@@ -21,6 +21,7 @@ dependencies:
     - "01-establish-the-remote-connection-and-matched-runtime"
     - "06-carry-remote-context-through-delivery-workflows"
 targetBranch: "epic/remote-ssh-development"
+planId: "8b3db8e1-34fd-4a8d-9c06-07611d132802"
 ---
 
 # Open Remote Reviews in the Local Browser

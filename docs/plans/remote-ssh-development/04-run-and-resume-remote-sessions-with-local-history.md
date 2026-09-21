@@ -23,6 +23,7 @@ dependencies:
     - "02-bridge-local-models-and-personal-resources"
     - "03-guard-remote-session-writer-access"
 targetBranch: "epic/remote-ssh-development"
+planId: "ec285d14-a71f-464c-a934-47c209958966"
 ---
 
 # Run and Resume Remote Sessions with Local History
