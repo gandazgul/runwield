@@ -829,15 +829,22 @@ does not grant authority to change workflow-owned Plans, ADRs, or Work Records.
 
 **Skills and integrations.**
 
-Core supports layered Skill discovery:
+Core uses one Skill catalog for listing, model advertising, and invocation. It selects skills in this order:
 
-1. local project skills
-2. home skills
-3. bundled skills
-4. external-compatible skills
+1. project `.wld/skills`
+2. project `.agents/skills`
+3. home `~/.wld/skills`
+4. home `~/.agents/skills`
+5. bundled skills
 
-Slash-command skill invocation injects full Skill instructions only when needed. Built-in command names and aliases take
-precedence over prompt templates and Skills on all surfaces, including built-ins unavailable on that surface.
+Skills in either `.agents` folder cannot use a bundled published name or directory alias. Project and home `.wld` skills
+can intentionally replace bundled skills. When external skills are disabled, Core omits both `.agents` folders and uses
+project `.wld`, home `.wld`, then bundled skills. Pi-discovered, configured, extension, and package skills do not form a
+second catalog.
+
+Slash-command skill invocation injects full Skill instructions only when needed and does not change the Agent profile.
+Built-in command names and aliases take precedence over prompt templates and Skills on all surfaces, including built-ins
+unavailable on that surface.
 
 Engineer can ask structured questions with `user_interview` and drives the bundled `/release` prompt. Release choices
 use the current client's structured question interface where supported, including Workspace, before any release
@@ -852,6 +859,13 @@ Configuration and loading details belong in [customization documentation](../cus
   required workflow capabilities remain available.
 - When a user invokes a Skill, its full instructions are available for that task without requiring every Skill or
   optional integration in every prompt.
+- Given a non-bundled Skill in project `.agents/skills`, listing, model advertising, and invocation select that project
+  file before home customization.
+- Given an `.agents` Skill whose published name or directory alias conflicts with a bundled Skill, listing, model
+  advertising, and invocation exclude the external copy. A project or home `.wld` Skill with that name can intentionally
+  replace the bundled Skill.
+- When `enableExternalSkills` is false, neither `.agents` folder participates, while project and home `.wld` Skills and
+  bundled Skills remain available.
 - Invoking `/release` from a Router Session presents the release-operation choices as a structured interview on clients
   that support forms; canceling the interview does not start a release.
 
