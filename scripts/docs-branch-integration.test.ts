@@ -265,6 +265,59 @@ exec "$REAL_GIT" "$@"
     }
 });
 
+Deno.test("docs branch preserves corrections across divergent Stable release branches", async () => {
+    const root = await Deno.makeTempDir();
+    const remote = join(root, "remote.git");
+    const work = join(root, "work");
+    try {
+        await run(root, "git", "init", "--bare", remote);
+        await run(root, "git", "clone", remote, work);
+        await run(work, "git", "config", "user.name", "Test");
+        await run(work, "git", "config", "user.email", "test@example.com");
+        await run(work, "git", "checkout", "-b", "main");
+        await write(join(work, "docs", "index.md"), "# Base guide\n");
+        await write(join(work, "docs-site", "release.json"), '{"version":"Preview","sourceRef":"main"}\n');
+        await write(join(work, "src", "product.ts"), "export const product = 'BASE';\n");
+        await run(work, "git", "add", ".");
+        await run(work, "git", "commit", "-m", "Shared base");
+        const baseSha = await run(work, "git", "rev-parse", "HEAD");
+
+        await run(work, "git", "checkout", "-b", "release-a");
+        await write(join(work, "src", "product.ts"), "export const product = 'STABLE-A';\n");
+        await write(
+            join(work, "docs-site", "release.json"),
+            '{"version":"v1.0.0","sourceRef":"v1.0.0"}\n',
+        );
+        await run(work, "git", "add", ".");
+        await run(work, "git", "commit", "-m", "Stable A");
+        await run(work, "git", "tag", "v1.0.0");
+        await run(work, "git", "checkout", "-b", "docs/stable");
+        await write(join(work, "docs", "index.md"), "# Corrected guide\n");
+        await run(work, "git", "add", "docs/index.md");
+        await run(work, "git", "commit", "-m", "Correct Stable A docs");
+        const previousDocsTip = await run(work, "git", "rev-parse", "HEAD");
+        await run(work, "git", "push", "origin", "HEAD:docs/stable", "--tags");
+
+        await run(work, "git", "checkout", "-B", "main", baseSha);
+        await write(join(work, "src", "product.ts"), "export const product = 'STABLE-B';\n");
+        await run(work, "git", "add", "src/product.ts");
+        await run(work, "git", "commit", "-m", "Stable B");
+        await run(work, "git", "tag", "v1.0.1");
+        await run(work, "git", "push", "origin", "main", "--tags");
+        const stableBSha = await run(work, "git", "rev-parse", "HEAD");
+
+        await run(work, "bash", reconcileScript, "v1.0.1", "false", stableBSha);
+
+        assertStringIncludes(await Deno.readTextFile(join(work, "src", "product.ts")), "STABLE-B");
+        assertStringIncludes(await Deno.readTextFile(join(work, "docs", "index.md")), "Corrected guide");
+        assertEquals(JSON.parse(await Deno.readTextFile(join(work, "docs-site", "release.json"))).version, "v1.0.1");
+        await run(work, "git", "merge-base", "--is-ancestor", previousDocsTip, "HEAD");
+        await run(work, "git", "merge-base", "--is-ancestor", "v1.0.1", "HEAD");
+    } finally {
+        await Deno.remove(root, { recursive: true });
+    }
+});
+
 Deno.test("docs source validation rejects stale and product-changing commits", async () => {
     const root = await Deno.makeTempDir();
     const remote = join(root, "remote.git");

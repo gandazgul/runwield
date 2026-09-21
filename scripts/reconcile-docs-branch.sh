@@ -10,8 +10,28 @@ git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 git fetch origin "refs/tags/$tag:refs/tags/$tag"
 if git ls-remote --exit-code --heads origin docs/stable >/dev/null 2>&1; then
   git fetch origin docs/stable:refs/remotes/origin/docs/stable
+  previous_tag=$(
+    git show refs/remotes/origin/docs/stable:docs-site/release.json |
+      deno eval '
+const release = JSON.parse(await new Response(Deno.stdin.readable).text());
+if (typeof release.version !== "string" || !/^v\d+\.\d+\.\d+$/.test(release.version)) {
+  throw new Error("docs/stable has no valid Stable version");
+}
+console.log(release.version);
+'
+  )
+  git fetch origin "refs/tags/$previous_tag:refs/tags/$previous_tag"
+  git merge-base --is-ancestor "$previous_tag" refs/remotes/origin/docs/stable
   git checkout -B docs-update "$tag"
-  git merge --no-edit refs/remotes/origin/docs/stable
+  if ! merge_output=$(git merge-tree --write-tree --merge-base "$previous_tag" "$tag" refs/remotes/origin/docs/stable); then
+    printf '%s\n' "$merge_output" >&2
+    exit 1
+  fi
+  merge_tree=$(printf '%s\n' "$merge_output" | head -n 1)
+  release_parent=$(git rev-parse "$tag^{commit}")
+  docs_parent=$(git rev-parse refs/remotes/origin/docs/stable)
+  merge_commit=$(printf 'Merge docs/stable into %s\n' "$tag" | git commit-tree "$merge_tree" -p "$release_parent" -p "$docs_parent")
+  git reset --hard "$merge_commit"
 else
   test "$bootstrap" = "true" || {
     echo "docs/stable does not exist; run the manual workflow with bootstrap=true" >&2
