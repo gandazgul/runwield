@@ -1,4 +1,4 @@
-import { assert, assertEquals, assertExists, assertStringIncludes } from "@std/assert";
+import { assert, assertEquals, assertExists } from "@std/assert";
 import { dirname, fromFileUrl, join } from "@std/path";
 import { getRunWieldRuntimeDir, PLAN_STAGING_DIR_NAME } from "../../constants.js";
 import { resolveProjectRuntimeLayout } from "../project-runtime-layout.ts";
@@ -286,7 +286,7 @@ Deno.test("publication failure and recovery matrix uses real Git and fresh proce
         }
     });
 
-    await test.step("a saved legacy publication checkout refuses runtime entry", async () => {
+    await test.step("a saved legacy publication checkout resumes after runtime migration", async () => {
         const fixture = await makeFixture("legacy-saved-repair");
         try {
             await Deno.writeTextFile(`${fixture.projectRoot}/conflict.txt`, "base\n");
@@ -344,12 +344,16 @@ Deno.test("publication failure and recovery matrix uses real Git and fresh proce
             await Deno.remove(layout.primary.internalRoot, { recursive: true });
 
             const retry = await runDriver(fixture.configPath);
-            assertEquals(retry.code, 1);
-            assertStringIncludes(retry.stderr, "ProjectRuntimeEntryRefusedError");
-            assertStringIncludes(retry.stderr, "A publication repair root exists");
-            assertStringIncludes(retry.stderr, legacyRoot);
+            assertEquals(retry.code, 0, retry.stderr);
+            await assertPublishedOnce(fixture);
+            assertEquals(
+                await git(fixture.projectRoot, ["show", "origin/main:conflict.txt"]),
+                "resolved legacy",
+            );
+            await git(fixture.projectRoot, ["merge-base", "--is-ancestor", executionCommit, "origin/main"]);
             assertEquals(await Deno.stat(internalRoot).then(() => true).catch(() => false), false);
-            assert((await Deno.stat(legacyRoot)).isDirectory);
+            assertEquals(await Deno.stat(legacyRoot).then(() => true).catch(() => false), false);
+            assertEquals(await Deno.stat(legacyRegistryPath).then(() => true).catch(() => false), false);
         } finally {
             await dispose(fixture);
         }
