@@ -1068,8 +1068,11 @@ Open product questions:
   migration, ignore writes, controller imports, catalog backfills, journal cleanup, or project-local Git fetches.
 - Given the same eligible state, when Doctor repairs it, guarded Project Runtime Entry adopts it once before normal
   diagnostics run.
-- Given an unsafe 0.10 layout, unfinished publication, or saved repair, when Doctor checks or repairs, it stops,
-  preserves all named paths, and explains how to finish or deliberately abandon the 0.10 work.
+- Given unfinished 0.10 publication or a saved repair, project entry adopts the bookkeeping without moving publication
+  copies, changing their receipts, or discarding repairs. Load Plan opens normally and publication can resume. Retained
+  staging copies remain Git-ignored. Checking with Doctor stays read-only and reports pending adoption.
+- Given an unsafe 0.10 layout, when Doctor checks or repairs, it preserves all named paths and explains the specific
+  conflict. Unfinished publication alone is not an unsafe layout.
 - Given a repository with ordinary file or directory symlinks, when Core publishes and retries delivery, it preserves
   the links as Git content and still rejects symlinked runtime roots or publication checkout boundaries.
 - Given one legacy project collaboration secret in a linked checkout, when Core enters that checkout, it adopts the

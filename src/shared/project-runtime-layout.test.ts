@@ -470,18 +470,19 @@ Deno.test("legacy migration does not block on unrelated user symlinks under .wld
     }
 });
 
-Deno.test("legacy migration blocks orphan publication staging", async () => {
+Deno.test("legacy migration preserves orphan publication staging without blocking entry", async () => {
     const project = await makeMigrationProject();
     try {
         const stagingPath = join(getRunWieldRuntimeDir(project.primaryRoot), "plan-staging", "orphan", "receipt.json");
         await writeText(stagingPath, "receipt\n");
 
         const result = await migrateLegacyProjectRuntimeState(project.selectedRoot);
-        if (result.kind !== "blocked") throw new Error(`Expected blocked, got ${result.kind}`);
-        assertEquals(result.reason, "unfinished_publication");
-        assert(result.paths.includes(join(getRunWieldRuntimeDir(project.primaryRoot), "plan-staging", "orphan")));
+        if (result.kind !== "ready") throw new Error(`Expected ready, got ${result.kind}`);
         assertEquals(await Deno.readTextFile(stagingPath), "receipt\n");
-        await assertMissing(resolveProjectRuntimeLayout(project.selectedRoot).primary.internalRoot);
+        await assertMissing(resolveProjectRuntimeLayout(project.selectedRoot).primary.publicationStagingRoot);
+        const repeated = await migrateLegacyProjectRuntimeState(project.selectedRoot);
+        assertEquals(repeated.kind, "ready");
+        assertEquals(await Deno.readTextFile(stagingPath), "receipt\n");
     } finally {
         await project.cleanup();
     }
@@ -528,7 +529,7 @@ Deno.test("legacy migration classifies current secret files and temps as tracked
     }
 });
 
-Deno.test("legacy migration blocks publication state until cleanup is complete", async () => {
+Deno.test("legacy migration preserves unfinished publication and repair receipts", async () => {
     await withProcessGlobalTestLock(async () => {
         const originalSandboxHome = Deno.env.get("WLD_TEST_SANDBOX_HOME");
         try {
@@ -563,10 +564,6 @@ Deno.test("legacy migration blocks publication state until cleanup is complete",
                     }),
                 );
 
-                const blocked = await migrateLegacyProjectRuntimeState(unfinished.selectedRoot);
-                if (blocked.kind !== "blocked") throw new Error(`Expected blocked, got ${blocked.kind}`);
-                assertEquals(blocked.reason, "unfinished_publication");
-
                 const repaired = recordPublicationFailure(candidate, {
                     kind: "needs_repair",
                     message: "repair",
@@ -588,9 +585,15 @@ Deno.test("legacy migration blocks publication state until cleanup is complete",
                         }],
                     }),
                 );
-                const repairBlocked = await migrateLegacyProjectRuntimeState(unfinished.selectedRoot);
-                if (repairBlocked.kind !== "blocked") throw new Error(`Expected blocked, got ${repairBlocked.kind}`);
-                assertEquals(repairBlocked.reason, "saved_repair_root");
+                const repairFile = join(repaired.publicationRoot, "resolution.txt");
+                await writeText(repairFile, "Keep the Engineer's resolution\n");
+                const ready = await migrateLegacyProjectRuntimeState(unfinished.selectedRoot);
+                if (ready.kind !== "ready") throw new Error(`Expected ready, got ${ready.kind}`);
+                const migrated = JSON.parse(await Deno.readTextFile(ready.layout.primary.worktreeRegistryPath));
+                assertEquals(migrated.entries[0].publication, repaired);
+                assertEquals(await Deno.readTextFile(repairFile), "Keep the Engineer's resolution\n");
+                await assertMissing(join(getRunWieldRuntimeDir(unfinished.primaryRoot), "worktrees.json"));
+                assertEquals((await migrateLegacyProjectRuntimeState(unfinished.selectedRoot)).kind, "ready");
                 assertEquals(
                     repaired.failure?.repairRoot,
                     join(getRunWieldRuntimeDir(unfinished.primaryRoot), "plan-staging", unfinished.registryEntry.id),
@@ -1064,13 +1067,48 @@ Deno.test("legacy migration rejects an old journaled project-local worktree rena
     }
 });
 
-Deno.test("legacy migration rejects hidden publication staging entries", async () => {
+Deno.test("legacy migration resumes RC.1 empty staging rename journals", async () => {
+    const project = await makeMigrationProject();
+    try {
+        const layout = resolveProjectRuntimeLayout(project.selectedRoot);
+        const source = join(getRunWieldRuntimeDir(project.primaryRoot), "plan-staging");
+        await Deno.mkdir(source, { recursive: true });
+        await writeText(
+            layout.primary.layoutMigrationJournalPath,
+            JSON.stringify({
+                version: 1,
+                primaryCheckoutRoot: project.primaryRoot,
+                selectedCheckoutRoots: [project.primaryRoot, project.selectedRoot].sort(),
+                operations: [{
+                    action: "rename",
+                    source,
+                    destination: layout.primary.publicationStagingRoot,
+                    kind: "directory",
+                    completed: false,
+                }],
+                updatedAt: "2026-01-01T00:00:00.000Z",
+            }),
+        );
+        const result = await migrateLegacyProjectRuntimeState(project.selectedRoot);
+        assertEquals(result.kind, "ready");
+        await Deno.stat(layout.primary.publicationStagingRoot);
+        await assertMissing(source);
+        await assertMissing(layout.primary.layoutMigrationJournalPath);
+    } finally {
+        await project.cleanup();
+    }
+});
+
+Deno.test("legacy migration preserves hidden publication staging entries", async () => {
     const project = await makeMigrationProject();
     try {
         await writeText(join(getRunWieldRuntimeDir(project.primaryRoot), "plan-staging", ".hidden"), "x\n");
         const result = await migrateLegacyProjectRuntimeState(project.selectedRoot);
-        if (result.kind !== "blocked") throw new Error(`Expected blocked, got ${result.kind}`);
-        assertEquals(result.reason, "unfinished_publication");
+        if (result.kind !== "ready") throw new Error(`Expected ready, got ${result.kind}`);
+        assertEquals(
+            await Deno.readTextFile(join(getRunWieldRuntimeDir(project.primaryRoot), "plan-staging", ".hidden")),
+            "x\n",
+        );
     } finally {
         await project.cleanup();
     }

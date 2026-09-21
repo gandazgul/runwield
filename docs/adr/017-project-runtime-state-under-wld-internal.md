@@ -78,9 +78,11 @@ other legacy lock is tested with its real protocol: a persistent controller lock
 while registry, Plan, and Work Record locks retain their existing ownership and stale recovery rules. A proven live
 writer causes a safe stop. Readers reject a layout marker newer than they understand.
 
-An unfinished publication or merge-repair record blocks migration before any files move. The user must finish or cancel
-that recovery with the 0.10 RunWield version that created it and then retry the upgrade. This case is intentionally not
-translated: validated unpublished work is more important than an automatic upgrade.
+Unfinished publication and merge-repair records migrate with the registry without changing their recorded checkout
+paths. Existing publication copies remain where they are, including uncommitted repairs. Loading a Plan can therefore
+resume publication after upgrading; migration neither publishes nor cleans up those copies. New attempts use the
+internal staging root. Unclaimed legacy staging files are preserved, not treated as a reason to block project entry.
+Retained copies are payload, not a second registry authority.
 
 Project collaboration secrets move only after Git tracking, symlink, source, and destination conflicts are checked.
 Migration discovers the old project-local store in the primary and selected checkouts and moves one source to the
@@ -98,13 +100,14 @@ The current runtime classifier owns `.wld/internal/` and all descendants. Git st
 and cleanup use that boundary.
 
 A separate legacy-safety classifier continues to recognize known 0.10 runtime paths. It exists only to migrate old
-state, prevent accidental commits, and report unsupported old-writer activity. No normal runtime owner reads or writes a
-legacy path.
+state, prevent accidental commits, and report unsupported old-writer activity. Normal runtime stores use the internal
+root; publication alone can resume an existing checkout at the absolute path in its migrated receipt.
 
 Gitignore reconciliation replaces managed legacy blocks, removes exact obsolete RunWield runtime lines and duplicates,
-and emits the single canonical block. It preserves unrelated user content. A broad user rule such as `.wld/` is not
-removed automatically because RunWield cannot know the user's intent; RunWield reports that the rule also hides
-trackable project configuration.
+and emits the canonical block. While a legacy `.wld/plan-staging/` directory remains, the block also ignores that path
+so retained repositories cannot be accidentally staged. It preserves unrelated user content. A broad user rule such as
+`.wld/` is not removed automatically because RunWield cannot know the user's intent; RunWield reports that the rule also
+hides trackable project configuration.
 
 Tracked legacy runtime files require explicit repository cleanup. RunWield does not silently rewrite repository history
 or claim that `.gitignore` can untrack files. Secrets already committed to Git cause a security warning and require
@@ -115,8 +118,8 @@ credential or capability rotation as applicable.
 - A new project runtime capability can stay Git-safe by storing its data under one reserved root.
 - Users can commit project settings, Agents, Skills, and prompts without maintaining an exception list.
 - Runtime owners retain their current primary-checkout or selected-checkout semantics.
-- Upgrade is automatic for normal inactive projects and safely stops for unfinished publication recovery or conflicting
-  authorities.
+- Upgrade is automatic for inactive projects, including unfinished publication and repair. It safely stops for live
+  older writers, malformed evidence, or conflicting authorities.
 - Downgrade after adoption is unsupported. A 0.10 binary can recreate legacy state, but 0.11 treats that state as a
   conflict or migration hazard rather than a second authority.
 - A populated project-local fallback worktree directory is preserved and blocks adoption. RunWield does not move its Git
