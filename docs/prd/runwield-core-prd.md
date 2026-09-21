@@ -835,6 +835,10 @@ Core supports layered Skill discovery:
 Slash-command skill invocation injects full Skill instructions only when needed. Built-in command names and aliases take
 precedence over prompt templates and Skills on all surfaces, including built-ins unavailable on that surface.
 
+Engineer can ask structured questions with `user_interview` and drives the bundled `/release` prompt. Release choices
+use the current client's structured question interface where supported, including Workspace, before any release
+commands.
+
 CLI tools remain preferred for many integrations. MCP is optional and should not add unused prompt context.
 Configuration and loading details belong in [customization documentation](../customization.md).
 
@@ -844,6 +848,8 @@ Configuration and loading details belong in [customization documentation](../cus
   required workflow capabilities remain available.
 - When a user invokes a Skill, its full instructions are available for that task without requiring every Skill or
   optional integration in every prompt.
+- Invoking `/release` from a Router Session presents the release-operation choices as a structured interview on clients
+  that support forms; canceling the interview does not start a release.
 
 <a id="8-models-and-providers"></a>
 
