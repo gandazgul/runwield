@@ -21,6 +21,7 @@ import { SessionRuntime } from "../session/session-runtime.js";
 import { RuntimeEventTypes } from "../session/session-runtime-events.js";
 import { openOwnerCoordinationStore } from "../owner-coordination/index.js";
 import type { RuntimeInteractionRequest, RuntimeInteractionResponse } from "../session/session-runtime-interactions.js";
+import { loadPlanActionEvidence } from "./plan-actions.ts";
 import { executePlan, executePreparedPlanSegmentHandoff } from "./plan-executor.ts";
 import { buildExecutionSegmentContinuation } from "./execution-segment-handoff.ts";
 
@@ -260,18 +261,16 @@ Deno.test("Plan Engineer reaches a real Pair checkpoint through production dispa
             (context: Context) => {
                 captureTurn(fixture, context);
                 return fauxAssistantMessage(
-                    fauxToolCall("pair_checkpoint", { summary: "Retry policy now drops duplicate writes." }),
-                );
-            },
-            (context: Context) => {
-                captureTurn(fixture, context);
-                return fauxAssistantMessage(
-                    fauxToolCall("task_completed", { message: "- Implemented the Plan.\n- Verified the Plan." }),
+                    fauxToolCall("pair_checkpoint", {
+                        action: "report",
+                        summary: "Retry policy now drops duplicate writes.",
+                    }),
                 );
             },
         ]);
 
         try {
+            fixture.hostedSession.beginTurn("production-pair-report");
             const result = await executePlan({
                 planName: "paired-feature",
                 triageMeta: { classification: "PLANNED_CHANGE" },
@@ -283,16 +282,153 @@ Deno.test("Plan Engineer reaches a real Pair checkpoint through production dispa
             assertEquals(fixture.turns[0]?.agentName, "plan-engineer");
             assertEquals(fixture.turns[0]?.toolNames.includes("pair_checkpoint"), true);
             assertEquals(fixture.turns[0]?.toolNames.includes("record_plan_deviation"), true);
-            assertEquals(checkpointRequests.map((request) => request.type), ["pair_checkpoint", "pair_checkpoint"]);
-            assertEquals(checkpointRequests[1]?._meta?.finalCompletion, true);
+            assertEquals(checkpointRequests, []);
             assertEquals(result.executionContext?.collaborationStyle, "pair");
             assertEquals(result.executionContext?.executionAgent, "engineer");
-            assertEquals(result.executionComplete, true);
+            assertEquals(result.executionComplete, false);
+            assertEquals(result.checkpointPending, true);
             assertEquals((await loadPlan(projectRoot, "paired-feature"))?.attrs.executionAgent, "engineer");
         } finally {
             fixture.hostedSession.dispose();
         }
     });
+});
+
+Deno.test("managed Pair discussion restores the owner, tool, cwd, and checkpoint context", async () => {
+    await withRuntimeCommandFixture(
+        "plan-boundaries-managed-pair-",
+        async ({ projectRoot, setModelResponseFactories }) => {
+            await initializeGitProject(projectRoot);
+            await saveExecutablePlan(projectRoot, "managed-pair", { collaborationRecommendation: "pair" });
+            const managedPlan = await loadPlan(projectRoot, "managed-pair");
+            if (!managedPlan) throw new Error("Expected managed Pair Plan");
+            const approvalEvidence = await loadPlanActionEvidence(projectRoot, String(managedPlan.attrs.planId));
+            if (approvalEvidence.kind !== "success") throw new Error(approvalEvidence.message);
+            const sessionHost = new SessionHost();
+            const runtime = makeRuntime(sessionHost);
+            const sessionId = await runtime.createPromptReadySession({ cwd: projectRoot, agentName: "router" });
+            let activeRuntime = runtime;
+            let activeSessionId = sessionId;
+            let reloadedRuntime: SessionRuntime | null = null;
+            runtime.setInteractionAdapter(sessionId, {
+                supportsInteraction: () => false,
+                requestInteraction: () => ({ outcome: "unsupported" }),
+            });
+            const turns: CapturedTurn[] = [];
+            let firstCheckpointId = "";
+            setModelResponseFactories([
+                (context: Context) => {
+                    turns.push({
+                        agentName: activeRuntime.getSessionSnapshot(activeSessionId)?.activeAgent || null,
+                        systemPrompt: context.systemPrompt || "",
+                        toolNames: (context.tools || []).map((tool) => tool.name),
+                    });
+                    return fauxAssistantMessage(fauxToolCall("pair_checkpoint", {
+                        action: "report",
+                        summary: "Managed increment is ready.",
+                    }));
+                },
+                () => fauxAssistantMessage(fauxText(`The increment is isolated. ${"Pair discussion. ".repeat(6000)}`)),
+                () => fauxAssistantMessage(fauxText("Compacted Pair checkpoint context.")),
+                () => fauxAssistantMessage(fauxText("Compacted Pair turn prefix.")),
+                (context: Context) => {
+                    turns.push({
+                        agentName: activeRuntime.getSessionSnapshot(activeSessionId)?.activeAgent || null,
+                        systemPrompt: context.systemPrompt || "",
+                        toolNames: (context.tools || []).map((tool) => tool.name),
+                    });
+                    const match = context.systemPrompt?.match(/Checkpoint ID: ([^\n]+)/);
+                    firstCheckpointId = match?.[1] || "";
+                    return fauxAssistantMessage(fauxText("The increment changes only the managed fixture."));
+                },
+                (context: Context) => {
+                    turns.push({
+                        agentName: activeRuntime.getSessionSnapshot(activeSessionId)?.activeAgent || null,
+                        systemPrompt: context.systemPrompt || "",
+                        toolNames: (context.tools || []).map((tool) => tool.name),
+                    });
+                    return fauxAssistantMessage(fauxToolCall("pair_checkpoint", {
+                        action: "resolve",
+                        checkpointId: firstCheckpointId,
+                        decision: "continue",
+                    }));
+                },
+                () =>
+                    fauxAssistantMessage(fauxToolCall("pair_checkpoint", {
+                        action: "report",
+                        summary: "The next managed increment is ready.",
+                    })),
+            ]);
+
+            try {
+                sessionHost.requireSession(sessionId).beginTurn("managed-pair-report-turn");
+                const execution = await runtime.executePlan(sessionId, {
+                    planName: "managed-pair",
+                    triageMeta: {
+                        ...managedPlan.attrs,
+                        revision: approvalEvidence.evidence.revision,
+                        status: approvalEvidence.evidence.status,
+                        worktree: approvalEvidence.evidence.worktree,
+                    },
+                });
+                assertEquals(execution.executionComplete, false);
+                assertEquals(
+                    await runtime.promptUserTurn(sessionId, {
+                        initialRequest: "Is this increment isolated?",
+                    }).then((result) => result.ok),
+                    true,
+                );
+                const compaction = await runtime.compactSession(sessionId);
+                assertEquals(compaction.error, undefined);
+                const sessionInfo = await runtime.getSessionInfo(sessionId) as {
+                    persistedId: string;
+                    file: string;
+                };
+                await runtime.closeAllSessionsWhenIdle?.();
+                reloadedRuntime = makeRuntime(new SessionHost());
+                const loaded = await reloadedRuntime.loadSession({
+                    cwd: projectRoot,
+                    sessionId: sessionInfo.persistedId,
+                    sessionPath: sessionInfo.file,
+                });
+                reloadedRuntime.setInteractionAdapter(loaded.sessionId, {
+                    supportsInteraction: () => false,
+                    requestInteraction: () => ({ outcome: "unsupported" }),
+                });
+                activeRuntime = reloadedRuntime;
+                activeSessionId = loaded.sessionId;
+                assertEquals(
+                    await reloadedRuntime.promptUserTurn(loaded.sessionId, {
+                        initialRequest: "What changed in this increment?",
+                    }).then((result) => result.ok),
+                    true,
+                );
+                assertEquals(
+                    await reloadedRuntime.promptUserTurn(loaded.sessionId, {
+                        initialRequest: "Looks good. Continue to the next increment.",
+                    }).then((result) => result.ok),
+                    true,
+                );
+
+                assert(firstCheckpointId);
+                assertEquals(turns.length, 3);
+                for (const turn of turns) {
+                    assertEquals(turn.agentName, "plan-engineer");
+                    assertEquals(turn.toolNames.includes("pair_checkpoint"), true);
+                }
+                assertStringIncludes(turns[1].systemPrompt, "Managed increment is ready.");
+                assertStringIncludes(turns[1].systemPrompt, firstCheckpointId);
+                assertEquals(
+                    activeRuntime.getSessionSnapshot(activeSessionId)?.cwd,
+                    execution.executionContext?.executionCwd,
+                );
+                assertEquals(activeRuntime.getRuntimeActiveExecutionWorkflow(activeSessionId)?.pairCheckpointCount, 2);
+            } finally {
+                await reloadedRuntime?.closeAllSessionsWhenIdle?.();
+                await runtime.closeAllSessionsWhenIdle?.();
+            }
+        },
+    );
 });
 
 /** A SessionRuntime over a real SessionHost and coordination store. */

@@ -46,6 +46,8 @@ export interface PlanExecutionResult {
     repairRequired: boolean;
     executionComplete: boolean;
     paused?: boolean;
+    checkpointPending?: boolean;
+    checkpointId?: string;
     canceled?: boolean;
     intentionalComplete?: boolean;
     intentionalCompleteReason?: string;
@@ -613,6 +615,9 @@ export async function executeSingleEngineerPlan(
             repairRequired: false,
             executionComplete: false,
             ...(executionContext ? { executionContext } : {}),
+            ...(engineerResult.checkpointPending
+                ? { checkpointPending: true, checkpointId: engineerResult.checkpointId }
+                : {}),
             ...(engineerResult.paused ? { paused: true, pauseReason: engineerResult.pauseReason } : {}),
             ...(engineerResult.error ? { error: engineerResult.error } : {}),
         };
@@ -728,6 +733,9 @@ export async function executePreparedPlanSegmentHandoff({
             repairRequired: false,
             executionComplete: false,
             executionContext: workflow,
+            ...(engineerResult.checkpointPending
+                ? { checkpointPending: true, checkpointId: engineerResult.checkpointId }
+                : {}),
             ...(engineerResult.paused ? { paused: true, pauseReason: engineerResult.pauseReason } : {}),
             ...(engineerResult.error ? { error: engineerResult.error } : {}),
         };

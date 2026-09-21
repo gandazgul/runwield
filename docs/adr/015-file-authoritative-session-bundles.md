@@ -98,6 +98,12 @@ the same running agent. The socket closes with the operation; it stores no conve
 run as the same OS user on the same machine or inside the same container. File projection supplies saved history; the
 socket supplies live activity.
 
+Pair Execution is different from a live pending question. Typed checkpoint report, resolution, and clear records are
+stored in the Session JSONL and tied to one workflow attempt. After turn settlement, reload, or compaction, Core
+restores the current checkpoint plus its execution owner, working directory, tools, and attempt before root activation.
+A later accepted user turn can resolve it. Same-turn output, generated continuation, quoted text, and stale attempts
+cannot.
+
 Pi persists completed tool calls and interaction answers. A pending interaction remains an in-memory wait in its live
 process. An answer must reach that process to continue the wait; it does not require a separate durable interaction
 state machine. Browser disconnection does not cancel the wait. If the process is lost, the user can ask the Agent to

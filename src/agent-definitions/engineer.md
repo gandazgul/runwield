@@ -17,6 +17,7 @@ tools:
     - write
     - multi_file_edit
     - bash
+    - user_interview
     - task_completed
     - memory
     - code_search

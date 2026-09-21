@@ -50,7 +50,7 @@ Deno.test("missing and frontend false ownership resolve to Engineer", () => {
     assertEquals(resolveExecutionOwner({ frontend: false }), "engineer");
 });
 
-Deno.test("Pair capability requires explicit pair checkpoint support", () => {
+Deno.test("Pair capability requires an attached conversational host, not a checkpoint form", () => {
     const unsupported = new HostedSession({
         id: "pair-unsupported",
         cwd: Deno.cwd(),
@@ -86,9 +86,9 @@ Deno.test("Pair capability requires explicit pair checkpoint support", () => {
     });
 
     assertEquals(supportsPairExecution(new HostedSession({ id: "pair-none", cwd: Deno.cwd() })), false);
-    assertEquals(supportsPairExecution(unsupported), false);
-    assertEquals(supportsPairExecution(genericOnly), false);
-    assertEquals(supportsPairExecution(throwing), false);
+    assertEquals(supportsPairExecution(unsupported), true);
+    assertEquals(supportsPairExecution(genericOnly), true);
+    assertEquals(supportsPairExecution(throwing), true);
     assertEquals(supportsPairExecution(supported), true);
 });
 
@@ -120,6 +120,25 @@ Deno.test("post-execution decisions keep Pair pauses out of validation", () => {
             options,
         ).payload.reason,
         "execution_canceled",
+    );
+    assertEquals(
+        decidePostExecution(
+            {
+                repairRequired: false,
+                executionComplete: false,
+                checkpointPending: true,
+                checkpointId: "checkpoint-1",
+            },
+            options,
+        ),
+        {
+            kind: "stay_with_agent",
+            payload: {
+                agentName: "frontend-engineer",
+                reason: "pair_checkpoint_pending",
+                checkpointId: "checkpoint-1",
+            },
+        },
     );
 });
 
@@ -195,6 +214,6 @@ Deno.test("Pair pause copy names the runtime Agent behind each Plan owner", () =
     // A pre-split caller can still pass the runtime name straight through.
     assertStringIncludes(
         buildPairPausedMessage("canceled", Deno.cwd(), "plan-engineer"),
-        "Plan Engineer paused because the Pair checkpoint interaction was canceled",
+        "Plan Engineer paused Pair Execution",
     );
 });

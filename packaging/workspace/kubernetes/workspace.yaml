@@ -1,0 +1,145 @@
+# Offline example for k8s-infrastructure. Not connected to Flux.
+# Set the published image and private HTTPS hostname before use.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+    name: runwield-projects
+spec:
+    accessModes: [ReadWriteOnce]
+    storageClassName: hostpath
+    resources:
+        requests:
+            storage: 50Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+    name: runwield-state
+spec:
+    accessModes: [ReadWriteOnce]
+    storageClassName: hostpath
+    resources:
+        requests:
+            storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+    name: runwield-agents
+spec:
+    accessModes: [ReadWriteOnce]
+    storageClassName: hostpath
+    resources:
+        requests:
+            storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+    name: runwield-workspace
+spec:
+    replicas: 1
+    strategy:
+        type: Recreate
+    selector:
+        matchLabels:
+            app: runwield-workspace
+    template:
+        metadata:
+            labels:
+                app: runwield-workspace
+        spec:
+            automountServiceAccountToken: false
+            terminationGracePeriodSeconds: 60
+            nodeSelector:
+                kubernetes.io/arch: amd64
+            securityContext:
+                runAsNonRoot: true
+                runAsUser: 1993
+                runAsGroup: 1993
+                fsGroup: 1993
+                fsGroupChangePolicy: OnRootMismatch
+                seccompProfile:
+                    type: RuntimeDefault
+            containers:
+                - name: workspace
+                  image: harbor.dumbhome.uk/library/runwield-workspace:local
+                  imagePullPolicy: IfNotPresent
+                  env:
+                      - name: RUNWIELD_WORKSPACE_ORIGIN
+                        value: https://workspace.example.test
+                  ports:
+                      - name: http
+                        containerPort: 8787
+                  startupProbe:
+                      tcpSocket:
+                          port: http
+                      periodSeconds: 5
+                      failureThreshold: 60
+                  readinessProbe:
+                      tcpSocket:
+                          port: http
+                      periodSeconds: 10
+                  securityContext:
+                      allowPrivilegeEscalation: false
+                      capabilities:
+                          drop: [ALL]
+                  resources:
+                      requests:
+                          cpu: 250m
+                          memory: 512Mi
+                      limits:
+                          memory: 4Gi
+                  volumeMounts:
+                      - name: projects
+                        mountPath: /workspace/project
+                      - name: state
+                        mountPath: /home/deno/.wld
+                      - name: agents
+                        mountPath: /home/deno/.agents
+            volumes:
+                - name: projects
+                  persistentVolumeClaim:
+                      claimName: runwield-projects
+                - name: state
+                  persistentVolumeClaim:
+                      claimName: runwield-state
+                - name: agents
+                  persistentVolumeClaim:
+                      claimName: runwield-agents
+---
+apiVersion: v1
+kind: Service
+metadata:
+    name: runwield-workspace
+spec:
+    selector:
+        app: runwield-workspace
+    ports:
+        - name: http
+          port: 8787
+          targetPort: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+    name: runwield-workspace
+    annotations:
+        nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+        nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+    ingressClassName: nginx
+    rules:
+        - host: workspace.example.test
+          http:
+              paths:
+                  - path: /
+                    pathType: Prefix
+                    backend:
+                        service:
+                            name: runwield-workspace
+                            port:
+                                name: http
+    tls:
+        - hosts: [workspace.example.test]
+          secretName: internal-ingress-cert

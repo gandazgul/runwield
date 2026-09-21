@@ -46,6 +46,13 @@ Curabitur tortor pellentesque nibh, aenean quam in scelerisque sem at dolor maec
 
 ## Approach
 
+\`\`\`mermaid
+flowchart LR
+    Draft[Draft plan] --> Review{Review}
+    Review -->|Approved| Build[Implement]
+    Review -->|Feedback| Draft
+\`\`\`
+
 Lorem ipsum dolor sit amet, consectetur adipiscing elit. In hac habitasse platea dictumst morbi vestibulum volutpat
 enim. Aliquam erat volutpat nam dui mi tincidunt quis accumsan porttitor facilisis luctus metus.
 

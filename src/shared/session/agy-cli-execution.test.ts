@@ -960,10 +960,9 @@ Deno.test("Agy failures preserve workflow authority and terminate every owned pr
         assertEquals(afterEntries.filter((entry) => entry.customType === "runwield.workflow_tool_event").length, 1);
         const afterText = JSON.stringify(afterEntries);
         assertStringIncludes(afterText, completionMessage);
-        assertStringIncludes(afterText, "the accepted completion already closed the lifecycle gate");
+        assertEquals(afterText.includes(`duplicate ${completionMessage}`), false);
         const afterStatus = afterEntries.find((entry) => entry.customType === "runwield.backend_status")?.data;
-        assertEquals(afterStatus?.kind, "non_zero_exit");
-        assertEquals(afterStatus?.afterAcceptedTerminal, true);
+        assertEquals(afterStatus, undefined);
         await afterRoot.session.dispose();
 
         Deno.env.delete("RUNWIELD_AGY_FAIL_AFTER_MCP");
@@ -1000,8 +999,7 @@ Deno.test("Agy failures preserve workflow authority and terminate every owned pr
         const permissionEntries = getRootSessionBranchEntries(permissionManager) as BranchEntryRecord[];
         const permissionStatus = permissionEntries.find((entry) => entry.customType === "runwield.backend_status")
             ?.data;
-        assertEquals(permissionStatus?.kind, "permission_denied");
-        assertEquals(permissionStatus?.afterAcceptedTerminal, true);
+        assertEquals(permissionStatus, undefined);
         await permissionRoot.session.dispose();
     });
 });

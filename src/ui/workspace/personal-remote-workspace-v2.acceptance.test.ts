@@ -511,7 +511,7 @@ Deno.test("personal remote Workspace v2 Dashboard promotes associated live quest
             section.key === "needs-you"
         ).items;
         assertEquals(needsYou.some((item: { planId: string }) => item.planId === "active-plan"), true);
-        for (const type of ["plan_review", "code_review", "pair_checkpoint"]) {
+        for (const type of ["plan_review", "code_review"]) {
             sessionContinuation.operations.set("op-1", {
                 projectId: "project-1",
                 runwieldSessionId: "question-session",
@@ -523,11 +523,7 @@ Deno.test("personal remote Workspace v2 Dashboard promotes associated live quest
             assertEquals(item?.href, "/projects/project-1/sessions/question-session#interaction-ask-1");
             assertEquals(
                 item?.statusLabel,
-                type === "plan_review"
-                    ? "Plan ready for review"
-                    : type === "code_review"
-                    ? "Code ready for review"
-                    : "Checkpoint waiting for you",
+                type === "plan_review" ? "Plan ready for review" : "Code ready for review",
             );
         }
         sessionContinuation.operations.clear();

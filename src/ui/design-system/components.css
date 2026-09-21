@@ -1820,3 +1820,59 @@ button.danger-action:disabled {
     background: var(--rw-accent-strong);
     color: var(--rw-on-accent-strong);
 }
+/* Online-only connection feedback. Keep the loaded page and unsent text mounted. */
+.rw-connection-notice {
+    position: fixed;
+    z-index: 1000;
+    top: calc(var(--rw-shell-header-height) + 0.75rem);
+    right: max(0.75rem, env(safe-area-inset-right));
+    width: min(25rem, calc(100vw - 1.5rem));
+    box-sizing: border-box;
+    padding: var(--rw-space-panel);
+    background: var(--rw-surface-raised);
+    border: 1px solid var(--rw-border);
+    border-left: 3px solid var(--rw-warning);
+    box-shadow: 0 0.5rem 2rem color-mix(in srgb, var(--rw-page-bg) 70%, transparent);
+    color: var(--rw-text);
+    font: 0.875rem/1.5 var(--rw-font-sans);
+}
+
+.rw-connection-notice[hidden] {
+    display: none;
+}
+.rw-connection-notice p {
+    margin: 0.5rem 0 0.75rem;
+}
+.rw-connection-notice [role="status"] {
+    display: block;
+    margin-top: 0.5rem;
+}
+
+.rw-connection-page {
+    min-height: 100dvh;
+    display: grid;
+    place-items: center;
+    padding: max(1.5rem, env(safe-area-inset-top)) max(1.5rem, env(safe-area-inset-right))
+        max(1.5rem, env(safe-area-inset-bottom)) max(1.5rem, env(safe-area-inset-left));
+    box-sizing: border-box;
+}
+
+.rw-connection-message {
+    max-width: 30rem;
+}
+.rw-connection-message h1 {
+    color: var(--rw-text-strong);
+    font-size: 1.6rem;
+    margin: 0.75rem 0;
+}
+.rw-connection-message p {
+    color: var(--rw-text-muted);
+}
+.rw-connection-message .rw-connection-brand {
+    color: var(--rw-brand);
+    font-weight: 600;
+}
+.rw-connection-message button {
+    min-height: 44px;
+    margin-top: 0.5rem;
+}

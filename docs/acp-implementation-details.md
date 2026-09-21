@@ -347,7 +347,7 @@ RunWield's ACP interaction adapter maps Runtime interaction requests into client
 | `approval`                    | Native choice form; accepted approval values approve, other choices cancel. This is not ACP tool permission.             |
 | `plan_review` / `code_review` | Sends a normal text link and waits for the RunWield browser review decision.                                             |
 | `artifact_review`             | Sends the artifact link; feedback or empty acceptance uses the browser question path even if native forms are supported. |
-| Pair Execution checkpoint     | Explicitly unsupported.                                                                                                  |
+| Pair Execution checkpoint     | Uses ordinary ACP messages across prompt turns; no form elicitation is advertised or requested.                          |
 | Other interaction types       | Unsupported.                                                                                                             |
 
 Native forms are part of the current
@@ -364,7 +364,7 @@ The browser fallback is not yet equivalent to native forms for Other answers. It
 missing ACP feature. Native form decline/cancel responses settle as cancellation; invalid answers return unsupported.
 
 RunWield emits no `session/request_permission` calls. Workflow approval forms and Plan review are not substitutes for
-client-controlled tool authorization. Pair checkpoints also remain unavailable through ACP.
+client-controlled tool authorization. Pair checkpoints use ordinary ACP prompt turns and do not use permission requests.
 
 RunWield does not provide an ACP-native Plan editor. Review stays in RunWield browser pages, as the
 [ACP PRD](prd/runwield-acp-protocol-prd.md#product-decisions) intends. Standard ACP `plan` updates are progress lists,

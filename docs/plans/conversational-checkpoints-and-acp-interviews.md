@@ -1,4 +1,5 @@
 ---
+planId: "0793ef3b-1dfa-465e-8873-2035c55d4f8b"
 classification: "PROJECT"
 type: "sequence"
 complexity: "HIGH"
@@ -13,14 +14,13 @@ affectedPaths:
     - "src/ui/tui/runtime-interaction-adapter.js"
     - "docs/prd/"
     - "docs/domain-language.md"
-devServerCommand: null
-devServerUrl: null
-devServerHmr: null
-createdAt: "2026-09-20"
-status: "draft"
 tickets:
     - url: "https://github.com/openabdev/openab/pull/1533"
-planId: "0793ef3b-1dfa-465e-8873-2035c55d4f8b"
+createdAt: "2026-09-20"
+status: "ready_for_work"
+origin: "internal"
+userVerifiedAt: null
+userVerificationNote: null
 ---
 
 # Conversational Pair Checkpoints and ACP Interview Fallback

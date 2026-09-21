@@ -108,7 +108,7 @@ function readUnconsumedAcceptedEvents(
     return accepted.filter((event) => !consumed.has(event.completionId));
 }
 
-function workflowAttemptKey(workflow: ActiveExecutionWorkflow): string {
+export function workflowAttemptKey(workflow: ActiveExecutionWorkflow): string {
     if (typeof workflow.worktreeId === "string" && workflow.worktreeId) return `worktree:${workflow.worktreeId}`;
     if (typeof workflow.baselineTree === "string" && workflow.baselineTree) return `tree:${workflow.baselineTree}`;
     if (typeof workflow.executionAttemptStartedAtMs === "number") {

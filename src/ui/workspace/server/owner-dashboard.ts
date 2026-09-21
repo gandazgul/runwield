@@ -341,8 +341,6 @@ function interactionLabel(operation: WorkspaceOperation): string {
             return "Code ready for review";
         case "artifact_review":
             return "Artifact ready for review";
-        case "pair_checkpoint":
-            return "Checkpoint waiting for you";
         default:
             return "Question waiting for you";
     }

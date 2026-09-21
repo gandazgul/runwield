@@ -80,8 +80,15 @@ import { ClaudeCliExecutionSession } from "./backends/claude-cli/execution-sessi
 import { AgyCliExecutionSession } from "./backends/agy-cli/execution-session.ts";
 import { ensureAgyCliMcpSetup } from "./backends/agy-cli/mcp-setup.ts";
 import { buildBridgedToolPromptAppendix } from "./bridged-tools/prompt.ts";
-import { completeRequestDispatch, failRequestDispatch, prepareRequestDispatch } from "./request-dispatch.ts";
+import {
+    completeRequestDispatch,
+    failRequestDispatch,
+    prepareRequestDispatch,
+    readRequestAttemptEntries,
+    recordRequestAttemptSnapshot,
+} from "./request-dispatch.ts";
 import { formatProviderModelReference, parseProviderModel } from "../models/model-validation.ts";
+import { readCurrentPairCheckpoint, recordPairCheckpointSnapshot } from "./pair-checkpoint-session.ts";
 import { directoryExists, fileExists } from "../helpers.js";
 import {
     _AGENT_ATTENTION_NUDGES,
@@ -2286,6 +2293,7 @@ export async function buildAgentSession({
     installEarlySteeringInterruption(/** @type {any} */ (session));
     installEngineerAutoCompactionThreshold(session, agentName);
     installTaskCompletedAutoCompactionExclusion(session);
+    installPairCheckpointAutoCompactionPreservation(session, targetHostedSession);
 
     const configuredTemperature = agentName ? getConfiguredAgentTemperature(agentName, sessionCwd) : undefined;
     const temperatureSource = configuredTemperature !== undefined ? "settings agent temperature" : (
@@ -2753,6 +2761,7 @@ function estimateAgentMessagesTokens(messages) {
  * @property {(reason: string, willRetry: boolean) => Promise<boolean>} [_runAutoCompaction]
  * @property {boolean} [__runWieldTaskCompletedAutoCompactionExcluded]
  * @property {boolean} [__runWieldEngineerAutoCompactionInstalled]
+ * @property {boolean} [__runWieldPairCheckpointCompactionPreserved]
  */
 
 /**
@@ -2920,6 +2929,39 @@ function installTaskCompletedAutoCompactionExclusion(session) {
         return originalCheckCompaction.call(this, assistantMessage, skipAbortedCheck);
     };
     target.__runWieldTaskCompletedAutoCompactionExcluded = true;
+}
+
+/**
+ * Keep hidden Pair authority and an active user-turn attempt on the live branch
+ * when Pi compacts before or after a prompt.
+ *
+ * @param {import('@earendil-works/pi-coding-agent').AgentSession} session
+ * @param {import('./hosted-session.js').HostedSession | null} hostedSession
+ */
+export function installPairCheckpointAutoCompactionPreservation(session, hostedSession) {
+    if (!hostedSession) return;
+    const target = /** @type {AutoCompactionSessionPatch} */ (/** @type {unknown} */ (session));
+    if (
+        target.__runWieldPairCheckpointCompactionPreserved ||
+        typeof target._runAutoCompaction !== "function"
+    ) return;
+
+    const originalRunAutoCompaction = target._runAutoCompaction;
+    target._runAutoCompaction = async function (reason, willRetry) {
+        const sessionManager = /** @type {import('@earendil-works/pi-coding-agent').SessionManager | null} */ (
+            hostedSession.getRootSessionManager?.() || null
+        );
+        const checkpoint = readCurrentPairCheckpoint(hostedSession);
+        const requestAttempt = sessionManager ? readRequestAttemptEntries(sessionManager).at(-1) : null;
+        const compacted = await originalRunAutoCompaction.call(this, reason, willRetry);
+        if (!compacted) return false;
+        if (checkpoint) recordPairCheckpointSnapshot(hostedSession, checkpoint);
+        if (sessionManager && requestAttempt?.phase === "started") {
+            recordRequestAttemptSnapshot(sessionManager, requestAttempt);
+        }
+        return true;
+    };
+    target.__runWieldPairCheckpointCompactionPreserved = true;
 }
 
 /**

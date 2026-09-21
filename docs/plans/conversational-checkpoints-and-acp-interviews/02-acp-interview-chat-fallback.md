@@ -1,4 +1,5 @@
 ---
+planId: "8acc37a5-f9ad-4ec3-b093-315bbbe7b180"
 classification: "PLANNED_CHANGE"
 workKind: "FEATURE"
 complexity: "HIGH"
@@ -12,20 +13,19 @@ affectedPaths:
     - "src/tools/user-interview.ts"
     - "docs/prd/runwield-acp-protocol-prd.md"
     - "docs/acp-implementation-details.md"
+tickets:
+    - url: "https://github.com/openabdev/openab/pull/1533"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
-devServerCommand: null
-devServerUrl: null
-devServerHmr: null
 createdAt: "2026-09-20"
-status: "draft"
+status: "ready_for_work"
+origin: "internal"
 parentPlan: "conversational-checkpoints-and-acp-interviews"
 order: 2
 dependencies:
     - "01-conversational-pair-checkpoints"
-tickets:
-    - url: "https://github.com/openabdev/openab/pull/1533"
-planId: "8acc37a5-f9ad-4ec3-b093-315bbbe7b180"
+userVerifiedAt: null
+userVerificationNote: null
 ---
 
 # Answer ACP Interviews in Chat Without Native Forms

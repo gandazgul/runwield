@@ -234,6 +234,12 @@ export function attachTuiRuntimeAdapter({
             case RuntimeEventTypes.TOOL_END: {
                 const block = uiAPI.getActiveToolBlock?.(value.toolCallId);
                 const images = collectRuntimeDisplayImages(value);
+                if (
+                    !block && value.toolName === "task_completed" &&
+                    value.details?.outcome === "pair_completion_checkpoint" && value.output
+                ) {
+                    uiAPI.appendSystemMessage(value.output, false, "Pair checkpoint");
+                }
                 if (block) {
                     block.setOutput(value.output);
                     for (const image of images) block.appendDisplayImage?.(image.base64, image.mimeType);

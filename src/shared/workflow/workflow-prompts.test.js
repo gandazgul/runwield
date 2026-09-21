@@ -147,7 +147,7 @@ Deno.test("buildEngineerRequest orders Router handoff, pair runtime value, proje
             "## Router Handoff Message\n" +
             "Add documentation as a first-class Work Kind.\n\n" +
             "## Runtime Collaboration Style\n" +
-            "Pair Execution is active.\n\n" +
+            "Pair Execution is active. Report checkpoints, then resolve them only from later user turns as described in your Runtime Collaboration Style.\n\n" +
             "## Approved Plan Body\n\n" +
             "## Implementation Steps\n\n" +
             "UNIQUE PAIR BODY SENTINEL\n\n" +

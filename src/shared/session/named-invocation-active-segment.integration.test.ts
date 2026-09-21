@@ -6,6 +6,7 @@ import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fix
 import { SessionRuntime } from "./session-runtime.js";
 import { SessionHost } from "./session-host.js";
 import { openFileSessionStore } from "./file-session-store.ts";
+import type { RuntimeInteractionRequest } from "./session-runtime-interactions.js";
 
 interface NamedInvocationPromptResult {
     ok: boolean;
@@ -43,6 +44,72 @@ function makeRuntime(sessionStore = openFileSessionStore()) {
         ownerInstanceId: crypto.randomUUID(),
     });
 }
+
+Deno.test("bundled release from Router exposes an interactive interview before release work", async () => {
+    await withRuntimeCommandFixture(
+        "release-structured-interview-",
+        async ({ projectRoot, setModelResponseFactories }) => {
+            const questions: RuntimeInteractionRequest[] = [];
+            let availableTools: string[] = [];
+            let canceledResult = false;
+            setModelResponseFactories([
+                (context: Context) => {
+                    availableTools = (context.tools || []).map((tool) => tool.name);
+                    return fauxAssistantMessage(fauxToolCall("user_interview", {
+                        question: {
+                            type: "multiple_choice",
+                            prompt: "What kind of release operation should I run?",
+                            choices: [
+                                { value: "create_candidate", label: "Create Candidate" },
+                                { value: "promote_candidate", label: "Promote Candidate" },
+                                { value: "create_stable_direct", label: "Create Stable Directly" },
+                            ],
+                        },
+                    }));
+                },
+                (context: Context) => {
+                    canceledResult = context.messages.some((message) =>
+                        message.role === "toolResult" && message.toolName === "user_interview" &&
+                        message.content.some((content) =>
+                            content.type === "text" && content.text.includes("Interview canceled")
+                        )
+                    );
+                    return fauxAssistantMessage(fauxText("Release canceled."));
+                },
+            ]);
+            const runtime = makeRuntime();
+            try {
+                const created = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
+                runtime.setInteractionAdapter(created.sessionId, {
+                    supportsInteraction: () => true,
+                    requestInteraction: (request: RuntimeInteractionRequest) => {
+                        questions.push(request);
+                        return { outcome: "canceled" };
+                    },
+                });
+                const result = await runtime.promptUserTurn(created.sessionId, {
+                    initialRequest: "/release",
+                    initialImages: [],
+                }) as NamedInvocationPromptResult;
+                assertEquals(result.ok, true);
+                assertEquals(result.namedInvocation?.profile?.agentName, "engineer");
+                assert(availableTools.includes("user_interview"));
+                assertEquals(questions.length, 1);
+                assertEquals(questions[0].type, "select");
+                assertEquals(questions[0].options?.map((option) => option.value), [
+                    "create_candidate",
+                    "promote_candidate",
+                    "create_stable_direct",
+                    "other",
+                ]);
+                assertEquals(canceledResult, true);
+                assertEquals(runtime.getSessionSnapshot(created.sessionId)?.activeAgent, "router");
+            } finally {
+                await runtime.closeAllSessionsWhenIdle();
+            }
+        },
+    );
+});
 
 async function installClaudeCliFixture(binDir: string, logPath: string): Promise<void> {
     await Deno.mkdir(binDir, { recursive: true });

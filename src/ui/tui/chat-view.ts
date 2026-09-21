@@ -2,6 +2,7 @@ import {
     CombinedAutocompleteProvider,
     Container,
     Editor,
+    HStack,
     Image,
     isViewportTUI,
     ScrollView,
@@ -285,11 +286,34 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
     };
     let transcriptScrollView: ScrollView | undefined;
     if (isViewportTUI(tui)) {
-        transcriptScrollView = new ScrollView(transcriptArea, { follow: "end", primary: true, scrollbar: "auto" });
+        transcriptScrollView = new ScrollView(container, { follow: "end", primary: true, scrollbar: "auto" });
+        const sidebarArea: Component = {
+            invalidate: () => sessionSidebar.invalidate(),
+            render: (width: number) => {
+                const snapshot = options.sessionRuntime.getSessionSnapshot(options.getSessionId());
+                return snapshot?.managed ? sessionSidebar.render(width, snapshot) : [];
+            },
+        };
+        const transcriptLayout = new HStack([
+            {
+                component: transcriptScrollView,
+                basis: 0,
+                grow: 1,
+                minSize: 48,
+            },
+            {
+                component: sidebarArea,
+                basis: 34,
+                shrink: 0,
+                visible: (viewport) =>
+                    viewport.width >= SESSION_SIDEBAR_MIN_WIDTH &&
+                    Boolean(options.sessionRuntime.getSessionSnapshot(options.getSessionId())?.managed),
+            },
+        ], { gap: 1 });
         tui.setLayoutRoot(
             new VStack([
                 {
-                    component: transcriptScrollView,
+                    component: transcriptLayout,
                     basis: 0,
                     grow: 1,
                     minSize: 1,

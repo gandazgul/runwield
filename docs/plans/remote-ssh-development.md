@@ -1,4 +1,5 @@
 ---
+planId: "15ff3966-cc0b-4049-864d-36cbb9139cc3"
 classification: "PROJECT"
 complexity: "HIGH"
 affectedPaths:
@@ -7,649 +8,522 @@ affectedPaths:
     - "src/shared/settings.js"
     - "src/shared/models/model-registry.ts"
     - "src/shared/session/"
-    - "src/extensions/mnemoteca/tools.ts"
+    - "src/extensions/"
+    - "src/shared/mcp/"
     - "src/shared/workflow/"
+    - "src/shared/foreground-process.ts"
     - "src/ui/review/"
     - "src/ui/workspace/server.js"
+    - "scripts/compile.js"
+    - "scripts/release-assets.js"
     - "docs/prd/remote-ssh-prd.md"
     - "docs/prd/runwield-core-prd.md"
     - "docs/domain-language.md"
-devServerCommand: null
-devServerUrl: null
-devServerHmr: null
-createdAt: "2026-09-19"
-status: "draft"
-planId: "eb7145dd-ac8e-43e4-b3cb-4598f550c73a"
+    - "docs/adr/018-remote-ssh-local-personal-authority.md"
+createdAt: "2026-09-20"
+origin: "internal"
+userVerifiedAt: null
+status: "ready_for_work"
 ---
 
-# Remote SSH Development — Early Epic Draft
+# Remote SSH Development
 
 ## Context
 
-**Continuity draft only. Not approved, complete, or ready for decomposition.** No production support or ADR exists. A
-throwaway prototype has now proved the narrow Pi model path; it is not proof of a working remote RunWield Session.
-
-**Resume here:** Read this draft, the [PRD](../prd/remote-ssh-prd.md), and the
-[feasibility report](../research/remote-ssh-feasibility.md). Use the completed proof below to settle the architecture
-before submitting the Epic. Do not repeat the product interview or generalize the Pi result to Session persistence,
-review, setup, or disconnect cleanup.
-
-The owner chose a full Epic rather than a limited connection-only Plan. They required the reverse channel proof before
-architecture work. That proof passed on 2026-09-20 EDT. The owner also decided that Claude CLI and Antigravity CLI can
-be deferred from the first release; they remain future compatibility targets.
-
-### Agreed product requirements
+Enable normal RunWield work on a project that exists only on a remote server. The user keeps one personal environment
+and saved conversation history on the laptop. The remote server keeps the project and does the project work.
 
 ```sh
 wld remote sct:~/my-awesome-project
 wld remote sct
 ```
 
-- Use an SSH alias or hostname. Respect existing SSH authentication, host checks, port, user, and jump-host settings.
-- Resolve the folder on the remote machine. No folder means the remote user's home. No local checkout or source sync.
-- Open the terminal user interface (TUI) remotely. Show the host and folder. Missing folders fail; do not create them or
-  silently select another folder. Non-Git locations remain usable where Core already supports them.
-- First-release remote hosts are standard Linux on x86-64 (Intel/AMD) and ARM64. Remote macOS and Windows are out of
-  scope. This limits the remote host, not the laptop. Exact Linux runtime prerequisites still need verification; do not
-  imply support for every distribution, libc, or 32-bit ARM system.
-- Prepare compatible RunWield tools automatically on supported hosts. Do not overwrite an existing remote personal
-  profile or package-managed installation. Do not install arbitrary project dependencies as part of this promise.
-- Use the local personal environment: settings, Agents, skills, prompts, model configuration, credentials, memories, and
-  authoritative Session history, including Session attachments.
-- Keep project files, project settings/instructions, Git, worktrees, Plans, Work Records, and Project Runtime State
-  remote. Remote project overrides retain their normal precedence over personal settings.
-- Run all project reads, edits, commands, code search, builds, tests, validation, repair, and publication remotely.
-- Open Plan Review and Code Review in the local browser without manual tunnels or a public review server. Browser close
-  alone does not cancel a connected Session. “AI review” remains the name for automated Semantic Review.
-- Support connected development only. Disconnect stops owned work after loss is detected; no detached Agent continues.
-  Preserve remote edits and saved local history. Disconnect is neither publication nor deliberate abandonment.
-- Resume saved history against the same remote project without replaying unfinished effects automatically.
-- Never copy provider credentials, private SSH keys, the whole local environment, or `~/.wld` to solve compatibility. Do
-  not silently change provider, model, or billing method.
-- The first release can support only Pi-backed providers. Claude CLI and Antigravity CLI are explicitly deferred by
-  owner decision. Their support is not proven by Pi support and must not be advertised.
+The first command opens an existing remote directory. The second opens the remote user's home. Both respect the user's
+SSH configuration and host verification. No laptop checkout or source synchronization is required.
 
-The reference is [VS Code Remote SSH](https://code.visualstudio.com/docs/remote/ssh): connected work on remote files
-with little setup. Its internal design is not a requirement or proof of RunWield feasibility.
+**Status:** Proposed architecture for review, not delivered remote support. Three bounded prototypes established model
+transport, mounted file access, and guarded writer lifetime. They did not establish a complete remote RunWield Session.
 
-**Out of scope:** Unattended work, source synchronization, required local clones, multi-user collaboration, hosted
-Workspace registration, remote ACP clients, moving an existing local Session to another checkout, and isolation from a
-hostile server. Local ownership does not prevent a trusted server from seeing supplied instructions and memories.
+### Agreed scope
 
-### Product ownership and document status
+- Remote terminal user interface (TUI), Pi Agent, project tools, and delivery workflows.
+- Remote Linux x86-64 (Intel/AMD) and ARM64. Remote macOS and Windows are excluded.
+- Pi-backed providers first. Claude CLI and Antigravity CLI are deferred; no silent provider/model substitution.
+- Local personal settings, Agents, prompts, skills, model authentication, memories, and authoritative Session history.
+- Complete personal skill-tree copies as remote working resources. RunWield core must work; user skills and third-party
+  dependencies are best effort. Missing custom CLIs are the user's responsibility, not a compatibility-approval gate.
+- Guarded SSHFS Session mounts backed by standard laptop OpenSSH SFTP. Native writer locks remain on the laptop.
+- Trusted remote hosts may access files allowed by the laptop account. Use a clear notice and Agent instructions, not a
+  filesystem sandbox. Do not add a custom SFTP server for confinement.
+- Local browser Plan Review and Code Review. Connected-only execution and saved continuation after reconnect.
 
-This is a proposed Core addition. The feature proposal owns the detailed target scenarios:
+**Out of scope:** Unattended work, source sync, required local clones, hostile-server isolation, multi-user
+collaboration, hosted Workspace registration, remote ACP clients, moving an existing local Session to another checkout,
+and automatic installation of arbitrary project/custom-skill dependencies. Browser close alone does not disconnect work.
 
-- [Remote connection and setup](../prd/remote-ssh-prd.md#remote-connection-and-setup)
-- [Local personal environment](../prd/remote-ssh-prd.md#local-personal-environment)
-- [Local memories and saved Sessions](../prd/remote-ssh-prd.md#local-memories-and-saved-sessions)
-- [Remote workflows and local review](../prd/remote-ssh-prd.md#remote-workflows-and-local-review)
-- [Disconnect and recovery](../prd/remote-ssh-prd.md#disconnect-and-recovery)
+### Product ownership
 
-Core remains the lasting owner through its existing capabilities for
-[customization](../prd/runwield-core-prd.md#agent-and-skill-customization),
-[models](../prd/runwield-core-prd.md#models-and-providers),
-[project context](../prd/runwield-core-prd.md#project-context-and-initialization),
-[Session continuity](../prd/runwield-core-prd.md#session-continuity),
-[Plan review](../prd/runwield-core-prd.md#plan-review), and
-[execution, validation, and recovery](../prd/runwield-core-prd.md#execution-validation-and-recovery).
+The transient [Remote SSH PRD](../prd/remote-ssh-prd.md) owns the detailed proposal scenarios. Core is the lasting
+owner. This Epic records later owner decisions where the older proposal still describes compatibility checks or
+undecided platforms. These decisions do not mark capabilities delivered.
 
-This draft, the PRD, and the feasibility report now record the completed Pi model-path proof. That proof closes the
-first feasibility question only. It is not delivery evidence for a complete remote RunWield Session.
+| Proposed capability                               | Owning proposal                                                                                 | Lasting Core requirements                                                                                                                               |
+| ------------------------------------------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Connect and prepare the intended remote directory | [Remote connection and setup](../prd/remote-ssh-prd.md#remote-connection-and-setup)             | [Installation](../prd/runwield-core-prd.md#installation-and-updates), [project context](../prd/runwield-core-prd.md#project-context-and-initialization) |
+| Use the local personal environment                | [Local personal environment](../prd/remote-ssh-prd.md#local-personal-environment)               | [Customization](../prd/runwield-core-prd.md#agent-and-skill-customization), [models](../prd/runwield-core-prd.md#models-and-providers)                  |
+| Save and resume with correct memories             | [Local memories and saved Sessions](../prd/remote-ssh-prd.md#local-memories-and-saved-sessions) | [Session continuity](../prd/runwield-core-prd.md#session-continuity), [project context](../prd/runwield-core-prd.md#project-context-and-initialization) |
+| Deliver and review remote changes                 | [Remote workflows and local review](../prd/remote-ssh-prd.md#remote-workflows-and-local-review) | [Plan Review](../prd/runwield-core-prd.md#plan-review), [delivery and recovery](../prd/runwield-core-prd.md#execution-validation-and-recovery)          |
+| Stop safely on loss and recover truthfully        | [Disconnect and recovery](../prd/remote-ssh-prd.md#disconnect-and-recovery)                     | [Recovery](../prd/runwield-core-prd.md#execution-validation-and-recovery)                                                                               |
 
 ## Objective
 
-Enable normal RunWield work on a remote-only project while the laptop remains the authority for personal data.
+Separate where work runs from where personal data is owned. Reuse Core's tools, workflow rules, Pi transcript format,
+and browser review surfaces rather than build a reduced remote product.
 
-The proposed division is below. Module names describe responsibilities, not approved classes, protocols, or file layout.
-The remote TUI and remote project execution are agreed. The local model bridge is proven for Pi, but the production
-service boundary, authorization, and full Session integration still need design.
+The durable choice and alternatives are recorded in proposed
+[ADR-018](../adr/018-remote-ssh-local-personal-authority.md). Existing
+[ADR-015](../adr/015-file-authoritative-session-bundles.md) still owns file-authoritative Sessions and native writer
+locking. No new Session database, writer lease, permanent daemon, or hosted service is introduced.
 
-```mermaid
-graph TD
-    L[Local launcher] -->|SSH terminal and setup| R[Remote TUI and Core]
-    R -->|Project tools and workflows| P[Remote project]
-    R -->|Requests over reverse SSH| S[Proposed local personal service]
-    S -->|Authenticated Pi requests| M[Model provider]
-    S -->|Owns reads and writes| D[Local personal data and Sessions]
-```
-
-Browser review forwarding is a separate open design question. Do not assume it uses the same connection direction as
-model requests just because both use SSH.
-
-### Candidate responsibilities and constraints
-
-| Area                   | Required authority or behavior                                                                                 | Still unresolved                                                                                 |
-| ---------------------- | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| Local launcher         | Establish SSH, prepare the remote runtime, connect the terminal, coordinate shutdown                           | Bootstrap location, platform support, version compatibility, startup recovery                    |
-| Remote Core            | Own project operations and existing workflow rules against the remote folder                                   | How it consumes local resources without a copied personal profile                                |
-| Local personal service | If adopted, mediate only required personal capabilities; keep credentials and successful personal writes local | Request API, authorization, request lifetime, resource access, concurrency                       |
-| Model access           | Laptop makes authenticated Pi requests; remote tools consume responses and return results                      | Full runtime contract, callbacks, cancellation, errors, CLI backends                             |
-| Session persistence    | One authoritative local bundle and writer; remote state is not a second saved history                          | Remote event ordering, save acknowledgement, SDK persistence integration, remote project locator |
-| Project Memory         | Local Mnemoteca storage with explicit project scope                                                            | Safe mapping of remote projects to existing or new local collections                             |
-| Browser review         | Local browser displays actual remote work; decisions reach the correct pending interaction                     | Server placement, forwarding, review authentication and reconnect                                |
-| Connection lifetime    | Loss detection stops new work and cancels owned processes, without killing unrelated processes                 | Detection policy, process ownership, cleanup across helpers and CLI backends                     |
-
-Local save success must mean local persistence, not a promise to sync on exit. Do not expose a general laptop filesystem
-or shell service simply to make remote paths work. Exact access controls remain undesigned.
-
-### Session mount alternative — under investigation
-
-The owner proposed mounting the laptop's Session directory into the remote runtime instead of adding explicit network
-save calls. A bind mount alone cannot cross machines. SSHFS can present laptop files as a remote Linux filesystem; its
-documented passive mode can carry SFTP through a laptop-initiated SSH connection without supplying laptop login
-credentials to the remote host. The remote runtime could then retain synchronous Pi file writes.
-
-This alternative deserves evaluation before committing to the explicit-save design below. It replaces application
-persistence integration work with a filesystem dependency, not with cost-free local filesystem semantics. Linux FUSE
-support and user mount permission become core prerequisites. Blocked filesystem calls on link loss, reopen behavior
-after reconnect, cache policy, file sync, atomic replacement, and laptop-versus-mounted-writer coordination all require
-proof. Existing `tryLockSync` calls must not be assumed to coordinate across the mount with a laptop-native writer.
-Keeping the writer lock on the laptop may still be necessary.
-
-Use only the relevant Session storage area, not the entire personal profile or unrelated Sessions. SFTP's initial
-directory is not by itself an access restriction; constrain the exported filesystem separately. Remote project paths
-still need explicit identity handling, and mounts do not solve the local model or Memory boundaries.
-
-**Research evidence:** The [SSHFS manual](https://github.com/libfuse/sshfs/blob/master/sshfs.rst) documents passive
-reverse mounting, synchronous-write and direct-I/O options, hangs after link loss, and invalid open handles after
-reconnect. The [project README](https://github.com/libfuse/sshfs#readme) describes broad Linux distribution availability
-but limited maintainer capacity.
-
-**Live mount preflight on `sct`:** SSH with strict host checking succeeded. The host reports Linux x86-64; `/dev/fuse`
-is readable and writable, and `fusermount3`, `flock`, `timeout`, and `python3` are available. `sshfs` was not found on
-the noninteractive command path. The laptop has `/usr/libexec/sftp-server` and Python; `socat` and `dpipe` were not
-found. This preflight made no installation or mount attempt. The later proof below tested actual mount permission and
-file behavior without exporting real personal Session files.
-
-### Completed mount proof
-
-At the owner's request, a delegated implementation session built and ran the ignored throwaway harness at
-`prototypes/remote-ssh-session-mount-proof/`. Final run: 2026-09-20 01:16–01:17 America/New_York. Evidence is retained
-in that directory's `NOTES.md` and `evidence/20260920-011625/results.json`. It used synthetic files only, macOS/Deno
-2.9.4 on the laptop, Fedora Linux x86-64 with SSHFS 3.7.3/FUSE 3.16.1 remotely. SSHFS was extracted into a temporary
-directory, not installed system-wide. Private pipes connected local OpenSSH SFTP to SSHFS passive mode, with synchronous
-writes, direct I/O, and caches disabled. No TCP listener or credential forwarding was used.
-
-| Question                                              | Observed result                                                                                                                                                                         |
-| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Can remote ordinary writes reach laptop storage?      | Yes. Appends and bidirectional updates matched exact bytes.                                                                                                                             |
-| Can Pi keep its file API?                             | Pi 0.85.1 SessionManager appended messages, metadata, and custom entries; a fresh mount reopened and appended to the same laptop JSONL.                                                 |
-| Do file sync and atomic replacement work?             | Ten replacement cycles completed; SFTP logs showed file fsync and POSIX rename. No partial JSON in 53 samples. This is bounded evidence, not a crash/power-loss guarantee.              |
-| Does directory sync reach the laptop?                 | Not demonstrated. The call returned success, but this SSHFS version has no directory-fsync callback or matching server request.                                                         |
-| Do laptop and remote writers exclude each other?      | No. Both acquired the same backing lock in both test directions. Laptop used actual Deno locking; Linux used native Python flock. Two writers on the same mount did exclude each other. |
-| Does a stalled service settle through SSH keepalives? | No within the observed eight seconds: paused SFTP blocked writes even while SSH remained alive. Resuming the service completed the write.                                               |
-| What happens when transport is killed?                | A pending write failed with EIO and subsequent operations failed; the worker settled about 10 ms after kill. Previously saved laptop bytes remained intact.                             |
-| Can new writes fall back to remote disk?              | Yes. After SSHFS removed the mount, a delayed create succeeded in the underlying remote directory and was absent on the laptop.                                                         |
-| Can a fresh connection reuse the files?               | Yes. Remount reopened saved history and Pi appended another entry, verified on the laptop.                                                                                              |
-
-All proof mounts, remote package/scratch directories, and tracked processes were removed, including resources from an
-earlier harness cleanup failure. Local synthetic files and evidence remain only under the ignored prototype root. No
-real personal Session directory was mounted. The SFTP path audit found only scratch requests, but export confinement was
-not established. Pi's tested calls ran on Node 20 despite its declared Node >=22.19 requirement; this is not a
-supported-runtime claim. No ARM64 run, true network partition, full RunWield Session, or whole-Agent cleanup was tested.
-
-**Architectural conclusion:** A mount can preserve synchronous Pi file access, but is not a drop-in preservation of
-RunWield's Session guarantees. A mount-based design still needs laptop-owned writer coordination, prevention of writes
-beneath a lost mount, bounded handling of storage-service stalls, and explicit durable-save behavior. Those controls
-remain undesigned and unproven; the failures do not establish that a guarded mount is impossible. Compare their cost and
-Linux prerequisites with the explicit-save design below before adoption.
-
-**Decision pending:** Choose guarded mount-backed storage or explicit save boundaries using the completed proof. Neither
-storage approach has owner approval yet. A mount must pass the same save/loss/resume requirements; do not waive them
-because normal file reads work.
-
-### Proposed locking for mount-backed storage — awaiting owner review
-
-Do not use flock through SSHFS as cross-machine authority. A laptop-side Session owner acquires the existing native
-Session Writer Lock on behalf of the remote managed operation. Local TUI, ACP, and Workspace continue using that same
-lock file. Competing writers therefore meet on one operating system, not on separate mount-local locks.
-
-Writable access to the exported Session files is permitted only while that operation owns the laptop lock. The remote
-runtime requests ownership through the control connection; it cannot grant itself authority by locking a mounted file.
-At settlement the owner stops accepting writes from that operation, completes or fails outstanding file requests,
-commits required local evidence, then releases the lock. Idle open terminals do not retain writer ownership.
-
-Crash ordering is essential: the lock must remain held for as long as any SFTP-serving process can still write for the
-old operation. A launcher holding the lock while an independent SFTP child can outlive it is insufficient. The service
-lifetime and native lock ownership must be coupled. A stale connection or file handle must not regain write access when
-a later operation acquires the lock. Do not reuse an unrestricted persistent SFTP writer across ownership changes. Exact
-coupling to the selected SFTP implementation still needs design and a bounded proof; no custom SFTP server is selected
-merely by this recommendation.
-
-**Evidence required:** A remote managed operation blocks a laptop-native writer and another remote operation. Normal
-settlement permits the next writer. Killing the launcher or storage-serving process cannot leave an old writable mount
-while a successor owns the lock. Delayed writes from the old connection cannot change the successor's history. Test
-these against the actual serving processes, not only a helper that holds a lock.
-
-This keeps existing operation-scoped OS locking and adds cross-machine ownership requests; it does not introduce
-heartbeats, lock expiry, or forced takeover. It solves writer exclusion only. Lost-mount fallback, stalled file
-requests, and remote project effects still need their own controls and verification.
-
-### Proposed Session save design — awaiting owner review
-
-Keep the authoritative bundle and operation-scoped OS writer lock on the laptop. The remote Pi SessionManager holds
-entries in memory, loaded from verified laptop history. It must not create a second saved remote transcript. Remote
-project/workflow state remains remote; local transcript storage does not become Plan or publication authority.
-
-RunWield's Session persistence module owns an ordered, acknowledged transfer of exact Pi entries to the local bundle.
-Its interface binds requests to the current connection, Session, segment, and managed operation. Each write identifies
-its expected predecessor and request sequence. An identical retried save returns its existing result; a conflicting or
-stale save cannot change history. Preserve Pi entry IDs, parent links, timestamps, and compaction references rather than
-recreating entries with different IDs on the laptop. Acknowledgement means the laptop completed the required durable
-write, not that the remote process queued a save.
+### System shape and ownership
 
 ```mermaid
 graph TD
-    A[Remote Agent requests tool] --> B[Laptop saves tool request]
-    B -->|Save confirmed| C[Remote tool runs]
-    C --> D[Laptop saves tool result]
-    D -->|Save confirmed| E[Next action or completion]
+    L[Local launcher and personal service] -->|SSH terminal and control| R[Remote Core and TUI]
+    R -->|Tools and workflows| P[Remote project]
+    R -->|Model and personal requests| L
+    L -->|Authenticated requests| M[Model provider]
+    R -->|Session file operations| F[Remote SSHFS mount]
+    F -->|Private SSH channel| S[Local SFTP process]
+    S -->|Native lock retained| D[Local Session bundle]
+    L -->|Commit and recovery| D
 ```
 
-Input and attachments must be saved before their model request. Tool requests must be saved before tool execution;
-results must be saved before dependent work or saved-success reports. These are logical save boundaries, not a network
-round trip for every text delta. Text remains live while streaming. Final managed-operation settlement drains pending
-writes, publishes the locally computed generation evidence, and releases the existing writer lock before reporting
-completion. A remote reported digest is not local commit evidence.
+| Module responsibility     | Owner and contract                                                                                                                                                                 |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Connection launcher       | Laptop. Resolve SSH configuration, prepare matching remote runtime, establish channels, open local browser URLs, and coordinate shutdown.                                          |
+| Project runtime           | Remote Core. Own project files, settings, instructions, Git, worktrees, Plans, Work Records, Project Runtime State, validation, repair, and publication.                           |
+| Personal service          | Laptop, connection-scoped. Own settings/resource access, model runtime, Memory operations, and local Session control. Remote callers request named operations, not a laptop shell. |
+| Mounted transcript access | Remote Pi uses its file interface; standard laptop SFTP performs file operations. The serving process retains the existing native lock. The mount is transport, not authority.     |
+| Session store             | Laptop Core. Own stable identity, manifests, generations, recovery, attachments, catalog coordination, and lock admission. Remote state and UI are projections.                    |
+| Review                    | Remote server owns artifacts and pending decisions. Laptop launcher supplies a loopback forward and browser opening.                                                               |
+| Connection supervision    | Independent of a potentially blocked Agent. Stop owned work and revoke old connections on loss; never grant writer ownership from a timeout.                                       |
 
-The installed Pi Agent's awaited listeners can help enforce conversation ordering. They are not sufficient alone:
-non-Agent mutations, configuration changes, compaction, accepted workflow records, and segment rollover also need
-awaited save boundaries. Early Session events are display activity, not save acknowledgements. A storage failure remains
-an operation failure even if a caller catches the exception; it must block further dependent effects and false success.
-The implementation must demonstrate coverage rather than claim that a single event subscriber captures everything.
+Module names describe responsibilities, not required new classes or folder layout. Shared Core behavior must not acquire
+remote-mode branches throughout every tool. Establish location-aware setup at Session creation and genuine external
+boundaries; keep owned lifecycle and persistence rules inside their current owners.
 
-On loss, stop further work and preserve laptop evidence. If an effect completed remotely but its result was not saved,
-reconnect must inspect actual project/workflow state; do not replay the effect. If only a save acknowledgement was lost,
-consult saved evidence before retrying that save. Already acknowledged history must not disappear merely because the
-operation's final generation was not published. Recovery must distinguish durable transcript entries from uncertain
-external effects. No distributed filesystem transaction or exactly-once external execution is promised.
+### Startup and version compatibility
 
-**Recommendation and cost:** Use explicit awaited save boundaries with Pi's in-memory manager. This costs network and
-disk latency at action boundaries, plus careful integration coverage, but avoids maintaining a Pi fork or blocking the
-remote event loop on every synchronous append. A separate blocking helper could preserve Pi's synchronous interface, but
-adds failure/cancellation machinery and can stall the terminal. Exit-time copying is rejected because it violates
-local-save semantics. The main recommendation remains for owner review, not an accepted dependency change.
+The launcher uses installed OpenSSH and its normal user/key/port/jump-host checks. Host/path inputs are data, never
+shell fragments. Resolve `~`, symlinks, permissions, and Git relationships on the remote host. A missing folder fails
+without creating it or choosing another directory. Non-Git locations retain Core's supported behavior.
 
-**Evidence required:** Cut the link before a request save, after save but before acknowledgement, during a tool, after a
-tool effect, and during final publication of Session evidence. Prove no unacknowledged action is started, no dependent
-action crosses a failed save, no acknowledged entry is lost, and no uncertain remote effect is automatically replayed.
-Include rename, model changes, compaction, attachments, workflow acceptance, and segment rollover; a chat-only test is
-insufficient. Verify the remote resource cache and logs do not form a second saved Session history.
+Use versioned user-writable remote runtime storage, separate from the user's personal profile and package-managed
+installation. Match the laptop release/build and bridge protocol; do not run an arbitrary `wld` from remote PATH. Reuse
+verified release artifacts and privately supplied helpers. Downloads have pinned identity/checksums, install atomically,
+and recover interrupted preparation automatically. Never run the ordinary personal installer unchanged if it edits
+profiles, chooses unpinned helpers, or installs personal Memory storage remotely.
 
-### Proposed project and Memory identification
+The remote runtime includes the compiled review UI and core project tools. Supply compatible SSHFS and its required
+user-space dependencies without replacing system packages. FUSE kernel access and permission to mount are real host
+prerequisites; no automatic root escalation. Report them clearly when unavailable. Standard Linux means the supported
+GNU/Linux runtime matrix for the shipped binaries, not every libc, kernel, or 32-bit ARM environment.
 
-Separate project identity, execution directory, and personal Memory selection. Resolve remote paths and Git worktree
-relationships on the remote host. A remote project locator identifies the host and canonical primary project path;
-execution retains the current checkout/worktree directory. Never run laptop `stat`, `realPath`, or directory creation
-against that locator. Local Session bundle paths are derived separately and remain subject to local containment checks.
-Existing local project IDs, Session directories, and Memory names remain unchanged.
+Released builds use matching Linux x64/ARM64 assets. A development build requires a matching remote build artifact; no
+silent downgrade to a different release. Cache runtime binaries independently from connection-owned personal resource
+copies. Failed setup must not leave an active Agent, writable mount, or overwritten profile.
 
-Keep the SSH connection recipe separate from the project's saved identity. Matching effective SSH host/user/port and
-verified host evidence can reuse a known host record after an alias rename. Do not equate hosts by alias spelling or
-host-key fingerprint alone. Uncertain host equivalence needs confirmation rather than automatic history merging. Exact
-host-record matching remains technical design work.
+### Local services and model requests
 
-Store a local mapping from remote project ID to personal Memory collection. New unrelated projects get distinct
-collections. The existing PRD permits deliberate reuse of an existing collection by name, without its local checkout;
-ask once when mapping is ambiguous and remember the answer. Sharing Memory never combines Session identities. Core
-Memory injection, explicit tools, and `/sleep` must all use this same mapping; cwd basenames must not choose a different
-scope. Work Record indexes remain separate and must hydrate canonical documents from the correct remote project.
+Use SSH-protected connection-scoped channels. Model streaming can use the proven reverse-loopback HTTP arrangement;
+control calls carry an unpredictable connection credential plus project, Session, and operation identity where relevant.
+Private pipe channels remain preferable for SFTP. Bind any listener to loopback, do not expose it publicly, and do not
+log bearer credentials. A different local user reaching remote loopback must not gain model or personal-service access.
+The accepted broad SFTP trust does not make these service endpoints unauthenticated.
 
-**Evidence required:** Same-name projects on different hosts remain distinct; worktree execution retains its project;
-known alias changes reconnect correctly; intentional collection reuse affects Memory only; saved history remains
-readable offline. Do not migrate existing local collection names to claim remote correctness.
+The personal service exposes named capabilities: safe model catalog/auth status, model streaming/cancel, personal
+settings/resource reads and writes, Memory operations, Session open/acquire/commit/release, and browser-forward
+requests. Mutation acknowledgements mean the local owner completed the write. Retried control mutations need request
+identity and saved-result reconciliation; retrying transport must not repeat workflow decisions or external effects.
 
-### Alternatives and corrections
+`createRunWieldModelRuntime` remains on the laptop. Provider endpoint URLs, headers, auth refresh, and provider
+callbacks execute there. A laptop `localhost` model endpoint still means the laptop. Return model metadata without
+credentials. Remote model selection and validation use this catalog/status service; do not expose `getAuth` as a
+secret-returning remote API or fall back to a remote credential store.
 
-- **Plain `ssh host wld` or profile copying:** Does not meet local personal ownership, existing local sign-in, or local
-  history. Rejected as the complete solution.
-- **Run everything locally and forward project tools:** Could reduce changes to personal storage, but conflicts with the
-  agreed remote TUI and touches many project operations. Not selected. Revisit only with the owner if the proof shows
-  that the proposed division is not practical.
-- **One `streamSimple` replacement supports all providers:** Incorrect. Pi needs more runtime functions, and the CLI
-  backends bypass this path. Do not reuse this earlier claim.
-- **31 personal modules versus 127 filesystem modules means four times less work:** An earlier conversation used these
-  counts. They are not a verified effort estimate or sufficient architectural evidence. Coupling and lifecycle matter
-  more than import counts.
+Preserve the full supported Pi model contract: stream ordering, terminal events and `.result()`, tool calls, usage,
+reasoning, images, errors, supported options, retry/timeout semantics, summarization, and cancellation. A cancelled
+remote request must cancel its local provider request. Provider-specific functions/callbacks execute on their owning
+side; do not serialize functions or silently omit options. Pi's current `streamProxy` is a starting point, not a
+complete contract. Unsupported CLI selections fail before the affected turn with no model or billing substitution. This
+also covers saved Session models, Agent presets, delegated/repair Agents, and Guided Review. An unavailable saved CLI
+model must not disappear from lookup and fall through to a Pi default. Refusal occurs before a provider request; the
+user can explicitly select a supported model.
 
-No new library, datastore, permanent daemon, protocol, or lease system has been selected. Favor existing SSH and Pi
-capabilities, but assess their maintenance and upgrade costs before committing.
+All Core-created child Sessions, execution/repair Agents, delegated work, and Guided Review inherit remote connection
+context. Each obtains the proper local Session ownership; none creates an independent remote personal profile or escapes
+connected-only supervision.
+
+### Mounted storage and native locks
+
+The remote mount presents the intended laptop Session storage, not the whole profile by default. It is **not** a
+sandbox: standard SFTP can access other files allowed by the laptop account. The owner accepts this. Show the trust
+notice and instruct the Agent to use this access for Session data and keep project work remote. Do not claim credentials
+are inaccessible; setup and normal operations must still avoid copying them, keys, or the complete environment.
+
+Keep Pi entries and synchronous file operations. Use synchronous SSHFS writes with the tested conservative cache policy;
+verify actual file-sync and atomic-rename support. Do not claim that a cached write or successful remote directory fsync
+proves a local durable commit. No second saved remote transcript, debug transcript, or exit-time history synchronization
+is allowed.
+
+**Only the laptop acquires authoritative Session and catalog locks.** Do not use mounted `tryLockSync` to grant
+cross-machine ownership. The local coordinator acquires the real lock, starts the SFTP process with retained native lock
+ownership, and retains its own ownership through settlement. Descriptor retention must be verified for the actual stock
+server and launcher on each supported laptop platform. A wrapper holding the only lock while a child can outlive it is
+not valid. If retention fails, remote mode cannot proceed with an unlocked fallback.
+
+Retaining a descriptor is not sufficient if another holder explicitly unlocks the shared native lock. All release paths,
+including errors, store disposal, and rollover, must preserve ownership until writable service access has ended. Current
+`releaseHeldLock` calls `unlockSync`; `markSessionUncertain`, `publishGenerationAndRelease`, and
+`commitSegmentRolloverAndPublish` can release ownership. They cannot become remote service handlers unchanged. Normal
+cleanup is subject to the same exclusion rule as crashes. A rollover that keeps the operation active must retain its
+native ownership; if it ends ownership, old writable access must end before admission of another operation.
+
+```mermaid
+graph TD
+    A[Acquire laptop lock] --> B[Start guarded SFTP and fresh mount]
+    B --> C[Hydrate and run remote operation]
+    C --> D[Flush files and stop remote writes]
+    D --> E[Close old writable service]
+    E --> F[Commit local evidence]
+    F --> G[Release final lock owner]
+```
+
+Each managed operation gets fresh writable channels and mount identity. Protect the underlying remote mount directory
+before announcing readiness, so ordinary writes fail after unmount. Never re-enable an old operation's path for its
+successor. Idle terminals remain dormant readers and do not retain the writer lock. Empty starts do not create saved
+Sessions before the first user message.
+
+Normal settlement is an explicit exchange, not simply killing SFTP. The remote runtime finishes pending writes and
+flushes, detaches its writable manager, and asks for settlement. The laptop ends old writable access and waits for its
+actual termination while retaining the lock. It then syncs local files/directories, computes evidence from local bytes,
+commits the manifest and recovery descriptors, and releases ownership. The completion acknowledgement follows this
+commit. A lost acknowledgement is reconciled from existing evidence, not by replaying work.
+
+Segment rollover is still a Session-store transaction under the same ownership: finish predecessor writes, prepare
+successor lineage, commit local segment/generation evidence, then authorize use of the successor. Attachments use local
+Session-owned storage with explicit transfer when selected on the laptop or produced remotely. Stable references must
+not contain a temporary mountpoint. Generation commits, manifests, catalog locks, and recovery stay laptop-owned even
+though Pi transcript writes use SFTP.
+
+Early live UI events are not saved-success evidence. A storage failure blocks further dependent work and completion,
+even when an intermediate caller catches the error. Preserve saved entries across interrupted generation publication;
+mark uncertain remote effects for reconciliation. An edit or accepted publication can finish before its result reaches
+the laptop. No cross-machine transaction or automatic replay can make that uncertainty disappear.
+
+### Personal resources, integrations, and Memory
+
+Merge bundled defaults, local personal settings/resources, and remote project overrides with current Core precedence. Do
+not substitute the remote user's personal profile. Recognized personal mutations save through the laptop owner; project
+mutations save in the remote primary checkout. Successful saves are visible before disconnect.
+
+Copy full personal skill trees, including scripts and sibling files, into a separate connection-owned resource area.
+Keep local originals authoritative. Preserve resource-relative paths and project overrides in both RunWield and Pi skill
+loading. No per-skill approval or portability classifier is required. Custom absolute paths, native binaries, missing
+CLIs, and dependency setup remain the user's responsibility. Fail visibly without falling back to laptop project
+execution or blocking unrelated core work. Refresh copies from local authority on reconnect; do not merge arbitrary
+shell edits to a copied skill back over the local original. Remove connection-owned copies on normal cleanup and repair
+stale copies on later startup; do not promise forensic erasure from a trusted host.
+
+Core file/shell/Git/Cymbal/build/test tools operate remotely. Personal Mnemoteca operations operate locally.
+Network-only personal integrations can run locally when they need laptop configuration; they must not turn into laptop
+project filesystem tools. Work Record retrieval reads canonical remote records. Team Memory still derives from trusted
+remote project evidence; local personal storage does not bypass trust or make raw transcripts shared knowledge.
+
+**Reviewable integration default:** Personal MCP servers run on the laptop with their existing credentials; their tool
+calls/results are forwarded. Project-defined servers run remotely. Project override/disable rules still apply, and each
+effective server's execution location is visible. Do not copy credential-bearing MCP environments or rewrite arbitrary
+path arguments. A server needing both laptop credentials and remote project files is best effort and may need user
+configuration. No general transparent MCP portability promise is made. This is an architecture default, not a newly
+agreed guarantee that all personal integrations work unchanged.
+
+Separate three facts: remote project identity, current execution cwd/worktree, and selected personal Memory collection.
+Resolve project roots and worktree relationships remotely. Store an explicit remote locator with host identity and
+canonical project path; never run laptop `stat`, `realPath`, or directory creation against it. Keep execution cwd
+separate so isolated worktrees retain their parent project.
+
+Keep the SSH connection recipe separate from host identity. A local host record can match effective SSH hostname, user,
+port, and verified host evidence after an alias rename. Neither alias spelling nor a host-key fingerprint alone is
+sufficient. Ambiguous equivalence requires confirmation, not automatic history merging.
+
+New unrelated remote projects get separate local Memory collections. Deliberate mapping to an existing collection by
+name does not require a local checkout and does not merge Sessions. Ask once when the intended mapping is ambiguous,
+then retain it. Core injection, explicit recall/store/delete, and `/sleep` all use that same resolved mapping. Backups
+stay local. Existing local project IDs, collection names, and saved Sessions remain unchanged.
+
+### Browser review and connection lifetime
+
+```mermaid
+graph TD
+    B[Local browser] -->|Laptop loopback URL| F[SSH local forward]
+    F --> R[Remote review server]
+    R --> P[Remote Plan and diff]
+    R -->|Decision| W[Same waiting workflow]
+```
+
+Keep existing review servers on remote loopback. The remote browser-opening capability asks the launcher to forward the
+whole HTTP origin and open a laptop URL with the original path/query/token. APIs, assets, polling, images, and uploads
+then reach the existing remote server. Keep the mapping across conversation revisions and show laptop URLs in reopen
+links. Existing review tokens and live-operation checks remain required. Never replay an uncertain review decision.
+
+The browser is visual and interactive, but no new review layout or design system is required. File expansion and images
+must show actual remote content. Browser close preserves the connected wait; SSH loss stops the owned review server and
+jobs. Guided Review inherits the same remote-mode execution context and local personal authority.
+
+A connection supervisor must remain responsive when the TUI, Agent, or synchronous mounted I/O is blocked. Track owned
+processes and mounts explicitly; do not use broad process-name kills. Remote detection must work without a final message
+from the laptop. Local shutdown stops model streams, revokes channels, and ends serving processes; remote shutdown stops
+the Agent, owned tools/helpers/review jobs, then unmounts and cleans up its own resources. Retain remote edits, project
+state, installed runtime cache, and committed local history.
+
+**Reviewable timing defaults:** Application/control health every 5 seconds; loss after 3 missed replies; owned-process
+termination starts immediately with a 5-second grace period before forced termination. A separate 30-second deadline for
+an outstanding storage request detects a stuck SFTP service even when SSH is healthy. These are proposed testable
+operating defaults, not prototype measurements or a writer lease. An uninterruptible OS I/O operation can exceed them;
+never release/reassign a still-held lock to satisfy a timer. Stop dependent work and retain truthful recovery state.
+
+If the launcher dies but SFTP survives, the serving process must retain the lock. Independent supervision and later
+startup recovery remove the orphan safely; a new writer waits until the actual owner is gone. A watchdog may terminate
+owned processes, but cannot declare a held lock expired. Remote project mutation admission also remains tied to the live
+connection: loss stops new effects and owned work. No arbitrary daemon launched outside RunWield's ownership or already
+accepted external action can be rolled back by closing SSH.
+
+Reconnect creates fresh channels and runtime context, reads saved local history, and inspects remote workflow evidence
+before continuation. It does not resume a frozen stack or automatically replay tool calls. A failed attempt, lost
+connection, retry limit, or internal inconsistency is recoverable. Delivery ends only with confirmed publication or
+deliberate user abandonment.
+
+### Alternatives and costs
+
+- **Per-entry network saves:** Avoid FUSE but require adapting synchronous Pi persistence and every metadata path. Not
+  selected. The mount preserves the file API; it still needs local ownership and settlement.
+- **Custom confined SFTP:** The fixed-file proof was useful, but not a server to ship. The owner chose standard SFTP and
+  trusted-host access, avoiding a new protocol implementation or confinement dependency.
+- **Plain SSH/profile copying:** Fails local personal authority and sign-in requirements. Full skill copies are a
+  specific resource exception, not a copied profile.
+- **Local Agent with forwarded tools:** Conflicts with the agreed remote TUI/Agent placement and shifts adaptation to
+  project tools. Not selected.
+- **Remote history plus exit-time sync or timeout takeover:** Violates save and single-writer requirements. Excluded.
+
+Over six to twelve months, maintain a tested OpenSSH/SSHFS/Pi compatibility matrix and pinned helper packages. SSHFS is
+widely distributed but has limited maintainer capacity. Reuse separate executables rather than own SFTP; include
+required licenses/source notices when distributing helpers. The exit path is a different storage transport behind the
+same Session owner, not a new transcript format. Any evidence requiring a different architecture returns to the owner
+rather than becoming an unreviewed fallback.
 
 ## Vertical Slice Findings
 
-### Current Session creation and provider boundaries
-
-Source inspection traced:
+### Existing call paths
 
 ```text
 buildExecutionSession
-  backend pi -> buildAgentSession
-    createRunWieldModelRuntime -> local credential/model configuration
-    createAgentSession -> ModelRuntime.streamSimple -> provider
-    Agent loop -> project tool -> next model request
-  backend claude-cli -> ClaudeCliExecutionSession -> claude process
-  backend agy-cli -> AgyCliExecutionSession -> agy process
+  Pi -> buildAgentSession -> createAgentSession -> ModelRuntime -> provider
+                           -> Agent tool loop -> project tools
+                           -> synchronous SessionManager writes
+  Claude/agy -> separate CLI process and native tools
 ```
 
-Evidence: `src/shared/session/session.js`, `src/shared/models/model-registry.ts`, and the backend directories.
-`buildAgentSession` combines settings, prompt resources, extensions, tools, model runtime, and persistence around one
-`cwd`. Passing a remote path or changing `HOME` does not split these responsibilities safely.
+`session.js` currently combines one cwd with settings, prompt resources, tools, model runtime, and persistence.
+`root-session.js:installDenoSessionPersistence` intercepts synchronous Pi writes. Ordinary transcript appends bypass
+`file-session-store`, which owns manifests, locks, and generations. Changing `streamSimple` or the store alone cannot
+produce the requested split. Pi Session event listeners also run before persistence; they are not save acknowledgements.
 
-The installed Pi coding-agent package reported version **0.85.1** during inspection. Relevant installed sources are
-`node_modules/@earendil-works/pi-coding-agent/dist/core/sdk.js`, `dist/core/agent-session.js`, and
-`node_modules/@earendil-works/pi-agent-core/dist/agent-loop.js` and `dist/proxy.js`. Recheck against the installed
-version on restart; these are dependency internals, not a stable RunWield API promise.
+`session-runtime.js:#runManagedOperation` owns acquire/hydrate/run/checkpoint/release. `segment-rollover.ts` performs
+filesystem changes and lineage publication. These paths must preserve local authority and operation-scoped locking
+across mounted access. The existing same-machine live-session socket is not a cross-host protocol.
 
-- `ModelRuntime.streamSimple` returns an `AssistantMessageEventStream`. Callers use async iteration and `.result()`.
-  Terminal `done` or `error` events must settle the result; premature stream termination must not hang.
-- Model selection and Session behavior also use runtime methods such as `getModel`, `getAvailableSnapshot`,
-  `hasConfiguredAuth`, `checkAuth`, `getAuth`, and `isUsingOAuth`. Provider registration and summarization need
-  attention. A local-only credential requirement must also cover these paths, not only the first model request.
-- SDK hooks include request, response, and header callbacks. Functions and abort signals are not directly transferable
-  as JSON. Their placement and semantics need an explicit design.
-- Pi's existing `streamProxy` client POSTs to `/api/stream` and reads server-sent events. It reconstructs partial text
-  and tool calls and handles premature close as an error. No matching server or ready reverse-SSH proof was found.
-- That proxy forwards only a subset of request options. Inspection found omitted callbacks, timeout/retry-count options,
-  `toolChoice`, and deferred options; its event representation does not preserve all current response fields. It is a
-  reuse candidate, not an accepted drop-in solution.
-- Cancelling its fetch does not establish that the local service cancels the provider request.
-- The Pi SSH extension example forwards tools from a local Agent. It does not prove the requested
-  remote-Agent/local-model arrangement.
-- OpenAI Codex through Pi is an OAuth provider path, not a separate Codex CLI backend. Current backends are `pi`,
-  `claude-cli`, and `agy-cli`. Claude and agy use their own sign-in and native project tools in the subprocess
-  directory.
+`file-session-storage.ts:ensureProject`, root locators, and resume lists require local paths today. Explicit Memory
+tools use a Git-aware basename, Core injection leaves collection choice implicit, and `/sleep` uses cwd basename. Remote
+support needs explicit project and Memory identity across all three, not just renamed directories.
 
-### Personal data, persistence, and review
+`session.js:listSkills` and Pi's `DefaultResourceLoader` both discover skills. `named-invocation.ts` resolves sibling
+resources from the skill directory. MCP definitions merge personal then project; `mcp/pool.ts` currently starts local
+stdio subprocesses. Moving text alone does not move resource files or preserve integration location.
 
-- `getSettingsDir` and merged settings in `src/shared/settings.js` use global `~/.wld` plus project `.wld` settings.
-  Project values win; linked worktrees resolve primary-checkout settings.
-- Skills and prompt resources can contain local absolute paths or scripts. Portability cannot be inferred from copying
-  their text. MCP configuration is separate; servers can require local credentials or remote files.
-- `resolveProjectCollectionName` in `src/extensions/mnemoteca/tools.ts` uses a primary-repository directory basename,
-  with a cwd basename fallback. Names can collide or split one project across clones. Explicit recall is not the only
-  path: Core Memory injection in `session.js` and `/sleep` also need correct scope.
-- Recall combines project and global memories with project precedence. Writes default to project scope. Global writes
-  remain deliberate. Work Record retrieval must read canonical records from the remote project.
-- Team Memory rules still apply: no committed Mnemoteca database/index; accepted reviewable text is canonical, with
-  derived Team records activated from Trusted Branch state. Remote personal access must not bypass that trust boundary.
-- [ADR-015](../adr/015-file-authoritative-session-bundles.md) owns local transcript bundles, atomic manifests, recovery
-  descriptors, and operation-scoped OS writer locks. Do not introduce a competing remote history or timeout takeover.
-- `root-session.js` and `file-session-store.ts` currently assume local project paths. Remote project identity must
-  distinguish remote targets without requiring those folders to exist locally. Host/alias canonicalization is open.
-- `live-session-connection.ts` is a temporary same-user, same-machine socket, not an existing cross-host protocol.
-- Review servers bind to loopback. Remote loopback is not laptop loopback. Browser decisions must reach the same live
-  interaction; a historical Session association does not grant permission to act on a workflow.
-- `foreground-process.ts` can terminate process trees. This alone does not prove cleanup on SSH loss; helpers, MCP, and
-  CLI subprocesses need coverage.
+`review-launcher.ts` calls `BrowserPort.open`; the review server binds loopback and resolves an in-process pending
+promise. Frontend URLs are same-origin. `review-agent-handlers.js` starts Guided Review as another `wld` process. Whole
+origin forwarding and inherited remote context fit the existing design; hosted Workspace is not required.
 
-### Session save and identity findings
-
-`root-session.js:createRootSessionManager` constructs a disk-backed Pi manager. `installDenoSessionPersistence`
-intercepts synchronous `_persist` and `_rewriteFile` calls. Ordinary transcript writes bypass `file-session-store`; that
-store owns manifests, generations, artifacts, and locking. Replacing its interface alone does not move history.
-
-Pi 0.85.1 `SessionManager` append methods return synchronously and update in-memory state before persistence. Turning
-`_persist` into an async function would not cause its callers to wait. Pi AgentSession also emits Session events before
-appending message entries, and those subscriber promises are not awaited. In contrast, Agent-core `processEvents` awaits
-listeners in order. This supports awaited save boundaries, but metadata, compaction, workflow records, and other
-non-Agent changes still need separate coverage. `task-completion-session.ts:recordAcceptedTaskCompletion` is one
-important synchronous append-before-acceptance path.
-
-`session-runtime.js:#runManagedOperation` acquires the writer, hydrates the current transcript, runs the operation,
-syncs evidence, and publishes a generation before release. Preserve this ownership with storage on the laptop.
-`segment-rollover.ts` currently performs filesystem operations that also must remain under laptop authority.
-
-`file-session-storage.ts:ensureProject` requires a local directory; `root-session.js` locators and
-`session-resume-list.ts` also derive identity from local paths. Remote locations need an explicit distinct
-representation, not fake laptop folders. Project identity and a segment's execution cwd are already separate concepts.
-
-Memory currently has inconsistent selectors: explicit tools use a Git-aware basename, Core injection invokes Mnemoteca
-without an explicit collection, and `/sleep` uses a cwd basename. Remote support must supply a single resolved local
-collection to all three, rather than reproduce these implicit filesystem assumptions. Work Record indexing has its own
-basename-derived collection and must remain tied to canonical remote records.
-
-### Personal resource portability findings
-
-A follow-up source trace found two skill-loading paths: RunWield's `listSkills` in `session.js` and Pi's
-`DefaultResourceLoader`. The latter still discovers skills when automatic extensions, context files, and prompts are
-disabled. Both paths must use the intended personal resource source; adapting one catalog is insufficient.
-
-`named-invocation.ts:expandSkillResource` resolves sibling resources relative to the skill directory. Skills can direct
-ordinary file reads and shell commands. Transferring instruction text alone does not supply those files, interpreters,
-or Linux-compatible binaries. Installed package resources and extensions have the same compatibility concern.
-
-`mcp/config.ts:resolveMcpConfig` merges personal and project server definitions, with project overrides and disable
-rules. `mcp/pool.ts:startMcpToolPool` starts stdio subprocesses in the Session directory. A personal server can depend
-on laptop credentials or files; starting the same definition remotely is not equivalent. Keeping it local preserves
-those dependencies but does not give it remote project files. Generic tool arguments cannot safely be rewritten as
-remote paths.
-
-**Agreed skill behavior:** Copy the complete personal skill trees, including scripts and supporting files, to a separate
-remote resource area. Do not select only files predicted to work or require per-skill compatibility approval. Local
-originals remain authoritative; remote copies do not replace or merge into an existing remote personal profile. Preserve
-relative resource paths and project override rules across both skill-loading paths.
-
-RunWield must supply and verify its own core capabilities on supported Linux hosts. User skills and third-party
-integrations are best effort: required CLIs, platform-specific scripts, hard-coded paths, and other custom dependencies
-are the user's responsibility. RunWield does not promise to classify arbitrary skills for portability, install every
-custom dependency, or repair those integrations. Actual failures must remain visible; a custom skill failure must not
-prevent connection or unrelated core work. No fallback executes project commands on the laptop.
-
-Skills are treated as user-authored shareable resources, not credential storage. Copy their full contents as requested;
-do not claim automatic secret detection or filtering. This permission does not extend to provider credential stores, SSH
-keys, the laptop environment, or the whole personal profile. Product documentation must state the full-copy and
-best-effort behavior. Credential-bearing MCP configuration remains a separate design question; this decision does not
-approve copying its secrets.
-
-**Evidence required:** A skill with nested files reaches the remote host intact and resolves its relative resources. A
-skill whose CLI is absent remains available and reports its execution failure, while core tools still work. Core
-capability tests must not be waived under the third-party best-effort policy. The implementation that delivers this
-behavior must update the owning PRD's personal-environment scenarios.
+Release packaging already creates Linux x64 and ARM64 binaries. The ordinary installer can mutate profiles and install
+unpinned helpers, so it is not a ready remote bootstrap. Existing private helper packaging provides a pattern, not proof
+that SSHFS/FUSE works on every supported host.
 
 ### Live Pi model-path evidence
 
-**Observed on 2026-09-20 EDT, using the existing `sct` SSH alias:**
+The 2026-09-20 run on `sct` completed the real remote Pi tool loop through locally authenticated
+`openai-codex/gpt-5.6-luna`. A remote-only sentinel affected the second model request and streamed reply. Cancellation,
+killed-tunnel settlement, and a fresh connection passed. This is narrow Pi transport evidence, not a full Session or
+all-provider compatibility result.
 
-- A throwaway prototype under ignored `prototypes/remote-ssh-model-proof/` installed Pi Agent Core 0.85.1 in a temporary
-  remote directory. The laptop ran `createRunWieldModelRuntime` with local `openai-codex/gpt-5.6-luna` authentication
-  and exposed only a one-run bearer-protected stream endpoint through reverse SSH.
-- The remote Pi `Agent` used `streamProxy`. It requested `read_remote_sentinel`, executed that tool remotely, sent the
-  result through a second local model request, and streamed the exact sentinel in its final reply. A different laptop
-  file at the identical path was unchanged.
-- Text deltas arrived before completion. For both model requests, proxy `.result()` content and usage matched the final
-  Agent message. The first request ended with `toolUse`; the second ended with `stop`.
-- Calling the remote Agent's abort reached the laptop endpoint and aborted the local provider stream. The remote result,
-  local terminal event, and Agent state all settled as `aborted`.
-- Killing only the reverse tunnel made the remote Agent settle with
-  `Connection closed by proxy server before the
-  response completed`; the laptop provider stream settled as `aborted`.
-  A fresh SSH connection then completed another remote tool round trip.
-- The remote shell exposed no provider-key environment variable and had no RunWield or Pi auth file at the checked
-  standard paths. The remote Agent had no direct provider stream function or fallback. Temporary files were removed on
-  both machines.
+### Prototype evidence and limits
 
-**Proven:** A real Pi Agent can run remotely while authenticated model requests run locally, with streamed tool loops,
-matching terminal results, cancellation propagation, tunnel-loss settlement, machine-correct tools, and a fresh
-connection after loss.
+| Proof                             | Observed                                                                                                                                                                                                         | Not established                                                                                                                                                                   |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Pi model path, 2026-09-20         | Remote Pi 0.85.1 on `sct`; locally authenticated `openai-codex/gpt-5.6-luna`; remote sentinel tool; second model request; streamed reply; cancellation; killed-tunnel settlement; fresh connection.              | Full RunWield Session, all Pi options/providers, CLI backends, durable resume, whole-process cleanup.                                                                             |
+| Stock SSHFS file path, 2026-09-20 | Remote writes reached laptop bytes; Pi append/reopen; file fsync and POSIX rename; fresh remount.                                                                                                                | Mounted locks failed cross-machine exclusion. Directory fsync did not reach laptop. Service stalls blocked; after unmount, unprotected directory accepted remote fallback writes. |
+| Guarded lock proof, 2026-09-20    | One Deno process held native lock and served a fixed file. Competitors blocked; launcher/owner deaths behaved safely; stale handles did not alter successor bytes; 0500 underlying directories blocked fallback. | The server was a tiny custom subset, not stock SFTP or a full Session implementation. No rename/directory API or full workflow.                                                   |
+| Stock Apple SFTP lock test        | Native server retained an inherited lock after INIT; killing it released ownership.                                                                                                                              | No combined mounted stock-server guarded-lifetime test and no other laptop-platform proof.                                                                                        |
 
-**Still not proven:** Production authorization, full RunWield Session integration, personal resources and persistence,
-browser review, bootstrap/version policy, process cleanup beyond the active model call, or durable Session resume.
-Claude CLI and Antigravity CLI are deferred and unproven. The prototype uses Pi's existing proxy representation, whose
-known option and event omissions still require production design.
+In the guarded test, normal close drained an admitted write, but a later remote fsync failed after revocation.
+Production therefore needs explicit operation settlement. An injected service delay failed after two seconds; an
+actually stopped server needed external termination after four seconds. Neither is a universal disk-stall or
+network-partition result.
 
-### Earlier reverse-channel transport evidence
+All proof mounts, temporary remote packages/directories, and tracked processes were removed. Only ignored local
+prototype code, evidence, and synthetic data remain:
 
-**Observed on 2026-09-19 EDT, using the existing `sct` SSH alias:**
+- `prototypes/remote-ssh-model-proof/evidence.json`
+- `prototypes/remote-ssh-session-mount-proof/NOTES.md` and `evidence/20260920-011625/`
+- `prototypes/remote-ssh-session-lock-proof/NOTES.md` and `evidence/20260920-132201-04b394/`
 
-- Noninteractive SSH with strict host checking succeeded. Remote OS reported Linux. Remote `curl`, `node`, `python3`,
-  `ss`, and `timeout` were on the tested command path. `deno` and `wld` were not found on that noninteractive path; this
-  does not establish that they are absent from all login environments.
-- A temporary laptop `nc` listener served dummy HTTP data on local loopback.
-- `ssh -R 127.0.0.1:<remote-port>:127.0.0.1:<local-port>` created the return path, with `ExitOnForwardFailure=yes`.
-- Remote `ss` showed the listener bound to `127.0.0.1`, not a public address.
-- Remote `curl` received `first` and then `second` as separate chunks about 4.5 seconds apart. The request reached the
-  local listener. The remote endpoint was unavailable before the tunnel opened and after SSH closed normally.
-- The local listener was cleaned up. No credentials or project contents were sent. Nothing was installed remotely.
+These ignored paths are checkout-local evidence, not shipped dependencies or portable repository links. The mounted Pi
+trial used Node 20 despite Pi's Node >=22.19 declaration; it is not supported-runtime evidence. No ARM64, true network
+partition, power-loss, complete browser-review, or complete remote delivery proof was performed.
 
-**Proven:** This host permits loopback reverse SSH forwarding and live HTTP streaming from laptop to remote caller.
-
-**Not proven:** Real model calls, Pi Agent integration, remote tool loops, credential refresh, cancellation of upstream
-requests, abrupt network-loss cleanup, local Session persistence, or CLI support. Normal SSH exit is not a simulated
-network partition. No automated tests or live provider requests were run for this proof.
+External references: [SSHFS manual](https://github.com/libfuse/sshfs/blob/master/sshfs.rst),
+[SSHFS maintenance](https://github.com/libfuse/sshfs#readme), and [OpenSSH](https://man.openbsd.org/ssh). These
+establish capabilities and limits, not RunWield acceptance.
 
 ## Expected Change Surface
 
-These are evidence-based areas, not an approved implementation checklist or a complete change list.
+These are evidence-based boundaries, not an implementation checklist or an allowlist. A change to approved intent,
+platform scope, trust, persistence ownership, or dependency strategy returns for review.
 
-- `src/cli.ts`, `src/cmd/registry.js` — new remote entry point; no such command was found during discovery.
-- `src/shared/settings.js` and resource loading in `src/shared/session/session.js` — separate personal and project
-  ownership while preserving override rules and Agent behavior.
-- `src/shared/models/model-registry.ts` and `src/shared/session/backends/` — local model authority and explicit backend
-  compatibility. Remote model metadata must not expose provider secrets embedded in configuration or headers.
-- `src/shared/session/root-session.js`, `file-session-store.ts`, and related Session machinery — remote project locators
-  with local authoritative history and existing writer guarantees.
-- `src/extensions/mnemoteca/tools.ts`, Core injection, and `src/cmd/sleep/index.ts` — local memory operations with one
-  consistent remote-project mapping. No silent migration of current local collection names.
-- `src/shared/mcp/`, helper execution, and foreground processes — correct execution location and owned-process cleanup.
-- `src/shared/workflow/` — preserve remote project authority, worktree behavior, validation, recovery, and publication.
-- `src/ui/review/` and `src/ui/workspace/server.js` — local-browser access to remote reviews. No Workspace lifecycle
-  redesign or new browser design system is implied.
-- PRD and domain-language documents — same-change updates only when behavior becomes real. Existing terminology remains
-  current truth; “Remote SSH connection” is proposed language, not a new durable Session type.
+- `src/cli.ts`, `src/cmd/registry.js` — remote entry, arguments, launch context, visible host/directory.
+- `src/shared/settings.js`, `src/shared/session/agents.js`, `agent-assets.js`, `named-invocation.ts`, and `session.js` —
+  local personal authority, remote project precedence, copied resource paths, both skill loaders, child context.
+- `src/shared/models/model-registry.ts`, `src/shared/session/backends/` — local model runtime, remote catalog/stream
+  contract, supported-backend checks, refresh and cancellation.
+- `src/shared/session/root-session.js`, `file-session-*.ts`, `session-runtime.js`, `segment-rollover.ts`,
+  `session-resume-list.ts`, and `image-attachments.js` — explicit remote identity, mounted Pi files, local
+  locks/commits, settlement, rollover, attachments, offline history and resume.
+- `src/extensions/mnemoteca/`, `src/cmd/sleep/`, and Work Record indexing — one explicit personal Memory mapping and
+  remote canonical records. Other extensions retain the correct execution location.
+- `src/shared/mcp/`, `src/shared/foreground-process.ts`, and runtime child-process creation — origin-aware custom
+  integrations, connection-owned processes, cancellation outside blocked Agent execution.
+- `src/shared/workflow/` — preserve project-owned workflow truth, remote validation/publication, and evidence-based
+  recovery while Session history is local.
+- `src/shared/browser-port.ts`, `src/ui/review/`, TUI review integration, and `src/ui/workspace/server.js` — automatic
+  local forwarding, local reopen URLs, remote review content and Guided Review. No visual redesign.
+- `scripts/compile.js`, release/helper packaging and runtime resource handling — matched Linux builds, verified private
+  dependencies, compiled UI, licensing, and non-destructive bootstrap.
+- Product, glossary, and ADR documents — synchronize delivered behavior and acceptance scenarios with their owners.
 
 ## Reuse Opportunities
 
-- OpenSSH configuration, authentication, strict host checking, terminal allocation, and forwarding. Do not invent a
-  separate SSH credential store or bypass host verification.
-- `createRunWieldModelRuntime` and `RunWieldCredentialStore` — existing local provider auth/configuration authority.
-- Pi's Agent tool loop and stream types; `streamProxy` only after testing its option/event limitations.
-- Existing Core project tools and workflows on the remote host, rather than a parallel reduced workflow implementation.
-- ADR-015 Session bundles, committed evidence, writer locking, and recovery. Reuse contracts without assuming current
-  local-path implementations already work across machines.
-- Existing review servers and foreground-process management, once forwarding and loss behavior are proven.
+- OpenSSH configuration, authentication, host checks, terminal allocation, and forwarding; standard SFTP and SSHFS.
+- `createRunWieldModelRuntime` and `RunWieldCredentialStore` as local model/auth owners. Reuse Pi stream shapes without
+  assuming its existing proxy is complete.
+- Core's existing remote-executed tools and workflow state machines; no parallel shell-only delivery implementation.
+- File Session bundles, native locks, generation evidence, atomic manifests, recovery descriptors, and segment lineage.
+- Existing review frontend/server and browser-opening capability; same live decision semantics through a forward.
+- Existing foreground process ownership and verified release/private helper packaging, extended rather than bypassed.
 
 ## Verification Plan
 
-### Completed proof used for architectural convergence
+This Epic defines architectural evidence; executable child Plans provide the concrete tests. Passing existing CI does
+not prove a remote user journey.
 
-The throwaway implementation exercised the real installed Pi path, not only `curl` or fabricated model events:
+**Automated foundations:** `deno task doc-links:check`, `deno task seams:check`, and `deno task ci`. Use
+`deno task test` or `deno run -A scripts/run-tests.js <arguments>` for isolated tests, never direct `deno test`. Use
+sandboxed home/Memory storage and real Git fixtures. Do not add injection seams for owned storage, locks, Plan writes,
+or lifecycle rules. External subprocess, transport, model, and clock behavior can use genuine external boundaries.
 
-```mermaid
-graph TD
-    A[Remote Pi Agent] -->|Model context over SSH| B[Local authenticated runtime]
-    B -->|Streamed tool request| A
-    A -->|Execute only remotely| T[Remote tool]
-    T -->|Result through next request| B
-    B -->|Final streamed reply| A
-```
+**Live acceptance:** Use synthetic projects on both supported remote CPU architectures, with a same-named but different
+laptop file tree. Run the actual built remote runtime, stock file server, native Deno locks, and supported provider.
+Exercise a complete change: connection/bootstrap → planning → local browser review → isolated remote execution →
+validation/AI review → Code Review where selected → confirmed publication → disconnect → saved continuation. Also test
+remote home outside Git. Core tools and custom missing-dependency behavior must both be visible.
 
-The 2026-09-20 run showed:
-
-- A real provider request uses local authentication. The remote process has no provider credentials and cannot silently
-  fall back to direct provider access.
-- Text arrives before completion. Final events and `.result()` agree, including usage and tool-call content.
-- A tool operates on a remote-only sentinel resource; a distinct local resource is untouched. Its result reaches a
-  second model request and affects the reply. No local checkout is required.
-- User cancellation stops the local upstream request. Tunnel loss settles the remote call without hanging or continuing
-  autonomous tool work. Check both ends; a closed fetch alone is insufficient evidence.
-- A new connection completed a fresh request. This is not durable Session resume, which still needs separate
-  verification.
-- Failures and omissions are recorded honestly. The owner deferred Claude/agy; this Pi proof does not establish their
-  future compatibility.
-
-The run used a trusted host, synthetic prompts/files, and a locally configured model. It did not transmit project
-contents or credentials or mutate personal settings or Session history. The ignored prototype and full local evidence
-remain under `prototypes/remote-ssh-model-proof/` for the current checkout.
-
-### Later verification expectations
-
-These commands are future checks, not claims of current success:
-
-- `deno task doc-links:check` for tracked documentation.
-- `deno task seams:check` and `deno task ci` as implementation evolves.
-- Use `deno task test` or `deno run -A scripts/run-tests.js <test arguments>` for automated tests, never direct
-  `deno test`. Use sandboxed HOME and memory storage. Do not add injection seams for owned workflow or storage rules.
-- Run the complete PRD journey on a remote-only project: setup, plan, local browser review, remote execution,
-  validation, AI review, Code Review where selected, confirmed publication, disconnect, and saved continuation.
-- Distinguish normal exit, explicit Stop, laptop process death, network loss, remote process failure, and browser close.
-  Verify no unrelated process is killed and uncertain external actions are not repeated blindly.
+**Failure evidence:** Test normal exit, Stop, browser close, transport kill, a real blocked network path, launcher
+death, file-serving owner death, service stall, interrupted setup, and loss during
+write/sync/rollover/commit/publication. Competing laptop and remote processes must use the actual lock file.
+Continuously probe lock acquisition while error cleanup, store disposal, and segment rollover occur with stock SFTP
+still able to write; no explicit unlock may admit a successor early. Launcher-death testing alone does not cover this.
+Retry only requests whose effects can be determined. Measure detection and cleanup deadlines; assert unrelated processes
+survive. A killed tunnel is not a partition test.
 
 ### Outcome Evidence
 
-| Proposed outcome              | Observable evidence                                                                                                                                                 | Owning proposal scenarios                                     |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| Correct remote setup          | Both command forms open the intended remote directory; absent folder fails; existing remote profile and install remain unchanged                                    | Remote connection and setup                                   |
-| Local personal authority      | A personal setting/memory save is visible locally before disconnect; project settings change only remotely; credentials and renewal remain local                    | Local personal environment; Local memories and saved Sessions |
-| Real remote execution         | All project tools and the full delivery journey act on remote-only files, with distinct local files unchanged                                                       | Remote workflows and local review                             |
-| Correct project scope         | Two unrelated same-name folders cannot share history or memories accidentally; deliberate memory mapping survives reconnect                                         | Local memories and saved Sessions                             |
-| Local authoritative history   | Saved conversation stays readable locally after loss; remote Session resume restores saved Agent/model/context without replay; no competing remote personal history | Local memories and saved Sessions                             |
-| Usable local review           | Laptop browser shows actual remote Plan/diff; feedback reaches the live Session; browser close alone leaves the connected wait intact                               | Remote workflows and local review                             |
-| Connected-only work           | On detected loss, owned Agent/tool processes stop without a final client message; unrelated processes survive; uncertain effects are reconciled                     | Disconnect and recovery                                       |
-| Honest provider compatibility | Each advertised backend passes its own real remote-tool/local-auth journey; unsupported paths fail before the turn without substitution                             | Local personal environment                                    |
+| Outcome                                 | Observable evidence                                                                                                                                                                                                      | Owning proposal                                               |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------- |
+| Correct connection and setup            | Both command forms resolve remotely; missing paths fail; SSH verification remains active; core runtime prepares on clean x64/ARM64 hosts without changing existing profiles/installations.                               | Remote connection and setup                                   |
+| Correct personal authority              | Personal settings and Memory saves are visible locally before exit; project overrides save remotely; no normal setup copies provider keys or imports a remote personal profile.                                          | Local personal environment; Local memories and saved Sessions |
+| Complete skill resources, honest limits | Nested resource files reach remote copies; relative reads work; a missing custom CLI reports failure while core operations still work. No compatibility classifier blocks copying.                                       | Local personal environment                                    |
+| Local model execution                   | Actual remote tool result reaches a second locally authenticated request; stream/result/options match; renewal stays local; cancellation stops upstream; unsupported CLI choice fails without substitution.              | Local personal environment                                    |
+| One Session writer                      | Stock serving process retains native lock after launcher death; competitors cannot write; successor starts only after old writable access ends; stale handles cannot change successor bytes.                             | Local memories and saved Sessions                             |
+| Local saved history                     | Completed saves and generations survive loss; local store computes evidence and syncs directories; protected mountpoint cannot accept fallback writes; no remote personal transcript remains.                            | Local memories and saved Sessions; Disconnect and recovery    |
+| Correct identity and Memory             | Unrelated same-name folders remain distinct; worktrees preserve project identity; known alias changes reuse it; deliberate Memory sharing does not merge Sessions; injection/tools/sleep use the same binding.           | Local memories and saved Sessions                             |
+| Complete remote delivery                | File/shell/search/build/test/Git/worktree/validation/repair/publication all act on the remote-only project; laptop sentinel tree stays unchanged; child Agents retain remote context.                                    | Remote workflows and local review                             |
+| Local usable review                     | Browser displays remote Plan/diff/files/images; feedback reaches the same pending interaction; revisions/reopen/Guided Review work; browser close alone preserves the wait.                                              | Remote workflows and local review                             |
+| Connected-only recovery                 | Loss without a final client message stops new work and owned processes within tested bounds; storage stalls are detected separately; unrelated processes survive; reconnect reconciles uncertain effects without replay. | Disconnect and recovery                                       |
+| Honest trust and compatibility          | Notice states broad account-level SFTP access; no sandbox claim; supported build/provider matrix reflects actual tests rather than synthetic filesystem passes.                                                          | Local personal environment; Remote connection and setup       |
 
-**Protected behavior:** Ordinary local TUI/ACP/Workspace use, settings precedence, Agent/model selection, Session writer
-rules, private transcripts, Memory scopes, trusted Team Memory activation, Plan approval, validation/AI review/Code
-Review, worktree protection, and confirmed publication. Workspace browser disconnect behavior stays unchanged.
+**Protected behavior:** Ordinary local TUI, ACP, and Workspace; settings precedence; Agent/model selection; private
+transcripts and dormant resume; operation-scoped native locks; Memory scopes; trusted Team Memory; Plan approval;
+validation, AI review, Code Review, worktree protection, and confirmed publication. Browser-only Workspace disconnect
+behavior does not change. Existing local Session directories/IDs and Memory collections are not migrated.
 
-**Behavior to remove from the new remote path:** Dependence on a separate remote personal setup, exit-only personal
-sync, accidental laptop project operations, wrong-folder fallback, and continued autonomous work after detected loss.
-These are target prohibitions, not claims that a remote implementation already exists. No ordinary local capability is
-selected for removal.
+**Behavior excluded from the new remote path:** Separate remote personal setup/history, exit-only personal sync,
+accidental laptop project operations, missing-folder fallback, silent model substitution, custom-skill portability
+gates, unguarded mounted writer locks, writes beneath a lost mount, and unattended continuation after detected loss.
+These are target prohibitions; ordinary local capabilities are not being removed.
 
-Eventual child outcomes must update their owning Core requirements and scenarios with the behavior they deliver. The
-cross-capability remote-only delivery and reconnect journeys need combined evidence; a set of passing isolated tests is
-not enough. Fold lasting requirements into Core and retire the transient PRD only after preserving delivered and unmet
-scope and fixing references. Update the glossary in the implementation change that makes each proposed relationship
-true. Actual decomposition remains for Slicer after approval, not this draft.
+**Required document outcomes:** Each eventual implementation change updates its owning Core capability and scenarios
+with delivered behavior, not merely this Epic's intent. Update the transient PRD's platform/provider scope, full-copy
+best-effort skills, trusted broad SFTP notice, local-save and disconnect scenarios as those changes become true. Keep
+current and target behavior distinct. Shared behavior has one PRD owner. The end-to-end remote delivery and reconnect
+journeys need combined evidence across child boundaries.
+
+After preserving both delivered and unresolved requirements in Core, fix references and retire the transient proposal
+under project policy. The implementation that establishes remote connections updates `docs/domain-language.md` with
+proposed **Remote SSH connection** and the changed Core/Session/Project Runtime State relationships. It remains an
+ordinary Session, not a new Session type. Accept/update ADR-018 and align ADR-015's local-path/writer descriptions with
+the implemented extension without reintroducing leases. Actual decomposition is left to Slicer.
 
 ## Edge Cases & Considerations
 
-### Decisions and evidence still needed
+### Reviewable assumptions and release gates
 
-1. **Full RunWield integration:** The Pi model boundary is proven. A full Session still needs local personal resources,
-   persistence, workflow integration, and remote project identity without weakening stream or cancellation semantics.
-2. **Deferred CLI compatibility:** Claude/agy are outside the first release. Future support must inspect native tools,
-   MCP, subprocesses, temporary resources, CLI-owned history, and local sign-in. A browser SSH login is not local-only
-   auth.
-3. **Personal-service permissions:** Which operations may the remote process request? How are they tied to one
-   connection, project, and active operation? A loopback listener can still be reached by other users on a shared host;
-   SSH encryption alone is not application authorization.
-4. **Session persistence:** How will remote Session machinery obtain locally committed save evidence while preserving
-   one local writer? Local history and remote side effects cannot form one atomic filesystem transaction.
-5. **Remote project identity and Memory:** Handle alias changes, canonical remote paths, symlinks/worktrees, same-name
-   projects, and intentional sharing. Ask once when existing memory mapping is ambiguous; do not infer it from basename.
-6. **Resources and integrations:** Full personal skill-tree copying and best-effort custom dependency support are
-   agreed. Define the remaining handling of MCP, environment references, custom endpoints, attachments, and local
-   `localhost` URLs without copying credential stores. Do not pretend every local executable is portable.
-7. **Bootstrap and compatibility:** Remote Linux x86-64 and ARM64 are agreed; remote macOS and Windows are excluded.
-   Exact Linux prerequisites, install permissions, required helper versions, partial setup, cache location, and behavior
-   when the laptop and remote runtime versions differ remain open.
-8. **Review and shutdown:** Prove local-browser forwarding plus the difference between browser close and SSH loss.
-   Choose a measurable loss-detection policy and verify cleanup across every supported backend; no latency target has
-   been agreed.
+- **Laptop scope:** Use currently documented macOS/Linux x64/ARM64 support for the launcher. Windows remote hosts are
+  excluded by owner decision; Windows laptop support is not claimed by these proofs or this first-release assumption.
+- **Linux prerequisites:** Use the existing GNU/Linux binary baseline plus usable FUSE. The exact distro/library matrix
+  belongs to release validation. Do not label every Linux host supported because one Fedora x64 test passed.
+- **MCP placement and timing:** The origin-based integration defaults and explicit detection deadlines above are
+  proposed operating choices for review, not additional owner decisions already made.
+- **Stock ownership:** Combined stock SFTP mounting, descriptor retention, settlement, and recovery remain a release
+  gate on each advertised laptop build. The custom proof cannot satisfy it. Unsupported semantics require an explicit
+  error and repair or a reviewed design change, not an unlocked run.
+- **Complete bridge semantics:** Pi proxy option/event gaps remain integration work. General Pi support cannot be
+  claimed from one successful Codex model. Publish only tested support; keep the intended Pi contract as the target.
 
-### Failure, migration, and maintenance constraints
+### Migration, rollout, and reversibility
 
-- Network loss is not instantly detectable. Cancelling processes cannot undo remote edits, already accepted external
-  requests, or completed publication. Output never received locally is not saved history.
-- Connection-loss detection is not a Session writer lease. ADR-015 rejects time-based takeover; preserve that
-  distinction.
-- Reconnect must not merge a stale remote personal profile over newer local data or repeat uncertain publication.
-- Remote project credentials, including Git publication access, remain real prerequisites. Connecting does not silently
-  grant access to laptop Git credentials.
-- Existing local Sessions and memory names must keep working. There is no approved global migration or remote profile
-  import. Bootstrap/runtime removal must not delete the user's project or personal data.
-- A trusted server sees data supplied to it. Do not promise forensic deletion of all temporary bytes or secrecy from
-  that server. Keep credentials out of logs, model metadata, protocol errors, and copied configuration.
-- Over the next six to twelve months, Pi API changes, provider event formats, CLI releases, platform binaries, and
-  paired runtime compatibility are the main maintenance risks. Version negotiation and compatibility policy need design;
-  do not adopt an incomplete proxy unchanged merely because it already exists.
-- No sibling-product dependency is required by the current scope. Workspace and ACP behavior must stay compatible; their
-  presence must not become a prerequisite for this command.
+Add remote locators and runtime context alongside existing local behavior. Missing remote metadata continues to mean a
+local Session. Do not reinterpret old cwd strings or silently remap collections. Local history remains readable without
+SSH; continuing a remote Session requires its validated remote target.
 
-**Next conversation starting point:** The narrow Pi model path is proven. Remote Linux x86-64 and ARM64 are agreed;
-remote macOS/Windows and Claude/agy are out of first-release scope. Full personal skill-tree copying is agreed; custom
-skills and third-party dependencies are best effort, while RunWield core must work. Resolve remaining integration
-handling, Session persistence, project identity, review forwarding, and connection lifetime. This document remains a
-checkpoint, not an approved architecture or an implementation plan.
+Roll out through an owner pilot on real supported hosts, then advertise the verified matrix only after the full journey
+and failure evidence pass. A partial connection/model proof is not a shipped remote feature. Startup checks run before
+personal data transfer and writable activation where possible. Repair interrupted setup and stale owned resources
+automatically. Uninstallation removes only private runtime/cache resources, never project edits or saved local history.
+
+Existing remote Git credentials and project build tools remain genuine external prerequisites. Broad SFTP trust does not
+authorize RunWield to copy laptop Git credentials automatically. Resource copies may contain whatever the user put in a
+skill; there is no secret-detection promise. Redact service credentials and provider auth from normal logs/errors.
+
+Storage, model, and process failures remain recoverable intermediate conditions. Preserve evidence, stop dependent work,
+and let normal recovery re-establish a safe operation. A busy or uninterruptible serving process is not permission to
+break its lock or make the user repair internal metadata. Already accepted external effects may complete after loss;
+report proven outcomes and uncertainty without inventing rollback or success.

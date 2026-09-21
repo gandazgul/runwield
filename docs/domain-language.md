@@ -592,9 +592,13 @@ feedback, transcript text, metrics, arbitrary Plan-file edits, and one-delivery 
 Deviations. _Avoid_: automatic Plan Amendment, checkpoint feedback, review waiver, silent Plan edit
 
 **Pair Execution**: A user-steered Plan execution style where Plan Engineer or Frontend Engineer delivers coherent
-observable increments and blocks at intentional feedback checkpoints. It is a collaboration style, not validation
+observable increments and pauses through ordinary Session conversation. It is a collaboration style, not validation
 evidence. If user feedback conflicts with the effective Plan, it becomes authority only through a confirmed Plan
 Deviation. _Avoid_: Live pair-design, frontend mode, Manual QA
+
+**Pair Checkpoint**: A durable Pair Execution report and its later typed resolution. The report ends the Agent turn so
+the user can discuss the increment in normal conversation. Only a later accepted user turn can authorize continue,
+revision, autonomous work, Stop, or final completion. _Avoid_: Checkpoint form, approval phrase, validation evidence
 
 **Toolset**: A named bundle of tool names granted to an Agent Session. _Avoid_: Tool list, capabilities
 
@@ -627,7 +631,8 @@ _Avoid_: settings key, Custom Tool definition
 keeps the original server and tool names in the description. _Avoid_: RunWield built-in tool, Custom Tool
 
 **Bridged Tool**: A RunWield Tool exposed to an eligible external CLI Execution Backend turn over an authenticated MCP
-bridge. Claude CLI and Antigravity CLI are the current examples. Lifecycle Bridged Tools can advance workflow state and
+bridge. Claude CLI and Antigravity CLI are the current examples. Lifecycle Bridged Tools can advance workflow state.
+`pair_checkpoint` keeps its internal name and a terminating report ends the external backend turn. Other lifecycle tools
 keep the shared external `runwield_` aliases for `plan_written`, `task_completed`, and `review_complete`; Claude CLI
 also keeps its existing `runwield_triage_report` alias. Capability Bridged Tools do memory, Cymbal code intelligence,
 web access, Work Record, interview, edit, MCP, or caller-supplied work and use their internal names, avoiding new
@@ -712,7 +717,8 @@ results. _Avoid_: Concatenated transcript, merged session, segment hydration
 
 **Pending Structured Interaction**: A live in-process wait for a user answer, such as `user_interview` or Plan review
 input. Pending interactions are process-local. The interaction becomes durable only when Pi writes the completed tool
-result; if the owner process is lost first, the user asks the Agent to retry. _Avoid_: Durable prompt, recoverable
+result; if the owner process is lost first, the user asks the Agent to retry. A Pair Checkpoint is not a Pending
+Structured Interaction; its report and resolution records are durable Session data. _Avoid_: Durable prompt, recoverable
 continuation, database interaction record
 
 ## Relationships

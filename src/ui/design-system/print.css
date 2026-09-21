@@ -1,0 +1,122 @@
+.rw-print-document {
+    display: none;
+}
+
+/* Document printing must escape the application's viewport and scrolling panes. */
+@media print {
+    @page {
+        margin: 18mm;
+    }
+
+    html:has(.rw-plan-review),
+    body:has(.rw-plan-review) {
+        color-scheme: light;
+        background: var(--rw-print-paper) !important;
+        color: var(--rw-print-ink) !important;
+        height: auto !important;
+        min-height: 0 !important;
+        overflow: visible !important;
+    }
+
+    /* Include outer Workspace and sequence-tab wrappers as well as standalone reviews. */
+    body:has(.rw-plan-review) :has(.rw-plan-review),
+    .rw-plan-review,
+    .rw-plan-review :has([data-print-region="article"]),
+    .rw-plan-review [data-print-region="article"] {
+        display: block !important;
+        position: static !important;
+        z-index: auto !important;
+        contain: none !important;
+        content-visibility: visible !important;
+        width: 100% !important;
+        max-width: none !important;
+        height: auto !important;
+        min-height: 0 !important;
+        max-height: none !important;
+        overflow: visible !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        border: 0 !important;
+        border-radius: 0 !important;
+        box-shadow: none !important;
+        transform: none !important;
+        background: var(--rw-print-paper) !important;
+    }
+
+    body:has(.rw-plan-review) :is(header, aside, nav, button:not([role="checkbox"]), [role="tablist"], [role="separator"], [data-print-hide], .workspace-sidebar, .workspace-main-header, .rw-plannotator-toolbar, .rw-review-toolbar, .rw-plan-review-notice, .rw-artifact-document-toolbar, .rw-plan-sidebar-tab-toggle, .rw-connection-notice, .rw-markdown-editor-pane, .rw-plan-diff-scroll, .rw-menu-positioner, astro-dev-toolbar),
+    .rw-plan-review > :not(:has([data-print-region="article"])),
+    .rw-plan-review [hidden],
+    .rw-sequence-review [hidden] {
+        display: none !important;
+    }
+
+    .rw-plan-review [data-print-region="article"] {
+        font-size: 11pt !important;
+        line-height: 1.5 !important;
+        overflow-wrap: anywhere;
+    }
+
+    .rw-plan-review [data-print-region="article"] * {
+        color: var(--rw-print-ink) !important;
+        text-shadow: none !important;
+        filter: none !important;
+        box-shadow: none !important;
+        background-color: transparent !important;
+    }
+
+    .rw-plan-review :is(pre, table, blockquote) {
+        background: var(--rw-print-muted) !important;
+        border-color: var(--rw-print-border) !important;
+        break-inside: auto;
+    }
+
+    .rw-plan-review :is(pre, pre code) {
+        white-space: pre-wrap !important;
+        overflow: visible !important;
+        overflow-wrap: anywhere;
+    }
+
+    .rw-plan-review :is(h1, h2, h3, h4, h5, h6) {
+        break-after: avoid;
+    }
+
+    .rw-plan-review :is(p, li) {
+        orphans: 3;
+        widows: 3;
+    }
+
+    /* Mermaid's SVG embeds a dark palette; print it as a high-contrast diagram. */
+    .rw-plan-review :has(> svg[id^="mermaid-"]) {
+        height: auto !important;
+        min-height: 0 !important;
+        max-height: none !important;
+        overflow: visible !important;
+        background: var(--rw-print-paper) !important;
+        break-inside: avoid;
+    }
+
+    .rw-plan-review svg[id^="mermaid-"] {
+        width: 100% !important;
+        height: auto !important;
+        max-height: 220mm;
+        background: var(--rw-print-paper) !important;
+    }
+
+    .rw-plan-review svg[id^="mermaid-"] :is(rect, circle, ellipse, polygon, .node path) {
+        fill: var(--rw-print-muted) !important;
+        stroke: var(--rw-print-ink) !important;
+    }
+
+    .rw-plan-review svg[id^="mermaid-"] :is(path, line, polyline) {
+        stroke: var(--rw-print-ink) !important;
+    }
+
+    .rw-plan-review svg[id^="mermaid-"] :is(text, tspan, marker path, marker polygon) {
+        fill: var(--rw-print-ink) !important;
+    }
+
+    .rw-plan-review svg[id^="mermaid-"] :is(.edgeLabel, .labelBkg) {
+        background: var(--rw-print-paper) !important;
+        fill: var(--rw-print-paper) !important;
+    }
+}

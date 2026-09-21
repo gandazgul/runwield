@@ -1,0 +1,12 @@
+---
+const enabled = !import.meta.env.DEV;
+---
+{enabled && <>
+    <aside class="rw-connection-notice" role="alert" hidden data-workspace-connection transition:persist="workspace-connection">
+        <strong>Connection lost</strong>
+        <p>Check your connection and make sure Workspace is running. If you use Tailscale, check that it’s connected too.</p>
+        <button class="rw-toolbar-button" type="button" data-connection-retry>Try again</button>
+        <span role="status" data-connection-status></span>
+    </aside>
+    <script is:inline type="module" src="/workspace-pwa.js"></script>
+</>}

@@ -3,6 +3,8 @@ import "../../design-system/fonts.css";
 import { RunWieldThinkingDots } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 import { ClientRouter } from "astro:transitions";
 import { WorkspaceMenu } from "../react/WorkspaceMenu.tsx";
+import WorkspacePwaHead from "../components/WorkspacePwaHead.astro";
+import WorkspaceConnection from "../components/WorkspaceConnection.astro";
 import { PLAN_SEARCH_QUERY_PARAM, PLAN_UI_TOKEN_QUERY } from "../constants.js";
 
 const {
@@ -34,6 +36,7 @@ function linkWithToken(path: string) {
         <meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content" />
         <meta name="generator" content={Astro.generator} />
         <title>{title}</title>
+        {!localShell && <WorkspacePwaHead />}
         <link rel="icon" href="/brand/logo.svg" type="image/svg+xml" />
         <link rel="stylesheet" href="/tokens.css" />
         <link rel="stylesheet" href="/components.css" />
@@ -119,5 +122,6 @@ function linkWithToken(path: string) {
             <RunWieldThinkingDots label="Loading page" />
         </div>}
         {!localShell && <script is:inline type="module" src="/workspace-shell.js"></script>}
+        {!localShell && <WorkspaceConnection />}
     </body>
 </html>

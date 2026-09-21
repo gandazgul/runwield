@@ -44,6 +44,16 @@ correct choice obvious:
 
 ## Source of truth
 
+### Printed documents
+
+`src/ui/design-system/print.css` owns the paper layout shared by Plan Review and the Markdown artifact reader, in
+standalone and Workspace views. Printing expands scrolling panes into normal document flow and omits navigation, review
+controls, and annotations. Use `--rw-print-*` tokens for white paper, dark text, subtle code/table backgrounds, and
+readable Mermaid shapes, labels, and arrows. `useDocumentPrintMode` restores diagram zoom after printing;
+`printDocument` prints a static copy of the rendered article so application scrolling and popup layers cannot blank the
+PDF. It waits for styles, fonts, and images. Edit and Changes modes provide the current document to this same path
+without saving pending edits. Printing must not change the saved screen theme.
+
 Use the current review interfaces as the primary visual reference:
 
 - Plan Review: `src/ui/workspace/react/PlanReviewSurface.tsx` and the `/dev/plan-review` fixture;
@@ -92,6 +102,15 @@ scrolls. Embedded workflow content uses its host's tab header and scroll area, w
 not a second heading or nested card stack.
 
 ## Component architecture
+
+### Connection feedback
+
+The online-only Workspace PWA uses `.rw-connection-notice` for a lost connection in an open page. Keep the current
+surface and unsent text mounted; present one connection message and a Try again button. Retry checks reachability and
+never resubmits actions. Use the shared surface, text, warning, and button tokens. If the app cannot load at all, use
+`.rw-connection-page` and `.rw-connection-message`: a compact, self-contained explanation asking the user to check the
+network, Workspace server, and Tailscale when applicable. Its Try again button reloads the requested destination. The
+installed icon uses the existing W. brand mark, with safe padding for masked home-screen icons.
 
 RunWield owns its browser UI components. Shared design-system CSS and primitives should live under
 `src/ui/design-system/` so Workspace, Plannotator, and future browser surfaces can consume the same visual language. For

@@ -1,4 +1,8 @@
 :root {
+    --rw-print-paper: #fff;
+    --rw-print-ink: #18212b;
+    --rw-print-muted: #f3f4f6;
+    --rw-print-border: #9ca3af;
     --rw-control-motion-duration: 180ms;
     --rw-control-motion-ease: cubic-bezier(0.2, 0, 0, 1);
     --rw-sidebar-motion-duration: 180ms;

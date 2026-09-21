@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "@plannotator/ui/theme.css";
+@import "../../design-system/print.css";
 
 @source "./";
 @source "../components";

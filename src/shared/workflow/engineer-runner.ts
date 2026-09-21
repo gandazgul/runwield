@@ -7,6 +7,7 @@ import { createPairCheckpointTool } from "../../tools/pair-checkpoint.ts";
 import { createPlanDeviationTool } from "../../tools/plan-deviation.ts";
 import { buildEngineerRequest } from "./workflow-prompts.js";
 import { acknowledgeTaskCompletion, claimPendingTaskCompletion } from "../session/task-completion-session.ts";
+import { pairCheckpointMatchesWorkflow, readCurrentPairCheckpoint } from "../session/pair-checkpoint-session.ts";
 import { CollaborationStyles, PairPauseReasons } from "./execution-collaboration.ts";
 import { resolvePlanExecutionRuntimeAgent } from "./execution-agent.ts";
 
@@ -59,6 +60,11 @@ export async function runEngineerWithPlan(
     }
 
     const pauseReason = hostedSession.getActiveExecutionWorkflow?.()?.pairPauseReason;
+    const currentPairCheckpoint = readCurrentPairCheckpoint(hostedSession);
+    const pairCheckpoint =
+        currentPairCheckpoint && workflow && pairCheckpointMatchesWorkflow(currentPairCheckpoint, workflow)
+            ? currentPairCheckpoint
+            : null;
     const activeOwnerSession = hostedSession.getActiveSteeringTargetSession?.() || null;
     const rootOwnerSession = hostedSession.getRootAgentSession() || null;
     const acceptedCompletion = !pauseReason
@@ -68,7 +74,7 @@ export async function runEngineerWithPlan(
     const completed = Boolean(acceptedCompletion);
     const completionReport = acceptedCompletion?.report || undefined;
     if (acceptedCompletion) acknowledgeTaskCompletion(hostedSession, acceptedCompletion);
-    if (!completed) {
+    if (!completed && !pairCheckpoint) {
         emitSystemStatus(
             hostedSession,
             pauseReason
@@ -81,6 +87,7 @@ export async function runEngineerWithPlan(
     return {
         completed,
         messages,
+        ...(pairCheckpoint ? { checkpointPending: true, checkpointId: pairCheckpoint.report.checkpointId } : {}),
         ...(pauseReason ? { paused: true, pauseReason } : {}),
         ...(completionReport ? { completionReport } : {}),
     };
@@ -93,7 +100,7 @@ export async function runEngineerWithPlan(
 export function buildEngineerPausedMessage(reason, projectRoot, executionAgent = AGENTS.ENGINEER) {
     const base = `${
         getAgentDisplayName(executionAgent, projectRoot)
-    } stopped before reporting the task complete, so the work is unfinished and the Plan stays In Progress. Say "continue" to resume with the execution owner.`;
+    } stopped before reporting the task complete, so the work is unfinished and the Plan stays In Progress. Send a new message to continue with the execution owner.`;
     return reason ? `${base}\nReason: ${reason}` : base;
 }
 
@@ -104,8 +111,8 @@ export function buildEngineerPausedMessage(reason, projectRoot, executionAgent =
 export function buildPairPausedMessage(pauseReason, projectRoot, executionAgent = AGENTS.ENGINEER) {
     const owner = getAgentDisplayName(resolvePlanExecutionRuntimeAgent(executionAgent), projectRoot);
     return pauseReason === PairPauseReasons.STOP
-        ? `${owner} stopped Pair Execution at your checkpoint direction. The Plan remains In Progress; say "continue" to resume Pair Execution.`
-        : `${owner} paused because the Pair checkpoint interaction was canceled. No approval or Task Completion was recorded; say "continue" to resume.`;
+        ? `${owner} stopped Pair Execution at your checkpoint direction. The Plan remains In Progress; send a new message when you want to discuss or resume it.`
+        : `${owner} paused Pair Execution. No approval or Task Completion was recorded; send a new message when you want to discuss or resume it.`;
 }
 
 export async function runEngineerWithSegmentHandoff({ continuation, sessionManager, hostedSession }) {
@@ -152,6 +159,11 @@ export async function runEngineerWithSegmentHandoff({ continuation, sessionManag
         return { completed: false, messages: rootMessages, error: errorMessage };
     }
     const pauseReason = hostedSession.getActiveExecutionWorkflow?.()?.pairPauseReason;
+    const currentPairCheckpoint = readCurrentPairCheckpoint(hostedSession);
+    const pairCheckpoint =
+        currentPairCheckpoint && workflow && pairCheckpointMatchesWorkflow(currentPairCheckpoint, workflow)
+            ? currentPairCheckpoint
+            : null;
     const activeOwnerSession = hostedSession.getActiveSteeringTargetSession?.() || null;
     const rootOwnerSession = hostedSession.getRootAgentSession() || null;
     const acceptedCompletion = !pauseReason
@@ -161,7 +173,7 @@ export async function runEngineerWithSegmentHandoff({ continuation, sessionManag
     const completed = Boolean(acceptedCompletion);
     const completionReport = acceptedCompletion?.report || undefined;
     if (acceptedCompletion) acknowledgeTaskCompletion(hostedSession, acceptedCompletion);
-    if (!completed) {
+    if (!completed && !pairCheckpoint) {
         emitSystemStatus(
             hostedSession,
             pauseReason
@@ -177,6 +189,7 @@ export async function runEngineerWithSegmentHandoff({ continuation, sessionManag
     return {
         completed,
         messages,
+        ...(pairCheckpoint ? { checkpointPending: true, checkpointId: pairCheckpoint.report.checkpointId } : {}),
         ...(pauseReason ? { paused: true, pauseReason } : {}),
         ...(completionReport ? { completionReport } : {}),
     };

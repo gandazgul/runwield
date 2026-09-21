@@ -108,6 +108,13 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { resolveMcpConfig } from "../mcp/config.ts";
 import { startMcpToolPool } from "../mcp/pool.ts";
 import { ensureAgyCliMcpSetup } from "./backends/agy-cli/mcp-setup.ts";
+import { createPairCheckpointTool } from "../../tools/pair-checkpoint.ts";
+import {
+    formatPairCheckpointContext,
+    readCurrentPairCheckpoint,
+    recordPairCheckpointSnapshot,
+    restorePairExecutionState,
+} from "./pair-checkpoint-session.ts";
 
 /**
  * @typedef {Object} ManagedOperationContext
@@ -151,6 +158,31 @@ async function resolvePersistedRootConfiguration(agentName, sessionManager, cwd)
     return {
         subAgentDefinition: { id: SUBAGENTS.SLICER },
         customTools: [createSlicerFinalizeTool({ planName, cwd })],
+    };
+}
+
+/**
+ * Restore durable Pair ownership before root activation.
+ *
+ * @param {import('./hosted-session.js').HostedSession} hostedSession
+ */
+function resolvePersistedPairRootConfiguration(hostedSession) {
+    const checkpoint = restorePairExecutionState(hostedSession);
+    if (!checkpoint) return null;
+    const workflow = hostedSession.getActiveExecutionWorkflow?.() || null;
+    const agentName = resolveActiveWorkflowRuntimeAgent(workflow) || "";
+    if (!workflow || !agentName) return null;
+    const existingProjectState = hostedSession.getProjectStateContext?.() || "";
+    const checkpointContext = formatPairCheckpointContext(checkpoint);
+    return {
+        agentName,
+        cwd: workflow.executionCwd || hostedSession.cwd,
+        projectStateContext: existingProjectState
+            ? `${existingProjectState}\n\n${checkpointContext}`
+            : checkpointContext,
+        ...(workflow.collaborationStyle === "pair"
+            ? { customTools: [createPairCheckpointTool({ hostedSession })] }
+            : {}),
     };
 }
 
@@ -2588,7 +2620,10 @@ export class SessionRuntime {
         return await this.#runManagedStandaloneMutation(sessionId, "compact", async (session) => {
             const rootAgentSession = /** @type {any} */ (session.getRootAgentSession());
             if (!rootAgentSession?.compact) throw new Error("Runtime session cannot be compacted.");
-            return await this.#runBusyOperation(session.id, () => rootAgentSession.compact(instructions));
+            const checkpoint = readCurrentPairCheckpoint(session);
+            const result = await this.#runBusyOperation(session.id, () => rootAgentSession.compact(instructions));
+            if (checkpoint) recordPairCheckpointSnapshot(session, checkpoint);
+            return result;
         }, { activateAgent: true });
     }
 
@@ -4274,6 +4309,7 @@ export class SessionRuntime {
                 managedSegmentCwd: managedProjectSessionDir ? generationSegment?.transcriptCwd : undefined,
             });
             hostedSession.setRootSessionManager(/** @type {any} */ (sessionManager), capability);
+            const pairRootConfiguration = resolvePersistedPairRootConfiguration(hostedSession);
             const preparedModelOverride = "preparedModelOverride" in options &&
                     typeof options.preparedModelOverride === "string"
                 ? options.preparedModelOverride
@@ -4295,7 +4331,7 @@ export class SessionRuntime {
                     parsedPendingModel.ok ? parsedPendingModel.id : pendingModel,
                 );
             }
-            let agentName = options.agentName || pendingIntent.agentName || null;
+            let agentName = pairRootConfiguration?.agentName || options.agentName || pendingIntent.agentName || null;
             if (descriptor.activateAgent !== false) {
                 const resumeAgent = await resolveResumeAgentName(sessionManager);
                 agentName ||= resumeAgent;
@@ -4321,8 +4357,13 @@ export class SessionRuntime {
                                 : persistedManualModel.model
                             : persistedModel),
                     toolNames: options.toolNames,
-                    customTools: options.customTools || persistedRootConfiguration.customTools,
+                    customTools: options.customTools || pairRootConfiguration?.customTools ||
+                        persistedRootConfiguration.customTools,
                     includeEditFallback: options.includeEditFallback,
+                    ...(pairRootConfiguration?.cwd ? { cwd: pairRootConfiguration.cwd } : {}),
+                    ...(pairRootConfiguration?.projectStateContext
+                        ? { projectStateContext: pairRootConfiguration.projectStateContext }
+                        : {}),
                     managedOperationCapability: capability,
                 });
                 if (pendingIntent.model || pendingIntent.provider) {
@@ -5038,10 +5079,16 @@ export class SessionRuntime {
         this.#pendingManagedCreations.set(hostedSession.id, managedProof);
         this.#attachRuntimeEventSink(hostedSession);
         try {
+            const pairRootConfiguration = resolvePersistedPairRootConfiguration(hostedSession);
             await this.#activateSessionAgent(hostedSession, {
-                agentName,
+                agentName: pairRootConfiguration?.agentName || agentName,
                 model: options.modelOverride,
                 mcpServers: options.mcpServers,
+                ...(pairRootConfiguration?.cwd ? { cwd: pairRootConfiguration.cwd } : {}),
+                ...(pairRootConfiguration?.customTools ? { customTools: pairRootConfiguration.customTools } : {}),
+                ...(pairRootConfiguration?.projectStateContext
+                    ? { projectStateContext: pairRootConfiguration.projectStateContext }
+                    : {}),
             });
             const setupEvents = this.#pendingReplayEvents.get(hostedSession.id) || [];
             const replayEvents = setupEvents.concat(

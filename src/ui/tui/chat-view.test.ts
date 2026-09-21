@@ -67,6 +67,47 @@ Deno.test("chat view finds only tool groups intersecting the viewport", () => {
     assertEquals(visibleBlocks[0] === secondGroup, true);
 });
 
+Deno.test("chat view keeps sidebar tabs on the first row above a queued steering message", async () => {
+    const terminal = new VirtualTerminal({ columns: 150, rows: 20 });
+    const tui = new TuiAltScreen(terminal);
+    const view = await createChatView({
+        tui,
+        suppressStartupHeader: true,
+        getSessionId: () => "sidebar-session",
+        sessionRuntime: {
+            getSessionSnapshot: () => ({
+                cwd: "/tmp/runwield-sidebar-fixture",
+                activeModel: { model: "fixture", provider: "test" },
+                managed: { generation: 0 },
+                sessionStats: { userMessages: 12, assistantMessages: 0, toolCalls: 0, compactionCount: 0 },
+                queuedMessages: [{ id: "steering-1" }],
+            }),
+        },
+        setActiveModel: () => Promise.resolve({ status: "active" }),
+    });
+
+    try {
+        tui.start();
+        for (let index = 1; index <= 12; index++) {
+            view.uiAPI.appendUserMessage?.(`message ${index}`);
+        }
+        view.uiAPI.appendQueuedMessage?.("steering-1", "Queued steering message");
+        tui.renderNow(true);
+        await terminal.flush();
+
+        const tabs = "Workflow · Session · Artifacts";
+        assertStringIncludes(terminal.getScreenText().split("\n")[0], tabs);
+
+        tui.scrollBy(-5);
+        tui.renderNow(true);
+        await terminal.flush();
+        assertStringIncludes(terminal.getScreenText().split("\n")[0], tabs);
+    } finally {
+        view.dispose();
+        tui.stop();
+    }
+});
+
 Deno.test("chat view keeps scrollback position during live thinking updates", async () => {
     const terminal = new VirtualTerminal({ columns: 80, rows: 10 });
     const tui = new TuiAltScreen(terminal);

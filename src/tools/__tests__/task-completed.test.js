@@ -1,10 +1,50 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { HostedSession } from "../../shared/session/hosted-session.js";
 import { RuntimeEventTypes } from "../../shared/session/session-runtime-events.js";
+import { createPairCheckpointTool } from "../pair-checkpoint.ts";
+import { readCurrentPairCheckpoint } from "../../shared/session/pair-checkpoint-session.ts";
 import { createTaskCompletedTool } from "../task-completed.ts";
 import { makeToolProjectFixture, withWorkflowMetricsFixture } from "../../testing/workflow-metrics-fixture.ts";
 
+/** @typedef {{ type: string, customType: string, data: * }} TestSessionEntry */
+/** @typedef {{ getSessionId: () => string, getCwd: () => string, getBranch: () => TestSessionEntry[], getEntries: () => TestSessionEntry[], appendCustomEntry: (customType: string, data: *) => number }} TestSessionManager */
+
 const TASK_PROJECT_ROOT = makeToolProjectFixture("runwield-task-completed-");
+
+/** @param {string} projectRoot @returns {TestSessionManager} */
+function makeSessionManager(projectRoot) {
+    /** @type {TestSessionEntry[]} */
+    const entries = [];
+    return {
+        getSessionId: () => `task-session-${crypto.randomUUID()}`,
+        getCwd: () => projectRoot,
+        getBranch: () => entries,
+        getEntries: () => entries,
+        appendCustomEntry: (customType, data) => entries.push({ type: "custom", customType, data }),
+    };
+}
+
+/**
+ * @param {HostedSession} hostedSession
+ * @param {TestSessionManager} sessionManager
+ * @param {import("../../shared/session/request-dispatch.ts").RequestDispatchKind} [dispatchKind]
+ */
+function beginRequest(hostedSession, sessionManager, dispatchKind = "interactive") {
+    const activeTurnId = hostedSession.getActiveTurnId();
+    if (activeTurnId) hostedSession.endTurn(activeTurnId);
+    hostedSession.beginTurn(`turn:${crypto.randomUUID()}`);
+    sessionManager.appendCustomEntry("runwield.request_attempt", {
+        version: 1,
+        requestId: `request:${crypto.randomUUID()}`,
+        attemptId: `attempt:${crypto.randomUUID()}`,
+        requestHash: "hash",
+        dispatchKind,
+        backend: "test",
+        phase: "started",
+        promptMode: "original",
+        requestRecorded: false,
+    });
+}
 
 Deno.test("task_completed emits one semantic assistant message and terminates", async () => {
     await withWorkflowMetricsFixture(async ({ projectRoot, readMetrics }) => {
@@ -137,49 +177,155 @@ Deno.test("task_completed rejects a paused Pair turn without terminal side effec
     assertEquals(events, []);
 });
 
-Deno.test("task_completed uses final Pair checkpoint revision feedback before accepting completion", async () => {
-    const events = /** @type {any[]} */ ([]);
+Deno.test("task_completed records a final Pair checkpoint before accepting completion", async () => {
+    const sessionManager = makeSessionManager(TASK_PROJECT_ROOT);
     const hostedSession = new HostedSession({
-        id: "task-completed-final-pair-revise",
+        id: "task-completed-final-pair",
         cwd: TASK_PROJECT_ROOT,
-        interactionAdapter: {
-            supportsInteraction: (type) => type === "pair_checkpoint",
-            requestInteraction: () => ({
-                outcome: "selected",
-                value: "revise",
-                _meta: { feedback: "Try the finished workflow in the browser again." },
-            }),
-        },
+        sessionManager,
     });
-    hostedSession.setEventSink({ emit: (/** @type {any} */ event) => events.push(event) });
     hostedSession.setActiveExecutionWorkflow({
         planName: "visual-plan",
         triageMeta: { classification: "FEATURE" },
         executionAgent: "frontend-engineer",
         executionStarted: true,
+        executionAttemptStartedAtMs: 1000,
         collaborationStyle: "pair",
         pairCheckpointCount: 1,
     });
-    const tool = createTaskCompletedTool({ hostedSession, agentName: "Frontend Engineer" });
+    const completionTool = createTaskCompletedTool({ hostedSession, agentName: "Frontend Engineer" });
+    beginRequest(hostedSession, sessionManager, "plan_execution");
 
-    const result = await /** @type {any} */ (tool.execute)("call", {
+    const pending = await /** @type {any} */ (completionTool.execute)("final-call", {
         message: "- Final page is ready.",
         browserPreflightOutcome: "succeeded",
     });
+    const checkpoint = readCurrentPairCheckpoint(hostedSession);
 
-    assertEquals(result.terminate, false);
-    assertEquals(result.details, {
-        outcome: "pair_completion_checkpoint",
-        decision: "revise",
-        feedback: "Try the finished workflow in the browser again.",
-    });
-    assertStringIncludes(/** @type {{ text: string }} */ (result.content[0]).text, "Revise the final result");
+    assertEquals(pending.terminate, true);
+    assertEquals(pending.details.outcome, "pair_completion_checkpoint");
+    assertEquals(pending.details.decision, "pending");
+    assertEquals(checkpoint?.report.report.final, true);
     assertEquals(hostedSession.consumePendingTaskCompletion(null), null);
-    assertEquals(events.map((event) => event.type), [
-        RuntimeEventTypes.INTERACTION_REQUESTED,
-        RuntimeEventTypes.INTERACTION_RESOLVED,
-    ]);
-    assertEquals(hostedSession.getActiveExecutionWorkflow()?.pairCheckpointCount, 2);
+
+    beginRequest(hostedSession, sessionManager);
+    const stillPending = await /** @type {any} */ (completionTool.execute)("early-call", {
+        message: "- Final page is ready.",
+        browserPreflightOutcome: "succeeded",
+    });
+    assertEquals(stillPending.details, { outcome: "rejected", reason: "pair_final_checkpoint_pending" });
+
+    const pairTool = createPairCheckpointTool({ hostedSession });
+    const accepted = await /** @type {any} */ (pairTool.execute)("resolve-final", {
+        action: "resolve",
+        checkpointId: checkpoint?.report.checkpointId,
+        decision: "continue",
+    });
+    assertEquals(accepted.details.decision, "continue");
+
+    const completed = await /** @type {any} */ (completionTool.execute)("accepted-call", {
+        message: "- Final page is ready.",
+        browserPreflightOutcome: "succeeded",
+    });
+    assertEquals(completed.details.outcome, "task_completed");
+    assertEquals(completed.terminate, true);
+    assertEquals(readCurrentPairCheckpoint(hostedSession), null);
+});
+
+Deno.test("a later revision revokes final Pair assent", async () => {
+    const sessionManager = makeSessionManager(TASK_PROJECT_ROOT);
+    const hostedSession = new HostedSession({
+        id: "task-completed-revised-final-pair",
+        cwd: TASK_PROJECT_ROOT,
+        sessionManager,
+    });
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "revised-plan",
+        triageMeta: { classification: "PLANNED_CHANGE" },
+        executionAgent: "frontend-engineer",
+        executionStarted: true,
+        executionAttemptStartedAtMs: 1000,
+        collaborationStyle: "pair",
+        pairCheckpointCount: 0,
+    });
+    const completionTool = createTaskCompletedTool({ hostedSession, agentName: "Frontend Engineer" });
+    const pairTool = createPairCheckpointTool({ hostedSession });
+    beginRequest(hostedSession, sessionManager, "plan_execution");
+    const pending = await /** @type {any} */ (completionTool.execute)("final-call", {
+        message: "- Final result is ready.",
+        browserPreflightOutcome: "succeeded",
+    });
+
+    beginRequest(hostedSession, sessionManager);
+    const accepted = await /** @type {any} */ (pairTool.execute)("resolve-final", {
+        action: "resolve",
+        checkpointId: pending.details.checkpointId,
+        decision: "continue",
+    });
+    assertEquals(accepted.details.decision, "continue");
+
+    beginRequest(hostedSession, sessionManager);
+    const revised = await /** @type {any} */ (pairTool.execute)("revise-final", {
+        action: "resolve",
+        checkpointId: pending.details.checkpointId,
+        decision: "revise",
+        revisionDirection: "Change the final result before validation.",
+    });
+    assertEquals(revised.details.decision, "revise");
+
+    const replacement = await /** @type {any} */ (completionTool.execute)("replacement-final", {
+        message: "- Revised final result is ready.",
+        browserPreflightOutcome: "succeeded",
+    });
+    assertEquals(replacement.details.outcome, "pair_completion_checkpoint");
+    assertEquals(replacement.details.decision, "pending");
+    assertEquals(replacement.details.checkpointId === pending.details.checkpointId, false);
+    assertEquals(hostedSession.consumePendingTaskCompletion(null), null);
+});
+
+Deno.test("final Pair assent cannot authorize a different execution attempt", async () => {
+    const sessionManager = makeSessionManager(TASK_PROJECT_ROOT);
+    const hostedSession = new HostedSession({
+        id: "task-completed-stale-final-assent",
+        cwd: TASK_PROJECT_ROOT,
+        sessionManager,
+    });
+    const workflow = /** @type {import("../../shared/session/hosted-session.js").ActiveExecutionWorkflow} */ ({
+        planName: "visual-plan",
+        triageMeta: { classification: "FEATURE" },
+        executionAgent: "frontend-engineer",
+        executionStarted: true,
+        executionAttemptStartedAtMs: 1000,
+        collaborationStyle: "pair",
+        pairCheckpointCount: 0,
+    });
+    hostedSession.setActiveExecutionWorkflow(workflow);
+    const completionTool = createTaskCompletedTool({ hostedSession, agentName: "Frontend Engineer" });
+    beginRequest(hostedSession, sessionManager, "plan_execution");
+    const pending = await /** @type {any} */ (completionTool.execute)("first-final", {
+        message: "- First attempt is ready.",
+        browserPreflightOutcome: "succeeded",
+    });
+    beginRequest(hostedSession, sessionManager);
+    await /** @type {any} */ (createPairCheckpointTool({ hostedSession }).execute)("resolve-first", {
+        action: "resolve",
+        checkpointId: pending.details.checkpointId,
+        decision: "continue",
+    });
+
+    hostedSession.setActiveExecutionWorkflow({
+        ...workflow,
+        executionAttemptStartedAtMs: 2000,
+        pairCheckpointCount: 0,
+    });
+    const stale = await /** @type {any} */ (completionTool.execute)("second-final", {
+        message: "- Second attempt is ready.",
+        browserPreflightOutcome: "succeeded",
+    });
+
+    assertEquals(stale.details.outcome, "pair_completion_checkpoint");
+    assertEquals(hostedSession.consumePendingTaskCompletion(null), null);
+    assertEquals(readCurrentPairCheckpoint(hostedSession)?.report.workflow.executionAttemptStartedAtMs, 2000);
 });
 
 Deno.test("task_completed message schema owns Engineer report format and accepts runtime display name", () => {
@@ -252,17 +398,11 @@ Deno.test("task_completed requires Frontend Engineer preflight outcome only", ()
 for (const outcome of /** @type {const} */ (["succeeded", "failed", "externally_blocked"])) {
     Deno.test(`task_completed records Frontend Engineer completion preflight outcome ${outcome}`, async () => {
         await withWorkflowMetricsFixture(async ({ projectRoot, readMetrics }) => {
-            const checkpointRequests = /** @type {any[]} */ ([]);
+            const sessionManager = makeSessionManager(projectRoot);
             const hostedSession = new HostedSession({
                 id: `task-completed-${outcome}`,
                 cwd: projectRoot,
-                interactionAdapter: {
-                    supportsInteraction: (type) => type === "pair_checkpoint",
-                    requestInteraction: (request) => {
-                        checkpointRequests.push(request);
-                        return { outcome: "selected", value: "continue" };
-                    },
-                },
+                sessionManager,
             });
             hostedSession.setActiveExecutionWorkflow({
                 planName: "visual-plan",
@@ -281,15 +421,24 @@ for (const outcome of /** @type {const} */ (["succeeded", "failed", "externally_
                 now: () => 1750,
             });
 
-            const result = await /** @type {any} */ (tool.execute)("call", {
+            beginRequest(hostedSession, sessionManager, "plan_execution");
+            const pending = await /** @type {any} */ (tool.execute)("call", {
+                message: "- URL: http://localhost:5173/private\n- Screenshot: /tmp/secret.png",
+                browserPreflightOutcome: outcome,
+            });
+            beginRequest(hostedSession, sessionManager);
+            await /** @type {any} */ (createPairCheckpointTool({ hostedSession }).execute)("resolve", {
+                action: "resolve",
+                checkpointId: pending.details.checkpointId,
+                decision: "continue",
+            });
+            const result = await /** @type {any} */ (tool.execute)("accepted", {
                 message: "- URL: http://localhost:5173/private\n- Screenshot: /tmp/secret.png",
                 browserPreflightOutcome: outcome,
             });
 
             assertEquals(result.terminate, true);
             assertEquals(result.details.browserPreflightOutcome, outcome);
-            assertEquals(checkpointRequests.length, 1);
-            assertEquals(checkpointRequests[0]._meta.finalCompletion, true);
             const metrics = await readMetrics();
             assertEquals(
                 metrics.map((metric) => ({
