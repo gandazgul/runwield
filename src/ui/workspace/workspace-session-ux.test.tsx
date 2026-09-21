@@ -1,4 +1,5 @@
 // @ts-nocheck: Deno test imports are checked by scripts/run-tests.js, not Astro check.
+import { readWorkspaceStyles } from "./workspace-styles.js";
 import { assertEquals } from "@std/assert";
 import {
     activePlanProgressApiUrl,
@@ -302,7 +303,7 @@ Deno.test("Session availability refreshes when a busy page becomes active again"
 Deno.test("busy Session messages remain sendable and render above the Workspace composer", async () => {
     const surface = await Deno.readTextFile(new URL("./islands/SessionSurface.jsx", import.meta.url));
     const continuation = await Deno.readTextFile(new URL("./server/session-continuation.js", import.meta.url));
-    const css = await Deno.readTextFile(new URL("./static/workspace.css", import.meta.url));
+    const css = await readWorkspaceStyles(new URL("./static/workspace.css", import.meta.url));
     assertEquals(surface.includes('["active", "workspace-running"].includes(availability.key)'), true);
     assertEquals(surface.includes("const [queuedMessages, setQueuedMessages] = useState"), true);
     assertEquals(surface.includes("setQueuedMessages((current) => ["), true);

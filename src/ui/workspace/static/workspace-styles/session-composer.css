@@ -1,0 +1,329 @@
+.session-composer {
+    position: relative;
+    box-sizing: border-box;
+    min-width: 0;
+    width: min(52rem, calc(100% - 2rem));
+    margin: auto auto 0;
+    display: grid;
+    gap: 0.75rem;
+    padding: 0.55rem 0.65rem;
+    padding-bottom: calc(0.55rem + env(safe-area-inset-bottom));
+    border: 1px solid color-mix(in srgb, var(--rw-accent) 26%, var(--rw-border));
+    border-bottom: none;
+    border-radius: var(--rw-radius-card) var(--rw-radius-card) 0 0;
+    background: var(--rw-surface);
+    box-shadow: none;
+    z-index: 2;
+}
+
+/* Preserve mounted drafts and controls while showing one compact row on blur. */
+.session-composer [hidden] {
+    display: none !important;
+}
+
+.session-composer-summary {
+    display: flex;
+    align-items: center;
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: var(--rw-control-height-compact);
+    padding: 0.2rem 0.35rem;
+    border: 0;
+    border-radius: var(--rw-radius-control);
+    background: transparent;
+    color: var(--rw-text-muted);
+    font: inherit;
+    font-size: 0.8rem;
+    text-align: left;
+    cursor: text;
+}
+
+.session-composer-summary span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.session-composer-summary:hover:not(:disabled) {
+    color: var(--rw-text);
+    background: var(--rw-surface-muted);
+}
+
+.session-composer-queue {
+    display: grid;
+    gap: 0.35rem;
+    list-style: none;
+    margin: 0;
+    max-height: 9rem;
+    overflow-y: auto;
+    padding: 0;
+}
+
+.session-composer-queue li {
+    align-items: baseline;
+    background: color-mix(in srgb, var(--rw-accent) 8%, var(--rw-surface-muted));
+    border-left: 2px solid var(--rw-accent);
+    color: var(--rw-text-muted);
+    display: flex;
+    font-size: 0.82rem;
+    gap: 0.55rem;
+    justify-content: space-between;
+    padding: 0.42rem 0.55rem;
+}
+
+.session-composer-queue span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.session-composer-queue small {
+    color: var(--rw-text-dim);
+    flex: 0 0 auto;
+}
+
+.session-composer textarea,
+.session-create-card textarea {
+    min-height: calc((1em * 1.45 * 2) + 0.3rem);
+    max-height: 10rem;
+    resize: none;
+    overflow-y: auto;
+    border: 0;
+    border-radius: var(--rw-radius-control);
+    background: transparent;
+    color: var(--rw-text);
+    padding: 0.15rem 0.1rem;
+    font: inherit;
+    font-size: 0.94rem;
+    line-height: 1.45;
+}
+
+.session-composer textarea::placeholder {
+    color: var(--rw-text-dim);
+}
+
+.session-create-card {
+    gap: 1rem;
+}
+
+.session-create-card label {
+    font-weight: 700;
+}
+
+.session-composer:focus-within {
+    border-color: var(--rw-accent);
+}
+
+.session-composer textarea:focus,
+.session-composer textarea:focus-visible {
+    border-color: transparent;
+    box-shadow: none;
+    outline: none;
+}
+
+.session-composer button:focus-visible,
+.session-create-card textarea:focus-visible,
+.session-create-card button:focus-visible,
+.session-live-interaction button:focus-visible,
+.session-card a:focus-visible {
+    outline: 3px solid var(--rw-accent);
+    outline-offset: 2px;
+}
+
+.session-composer-actions {
+    align-items: center;
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 0.25rem;
+    justify-content: flex-start;
+    min-width: 0;
+}
+
+.session-composer-actions select {
+    flex: 1 1 0;
+    min-width: 0;
+    max-width: 9rem;
+}
+
+.session-composer-actions .session-model-select {
+    flex-grow: 1.6;
+    max-width: 18rem;
+}
+
+.session-composer-actions .session-composer-icon-button {
+    flex: 0 0 var(--rw-control-height-compact);
+    width: var(--rw-control-height-compact);
+    padding: 0;
+    justify-content: center;
+}
+
+.session-composer-actions .session-attach-button {
+    margin-right: auto;
+}
+
+@media (max-width: 720px) {
+    .session-composer {
+        width: 100%;
+    }
+}
+
+.session-send-button {
+    white-space: nowrap;
+}
+
+.session-send-icon {
+    width: 1.85rem;
+    height: 1.85rem;
+    display: inline-grid;
+    place-items: center;
+    border: 1px solid color-mix(in srgb, var(--rw-border) 58%, transparent);
+    border-radius: 0.35rem;
+    background: color-mix(in srgb, var(--rw-surface-muted) 50%, transparent);
+    color: var(--rw-text-muted);
+    font: inherit;
+    line-height: 1;
+}
+
+.session-send-icon:not(:disabled) {
+    color: var(--rw-accent-text);
+}
+
+.session-composer .primary-action,
+.session-summary-card .primary-action,
+.session-list-state .secondary-action {
+    min-height: var(--rw-control-height);
+}
+
+.session-diagnostics summary {
+    cursor: pointer;
+    min-height: var(--rw-control-height);
+    display: flex;
+    align-items: center;
+}
+
+.session-context-sidebar[hidden] {
+    display: none;
+}
+
+.session-context-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    box-sizing: border-box;
+    height: calc(var(--rw-workspace-header-height) - 1px);
+    padding-inline: 0.75rem;
+}
+
+.session-context-header[data-expanded="true"] {
+    width: var(--rw-session-sidebar-width);
+    border-left: 1px solid var(--rw-border);
+    background: color-mix(in srgb, var(--rw-surface) 94%, var(--rw-page-bg));
+}
+
+.session-context-header .session-context-tabs {
+    flex: 1;
+    min-width: 0;
+}
+
+@media (max-width: 900px) {
+    .session-detail-layout {
+        position: relative;
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: minmax(0, 1fr);
+    }
+
+    .session-context-sidebar {
+        position: absolute;
+        inset: 0;
+        z-index: 20;
+        min-height: 0;
+        align-content: stretch;
+        overflow: hidden;
+        border-left: 0;
+    }
+
+    .session-context-content {
+        display: grid;
+        gap: 0.7rem;
+        min-height: 0;
+        grid-template-rows: minmax(0, 1fr);
+    }
+
+    .session-context-panel {
+        min-height: 0;
+        align-content: start;
+        overflow: auto;
+        overscroll-behavior: contain;
+    }
+
+    .session-create-panel {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 640px) {
+    .session-composer-actions select {
+        min-height: 44px;
+    }
+
+    .session-composer-actions button {
+        min-height: 44px;
+    }
+
+    .session-composer-actions .session-composer-icon-button {
+        flex-basis: 44px;
+        width: 44px;
+    }
+
+    .owner-workspace-shell .workspace-main-shell > main,
+    .workspace-shell .workspace-main-shell > main {
+        padding-left: max(1rem, env(safe-area-inset-left));
+        padding-right: max(1rem, env(safe-area-inset-right));
+    }
+
+    .session-page-header h1,
+    .page-header h1 {
+        overflow-wrap: anywhere;
+    }
+
+    .session-card .card-header,
+    .session-summary-card .card-header,
+    .session-message header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .session-backend-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .session-backend-disclosure code {
+        width: auto;
+    }
+
+    .session-activation-status {
+        border-radius: 0.85rem;
+        width: 100%;
+    }
+
+    .rw-plan-review-link,
+    .session-live-interaction button,
+    .session-create-card button,
+    .session-composer .primary-action,
+    .session-summary-card .primary-action,
+    .session-list-state .secondary-action,
+    .session-diagnostics summary {
+        min-height: 44px;
+    }
+}
+
+.session-segment-boundary {
+    margin: 0;
+    padding: 0.45rem 0.7rem;
+    border-radius: var(--rw-radius-pill);
+    border: 1px solid var(--rw-border);
+    background: var(--rw-surface-muted);
+    color: var(--rw-text-muted);
+    font-size: 0.85rem;
+    font-weight: 700;
+}

@@ -1,3 +1,4 @@
+import { readWorkspaceStyles } from "./workspace-styles.js";
 import { assertEquals, assertStringIncludes } from "@std/assert";
 
 import React from "react";
@@ -37,7 +38,7 @@ Deno.test("remote review legacy anchors stay in Plannotator sidebar without fall
 Deno.test("remote review Plannotator sidebar does not expose delete controls", async () => {
     const panelSource = await Deno.readTextFile(new URL("./react/RemoteCommentPanel.tsx", import.meta.url));
     const plannotatorCss = await Deno.readTextFile(new URL("./react/plannotator.css", import.meta.url));
-    const workspaceCss = await Deno.readTextFile(new URL("./static/workspace.css", import.meta.url));
+    const workspaceCss = await readWorkspaceStyles(new URL("./static/workspace.css", import.meta.url));
     const reviewSource = await Deno.readTextFile(new URL("./react/RemotePlanReview.tsx", import.meta.url));
 
     assertEquals(panelSource.includes("onDelete={(id) => onResolve(id)}"), false);

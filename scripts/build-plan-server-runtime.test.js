@@ -1,5 +1,6 @@
 import { assertEquals, assertRejects } from "@std/assert";
 import { join } from "@std/path";
+import { readWorkspaceStyles } from "../src/ui/workspace/workspace-styles.js";
 import {
     buildPlanServerRuntime,
     findProhibitedRuntimeFiles,
@@ -93,6 +94,12 @@ Deno.test("buildPlanServerRuntime creates a minimal runtime root", async () => {
                 join(root, "src/ui/workspace/remote-server.ts"),
             ],
         }]);
+
+        const packagedCss = await Deno.readTextFile(
+            join(root, "dist/plan-server/src/ui/workspace/static/workspace.css"),
+        );
+        assertEquals(packagedCss, await readWorkspaceStyles("src/ui/workspace/static/workspace.css"));
+        assertEquals(packagedCss.includes("@import"), false);
 
         assertEquals(await listRuntimeFiles(join(root, "dist/plan-server")), [
             "brand/logo.svg",

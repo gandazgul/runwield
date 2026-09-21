@@ -64,7 +64,9 @@ Use the current review interfaces as the primary visual reference:
 The rest of Workspace should reuse that language through these implementation layers:
 
 - CSS baseline: `src/ui/design-system/tokens.css`, `src/ui/design-system/components.css`, and
-  `src/ui/workspace/static/workspace.css`
+  `src/ui/workspace/static/workspace.css` (ordered entry point for `static/workspace-styles/`; each section stays below
+  1,000 lines). Keep import order stable to preserve overrides. Development loads the sections directly; the Workspace
+  server and Plan Server packaging use `readWorkspaceStyles` to provide one complete production stylesheet.
 - browser colors: `src/ui/design-system/themes/dark.ts`
 - theme bridge: `src/ui/design-system/theme-bridge.js`
 - bundled website fonts: `src/ui/design-system/fonts.css`

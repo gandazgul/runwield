@@ -1,0 +1,168 @@
+/* One scroll owner per sidebar; embedded workflow content inherits its pane. */
+.rw-plan-home-workflow {
+    min-width: 0;
+    max-height: calc(100dvh - var(--rw-shell-header-height));
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: var(--rw-space-card);
+    background: var(--rw-surface);
+}
+
+.rw-plan-home-workflow > header {
+    min-height: var(--rw-shell-header-height);
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    border-bottom: 1px solid var(--rw-border);
+}
+
+.rw-plan-home-workflow > header h2 {
+    margin: 0;
+    color: var(--rw-text-strong);
+    font-size: 0.95rem;
+}
+
+.rw-plan-home-workflow > header p {
+    margin: 0;
+    color: var(--rw-text-muted);
+}
+
+.rw-plan-home-workflow-embedded {
+    max-height: none;
+    overflow: visible;
+    padding: 0;
+    background: transparent;
+}
+
+.rw-plan-home-workflow .session-workflow-stage-list > li:first-child {
+    border-top: 0;
+}
+
+.rw-plan-home-workflow .workflow-next-card {
+    padding: 0.75rem 0;
+    border: 0;
+    border-top: 1px solid var(--rw-border);
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+}
+
+.rw-plan-home-workflow .workflow-next-card .rw-toolbar-button {
+    justify-self: start;
+    margin-top: 0.25rem;
+}
+
+.workspace-navigation-loading:not([hidden]) {
+    position: fixed;
+    bottom: 1rem;
+    right: 1rem;
+    z-index: 100;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--rw-border);
+    border-radius: var(--rw-radius-panel);
+    background: var(--rw-surface);
+}
+
+@media (max-width: 640px) {
+    .session-context-tabs button,
+    .workspace-sidebar-project-links a,
+    .workspace-sidebar-session,
+    .workspace-sidebar-show-more,
+    .workspace-sidebar-project summary {
+        min-height: 44px;
+    }
+}
+
+@media (max-width: 900px) {
+    .workspace-shell-with-sidebar {
+        --rw-workspace-header-height: var(--rw-shell-header-height);
+    }
+
+    .workspace-main-header:has(.session-context-header[data-expanded="true"]) .workspace-main-header-left {
+        flex: 0 0 auto;
+    }
+
+    .workspace-main-header:has(.session-context-header[data-expanded="true"]) .workspace-main-session-name {
+        display: none;
+    }
+
+    .workspace-main-header:has(.session-context-header[data-expanded="true"]) .workspace-main-header-action-row {
+        flex: 1 1 0;
+    }
+
+    .workspace-main-header:has(.session-context-header[data-expanded="true"]) .workspace-main-header-actions {
+        width: 100%;
+    }
+
+    .session-context-header[data-expanded="true"] {
+        width: 100%;
+        border-left: 0;
+        background: transparent;
+        padding-left: 0;
+    }
+
+    .session-context-tabs button {
+        min-height: 44px;
+    }
+
+    .session-context-tabs {
+        border: 0;
+        padding: 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .workspace-sidebar-folder,
+    .session-activity-chevron {
+        transition: none;
+    }
+
+    .plan-card.drop-rejected {
+        animation: none;
+    }
+}
+
+/* Dashboard and Plan readers keep Workspace navigation and share its title row. */
+.workspace-main-shell:has(.rw-artifact-embedded, .owner-dashboard) {
+    display: grid;
+    grid-template-rows: var(--rw-shell-header-height) minmax(0, 1fr);
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.workspace-main-shell:has(.rw-artifact-embedded, .owner-dashboard) > main,
+.workspace-main-shell:has(.rw-artifact-embedded, .owner-dashboard) > main > astro-island {
+    display: block;
+    height: 100%;
+    min-height: 0;
+    min-width: 0;
+}
+
+.workspace-main-shell:has(.rw-artifact-embedded, .owner-dashboard) .workspace-main-header {
+    align-items: center;
+    flex-wrap: nowrap;
+    padding-block: 0;
+}
+
+.workspace-main-shell:has(.rw-artifact-embedded, .owner-dashboard) .workspace-main-header-left {
+    flex: 1 1 0;
+}
+
+.workspace-main-shell:has(.rw-artifact-embedded, .owner-dashboard) .workspace-main-header-action-row {
+    flex: 0 0 auto;
+    width: auto;
+    margin-left: auto;
+}
+
+.workspace-main-shell:has(.rw-artifact-embedded, .owner-dashboard) .tab-search-slot:empty {
+    display: none;
+}
+
+.workspace-main-shell:has(.owner-dashboard) > main {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
