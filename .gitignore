@@ -12,6 +12,7 @@ docs-site/.astro/
 .pi/
 .astro/
 .agents/
+.wld/
 .claude/skills/
 .styleseed/
 STYLESEED.md
