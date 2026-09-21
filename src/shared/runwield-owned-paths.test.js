@@ -12,6 +12,26 @@ import {
     runwieldOwnedPathspecExclusions,
 } from "./runwield-owned-paths.ts";
 
+Deno.test("Gitignore retains legacy publication protection only while the directory exists", async () => {
+    const root = await Deno.makeTempDir({ prefix: "runwield-staging-ignore-" });
+    const staging = join(root, ".wld", "plan-staging");
+    try {
+        await Deno.mkdir(staging, { recursive: true });
+        await Deno.writeTextFile(join(staging, "saved.txt"), "saved repair\n");
+        await Deno.writeTextFile(join(root, ".gitignore"), ".wld/plan-staging/\n*.log\n");
+        await ensureRunWieldOwnedGitignoreBlock(root);
+        const content = await Deno.readTextFile(join(root, ".gitignore"));
+        assertStringIncludes(content, ".wld/internal/\n.wld/plan-staging/\n");
+        assertStringIncludes(content, "*.log\n");
+        assertEquals((await ensureRunWieldOwnedGitignoreBlock(root)).changed, false);
+        await Deno.remove(staging, { recursive: true });
+        await ensureRunWieldOwnedGitignoreBlock(root);
+        assertEquals(await Deno.readTextFile(join(root, ".gitignore")), `*.log\n${RUNWIELD_GITIGNORE_BLOCK}`);
+    } finally {
+        await Deno.remove(root, { recursive: true });
+    }
+});
+
 Deno.test("RunWield runtime classifiers separate current state from legacy hazards", () => {
     const cases = [
         { path: ".wld/internal", current: true, legacy: false, aggregate: true },

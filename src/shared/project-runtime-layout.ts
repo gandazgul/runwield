@@ -20,11 +20,7 @@ import {
 import { getLockHostname, isLockHolderGone } from "./process-liveness.ts";
 import { resolvePrimaryCheckoutRoot } from "./primary-checkout.ts";
 import { ensureRunWieldOwnedGitignoreBlock, LEGACY_PROJECT_RUNTIME_HAZARD_PATHS } from "./runwield-owned-paths.ts";
-import {
-    assertPublicationAttempt,
-    isPublicationAttemptCleanupComplete,
-    type PublicationAttempt,
-} from "./workflow/publication-attempt.ts";
+import { assertPublicationAttempt, type PublicationAttempt } from "./workflow/publication-attempt.ts";
 
 export interface PrimaryProjectRuntimeLayout {
     checkoutRoot: string;
@@ -64,8 +60,6 @@ export type ProjectRuntimeMigrationBlockedReason =
     | "authority_conflict"
     | "active_legacy_writer"
     | "malformed_registry"
-    | "unfinished_publication"
-    | "saved_repair_root"
     | "tracked_runtime"
     | "tracked_secret"
     | "symlink"
@@ -561,7 +555,7 @@ async function preflight(
         );
     }
 
-    const publication = await inspectPublicationSafety(primaryCheckoutRoot, registry.entries);
+    const publication = inspectPublicationSafety(primaryCheckoutRoot, registry.entries);
     if (isBlocked(publication)) return publication;
 
     const gitWorktrees = await listGitWorktrees(primaryCheckoutRoot);
@@ -817,11 +811,10 @@ async function resolveSelectedRoots(
     return { roots: [...roots].sort() };
 }
 
-async function inspectPublicationSafety(
+function inspectPublicationSafety(
     primaryCheckoutRoot: string,
     entries: LegacyRegistryEntry[],
-): Promise<undefined | ProjectRuntimeMigrationBlockedResult> {
-    const cleanedAttemptIds = new Set<string>();
+): undefined | ProjectRuntimeMigrationBlockedResult {
     for (const entry of entries) {
         if (!entry.publication) continue;
         try {
@@ -833,30 +826,10 @@ async function inspectPublicationSafety(
                 error instanceof Error ? error.message : String(error),
             );
         }
-        if (entry.publication.failure?.repairRoot) {
-            return block(
-                "saved_repair_root",
-                [entry.publication.failure.repairRoot],
-                "A publication repair root exists. Finish or cancel publication before migration.",
-            );
-        }
-        if (!isPublicationAttemptCleanupComplete(entry.publication)) {
-            return block(
-                "unfinished_publication",
-                [legacyWorktreeRegistryPath(primaryCheckoutRoot)],
-                "A publication has not reached cleanup_complete.",
-            );
-        }
-        cleanedAttemptIds.add(entry.publication.attemptId);
     }
-    const stagingRoot = join(legacyRuntimeBase(primaryCheckoutRoot), PLAN_STAGING_DIR_NAME);
-    const entriesInStaging = await safeReadDir(stagingRoot);
-    if (!entriesInStaging || entriesInStaging.length === 0) return undefined;
-    return block(
-        "unfinished_publication",
-        entriesInStaging.map((entry) => join(stagingRoot, entry.name)).sort(),
-        "A legacy publication staging directory is not empty. Finish or cancel publication before migration.",
-    );
+    // Move the registry, not the repositories it names. Pending publication and
+    // repair receipts remain usable at their original absolute paths after entry.
+    return undefined;
 }
 
 async function findTrackedRuntimePaths(
@@ -918,6 +891,7 @@ async function findSymlinkBlocker(
 ): Promise<string[]> {
     const authorityRoots = [
         layout.primary.internalRoot,
+        legacyRelativePath(primaryCheckoutRoot, PLAN_STAGING_DIR_NAME),
         ...legacyPrimaryAuthorities(primaryCheckoutRoot).map((entry) => entry.source),
         ...selectedRoots.flatMap((root) => [
             internalRootFor(root),
@@ -1321,13 +1295,6 @@ function legacyPrimaryAuthorities(primaryCheckoutRoot: string): MigrationRenameO
         },
         {
             action: "rename",
-            source: join(base, PLAN_STAGING_DIR_NAME),
-            destination: join(internal, PLAN_STAGING_DIR_NAME),
-            kind: "directory",
-            completed: false,
-        },
-        {
-            action: "rename",
             source: join(base, "debug"),
             destination: join(internal, "debug"),
             kind: "directory",
@@ -1465,6 +1432,16 @@ async function isAllowedJournalOperation(
     if (operation.action === "retire") {
         return isBoundedLegacyLockPath(preflightResult, operation.source) &&
             (operation.completed || !(await lstatOrNull(operation.source)));
+    }
+    // RC.1 could journal an empty staging directory before interruption. Finish
+    // that bounded operation, but never relocate a populated publication clone.
+    if (
+        operation.source === legacyRelativePath(preflightResult.primaryCheckoutRoot, PLAN_STAGING_DIR_NAME) &&
+        operation.destination === join(internalRootFor(preflightResult.primaryCheckoutRoot), PLAN_STAGING_DIR_NAME) &&
+        operation.kind === "directory"
+    ) {
+        return (await safeReadDir(operation.source) || []).length === 0 &&
+            (await safeReadDir(operation.destination) || []).length === 0;
     }
     const authorities = [
         ...legacyPrimaryAuthorities(preflightResult.primaryCheckoutRoot),

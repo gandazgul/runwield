@@ -92,14 +92,6 @@ function migrationRefusalGuidance(blocked: ProjectRuntimeMigrationBlockedResult)
             return [
                 "Preserve the registry and its worktrees. Repair the malformed bookkeeping with the RunWield version that wrote it, then retry.",
             ];
-        case "unfinished_publication":
-            return [
-                "Use the 0.10 RunWield version that created this state to finish publication or deliberately abandon it. Preserve its registry, branch, worktree, and publication record.",
-            ];
-        case "saved_repair_root":
-            return [
-                "Use the 0.10 RunWield version that created this state to finish or deliberately abandon the saved repair. Preserve the repair checkout and registry until then.",
-            ];
         case "tracked_runtime":
             return [
                 "Remove the named runtime paths from the Git index without deleting local files, commit that change, then retry.",
