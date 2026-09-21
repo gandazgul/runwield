@@ -131,12 +131,12 @@ async function copyTree(source: string, destination: string): Promise<void> {
 }
 
 async function readGeneratedJson(path: string) {
-    for (let attempt = 0; attempt < 20; attempt++) {
+    for (let attempt = 0; attempt < 100; attempt++) {
         try {
             return JSON.parse(await Deno.readTextFile(path));
         } catch (error) {
-            if (!(error instanceof SyntaxError) || attempt === 19) throw error;
-            await new Promise((resolve) => setTimeout(resolve, 25));
+            if (!(error instanceof SyntaxError) || attempt === 99) throw error;
+            await new Promise((resolve) => setTimeout(resolve, 100));
         }
     }
 }
