@@ -1,3 +1,4 @@
+import { readWorkspaceStyles } from "./workspace-styles.js";
 import { assertEquals, assertStringIncludes } from "@std/assert";
 
 import { savePlan } from "../../plan-store.js";
@@ -420,7 +421,7 @@ Deno.test("renderMarkdown renders links and escapes unsafe markdown input", () =
 });
 
 Deno.test("workspace detail header CSS lets lifecycle actions wrap without squeezing summary", async () => {
-    const workspaceCss = await Deno.readTextFile(new URL("./static/workspace.css", import.meta.url));
+    const workspaceCss = await readWorkspaceStyles(new URL("./static/workspace.css", import.meta.url));
     const componentsCss = await Deno.readTextFile(new URL("../design-system/components.css", import.meta.url));
     assertStringIncludes(workspaceCss, ".detail-title-row {\n    align-items: center;\n    display: grid;");
     assertStringIncludes(workspaceCss, "grid-template-columns: auto minmax(0, 1fr) auto;");

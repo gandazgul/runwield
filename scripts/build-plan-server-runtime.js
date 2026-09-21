@@ -7,6 +7,7 @@
  */
 
 import { basename, dirname, join } from "@std/path";
+import { readWorkspaceStyles } from "../src/ui/workspace/workspace-styles.js";
 
 const DEFAULT_REMOTE_ENTRY = "src/ui/workspace/remote-server.ts";
 const DEFAULT_WORKSPACE_RUNTIME_DIR = "dist/workspace-runtime";
@@ -220,7 +221,11 @@ export async function buildPlanServerRuntime(options, port) {
     for (const asset of assetCopies) {
         const destination = join(runtimeDir, asset.destination);
         await Deno.mkdir(dirname(destination), { recursive: true });
-        await Deno.copyFile(asset.source, destination);
+        if (asset.destination === "src/ui/workspace/static/workspace.css") {
+            await Deno.writeTextFile(destination, await readWorkspaceStyles(asset.source));
+        } else {
+            await Deno.copyFile(asset.source, destination);
+        }
     }
 
     const prohibited = findProhibitedRuntimeFiles(await listRuntimeFiles(runtimeDir));

@@ -7,6 +7,7 @@
  * delegate to the Astro Deno adapter output when it is available.
  */
 
+import { readWorkspaceStyles } from "./workspace-styles.js";
 import { sessionArtifactKindLabel } from "../../shared/session/session-sidebar.ts";
 import { extname, join, toFileUrl } from "@std/path";
 import { RUNWIELD_ROOT, RUNWIELD_SOURCE_ROOT } from "../../../runtime-root.js";
@@ -1063,7 +1064,7 @@ function contentTypeForAsset(path) {
 /** @param {string} path @param {string} contentType */
 async function textFileResponse(path, contentType) {
     try {
-        const body = await Deno.readTextFile(path);
+        const body = path === WORKSPACE_CSS_PATH ? await readWorkspaceStyles(path) : await Deno.readTextFile(path);
         return new Response(body, { headers: { "content-type": contentType } });
     } catch {
         return new Response("Not found", { status: 404 });
