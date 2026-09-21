@@ -1,4 +1,5 @@
 ---
+planId: "363848da-a5f1-469e-8da0-b06ed9a89da5"
 classification: "PLANNED_CHANGE"
 workKind: "FEATURE"
 complexity: "MEDIUM"
@@ -14,8 +15,10 @@ affectedPaths:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-09-11"
-status: "draft"
-planId: "363848da-a5f1-469e-8da0-b06ed9a89da5"
+origin: "internal"
+userVerifiedAt: null
+status: "in_progress"
+targetBranch: "main"
 ---
 
 # Skippable Onboarding Tutorial
@@ -41,6 +44,23 @@ Current RunWield evidence: `src/ui/tui/chat-session.ts` owns the startup Init of
 model setup; `src/cmd/init/index.ts` and `init-completion.ts` own initialization; `docs/workflows.md` describes the
 existing planned-work lifecycle.
 
+Owning requirements and proposed changes:
+
+- [Core: Project context and initialization](../prd/runwield-core-prd.md#project-context-and-initialization): add
+  **Optional guided first change**, with warning, permanent Skip, explicit entry, and truthful recap scenarios. Preserve
+  **Preserve useful project facts and retrieve relevant context**, including separately approved Init work.
+- [Core: Plan review](../prd/runwield-core-prd.md#plan-review): preserve **Apply the user's review decision to the saved
+  Plan**. Tutorial feedback, approval, saving for later, and cancellation use the same controls and consequences.
+- [Core: Execution, validation, and recovery](../prd/runwield-core-prd.md#execution-validation-and-recovery): preserve
+  **Publish successfully or end only by deliberate user abandonment** and **Validate and deliver approved work without
+  losing recoverable changes**. Stopping guidance does not end the delivery workflow or waive checks.
+- [Core: Session continuity](../prd/runwield-core-prd.md#session-continuity): preserve **Continue the same saved work
+  across clients**. Add acceptance coverage for returning to TUI tutorial guidance without repeating work. Workspace
+  tutorial controls are deferred, not ordinary Session continuity.
+
+No existing requirement is removed. Follow [ADR-015](../adr/015-file-authoritative-session-bundles.md); do not change
+Session authority, writer ownership, or Plan lifecycle.
+
 ## Objective
 
 A new user can choose a short guided first change, understand each major RunWield stage, and leave with real work and
@@ -48,24 +68,34 @@ its actual validation outcome. Every tutorial entry is optional. Skipping never 
 
 ## Approach
 
-Draft scope: interactive TUI entry through `/onboard` and `wld onboard`, reusing existing browser review surfaces. A new
-Workspace-native tutorial is deferred. The tutorial teaches the workflow through existing agents and controls; it does
-not introduce another implementation agent or a second Plan lifecycle.
+Confirmed scope: the tutorial guides a small real change in the user's project, with a warning before Start. It does not
+use a disposable sample. The user confirmed TUI-only guidance for this release, through `/onboard` and `wld onboard`,
+reusing existing browser review surfaces. A Workspace-native tutorial is deferred. The tutorial teaches the workflow
+through existing agents and controls; it does not introduce another implementation agent or a second Plan lifecycle.
 
 ### Entry and skipping
 
 - On an eligible fresh interactive startup, after model setup and the existing Init decision, show one brief offer:
-  **Start tutorial**, **Skip for now**, **Don't show again**. Do not interrupt a supplied initial request, a resumed
-  Session, an active workflow, or a headless invocation.
-- Remember that the offer was handled at the user level so changing repositories does not repeat it. Both skip choices
-  return immediately to normal input; `/onboard` remains available explicitly. Keep offer/completion preferences
-  separate from project Init state.
-- Displaying or skipping the offer starts no model work and creates no managed Session, Plan, or repository file. An
-  explicit preference change may use the normal user-settings store.
-- `/onboard` first shows the scope: a small real project change, normal model usage, and normal review/delivery choices.
-  Choosing Start submits an explicit tutorial request through the ordinary Session activation path.
-- If model setup or project initialization is needed, explain it and reuse the existing flow. Cancelling either returns
-  to ordinary use without marking the tutorial complete. Existing initialization is not repeated.
+  **Start tutorial** or **Skip**. Do not interrupt a supplied initial request, a resumed Session, an active workflow, or
+  a headless invocation. Eligibility means a new empty interactive Session with no saved handled preference; this
+  includes existing installations on their first eligible startup after the feature ships. Empty or unsuitable projects
+  keep ordinary startup guidance instead of an automatic tutorial offer. Do not change existing Init offers for
+  unrelated commands or Session resumes.
+- Skip returns immediately to normal input and permanently suppresses automatic tutorial offers at the user level,
+  across restarts and repositories. There is no later reminder or expiry. Explicit `/onboard` remains available.
+  Starting also marks the offer handled. Keep offer/completion preferences separate from project Init state.
+- Displaying or skipping the offer starts no model work and creates no persisted Session, Plan, or repository file. Only
+  the user-settings preference may change. This guarantee concerns the tutorial: it does not prohibit work from an
+  earlier, separately accepted Init offer. Explicit `wld onboard` must defer startup Init until after tutorial consent.
+  Non-interactive `wld onboard` explains that a terminal is required and exits without starting work.
+- Every entry shows this warning before Start: **This tutorial makes a real change in your current project and uses your
+  configured AI model. You will review the Plan before implementation. Normal checks and delivery approvals still
+  apply.** Show the current project path with the warning. Choosing Start submits an explicit tutorial request through
+  the ordinary Session activation path. Cancelling the offer has the same no-work, permanent-dismissal effect as Skip.
+- Explicit entry shows the warning before tutorial-triggered setup. If model setup or project initialization is needed,
+  explain it and reuse the existing flows after Start; do not rerun completed Init or make Init mandatory merely for the
+  tutorial. Cancelling tutorial-triggered setup returns to input without marking the tutorial complete; chat still needs
+  a configured model. Preserve ordinary startup model-setup cancellation behavior outside explicit tutorial entry.
 
 ### Guided journey
 
@@ -78,8 +108,8 @@ not introduce another implementation agent or a second Plan lifecycle.
    Approve & Run when they become relevant. Practicing a revision is optional; approval remains a real decision.
 4. **Implement.** The normal Plan Engineer or Frontend Engineer executes. Explain worktree isolation and how to pause or
    redirect. Narration follows actual workflow events; it never advances execution itself.
-5. **Validate and deliver.** Explain project checks, independent review, any actual repairs, and available human review
-   and delivery controls. Show failures honestly. Do not manufacture a failure for teaching or claim delivery before the
+5. **Validate and deliver.** Explain project checks, AI review, any actual repairs, and available Code Review and
+   delivery controls. Show failures honestly. Do not manufacture a failure for teaching or claim delivery before the
    normal workflow establishes it.
 6. **Recap.** Link the actual Plan, available review/QA artifacts, and Work Record. Explain the outcome and how to begin
    ordinary work. Complete the tutorial only after the real change reaches RunWield Verified and the recap is shown.
@@ -91,14 +121,52 @@ Continue prompts between stages that require no user decision.
 ### Exit and resume
 
 At teaching checkpoints, **Continue without tutorial** removes narration while preserving the normal workflow. **Pause
-tutorial** uses existing cancellation/pause behavior to stop active work and preserve its recoverable state. The copy
-must distinguish these actions. Skipping instruction never means approving a Plan, skipping validation, deleting work,
-or authorizing publication.
+tutorial** requests the same cancellation as Escape and preserves work already done. During active work, teach the
+existing Escape control; `/onboard` remains an ordinary queued command, not a second stop mechanism. Do not describe
+Ctrl+C as pause: its first press clears input. A pause request is not proof that work stopped; report the actual settled
+state. Plan Review cancellation keeps its normal recovery choice. Skipping instruction never means approving a Plan,
+skipping validation, deleting work, or authorizing publication.
 
-Store the tutorial marker and necessary stage information with the existing Session persistence mechanism. Derive work
-progress from the associated Plan/workflow, not duplicated tutorial statuses. Resuming the same Session offers to resume
-guidance or continue ordinarily; it must not create a second Plan, execute completed steps again, or repeat delivery. If
-the relationship cannot be recovered, explain the gap and offer the existing Plan/Session recovery path.
+Store only guidance context with existing Session persistence. Derive work progress from the associated Plan/workflow,
+not duplicated tutorial statuses. Resuming a guidance-enabled Session offers to resume guidance or continue ordinarily;
+a Session where guidance was disabled stays quiet unless `/onboard` is requested. Use existing Session and Plan
+recovery, not the initial tutorial prompt, to continue work. Never create a second Plan, execute completed steps again,
+or repeat delivery. Missing context must not cause a guessed Plan association or success claim; preserve work and use
+the existing recovery path.
+
+### Implementation path
+
+```text
+startup offer / wld onboard / /onboard
+  warning and project path → Start or Skip
+  Start → existing setup when needed → ordinary Planner user turn
+  plan_written → normal Plan Review → approved execution → validation and delivery
+  committed workflow facts → TUI explanations and truthful recap
+```
+
+- `src/cmd/registry.js` registers a TUI-only slash command and interactive CLI entry. `wld onboard` opens the deferred
+  TUI shell; it must not run Init or a model before the warning. Allow `/onboard` through the model-readiness command
+  gate so it can show consent and then setup. Do not use test-only startup bypasses in production.
+- After Start, submit one visible tutorial request through `SessionRuntime.promptUserTurn` with `AGENTS.PLANNER`.
+  Preserve the input controller's busy state, synchronization, cancellation, and draft restoration. The first request
+  asks for bounded discovery and user selection before Plan authorship; it does not authorize implementation. Use
+  bundled instructions for this request, not a new agent or teaching instructions injected into execution/repair agents.
+- Use a global custom settings key, registered in `RUNWIELD_CUSTOM_SETTING_KEYS`, for the handled offer. Read the global
+  value, not a project override. Later model or theme setting saves must preserve permanent Skip.
+- Keep a versioned Session custom entry for guidance enabled/disabled, shown explanation IDs, recap shown, and the
+  selected Plan's durable `planId` when known. Derive that identity from committed Plan Association evidence. Do not
+  store workflow phase, approval, or delivery success in the tutorial entry. Write the initial entry inside the accepted
+  first-turn managed operation, before model work; later updates use the same Session writer ownership.
+- Restore that entry through `HostedSession`, Session snapshots, and read-only transcript projection. In
+  `rollSessionTranscriptSegment`, carry forward the latest committed tutorial context before the successor is committed,
+  for both execution and semantic repair. Old Sessions without the entry behave unchanged. Reuse the existing custom
+  entry pattern in `workflow-context-session.js`, not unrecognized fields that its normalizer discards.
+- TUI notices use existing workflow events and facts: awaiting Plan Review, approved execution, project checks, AI
+  review/repair, Code Review when enabled, and confirmed delivery. Deduplicate explanations across replay and rollover;
+  normal workflow status still reports each real failure or repair. Ordinary non-tutorial Sessions get no teaching copy.
+  The generic workflow presentation's completed flag is insufficient: `user_verified` and `closed_without_verification`
+  are not RunWield Verified. Full recap requires actual `verified` status, confirmed publication, and available artifact
+  evidence. Missing optional artifacts are omitted, not replaced with invented links.
 
 A static sample-only walkthrough was set aside because it would not demonstrate actual review and verification. A
 mandatory first-run wizard was set aside because experienced users should reach their own task immediately.
@@ -115,12 +183,18 @@ shifts, migration or compatibility risk grows, or the Verification Plan no longe
 - `src/ui/tui/chat-session.ts`, `src/ui/tui/model-welcome.ts`, `src/cmd/init/` — place the optional offer around
   existing setup and preserve cancellation, empty-project behavior, and deferred Session activation.
 - `src/shared/settings.js` and its existing schema/persistence owners — user-level offer preferences.
-- `src/shared/session/` — minimum tutorial context and continuation using existing Session ownership and persistence.
+- `src/shared/session/` — tutorial context through `SessionRuntime`, `HostedSession`, transcript projection, and
+  `segment-rollover.ts`; preserve context across execution/repair without introducing another workflow owner.
 - `src/agent-definitions/` or bundled instructional assets — concise teaching instructions around existing role work.
-- `src/ui/tui/` — existing notices, selections, and workflow presentation; no independent review UI.
-- `docs/quickstart.md`, `docs/usage.md`, `docs/prd/runwield-core-prd.md` — command help, tutorial journey, and lasting
-  acceptance requirements, updated when implemented. Update `docs/domain-language.md` only if implementation introduces
-  a stable term that needs definition. Do not promote this draft's proposed behavior into current documentation now.
+- `src/ui/tui/chat-input-controller.ts`, `runtime-adapter`, and related TUI tests — ordinary submission, cancellation,
+  restored guidance, and event-based teaching notices; no independent review UI.
+- Session rollover/runtime tests and `src/ui/tui/golden-scenarios/` — prove real consent, continuation, and delivery,
+  not just matching tutorial text.
+- `docs/quickstart.md`, `docs/usage.md`, `docs/prd/runwield-core-prd.md` — command help, warning, permanent Skip, and
+  the owning capability's requirements/scenarios, updated in the implementation change.
+- `docs/domain-language.md` — define Tutorial as optional TUI guidance around one real Planned Change. It is not Init, a
+  separate Plan lifecycle, or a substitute for Workflow Validation. Preserve AI review and Code Review terminology. Do
+  not promote these proposed behaviors into current documentation during planning.
 
 ## Reuse Opportunities
 
@@ -134,27 +208,39 @@ shifts, migration or compatibility risk grows, or the Verification Plan no longe
 
 ## Implementation Steps
 
-- [ ] `/onboard` and `wld onboard` expose the same guided journey and help text, with explicit Start before discovery.
-- [ ] Eligible startup offers the tutorial once; both skip choices leave ordinary input usable and survive restart
-      without repeated offers. Explicit invocation remains available after skipping or completing.
-- [ ] Offers and skips cause zero model calls and no managed Session or repository artifacts. Suppression works for
-      initial requests, resumed Sessions, active workflows, and non-interactive use.
+- [ ] Startup, `/onboard`, and `wld onboard` show the real-project warning and current project path, with explicit Start
+      before tutorial discovery. Both commands expose the same guided journey and help text.
+- [ ] Eligible startup offers the tutorial once. Skip leaves ordinary input usable and permanently suppresses automatic
+      offers across restarts and repositories, without expiry. Explicit invocation remains available after skipping or
+      completing.
+- [ ] The offer itself and Skip cause zero model calls and no persisted Session or repository artifacts. Separately
+      approved Init work remains permitted. Tutorial offers are suppressed for initial requests, resumed Sessions,
+      active workflows, and non-interactive use; explicit CLI entry requires an interactive terminal.
 - [ ] Setup uses existing model/Init flows. Cancelled setup cannot create false Init or tutorial completion.
 - [ ] One selected improvement becomes one ordinary draft Plan, enters real Plan Review, and executes only through the
       approved workflow. Feedback and Approve for Later behave exactly as in ordinary planned work.
 - [ ] Teaching messages reflect actual stage changes and distinguish checks, review, validation, and delivery.
       Failure/repair states cannot display an invented success.
-- [ ] Continue without tutorial, Pause, and resume preserve the current Plan, edits, approvals, and delivery state;
-      resumption does not duplicate work.
+- [ ] Continue without tutorial, Pause, and resume preserve the current Plan, edits, approvals, and delivery state.
+      Guidance context survives both execution and repair segment rollover. Disabled guidance stays disabled. A pause
+      request uses existing cancellation and does not report settlement early; resumption does not duplicate work.
 - [ ] Verified delivery produces a useful recap with valid artifact links. A failed, paused, manually verified, or
       closed-without-verification Plan cannot masquerade as a completed verified tutorial.
-- [ ] Behavioral tests cover the journeys below; command documentation and the Core PRD describe shipped behavior.
+- [ ] Behavioral tests cover the journeys below. Command documentation and the owning Core capabilities describe the
+      shipped warning, permanent Skip, entry, resume, and recap scenarios. Shared review/recovery requirements remain
+      authoritative; deferred Workspace guidance stays labeled deferred and affected references are updated.
+- [ ] `docs/domain-language.md` defines Tutorial and its relationship to a Planned Change, Init, and Workflow
+      Validation; implemented behavior, teaching copy, and glossary agree, including AI review versus Code Review.
 
 ## Approval Confirmation
 
-No Work Record supersession is proposed. Draft assumptions are TUI-first delivery, a real small project change,
-user-level offer suppression, and explicit `/onboard` access after skipping. Review these with the Plan's normal scope;
-creating this draft does not approve or execute it.
+No Work Record supersession is proposed. The user confirmed a real project change with a warning before Start, permanent
+Skip, and TUI-only guidance using existing browser review pages. Explicit entry remains available after Skip. The
+existing draft's guided journey and pause/resume behavior are retained through normal workflow controls. This Plan is
+ready for scope review; it does not itself authorize implementation.
+
+Reviewable defaults: existing installations receive one eligible offer if no preference exists; cancelling that offer
+counts as Skip. Existing users are not forced into the tutorial, and explicit entry remains available.
 
 ## Verification Plan
 
@@ -162,24 +248,49 @@ Use the real settings, Session, Plan, and Git owners. Fake only external capabil
 execution where an existing supported boundary permits it. Resolve home/cwd through project helpers and protect tests
 that mutate them with `withProcessGlobalTestLock`.
 
-- Automated: run focused changed-file tests with `deno run -A scripts/run-tests.js <test-file-paths>`, then
-  `deno task ci` (including the zero-seam check). Never use `deno test` directly.
-- Composed startup: test Start, both skips, restart, another repository, explicit invocation after dismissal, existing
-  users, and no-model cancellation. Assert no model calls or Session/Plan/repository writes before Start.
-- Preserve existing startup coverage: empty prompt remains unpersisted, explicit requests run without interception,
-  empty repositories remain usable, `/new` and loaded Sessions retain their activation/continuation behavior.
-- Real temporary Git project: choose a small behavioral change with a test that fails before implementation; exercise
-  Plan feedback, revision, approval, execution, validation, and verified delivery through the ordinary workflow. Assert
-  the behavior and delivered Git ancestry, not just tutorial labels or task checkboxes.
+- Automated: run the commands below, plus any new focused tutorial test files with the same safe runner. Then run
+  `deno task ci`, including the zero-seam check. Never use `deno test` directly.
+
+  ```sh
+  deno run -A scripts/run-tests.js src/ui/tui/chat-session.test.ts src/ui/tui/slash-dispatch.test.ts src/ui/tui/model-welcome.test.ts src/shared/settings.test.js
+  deno run -A scripts/run-tests.js src/shared/session/session-runtime.test.js src/shared/session/segment-rollover.test.js
+  deno run -A scripts/run-tests.js src/ui/tui/golden-scenarios/initial-scenarios.test.js src/ui/tui/golden-scenarios/planned-change-workflow.test.js src/ui/tui/golden-scenarios/session-resume-workflow.test.ts src/ui/tui/golden-scenarios/validation-publication-journey.test.ts
+  ```
+- Composed startup: test Start, Skip, restart, another repository, explicit invocation after dismissal, existing users,
+  and no-model cancellation. Assert Skip remains suppressed after a large clock advance, a model/theme settings save,
+  restart, and repository change. Project settings cannot override it. With setup already complete or declined, assert
+  zero model calls and no Session/Plan/repository writes from the offer or Skip. In a separate case, accept Init first
+  and prove its authorized work is unaffected. For explicit `wld onboard`, even an uninitialized project must not start
+  Init before tutorial consent. Every entry must show the warning and current project. Cancelling the warning starts no
+  tutorial work and persists dismissal. Non-interactive CLI entry must not hang or start work.
+- Preserve existing startup coverage: empty prompt remains unpersisted, explicit requests run without tutorial
+  interception, empty repositories remain usable, `/new` and loaded Sessions retain their activation/continuation
+  behavior. Ordinary model-setup cancellation remains unchanged; tutorial-triggered setup cancellation returns to input
+  without falsely marking setup or the tutorial complete. No existing workflow behavior or coverage is retired.
+- Real temporary Git project: drive Start through the actual tutorial command, select a small behavioral change with a
+  test that fails before implementation, then exercise Plan feedback, revision, approval, execution, validation, and
+  verified delivery through the ordinary workflow. Script only external model/reviewer turns. Assert one Plan, no
+  implementation before approval, the changed behavior, and delivered Git ancestry. Capture ordered TUI output: each
+  stage explanation must describe the current work and follow its real event, not a canned sequence. Run an ordinary
+  non-tutorial change as a control: it must show no tutorial copy. The existing publication golden test starts from an
+  implemented fixture; it cannot replace this new Start-to-delivery journey.
 - Failure path: a failing project check or reviewer finding must show the true failure/repair and prevent the verified
   recap. User Verified and close-without-verification must retain their distinct outcomes.
-- Pause before approval and during execution; reload the Session and resume. Assert one Plan, preserved edits and
-  approvals, and no repeated implementation or publication. Approve for Later must stop execution.
+- Pause before approval and during execution; settle cancellation, reload the Session, and resume through normal
+  controls. Assert one Plan, preserved edits and approvals, and no repeated implementation or publication. Approve for
+  Later must stop execution. Carry guidance through real execution and semantic-repair segment rollovers, discard the
+  in-memory runtime, and reload from committed files. Confirm shown explanations do not repeat, unshown stages still
+  appear, disabled guidance stays off, and `/onboard` restores guidance for the same Plan without restarting discovery.
+  After verified delivery, reload and prove the recap does not cause a second publication.
 - Manual TUI/browser walkthrough: new-user Start, skip to a normal question, explicit `/onboard` after skip, annotate
   the real Plan Review, pause/resume, dismiss narration, finish a small change, and open recap artifacts. Confirm
   keyboard/cancellation behavior and concise instructions. Existing browser review rendering remains intact.
+- Semantic review: confirm the tutorial cannot write approval, validation, or publication truth. Completion must read
+  real workflow evidence; a generic completed display flag cannot count. Confirm capability links, glossary, command
+  docs, and shipped scenarios agree, with Workspace guidance still deferred.
 - A no-op command or scripted success narration must fail these tests: neither can deliver the required behavior,
-  produce real approval evidence, preserve resumed work, or establish verified delivery.
+  produce real approval evidence, preserve resumed work, or establish verified delivery. A plain Planner pass-through
+  must also fail the required event-timed teaching and persisted guidance assertions.
 
 ## Edge Cases & Considerations
 
