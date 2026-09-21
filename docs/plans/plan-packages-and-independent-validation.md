@@ -20,6 +20,7 @@ affectedPaths:
     - "docs/plan-lifecycle.md"
     - "docs/domain-language.md"
     - "docs/prd/runwield-core-prd.md"
+    - "docs/prd/runwield-workspace-prd.md"
 devServerCommand: null
 devServerUrl: null
 devServerHmr: null
@@ -60,6 +61,32 @@ Two saved dependent Epics remain separate:
 This Epic does not implement either dependent experience. Its interfaces must support them. No-plan QUICK_FIX behavior
 remains unchanged.
 
+Generic automated project QA remains deferred. Validator is a single independent Agent that takes over the approved
+Plan's normal validation work from Engineer, performs the checks it can, and explains the remaining human work in
+`manual-qa.md`. It does not discover and operate a general project QA campaign or require the deferred Automated QA
+proposal.
+
+### Product requirements and scope changes
+
+The following are proposed changes, not delivered capabilities. Core owns shared workflow behavior; Workspace owns its
+browser and collaboration experience. Eventual implementation must update the owning requirements and acceptance
+scenarios in the same changes that deliver each outcome. Slicer determines the child boundaries.
+
+| Epic outcome                                                                | Owning capability and acceptance coverage                                                                                                                                                                                                                                                               |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Package identity, authoring, migration, and preservation of user edits      | [Core Plan authoring and external adoption](../prd/runwield-core-prd.md#plan-authoring-and-external-adoption). Extend the external-adoption and concurrent-edit scenarios to packages. Preserve user prose and explicit adoption.                                                                       |
+| Whole-package approval and stale-review rejection                           | [Core Plan review](../prd/runwield-core-prd.md#plan-review). Extend feedback, approve-for-later, and approve-and-run scenarios to the complete reviewed package, including Sequence members.                                                                                                            |
+| Independent Validator, advisory human QA, shared loop, repair, and recovery | [Core Execution, validation, and recovery](../prd/runwield-core-prd.md#execution-validation-and-recovery). Change who performs Plan validation; add three-loop pause/resume and inability-to-check scenarios. Preserve recoverable work and separate delivery evidence.                                 |
+| Stable findings and independent confirmation                                | [Core Semantic review and repair](../prd/runwield-core-prd.md#semantic-review-and-repair). Extend claim/rejection and blocked-repair scenarios to Validator findings. Replace independent review retry budgets with the shared budget; preserve review coverage and nonblocking advisories.             |
+| Validation, user acceptance, delivery, and Plan-defect return               | [Core Plan lifecycle](../prd/runwield-core-prd.md#plan-lifecycle). Add failed/unrun acceptance, advisory QA with `validated`, and user-approved replanning scenarios. Preserve publication distinction and historical evidence.                                                                         |
+| Epic branch assembly, accepted gaps, and integrated checks                  | [Core Epic decomposition and hold](../prd/runwield-core-prd.md#epic-decomposition-and-hold). Change default child delivery to the Epic branch; add pending-delivery containment and integrated-failure scenarios. Preserve explicit overrides, hold, and done-enough choices.                           |
+| Package browsing, editing, archive, and retained QA                         | [Workspace Local Plan management](../prd/runwield-workspace-prd.md#local-plan-management) and [Browser Plan review and workflow](../prd/runwield-workspace-prd.md#browser-plan-review-and-workflow). Extend edit, stale-tab, artifact, and recovery journeys; link Core rules rather than copying them. |
+| Package-wide encrypted sharing and compatibility                            | [Workspace Shared Plan collaboration](../prd/runwield-workspace-prd.md#shared-plan-collaboration). Extend publish/pull and revision-conflict scenarios to all authored package documents without changing access ownership.                                                                             |
+
+Removal targets are single-document approval/synchronization, Engineer-owned independent proof, separate retry budgets,
+and Epic success inferred from child statuses alone. Manual QA remains advisory; no new human QA gate is added. Generic
+automated project QA and later Epic publication remain deferred.
+
 ## Objective
 
 Replace single-file executable Plans with **Plan Packages** and give the approved validation contract an independent
@@ -72,13 +99,15 @@ The architecture must produce these outcomes:
 - One approval covers the authored package, not whichever document a caller happened to read.
 - Plan Engineer and Frontend Engineer implement the approved work, add required tests and fixtures, and use targeted
   checks during development. They do not own or claim the independent validation result.
-- Validator executes the machine-executable and agent-executable contract. A separate Semantic Reviewer checks the
-  validated candidate against the approved package where semantic diff review applies.
+- Validator performs the approved Plan checks it can and records evidence, findings, and remaining human work. A
+  separate Semantic Reviewer checks the current candidate against the approved package where semantic diff review
+  applies. Review may find further issues before repaired code receives its final validation.
 - Orchestration owns bounded repair, completion events, process recovery, and the return to full proof after code
   changes.
 - The user can always accept an individual Plan or Epic through code review or directly as `user_validated`.
-- `validated` means required independent checks passed. `user_validated` means the user accepted the result. Neither
-  status is delivery evidence.
+- `validated` means the independent workflow passed its performed checks and applicable AI review with no unresolved
+  observed failure. Checks Validator could not perform remain explicit advisory human work, not passing evidence.
+  `user_validated` means the user accepted the result. Neither status is delivery evidence.
 - An Epic has its own target branch by default. Children publish there. The assembled Epic receives integrated
   validation without becoming an executable Plan or owning a durable execution worktree.
 - The binary migrates the current checkout and RunWield-managed worktrees, including unfinished attempts. Migration is
@@ -94,7 +123,7 @@ service is needed: extend the current file store, controller, Git machinery, Age
 docs/plans/<plan>/
   plan.md          identity, authored definition, lifecycle and human history
   validation.md    approved validation contract
-  manual-qa.md     generated human checklist, when needed
+  manual-qa.md     generated human QA guide, when needed
 
 docs/plans/<epic>/
   plan.md
@@ -182,28 +211,61 @@ with evidence references. Failed, blocked, unrun and genuinely human-only checks
 Operational failure, such as an unavailable tool or crashed test service, is distinct from an implementation finding and
 from a proposed Plan defect. No required check disappears because execution failed early.
 
-Generated `manual-qa.md` is a projection of human-only contract items and their current disposition. It must not add a
-new acceptance requirement after approval. Required human judgment remains visible until answered or explicitly accepted
-without completion; optional QA remains advisory. The Epic aggregate keeps its advisory meaning beside the executed
-integrated contract. Reports and checkboxes cannot change approved requirements.
+Validator generates `manual-qa.md` from the approved checks it could not complete and their current disposition. This
+includes human-only judgments and checks blocked by missing access, tools, or environment setup. A blocked or failed
+check does not become a passing check when it appears in this document.
+
+The document is a human QA guide, not just a checklist. Each remaining procedure identifies its approved check, the
+behavior and purpose, required environment and setup, concrete actions, expected results, relevant evidence and prior
+attempts, why Validator could not finish it, and cleanup when needed. Record known setup separately from unverified
+instructions. Include the checked candidate and a short summary of completed validation so the human knows what remains.
+
+All remaining human QA is advisory. Anything Validator could not do goes into this Plan artifact and does not block
+completion, even if the approved contract expected the check to run. The user can inspect the guide during Code Review
+or later; no checklist acknowledgement or human QA gate is required. This applies to Planned Changes and Epics.
+
+The guide must not add requirements or claim unperformed checks passed. Validator must attempt feasible approved checks
+and explain concrete limits for the rest. A check that exposes an implementation defect is a failure, not an inability
+to perform the check: moving it into the guide cannot remove its open finding. Report missing access or unavailable
+services as unperformed checks, not invented implementation defects. A blocked repair for a known defect remains open.
+Reports and checkboxes do not rewrite the approved requirements. `validated` certifies the performed validation and
+applicable review, not completion of every manual procedure.
 
 ### Implementation, proof and repair
 
 ```mermaid
 graph TD
-    A[Approved package] --> B[Plan implementation]
-    B --> C[Validator]
-    C --> D[AI code review]
-    D --> E[Owner review when required]
-    E --> F[Validated]
-    C --> R[Bounded repair]
-    D --> R
-    E --> R
-    R --> C
+    A[Plan implementation] --> B[Validator]
+    B --> C[Validation repair if needed]
+    C --> D[AI review]
+    D --> E[Review repair if needed]
+    E --> F{Code repaired}
+    F -->|Yes| G[Shared loop budget]
+    G -->|Remaining| B
+    G -->|Exhausted| H[Pause with findings]
+    F -->|No| I[Resolve checks and owner gates]
 ```
 
-The diagram is the independent path for a Planned Change. Non-Git semantic diff review retains its explicit
-not-applicable behavior. An Epic runs the integrated Validator path without an Epic-level Engineer or Semantic Reviewer.
+The diagram is the independent path for a Planned Change. Validator and AI review share one bounded loop; neither stage
+runs its own repeated repair loop before the other stage gets control. AI review examines the current code after any
+validation repair, even though that repair has not yet received fresh Validator proof. Only checks against the final
+unchanged candidate can support `validated`. A blocked repair for a known defect can pause the flow. An unavailable
+validation environment leaves the affected checks in advisory `manual-qa.md`; it does not itself block completion.
+Continuing around the loop is not a way to label missing evidence as a passing check.
+
+Allow three automatic full loops. Each loop runs Validator, one validation repair turn if needed, AI review, and one
+review repair turn if needed. Do not repeat either stage's repair within that loop. Exit early when the current
+candidate has passed its performed checks and applicable review, with all unperformed checks recorded as advisory human
+work.
+
+After the third loop, if findings remain or the last repair still needs validation, pause and offer the user a choice:
+continue with another explicitly authorized budget, return to planning, leave the work paused, or accept the result. Do
+not hide another automatic repair loop behind final verification. Unchecked repairs remain visibly unvalidated. The user
+can pause or accept earlier; three loops is not a prerequisite for either action. This bounds automatic repetition, not
+the exact token cost of each turn.
+
+Non-Git semantic diff review retains its explicit not-applicable behavior. An Epic runs its integrated Validator path
+without an Epic-level Engineer or Semantic Reviewer; integrated failures still return through a reviewed repair child.
 
 Implementation completion, validation completion, semantic review completion and repair completion have role-specific
 contracts. Each accepted event carries its owner, attempt, generation and tool-call identity and is consumed once.
@@ -216,58 +278,76 @@ Review Repair Engineer receives the package, candidate and current review issues
 the approved revision difference and preserved candidate. These are bounded contexts, not a replay of the implementation
 conversation. No repair role edits lifecycle metadata, approval receipts, counters or publication records.
 
-Orchestration bounds repair using the existing convergence policy and durable counters. Exhaustion pauses with evidence
-and user choices; it does not invent success. On restart, reconcile current files, controller state and Git facts before
-choosing the next action. Do not replay a completed or interrupted Agent turn as recovery.
+Validation findings reuse the Review Issue Ledger mechanism in `src/shared/workflow/review-ledger.ts`, not a separate
+Ticket system. Each finding has a stable ID, its originating stage, approved requirement or check, evidence, and current
+repair state. IDs survive repair, rejection, pause, and continuation of the same attempt. Keep validation and AI review
+findings distinguishable and prevent identity collisions.
+
+Repair Engineer reports each supplied ID as fixed, already satisfied with evidence, or blocked with a reason and what
+would unblock it. A repair claim is not resolution. Validator confirms or rejects validation fixes; Reviewer confirms or
+rejects review fixes. Rejected fixes retain their IDs. Omitted and blocked findings stay open; a blocked report must not
+be accepted as successful repair completion. Reuse the existing claim/confirm/reject behavior and extend its durable
+reporting where needed rather than treating all supplied items as fixed from a generic completion signal.
+
+Orchestration owns the shared loop budget and durable counters across both stages. Validation repair and AI review
+repair must not each receive an independent retry allowance. Exhaustion pauses with evidence and user choices; it does
+not invent success or automatically buy another loop. Resume preserves consumed budget. On restart, reconcile current
+files, controller state and Git facts before choosing the next action. Do not replay a completed or interrupted Agent
+turn as recovery.
 
 Any code repair invalidates proof for the earlier candidate. This includes validation repair, review repair, Code Review
 chat repair and publication conflict repair. Independent success requires a fresh complete Validator run and applicable
 AI review. A changed package also needs renewed approval. The user can instead accept the repaired result directly.
 
-### Validation environment — proposed default for review
+### Validation environment and Agent authority
 
-The recommended default is one controller-owned, disposable validation checkout per candidate, for both Planned Changes
-and Epics. It is not a new execution attempt. The controller pins the approved package and exact candidate before giving
-Validator access. The implementation worktree and approved documents remain unchanged by validation.
+Validator runs in the existing implementation worktree for a Planned Change. Do not create a separate validation or
+repair copy and merge it back. Reuse the environment already prepared for implementation. For an Epic with no execution
+worktree, the controller still needs a checkout of the assembled Epic revision; that is an assembly requirement, not a
+sandbox against the model editing code.
 
-Tests can create build output, fixtures, browser profiles and temporary probes inside the disposable environment.
-Evidence is retained outside the candidate and approved package. Validator cannot repair production code or amend the
-contract. Source or contract changes in the validation environment invalidate its passing result; do not copy those
-changes back. A changed live candidate also makes the report stale. Test commands need appropriate local permissions,
-but running them in another directory is not an operating-system security sandbox. Preserve existing consent and
-secret-handling rules; never claim arbitrary test commands are harmless merely because the Agent has no edit tool.
+Validator receives read and inspection tools, shell access for approved checks, and Guide's existing `write_docs` and
+`edit_docs` tools for generated Markdown reports and `manual-qa.md`. Do not give it general `write`, `edit`, or
+`multi_file_edit` tools. Its Agent definition prohibits source repair, test weakening, settings changes, or amendment of
+`plan.md` and `validation.md`, including through shell commands or delegation. Its job is to report findings and explain
+remaining human work. Package writes still use the Plan store's ownership rules.
 
-For Git candidates, use an exact commit and record any separately captured implementation inputs needed for correctness.
-Do not silently omit required untracked files. For non-Git work, retain consent-based in-place implementation and
-capture an explicit source snapshot and digest for validation. Record snapshot scope and omissions; do not invent Git
-evidence. If a reliable snapshot cannot be established, report that limit. Direct user acceptance stays available.
+This is a tool-policy and Agent-responsibility boundary, not an operating-system security sandbox. Test commands can
+produce their normal outputs and have side effects. Preserve existing consent and secret-handling rules. No new sandbox,
+disposable-copy system, or rollback subsystem is required to prevent an assumed model impulse to repair.
 
-The alternative is validation in the implementation worktree with change detection afterward. It is cheaper to prepare,
-but test side effects can damage the candidate before detection. Disposable validation costs disk space and environment
-setup; dependency caches may be reused only without changing candidate identity or coupling concurrent runs. The user
-has not yet confirmed this default.
+Reports identify the actual checked candidate and approved package. Changed code or requirements cannot retain proof for
+the old inputs. For Git candidates, retain commit and relevant working-file evidence, including required untracked
+inputs. For non-Git work, retain consent-based in-place operation and record the checked source scope and digest without
+inventing Git evidence. Record unavailable evidence as a limit; direct user acceptance remains available.
+
+The rejected alternative was a disposable validation copy for every Plan. It adds dependency and service setup, local
+configuration transfer, disk use, and cleanup without being needed for independent Agent responsibility. The owner chose
+the simpler same-worktree model.
 
 ### Lifecycle, owner acceptance and Plan defects
 
-| State                   | Meaning                                                                                                      |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `implemented`           | Implementation finished, or Epic children and accepted gaps are settled; independent proof remains           |
-| `validating`            | Validator owns the current independent attempt                                                               |
-| `reviewing`             | Semantic Reviewer owns the current Planned Change review                                                     |
-| `awaiting_owner_review` | Required owner review or human judgment remains                                                              |
-| `validated`             | Required independent checks passed for the recorded package and candidate; required owner gates are resolved |
-| `user_validated`        | The user accepted the result without requiring a successful independent path                                 |
-| `defective`             | The user approved a structured Plan-defect return to planning                                                |
+| State                   | Meaning                                                                                                                              |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `implemented`           | Implementation finished, or Epic children and accepted gaps are settled; independent proof remains                                   |
+| `validating`            | Validator owns the current independent attempt                                                                                       |
+| `reviewing`             | Semantic Reviewer owns the current Planned Change review                                                                             |
+| `awaiting_owner_review` | Configured Code Review remains; advisory manual QA never creates this gate                                                           |
+| `validated`             | Performed checks and applicable AI review passed for the recorded candidate; configured owner gates resolved; advisory QA may remain |
+| `user_validated`        | The user accepted the result without requiring a successful independent path                                                         |
+| `defective`             | The user approved a structured Plan-defect return to planning                                                                        |
 
 Detailed phases, repair kind, counters and paused state belong in the controller, not additional board statuses.
 Delivery remains separately recorded. A Plan can be validated with publication pending. An Epic can be validated without
 being delivered to the primary branch. Legacy `verified` and `user_verified` records retain historical meaning;
 migration must not relabel an old attestation or automatic Epic completion as a new independent run.
 
-The user can always accept a Planned Change or Epic through Local Human Code Review or directly as `user_validated`.
-Neither route requires a successful Validator run, AI review, integrated Epic validation, or exhausted repairs. Code
-review is optional. Failed, interrupted and unrun workflows must expose the action. Where all independent gates already
-passed, ordinary owner review can retain the proof-backed `validated` outcome. Direct acceptance remains explicit.
+The user can always accept a Planned Change or Epic through Code Review or directly as `user_validated`. Neither route
+requires a successful Validator run, AI review, integrated Epic validation, or exhausted repairs. Code review is
+optional. Failed, interrupted and unrun workflows must expose the action. Where all applicable independent gates already
+passed, ordinary owner review can retain `validated` even with advisory QA remaining. Direct acceptance remains
+explicit. A Validator that finishes with documented unperformed checks differs from a Validator turn that never ran or
+was interrupted: the latter cannot manufacture a completed validation report.
 
 Record the acceptance route, time, available package and candidate identity, and existing check results. Missing
 candidate evidence is recorded as unavailable, not used to prohibit acceptance or fabricate proof. Acceptance ends
@@ -361,7 +441,8 @@ Keep conversion support for one whole version, with deprecation considered in a 
 A global migration marker must not suppress discovery: if a later merge introduces old-format Plans, the next `wld` run
 converts them. Repeating a completed conversion makes no further changes. Mixed layouts can exist on disk during partial
 progress; ordinary operations resolve the relevant package through the store, not through a second legacy execution
-path.
+path. Unadopted external Markdown remains readable and unchanged by listing or browsing. Deliberate adoption creates its
+package and required identity while preserving its prose and age; storage migration does not imply user approval.
 
 Progress is per package and authoritative checkout. One conflict does not undo unrelated conversions. The journal
 records input identity/content, intended paths and committed output so an interrupted package can finish or restore
@@ -415,13 +496,23 @@ The relevant current call paths and evidence are:
   document. `validateApprovedPlanSnapshotForHandoff` rejects changed identity, revision, status and worktree evidence.
   The Workspace `answerInteraction` path supplies freshly loaded content alongside an earlier expected revision; package
   approval must retain the original reviewed snapshot rather than reconstructing that base.
+- `snapshotSequenceReview` and `validateSequenceReviewDecision` in `sequence-review.ts` already retain opening snapshots
+  and validate membership/order for grouped review. Workspace uses those snapshots for Sequences. Preserve grouped
+  approval while extending each member to a package; approving the container alone must not approve changed child
+  contracts. `sequence-review.test.ts` and `owner-workspace.test.js` cover the existing grouped path.
+- Guide exposes `write_docs` and `edit_docs`; `docs-file-tools.test.js` checks Markdown-only file access. These tools
+  restrict file type, not all possible shell behavior. `review-ledger.ts` preserves issue IDs and independent fix
+  confirmation; `reviewer-feedback-engineer.md` requires per-ID repair reports and stops on blocked items. Validator
+  extends these existing patterns.
 - `resolveWorkflowPlanLocation` chooses the execution or retained document worktree and refuses to substitute a primary
   copy when that document is missing. `plan-document-authority.integration.test.ts` and
   `authority-continuation.integration.test.ts` protect that rule across edits, archive and recovery.
 - `finalizePlanImplementation` -> `continueWorkflowValidation` -> `runValidationLoop` owns implementation checkpoints,
   Mechanical Validation, semantic review, repair and delivery. Controller generations and consume-once events already
   exist. `validation-repair-resume.integration.test.ts` covers rerunning checks after interruption rather than replaying
-  repair turns. These mechanisms must serve the new Validator, not be replaced by prompt instructions.
+  repair turns. These mechanisms must serve the new Validator, not be replaced by prompt instructions. Today,
+  `runMechanicalValidationPhase` sends `executionCwd` to `runLocalCI`, which reloads the exact checkout's configured
+  command. Retain that environment while replacing separate per-stage retry budgets with the shared loop.
 - `materializeChildFeaturePlans` inherits `targetBranch`. `prepareTargetBranchRef` currently creates missing targets
   from local `main`; that is not an adequate implicit rule for named Epic branches. `recordPlanEvent` and
   `advanceParentEpicWhenAllChildrenVerified` can advance the parent before publication. Both need assembly evidence, not
@@ -460,17 +551,21 @@ approved intent, another subsystem, or greater migration risk return to the user
 - Binary project-entry paths and `src/cmd/load-plan/` — repeatable conversion, local conflict reports, retained-attempt
   planning return, and format support notices. `src/cmd/update/index.ts` and the installer do not own repository
   conversion.
-- `src/shared/epic-artifacts.ts` — explicit authored versus generated artifact ownership and advisory QA aggregation.
+- `src/shared/epic-artifacts.ts` — explicit authored versus generated artifact ownership, contextual advisory QA, and
+  retained artifact access after delivery.
+- `src/shared/workflow/sequence-review.ts` — preserve grouped review of a Sequence and its children, extending each
+  reviewed member to its authored package snapshot without changing Sequence execution semantics.
 - `src/ui/review/`, `src/ui/tui/`, `src/ui/workspace/` — package review and browsing, complete reviewed snapshots,
   lifecycle and delivery display, failed/unrun check evidence, and owner acceptance for both Plans and Epics. Browser
   work reuses shared Plan Review, Code Review and Plan Board bodies, Session-scoped interaction routes, and `--rw-*`
   design tokens. The user can inspect `plan.md` and `validation.md` within one review, and can distinguish authored
-  requirements from generated reports. A stale package cannot be approved from an old tab. Closing a review is not
+  requirements from generated reports. `manual-qa.md` is an accessible Plan artifact during Code Review and after
+  delivery, not a required checklist dialog. A stale package cannot be approved from an old tab. Closing a review is not
   acceptance.
-- `docs/plan-lifecycle.md`, `docs/domain-language.md`, `docs/prd/runwield-core-prd.md`, release documentation — package,
-  role, proof, acceptance, delivery and migration contracts. The implementation introducing each term updates the
-  glossary in that same change. The dependent frontend and publication Epics need review against these settled contracts
-  before their later planning; this Epic does not implement their scope.
+- `docs/plan-lifecycle.md`, `docs/domain-language.md`, the owning Core and Workspace PRD capabilities linked above, and
+  release documentation — package, role, proof, acceptance, delivery and migration contracts. The implementation
+  introducing each term updates the glossary in that same change. The dependent frontend and publication Epics need
+  review against these settled contracts before their later planning; this Epic does not implement their scope.
 
 ## Reuse Opportunities
 
@@ -479,7 +574,10 @@ approved intent, another subsystem, or greater migration risk return to the user
   generations.
 - `plan-location.ts` authoritative document lookup; publication and worktree registries with real Git recovery checks.
 - Existing Planner, Architect, Slicer, Verification Adversary, Semantic Reviewer, Pair checkpoints and bounded repairs.
-- Existing Manual QA generation and Epic aggregate, without promoting generated content into approval authority.
+- Existing Manual QA generation and Epic aggregate, expanded into contextual human procedures without becoming gates or
+  approval authority.
+- Guide's `write_docs` and `edit_docs` tools; `review-ledger.ts` stable identities and claim/confirm/reject rules.
+  Validator reuses these boundaries rather than adding general code-editing tools or a second finding system.
 - Existing collaboration encryption and write ownership, extended to the package manifest rather than replaced.
 - Shared Workspace and standalone review surfaces; `docs/design-system.md` and `src/ui/design-system/` remain the
   browser baseline. Workspace stays a projection; no new database becomes necessary for Core operation.
@@ -501,6 +599,12 @@ review, reject stale approval after a validation-only edit, follow implementatio
 repair, accept a failing result with and without code review, distinguish acceptance from delivery, and reopen after
 process loss. Migration acceptance includes unfinished managed-worktree work and a later Git merge of a legacy Plan.
 
+Cross-boundary acceptance must also show a Plan completing and delivering with advisory human QA. Open that same
+artifact during Code Review and again after delivery. A second run must show a real observed defect remaining open
+instead of being hidden in that guide. Exercise the shared three-loop limit with findings from both stages and a
+restart, retaining IDs, partial repairs, and the user's choice. These journeys join the Core and Workspace capability
+scenarios above; passing isolated child checks alone does not prove them.
+
 ### Outcome Evidence
 
 - **Package identity is real** — ordinary Plan reads, writes, review, collaboration, archive and publication reach the
@@ -515,10 +619,23 @@ process loss. Migration acceptance includes unfinished managed-worktree work and
   matching Validator report advances the independent path. `task_completed` is not a universal validation/repair event.
 - **Every contract check is accounted for** — results bind to a package, candidate and generation and distinguish
   passed, failed, blocked, unrun and human-only work. A green generic CI command cannot stand in for omitted contract
-  checks.
-- **Validation does not repair its subject** — candidate or contract mutation prevents a passing result. Probes and test
-  output cannot be copied into the implementation as a Validator repair. The chosen environment isolation rule must be
-  exercised with a test command that writes files, not proved only through Agent tool lists.
+  checks. A concrete inability to perform a check produces advisory human QA, not a pass and not a completion gate.
+- **Validator reports rather than repairs** — its effective tools expose `write_docs` and `edit_docs`, not general
+  file-writing tools. Its definition prohibits repairs and contract edits through any tool. A representative failed
+  check produces a finding and leaves repair to Engineer in the same worktree; normal test outputs and generated QA
+  remain allowed. Do not claim that this tool policy sandboxes shell commands.
+- **Human QA has usable context** — an infeasible approved procedure appears in `manual-qa.md` with its check ID,
+  purpose, setup, actions, expected result, prior evidence, and reason it needs a human. With performed checks and AI
+  review passing, this remaining QA does not prevent `validated` or delivery and needs no user acknowledgement. The user
+  can open the retained Plan artifact during Code Review or after delivery. An actual failure remains an open finding,
+  not advisory-only work. The guide adds no unapproved requirement.
+- **Findings survive repair** — each validation and review finding keeps its ID across claims, rejection and resume.
+  Per-ID blocked reports preserve open findings and partial work. Only the responsible validation or review result
+  confirms a fix; omitted IDs cannot disappear on a successful-looking completion.
+- **One shared loop limits token spend** — validation and AI review do not have independent automatic repair budgets. An
+  integration run with findings in both stages and a process restart cannot exceed three automatic full loops.
+  Exhaustion pauses with all findings and unchecked repairs preserved. Further automatic work requires new user
+  authorization; pause and acceptance also work before the third loop.
 - **Repairs invalidate old proof** — validation, review, Code Review chat and publication conflict repairs all need
   fresh full validation and applicable semantic review for independent success. Old completion events cannot settle a
   new run.
@@ -560,20 +677,23 @@ process loss. Migration acceptance includes unfinished managed-worktree work and
 
 ## Edge Cases & Considerations
 
-- **Validation checkout choice remains open.** Disposable validation for both Plans and Epics is the recommended default
-  above. The alternative is in-place validation with change detection. Resolve this before final review.
-- **Cost and retention.** Complete validation after every repair costs time; disposable environments add setup and disk
-  use. Preserve bounded repair and cancellation. Retain reports and receipts needed for recovery, clean only owned
-  temporary resources, and do not treat report-generation failure as passing a missing gate.
+- **Three shared loops.** Validator, validation repair, AI review, and review repair share one counter. After three
+  automatic loops, unresolved findings or unchecked repairs require a user choice before more automatic work. Preserve
+  the counter across pause and restart. Do not restore separate per-stage retry budgets. The user can pause or accept
+  earlier. A bounded loop count controls runaway repetition but does not promise an exact token ceiling.
+- **Cost and retention.** Rechecking repaired code costs time and tokens. Preserve cancellation and the shared budget.
+  Retain reports and receipts needed for recovery, clean only owned temporary resources, and do not treat
+  report-generation failure as passing a missing gate.
 - **Direct edits and external processes.** File locks coordinate RunWield, not arbitrary editors or old binaries. Check
   expected content and preserve unexpected writes. Unsafe concurrent ownership pauses the affected operation without
   requiring every unfinished Plan in the project to finish first.
 - **Publication during migration.** This is a high-risk compatibility boundary, not a filename refactor. Never
   manufacture replacement evidence for a candidate already published or overwrite current primary/target content from an
   old branch. Use existing journals, registry phases and real Git effects to distinguish recovery cases.
-- **Human-only checks.** Optional QA stays advisory; required judgments remain visible. If the user accepts without
-  completing required proof, record `user_validated`, not a made-up passing check. User acceptance is not constrained by
-  the availability of a browser or a candidate checkout.
+- **Advisory manual QA.** All checks Validator cannot perform remain visible in `manual-qa.md` without blocking
+  completion. `validated` can coexist with this guide; never claim its unperformed checks passed. Known defects still
+  need confirmed repair or explicit user acceptance as `user_validated`. User acceptance is not constrained by the
+  availability of a browser or a candidate checkout.
 - **Stale reports and status display.** Historical validation remains evidence for its recorded inputs, not for whatever
   the branch contains today. Loaded views reconcile staleness with the controller; they do not erase reports or silently
   claim the new head passed. Status bookkeeping must not create an endless validate-and-change-the-same-commit loop.

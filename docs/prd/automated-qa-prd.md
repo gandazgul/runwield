@@ -1,6 +1,10 @@
-# Product Requirements Document: Post-Verification QA Policy
+# Product Requirements Document: Automated QA
 
 Date: 2026-08-30 (revised 2026-09-02)
+
+**Status: Deferred.** Keep this proposal for future review. Automated post-verification QA is not a prerequisite for
+Plan Packages and Independent Validation. The proposal below is not an active delivery commitment. The independent
+Validator scope in that Epic will be reviewed separately with Architect.
 
 ## Objective
 
