@@ -54,8 +54,8 @@ shifts, migration or compatibility risk grows, or the Verification Plan no longe
 - `path/to/another-file` — what changes here and why
 
 When the implementation makes proposed domain language true, include the applicable domain-language file:
-`docs/domain-language.md` for a single-context project, or the context-specific `domain-language.md` identified by
-`docs/domain-language-map.md` for a multi-context project.
+`docs/domain-language.md`, or the applicable glossary identified by `docs/domain-language-map.md` when glossaries are
+separate.
 
 ## Reuse Opportunities
 

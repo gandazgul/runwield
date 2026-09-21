@@ -1,4 +1,5 @@
 // @ts-nocheck: Workspace React islands compile TSX, but this module uses JSDoc-style JavaScript only.
+import { animateSidebarUpdate } from "../../design-system/components/react/sidebar-motion.ts";
 
 import { useEffect, useMemo, useState } from "react";
 import { ThemeProvider } from "@plannotator/ui/components/ThemeProvider.tsx";
@@ -12,6 +13,7 @@ import { useConfigValue } from "@plannotator/ui/config/index.ts";
 import { extractFrontmatter, parseMarkdownToBlocks } from "@plannotator/ui/utils/parser.ts";
 import { getUIPreferences, PLAN_WIDTH_OPTIONS } from "@plannotator/ui/utils/uiPreferences.ts";
 import { RunWieldPanelToggle, RunWieldThinkingDots } from "../../design-system/components/react/RunWieldPrimitives.jsx";
+import { sessionArtifactKindLabel } from "../../../shared/session/session-sidebar.ts";
 import { WorkspaceHeaderActionsPortal } from "./WorkspaceHeaderActionsPortal.tsx";
 import "./plannotator.css";
 
@@ -25,15 +27,6 @@ const DEFAULT_READ_PAYLOAD = {
     notices: [],
 };
 
-const ARTIFACT_LABELS = {
-    plan: "Plan",
-    prd: "PRD",
-    adr: "ADR",
-    "work-record": "Work Record",
-    "epic-artifact": "Epic Artifact",
-    report: "Report",
-};
-
 function workspaceNavigate(href) {
     const event = new CustomEvent("runwield:workspace-navigate", {
         cancelable: true,
@@ -42,16 +35,16 @@ function workspaceNavigate(href) {
     if (document.dispatchEvent(event)) globalThis.location.assign(href);
 }
 
-export function ArtifactReadSurface({ payload, presentation = "standalone" }) {
+export function ArtifactReadSurface(
+    { payload, workflowSidebar = null, showLogo = true, contentsInitiallyOpen = true, embedded = false },
+) {
     usePrintMode();
     const initialPayload = useMemo(() => payload || readEmbeddedPayload("review-payload") || DEFAULT_READ_PAYLOAD, [
         payload,
     ]);
     const markdown = initialPayload.markdown || initialPayload.plan || "";
-    const artifactKind = Object.hasOwn(ARTIFACT_LABELS, initialPayload.artifactKind)
-        ? initialPayload.artifactKind
-        : "report";
-    const artifactLabel = ARTIFACT_LABELS[artifactKind];
+    const artifactKind = initialPayload.artifactKind || "report";
+    const artifactLabel = sessionArtifactKindLabel(artifactKind);
     const title = initialPayload.title || `Untitled ${artifactLabel}`;
     const notices = Array.isArray(initialPayload.notices) ? initialPayload.notices.filter(Boolean) : [];
     const [activeSection, setActiveSection] = useState(null);
@@ -62,12 +55,16 @@ export function ArtifactReadSurface({ payload, presentation = "standalone" }) {
     const [error, setError] = useState("");
     const uiPreferences = useMemo(() => getUIPreferences(), []);
     const [sidebarOpen, setSidebarOpen] = useState(() =>
-        !globalThis.matchMedia("(max-width: 980px)").matches && uiPreferences.tocEnabled
+        contentsInitiallyOpen && !globalThis.matchMedia("(max-width: 980px)").matches && uiPreferences.tocEnabled
     );
+    const [workflowOpen, setWorkflowOpen] = useState(() => !globalThis.matchMedia("(max-width: 980px)").matches);
     useEffect(() => {
         const narrow = globalThis.matchMedia("(max-width: 980px)");
         const collapseOnPhone = () => {
-            if (narrow.matches) setSidebarOpen(false);
+            if (narrow.matches) {
+                setSidebarOpen(false);
+                setWorkflowOpen(false);
+            }
         };
         narrow.addEventListener("change", collapseOnPhone);
         return () => narrow.removeEventListener("change", collapseOnPhone);
@@ -87,7 +84,7 @@ export function ArtifactReadSurface({ payload, presentation = "standalone" }) {
 
     async function closeReadSurface() {
         if (closing || closed) return;
-        if (presentation === "workspace" && initialPayload.returnHref) {
+        if (initialPayload.returnHref) {
             workspaceNavigate(initialPayload.returnHref);
             return;
         }
@@ -130,8 +127,8 @@ export function ArtifactReadSurface({ payload, presentation = "standalone" }) {
             onClick={closeReadSurface}
             disabled={closing || closed}
         >
-            {presentation === "workspace"
-                ? "Back to Session"
+            {initialPayload.returnHref
+                ? initialPayload.returnLabel || "Back to Session"
                 : closing
                 ? <RunWieldThinkingDots label="Closing" />
                 : closed
@@ -149,17 +146,18 @@ export function ArtifactReadSurface({ payload, presentation = "standalone" }) {
         >
             <TooltipProvider>
                 <div
-                    className={`rw-plannotator-host rw-plan-review rw-artifact-read ${
-                        presentation === "workspace" ? "rw-review-embedded" : ""
+                    className={`rw-plannotator-host rw-plan-review rw-artifact-read${
+                        embedded ? " rw-artifact-embedded" : ""
                     }`}
                     data-artifact-kind={artifactKind}
+                    data-workflow-open={Boolean(workflowSidebar && workflowOpen)}
                 >
-                    {presentation === "workspace"
+                    {embedded
                         ? <WorkspaceHeaderActionsPortal>{closeAction}</WorkspaceHeaderActionsPortal>
                         : (
                             <header className="rw-plannotator-toolbar">
                                 <div className="rw-plan-review-heading rw-artifact-read-heading">
-                                    <img src="/brand/logo.svg" alt="" aria-hidden="true" />
+                                    {showLogo && <img src="/brand/logo.svg" alt="" aria-hidden="true" />}
                                     <div className="rw-artifact-read-title-block">
                                         <h1>{title}</h1>
                                         {initialPayload.artifactPath && (
@@ -167,22 +165,43 @@ export function ArtifactReadSurface({ payload, presentation = "standalone" }) {
                                         )}
                                     </div>
                                 </div>
-                                <div className="rw-plannotator-actions">{closeAction}</div>
+                                <div className="rw-plan-review-header-actions rw-plannotator-actions">
+                                    {closeAction}
+                                </div>
                             </header>
                         )}
-                    <div className="rw-artifact-document-toolbar">
-                        <RunWieldPanelToggle
-                            side="left"
-                            collapsed={!sidebarOpen}
-                            label="Contents"
-                            controls="artifact-contents"
-                            onClick={() => setSidebarOpen(!sidebarOpen)}
-                        />
-                        <span>Contents</span>
-                        {presentation === "workspace" && initialPayload.artifactPath && (
-                            <span className="rw-artifact-path" title={initialPayload.artifactPath}>
-                                {initialPayload.artifactPath}
-                            </span>
+                    <div className="rw-artifact-document-toolbar" data-sidebar-open={sidebarOpen}>
+                        <div className="rw-artifact-contents-heading">
+                            {sidebarOpen && <span>Contents</span>}
+                            <RunWieldPanelToggle
+                                side="left"
+                                collapsed={!sidebarOpen}
+                                label="Contents"
+                                controls="artifact-contents"
+                                onClick={() =>
+                                    animateSidebarUpdate(() => {
+                                        setSidebarOpen((open) => !open);
+                                        if (globalThis.matchMedia("(max-width: 980px)").matches) setWorkflowOpen(false);
+                                    })}
+                            />
+                        </div>
+                        {workflowSidebar && (
+                            <div className="rw-artifact-workflow-heading" data-open={workflowOpen}>
+                                {workflowOpen && <span>Workflow</span>}
+                                <RunWieldPanelToggle
+                                    side="right"
+                                    collapsed={!workflowOpen}
+                                    label="Workflow"
+                                    controls="artifact-workflow"
+                                    onClick={() =>
+                                        animateSidebarUpdate(() => {
+                                            setWorkflowOpen((open) => !open);
+                                            if (globalThis.matchMedia("(max-width: 980px)").matches) {
+                                                setSidebarOpen(false);
+                                            }
+                                        })}
+                                />
+                            </div>
                         )}
                     </div>
                     {error && <p className="rw-review-error" role="alert">{error}</p>}
@@ -206,13 +225,13 @@ export function ArtifactReadSurface({ payload, presentation = "standalone" }) {
                                     id="artifact-contents"
                                     className="rw-artifact-contents"
                                     onKeyDown={(event) => {
-                                        if (event.key === "Escape") setSidebarOpen(false);
+                                        if (event.key === "Escape") animateSidebarUpdate(() => setSidebarOpen(false));
                                     }}
                                 >
                                     <SidebarContainer
                                         activeTab="toc"
                                         onTabChange={() => {}}
-                                        onClose={() => setSidebarOpen(false)}
+                                        onClose={() => animateSidebarUpdate(() => setSidebarOpen(false))}
                                         width={280}
                                         blocks={parsed.blocks}
                                         annotations={[]}
@@ -220,7 +239,7 @@ export function ArtifactReadSurface({ payload, presentation = "standalone" }) {
                                         onTocNavigate={(section) => {
                                             setActiveSection(section);
                                             if (globalThis.matchMedia("(max-width: 980px)").matches) {
-                                                setSidebarOpen(false);
+                                                animateSidebarUpdate(() => setSidebarOpen(false));
                                             }
                                         }}
                                         showFilesTab={false}
@@ -268,6 +287,7 @@ export function ArtifactReadSurface({ payload, presentation = "standalone" }) {
                                                 inputMethod="drag"
                                                 taterMode={false}
                                                 stickyActions={false}
+                                                copyLabel="Copy Markdown"
                                                 gridEnabled={gridEnabled}
                                                 maxWidth={planMaxWidth}
                                                 imageBaseDir={initialPayload.imageBaseDir}
@@ -277,6 +297,19 @@ export function ArtifactReadSurface({ payload, presentation = "standalone" }) {
                                     </OverlayScrollArea>
                                 </div>
                             </main>
+                            {workflowSidebar && workflowOpen && (
+                                <div
+                                    id="artifact-workflow"
+                                    className="rw-artifact-workflow"
+                                    onKeyDown={(event) => {
+                                        if (event.key === "Escape") {
+                                            animateSidebarUpdate(() => setWorkflowOpen(false));
+                                        }
+                                    }}
+                                >
+                                    {workflowSidebar}
+                                </div>
+                            )}
                         </div>
                     </ScrollViewportContext.Provider>
                 </div>

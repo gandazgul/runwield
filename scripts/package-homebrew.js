@@ -209,12 +209,19 @@ function validateInputs(inputs, tag) {
  * @param {boolean} testOnly
  */
 function renderWldFormula(wld, testOnly) {
+    // Homebrew reads Candidate versions correctly, but mistakes Stable archive names for CPU versions.
+    // GitHub release URLs and Candidate names already identify the version; repeating it fails brew audit.
+    const releaseUrl = `https://github.com/${RUNWIELD_REPO}/releases/download/v${wld.version}/`;
+    const versionDeclaration = !wld.version.includes("-rc.") &&
+            !Object.values(wld.assets).every((asset) => asset.url.startsWith(releaseUrl))
+        ? `  version "${wld.version}"\n`
+        : "";
     return `require "json"
 
 class Wld < Formula
   desc "Plan-first AI coding harness"
   homepage "https://github.com/gandazgul/runwield"
-  license :cannot_represent
+${versionDeclaration}  license :cannot_represent
 
   if Hardware::CPU.arm?
     url "${wld.assets["darwin-arm64"].url}"
@@ -225,10 +232,10 @@ class Wld < Formula
   end
 
   depends_on "1broseidon/tap/cymbal"
-  depends_on "1broseidon/tap/ketch"
   depends_on "agent-browser"
   depends_on "gandazgul/tap/mnemoteca"
   depends_on "git"
+  depends_on "ketch"
   depends_on :macos
 
   def install
@@ -253,12 +260,18 @@ end
 ${testOnly ? "# test-only artifact; do not publish this formula\n" : ""}`;
 }
 
-/** @param {{ version: string, assets: Record<string, AssetInput>, license: string, homepage: string }} mnemoteca */
+/**
+ * @param {{ version: string, assets: Record<string, AssetInput>, license: string, homepage: string }} mnemoteca
+ */
 function renderMnemotecaFormula(mnemoteca) {
+    const releaseUrl = `https://github.com/${MNEMOTECA_REPO}/releases/download/v${mnemoteca.version}/`;
+    const versionDeclaration = Object.values(mnemoteca.assets).every((asset) => asset.url.startsWith(releaseUrl))
+        ? ""
+        : `  version "${mnemoteca.version}"\n`;
     return `class Mnemoteca < Formula
   desc "Local semantic memory CLI"
   homepage "${mnemoteca.homepage}"
-  license "${mnemoteca.license}"
+${versionDeclaration}  license "${mnemoteca.license}"
 
   if Hardware::CPU.arm?
     url "${mnemoteca.assets["darwin-arm64"].url}"
@@ -357,7 +370,9 @@ export async function packageHomebrew(options) {
     if (!options.testOnly && (options.wldBaseUrl || options.mnemotecaBaseUrl)) {
         throw new Error("Base URL overrides require --test-only.");
     }
-    const wldTag = options.wldTag ? assertStableTag(options.wldTag) : null;
+    const wldTag = options.wldTag
+        ? (options.testOnly ? parseReleaseTag(options.wldTag) : assertStableTag(options.wldTag))
+        : null;
     const mnemotecaTag = assertStableTag(options.mnemotecaTag);
     const inputs = /** @type {HomebrewInputs} */ (JSON.parse(await Deno.readTextFile(options.inputsPath)));
     validateInputs(inputs, mnemotecaTag.tag);

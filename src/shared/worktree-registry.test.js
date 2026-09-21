@@ -139,6 +139,26 @@ Deno.test("exact-path worktree registry locking serializes on the requested lock
     }
 });
 
+Deno.test("exact-path worktree registry locking does not steal a fresh incomplete lock", async () => {
+    const projectRoot = await Deno.makeTempDir();
+    try {
+        const lockPath = join(projectRoot, ".wld", "initializing-worktrees.lock");
+        await Deno.mkdir(dirname(lockPath), { recursive: true });
+        (await Deno.open(lockPath, { createNew: true, write: true })).close();
+        let entered = false;
+        const waiting = withWorktreeRegistryLockAtPath(lockPath, async () => {
+            entered = true;
+        });
+        await delay(120);
+        assertEquals(entered, false);
+        await Deno.remove(lockPath);
+        await waiting;
+        assertEquals(entered, true);
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true });
+    }
+});
+
 Deno.test("worktree registry list reads do not overwrite malformed top-level registries", async () => {
     const projectRoot = await Deno.makeTempDir();
     try {

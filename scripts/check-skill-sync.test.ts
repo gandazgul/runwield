@@ -181,12 +181,11 @@ Deno.test("installing from this repository offers exactly the skills the baselin
     );
 });
 
-Deno.test("the skills vendored for our own use stay out of an install", async () => {
+Deno.test("ignored local skill containers stay out of an install", async () => {
     const discovered = await discoverSkillsInContainers(REPO_ROOT);
-    const vendored = discovered.filter((skill) => skill.path.startsWith(".agents/skills/"));
+    const localSkills = discovered.filter((skill) => skill.path.startsWith(".agents/skills/"));
 
-    assertEquals(vendored.length > 0, true);
-    assertEquals(vendored.every((skill) => skill.internal), true);
+    assertEquals(localSkills, []);
 });
 
 Deno.test("every file the committed skills ship carries none of it", async () => {

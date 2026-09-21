@@ -1,6 +1,6 @@
 import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
-import { packageHomebrew } from "./package-homebrew.js";
+import { packageHomebrew, parsePackageHomebrewArgs } from "./package-homebrew.js";
 
 /** @param {Uint8Array} bytes */
 async function sha256Text(bytes) {
@@ -105,13 +105,19 @@ Deno.test("package:homebrew renders formulas from verified immutable assets", as
         const wld = await Deno.readTextFile(join(output, "Formula", "wld.rb"));
         const mnemoteca = await Deno.readTextFile(join(output, "Formula", "mnemoteca.rb"));
         assertStringIncludes(wld, "class Wld < Formula");
+        assertStringIncludes(wld, '  version "1.2.3"\n');
         assertStringIncludes(wld, 'depends_on "gandazgul/tap/mnemoteca"');
+        assertStringIncludes(wld, 'depends_on "ketch"');
+        assertEquals(wld.includes("1broseidon/tap/ketch"), false);
+        const dependencies = Array.from(wld.matchAll(/depends_on "([^"]+)"/g), (match) => match[1]);
+        assertEquals(dependencies, [...dependencies].sort(), "Formula dependencies must be alphabetized");
         assertStringIncludes(wld, "runwield-install.json");
         assertStringIncludes(wld, "brew upgrade gandazgul/tap/wld");
         assertStringIncludes(wld, "license :cannot_represent");
         assertStringIncludes(wld, "depends_on :macos");
         assertStringIncludes(wld, "# test-only artifact; do not publish this formula");
         assertStringIncludes(mnemoteca, "class Mnemoteca < Formula");
+        assertStringIncludes(mnemoteca, '  version "0.3.1"\n');
         assertStringIncludes(mnemoteca, "depends_on :macos");
         assertStringIncludes(mnemoteca, "mnemoteca_0.3.1_darwin_arm64.tar.gz");
         const manifest = JSON.parse(await Deno.readTextFile(join(output, "runwield-homebrew-package.json")));
@@ -122,25 +128,54 @@ Deno.test("package:homebrew renders formulas from verified immutable assets", as
     }
 });
 
-Deno.test("package:homebrew rejects RC tags before emitting output", async () => {
+Deno.test("package:homebrew rejects publishable RC tags before emitting output", async () => {
     const fixture = await makeReleaseFixture();
     try {
-        const output = join(fixture.root, "tap");
         await assertRejects(
             () =>
                 packageHomebrew({
                     wldTag: "v1.2.3-rc.1",
                     mnemotecaTag: "v0.3.1",
-                    output,
+                    output: join(fixture.root, "tap"),
                     inputsPath: fixture.inputsPath,
-                    wldBaseUrl: fixture.baseUrl,
-                    mnemotecaBaseUrl: fixture.baseUrl,
-                    testOnly: true,
+                    testOnly: false,
                 }),
             Error,
             "Stable tag",
         );
-        await assertRejects(() => Deno.stat(output), Deno.errors.NotFound);
+    } finally {
+        await fixture.close();
+    }
+});
+
+Deno.test("package:homebrew validates Candidate bytes only as test output", async () => {
+    const fixture = await makeReleaseFixture();
+    try {
+        for (const arch of ["darwin-arm64", "darwin-x64"]) {
+            const oldName = `wld-v1.2.3-${arch}.tar.gz`;
+            const name = `wld-v1.2.3-rc.1-${arch}.tar.gz`;
+            await Deno.copyFile(join(fixture.root, oldName), join(fixture.root, name));
+            await Deno.writeTextFile(
+                join(fixture.root, `${name}.sha256`),
+                (await Deno.readTextFile(join(fixture.root, `${oldName}.sha256`))).replace(oldName, name),
+            );
+        }
+        const output = join(fixture.root, "tap");
+        await packageHomebrew({
+            wldTag: "v1.2.3-rc.1",
+            mnemotecaTag: "v0.3.1",
+            output,
+            inputsPath: fixture.inputsPath,
+            testOnly: true,
+            wldBaseUrl: fixture.baseUrl,
+            mnemotecaBaseUrl: fixture.baseUrl,
+        });
+        const manifest = JSON.parse(await Deno.readTextFile(join(output, "runwield-homebrew-package.json")));
+        assertEquals(manifest.wldTag, "v1.2.3-rc.1");
+        const wld = await Deno.readTextFile(join(output, "Formula", "wld.rb"));
+        assertStringIncludes(wld, "wld-v1.2.3-rc.1-darwin-arm64.tar.gz");
+        assertEquals(/^ {2}version /m.test(wld), false, "Candidate URL already gives Homebrew the exact version");
+        assertEquals(manifest.testOnly, true);
     } finally {
         await fixture.close();
     }
@@ -292,11 +327,66 @@ Deno.test("package:homebrew refreshes only Mnemoteca when wld tag is omitted", a
         assertEquals(await Deno.readTextFile(join(output, "Formula", "wld.rb")), "preserved wld formula\n");
         const mnemoteca = await Deno.readTextFile(join(output, "Formula", "mnemoteca.rb"));
         assertStringIncludes(mnemoteca, "class Mnemoteca < Formula");
+        assertStringIncludes(mnemoteca, '  version "0.3.1"\n');
         const manifest = JSON.parse(await Deno.readTextFile(join(output, "runwield-homebrew-package.json")));
         assertEquals(manifest.testOnly, true);
         assertEquals(manifest.wldTag, "v1.2.3");
         assertEquals(manifest.formulas, ["Formula/wld.rb", "Formula/mnemoteca.rb"]);
     } finally {
+        await fixture.close();
+    }
+});
+
+Deno.test("package:homebrew release workflow mixed URLs and publication versions", async () => {
+    const fixture = await makeReleaseFixture();
+    const realFetch = globalThis.fetch;
+    // Keep release URLs in generated formulas; serve verified fixture bytes at the network boundary.
+    globalThis.fetch = (input, init) => {
+        const url = String(input);
+        const name = url.slice(url.lastIndexOf("/") + 1).replace("0.3.3", "0.3.1").replace("-rc.1", "");
+        if (url.endsWith(".sha256")) {
+            return realFetch(`${fixture.baseUrl}/${name}`, init).then(async (response) =>
+                new Response(
+                    (await response.text()).replace("v1.2.3-", url.includes("-rc.1") ? "v1.2.3-rc.1-" : "v1.2.3-"),
+                )
+            );
+        }
+        return realFetch(`${fixture.baseUrl}/${name}`, init);
+    };
+    try {
+        await Deno.writeTextFile(
+            fixture.inputsPath,
+            (await Deno.readTextFile(fixture.inputsPath)).replaceAll("0.3.1", "0.3.3"),
+        );
+        for (const tag of ["v1.2.3", "v1.2.3-rc.1"]) {
+            for (const mode of ["mixed", "remote-test", "publication"]) {
+                const output = join(fixture.root, `${tag}-${mode}`);
+                // Same arguments as release.yml: only RunWield has a local URL override.
+                const args = ["--wld-tag", tag, "--mnemoteca-tag", "v0.3.3", "--output", output];
+                if (mode !== "publication") args.push("--test-only");
+                if (mode === "mixed") args.push("--wld-base-url", "http://127.0.0.1:8765");
+                const options = parsePackageHomebrewArgs(args);
+                options.inputsPath = fixture.inputsPath;
+                if (mode === "publication" && tag.includes("-rc.")) {
+                    await assertRejects(() => packageHomebrew(options), Error, "Stable tag");
+                    continue;
+                }
+                await packageHomebrew(options);
+                const wld = await Deno.readTextFile(join(output, "Formula", "wld.rb"));
+                const mnemoteca = await Deno.readTextFile(join(output, "Formula", "mnemoteca.rb"));
+                assertEquals(wld.includes('  version "'), mode === "mixed" && tag === "v1.2.3");
+                assertEquals(mnemoteca.includes('  version "'), false);
+                assertStringIncludes(mnemoteca, "https://github.com/gandazgul/mnemoteca/releases/download/v0.3.3/");
+                assertStringIncludes(
+                    wld,
+                    mode === "mixed"
+                        ? "http://127.0.0.1:8765/"
+                        : `https://github.com/gandazgul/runwield/releases/download/${tag}/`,
+                );
+            }
+        }
+    } finally {
+        globalThis.fetch = realFetch;
         await fixture.close();
     }
 });

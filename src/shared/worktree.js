@@ -1673,11 +1673,16 @@ export async function deleteRemotelyPublishedWorktreeBranch({
             remote,
             `+refs/heads/${upstreamBranch}:${proofRef}`,
         ]);
-        const remoteTip = (await runGit(projectRoot, ["rev-parse", proofRef])).trim();
-        if (remoteTip !== publicationCommit) {
+        const publicationContained = await runGitResult(projectRoot, [
+            "merge-base",
+            "--is-ancestor",
+            publicationCommit,
+            proofRef,
+        ]);
+        if (publicationContained.code !== 0) {
             return {
                 deleted: false,
-                reason: `The upstream target changed before branch cleanup, so ${branch} was kept.`,
+                reason: `Could not confirm the published commits on ${upstreamBranch}, so ${branch} was kept.`,
             };
         }
         let contains = await runGitResult(projectRoot, ["merge-base", "--is-ancestor", branch, proofRef]);

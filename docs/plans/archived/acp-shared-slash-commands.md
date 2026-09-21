@@ -25,10 +25,15 @@ createdAt: "2026-09-11"
 status: "validated"
 origin: "internal"
 userVerifiedAt: null
+workRecord:
+    status: "generated"
+    recordId: "ffc792b8-5c03-4c7f-80d7-4b8bc215c410"
+    path: "docs/work-records/2026-09-20-unified-acp-slash-commands-and-interactions.md"
+    lastAttemptAt: "2026-09-20T03:13:52.745Z"
+targetBranch: "main"
 archivedAt: "2026-09-15T18:29:11.941Z"
 archivedFromStatus: "validated"
 archivedFromPath: "docs/plans/acp-shared-slash-commands.md"
-targetBranch: "main"
 ---
 
 # Shared Slash Commands for ACP

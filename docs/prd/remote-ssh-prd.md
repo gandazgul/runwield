@@ -227,17 +227,19 @@ best-effort stop request alone does not meet connected-only operation.
 
 The smallest useful release is a complete connected remote development journey, not just a remote prompt. The
 [feasibility report](../research/remote-ssh-feasibility.md) found a plausible path for Pi API/OAuth providers, including
-Codex through Pi and local/custom API endpoints. It did not prove remote operation.
+Codex through Pi and local/custom API endpoints. A 2026-09-20 throwaway proof then demonstrated the narrow Pi model path
+with local authentication, remote tools, streaming, cancellation, tunnel loss, and a fresh connection. It did not prove
+a complete remote RunWield Session or production controls.
 
-Claude CLI and Antigravity CLI remain part of the compatibility target, but their existing native tools and local
-sign-in are coupled to one machine. Do not claim support without proof. Excluding them from an initial release requires
-an explicit scope decision; copying credentials or silently selecting another provider is not an acceptable workaround.
+The owner has deferred Claude CLI and Antigravity CLI from the first release. Their existing native tools and local
+sign-in remain coupled to one machine, so do not advertise them without a later proof. Copying credentials or silently
+selecting another provider is not an acceptable workaround. Pi-backed providers are the initial compatibility scope.
 
 Host platform coverage and machine-specific integration support also need verification. Ordinary application build
 prerequisites remain the user's project environment, not automatic RunWield installation scope.
 
-Handoff: `/agent planner` uses this proposal and the research report. Architecture decisions and implementation work
-remain separate. No Plan or Epic has been created. After delivery, fold lasting requirements into
+Handoff: `/agent architect` uses this proposal, the research report, and the early Epic draft to settle the production
+boundaries. The Epic is not approved or ready for decomposition. After delivery, fold lasting requirements into
 [RunWield Core](runwield-core-prd.md), retain unresolved scope explicitly, fix references, and remove this transient
 proposal under project policy.
 
@@ -272,7 +274,8 @@ reference, not proof of identical storage or shutdown behavior.
 The [research report](../research/remote-ssh-feasibility.md) records source findings, official documentation, and
 evidence limits. Before committing delivery scope, planning must resolve:
 
-- CLI-provider compatibility without remote credentials or a local checkout.
+- Future Claude CLI and Antigravity CLI compatibility without remote credentials or a local checkout; this does not
+  block the Pi-backed first release.
 - Supported host builds and demonstrated connection-loss cleanup.
 - Correct project Memory selection across all entry points, including Core injection and `/sleep`.
 

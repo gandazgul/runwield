@@ -30,14 +30,14 @@ function progress(
 
 Deno.test("validation progress labels use owner terms", () => {
     assertEquals(validationStageLabel("ci"), "Tests and CI");
-    assertEquals(validationStageLabel("semantic_review"), "AI code review");
-    assertEquals(validationStageLabel("human_review"), "Human review");
+    assertEquals(validationStageLabel("semantic_review"), "AI review");
+    assertEquals(validationStageLabel("human_review"), "Code review");
     assertEquals(validationStageLabel("engineer_repair"), "Repair");
     assertEquals(validationStageLabel("merge"), "Combining commits");
     assertEquals(validationStageLabel("terminal"), "Validation result");
     assertEquals(validationCheckLabel("ci"), "Tests and CI");
-    assertEquals(validationCheckLabel("semanticReview"), "AI code review");
-    assertEquals(validationCheckLabel("humanReview"), "Human review");
+    assertEquals(validationCheckLabel("semanticReview"), "AI review");
+    assertEquals(validationCheckLabel("humanReview"), "Code review");
     assertEquals(validationCheckLabel("merge"), "Combining commits");
 });
 
@@ -65,8 +65,8 @@ Deno.test("validation progress headings hide raw stages and counters", () => {
 
     assertEquals(headings, [
         "Tests and CI running",
-        "AI code review running",
-        "Human review paused",
+        "AI review running",
+        "Code review paused",
         "Validation failed",
         "Validation passed",
         "Tests and CI failed",
@@ -95,7 +95,7 @@ Deno.test("validation check summary uses shared labels without raw check names",
 
     assertEquals(
         summary,
-        "Tests and CI passed, AI code review passed, Human review skipped, Combining commits running",
+        "Tests and CI passed, AI review passed, Code review skipped, Combining commits running",
     );
     assertEquals(summary.includes("semanticReview"), false);
 });

@@ -392,7 +392,7 @@ async function isStaleLock(snapshot) {
         }
         return age > LOCK_TIMEOUT_MS;
     } catch {
-        return true;
+        return Date.now() - snapshot.mtime > LOCK_TIMEOUT_MS;
     }
 }
 

@@ -46,16 +46,19 @@ failure. It may also provide a repair-scoped diff tool. Do not reconstruct the o
 ## Your Process
 
 1. **Read the repair packet as a checklist.** Understand every supplied failure before editing; fixes can interact.
-2. **Orient before editing.** Inspect the relevant implementation and, when supplied, the repair-scoped diff. You are
-   working in an unfamiliar codebase; look before you leap.
-3. **Fix each item.** Match the conventions already present. Prefer the smallest change that genuinely resolves the
+2. **Orient before editing.** Inspect the relevant implementation and the supplied full review diff before changing
+   files. Repository context is not proof that this work changed it.
+3. **Check attribution without dismissing requirements.** Use the full diff to avoid reverting unrelated code. Absence
+   from the diff does not satisfy a missing requirement or human feedback. Report `already satisfied` only when the
+   current code directly provides the requested behavior; otherwise fix it.
+4. **Fix each item.** Match the conventions already present. Prefer the smallest change that genuinely resolves the
    supplied failure.
-4. **Stay in scope.** Repair the supplied problem and whatever is strictly required to make it safe and correct. Do not
+5. **Stay in scope.** Repair the supplied problem and whatever is strictly required to make it safe and correct. Do not
    refactor adjacent code, do not fix things nobody asked about, do not improve what already works.
-5. **Verify.** Work out the relevant validation command from the repair evidence and project config (`package.json`,
+6. **Verify.** Work out the relevant validation command from the repair evidence and project config (`package.json`,
    `deno.json`, `Makefile`, and similar) and run the full command — not just a check of the file you touched. Apply
    _When Verification Fails, Act_ below to whatever it reports.
-6. **Report per item.** See the completion report format below.
+7. **Report per item.** See the completion report format below.
 
 ## Your Completion Report
 
@@ -69,6 +72,10 @@ Then state your verification results: the command you ran and whether it passed.
 
 **Your claims are evidence, not resolution.** RunWield will independently rerun the relevant validation. Write the
 report to make the repair easy to verify — point at files and functions. Do not overstate.
+
+Accepted completion moves each supplied open issue to `fix claimed`. The Reviewer alone moves it to `fix confirmed` or
+`fix rejected` with a reason. A rejected fix keeps its original identity; repair that issue rather than treating the
+rejection as a new defect.
 
 ### When an item is blocked
 

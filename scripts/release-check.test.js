@@ -33,9 +33,13 @@ async function collectMarkdownFiles(rootDir, relativeDir = "") {
     return files.sort();
 }
 
-Deno.test("parseReleaseCheckOptions accepts explicit build identity", () => {
-    assertEquals(parseReleaseCheckOptions(["--build-version", "v1.2.3-rc.1"]), { buildVersion: "v1.2.3-rc.1" });
-    assertEquals(parseReleaseCheckOptions([]), { buildVersion: undefined });
+Deno.test("parseReleaseCheckOptions accepts build identity and binary-only CI mode", () => {
+    assertEquals(parseReleaseCheckOptions(["--build-version", "v1.2.3-rc.1"]), {
+        buildVersion: "v1.2.3-rc.1",
+        includeGolden: true,
+    });
+    assertEquals(parseReleaseCheckOptions(["--binary-only"]), { buildVersion: undefined, includeGolden: false });
+    assertEquals(parseReleaseCheckOptions([]), { buildVersion: undefined, includeGolden: true });
 });
 
 Deno.test("assertBinaryVersionOutput requires the requested release identity", () => {
@@ -91,6 +95,13 @@ Deno.test("runReleaseCheck propagates build identity to compile and preserves st
                     stages.push("workspace-review-routes");
                     return { success: true, code: 0, stdout: "", stderr: "" };
                 }
+                if (args[0] === "package-smoke") {
+                    assertEquals(args, ["package-smoke", "image-resize"]);
+                    assertEquals(options.cwd, "release-temp");
+                    assertEquals(options.env?.WLD_INTERNAL_PACKAGE_CHECK, "1");
+                    stages.push("image-resize");
+                    return { success: true, code: 0, stdout: "", stderr: "" };
+                }
                 stages.push("version");
                 return {
                     success: true,
@@ -117,6 +128,7 @@ Deno.test("runReleaseCheck propagates build identity to compile and preserves st
             "compile",
             "workspace-review-routes",
             "version",
+            "image-resize",
             "references",
             "plans-ui",
             "review",
@@ -127,6 +139,31 @@ Deno.test("runReleaseCheck propagates build identity to compile and preserves st
             await Deno.readTextFile(join(root, "src", "shared", "version.js")),
             'export const VERSION = "original";\n',
         );
+    });
+});
+
+Deno.test("runReleaseCheck can leave Golden qualification to a parallel CI job", async () => {
+    await withTemporaryVersionProject(async (root) => {
+        /** @type {string[]} */
+        const commands = [];
+        await runReleaseCheck({ rootDir: root, includeGolden: false }, {
+            makeTempDir: () => Promise.resolve("release-temp"),
+            remove: () => Promise.resolve(),
+            run(command, args) {
+                commands.push(`${command} ${args.join(" ")}`);
+                return Promise.resolve({
+                    success: true,
+                    code: 0,
+                    stdout: command === "deno" ? "" : "runwield test-version (test-target)\n",
+                    stderr: "",
+                });
+            },
+            smokeTestBundledAgentReferenceExtraction: () => Promise.resolve(),
+            smokeTestBinaryPlansUiSurface: () => Promise.resolve(),
+            smokeTestBinaryReviewSurface: () => Promise.resolve(),
+        });
+
+        assertEquals(commands.some((command) => command.includes("test:golden-tui")), false);
     });
 });
 
@@ -172,6 +209,39 @@ Deno.test("runReleaseCheck short-circuits after compile failure and restores gen
             await Deno.readTextFile(join(root, "src", "shared", "version.js")),
             'export const VERSION = "original";\n',
         );
+    });
+});
+
+Deno.test("release check rejects worker errors even when image fallback exits successfully", async () => {
+    await withTemporaryVersionProject(async (root) => {
+        let laterChecks = 0;
+        const laterCheck = () => {
+            laterChecks++;
+            return Promise.resolve();
+        };
+        await assertRejects(
+            () =>
+                runReleaseCheck({ rootDir: root }, {
+                    makeTempDir: () => Promise.resolve("release-temp"),
+                    remove: () => Promise.resolve(),
+                    run(_command, args) {
+                        return Promise.resolve({
+                            success: true,
+                            code: 0,
+                            stdout: "",
+                            stderr: args[0] === "package-smoke"
+                                ? "error: Uncaught (in worker) Module not found: image-resize-worker.js"
+                                : "",
+                        });
+                    },
+                    smokeTestBundledAgentReferenceExtraction: laterCheck,
+                    smokeTestBinaryPlansUiSurface: laterCheck,
+                    smokeTestBinaryReviewSurface: laterCheck,
+                }),
+            Error,
+            "Packaged image resize wrote unexpected terminal output",
+        );
+        assertEquals(laterChecks, 0);
     });
 });
 

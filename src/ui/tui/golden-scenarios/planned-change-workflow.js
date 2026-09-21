@@ -175,20 +175,48 @@ export const plannedChangeReviewRepairValidationScenario = {
             }],
         },
         {
-            id: "semantic-reviewer-rejects-implementation",
+            id: "semantic-reviewer-rejects-implementation-inspects-diff",
             agent: "reviewer",
             phase: "semantic_review",
             ordinal: 1,
             // Workflow Validation rejects a verdict reached without opening the
             // diff, so the scripted Reviewer must read it exactly as a real one
             // does before calling review_complete.
-            requiredTools: ["review_diff", "review_complete"],
-            thinking: "Inspect the diff, then reject the first implementation during semantic review.",
+            requiredTools: ["review_diff"],
+            thinking: "Inspect every changed file before deciding.",
             toolCalls: [
-                { name: "review_diff", arguments: { command: "list" } },
+                { name: "review_diff", arguments: { command: "list", scope: "full" } },
+                { name: "review_diff", arguments: { command: "show", scope: "full", path: ".gitignore" } },
+                {
+                    name: "review_diff",
+                    arguments: { command: "show", scope: "full", path: "golden-planned-change.txt" },
+                },
+                { name: "review_diff", arguments: { command: "show", scope: "full", path: ".wld/settings.json" } },
+                { name: "review_diff", arguments: { command: "show", scope: "full", path: "docs/plans/plan.md" } },
+            ],
+        },
+        {
+            id: "semantic-reviewer-rejects-implementation",
+            agent: "reviewer",
+            phase: "semantic_review",
+            ordinal: 2,
+            // Workflow Validation rejects a verdict reached without opening the
+            // diff, so the scripted Reviewer must read it exactly as a real one
+            // does before calling review_complete.
+            requiredTools: ["review_complete"],
+            toolCalls: [
                 {
                     name: "review_complete",
-                    arguments: { approved: false, feedback: "Repair required: add durable evidence." },
+                    arguments: {
+                        approved: false,
+                        feedback: "Repair required: add durable evidence.",
+                        findings: [{
+                            status: "new",
+                            title: "Missing durable evidence",
+                            requirement: "Plan",
+                            evidence: "golden-planned-change.txt",
+                        }],
+                    },
                 },
             ],
         },
@@ -217,15 +245,38 @@ export const plannedChangeReviewRepairValidationScenario = {
             }],
         },
         {
+            id: "semantic-reviewer-approves-repair-inspects-diff",
+            agent: "reviewer",
+            phase: "semantic_review",
+            ordinal: 3,
+            requiredTools: ["review_diff"],
+            thinking: "Inspect every changed file before deciding.",
+            toolCalls: [
+                { name: "review_diff", arguments: { command: "list", scope: "full" } },
+                { name: "review_diff", arguments: { command: "show", scope: "full", path: ".gitignore" } },
+                {
+                    name: "review_diff",
+                    arguments: { command: "show", scope: "full", path: "golden-planned-change.txt" },
+                },
+                { name: "review_diff", arguments: { command: "show", scope: "full", path: ".wld/settings.json" } },
+                { name: "review_diff", arguments: { command: "show", scope: "full", path: "docs/plans/plan.md" } },
+            ],
+        },
+        {
             id: "semantic-reviewer-approves-repair",
             agent: "reviewer",
             phase: "semantic_review",
-            ordinal: 2,
-            requiredTools: ["review_diff", "review_complete"],
-            thinking: "Inspect the repair diff, then approve the repaired implementation.",
+            ordinal: 4,
+            requiredTools: ["review_complete"],
             toolCalls: [
-                { name: "review_diff", arguments: { command: "list" } },
-                { name: "review_complete", arguments: { approved: true, feedback: "Approved after repair." } },
+                {
+                    name: "review_complete",
+                    arguments: {
+                        approved: true,
+                        feedback: "Approved after repair.",
+                        findings: [{ id: "R1-1", resolved: true, title: "Missing durable evidence" }],
+                    },
+                },
             ],
         },
     ],
@@ -316,11 +367,12 @@ export const plannedChangeReviewRepairValidationScenario = {
             assert(result.state.editorUsable === true, "Expected input to remain ready after the follow-up.");
         }),
         // The inline verdict block, asserted where it renders. `Reviewer:` is its own
-        // header — the pinned panel titles the same report "Reviewer latest AI code review" —
+        // header — the pinned panel titles the same report "Reviewer latest AI review" —
         // and the verdict line is the body it exists to show.
         assertsGoldenCoverage("block:review-result", (result) => {
-            assertScreenIncludes(result, "Reviewer:");
-            assertScreenIncludes(result, "Semantic review rejected — issues found:");
+            const transcript = `${result.scrollbackText || ""}\n${result.screenText || ""}`;
+            assertStringIncludes(transcript, "reviewer:");
+            assertStringIncludes(transcript, "Semantic review rejected — 1 issue open:");
         }),
         // The pinned panel, asserted on the screen it is supposed to be pinned to.
         // This capability used to be claimed by a runtime-event assertion, which is
@@ -330,8 +382,9 @@ export const plannedChangeReviewRepairValidationScenario = {
             // Both strings exist only inside the panel's own rendering. An earlier
             // attempt asserted "Workflow Validation", which the Engineer's handoff
             // line also contains — it passed with the panel fully disabled.
-            assertScreenIncludes(result, "Validation passed");
-            assertScreenIncludes(result, "Reviewer latest AI code review");
+            const transcript = `${result.scrollbackText || ""}\n${result.screenText || ""}`;
+            assertStringIncludes(transcript, "Validation passed");
+            assertStringIncludes(transcript, "reviewer latest AI review");
         }),
     ],
 };
@@ -411,14 +464,32 @@ export const plannedChangeCiRepairReentryScenario = {
         {
             // Reached only if the loop re-entered Mechanical Validation, re-ran CI, and
             // passed. If it lost its place this turn is never requested.
-            id: "semantic-reviewer-approves-after-ci-repair",
+            id: "semantic-reviewer-approves-after-ci-repair-inspects-diff",
             agent: "reviewer",
             phase: "semantic_review",
             ordinal: 1,
-            requiredTools: ["review_diff", "review_complete"],
-            thinking: "Inspect the diff after the build was fixed, then approve.",
+            requiredTools: ["review_diff"],
+            thinking: "Inspect every changed file before deciding.",
             toolCalls: [
-                { name: "review_diff", arguments: { command: "list" } },
+                { name: "review_diff", arguments: { command: "list", scope: "full" } },
+                { name: "review_diff", arguments: { command: "show", scope: "full", path: ".gitignore" } },
+                {
+                    name: "review_diff",
+                    arguments: { command: "show", scope: "full", path: "golden-planned-change.txt" },
+                },
+                { name: "review_diff", arguments: { command: "show", scope: "full", path: "ci-fix.txt" } },
+                { name: "review_diff", arguments: { command: "show", scope: "full", path: "docs/plans/plan.md" } },
+            ],
+        },
+        {
+            // Reached only if the loop re-entered Mechanical Validation, re-ran CI, and
+            // passed. If it lost its place this turn is never requested.
+            id: "semantic-reviewer-approves-after-ci-repair",
+            agent: "reviewer",
+            phase: "semantic_review",
+            ordinal: 2,
+            requiredTools: ["review_complete"],
+            toolCalls: [
                 { name: "review_complete", arguments: { approved: true, feedback: "Approved after the build fix." } },
             ],
         },
@@ -645,14 +716,33 @@ export const plannedChangeValidationFailureRetryScenario = {
             }],
         },
         {
-            id: "reviewer-approves-validation-retry",
+            id: "reviewer-approves-validation-retry-inspects-diff",
             agent: "reviewer",
             phase: "semantic_review",
             planName: "validation-retry",
             ordinal: 1,
-            requiredTools: ["review_diff", "review_complete"],
+            requiredTools: ["review_diff"],
             toolCalls: [
-                { name: "review_diff", arguments: { command: "list" } },
+                { name: "review_diff", arguments: { command: "list", scope: "full" } },
+                { name: "review_diff", arguments: { command: "show", scope: "full", path: ".gitignore" } },
+                {
+                    name: "review_diff",
+                    arguments: { command: "show", scope: "full", path: "golden-validation-retry.txt" },
+                },
+                {
+                    name: "review_diff",
+                    arguments: { command: "show", scope: "full", path: "docs/plans/validation-retry.md" },
+                },
+            ],
+        },
+        {
+            id: "reviewer-approves-validation-retry",
+            agent: "reviewer",
+            phase: "semantic_review",
+            planName: "validation-retry",
+            ordinal: 2,
+            requiredTools: ["review_complete"],
+            toolCalls: [
                 { name: "review_complete", arguments: { approved: true, feedback: "Retry repair approved." } },
             ],
         },
@@ -901,14 +991,33 @@ export const plannedChangeFrontendIdentityScenario = {
             }],
         },
         {
-            id: "reviewer-approves-frontend-identity",
+            id: "reviewer-approves-frontend-identity-inspects-diff",
             agent: "reviewer",
             phase: "semantic_review",
             planName: "frontend-identity",
             ordinal: 1,
-            requiredTools: ["review_diff", "review_complete"],
+            requiredTools: ["review_diff"],
             toolCalls: [
-                { name: "review_diff", arguments: { command: "list" } },
+                { name: "review_diff", arguments: { command: "list", scope: "full" } },
+                { name: "review_diff", arguments: { command: "show", scope: "full", path: ".gitignore" } },
+                {
+                    name: "review_diff",
+                    arguments: { command: "show", scope: "full", path: "golden-frontend-identity.txt" },
+                },
+                {
+                    name: "review_diff",
+                    arguments: { command: "show", scope: "full", path: "docs/plans/frontend-identity.md" },
+                },
+            ],
+        },
+        {
+            id: "reviewer-approves-frontend-identity",
+            agent: "reviewer",
+            phase: "semantic_review",
+            planName: "frontend-identity",
+            ordinal: 2,
+            requiredTools: ["review_complete"],
+            toolCalls: [
                 { name: "review_complete", arguments: { approved: true, feedback: "Frontend identity approved." } },
             ],
         },

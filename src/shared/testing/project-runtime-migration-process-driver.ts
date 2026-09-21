@@ -48,6 +48,8 @@ if (command === "migrate") {
         console.log(JSON.stringify({ ready: true, lockPath }));
         await new Promise(() => {});
     });
+} else if (command === "hold-initializing-migration-locks") {
+    await holdInitializingMigrationLocks(checkoutRoot, extra);
 } else if (command === "hold-plan-lock") {
     await holdLegacyPlanLock(checkoutRoot, extra || "demo");
 } else if (command === "hold-work-record-lock") {
@@ -57,6 +59,33 @@ if (command === "migrate") {
 } else {
     console.error(`Unknown project runtime migration process driver command: ${command}`);
     Deno.exit(2);
+}
+
+async function holdInitializingMigrationLocks(checkoutRoot: string, signalPath: string): Promise<void> {
+    const layout = resolveProjectRuntimeLayout(checkoutRoot);
+    const registryLockPath = join(getRunWieldRuntimeDir(layout.primary.checkoutRoot), "worktrees.lock");
+    await Deno.mkdir(dirname(layout.primary.layoutMigrationLockPath), { recursive: true });
+    await Deno.mkdir(dirname(registryLockPath), { recursive: true });
+    (await Deno.open(layout.primary.layoutMigrationLockPath, { createNew: true, write: true })).close();
+    (await Deno.open(registryLockPath, { createNew: true, write: true })).close();
+    console.log(JSON.stringify({ ready: true, lockPath: registryLockPath }));
+    while (!(await Deno.lstat(signalPath).catch(() => null))) {
+        await new Promise((resolveTimer) => setTimeout(resolveTimer, 5));
+    }
+    await new Promise((resolveTimer) => setTimeout(resolveTimer, 50));
+    const now = Date.now();
+    const owner = JSON.stringify({
+        token: crypto.randomUUID(),
+        pid: Deno.pid,
+        hostname: getLockHostname(),
+        createdAtMs: now,
+        updatedAtMs: now,
+    });
+    await Deno.writeTextFile(layout.primary.layoutMigrationLockPath, owner);
+    await Deno.writeTextFile(registryLockPath, owner);
+    await new Promise((resolveTimer) => setTimeout(resolveTimer, 50));
+    await Deno.remove(registryLockPath);
+    await Deno.remove(layout.primary.layoutMigrationLockPath);
 }
 
 async function holdLegacyPlanLock(checkoutRoot: string, planName: string): Promise<never> {

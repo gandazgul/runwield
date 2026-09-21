@@ -116,6 +116,7 @@ function buildStalePlanStatusMessage(planName, currentStatus, canonicalStatus) {
  * @property {PlanStatus} [manualTargetStatus]
  * @property {string} [holdReason]
  * @property {string} [closedWithoutVerificationReason]
+ * @property {string} [closedWithoutVerificationAt]
  * @property {string} [userVerificationNote]
  * @property {string} [holdStalenessBaseline]
  * @property {PlanStatus} [heldFromStatus]
@@ -505,7 +506,7 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
             : 0;
         updates.validationSemanticRounds = currentRounds + 1;
         updates.validationCiAttempts = 0;
-        updates.failureReason = details.failureReason || "Semantic Code Review requested changes.";
+        updates.failureReason = details.failureReason || "Semantic Review requested changes.";
         // The open Review Issues and repair identity must commit with the status
         // move back to implemented. A later Session projection cannot fill this
         // in safely after the fact: the process may stop between these writes.
@@ -517,7 +518,7 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
     if (event === "semantic_review_passed") {
         updates.failureReason = null;
         updates.failedAt = null;
-        updates.validationCheckpoint = null;
+        updates.validationCheckpoint = details.validationCheckpoint ?? null;
     }
 
     if (event === "manual_closed_without_verification") {
@@ -536,6 +537,7 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         }
         updates.status = "closed_without_verification";
         updates.closedWithoutVerificationReason = reason;
+        updates.closedWithoutVerificationAt = details.triageMeta?.closedWithoutVerificationAt || now;
     }
 
     if (event === "manual_user_verified") {
@@ -549,7 +551,7 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
             throw new Error("Invalid Plan Lifecycle transition: manual_user_verified requires userVerificationNote.");
         }
         updates.status = "user_verified";
-        updates.userVerifiedAt = now;
+        updates.userVerifiedAt = details.triageMeta?.userVerifiedAt || now;
         updates.userVerificationNote = note;
     }
 
@@ -604,6 +606,8 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         updates.verifiedAt = null;
         updates.userVerifiedAt = null;
         updates.userVerificationNote = null;
+        updates.closedWithoutVerificationReason = null;
+        updates.closedWithoutVerificationAt = null;
         updates.humanReviewMode = null;
         updates.humanReviewDecision = null;
         updates.humanReviewedAt = null;
@@ -616,6 +620,8 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
             updates.verifiedAt = null;
             updates.userVerifiedAt = null;
             updates.userVerificationNote = null;
+            updates.closedWithoutVerificationReason = null;
+            updates.closedWithoutVerificationAt = null;
             updates.deliveryEvidence = null;
             updates.humanReviewMode = null;
             updates.humanReviewDecision = null;
@@ -646,6 +652,8 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         updates.verifiedAt = null;
         updates.userVerifiedAt = null;
         updates.userVerificationNote = null;
+        updates.closedWithoutVerificationReason = null;
+        updates.closedWithoutVerificationAt = null;
     }
 
     if (event === "execution_started") {
@@ -675,6 +683,8 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         updates.verifiedAt = null;
         updates.userVerifiedAt = null;
         updates.userVerificationNote = null;
+        updates.closedWithoutVerificationReason = null;
+        updates.closedWithoutVerificationAt = null;
         updates.executionReport = null;
         updates.humanReviewMode = null;
         updates.humanReviewDecision = null;
@@ -713,11 +723,12 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
     }
 
     if (event === "epic_done_enough") {
-        updates.validatedAt = now;
+        const completedAt = details.triageMeta?.epicDoneEnoughAt || now;
+        updates.validatedAt = details.triageMeta?.validatedAt || completedAt;
         updates.userVerifiedAt = null;
         updates.userVerificationNote = null;
         updates.epicCompletionMode = "done_enough";
-        updates.epicDoneEnoughAt = now;
+        updates.epicDoneEnoughAt = completedAt;
         updates.epicDoneEnoughSummary = details.epicDoneEnoughSummary || "Epic marked done enough for now.";
         updates.failureReason = null;
         updates.failedAt = null;
@@ -750,6 +761,8 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         }
         updates.executionMode = executionMode;
         updates.deliveryEvidence = deliveryEvidence;
+        updates.validatedCommit = deliveryEvidence?.mode === "worktree_merge" ? deliveryEvidence.executionCommit : null;
+        if (deliveryEvidence?.mode === "worktree_merge") updates.targetBranch = deliveryEvidence.targetBranch;
         // The registry remains the publication/recovery authority until the push is
         // confirmed. The validated Plan is immutable and must not retain a pointer
         // that would require another front-matter rewrite after publication.
@@ -820,6 +833,8 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         // Only explicit reset/abandon actions retire the registered worktree.
     }
 
+    // A new execution or review must not retain the previous implementation's stamp.
+    if (updates.deliveryEvidence === null) updates.validatedCommit = null;
     return updates;
 }
 

@@ -1,0 +1,114 @@
+<section class="owner-dashboard" data-owner-dashboard>
+        <div class="owner-dashboard-intro">
+            <p>Plans that need you, can continue, are running, or recently finished.</p>
+            <a class="rw-toolbar-button" href="/projects">Projects</a>
+        </div>
+        <div class="owner-dashboard-status" role="status" aria-busy="true" data-dashboard-status>
+            <span class="rw-thinking-dots" aria-label="Loading"><span aria-hidden="true">Loading</span><span class="rw-thinking-dot" aria-hidden="true"></span><span class="rw-thinking-dot" aria-hidden="true"></span><span class="rw-thinking-dot" aria-hidden="true"></span></span>
+        </div>
+        <div class="owner-dashboard-grid" data-dashboard-sections></div>
+    </section>
+    <script is:inline data-astro-rerun>
+(() => {
+        const root = document.querySelector('[data-owner-dashboard]');
+        const status = root?.querySelector('[data-dashboard-status]');
+        const sectionsRoot = root?.querySelector('[data-dashboard-sections]');
+        const labels = ['Needs You', 'Ready to Continue', 'In Progress', 'Recently Finished'];
+        const sectionPreferences = new Map();
+        let latestSections = [];
+        let generation = 0;
+        let dashboardRefreshInFlight = null;
+        let dashboardRefreshTimer = null;
+        function escapeText(value) {
+            return String(value || '').replace(/[&<>"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[char]));
+        }
+        function itemHtml(item) {
+            return '<a class="owner-dashboard-row" href="' + escapeText(item.href) + '">' +
+                '<span><strong>' + escapeText(item.title) + '</strong><small>' + escapeText(item.projectName) + ' · ' + escapeText(item.statusLabel) + '</small></span>' +
+                '<span class="owner-dashboard-row-action">Open</span>' +
+            '</a>';
+        }
+        function sectionHtml(section) {
+            const preferences = sectionPreferences.get(section.label) || { oldestFirst: false, expanded: false };
+            const items = Array.isArray(section.items) ? [...section.items] : [];
+            if (preferences.oldestFirst) items.reverse();
+            const visibleItems = preferences.expanded ? items : items.slice(0, 5);
+            const id = 'dashboard-items-' + labels.indexOf(section.label);
+            const sortLabel = preferences.oldestFirst ? 'Oldest first' : 'Newest first';
+            return '<section class="owner-dashboard-section" aria-label="' + escapeText(section.label) + '">' +
+                '<div class="owner-dashboard-section-heading"><h2>' + escapeText(section.label) + '</h2>' +
+                '<span>' + items.length + '</span><button class="rw-toolbar-button" type="button" data-dashboard-sort="' + escapeText(section.label) + '" aria-label="' + escapeText(section.label) + ': ' + sortLabel + '. Reverse sort" aria-pressed="' + preferences.oldestFirst + '">' + sortLabel + '</button></div>' +
+                '<div id="' + id + '">' + (items.length ? visibleItems.map(itemHtml).join('') : '<p class="empty">Nothing here.</p>') + '</div>' +
+                (items.length > 5 ? '<button class="rw-toolbar-button" type="button" data-dashboard-expand="' + escapeText(section.label) + '" aria-controls="' + id + '" aria-expanded="' + preferences.expanded + '">' + (preferences.expanded ? 'Show less' : 'Read more (' + (items.length - 5) + ')') + '</button>' : '') +
+            '</section>';
+        }
+        function renderSections() {
+            const byLabel = new Map(latestSections.map((section) => [section.label, section]));
+            const html = labels.map((label) => sectionHtml(byLabel.get(label) || { label, items: [] })).join('');
+            if (sectionsRoot.innerHTML === html) return;
+            const focused = document.activeElement;
+            const sort = focused?.getAttribute('data-dashboard-sort');
+            const expand = focused?.getAttribute('data-dashboard-expand');
+            sectionsRoot.innerHTML = html;
+            if (sort || expand) {
+                const attribute = sort ? 'data-dashboard-sort' : 'data-dashboard-expand';
+                [...sectionsRoot.querySelectorAll('button')].find((button) => button.getAttribute(attribute) === (sort || expand))?.focus();
+            }
+        }
+        sectionsRoot.addEventListener('click', (event) => {
+            const button = event.target.closest('button');
+            if (!button) return;
+            const label = button.dataset.dashboardSort || button.dataset.dashboardExpand;
+            if (!labels.includes(label)) return;
+            const preferences = sectionPreferences.get(label) || { oldestFirst: false, expanded: false };
+            if (button.hasAttribute('data-dashboard-sort')) preferences.oldestFirst = !preferences.oldestFirst;
+            else preferences.expanded = !preferences.expanded;
+            sectionPreferences.set(label, preferences);
+            renderSections();
+        });
+        async function refreshDashboard() {
+            if (dashboardRefreshInFlight) return dashboardRefreshInFlight;
+            const current = ++generation;
+            dashboardRefreshInFlight = (async () => {
+                try {
+                    const response = await fetch('/api/owner/dashboard', { headers: { accept: 'application/json' } });
+                    const payload = await response.json();
+                    if (current !== generation) return;
+                    if (!response.ok) throw new Error(payload.error || 'Dashboard failed to load.');
+                    latestSections = Array.isArray(payload.dashboard?.sections) ? payload.dashboard.sections : [];
+                    renderSections();
+                    status.hidden = true;
+                    status.removeAttribute('aria-busy');
+                } catch (error) {
+                    if (current !== generation) return;
+                    status.hidden = false;
+                    status.removeAttribute('aria-busy');
+                    status.setAttribute('role', 'alert');
+                    status.textContent = error instanceof Error ? error.message : String(error);
+                } finally {
+                    dashboardRefreshInFlight = null;
+                }
+            })();
+            return dashboardRefreshInFlight;
+        }
+        function startDashboardRefreshLoop() {
+            if (dashboardRefreshTimer) return;
+            refreshDashboard();
+            dashboardRefreshTimer = setInterval(refreshDashboard, 5000);
+        }
+        function stopDashboardRefreshLoop() {
+            if (!dashboardRefreshTimer) return;
+            clearInterval(dashboardRefreshTimer);
+            dashboardRefreshTimer = null;
+        }
+        startDashboardRefreshLoop();
+        document.addEventListener('astro:before-preparation', stopDashboardRefreshLoop, { once: true });
+        const onVisibilityChange = () => { if (document.visibilityState === 'visible') refreshDashboard(); };
+        document.addEventListener('visibilitychange', onVisibilityChange);
+        document.addEventListener('astro:before-swap', () => {
+            ++generation;
+            stopDashboardRefreshLoop();
+            document.removeEventListener('visibilitychange', onVisibilityChange);
+        }, { once: true });
+    })();
+</script>

@@ -1,0 +1,17 @@
+/* Locally bundled Latin subsets from the website's Fontsource packages (5.2.6).
+   Other scripts use the system fallback. Licenses are in fonts/. */
+@font-face {
+    font-family: "Outfit Variable";
+    font-style: normal;
+    font-display: swap;
+    font-weight: 100 900;
+    src: url("./fonts/outfit-latin-wght-normal.woff2") format("woff2");
+}
+
+@font-face {
+    font-family: "IBM Plex Mono";
+    font-style: normal;
+    font-display: swap;
+    font-weight: 400;
+    src: url("./fonts/ibm-plex-mono-latin-400-normal.woff2") format("woff2");
+}

@@ -63,9 +63,9 @@ project/global memory, `cymbal` for symbol-aware code search, and `agent-browser
 optional `snip` for compact shell-output rewriting; RunWield still starts if Snip is missing.
 
 The prepared Homebrew package uses Homebrew dependencies instead of the shell helper installer:
-`gandazgul/tap/mnemoteca`, `1broseidon/tap/cymbal`, `1broseidon/tap/ketch`, `agent-browser`, and `git`.
-`agent-browser install` and Mnemoteca model setup still run on first use, not during formula installation. A
-Homebrew-owned `wld update` prints `brew upgrade gandazgul/tap/wld` instead of replacing package files.
+`gandazgul/tap/mnemoteca`, `1broseidon/tap/cymbal`, `ketch`, `agent-browser`, and `git`. `agent-browser install` and
+Mnemoteca model setup still run on first use, not during formula installation. A Homebrew-owned `wld update` prints
+`brew upgrade gandazgul/tap/wld` instead of replacing package files.
 
 The prepared Windows package bundles Mnemoteca, Cymbal, Ketch, and agent-browser beside `wld.exe`. It does not require a
 user-installed Deno, Go, Rust, npm helper install, or WSL. A WinGet-owned `wld update` prints

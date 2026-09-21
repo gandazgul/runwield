@@ -9,6 +9,59 @@ import { createTestWorktreeAttempt, git, makeRepo } from "./worktree-test-helper
 import { removeWorktreeGitArtifacts } from "./worktree.js";
 import { RUNWIELD_GITIGNORE_BLOCK } from "./runwield-owned-paths.ts";
 
+for (const change of ["formatting", "definition", "body", "staged", "committed"]) {
+    Deno.test(`publication retry recovers only unstaged formatting: ${change}`, async () => {
+        const projectRoot = await makeRepo();
+        const worktreeRoot = await Deno.makeTempDir({ prefix: "publication-plan-format-" });
+        const worktree = await createTestWorktreeAttempt({ projectRoot, planName: "p", worktreeRoot });
+        try {
+            const path = "docs/plans/p.md";
+            const sealed =
+                '---\nplanId: "p"\nclassification: "PLANNED_CHANGE"\nstatus: "validated"\naffectedPaths:\n    - "src/a.ts"\ntargetBranch: "main"\n---\n# Validated\n';
+            await Deno.mkdir(`${worktree.path}/docs/plans`, { recursive: true });
+            await Deno.writeTextFile(`${worktree.path}/${path}`, sealed);
+            await git(worktree.path, ["add", path]);
+            await git(worktree.path, ["commit", "-m", "Seal formatted Plan"]);
+            const sealedCommit = await git(worktree.path, ["rev-parse", "HEAD"]);
+            const current = change === "definition"
+                ? sealed.replace("src/a.ts", "src/b.ts")
+                : change === "body"
+                ? sealed.replace("# Validated", "# Changed intent")
+                : sealed.replace("    -", "  -");
+            await Deno.writeTextFile(`${worktree.path}/${path}`, current);
+            if (change === "staged" || change === "committed") await git(worktree.path, ["add", path]);
+            if (change === "committed") await git(worktree.path, ["commit", "-m", "User Plan edit"]);
+            const headBefore = await git(worktree.path, ["rev-parse", "HEAD"]);
+            const indexBefore = await git(worktree.path, ["write-tree"]);
+            const publish = () =>
+                publishExecutionWorktreeIsolated({
+                    projectRoot,
+                    executionCwd: worktree.path,
+                    executionBranch: worktree.branch,
+                    targetBranch: "main",
+                    planName: "p",
+                    sealedExecutionCommit: sealedCommit,
+                    allowedPlanPaths: [path],
+                });
+            if (change !== "formatting") {
+                await assertRejects(publish, Error, "changed after the validated candidate was sealed");
+                assertEquals(await Deno.readTextFile(`${worktree.path}/${path}`), current);
+                assertEquals(await git(worktree.path, ["rev-parse", "HEAD"]), headBefore);
+                assertEquals(await git(worktree.path, ["write-tree"]), indexBefore);
+            } else {
+                await publish();
+                assertEquals(await git(projectRoot, ["show", `main:${path}`]), sealed.trim());
+                assertEquals(await Deno.readTextFile(`${worktree.path}/${path}`), sealed);
+                assertEquals(await git(worktree.path, ["status", "--porcelain"]), "");
+            }
+        } finally {
+            await removeWorktreeGitArtifacts({ projectRoot, path: worktree.path, force: true });
+            await Deno.remove(projectRoot, { recursive: true });
+            await Deno.remove(worktreeRoot, { recursive: true });
+        }
+    });
+}
+
 Deno.test("publication without a remote safely advances the local target branch", async () => {
     const projectRoot = await makeRepo();
     const worktreeRoot = await Deno.makeTempDir({ prefix: "runwield-local-publication-worktree-" });

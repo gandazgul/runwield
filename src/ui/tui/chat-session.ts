@@ -209,6 +209,57 @@ export async function startInteractiveSession(
             suppressStartupHeader,
             setActiveModel: (model, provider) => setActiveSessionModel(sessionRuntime, sessionId, model, provider),
             configureUiAPI: options.configureUiAPI,
+            onWorkflowAction: async (action, snapshot) => {
+                if (action.kind === "review_plan" || action.kind === "review_code") {
+                    const reviewUrl = snapshot.workflowContext?.liveReviewUrl || "";
+                    if (!reviewUrl || !await options.browser.open(reviewUrl)) {
+                        uiAPIForDispose?.appendSystemMessage(
+                            "The current review URL is unavailable.",
+                            true,
+                            "Workflow action",
+                        );
+                    }
+                    return;
+                }
+                if (action.kind === "answer_agent") {
+                    const focused = uiAPIForDispose?.focusActivePrompt?.() || false;
+                    uiAPIForDispose?.appendSystemMessage(
+                        focused ? "Focused the waiting prompt." : "The waiting prompt is already active.",
+                        false,
+                        "Workflow action",
+                    );
+                    return;
+                }
+                if (action.kind !== "run" && action.kind !== "resume" && action.kind !== "recover") return;
+                const workflow = snapshot.activeExecutionWorkflow;
+                const context = snapshot.workflowContext;
+                const planName = workflow?.planName || context?.planName || context?.planId || "";
+                if (!planName) throw new Error("Plan workflow evidence is unavailable.");
+                const triageMeta = {
+                    ...(workflow?.triageMeta || {}),
+                    ...(context?.planId ? { planId: context.planId } : {}),
+                    ...(context?.classification ? { classification: context.classification } : {}),
+                    ...(context?.status ? { status: context.status } : {}),
+                };
+                const status = String(triageMeta.status || "");
+                const validationStatus = ["implemented", "validated_ci", "validated_reviewer", "validated"].includes(
+                    status,
+                );
+                const result = validationStatus || action.kind === "recover"
+                    ? await sessionRuntime.runValidation(sessionId, {
+                        ...workflow,
+                        planName,
+                        planContent: "",
+                        triageMeta,
+                        trigger: action.kind === "recover" ? "repair" : "session_resume",
+                    })
+                    : await sessionRuntime.executePlan(sessionId, {
+                        ...workflow,
+                        planName,
+                        triageMeta,
+                    });
+                if (result?.error) throw new Error(result.error);
+            },
         });
         disposables.push(() => view.dispose());
         const footer = createChatFooterController({

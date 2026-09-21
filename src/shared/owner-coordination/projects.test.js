@@ -1,13 +1,14 @@
-import { assertEquals, assertThrows } from "@std/assert";
+import { assertEquals, assertNotEquals, assertThrows } from "@std/assert";
 import { openOwnerCoordinationDatabase } from "./database.js";
 import {
+    getProjectById,
     getProjectHealth,
     listProjectRootEvidence,
+    listProjects,
     registerProject,
     relinkProject,
     removeProject,
     requireEnabledProjectRoot,
-    restoreProject,
     setProjectEnabled,
 } from "./projects.js";
 
@@ -17,7 +18,7 @@ function idFactory() {
     return () => `id-${++next}`;
 }
 
-Deno.test("Project registration converges symlink duplicates and removal restores the same Project ID", async () => {
+Deno.test("Project registration converges symlink duplicates and re-adding after removal creates a new registration", async () => {
     const dir = await Deno.makeTempDir({ prefix: "runwield-project-reg-" });
     const database = openOwnerCoordinationDatabase({ dbPath: `${dir}/owner.sqlite3` });
     try {
@@ -35,19 +36,16 @@ Deno.test("Project registration converges symlink duplicates and removal restore
             [link, root].sort(),
         );
 
-        const removed = removeProject(database, direct.projectId, { now: () => "t3" });
-        assertEquals(removed.lifecycle, "removed");
-        assertEquals(getProjectHealth(database, direct.projectId).status, "available");
-        assertThrows(
-            () => requireEnabledProjectRoot(database, direct.projectId),
-            Error,
-            "not enabled",
-        );
+        removeProject(database, direct.projectId);
+        assertEquals(getProjectById(database, direct.projectId), null);
+        assertEquals(listProjects(database), []);
+        assertEquals(listProjectRootEvidence(database, direct.projectId), []);
+        assertThrows(() => requireEnabledProjectRoot(database, direct.projectId), Error, "not found");
 
         const restored = registerProject(database, { root, idFactory: ids, now: () => "t4" });
-        assertEquals(restored.projectId, direct.projectId);
+        assertNotEquals(restored.projectId, direct.projectId);
         assertEquals(restored.lifecycle, "enabled");
-        assertEquals(requireEnabledProjectRoot(database, direct.projectId), await Deno.realPath(root));
+        assertEquals(requireEnabledProjectRoot(database, restored.projectId), await Deno.realPath(root));
     } finally {
         database.close();
         await Deno.remove(dir, { recursive: true });
@@ -112,28 +110,88 @@ Deno.test("Project health reports unreadable registered roots distinctly from mi
     }
 });
 
-Deno.test("restoreProject only restores removed Projects", async () => {
-    const dir = await Deno.makeTempDir({ prefix: "runwield-project-restore-" });
+Deno.test("Project removal clears dependent database records and rolls back on failure", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-project-remove-" });
     const database = openOwnerCoordinationDatabase({ dbPath: `${dir}/owner.sqlite3` });
     try {
-        const root = `${dir}/repo`;
-        await Deno.mkdir(root);
-        const project = registerProject(database, { root, idFactory: idFactory(), now: () => "t1" });
-        assertThrows(
-            () => restoreProject(database, project.projectId, { now: () => "t2" }),
-            Error,
-            "not removed",
-        );
-        setProjectEnabled(database, project.projectId, false, { now: () => "t3" });
-        assertThrows(
-            () => restoreProject(database, project.projectId, { now: () => "t4" }),
-            Error,
-            "not removed",
-        );
-        removeProject(database, project.projectId, { now: () => "t5" });
-        assertEquals(restoreProject(database, project.projectId, { now: () => "t6" }).lifecycle, "enabled");
+        const project = registerProject(database, { root: dir });
+        const id = project.projectId;
+        const db = database.handle;
+        db.prepare(
+            "INSERT INTO runwield_sessions(id, project_id, created_at, updated_at) VALUES ('session', ?, 'now', 'now')",
+        ).run(id);
+        db.prepare(
+            "INSERT INTO session_transcript_segments(id, runwield_session_id, project_id, pi_session_id, transcript_path, transcript_cwd, ordinal, kind, sealed_at, first_cataloged_at, last_cataloged_at) VALUES ('segment', 'session', ?, 'pi', '/transcript', ?, 0, 'planning', 'now', 'now', 'now')",
+        ).run(id, dir);
+        db.prepare("UPDATE session_transcript_segment_state SET current_segment_id = 'segment' WHERE project_id = ?")
+            .run(id);
+        db.prepare(
+            "INSERT INTO session_committed_generations(runwield_session_id, project_id, generation, digest_algorithm, byte_length, digest_hex, operation_id, fence, committed_at) VALUES ('session', ?, 0, 'sha256', 0, 'digest', 'operation', 1, 'now')",
+        ).run(id);
+        db.prepare(
+            "INSERT INTO session_transcript_locators(id, runwield_session_id, project_id, pi_session_id, transcript_path, transcript_cwd, first_cataloged_at, last_cataloged_at) VALUES ('locator', 'session', ?, 'pi', '/transcript', ?, 'now', 'now')",
+        ).run(id, dir);
+        db.prepare(
+            "INSERT INTO project_session_catalog_scans(project_id, cwd, session_dir, last_scanned_at) VALUES (?, ?, '/sessions', 'now')",
+        ).run(id, dir);
+        db.prepare(
+            "INSERT INTO owner_session_operations(id, request_id, request_hash, runwield_session_id, project_id, kind, status, operation_id, started_at, updated_at) VALUES ('receipt', 'request', 'hash', 'session', ?, 'continuation', 'completed', 'operation', 'now', 'now')",
+        ).run(id);
+        assertThrows(() => db.exec("DELETE FROM session_committed_generations"), Error, "append-only");
+        assertThrows(() => db.exec("DELETE FROM session_transcript_segments"), Error, "immutable");
+        db.exec("CREATE TRIGGER fail_removal BEFORE DELETE ON projects BEGIN SELECT RAISE(ABORT, 'test failure'); END");
+        assertThrows(() => removeProject(database, id), Error, "test failure");
+        assertEquals(getProjectById(database, id)?.lifecycle, "enabled");
+        assertEquals(db.prepare("SELECT COUNT(*) AS count FROM session_committed_generations").get()?.count, 1);
+        db.exec("DROP TRIGGER fail_removal");
+        removeProject(database, id);
+        for (
+            const table of [
+                "projects",
+                "project_roots",
+                "runwield_sessions",
+                "session_transcript_locators",
+                "project_session_catalog_scans",
+                "session_activation_state",
+                "session_committed_generations",
+                "owner_session_operations",
+                "session_transcript_segments",
+                "session_transcript_segment_state",
+            ]
+        ) {
+            assertEquals(db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get()?.count, 0, table);
+        }
+        assertEquals(db.prepare("PRAGMA foreign_key_check").all(), []);
+        assertThrows(() => removeProject(database, id), Error, "not found");
     } finally {
         database.close();
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
+Deno.test("migration deletes previously removed registrations and preserves other Projects", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-project-removal-migration-" });
+    const dbPath = `${dir}/owner.sqlite3`;
+    const database = openOwnerCoordinationDatabase({ dbPath });
+    let keptId;
+    try {
+        await Deno.mkdir(`${dir}/kept`);
+        const removed = registerProject(database, { root: dir });
+        keptId = registerProject(database, { root: `${dir}/kept` }).projectId;
+        database.handle.prepare("UPDATE projects SET lifecycle = 'removed' WHERE id = ?").run(removed.projectId);
+        database.handle.exec("DELETE FROM schema_migrations WHERE version = 10");
+    } finally {
+        database.close();
+    }
+    const migrated = openOwnerCoordinationDatabase({ dbPath });
+    try {
+        assertEquals(listProjects(migrated).map((project) => project.projectId), [keptId]);
+        assertEquals(migrated.handle.prepare("PRAGMA foreign_key_check").all(), []);
+        assertEquals((await Deno.stat(`${dir}/kept`)).isDirectory, true);
+        const backups = Array.from(Deno.readDirSync(dir)).filter((entry) => entry.name.includes("backup-v9"));
+        assertEquals(backups.length, 1);
+    } finally {
+        migrated.close();
         await Deno.remove(dir, { recursive: true });
     }
 });

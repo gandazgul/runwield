@@ -38,7 +38,7 @@ async function runDriver(configPath: string, crashAfter?: string): Promise<numbe
     return output.code;
 }
 
-async function runCrashCase(mode: PublicationMode, crashAfter: string): Promise<void> {
+async function runCrashCase(mode: PublicationMode, crashAfter: string, advanceTarget = false): Promise<void> {
     const projectRoot = await makeRepo();
     const remoteRoot = await Deno.makeTempDir({ prefix: "publication-matrix-remote-" });
     const worktreeRoot = await Deno.makeTempDir({ prefix: "publication-matrix-worktree-" });
@@ -83,11 +83,32 @@ async function runCrashCase(mode: PublicationMode, crashAfter: string): Promise<
         );
 
         assertEquals(await runDriver(configPath, crashAfter), 86);
+        let advancedHead = "";
+        if (advanceTarget) {
+            const target = mode === "remote" ? remoteRoot : projectRoot;
+            const publishedHead = await git(target, ["rev-parse", "refs/heads/main"]);
+            const other = await Deno.makeTempDir({ prefix: "publication-later-commit-" });
+            try {
+                await git(projectRoot, ["clone", "--branch", "main", target, other]);
+                await git(other, ["config", "user.name", "Other developer"]);
+                await git(other, ["config", "user.email", "other@example.com"]);
+                await Deno.writeTextFile(`${other}/later.txt`, "independent commit\n");
+                await git(other, ["add", "later.txt"]);
+                await git(other, ["commit", "-m", "Independent later commit"]);
+                advancedHead = await git(other, ["rev-parse", "HEAD"]);
+                if (mode === "remote") await git(other, ["push", "origin", "main"]);
+                else await git(projectRoot, ["pull", "--ff-only", other, "main"]);
+                await git(other, ["merge-base", "--is-ancestor", publishedHead, advancedHead]);
+            } finally {
+                await Deno.remove(other, { recursive: true });
+            }
+        }
         assertEquals(await runDriver(configPath), 0);
 
         const targetHeadAfter = mode === "remote"
             ? (await git(projectRoot, ["ls-remote", "origin", "refs/heads/main"])).split(/\s+/)[0]
             : await git(projectRoot, ["rev-parse", "main"]);
+        if (advanceTarget) assertEquals(targetHeadAfter, advancedHead);
         if (mode === "remote") await git(projectRoot, ["fetch", "origin", "main"]);
         await git(projectRoot, ["merge-base", "--is-ancestor", targetHead, targetHeadAfter]);
         assertEquals(await git(projectRoot, ["show", `${targetHeadAfter}:artifact-count.txt`]), "1");
@@ -196,6 +217,14 @@ Deno.test("publication survives process death at every effect and receipt bounda
     for (const mode of ["remote", "local"] as const) {
         for (const crashAfter of CRASH_BOUNDARIES) {
             await test.step(`${mode}:${crashAfter}`, async () => await runCrashCase(mode, crashAfter));
+        }
+    }
+});
+
+Deno.test("publication restart accepts later target commits without publishing again", async (test) => {
+    for (const mode of ["remote", "local"] as const) {
+        for (const boundary of ["target_effect", "target_receipt", "verification_receipt", "cleanup_effect"]) {
+            await test.step(`${mode}:${boundary}`, async () => await runCrashCase(mode, boundary, true));
         }
     }
 });

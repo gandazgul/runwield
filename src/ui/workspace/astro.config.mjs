@@ -58,6 +58,12 @@ export default defineConfig({
         optimizeDeps: {
             exclude: STD_EXTERNALS,
             include: [
+                // ClientRouter's virtual imports escape the initial dependency scan. Discovering them
+                // after the toolbar loads invalidates its optimized modules and causes persistent 504s.
+                "astro/virtual-modules/transitions-router.js",
+                "astro/virtual-modules/transitions-types.js",
+                "astro/virtual-modules/transitions-events.js",
+                "astro/virtual-modules/transitions-swap-functions.js",
                 "react",
                 "react-dom/client",
                 "@codemirror/lang-javascript",

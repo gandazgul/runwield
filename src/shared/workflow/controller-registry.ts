@@ -4,6 +4,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { resolvePrimaryCheckoutRoot } from "../primary-checkout.ts";
 import { enterProjectRuntime, resolveProjectRuntimeLayout } from "../project-runtime-layout.ts";
 import { inspectWorktreeRegistry, inspectWorktreeRegistryAtPath } from "../worktree-registry.js";
+import { isPublicationCleanupPending } from "./publication-attempt.ts";
 import {
     CONTROLLER_STATE_FIELDS,
     pickControllerState,
@@ -271,9 +272,10 @@ export async function readControllerWorktree(cwd: string, identity: WorkflowIden
 
 /** Document candidates include reopened Plans, but never expose retired attempt IDs as live. */
 export async function listControllerDocumentWorktrees(cwd: string) {
-    const registry = await inspectWorktreeRegistry(selectedRoot(cwd));
-    const live = registry.entries.filter((entry) => entry.status !== "abandoned");
-    const selected = new Set(live.map((entry) => entry.planName));
+    const registry = await inspectWorktreeRegistry(projectRoot(cwd));
+    const active = registry.entries.filter((entry) => entry.status !== "abandoned");
+    const selected = new Set(active.map((entry) => entry.planName));
+    const live = active.filter((entry) => !isPublicationCleanupPending(entry.publication));
     const retired = registry.entries.filter((entry) => entry.status === "abandoned")
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     for (const entry of retired) {

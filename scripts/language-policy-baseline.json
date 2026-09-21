@@ -102,7 +102,7 @@
     "src/shared/worktree.js",
     "src/testing/process-global-lock.js",
     "src/tools/docs-file-tools.js",
-    "src/tools/edit-with-fallback.js",
+    "src/tools/edit.js",
     "src/tools/grep.js",
     "src/tools/read.js",
     "src/tools/registry.js",
@@ -113,6 +113,7 @@
     "src/ui/design-system/components/Notice.jsx",
     "src/ui/design-system/components/index.js",
     "src/ui/design-system/components/react/RunWieldPrimitives.jsx",
+    "src/ui/design-system/sidebar-motion.js",
     "src/ui/design-system/theme-bridge.js",
     "src/ui/theme/theme-json.js",
     "src/ui/theme/theme-registry.js",
@@ -203,7 +204,6 @@
     "src/ui/workspace/server/remote-mode.js",
     "src/ui/workspace/server/remote-schema.js",
     "src/ui/workspace/server/session-continuation.js",
-    "src/ui/workspace/server/theme-css.js",
     "src/ui/workspace/vite.config.js",
     "src/ui/workspace/workspace-test-helpers.js"
 ]

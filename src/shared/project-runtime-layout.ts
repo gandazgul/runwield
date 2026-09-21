@@ -574,9 +574,6 @@ async function preflight(
         existingJournal.journal?.selectedCheckoutRoots || [],
     );
     if (isBlocked(selectedRoots)) return selectedRoots;
-    const markerSelectedRoots = await validateMarkerSelectedRoots(layout, marker, gitWorktrees.worktrees);
-    if (isBlocked(markerSelectedRoots)) return markerSelectedRoots;
-
     const fallbackWorktreesRoot = legacyRelativePath(primaryCheckoutRoot, "worktrees");
     if (!(await isEmptyDirectory(fallbackWorktreesRoot))) {
         return block(
@@ -699,28 +696,6 @@ async function validateMarkerRoots(
                 "The project runtime layout marker contains a noncanonical selected checkout root.",
             );
         }
-    }
-    return undefined;
-}
-
-async function validateMarkerSelectedRoots(
-    layout: ProjectRuntimeLayout,
-    marker: LayoutMarker | null,
-    gitWorktrees: GitWorktree[],
-): Promise<ProjectRuntimeMigrationBlockedResult | undefined> {
-    if (!marker) return undefined;
-    const byRealPath = new Set(gitWorktrees.map((worktree) => worktree.realPath));
-    const existingRoots: string[] = [];
-    for (const root of marker.adoptedSelectedCheckoutRoots) {
-        if (await lstatOrNull(root)) existingRoots.push(root);
-    }
-    const missing = existingRoots.filter((root) => !byRealPath.has(root));
-    if (missing.length > 0) {
-        return block(
-            "malformed_migration_evidence",
-            [layout.primary.layoutMarkerPath, ...missing],
-            "The project runtime layout marker names a selected checkout outside this Git worktree set.",
-        );
     }
     return undefined;
 }
@@ -1118,7 +1093,7 @@ async function inspectLegacyLocks(
     if (!options.legacyRegistryLockHeld) {
         const registryStatus = await classifyProcessLock(registryLock, 30_000);
         const currentMigrationOwnsRegistry = registryStatus.status === "active" && options.migrationLockPath
-            ? await lockOwnersMatch(options.migrationLockPath, registryStatus.snapshot)
+            ? await lockOwnersMatch(options.migrationLockPath, registryLock, registryStatus.snapshot)
             : false;
         if (registryStatus.status === "active" && !currentMigrationOwnsRegistry) active.push(registryLock);
         if (registryStatus.status === "stale") retire.push(retireLockOperation(registryLock, registryStatus.snapshot));
@@ -1154,17 +1129,28 @@ async function inspectLegacyLocks(
     return { active, retire };
 }
 
-async function lockOwnersMatch(migrationLockPath: string, registrySnapshot: LockFileSnapshot): Promise<boolean> {
-    const migrationSnapshot = await readLockFileSnapshot(migrationLockPath);
-    if (!migrationSnapshot) return false;
-    try {
-        const migrationOwner = JSON.parse(migrationSnapshot.text) as ProcessLockOwner;
-        const registryOwner = JSON.parse(registrySnapshot.text) as ProcessLockOwner;
-        return Number.isInteger(migrationOwner.pid) && migrationOwner.pid === registryOwner.pid &&
-            Boolean(migrationOwner.hostname) && migrationOwner.hostname === registryOwner.hostname;
-    } catch {
-        return false;
+async function lockOwnersMatch(
+    migrationLockPath: string,
+    registryLockPath: string,
+    initialRegistrySnapshot: LockFileSnapshot,
+): Promise<boolean> {
+    let registrySnapshot = initialRegistrySnapshot;
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+        const migrationSnapshot = await readLockFileSnapshot(migrationLockPath);
+        if (!migrationSnapshot) return false;
+        try {
+            const migrationOwner = JSON.parse(migrationSnapshot.text) as ProcessLockOwner;
+            const registryOwner = JSON.parse(registrySnapshot.text) as ProcessLockOwner;
+            return Number.isInteger(migrationOwner.pid) && migrationOwner.pid === registryOwner.pid &&
+                Boolean(migrationOwner.hostname) && migrationOwner.hostname === registryOwner.hostname;
+        } catch {
+            await new Promise((resolveTimer) => setTimeout(resolveTimer, 10));
+            const refreshedRegistrySnapshot = await readLockFileSnapshot(registryLockPath);
+            if (!refreshedRegistrySnapshot) return false;
+            registrySnapshot = refreshedRegistrySnapshot;
+        }
     }
+    return false;
 }
 
 type LegacyLockClassification =

@@ -27,12 +27,12 @@ live under RunWield's home-directory worktree area, grouped by project, with a u
 
 ### Separate document and controller ownership
 
-| Data                                                                                                                    | Authority                                           |
-| ----------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
-| Plan definition, identity, human lifecycle status, `targetBranch`, relationships, archive and user-verification history | Plan Markdown                                       |
-| Validation checkpoints and counters, review decisions, execution mode, runtime timestamps and delivery evidence         | `<primary-project>/.wld/internal/controller/plans/` |
-| Attempt ID, branch, path, base ref/commit/tree, execution status and publication receipts                               | `<primary-project>/.wld/internal/worktrees.json`    |
-| Commit contents, ancestry, checked-out branches and remote target                                                       | Git                                                 |
+| Data                                                                                                                                       | Authority                                           |
+| ------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------- |
+| Plan definition, identity, human lifecycle status, `targetBranch`, `validatedCommit`, relationships, archive and user-verification history | Plan Markdown                                       |
+| Validation checkpoints and counters, review decisions, execution mode, runtime timestamps and delivery evidence                            | `<primary-project>/.wld/internal/controller/plans/` |
+| Attempt ID, branch, path, base ref/commit/tree, execution status and publication receipts                                                  | `<primary-project>/.wld/internal/worktrees.json`    |
+| Commit contents, ancestry, checked-out branches and remote target                                                                          | Git                                                 |
 
 The summary shown in lists is derived from the Plan's Context section. It is not a second stored definition in YAML.
 Runtime fields may appear in an in-memory joined Plan view for consumers, but saving Markdown does not serialize them.
@@ -58,8 +58,8 @@ A registered document that is missing or archived never selects the older primar
 also resolves the live attempt from the registry; Session memory cannot reactivate a retired attempt. Child completion
 discovers the family from the primary project catalog plus registered execution documents, including children that have
 not started and therefore have no worktree yet. Completed siblings whose worktrees were cleaned up may come from the
-completing attempt's recorded target commit, backed by controller delivery evidence and exact committed document bytes.
-An arbitrary status in a copied document cannot override an unstarted sibling in primary.
+completing attempt's recorded target commit, backed by exact committed document bytes rather than a permanent controller
+receipt. An arbitrary status in a copied document cannot override an unstarted sibling in primary.
 
 Restoring with a different name updates the document's registry address while preserving its Plan ID, attempt ID,
 branch, and directory. Ordinary registry updates still cannot change these addresses. A saved publication binds its
@@ -92,6 +92,12 @@ clean; non-overlapping untracked files remain untouched.
 Loading a Plan locates its document through the controller's attempt, then reads workflow state from the controller.
 Hold, resume, review, validation, and approval use that same document selection. A healthy execution Plan must remain
 usable even if the primary copy cannot be parsed.
+
+Full code review uses one shared direct comparison from the attempt's recorded target branch tip to the execution
+worktree's current files. Semantic review, repair context, and human review use that same patch source. Review does not
+use the execution baseline or a shared ancestor. The target is resolved once per computation, so a reload can reflect a
+new target tip. Missing target evidence fails closed without substituting `main`, `HEAD`, or an old snapshot. The
+execution baseline remains separate and immutable for recovery; pre-repair snapshots remain separate for repair checks.
 
 Reopening for review preserves the execution attempt, its branch, commits, and uncommitted changes. It invalidates prior
 approval and validation evidence, not the implementation. Approve & Run discovers the existing live attempt by Plan
@@ -126,8 +132,13 @@ user's confirmation; normal continuation never resets unrelated primary-checkout
 
 Explicit discard clears both the execution reference and the document-location reference. Before offering another
 action, the Session reloads the surviving document in full; it must not keep the deleted document's status or revision.
-When publication is already proven, load-plan can finish interrupted cleanup from its receipt without requiring the
-deleted execution document or consulting an older primary Plan copy.
+After confirmed publication, the execution document no longer owns Plan reads. Load-plan reads the surviving project
+Plan and opens its action menu, without removing branches, moving files, or recreating a deleted execution worktree.
+Cleanup runs during publication or when the user explicitly selects removal of the published worktree and branch. That
+action uses the publication receipt and fresh Git proof, not the primary Plan's potentially older status, to authorize
+cleanup. A failed cleanup leaves the menu available and keeps the remaining files. Loading is navigation, not permission
+to move or remove files; automatic cleanup on load was rejected because it surprises the user and can prevent the
+requested menu from opening.
 
 ## Consequences
 

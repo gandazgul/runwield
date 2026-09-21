@@ -175,30 +175,35 @@ const PROJECT_PLAN_FIXTURE = PLAN_FIXTURE
     .replace('executionAgent: "frontend-engineer"\ncollaborationRecommendation: "autonomous"\n', "")
     .replace("# Fixture Test Plan: Plan Review UI", "# Fixture PROJECT Epic: Plan Review UI");
 
-const WORK_RECORD_FIXTURE = `---
-recordId: "fixture-work-record-123"
-title: "Fixture Browser Read Work Record"
-status: "superseded"
-scope: "feature"
-origin: "internal"
-completionMode: "verified"
+const MARKDOWN_READER_FIXTURE = `---
+title: "Markdown reader"
 ---
 
-# Fixture Browser Read Work Record
+# Markdown reader
 
-## Summary
+## Overview
 
-This Work Record fixture exercises the read-only artifact surface with maintenance notices and canonical markdown.
+One read-only view for Plans, PRDs, ADRs, Work Records, Epic artifacts, and reports.
 
-## Durable Outcome
+## Contents
 
-- Contents navigation should be the only sidebar.
-- The document should render front matter and Markdown headings.
-- The top-right workflow action should be Close.
+Use the Contents sidebar to navigate headings. It starts collapsed on phones.
 
-## Planning Guidance
+## Progress
 
-Future sessions should preserve read-only browser inspection for canonical Plans and Work Records.
+- [x] Shared document layout
+- [ ] Review the remaining details
+
+## Results
+
+| Entry point | Reader |
+| --- | --- |
+| Workspace Session | Shared Markdown reader |
+| TUI Session | Shared Markdown reader |
+
+## Notes
+
+Opening or closing this document does not approve a Plan or change its contents.
 `;
 
 const CODE_REVIEW_FIXTURE = `diff --git a/src/review/feedback.js b/src/review/feedback.js
@@ -618,10 +623,7 @@ const PLAN_DEV_VARIANTS = [
     "project",
     "sequence",
     "stale",
-    "expired",
-    "recovery",
-    "read-plan",
-    "read-work-record",
+    "read-only",
 ];
 
 function buildCodeReviewDevPayload(variant) {
@@ -747,7 +749,7 @@ function buildCodeReviewDevPayload(variant) {
     };
 }
 
-export function ReviewDevSurface({ surface, presentation = "standalone", variant = "feature" }) {
+export function ReviewDevSurface({ surface, presentation = "standalone", variant = "feature", returnHref = "" }) {
     const isPlan = surface === "plan";
     const [guideVariant, setGuideVariant] = React.useState("ready");
     const planVariant = PLAN_DEV_VARIANTS.includes(variant) ? variant : "feature";
@@ -758,23 +760,6 @@ export function ReviewDevSurface({ surface, presentation = "standalone", variant
             message: "The Plan changed while this review was open. Refresh the Plan before you submit a new decision.",
             actionLabel: "Refresh Plan",
             actionHref: "/dev/plan-review",
-        }
-        : planVariant === "expired"
-        ? {
-            state: "expired",
-            title: "Review no longer active",
-            message:
-                "The active process no longer owns this review. Return to the Session and ask the Agent to resubmit this Plan.",
-            actionLabel: "Return to Session",
-            actionHref: "/projects/dev/sessions/planner-fixture?prefill=Please%20resubmit%20this%20Plan%20for%20review",
-        }
-        : planVariant === "recovery"
-        ? {
-            state: "recovery",
-            title: "Recovery required",
-            message: "RunWield cannot prove the current Plan evidence. Use TUI recovery, then review the Plan again.",
-            actionLabel: "Return to Session",
-            actionHref: "/projects/dev/sessions/planner-fixture",
         }
         : null;
     const planPayload = planVariant === "project"
@@ -861,25 +846,16 @@ export function ReviewDevSurface({ surface, presentation = "standalone", variant
         ];
         delete planPayload.executionPolicy;
     }
-    const readPlanPayload = {
+    const readPayload = planVariant === "read-only" && {
         surface: "artifact-read",
-        markdown: PLAN_FIXTURE,
-        token: "dev-read-plan",
+        markdown: MARKDOWN_READER_FIXTURE,
+        token: "dev-markdown-reader",
+        returnHref,
         mode: "dev",
-        artifactKind: "plan",
-        title: "Fixture Test Plan: Plan Review UI",
-        artifactPath: "docs/plans/fixture-test-plan.md",
+        artifactKind: "report",
+        title: "Markdown reader",
+        artifactPath: "docs/markdown-reader.md",
         notices: [],
-    };
-    const readWorkRecordPayload = {
-        surface: "artifact-read",
-        markdown: WORK_RECORD_FIXTURE,
-        token: "dev-read-work-record",
-        mode: "dev",
-        artifactKind: "work-record",
-        title: "Fixture Browser Read Work Record",
-        artifactPath: "docs/work-records/fixture-browser-read-work-record.md",
-        notices: ["NOTICE: superseded Work Record; newer planning guidance may exist."],
     };
     const codePayload = buildCodeReviewDevPayload(guideVariant);
     const payload = isPlan ? planPayload : {
@@ -901,14 +877,8 @@ export function ReviewDevSurface({ surface, presentation = "standalone", variant
         return React.createElement(
             React.Fragment,
             null,
-            planVariant === "read-plan"
-                ? React.createElement(ArtifactReadSurface, { key: planVariant, payload: readPlanPayload, presentation })
-                : planVariant === "read-work-record"
-                ? React.createElement(ArtifactReadSurface, {
-                    key: planVariant,
-                    payload: readWorkRecordPayload,
-                    presentation,
-                })
+            readPayload
+                ? React.createElement(ArtifactReadSurface, { key: planVariant, payload: readPayload })
                 : React.createElement(PlanReviewSurface, {
                     key: planVariant,
                     payload,

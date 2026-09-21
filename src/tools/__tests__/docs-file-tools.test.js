@@ -1,4 +1,4 @@
-import { assertEquals, assertMatch } from "@std/assert";
+import { assertEquals, assertMatch, assertNotMatch, assertRejects } from "@std/assert";
 import { join } from "@std/path";
 import { createEditDocsToolDefinition, createWriteDocsToolDefinition } from "../docs-file-tools.js";
 
@@ -42,6 +42,27 @@ Deno.test("edit_docs exposes Markdown-only single-edit metadata", () => {
 
     const properties = /** @type {{ properties: Record<string, unknown> }} */ (tool.parameters).properties;
     assertEquals(Object.keys(properties), ["path", "oldText", "newText"]);
+});
+
+Deno.test("edit_docs reports a failed match without dumping the document", async () => {
+    const dir = await Deno.makeTempDir();
+    try {
+        const filePath = join(dir, "guide.md");
+        const originalContent = "# Guide\n\nUnrelated document contents.\n";
+        await Deno.writeTextFile(filePath, originalContent);
+        const tool = createEditDocsToolDefinition(dir);
+        const error = await assertRejects(() =>
+            executeTool(tool, {
+                path: "guide.md",
+                oldText: "Absent section",
+                newText: "Replacement section",
+            }), Error);
+        assertMatch(error.message, /not find|not found|match/i);
+        assertNotMatch(error.message, /Unrelated document contents|File exists on disk/);
+        assertEquals(await Deno.readTextFile(filePath), originalContent);
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
 });
 
 Deno.test("write_docs creates and overwrites relative Markdown files, including parent directories", async () => {

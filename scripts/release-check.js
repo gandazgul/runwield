@@ -512,14 +512,15 @@ export async function smokeTestBinaryReviewSurface(binaryPath, root) {
 
 /**
  * @param {string[]} args
- * @returns {{ buildVersion: string | undefined }}
+ * @returns {{ buildVersion: string | undefined, includeGolden: boolean }}
  */
 export function parseReleaseCheckOptions(args = []) {
-    /** @type {{ buildVersion: string | undefined }} */
-    const options = { buildVersion: undefined };
+    /** @type {{ buildVersion: string | undefined, includeGolden: boolean }} */
+    const options = { buildVersion: undefined, includeGolden: true };
     for (let index = 0; index < args.length; index += 1) {
         const arg = args[index];
         if (arg === "--build-version") options.buildVersion = args[++index];
+        else if (arg === "--binary-only") options.includeGolden = false;
         else throw new Error(`Unknown release check argument: ${arg}`);
     }
     if (options.buildVersion !== undefined && !options.buildVersion) {
@@ -571,6 +572,7 @@ async function restoreFile(path, snapshot) {
  * @typedef {Object} ReleaseCheckOptions
  * @property {string} [buildVersion]
  * @property {string} [rootDir]
+ * @property {boolean} [includeGolden]
  */
 
 /**
@@ -629,20 +631,33 @@ export async function runReleaseCheck(options, port) {
             stderr: "piped",
         }, runner);
         if (options.buildVersion) assertBinaryVersionOutput(`${smoke.stdout}${smoke.stderr}`, options.buildVersion);
+        const imageSmoke = await mustRun(
+            "Smoke test packaged image resize",
+            output,
+            ["package-smoke", "image-resize"],
+            {
+                cwd: tempDir,
+                env: { WLD_INTERNAL_PACKAGE_CHECK: "1", HOME: tempDir, USERPROFILE: tempDir },
+                stdout: "piped",
+                stderr: "piped",
+            },
+            runner,
+        );
+        if (imageSmoke.stderr.trim()) {
+            throw new Error(`Packaged image resize wrote unexpected terminal output: ${imageSmoke.stderr}`);
+        }
         await port.smokeTestBundledAgentReferenceExtraction(output, tempDir);
         await port.smokeTestBinaryPlansUiSurface(output, tempDir);
         await port.smokeTestBinaryReviewSurface(output, tempDir);
-        // The Golden TUI portfolio is out of `deno task ci` because it is too slow
-        // for the everyday loop, so release qualification is where the composed
-        // workflow scenarios run. It goes last: every cheaper release signal fails
-        // first, and the release workflow reaches the portfolio only through here.
-        await mustRun(
-            "Run Golden TUI release gate",
-            "deno",
-            ["task", "test:golden-tui:extensive"],
-            { cwd: rootDir, env: { WLD_TEST_CONCURRENCY: "2" } },
-            runner,
-        );
+        if (options.includeGolden !== false) {
+            await mustRun(
+                "Run Golden TUI release gate",
+                "deno",
+                ["task", "test:golden-tui:extensive"],
+                { cwd: rootDir },
+                runner,
+            );
+        }
     } finally {
         await restoreFile(versionPath, versionSnapshot);
         await port.remove(tempDir, { recursive: true }).catch((error) => {

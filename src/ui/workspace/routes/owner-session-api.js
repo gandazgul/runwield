@@ -2,9 +2,21 @@
 
 import { ownerErrorJson, ownerJson, sanitizeOwnerError } from "./owner-api.js";
 import { ownerSecurityHeaders } from "../server/owner-origin.js";
+import { findPlanEvidenceById } from "../../../plan-store.js";
 import { requireOwnerProjectRoot } from "../server/owner-projects.js";
 
 const MAX_JSON_BYTES = 12 * 1024 * 1024;
+
+/**
+ * @typedef {Object} SessionPlanAssociation
+ * @property {string} [planId]
+ * @property {number | null} [committedGeneration]
+ */
+
+/**
+ * @typedef {Object} OwnerSessionSummary
+ * @property {string} [runwieldSessionId]
+ */
 
 /** @param {Request} request */
 async function readJson(request) {
@@ -95,18 +107,86 @@ export async function ownerSessionOptionsApi(ctx) {
     }
 }
 
+/**
+ * @param {OwnerSessionSummary} session
+ * @param {{ listSessionPlanAssociations?: (runwieldSessionId?: string, projectId?: string) => SessionPlanAssociation[] }} store
+ * @param {string} projectId
+ * @returns {string[]}
+ */
+function committedPlanIdsForSession(session, store, projectId) {
+    const associations = store.listSessionPlanAssociations?.(session.runwieldSessionId, projectId) || [];
+    return associations
+        .filter((association) => association.committedGeneration !== null)
+        .map((association) => String(association.planId || ""))
+        .filter(Boolean);
+}
+
+/** @param {any} sessionContinuation @param {string} projectId @param {{ page: number, pageSize: number, includeEmpty: boolean }} options */
+async function listAllSessionsForFilter(sessionContinuation, projectId, options) {
+    /** @type {OwnerSessionSummary[]} */
+    const sessions = [];
+    /** @type {Array<{ code?: string, message?: string, source?: string }>} */
+    const diagnostics = [];
+    let page = 0;
+    let hasNext = true;
+    while (hasNext) {
+        const result = await sessionContinuation.listSessions(projectId, { ...options, page, pageSize: 100 });
+        sessions.push(...(result.sessions || []));
+        diagnostics.push(...(result.diagnostics || []));
+        hasNext = result.hasNext === true;
+        page += 1;
+    }
+    return {
+        page: options.page,
+        pageSize: options.pageSize,
+        total: sessions.length,
+        hasNext: false,
+        hasPrevious: false,
+        diagnostics,
+        sessions,
+    };
+}
+
 /** @param {any} ctx */
 export async function ownerProjectSessionsApi(ctx) {
     try {
         requireOwnerProjectRoot(ctx.state.store, ctx.params.projectId);
         const page = readPageValue(ctx.url.searchParams.get("page"), "page", 0, 10_000);
         const pageSize = readPageValue(ctx.url.searchParams.get("pageSize"), "pageSize", 30, 100);
-        const result = await ctx.state.sessionContinuation.listSessions(ctx.params.projectId, {
-            page,
-            pageSize,
-            includeEmpty: ctx.url.searchParams.get("includeEmpty") === "true",
+        const listOptions = { page, pageSize, includeEmpty: ctx.url.searchParams.get("includeEmpty") === "true" };
+        const planId = ctx.url.searchParams.get("plan") || "";
+        const excludeAssociated = ctx.url.searchParams.get("excludeAssociated") === "true";
+        const nestedPlanIds = ctx.url.searchParams.getAll("nestedPlan").filter(Boolean);
+        const result = planId || excludeAssociated
+            ? await listAllSessionsForFilter(ctx.state.sessionContinuation, ctx.params.projectId, listOptions)
+            : await ctx.state.sessionContinuation.listSessions(ctx.params.projectId, listOptions);
+        let sessions = /** @type {OwnerSessionSummary[]} */ (result.sessions || []);
+        if (planId || excludeAssociated) {
+            const nested = new Set(nestedPlanIds);
+            sessions = sessions.filter((session) => {
+                const committedPlanIds = committedPlanIdsForSession(session, ctx.state.store, ctx.params.projectId);
+                if (planId) return committedPlanIds.includes(planId);
+                return nested.size ? !committedPlanIds.some((associatedPlanId) => nested.has(associatedPlanId)) : true;
+            });
+        }
+        if (planId || excludeAssociated) {
+            const start = page * pageSize;
+            return ownerJson({
+                ...result,
+                page,
+                pageSize,
+                total: sessions.length,
+                hasNext: start + pageSize < sessions.length,
+                hasPrevious: page > 0 && start < sessions.length,
+                sessions: sessions.slice(start, start + pageSize),
+                diagnostics: (result.diagnostics || []).map(safeDiagnostic),
+            });
+        }
+        return ownerJson({
+            ...result,
+            sessions,
+            diagnostics: (result.diagnostics || []).map(safeDiagnostic),
         });
-        return ownerJson({ ...result, diagnostics: (result.diagnostics || []).map(safeDiagnostic) });
     } catch (error) {
         return ownerErrorJson(error, 400);
     }
@@ -235,6 +315,30 @@ export async function ownerSessionContinuationStartApi(ctx) {
             ? 422
             : (/not enabled|epoch|uncertain|reconcile/.test(message) ? 503 : 409);
         return ownerJson({ error: message }, status);
+    }
+}
+
+/** @param {any} ctx */
+export async function ownerSessionPlanWorkflowApi(ctx) {
+    try {
+        const body = await readJson(ctx.req);
+        const projectRoot = requireOwnerProjectRoot(ctx.state.store, ctx.params.projectId);
+        const planId = requireBoundedString(body.planId, "planId", 300);
+        const plan = await findPlanEvidenceById(projectRoot, planId);
+        const result = await ctx.state.sessionContinuation.startPlanWorkflowHandoff({
+            action: readOptionalBoundedString(body, "action", 32) || "run",
+            projectId: ctx.params.projectId,
+            runwieldSessionId: ctx.params.runwieldSessionId,
+            expectedGeneration: requireExpectedGeneration(body.expectedGeneration),
+            planName: plan.planName,
+            planContent: plan.markdown || plan.body || "",
+            triageMeta: { ...plan.attrs, planId: plan.planId },
+        });
+        if (result?.error) return ownerJson({ error: result.error }, 409);
+        return ownerJson(result, 202);
+    } catch (error) {
+        const message = sanitizeOwnerError(error);
+        return ownerJson({ error: message }, /busy|generation|not found|requires/.test(message) ? 409 : 503);
     }
 }
 

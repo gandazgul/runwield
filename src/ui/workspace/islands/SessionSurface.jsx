@@ -1,16 +1,22 @@
+import { mergePlanAssociations } from "../../../shared/session/plan-association.ts";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { animateSidebarUpdate } from "../../design-system/components/react/sidebar-motion.ts";
 
 // New Session chat structure is adapted from OpenChamber's ChatContainer/ChatInput UI.
 // OpenChamber is MIT licensed: Copyright (c) 2025 Bohdan Triapitsyn.
 import {
     RunWieldButton,
-    RunWieldLink,
     RunWieldPanelToggle,
     RunWieldThinkingDots,
 } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 import { SessionList } from "../components/SessionList.jsx";
 import { deriveSessionAvailability } from "../components/SessionActivationStatus.jsx";
-import { reduceSessionEvents, SessionTimeline } from "../components/SessionTimeline.jsx";
+import {
+    displayAgentName,
+    mergeSessionTimelineItems,
+    reduceSessionEvents,
+    SessionTimeline,
+} from "../components/SessionTimeline.jsx";
 import {
     buildSessionSidebarProjection,
     defaultSessionSidebarTab,
@@ -22,6 +28,7 @@ import { createSessionTabNotificationController } from "../browser/session-tab-n
 import { WorkspaceHeaderActionsPortal } from "../react/WorkspaceHeaderActionsPortal.tsx";
 import { loadSessionDrafts, readSessionDraft, saveSessionDraft } from "../browser/session-drafts.ts";
 import { sessionAgentSelection, sessionCommandSuggestions, sessionModelLabel } from "../browser/session-commands.ts";
+import { WorkflowSidebar } from "../react/WorkflowSidebar.tsx";
 
 export const SESSION_PAGE_SIZE = 30;
 const TIMELINE_PAGE_LIMIT = 200;
@@ -99,7 +106,7 @@ async function ownerFetch(url, options = {}) {
     headers.set("x-runwield-csrf", decodeURIComponent(ownerCookie("rw_owner_csrf")));
     const response = await fetch(url, { ...options, headers });
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok) {
+    if (!response.ok || payload.error) {
         const error = new Error(payload.error || `Request failed with ${response.status}`);
         Reflect.set(error, "status", response.status);
         Reflect.set(error, "payload", payload);
@@ -184,6 +191,13 @@ export function reduceOperationTransientItems(events) {
     );
 }
 
+export function latestLiveWorkflowInteraction(items) {
+    return [...items].reverse().find((item) =>
+        item?.source === "transient" && ["interaction", "plan-review", "code-review"].includes(item.kind) &&
+        item.interactionId
+    ) || null;
+}
+
 let operationNotificationController = null;
 
 function getOperationNotificationController() {
@@ -249,23 +263,43 @@ export function shouldRefreshSessionAvailability(input) {
  * @typedef {{ activeModel?: SessionModelState | null, model?: string, provider?: string }} SessionModelSnapshot
  */
 
-/** @typedef {{ planId?: string, planName?: string }} SessionPlanContext */
+/** @typedef {{ planId?: string, planName?: string, triageMeta?: { planId?: string } }} SessionPlanContext */
 /** @typedef {{ workflowContext?: SessionPlanContext, activeExecutionWorkflow?: SessionPlanContext, planAssociations?: SessionPlanContext[] }} SessionPlanSnapshot */
 
 /** @param {SessionPlanSnapshot | undefined | null} snapshot */
 export function activePlanId(snapshot) {
-    const contexts = [snapshot?.activeExecutionWorkflow, snapshot?.workflowContext];
-    const identified = contexts.find((context) => context?.planId?.trim());
-    if (identified) return identified.planId.trim();
-    const planName = contexts.find((context) => context?.planName?.trim())?.planName?.trim();
-    if (!planName) return "";
-    return snapshot?.planAssociations?.findLast((association) => association.planName === planName)?.planId || "";
+    for (const context of [snapshot?.activeExecutionWorkflow, snapshot?.workflowContext]) {
+        const planId = context?.planId?.trim() || context?.triageMeta?.planId?.trim();
+        if (planId) return planId;
+        const planName = context?.planName?.trim();
+        if (!planName) continue;
+        const association = snapshot?.planAssociations?.findLast((item) => item.planName === planName);
+        if (association?.planId) return association.planId;
+    }
+    return "";
 }
 
-export function activePlanProgressUrl(projectId, runwieldSessionId, snapshot) {
+/**
+ * @template {{ snapshot?: Partial<import('../../../shared/session/live-session-connection.ts').LiveSessionInfo> }} Timeline
+ * @param {Timeline} timeline
+ * @param {import('../../../shared/session/live-session-connection.ts').LiveSessionInfo | null | undefined} sessionInfo
+ */
+export function mergeLiveSessionInfo(timeline, sessionInfo) {
+    if (!sessionInfo) return timeline;
+    return {
+        ...timeline,
+        snapshot: {
+            ...timeline.snapshot,
+            ...sessionInfo,
+            planAssociations: mergePlanAssociations(timeline.snapshot?.planAssociations, sessionInfo.planAssociations),
+        },
+    };
+}
+
+export function activePlanHomeUrl(projectId, runwieldSessionId, snapshot) {
     const planId = activePlanId(snapshot);
     return planId
-        ? `/projects/${encodeURIComponent(projectId)}/plans/${encodeURIComponent(planId)}/progress?session=${
+        ? `/projects/${encodeURIComponent(projectId)}/plans/${encodeURIComponent(planId)}?session=${
             encodeURIComponent(runwieldSessionId)
         }`
         : "";
@@ -278,59 +312,6 @@ export function activePlanProgressApiUrl(projectId, runwieldSessionId, snapshot)
             encodeURIComponent(runwieldSessionId)
         }`
         : "";
-}
-
-function highestStageState(stages) {
-    const priority = [
-        "needs_attention",
-        "failed",
-        "paused",
-        "running",
-        "passed",
-        "completed",
-        "not_required",
-        "pending",
-        "unknown",
-    ];
-    return stages.map((item) => item?.state || "unknown").sort((left, right) =>
-        priority.indexOf(left) - priority.indexOf(right)
-    )[0] || "unknown";
-}
-
-export function deriveWorkflowSidebarStages(progress) {
-    const stages = Array.isArray(progress?.stages) ? progress.stages : [];
-    const byId = (id) => stages.find((stage) => stage.id === id) || null;
-    const validationStages = [byId("mechanical"), byId("semantic")].filter(Boolean);
-    const validationState = validationStages.length ? highestStageState(validationStages) : "unknown";
-    const validationDetail = validationStages.map((stage) => `${stage.label}: ${stage.detail}`).join(" ") ||
-        "Validation has no committed stage evidence yet.";
-    const completion = byId("completion") || byId("delivery");
-    return [
-        byId("execution") || {
-            id: "execution",
-            label: "Execution",
-            state: "unknown",
-            detail: "Execution has no committed stage evidence yet.",
-        },
-        {
-            id: "validation",
-            label: "Validation",
-            state: validationState,
-            detail: validationDetail,
-        },
-        byId("repair") || {
-            id: "repair",
-            label: "Repair",
-            state: "unknown",
-            detail: "Repair has no committed stage evidence yet.",
-        },
-        completion || {
-            id: "completion",
-            label: "Completion",
-            state: "unknown",
-            detail: "Completion has no committed stage evidence yet.",
-        },
-    ];
 }
 
 function PaperAirplaneIcon() {
@@ -356,6 +337,8 @@ export function SessionComposer({
     submitting,
     onDraftChange,
     onSubmit,
+    onResizeStart = undefined,
+    onResize = undefined,
     onQueue = undefined,
     onStop = undefined,
     sendLabel = "Send",
@@ -382,6 +365,52 @@ export function SessionComposer({
 }) {
     const textareaRef = useRef(null);
     const fileInputRef = useRef(null);
+    const composerRef = useRef(null);
+    const composerAnimation = useRef(null);
+    const previousComposerHeight = useRef(null);
+    const focusInputOnExpand = useRef(false);
+    const [expanded, setExpanded] = useState(false);
+    const hasDraft = Boolean(draft.trim() || imageAttachments.length);
+    const showStop = Boolean(onStop) && !hasDraft;
+    const primaryLabel = showStop ? "Stop" : submitting ? "Sending" : sendLabel;
+    const selectionSummary = [
+        agents.find((agent) => agent.name === agentValue)?.displayName || agentValue || "Agent",
+        modelValue?.replace("\u001f", "/") || "Project default",
+        thinkingValue || "Default thinking",
+    ].join(" · ");
+    function setComposerExpanded(nextExpanded) {
+        if (nextExpanded === expanded) return;
+        onResizeStart?.();
+        previousComposerHeight.current = composerRef.current?.getBoundingClientRect().height ?? null;
+        composerAnimation.current?.cancel();
+        setExpanded(nextExpanded);
+    }
+    function expandComposer() {
+        focusInputOnExpand.current = true;
+        setComposerExpanded(true);
+    }
+    useLayoutEffect(() => {
+        if (expanded) resizeComposerTextArea(textareaRef.current);
+        const composer = composerRef.current;
+        const previousHeight = previousComposerHeight.current;
+        previousComposerHeight.current = null;
+        if (composer && previousHeight !== null && !globalThis.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+            const styles = getComputedStyle(composer);
+            composerAnimation.current = composer.animate([
+                { height: `${previousHeight}px`, overflow: "clip" },
+                { height: `${composer.getBoundingClientRect().height}px`, overflow: "clip" },
+            ], {
+                duration: Number.parseFloat(styles.getPropertyValue("--rw-control-motion-duration")),
+                easing: styles.getPropertyValue("--rw-control-motion-ease").trim(),
+            });
+        }
+        onResize?.();
+        if (expanded && focusInputOnExpand.current) {
+            focusInputOnExpand.current = false;
+            textareaRef.current?.focus({ preventScroll: true });
+        }
+    }, [expanded]);
+    useEffect(() => () => composerAnimation.current?.cancel(), []);
     const [commandIndex, setCommandIndex] = useState(0);
     const [dismissedCommandDraft, setDismissedCommandDraft] = useState(null);
     const commandSuggestions = dismissedCommandDraft === draft ? [] : sessionCommandSuggestions(draft, {
@@ -414,6 +443,14 @@ export function SessionComposer({
     return (
         <form
             className="session-composer"
+            ref={composerRef}
+            data-expanded={expanded}
+            onFocusCapture={(event) => {
+                if (!event.target.classList.contains("session-composer-summary")) setComposerExpanded(true);
+            }}
+            onBlurCapture={(event) => {
+                if (!event.currentTarget.contains(event.relatedTarget)) setComposerExpanded(false);
+            }}
             onDragOver={(event) => {
                 if (event.dataTransfer.types.includes("Files")) event.preventDefault();
             }}
@@ -428,7 +465,13 @@ export function SessionComposer({
             }}
         >
             {commandSuggestions.length > 0 && (
-                <div className="rw-command-menu" id={commandListId} role="listbox" aria-label="Commands">
+                <div
+                    className="rw-command-menu"
+                    hidden={!expanded}
+                    id={commandListId}
+                    role="listbox"
+                    aria-label="Commands"
+                >
                     {commandSuggestions.map((suggestion, index) => (
                         <button
                             key={suggestion.key}
@@ -439,8 +482,7 @@ export function SessionComposer({
                             disabled={controlsDisabled && suggestion.kind !== "command"}
                             tabIndex={-1}
                             onMouseDown={(event) => event.preventDefault()}
-                            onClick={() =>
-                                pickCommand(suggestion)}
+                            onClick={() => pickCommand(suggestion)}
                         >
                             <strong>{suggestion.label}</strong>
                             <span>{suggestion.description}</span>
@@ -450,7 +492,7 @@ export function SessionComposer({
             )}
             {queuedMessages.length
                 ? (
-                    <ol className="session-composer-queue" aria-label="Queued messages">
+                    <ol className="session-composer-queue" hidden={!expanded} aria-label="Queued messages">
                         {queuedMessages.map((item) => (
                             <li key={item.id}>
                                 <span>{item.text || "Image message"}</span>
@@ -464,7 +506,7 @@ export function SessionComposer({
                 : null}
             {steeringMessages.length
                 ? (
-                    <ul className="session-composer-queue" aria-label="Pending steering messages">
+                    <ul className="session-composer-queue" hidden={!expanded} aria-label="Pending steering messages">
                         {steeringMessages.map((item) => (
                             <li key={item.id}>
                                 <span>Steering · {item.text}</span>
@@ -475,13 +517,14 @@ export function SessionComposer({
                 : null}
             <textarea
                 ref={textareaRef}
+                hidden={!expanded}
                 id={id}
                 value={draft}
                 rows={2}
                 disabled={disabled}
                 role="combobox"
                 aria-autocomplete="list"
-                aria-expanded={commandSuggestions.length > 0}
+                aria-expanded={expanded && commandSuggestions.length > 0}
                 aria-controls={commandSuggestions.length ? commandListId : undefined}
                 aria-activedescendant={commandSuggestions.length
                     ? `${commandListId}-${selectedCommandIndex}`
@@ -528,7 +571,11 @@ export function SessionComposer({
             />
             {imageAttachments.length
                 ? (
-                    <ul className="session-image-attachments rw-image-previews" aria-label="Attached images">
+                    <ul
+                        className="session-image-attachments rw-image-previews"
+                        hidden={!expanded}
+                        aria-label="Attached images"
+                    >
                         {imageAttachments.map((image) => (
                             <li key={image.id}>
                                 <img src={`data:${image.mimeType};base64,${image.base64}`} alt={image.name} />
@@ -570,7 +617,25 @@ export function SessionComposer({
                         <path strokeLinecap="round" d="M12 5v14M5 12h14" />
                     </svg>
                 </button>
+                <button
+                    type="button"
+                    className="session-composer-summary"
+                    hidden={expanded}
+                    aria-label={`Write a message · ${selectionSummary}`}
+                    title={selectionSummary}
+                    disabled={disabled}
+                    onPointerDown={(event) => {
+                        if (event.button !== 0) return;
+                        event.preventDefault();
+                        expandComposer();
+                    }}
+                    onFocus={expandComposer}
+                    onClick={expandComposer}
+                >
+                    <span>{hasDraft ? `Draft · ${selectionSummary}` : selectionSummary}</span>
+                </button>
                 <select
+                    hidden={!expanded}
                     aria-label="Agent"
                     className="rw-toolbar-select"
                     title={`Agent: ${agents.find((agent) => agent.name === agentValue)?.displayName || agentValue}`}
@@ -584,6 +649,7 @@ export function SessionComposer({
                     ))}
                 </select>
                 <select
+                    hidden={!expanded}
                     aria-label="Model"
                     className="rw-toolbar-select session-model-select"
                     title={`Provider/model: ${modelValue?.replace("\u001f", "/") || "Project default"}`}
@@ -599,6 +665,7 @@ export function SessionComposer({
                     ))}
                 </select>
                 <select
+                    hidden={!expanded}
                     aria-label="Thinking"
                     className="rw-toolbar-select"
                     title={`Thinking: ${thinkingValue}`}
@@ -609,31 +676,12 @@ export function SessionComposer({
                     {thinkingFallback}
                     {thinkingLevels.map((level) => <option key={level} value={level}>{level}</option>)}
                 </select>
-                {onStop
-                    ? (
-                        <button
-                            type="button"
-                            className="rw-toolbar-button session-composer-icon-button"
-                            onClick={onStop}
-                            aria-label="Stop"
-                            title="Stop"
-                        >
-                            <svg
-                                className="rw-session-toolbar-icon"
-                                viewBox="0 0 24 24"
-                                fill="currentColor"
-                                aria-hidden="true"
-                            >
-                                <rect x="6" y="6" width="12" height="12" rx="2" />
-                            </svg>
-                        </button>
-                    )
-                    : null}
                 {onQueue
                     ? (
                         <button
                             type="button"
                             className="rw-toolbar-button session-composer-icon-button"
+                            hidden={!expanded}
                             aria-label="Queue"
                             title="Queue follow-up"
                             disabled={!canSend || submitting}
@@ -653,21 +701,35 @@ export function SessionComposer({
                     )
                     : null}
                 <button
-                    type="submit"
+                    type={showStop ? "button" : "submit"}
                     className="rw-toolbar-button session-composer-icon-button session-send-button"
-                    disabled={!canSend || submitting}
-                    aria-label={submitting ? "Sending" : sendLabel}
-                    title={submitting ? "Sending" : sendLabel}
+                    disabled={!showStop && (!canSend || submitting)}
+                    onClick={showStop ? onStop : undefined}
+                    aria-label={primaryLabel}
+                    title={primaryLabel}
                 >
-                    {submitting ? <RunWieldThinkingDots label="Sending" showLabel={false} /> : <PaperAirplaneIcon />}
+                    {showStop
+                        ? (
+                            <svg
+                                className="rw-session-toolbar-icon"
+                                viewBox="0 0 24 24"
+                                fill="currentColor"
+                                aria-hidden="true"
+                            >
+                                <rect x="6" y="6" width="12" height="12" rx="2" />
+                            </svg>
+                        )
+                        : submitting
+                        ? <RunWieldThinkingDots label="Sending" showLabel={false} />
+                        : <PaperAirplaneIcon />}
                 </button>
             </div>
         </form>
     );
 }
 
-/** @param {{ projectId: string, mode?: "list" | "detail" | "new", runwieldSessionId?: string }} props */
-export function SessionSurface({ projectId, mode = "detail", runwieldSessionId = "" }) {
+/** @param {{ projectId: string, mode?: "list" | "detail" | "new", runwieldSessionId?: string, planId?: string }} props */
+export function SessionSurface({ projectId, mode = "detail", runwieldSessionId = "", planId = "" }) {
     const [listData, setListData] = useState(/** @type {any} */ (null));
     const [listPage, setListPage] = useState(0);
     const [listError, setListError] = useState("");
@@ -679,21 +741,33 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     const [workflowProgress, setWorkflowProgress] = useState(/** @type {any} */ (null));
     const [workflowProgressError, setWorkflowProgressError] = useState("");
     const [sessionSidebarTab, setSessionSidebarTab] = useState("session");
+    const sidebarPlanRef = useRef("");
     const [contextCollapsed, setContextCollapsed] = useState(false);
     useEffect(() => {
-        try {
-            const stored = localStorage.getItem("runwield:owner:session-context-collapsed");
-            setContextCollapsed(
-                stored === null ? globalThis.matchMedia("(max-width: 900px)").matches : stored === "true",
-            );
-        } catch { /* Sidebar state is optional. */ }
+        const narrowScreen = globalThis.matchMedia("(max-width: 900px)");
+        function syncContextVisibility() {
+            let savedCollapsed = false;
+            try {
+                savedCollapsed = localStorage.getItem("runwield:owner:session-context-collapsed") === "true";
+            } catch { /* Sidebar state is optional. */ }
+            setContextCollapsed(narrowScreen.matches || savedCollapsed);
+        }
+        syncContextVisibility();
+        narrowScreen.addEventListener("change", syncContextVisibility);
+        return () => narrowScreen.removeEventListener("change", syncContextVisibility);
     }, []);
     function toggleContext() {
-        const collapsed = !contextCollapsed;
-        setContextCollapsed(collapsed);
-        try {
-            localStorage.setItem("runwield:owner:session-context-collapsed", String(collapsed));
-        } catch { /* Sidebar state is optional. */ }
+        animateSidebarUpdate(() => {
+            setContextCollapsed((current) => {
+                const collapsed = !current;
+                try {
+                    if (!globalThis.matchMedia("(max-width: 900px)").matches) {
+                        localStorage.setItem("runwield:owner:session-context-collapsed", String(collapsed));
+                    }
+                } catch { /* Sidebar state is optional. */ }
+                return collapsed;
+            });
+        });
     }
     const sidebarSessionRef = useRef("");
     const [detailError, setDetailError] = useState("");
@@ -738,6 +812,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     const queuedSessionRef = useRef(runwieldSessionId);
     const timelineEndRef = useRef(/** @type {HTMLDivElement | null} */ (null));
     const timelineScrollRef = useRef(/** @type {HTMLDivElement | null} */ (null));
+    const historyViewportRef = useRef(null);
     const followingLiveEdgeRef = useRef(true);
     const didPinInitialTimelineRef = useRef(false);
     const [, setFollowingLiveEdge] = useState(true);
@@ -773,6 +848,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         setListError("");
         try {
             const query = new URLSearchParams({ page: String(requestedPage), pageSize: String(SESSION_PAGE_SIZE) });
+            if (planId) query.set("plan", planId);
             const payload = await ownerFetch(
                 `/api/owner/projects/${encodeURIComponent(projectId)}/sessions?${query}`,
                 { method: "GET" },
@@ -1013,7 +1089,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             setLoadingDetail(false);
             loadSessionOptions();
         }
-    }, [mode, projectId, runwieldSessionId, listPage]);
+    }, [mode, projectId, runwieldSessionId, listPage, planId]);
 
     useEffect(() => {
         if (!draftKey) return;
@@ -1077,9 +1153,15 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         }), [listData, timeline, operation]);
 
     useEffect(() => {
-        if (!timeline || !runwieldSessionId || sidebarSessionRef.current === runwieldSessionId) return;
-        sidebarSessionRef.current = runwieldSessionId;
-        setSessionSidebarTab(defaultSessionSidebarTab(Boolean(activePlanId(timeline.snapshot))));
+        if (!timeline || !runwieldSessionId) return;
+        const planId = activePlanId(timeline.snapshot);
+        if (sidebarSessionRef.current !== runwieldSessionId) {
+            sidebarSessionRef.current = runwieldSessionId;
+            setSessionSidebarTab(defaultSessionSidebarTab(Boolean(planId)));
+        } else if (planId && planId !== sidebarPlanRef.current) {
+            setSessionSidebarTab("workflow");
+        }
+        sidebarPlanRef.current = planId;
     }, [timeline, runwieldSessionId]);
 
     async function createSession() {
@@ -1404,6 +1486,12 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     }
 
     async function applyOperationSnapshot(current, payload) {
+        const existingTimeline = timelineRef.current;
+        if (existingTimeline && payload.sessionInfo) {
+            const nextTimeline = mergeLiveSessionInfo(existingTimeline, payload.sessionInfo);
+            timelineRef.current = nextTimeline;
+            setTimeline(nextTimeline);
+        }
         const events = Array.isArray(payload.events) ? payload.events : [];
         let items = reduceOperationTransientItems(events);
         if (payload.liveInteraction?.interactionId) {
@@ -1683,21 +1771,63 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             return;
         }
         let cancelled = false;
+        let refreshing = false;
+        setWorkflowProgress(null);
         setWorkflowProgressError("");
-        ownerFetch(apiUrl, { method: "GET" })
-            .then((payload) => {
-                if (!cancelled) setWorkflowProgress(payload);
-            })
-            .catch((error) => {
+        const refresh = async () => {
+            if (cancelled || refreshing) return;
+            refreshing = true;
+            try {
+                const payload = await ownerFetch(apiUrl, { method: "GET" });
                 if (!cancelled) {
-                    setWorkflowProgress(null);
-                    setWorkflowProgressError(errorMessage(error));
+                    setWorkflowProgress(payload);
+                    setWorkflowProgressError("");
                 }
-            });
+            } catch (error) {
+                if (!cancelled) setWorkflowProgressError(errorMessage(error));
+            } finally {
+                refreshing = false;
+            }
+        };
+        void refresh();
+        const id = setInterval(refresh, AVAILABILITY_REFRESH_INTERVAL_MS);
         return () => {
             cancelled = true;
+            clearInterval(id);
         };
-    }, [mode, projectId, runwieldSessionId, timeline]);
+    }, [mode, projectId, runwieldSessionId, activePlanId(timeline?.snapshot)]);
+
+    function captureHistoryViewport() {
+        const scroller = timelineScrollRef.current;
+        if (!scroller) return;
+        historyViewportRef.current = {
+            height: scroller.clientHeight,
+            bottomGap: scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight,
+        };
+    }
+
+    function restoreHistoryViewport() {
+        const scroller = timelineScrollRef.current;
+        const previous = historyViewportRef.current;
+        if (!scroller || !previous) return;
+        scroller.scrollTop = scroller.scrollHeight - scroller.clientHeight - previous.bottomGap;
+        captureHistoryViewport();
+    }
+
+    useLayoutEffect(() => {
+        const scroller = timelineScrollRef.current;
+        if (!scroller) return;
+        captureHistoryViewport();
+        const resize = new ResizeObserver(() => {
+            const previous = historyViewportRef.current;
+            const height = scroller.clientHeight;
+            if (!previous || previous.height === height) return;
+            // Use the saved gap: browsers may clamp scrollTop before resize is delivered.
+            restoreHistoryViewport();
+        });
+        resize.observe(scroller);
+        return () => resize.disconnect();
+    }, [mode, Boolean(timeline)]);
 
     function scrollToLiveEdge() {
         const scroller = timelineScrollRef.current;
@@ -1710,6 +1840,8 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     function updateScrollFollowState() {
         const scroller = timelineScrollRef.current;
         if (!scroller) return;
+        if (historyViewportRef.current && historyViewportRef.current.height !== scroller.clientHeight) return;
+        captureHistoryViewport();
         const atLiveEdge = isAtLiveScrollEdge(scroller);
         followingLiveEdgeRef.current = atLiveEdge;
         setFollowingLiveEdge(atLiveEdge);
@@ -1766,6 +1898,17 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         }
     }
 
+    useEffect(() => {
+        if (!location.hash.startsWith("#interaction-")) return;
+        const interactionId = location.hash.slice("#interaction-".length);
+        if (!latestLiveWorkflowInteraction(transientItems.filter((item) => item.interactionId === interactionId))) {
+            return;
+        }
+        const target = document.getElementById(location.hash.slice(1));
+        const focusTarget = target?.querySelector?.("textarea, input, button, a") || target;
+        if (focusTarget instanceof HTMLElement) focusTarget.focus();
+    }, [transientItems]);
+
     if (mode === "list") {
         return (
             <SessionList
@@ -1820,6 +1963,8 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                         </div>
                         <SessionComposer
                             id="new-session-request-text"
+                            onResizeStart={captureHistoryViewport}
+                            onResize={restoreHistoryViewport}
                             draft={draft}
                             disabled={!canSendNew}
                             canSend={canSendNew && Boolean(draft.trim() || imageAttachments.length)}
@@ -1852,8 +1997,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         );
     }
 
-    const allItems = [
-        ...timelineItems,
+    const allItems = mergeSessionTimelineItems(timelineItems, [
         ...(transientItems.some((item) => item.kind === "message" && item.role === "user") ? [] : pendingUserMessages),
         ...transientItems.map((item) =>
             item.kind === "interaction"
@@ -1864,7 +2008,8 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                 : item
         ),
         ...(interruptedOperation ? [{ kind: "interruption", key: "interruption:lost-workspace-operation" }] : []),
-    ];
+    ]);
+    const liveWorkflowInteraction = latestLiveWorkflowInteraction(transientItems);
     const activeExecutionWorkflow = asRecord(timeline?.snapshot?.activeExecutionWorkflow || {});
     const persistedWorkflowContext = asRecord(timeline?.snapshot?.workflowContext || {});
     const workflowContext = Object.keys(activeExecutionWorkflow).length
@@ -1876,18 +2021,70 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         : typeof persistedWorkflowContext.parentPlan === "string"
         ? persistedWorkflowContext.parentPlan
         : "";
+    const activeWorkflowPlan = typeof workflowContext.planName === "string"
+        ? workflowContext.planName
+        : typeof workflowContext.planId === "string"
+        ? workflowContext.planId
+        : "";
     const workflowSidebar = buildSessionSidebarProjection({
-        workflowPlan: typeof workflowContext.planName === "string"
-            ? workflowContext.planName
-            : typeof workflowContext.planId === "string"
-            ? workflowContext.planId
-            : "",
+        workflowPlan: activeWorkflowPlan,
         workflowEpic,
         workflowIntent: typeof persistedWorkflowContext.routingIntent === "string"
             ? persistedWorkflowContext.routingIntent
             : "",
+        workflowStatus: typeof workflowProgress?.plan?.status === "string" ? workflowProgress.plan.status : "",
+        workflowClassification: typeof workflowProgress?.plan?.classification === "string"
+            ? workflowProgress.plan.classification
+            : "",
+        workflowProgressFacts: Array.isArray(workflowProgress?.progressFacts)
+            ? workflowProgress.progressFacts
+            : undefined,
+        workflowDegradedMessage: typeof workflowProgress?.degraded?.message === "string"
+            ? workflowProgress.degraded.message
+            : workflowProgressError,
+        workflowSessionState: typeof workflowProgress?.session?.state === "string"
+            ? workflowProgress.session.state
+            : "",
+        workflowHasWorkingSession: Boolean(workflowProgress?.session?.runwieldSessionId || runwieldSessionId),
+        workflowHasLiveQuestion: liveWorkflowInteraction?.kind === "interaction",
+        workflowHasPlanReview: liveWorkflowInteraction?.kind === "plan-review",
+        workflowHasCodeReview: liveWorkflowInteraction?.kind === "code-review",
+        workflowCanResume: Boolean(runwieldSessionId && availability.canContinue),
+        workflowCanRecover: Boolean(runwieldSessionId && interruptedOperation),
     }).workflow;
-    const progressUrl = timeline ? activePlanProgressUrl(projectId, runwieldSessionId, timeline.snapshot) : "";
+    const planHomeFromSnapshot = timeline ? activePlanHomeUrl(projectId, runwieldSessionId, timeline.snapshot) : "";
+    const planHomeUrl = planHomeFromSnapshot;
+    const workflowActionUrl = liveWorkflowInteraction?.reviewUrl ||
+        (liveWorkflowInteraction?.interactionId ? `#interaction-${liveWorkflowInteraction.interactionId}` : "") ||
+        planHomeUrl;
+    async function runWorkflowAction(action) {
+        if (!["run", "resume", "recover"].includes(action.kind)) return;
+        const planId = activePlanId(timeline?.snapshot);
+        if (!planId) {
+            setMessage("Plan workflow evidence is unavailable.");
+            return;
+        }
+        try {
+            await ownerFetch(
+                `/api/owner/projects/${encodeURIComponent(projectId)}/sessions/${
+                    encodeURIComponent(runwieldSessionId)
+                }/plan-workflow`,
+                {
+                    method: "POST",
+                    body: JSON.stringify({
+                        requestId: crypto.randomUUID(),
+                        planId,
+                        action: action.kind,
+                        expectedGeneration: timeline?.snapshot?.managed?.generation,
+                        expectedCurrentSegmentId: timeline?.snapshot?.managed?.currentSegmentId || null,
+                    }),
+                },
+            );
+            await refresh();
+        } catch (error) {
+            setMessage(errorMessage(error));
+        }
+    }
     const agents = Array.isArray(sessionOptions?.agents) ? sessionOptions.agents : [];
     const models = Array.isArray(sessionOptions?.models) ? sessionOptions.models : [];
     const thinkingLevels = Array.isArray(sessionOptions?.thinkingLevels) ? sessionOptions.thinkingLevels : [];
@@ -1900,8 +2097,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     const activeThinking = typeof timeline?.snapshot?.thinkingLevel === "string"
         ? timeline.snapshot.thinkingLevel
         : "default";
-    const hasActivePlan = Boolean(workflowContext.planId || workflowContext.planName || progressUrl);
-    const workflowStages = deriveWorkflowSidebarStages(workflowProgress);
+    const hasActivePlan = Boolean(workflowContext.planId || workflowContext.planName || planHomeFromSnapshot);
     const localOperationActive = Boolean(operation && !["completed", "failed", "unknown"].includes(operation.status));
     const canConfigureSession = availability.canContinue || (localOperationActive && !operation?.remote);
     const stagedAgent = pendingConfiguration?.agentName || timeline?.snapshot?.activeAgent || "";
@@ -1924,17 +2120,60 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         contextPercent: timeline?.snapshot?.contextUsage?.percent,
         systemContextTokens: timeline?.snapshot?.systemContextTokens,
     }).session;
+    const currentAgent = timeline?.snapshot?.activeAgent || "";
+    const sessionFields = sessionSidebarFields(sessionSidebar).filter((field) => field.label !== "Session");
+    sessionFields.unshift({
+        label: "Agent",
+        value: currentAgent
+            ? agents.find((agent) => agent.name === currentAgent)?.displayName || displayAgentName(currentAgent)
+            : "Unknown",
+    }, {
+        label: "Model",
+        value: activeModelId
+            ? activeProvider && !activeModelId.startsWith(`${activeProvider}/`)
+                ? [activeProvider, activeModelId].filter(Boolean).join("/")
+                : activeModelId
+            : "Unknown",
+    }, {
+        label: "Thinking",
+        value: activeThinking,
+    });
     return (
         <section className="session-surface session-surface-detail" aria-label="RunWield Session chat">
-            {timeline && contextCollapsed && (
+            {timeline && (
                 <WorkspaceHeaderActionsPortal>
-                    <RunWieldPanelToggle
-                        side="right"
-                        collapsed
-                        label="Session sidebar"
-                        controls="session-context-sidebar"
-                        onClick={toggleContext}
-                    />
+                    <div className="session-context-header" data-expanded={!contextCollapsed}>
+                        <RunWieldPanelToggle
+                            side="right"
+                            collapsed={contextCollapsed}
+                            label="Session sidebar"
+                            controls="session-context-sidebar"
+                            onClick={toggleContext}
+                        />
+                        {!contextCollapsed && (
+                            <div
+                                className="rw-underline-tabs session-context-tabs"
+                                role="tablist"
+                                aria-label="Session context views"
+                            >
+                                {SESSION_SIDEBAR_TABS.map((tab) => (
+                                    <button
+                                        key={tab}
+                                        type="button"
+                                        role="tab"
+                                        aria-selected={sessionSidebarTab === tab}
+                                        onClick={() => setSessionSidebarTab(tab)}
+                                    >
+                                        {tab[0].toUpperCase() + tab.slice(1)}
+                                        {tab === "artifacts" && Array.isArray(timeline.artifacts) &&
+                                                timeline.artifacts.length
+                                            ? <span>{timeline.artifacts.length}</span>
+                                            : null}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
                 </WorkspaceHeaderActionsPortal>
             )}
             {loadingDetail && !timeline
@@ -2008,6 +2247,8 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                             </div>
                             <SessionComposer
                                 id="session-request-text"
+                                onResizeStart={captureHistoryViewport}
+                                onResize={restoreHistoryViewport}
                                 draft={draft}
                                 disabled={!canSubmitSession || submitting || attachingImages ||
                                     loadedDraftKey !== draftKey}
@@ -2068,98 +2309,27 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                             aria-label="Session context"
                         >
                             <div className="session-context-content">
-                                <div className="session-context-header">
-                                    <RunWieldPanelToggle
-                                        side="right"
-                                        collapsed={false}
-                                        label="Session sidebar"
-                                        controls="session-context-sidebar"
-                                        onClick={toggleContext}
-                                    />
-                                    <div
-                                        className="session-context-tabs"
-                                        role="tablist"
-                                        aria-label="Session context views"
-                                    >
-                                        {SESSION_SIDEBAR_TABS.map((tab) => (
-                                            <button
-                                                key={tab}
-                                                type="button"
-                                                role="tab"
-                                                aria-selected={sessionSidebarTab === tab}
-                                                onClick={() => setSessionSidebarTab(tab)}
-                                            >
-                                                {tab[0].toUpperCase() + tab.slice(1)}
-                                                {tab === "artifacts" && Array.isArray(timeline.artifacts) &&
-                                                        timeline.artifacts.length
-                                                    ? <span>{timeline.artifacts.length}</span>
-                                                    : null}
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
                                 {sessionSidebarTab === "workflow"
                                     ? (
                                         <div className="session-context-panel" role="tabpanel">
                                             {hasActivePlan
                                                 ? (
-                                                    <>
-                                                        <dl>
-                                                            {workflowSidebar.epic
-                                                                ? (
-                                                                    <div>
-                                                                        <dt>Epic</dt>
-                                                                        <dd>{workflowSidebar.epic}</dd>
-                                                                    </div>
-                                                                )
-                                                                : null}
-                                                            <div>
-                                                                <dt>Plan</dt>
-                                                                <dd>{workflowSidebar.plan}</dd>
-                                                            </div>
-                                                        </dl>
-                                                        {workflowProgress
-                                                            ? (
-                                                                <ol
-                                                                    className="session-workflow-stage-list"
-                                                                    aria-label="Canonical workflow progress stages"
-                                                                >
-                                                                    {workflowStages.map((stage) => (
-                                                                        <li key={stage.id} data-state={stage.state}>
-                                                                            <span>{stage.label}</span>
-                                                                            <strong>
-                                                                                {String(stage.state || "unknown")
-                                                                                    .replaceAll(
-                                                                                        "_",
-                                                                                        " ",
-                                                                                    )}
-                                                                            </strong>
-                                                                            <p>{stage.detail}</p>
-                                                                        </li>
-                                                                    ))}
-                                                                </ol>
-                                                            )
-                                                            : (
-                                                                <p className="notice muted">
-                                                                    {workflowProgressError
-                                                                        ? "Workflow progress is temporarily unavailable."
-                                                                        : (
-                                                                            <RunWieldThinkingDots label="Loading workflow progress" />
-                                                                        )}
-                                                                </p>
-                                                            )}
-                                                        {progressUrl && !workflowProgressError
-                                                            ? (
-                                                                <RunWieldLink
-                                                                    variant="primary"
-                                                                    className="rw-plan-review-link"
-                                                                    href={progressUrl}
-                                                                >
-                                                                    Open progress
-                                                                </RunWieldLink>
-                                                            )
-                                                            : null}
-                                                    </>
+                                                    <WorkflowSidebar
+                                                        presentation={workflowSidebar}
+                                                        payload={{
+                                                            planHref: planHomeUrl,
+                                                            sessionHref: runwieldSessionId
+                                                                ? `/projects/${
+                                                                    encodeURIComponent(projectId)
+                                                                }/sessions/${encodeURIComponent(runwieldSessionId)}`
+                                                                : "",
+                                                            reviewHref: liveWorkflowInteraction?.reviewUrl || "",
+                                                            interactionHref: workflowActionUrl,
+                                                        }}
+                                                        title="Workflow"
+                                                        embedded
+                                                        onAction={runWorkflowAction}
+                                                    />
                                                 )
                                                 : (
                                                     <p className="session-context-empty">
@@ -2172,7 +2342,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                                     ? (
                                         <div className="session-context-panel" role="tabpanel">
                                             <dl>
-                                                {sessionSidebarFields(sessionSidebar).map((field) => (
+                                                {sessionFields.map((field) => (
                                                     <div key={field.label}>
                                                         <dt>{field.label}</dt>
                                                         <dd>{field.value}</dd>

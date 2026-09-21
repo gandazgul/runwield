@@ -7,10 +7,11 @@
  * delegate to the Astro Deno adapter output when it is available.
  */
 
+import { sessionArtifactKindLabel } from "../../shared/session/session-sidebar.ts";
 import { extname, join, toFileUrl } from "@std/path";
 import { RUNWIELD_ROOT, RUNWIELD_SOURCE_ROOT } from "../../../runtime-root.js";
 import { PLAN_UI_TOKEN_HEADER, PLAN_UI_TOKEN_QUERY } from "../../constants.js";
-import { getWorkflowDiff } from "../../shared/workflow/git-snapshot.js";
+import { getWorktreeReviewDiff, WorktreeReviewTargetError } from "../../shared/workflow/git-snapshot.js";
 import {
     boardApi,
     lifecycleActionApi,
@@ -32,8 +33,7 @@ import { openRemoteWorkspaceAdapter } from "./server/remote-adapter.js";
 import { escapeReviewPayloadJson } from "./server/review-payload-json.ts";
 import { withAccessLogger } from "./server-access-logger.ts";
 import { SYSTEM_WORK_RECORD_MNEMOTECA_PORT } from "../../shared/work-records/mnemoteca-port.ts";
-import { PlanProgressSurface } from "./react/PlanProgressSurface.tsx";
-import { loadRunWieldThemeCss } from "../design-system/theme-bridge.js";
+import { renderRunWieldThemeCss } from "../design-system/theme-bridge.js";
 import { reviewImageApi, reviewImageUploadApi } from "./routes/api/review-image-handlers.js";
 import {
     cleanupReviewAgentState,
@@ -45,6 +45,7 @@ import { reviewFileContentApi, reviewLocalConfigApi, reviewOpenInAppsApi } from 
 import { reviewWidgetApi } from "./routes/api/review-widget-handlers.js";
 import {
     devicesApi,
+    ownerDashboardApi,
     ownerErrorJson,
     ownerProjectBoardApi,
     ownerProjectFileContentApi,
@@ -75,6 +76,7 @@ import {
     ownerSessionOperationStatusApi,
     ownerSessionOperationStreamApi,
     ownerSessionOptionsApi,
+    ownerSessionPlanWorkflowApi,
     ownerSessionSteerApi,
     ownerSessionTimelineApi,
 } from "./routes/owner-session-api.js";
@@ -246,26 +248,24 @@ export function createOwnerWorkspaceApp(options) {
                 `<section class=\"error-panel\"><h2>Workspace request blocked</h2><p>${
                     escapeHtml(message)
                 }</p></section>`,
-                403,
+                { status: 403 },
             );
         }
     });
-    app.get("/", () => ownerHtmlResponse("RunWield Owner Workspace", renderOwnerHome()));
+    app.get("/", async (ctx) => {
+        const headers = new Headers(ctx.req.headers);
+        headers.set("x-runwield-owner-dashboard", "true");
+        return await renderRequiredOwnerAstroPage({ ...ctx, req: new Request(ctx.req, { headers }) });
+    });
     app.get("/pair", renderRequiredOwnerAstroPage);
     app.get("/devices", renderRequiredOwnerAstroPage);
     app.get("/projects", renderRequiredOwnerAstroPage);
     app.get("/projects/:projectId/plans", renderRequiredOwnerAstroPage);
     app.get("/projects/:projectId/plans/closed", renderRequiredOwnerAstroPage);
     app.get("/projects/:projectId/plans/on-hold", renderRequiredOwnerAstroPage);
-    app.get(
-        "/projects/:projectId/plans/:planId/progress",
-        async (ctx) => {
-            const body = await renderOwnerPlanProgress(ctx);
-            return body instanceof Response ? body : ownerHtmlResponse("Project Plan Progress", body);
-        },
-    );
     app.get("/projects/:projectId/plans/:planId", renderRequiredOwnerAstroPage);
-    app.get("/projects/:projectId/settings", renderOwnerProjectSettingsPage);
+    // Settings manages the registration, including missing and disabled roots.
+    app.get("/projects/:projectId/settings", renderRequiredOwnerAstroPage);
     app.get("/projects/:projectId/sessions", renderOwnerProjectSessionsPage);
     app.get("/projects/:projectId/sessions/new", renderOwnerProjectSessionNewPage);
     app.get(
@@ -281,6 +281,7 @@ export function createOwnerWorkspaceApp(options) {
     app.get("/api/owner/pairing/status", pairingStatusApi);
     app.post("/api/owner/pairing/claim", pairingClaimApi);
     app.get("/api/owner/projects", projectsApi);
+    app.get("/api/owner/dashboard", ownerDashboardApi);
     app.get("/api/owner/sidebar", ownerSidebarApi);
     app.post("/api/owner/projects", registerProjectApi);
     app.post("/api/owner/projects/:projectId/action", projectActionApi);
@@ -312,6 +313,7 @@ export function createOwnerWorkspaceApp(options) {
     app.get("/api/owner/projects/:projectId/sessions/:runwieldSessionId/live", ownerSessionLiveApi);
     app.post("/api/owner/projects/:projectId/sessions/:runwieldSessionId/bootstrap", ownerSessionBootstrapApi);
     app.post("/api/owner/projects/:projectId/sessions/:runwieldSessionId/continue", ownerSessionContinuationStartApi);
+    app.post("/api/owner/projects/:projectId/sessions/:runwieldSessionId/plan-workflow", ownerSessionPlanWorkflowApi);
     app.post("/api/owner/projects/:projectId/sessions/:runwieldSessionId/configure", ownerSessionConfigureApi);
     app.post("/api/owner/projects/:projectId/sessions/:runwieldSessionId/force-recovery", ownerSessionForceRecoverApi);
     app.post(
@@ -328,7 +330,9 @@ export function createOwnerWorkspaceApp(options) {
         if (ctx.url.pathname.startsWith("/api/owner/")) {
             return ownerErrorJson(new Error("Owner API route not found."), 404);
         }
-        return ownerHtmlResponse("Not found", `<section class=\"error-panel\"><h2>Not found</h2></section>`, 404);
+        return ownerHtmlResponse("Not found", `<section class=\"error-panel\"><h2>Not found</h2></section>`, {
+            status: 404,
+        });
     });
     app.store = store;
     app.ownerConnections = connections;
@@ -492,21 +496,22 @@ export function createReviewWorkspaceApp({ cwd, token, reviewPayload, reviewType
 
 /**
  * Refresh Code Review from the working tree on every document request. The
- * workflow baseline remains stable, so browser reload never changes what the
- * user is comparing against.
+ * recorded target branch is resolved for each refresh.
  *
  * @param {{ cwd: string, reviewPayload: Record<string, unknown>, reviewType: "plan" | "code", token: string }} options
  */
 async function currentReviewPagePayload({ cwd, reviewPayload, reviewType, token }) {
     const payload = { ...reviewPayload, token, mode: "workflow" };
-    if (reviewType === "code" && typeof reviewPayload.baselineTree === "string") {
+    if (reviewType === "code" && typeof reviewPayload.targetBranch === "string") {
         try {
-            payload.rawPatch = await getWorkflowDiff(cwd, reviewPayload.baselineTree);
-        } catch {
+            payload.rawPatch = await getWorktreeReviewDiff(cwd, reviewPayload.targetBranch);
+        } catch (error) {
+            if (error instanceof WorktreeReviewTargetError) throw error;
             // Keep the last complete patch if the checkout is temporarily unreadable.
         }
     }
-    delete payload.baselineTree;
+    delete payload.targetBranch;
+    delete payload.agentCwd;
     return payload;
 }
 
@@ -670,7 +675,7 @@ function isLegacyReviewApiPath(pathname) {
  */
 function renderStaticReviewFallback(reviewType, payload) {
     const title = payload?.surface === "artifact-read"
-        ? `${payload.artifactKind === "work-record" ? "Work Record" : "Plan"} · RunWield Workspace`
+        ? `${sessionArtifactKindLabel(payload.artifactKind)} · RunWield Workspace`
         : reviewType === "plan"
         ? "Plan Review · RunWield Workspace"
         : "Code Review · RunWield Workspace";
@@ -738,12 +743,25 @@ function redirectResponse(location) {
     return withOwnerSecurityHeaders(new Response(null, { status: 302, headers: { location } }));
 }
 
-/** @param {string} title @param {string} body @param {number} [status] */
-function ownerHtmlResponse(title, body, status = 200) {
+/**
+ * @param {string} title
+ * @param {string} body
+ * @param {{ status?: number, surfaceTitle?: string }} [options]
+ */
+function ownerHtmlResponse(title, body, options = {}) {
+    const status = options.status ?? 200;
+    const headerTitle = options.surfaceTitle
+        ? `<strong class="workspace-main-session-name" data-workspace-surface-title>${
+            escapeHtml(options.surfaceTitle)
+        }</strong>`
+        : `<a class="brand workspace-main-brand" href="/" aria-label="RunWield Workspace home"><img class="brand-logo" src="/brand/logo.svg" alt="" aria-hidden="true"><span>RunWield Workspace</span></a>`;
+    const headerClass = options.surfaceTitle
+        ? "workspace-main-header workspace-main-surface-header"
+        : "workspace-main-header";
     const html =
         `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${
             escapeHtml(title)
-        }</title><link rel="icon" href="/brand/logo.svg" type="image/svg+xml"><link rel="stylesheet" href="/tokens.css"><link rel="stylesheet" href="/components.css"><link rel="stylesheet" href="/workspace.css"><link rel="stylesheet" href="/theme.css"></head><body class="theme-runwield"><div class="workspace-shell workspace-shell-with-sidebar owner-workspace-shell"><aside class="workspace-sidebar" data-workspace-sidebar aria-label="Workspace navigation"><p class="workspace-sidebar-empty"><span class="rw-thinking-dots" role="status"><span class="rw-thinking-glyph" aria-hidden="true"></span>Loading Workspace</span></p></aside><div class="workspace-main-shell"><header class="workspace-main-header"><a class="brand workspace-main-brand" href="/" aria-label="RunWield Workspace home"><img class="brand-logo" src="/brand/logo.svg" alt="" aria-hidden="true"><span>RunWield Workspace</span></a></header><main>${body}</main></div></div><script type="module" src="/workspace-shell.js"></script></body></html>`;
+        }</title><link rel="icon" href="/brand/logo.svg" type="image/svg+xml"><link rel="stylesheet" href="/tokens.css"><link rel="stylesheet" href="/components.css"><link rel="stylesheet" href="/workspace.css"><link rel="stylesheet" href="/theme.css"></head><body class="theme-runwield"><div class="workspace-shell workspace-shell-with-sidebar owner-workspace-shell"><aside class="workspace-sidebar" data-workspace-sidebar aria-label="Workspace navigation"><p class="workspace-sidebar-empty"><span class="rw-thinking-dots" role="status"><span class="rw-thinking-glyph" aria-hidden="true"></span>Loading Workspace</span></p></aside><div class="workspace-main-shell"><header class="${headerClass}"><div class="workspace-main-header-left" data-workspace-main-header-left>${headerTitle}</div></header><main>${body}</main></div></div><script type="module" src="/workspace-shell.js"></script></body></html>`;
     return withOwnerSecurityHeaders(
         new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8" } }),
     );
@@ -767,10 +785,6 @@ function createInProcessRateLimit({ limit, windowMs }) {
             if (bucket.count > limit) throw new Error("Too many pairing requests. Wait briefly before retrying.");
         },
     };
-}
-
-function renderOwnerHome() {
-    return `<section class="owner-card"><p class="kicker">RunWield Workspace</p><h1>Opening Workspace…</h1><p>Restoring the latest available Project Session.</p></section>`;
 }
 
 /** @param {Request} request */
@@ -811,50 +825,7 @@ async function renderRequiredOwnerAstroPage(ctx, cwd = Deno.cwd()) {
     return await handle(withWorkspaceCwdHeader(ctx.req, cwd));
 }
 
-/** @param {any} ctx */
-async function renderOwnerProjectSettingsPage(ctx) {
-    const root = requireOwnerProjectRoot(ctx.state.store, ctx.params.projectId);
-    return await renderRequiredOwnerAstroPage(ctx, root);
-}
-
 /** @param {any} component @param {Record<string, unknown>} props */
-async function renderOwnerReactComponent(component, props) {
-    const [{ default: React }, { renderToStaticMarkup }] = await Promise.all([
-        import("react"),
-        import("react-dom/server"),
-    ]);
-    return renderToStaticMarkup(React.createElement(component, props));
-}
-
-/** @param {URL} currentUrl @param {string} pathname */
-function ownerPresentationUrl(currentUrl, pathname) {
-    const url = new URL(pathname, currentUrl.origin);
-    const query = currentUrl.searchParams.get("q");
-    if (query) url.searchParams.set("q", query);
-    return String(url);
-}
-
-/** @param {any} ctx */
-async function renderOwnerPlanProgress(ctx) {
-    const root = requireOwnerProjectRoot(ctx.state.store, ctx.params.projectId);
-    const response = await renderAstroPage(ctx.req, root);
-    if (response) return response;
-    const session = ctx.url.searchParams.get("session") || "";
-    const apiUrl = ownerPresentationUrl(
-        ctx.url,
-        `/api/owner/projects/${encodeURIComponent(ctx.params.projectId)}/plans/${
-            encodeURIComponent(ctx.params.planId)
-        }/progress${session ? `?session=${encodeURIComponent(session)}` : ""}`,
-    );
-    const progressUrl = ownerPresentationUrl(
-        ctx.url,
-        `/projects/${encodeURIComponent(ctx.params.projectId)}/plans/${encodeURIComponent(ctx.params.planId)}/progress${
-            session ? `?session=${encodeURIComponent(session)}` : ""
-        }`,
-    );
-    return await renderOwnerReactComponent(PlanProgressSurface, { apiUrl, progressUrl, initialProgress: null });
-}
-
 /** @param {any} ctx */
 async function renderOwnerProjectSessionsPage(ctx) {
     const root = requireOwnerProjectRoot(ctx.state.store, ctx.params.projectId);
@@ -863,7 +834,7 @@ async function renderOwnerProjectSessionsPage(ctx) {
     return ownerHtmlResponse(
         "Project Sessions",
         `<section class="page-header"><a class="detail-back-link" href="/">← Projects</a><h1>Project Sessions</h1><p>Build the Workspace frontend to enable the interactive phone Session list.</p></section><section class="owner-card empty-state"><h2>Workspace build unavailable</h2><p>Run <code>deno task workspace:build</code>, then reopen Sessions.</p></section>`,
-        503,
+        { status: 503 },
     );
 }
 
@@ -877,7 +848,7 @@ async function renderOwnerProjectSessionNewPage(ctx) {
         `<section class="page-header"><a class="detail-back-link" href="/projects/${
             encodeURIComponent(ctx.params.projectId)
         }/sessions">← Sessions</a><h1>New Session</h1></section><section class="owner-card empty-state"><h2>Workspace build unavailable</h2><p>Run <code>deno task workspace:build</code>, then reopen New Session.</p></section>`,
-        503,
+        { status: 503 },
     );
 }
 
@@ -889,7 +860,7 @@ async function renderOwnerProjectSessionDetailPage(ctx) {
         return ownerHtmlResponse(
             "Session not found",
             `<section class="error-panel"><h2>Session not found</h2><p>The requested Session is not cataloged under this Project.</p></section>`,
-            404,
+            { status: 404 },
         );
     }
     const response = await renderAstroPage(ctx.req, root);
@@ -899,7 +870,7 @@ async function renderOwnerProjectSessionDetailPage(ctx) {
         `<section class="page-header"><a class="detail-back-link" href="/projects/${
             encodeURIComponent(ctx.params.projectId)
         }/sessions">← Sessions</a><h1>Session Continuation</h1><p>Build the Workspace frontend to enable interactive Session continuation.</p></section><section class="owner-card empty-state"><h2>Workspace build unavailable</h2><p>Run <code>deno task workspace:build</code>, then reopen this Session.</p></section>`,
-        503,
+        { status: 503 },
     );
 }
 
@@ -993,6 +964,10 @@ function registerStaticRoutes(app) {
     app.get("/components.css", async () => await handleStaticRoute("/components.css"));
     app.get("/workspace.css", async () => await handleStaticRoute("/workspace.css"));
     app.get("/workspace-shell.js", async () => await handleStaticRoute("/workspace-shell.js"));
+    app.get(
+        "/design-system/sidebar-motion.js",
+        async () => await handleStaticRoute("/design-system/sidebar-motion.js"),
+    );
     app.get("/theme.css", async () => await handleStaticRoute("/theme.css"));
     app.get("/brand/logo.svg", async () => await handleStaticRoute("/brand/logo.svg"));
     app.get("/_astro/:asset", async (ctx) => await handleStaticRoute(ctx.url.pathname));
@@ -1000,6 +975,9 @@ function registerStaticRoutes(app) {
 
 /** @param {string} pathname */
 async function handleStaticRoute(pathname) {
+    if (pathname === "/design-system/sidebar-motion.js") {
+        return await textFileResponse(join(DESIGN_SYSTEM_DIR, "sidebar-motion.js"), "text/javascript; charset=utf-8");
+    }
     if (pathname === "/styles.css") return await textFileResponse(STYLES_PATH, "text/css; charset=utf-8");
     if (pathname === "/tokens.css") return await textFileResponse(TOKENS_CSS_PATH, "text/css; charset=utf-8");
     if (pathname === "/components.css") return await textFileResponse(COMPONENTS_CSS_PATH, "text/css; charset=utf-8");
@@ -1008,7 +986,7 @@ async function handleStaticRoute(pathname) {
         return await textFileResponse(WORKSPACE_SHELL_JS_PATH, "text/javascript; charset=utf-8");
     }
     if (pathname === "/theme.css") {
-        const css = await loadRunWieldThemeCss();
+        const css = renderRunWieldThemeCss();
         return new Response(css, {
             headers: {
                 "content-type": "text/css; charset=utf-8",
@@ -1097,6 +1075,7 @@ function isPublicWorkspaceAsset(pathname) {
         pathname === "/components.css" ||
         pathname === "/workspace.css" ||
         pathname === "/workspace-shell.js" ||
+        pathname === "/design-system/sidebar-motion.js" ||
         pathname === "/theme.css" ||
         pathname === "/brand/logo.svg" ||
         pathname.startsWith("/_astro/");

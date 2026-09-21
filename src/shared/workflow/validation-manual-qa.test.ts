@@ -1,4 +1,4 @@
-import { assert, assertEquals, assertStringIncludes } from "@std/assert";
+import { assert, assertEquals, assertMatch, assertObjectMatch, assertStringIncludes } from "@std/assert";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
@@ -42,7 +42,10 @@ Deno.test("Manual QA runs the bundled isolated Operator and persists its visible
             );
             assert(checklist && checklist.type === "custom");
             assertEquals(checklist.customType, "runwield.manual_qa_checklist");
-            assertEquals(checklist.data, {
+            const data = checklist.data;
+            assert(data && typeof data === "object" && "toolCallId" in data && typeof data.toolCallId === "string");
+            assertMatch(data.toolCallId, /^tool:/);
+            assertObjectMatch(data, {
                 agentName: "Operator",
                 text: "Manual verification steps for settings-panel\n- [ ] Save settings and reload.",
                 name: "settings-panel",

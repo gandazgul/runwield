@@ -43,7 +43,7 @@ const scenarioExportNames = new Map([
     [startupProviderWithoutModelsOpensModelScenario, "startupProviderWithoutModelsOpensModelScenario"],
 ]);
 
-for (const scenario of initialGoldenScenarios) {
+for (const scenario of initialGoldenScenarios.filter((candidate) => candidate !== helpSlashCommandScenario)) {
     Deno.test(`golden scenario: ${scenario.name}`, async () => {
         const { runGoldenScenarioChildProcess } = await import("../testing/child-protocol.js");
         const result = await runGoldenScenarioChildProcess({
@@ -132,6 +132,7 @@ Deno.test("golden scenario child process runs with isolated environment before s
     });
     assertEquals(result.ok, true);
     assertEquals(result.result.name, "help-slash-command");
+    assertEquals(result.result.actor.remaining, []);
     assertEquals(await Deno.stat(result.env.root).then(() => true).catch(() => false), false);
 });
 

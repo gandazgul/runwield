@@ -184,3 +184,21 @@ this distinction when reading, writing, or turning a PRD into an Epic or Plan.
   Reuse existing Core behavior before proposing another state model or coordination layer.
 - Keep the PRD concise enough for the owner to review. Before finalizing it, check that each requirement explains a user
   need, an observable outcome, or a sourced product constraint. Move implementation detail to the appropriate document.
+
+## Ideator Completion
+
+These steps apply when Ideator writes or revises a PRD at the user's request, after the interview has resolved the major
+product decisions. They do not change Planner or Architect workflows.
+
+1. **Choose the document.** Follow the project's document conventions; use `docs/prd/<feature-name>.md` when none exist.
+   Prefer an existing owner for lasting capability guidance. Describe proposed additions, changes, and removals there or
+   in a linked proposal without claiming delivery. Keep synthesis tied to the user's request.
+2. **Write and check the PRD.** Follow the structure and product requirements above. Keep proposed terms separate from
+   the current glossary in a `Proposed Domain Language` section. Include their definitions, avoided aliases, affected
+   existing terms, and stable relationships. Use local time, not UTC, for dates and timestamps.
+3. **Register the document.** Immediately after writing it, call `artifact_written` with its Project-relative path and
+   kind `prd` so the RunWield Session can show it in every surface.
+4. **Preserve the conclusion.** Use `memory` with `action: "store"` to save one consolidated memory containing the
+   crystallized direction and a pointer to the artifact, not a duplicate of its contents.
+5. **Hand off to planning.** Direct the user to `/agent planner` to turn the PRD into an executable Plan. Do not write
+   the Plan as Ideator.

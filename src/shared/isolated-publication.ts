@@ -12,6 +12,7 @@ import {
     assertNoTrackedOrIndexedRuntimePaths,
     stageGitChangesExcludingRuntime,
 } from "./git-runtime-safety.ts";
+import { recoverSealedPlanFormatting } from "./publication-plan-formatting.ts";
 
 interface CommandResult {
     code: number;
@@ -166,6 +167,20 @@ async function remoteHead(cwd: string, remote: string, branch: string): Promise<
     return /^[0-9a-f]{40}$/i.test(hash || "") ? hash : null;
 }
 
+async function remoteRetainsPublication(
+    publicationRoot: string,
+    remote: string,
+    branch: string,
+    commit: string,
+): Promise<boolean> {
+    const head = await remoteHead(publicationRoot, remote, branch);
+    if (!head) return false;
+    if (head === commit) return true;
+    await runGit(publicationRoot, ["fetch", "--no-tags", remote, `refs/heads/${branch}`]);
+    const contains = await runGitResult(publicationRoot, ["merge-base", "--is-ancestor", commit, "FETCH_HEAD"]);
+    return contains.code === 0;
+}
+
 type RemoteFailureKind = "permission_denied" | "policy_violation" | "remote_unavailable";
 
 function classifyRemoteFailure(message: string): RemoteFailureKind {
@@ -298,6 +313,7 @@ export async function publishExecutionWorktreeIsolated(
 ): Promise<IsolatedPublicationResult> {
     await enterProjectRuntime(args.projectRoot);
     args.onProgress?.("preparing");
+    await recoverSealedPlanFormatting(args);
     await assertPreMergeCandidateUnchanged({
         worktreePath: args.executionCwd,
         sealedExecutionCommit: args.sealedExecutionCommit,
@@ -449,8 +465,7 @@ export async function publishExecutionWorktreeIsolated(
             };
             await args.onPublished?.(publishedEvidence);
             args.onProgress?.("verifying");
-            const confirmedRemoteHead = await remoteHead(publicationRoot, upstream.url, upstream.branch);
-            if (confirmedRemoteHead !== publicationCommit) {
+            if (!(await remoteRetainsPublication(publicationRoot, upstream.url, upstream.branch, publicationCommit))) {
                 throw new IsolatedPublicationError(
                     `The upstream target did not retain the completed publication for ${args.planName}.`,
                     { mergeFailureKind: "publication_verification_failed", repairCwd: publicationRoot },
@@ -590,8 +605,7 @@ export async function publishExecutionWorktreeIsolated(
         };
         await args.onPublished?.(publishedEvidence);
         args.onProgress?.("verifying");
-        const confirmedRemoteHead = await remoteHead(publicationRoot, "publication", upstream.branch);
-        if (confirmedRemoteHead !== publicationCommit) {
+        if (!(await remoteRetainsPublication(publicationRoot, "publication", upstream.branch, publicationCommit))) {
             throw new IsolatedPublicationError(
                 `The upstream target did not retain the completed publication for ${args.planName}.`,
                 { mergeFailureKind: "publication_verification_failed" },

@@ -8,6 +8,8 @@ import { PlanLifecycleActions } from "../islands/PlanLifecycleActions.jsx";
 import { BoardColumn } from "./BoardColumn.jsx";
 import { MarkdownView } from "./MarkdownView.jsx";
 import { ComplexityLabel, workspaceHref } from "./PlanCard.jsx";
+import { buildWorkflowPresentation } from "../../../shared/workflow/workflow-presentation.ts";
+import { WorkflowSidebar } from "../react/WorkflowSidebar.tsx";
 
 const CLOSED_STATUSES = new Set(["validated", "verified", "user_verified", "closed_without_verification"]);
 
@@ -23,6 +25,8 @@ export function tabForPlanStatus(status) {
  * @param {URL | string} url
  */
 export function boardHrefForPlanStatus(status, url) {
+    const currentUrl = new URL(String(url));
+    if (currentUrl.searchParams.get("from") === "dashboard") return "/";
     const tab = tabForPlanStatus(status);
     if (tab === "closed") return workspaceHref("/closed", url);
     if (tab === "on-hold") return workspaceHref("/on-hold", url);
@@ -85,6 +89,7 @@ const METADATA_LABELS = Object.freeze({
     [FM.userVerifiedAt]: "User verified at",
     [FM.userVerificationNote]: "User verification note",
     [FM.closedWithoutVerificationReason]: "Closed without verification reason",
+    [FM.closedWithoutVerificationAt]: "Closed without verification at",
     [FM.workRecord]: "Work Record",
     [FM.executionMode]: "Execution mode",
     [FM.deliveryEvidence]: "Delivery Evidence",
@@ -92,9 +97,9 @@ const METADATA_LABELS = Object.freeze({
     [FM.worktreeId]: "Worktree ID",
     [FM.worktreeBranch]: "Worktree branch",
     [FM.worktreeStatus]: "Worktree status",
-    [FM.humanReviewMode]: "Human review mode",
-    [FM.humanReviewDecision]: "Human review decision",
-    [FM.humanReviewedAt]: "Human reviewed at",
+    [FM.humanReviewMode]: "Code review mode",
+    [FM.humanReviewDecision]: "Code review decision",
+    [FM.humanReviewedAt]: "Code reviewed at",
     [FM.epicCompletionMode]: "Epic completion mode",
     [FM.epicDoneEnoughAt]: "Epic done enough at",
     [FM.epicDoneEnoughSummary]: "Epic done enough summary",
@@ -133,6 +138,7 @@ const METADATA_GROUPS = Object.freeze([
             FM.userVerifiedAt,
             FM.userVerificationNote,
             FM.closedWithoutVerificationReason,
+            FM.closedWithoutVerificationAt,
             FM.workRecord,
         ],
     },
@@ -207,6 +213,7 @@ function planMetadata(plan) {
         [FM.userVerificationNote]: source[FM.userVerificationNote] ?? plan.userVerificationNote,
         [FM.closedWithoutVerificationReason]: source[FM.closedWithoutVerificationReason] ??
             plan.closedWithoutVerificationReason,
+        [FM.closedWithoutVerificationAt]: source[FM.closedWithoutVerificationAt] ?? plan.closedWithoutVerificationAt,
         [FM.workRecord]: source[FM.workRecord] ?? plan.workRecord,
         [FM.executionMode]: source[FM.executionMode] ?? plan.executionMode,
         [FM.deliveryEvidence]: source[FM.deliveryEvidence] ?? plan.deliveryEvidence,
@@ -528,6 +535,29 @@ function StaticPlanBody({ plan }) {
     );
 }
 
+/** @param {{ plan: any, progress?: any, projectId?: string, runwieldSessionId?: string }} props */
+function PlanWorkflowSummary({ plan, progress, projectId = "", runwieldSessionId = "" }) {
+    const presentation = buildWorkflowPresentation({
+        planName: plan.planName || plan.planId,
+        epicName: plan.parentPlan,
+        intent: plan.classification,
+        classification: plan.classification,
+        projectPlanType: plan.type || plan.attrs?.type,
+        status: plan.status,
+        progressFacts: Array.isArray(progress?.stages)
+            ? progress.stages.map((stage) => ({ id: stage.id, state: stage.state, updatedAt: stage.updatedAt }))
+            : undefined,
+        degradedMessage: typeof progress?.degraded?.message === "string" ? progress.degraded.message : "",
+        sessionState: typeof progress?.session?.state === "string" ? progress.session.state : "",
+        hasWorkingSession: Boolean(progress?.session?.runwieldSessionId || runwieldSessionId),
+    });
+    const sessionId = progress?.session?.runwieldSessionId || runwieldSessionId;
+    const sessionHref = projectId && sessionId
+        ? `/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(sessionId)}`
+        : "";
+    return <WorkflowSidebar presentation={presentation} payload={{ sessionHref }} title="Plan workflow" />;
+}
+
 /** @param {{ plan: any }} props */
 function StaticLifecycleActions({ plan }) {
     const actions = plan.actions || {};
@@ -570,8 +600,10 @@ function StaticLifecycleActions({ plan }) {
     );
 }
 
-/** @param {{ plan: any, url: URL | string, editIntent?: boolean, staticRender?: boolean }} props */
-export function PlanDetail({ plan, url, editIntent = false, staticRender = false }) {
+/** @param {{ plan: any, url: URL | string, editIntent?: boolean, staticRender?: boolean, progress?: any, projectId?: string, runwieldSessionId?: string }} props */
+export function PlanDetail(
+    { plan, url, editIntent = false, staticRender = false, progress = null, projectId = "", runwieldSessionId = "" },
+) {
     const isEpic = isEpicDetail(plan);
     const canEditBody = plan.capabilities?.bodyEditing !== false && !isEpic;
     const closeHref = boardHrefForPlanStatus(plan.status, url);
@@ -593,16 +625,6 @@ export function PlanDetail({ plan, url, editIntent = false, staticRender = false
                         <span className={`status status-${plan.status}`}>{plan.status}</span>
                     </div>
                     <div className="rw-plan-detail-toolbar-actions">
-                        {!isEpic
-                            ? (
-                                <a
-                                    className="rw-toolbar-button"
-                                    href={`${String(url).replace(/[?#].*$/, "")}/progress`}
-                                >
-                                    View progress
-                                </a>
-                            )
-                            : null}
                         <a className="detail-close-link" href={closeHref} aria-label="Close plan detail">X</a>
                     </div>
                 </div>
@@ -634,6 +656,12 @@ export function PlanDetail({ plan, url, editIntent = false, staticRender = false
                     </div>
                 </main>
                 <aside className="detail-sidebar rw-plan-detail-sidebar">
+                    <PlanWorkflowSummary
+                        plan={plan}
+                        progress={progress}
+                        projectId={projectId}
+                        runwieldSessionId={runwieldSessionId}
+                    />
                     <div className="detail-sidebar-actions" aria-label="Plan detail actions">
                         {staticRender
                             ? <StaticLifecycleActions plan={plan} />

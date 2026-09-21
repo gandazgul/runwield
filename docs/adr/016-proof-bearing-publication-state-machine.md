@@ -14,12 +14,21 @@ recoverable work. RunWield reconciles proof and repairs internal storage, locks,
 automatically; exposing an error and a repair command is not completion. Evidence requirements still forbid fabricated
 success, blind replay, or loss of user work.
 
-- Plan Front Matter records that validation succeeded. A worktree-backed Planned Change stops changing at `validated`.
+- Plan Front Matter records that validation succeeded, the `validatedCommit` implementation hash, and the actual
+  `targetBranch`. A worktree-backed Planned Change stops changing at `validated`.
 - The matching `.wld/internal/worktrees.json` entry owns publication progress in one `publication` record.
 - Git commits and refs are evidence. Status strings, error text, Session memory, and transition journals are not
   publication evidence.
-- The registry entry is removed only after verified publication and cleanup. Its absence is the final local fact; there
-  is no Plan `published` status.
+- The registry entry is removed only after verified publication and cleanup. With no active attempt, Git ancestry of the
+  Plan's `validatedCommit` on `targetBranch` proves delivery without a permanent controller receipt. Absence of a
+  registry entry alone is not proof. There is no Plan `published` status. Non-Git completion uses the Plan status.
+
+The stamp survives removal of runtime records; checkpoints and intermediate publication receipts do not become Plan
+fields. Reopening for review or starting a new execution clears the previous stamp. Older unstamped Plans can be
+recognized by exact completed document content already committed on their target; arbitrary working-copy status edits do
+not qualify. Committed archived history without an active attempt is not an instruction to restart publication when an
+old feature branch or pre-squash commit is no longer reachable. Doctor omits such non-actionable history, rather than
+calling it broken. This diagnostic rule neither proves publication nor authorizes deleting unmerged commits.
 
 The record advances monotonically through these proven phases:
 
@@ -42,8 +51,20 @@ identity is immutable.
 
 On restart, RunWield reads the record and current Git facts. It may advance a missing receipt only when Git proves the
 external effect already happened—for example, an integration commit exists in the saved publication clone or the remote
-target already equals the recorded integration commit. Otherwise it retries the current phase. It never reruns
-validation or regenerates committed artifacts merely because publication was interrupted.
+target contains the recorded integration commit. Otherwise it retries the current phase. It never reruns validation or
+regenerates committed artifacts merely because publication was interrupted.
+
+Later target commits do not invalidate publication or cleanup. Recovery verifies ancestry against the recorded upstream
+(or the local target in local-only mode), preserving the original publication commit as the receipt. Remote checks use
+an independent temporary repository when needed, including after the publication clone has been removed; they never
+fetch into the primary checkout. Missing or unreachable upstream history cannot fall back to a stale local branch as
+proof. Exact target-head checks remain required for the pre-publication push lease, not post-publication cleanup.
+
+An interrupted cleanup can leave a directory whose `.git` file points to a removed registration in this repository.
+After proving publication, recovery moves that unregistered directory intact to `<execution-path>.saved/files`, reports
+the saved location, and completes the remaining cleanup. It does not infer clean file contents from a published commit
+or delete the leftovers. Registered checkouts still require the normal clean-worktree checks. A pre-existing saved copy
+is never overwritten, and an unrelated repository or the primary checkout is not adopted by this recovery path.
 
 `artifactCommit` is the immutable source-branch boundary. Publication does not commit or otherwise advance the source
 branch after that phase. During cleanup, the normal proof is that the published target contains the source-branch tip.

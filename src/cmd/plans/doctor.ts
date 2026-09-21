@@ -18,7 +18,6 @@ import {
     inspectProjectRuntimeLayout,
     ProjectRuntimeEntryRefusedError,
     type ProjectRuntimeLayout,
-    type ProjectRuntimeMigrationBlockedReason,
     type ProjectRuntimeMigrationBlockedResult,
     resolveProjectRuntimeLayout,
 } from "../../shared/project-runtime-layout.ts";
@@ -40,20 +39,12 @@ import {
     reconcileEntryIdentity,
 } from "../../shared/worktree-registry.js";
 import { isEpicArtifactPlanName } from "../../shared/epic-artifacts.ts";
-import { isCommitPublishedToTarget } from "../../shared/isolated-publication.ts";
 import { inspectTargetBranchPlansByParent } from "../../shared/workflow/planning-worktree.ts";
 import { readControllerRecordAtPath } from "../../shared/workflow/controller-registry.ts";
+import { verifyRecordedPublication } from "../../shared/workflow/validation-merge-verification.ts";
 
 /** A registry attempt as stored, before doctor proves anything about it. */
 type RegistryEntry = Awaited<ReturnType<typeof inspectWorktreeRegistryAtPath>>["entries"][number];
-
-/** Delivery Evidence as read from Plan Front Matter, before any field is proven. */
-interface DeliveryEvidenceSnapshot {
-    mode?: unknown;
-    executionCommit?: unknown;
-    targetBranch?: unknown;
-    targetHeadBeforeMerge?: unknown;
-}
 
 interface DoctorIssue {
     kind: string;
@@ -81,8 +72,8 @@ type PlansDoctorCommandOptions = Record<never, never>;
 
 const READ_ONLY_DOCTOR_FLAG = "--check";
 
-function migrationRefusalGuidance(reason: ProjectRuntimeMigrationBlockedReason): string[] {
-    switch (reason) {
+function migrationRefusalGuidance(blocked: ProjectRuntimeMigrationBlockedResult): string[] {
+    switch (blocked.reason) {
         case "newer_layout":
             return [
                 "Use the RunWield version that created this layout, or a newer version. Do not downgrade the marker.",
@@ -126,11 +117,15 @@ function migrationRefusalGuidance(reason: ProjectRuntimeMigrationBlockedReason):
                 "Repair or remove the invalid Git worktree registration only after preserving its branch and local work, then retry.",
             ];
         case "unsupported_filesystem_move":
-            return [
-                "Move the project or runtime authority onto one supported filesystem, or complete the upgrade with a supported RunWield version.",
-            ];
+            return blocked.message.includes("populated project-local worktree directory")
+                ? [
+                    "Preserve the populated project-local fallback worktree directory. Finish or deliberately remove its work with the RunWield version that created it, then retry. RunWield will not move it.",
+                ]
+                : [
+                    "Move the project or runtime authority onto one supported filesystem, or complete the upgrade with a supported RunWield version.",
+                ];
         default: {
-            const exhaustive: never = reason;
+            const exhaustive: never = blocked.reason;
             return [exhaustive];
         }
     }
@@ -142,7 +137,7 @@ function migrationBlockedIssue(blocked: ProjectRuntimeMigrationBlockedResult): D
         message: `Migration refusal (${blocked.reason}): ${blocked.message}${
             blocked.paths.length ? ` Paths: ${blocked.paths.join(", ")}.` : ""
         }${blocked.securityAction ? ` Security action: ${blocked.securityAction.message}` : ""}`,
-        commands: migrationRefusalGuidance(blocked.reason),
+        commands: migrationRefusalGuidance(blocked),
     };
 }
 
@@ -207,11 +202,10 @@ function getIssueGuidance(issue: DoctorIssue): IssueGuidance {
             return {
                 category: "Delivery evidence",
                 severity: "Needs attention",
-                diagnosis:
-                    "The Plan says it reached a terminal state, but the evidence is incomplete or Git cannot prove publication.",
+                diagnosis: "Validation passed, but delivery to the target branch has not been confirmed.",
                 nextSteps: [
-                    "Inspect the Plan, worktree branch, and transition journal before trusting the verified status.",
-                    "If the work was published, capture or restore the missing evidence; otherwise reopen/recover the Plan through RunWield.",
+                    "Load this Plan and choose validation to continue its saved publication attempt.",
+                    "If its target branch was intentionally removed or rewritten after delivery, this warning does not mean the changes were lost.",
                 ],
             };
         case "target_branch_inspection_error":
@@ -533,26 +527,14 @@ function collectPlanAttributeIssues(
             planIds.set(planId, planName);
         }
     }
-    if (plan.attrs.status === "verified" && isPlannedChangeClassification(plan.attrs.classification)) {
-        const evidence = plan.attrs.deliveryEvidence as DeliveryEvidenceSnapshot | undefined;
-        if (!evidence && plan.attrs.executionMode !== "non_git_in_place") {
-            issues.push({
-                kind: "verified_without_evidence",
-                planName,
-                message: `${planName} is verified but has no mode-appropriate Delivery Evidence.`,
-            });
-        }
-        if (evidence?.mode === "worktree_merge") {
-            if (!evidence.executionCommit || !evidence.targetBranch || !evidence.targetHeadBeforeMerge) {
-                issues.push({
-                    kind: "uncertain_publication",
-                    planName,
-                    message:
-                        `${planName} has incomplete worktree_merge Delivery Evidence; publication cannot be proven from Plan metadata alone.`,
-                });
-            }
-        }
-    }
+}
+
+type LoadedPlanInspection = Extract<Awaited<ReturnType<typeof inspectPlanFileStrict>>, { kind: "loaded" }>;
+
+interface ArchivedPlanInspection {
+    name: string;
+    path: string;
+    attrs: LoadedPlanInspection["attrs"];
 }
 
 async function collectArchivedPlanParseIssues(
@@ -561,7 +543,7 @@ async function collectArchivedPlanParseIssues(
     planIds: Map<string, string>,
 ) {
     const archivedRoot = join(getPlansDir(projectRoot), "archived");
-    const plans: Parameters<typeof collectPlanAttributeIssues>[0][] = [];
+    const plans: ArchivedPlanInspection[] = [];
 
     async function visit(prefix: string[]) {
         try {
@@ -585,7 +567,7 @@ async function collectArchivedPlanParseIssues(
                         archived: true,
                     });
                     collectPendingControllerIssues(`archived/${planName}`, parsed.pendingControllerRepairs, issues);
-                    plans.push({ name: planName, attrs: parsed.attrs });
+                    plans.push({ name: planName, path: entryPath, attrs: parsed.attrs });
                 } catch (error) {
                     issues.push({
                         kind: "malformed_archived_plan",
@@ -833,9 +815,15 @@ async function runPlansDoctorPass(projectRoot: string, repair: boolean, layout: 
         // migrating around a conflict is how a readable registry becomes unreadable.
         await listEntries(projectRoot, { migrate: true }).catch(() => []);
     }
-    const registryPaths = new Set(entries.map((entry) => entry.path));
+    const canonicalRoot = await Deno.realPath(projectRoot).catch(() => projectRoot);
+    const registryPaths = new Set(
+        await Promise.all(
+            entries.map((entry) => Deno.realPath(entry.path).catch(() => entry.path)),
+        ),
+    );
     for (const path of gitWorktreePaths) {
-        if (path !== projectRoot && !registryPaths.has(path)) {
+        const canonicalPath = await Deno.realPath(path).catch(() => path);
+        if (canonicalPath !== canonicalRoot && !registryPaths.has(canonicalPath)) {
             issues.push({
                 kind: "orphan_git_worktree",
                 message:
@@ -950,47 +938,68 @@ async function runPlansDoctorPass(projectRoot: string, repair: boolean, layout: 
             ...archivedPlans.map((plan) => ({ ...plan, name: `archived/${plan.name}` })),
         ]
     ) {
-        const evidence = plan.attrs.deliveryEvidence as DeliveryEvidenceSnapshot | undefined;
-        const executionCommit = typeof evidence?.executionCommit === "string" ? evidence.executionCommit : "";
-        const targetBranch = typeof evidence?.targetBranch === "string" ? evidence.targetBranch : "";
-        if (evidence?.mode === "worktree_merge" && executionCommit && targetBranch) {
-            let published: boolean;
-            try {
-                published = await isCommitPublishedToTarget({
-                    projectRoot,
-                    targetBranch,
-                    commit: executionCommit,
-                });
-            } catch {
+        if (!["validated", "verified", "user_verified"].includes(plan.attrs.status || "")) continue;
+        if (!isPlannedChangeClassification(plan.attrs.classification)) continue;
+        const evidence = plan.attrs.deliveryEvidence;
+        const legacy = evidence?.mode === "worktree_merge" ? evidence : undefined;
+        const commit = plan.attrs.validatedCommit || legacy?.executionCommit;
+        const targetBranch = plan.attrs.targetBranch || legacy?.targetBranch;
+        // Older documents may make no Git publication claim at all. Missing
+        // disposable metadata alone is not a new publication failure.
+        if (!commit && !targetBranch) continue;
+        const liveAttempt = entries.some((entry) =>
+            entry.status !== "abandoned" &&
+            (plan.attrs.planId && entry.planId
+                ? entry.planId === plan.attrs.planId
+                : entry.planName === plan.name.replace(/^archived\//, ""))
+        );
+        // A committed archive with no unfinished attempt is intentionally retired
+        // history. Do not turn a deleted integration branch into a repair request.
+        // Still diagnose archives with active attempts or uncommitted changes.
+        if (
+            !inspection.readError && inspection.integrityIssues.length === 0 &&
+            plan.name.startsWith("archived/") && !liveAttempt &&
+            await isCommittedArchive(projectRoot, plan.name, plan.path).catch(() => false)
+        ) continue;
+        {
+            const markdown = await Deno.readTextFile(plan.path).catch(() => undefined);
+            const publication = await verifyRecordedPublication(
+                projectRoot,
+                plan.attrs,
+                markdown === undefined ? undefined : { planName: plan.name, markdown },
+            ).catch(() => ({ published: false, unavailable: true }));
+            if (publication.unavailable) {
                 issues.push({
                     kind: "publication_inspection_error",
                     planName: plan.name,
-                    message:
-                        `${plan.name} records publication to ${targetBranch}, but RunWield could not inspect that authority. Publication is unknown; local ancestry is not proof.`,
+                    message: `${plan.name} records publication${
+                        targetBranch ? ` to ${targetBranch}` : ""
+                    }, but RunWield could not inspect that authority. Publication is unknown; local ancestry is not proof.`,
                     commands: [
                         "git remote -v",
-                        `git branch -vv --list ${targetBranch.replace(/^origin\//, "")}`,
-                        `git show --stat ${executionCommit}`,
+                        ...(targetBranch ? [`git branch -vv --list ${targetBranch.replace(/^origin\//, "")}`] : []),
+                        ...(commit ? [`git show --stat ${commit}`] : []),
                         `${CLI_BIN} plans doctor --check`,
                     ],
                     repairSummary: "Not repaired automatically: restore remote access, then run Doctor again.",
                 });
                 continue;
             }
-            if (!published) {
+            if (!publication.published) {
                 issues.push({
                     kind: "uncertain_publication",
                     planName: plan.name,
-                    message:
-                        `${plan.name} records that ${evidence.executionCommit} was published to ${evidence.targetBranch}, but that commit is not contained in that branch today. Either the publication never completed, or the branch was rewritten afterwards.`,
-                    commands: [
-                        `git log --oneline ${evidence.targetBranch} -10`,
-                        `git branch --contains ${evidence.executionCommit}`,
-                        `git show --stat ${evidence.executionCommit}`,
-                    ],
-                    repairSummary:
-                        "Not repaired automatically: RunWield will not move a branch or rewrite Delivery Evidence on your behalf. " +
-                        "If the commit exists on another branch, the work is safe and only the target needs updating.",
+                    message: `${plan.name} passed validation${commit ? ` at ${commit}` : ""}, but publication${
+                        targetBranch ? ` to ${targetBranch}` : ""
+                    } could not be confirmed. The target may have been removed, rewritten, or be unavailable.`,
+                    commands: commit && targetBranch
+                        ? [
+                            `git log --oneline ${targetBranch} -10`,
+                            `git branch --all --contains ${commit}`,
+                            `git show --stat ${commit}`,
+                        ]
+                        : [],
+                    repairSummary: "No branches, commits, or Plan status were changed by this check.",
                 });
             }
         }
@@ -1156,6 +1165,17 @@ async function runPlansDoctorPass(projectRoot: string, repair: boolean, layout: 
     }
 
     return { issues, repaired };
+}
+
+/** Committed archives are history, not an instruction to restart an old delivery. */
+async function isCommittedArchive(projectRoot: string, planName: string, path: string): Promise<boolean> {
+    const result = await new Deno.Command("git", {
+        cwd: projectRoot,
+        args: ["show", `HEAD:docs/plans/${planName}.md`],
+        stdout: "piped",
+        stderr: "null",
+    }).output();
+    return result.success && new TextDecoder().decode(result.stdout) === await Deno.readTextFile(path);
 }
 
 export async function runPlansDoctor(projectRoot: string, repair = true) {

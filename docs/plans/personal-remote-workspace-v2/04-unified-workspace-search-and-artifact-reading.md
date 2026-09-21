@@ -116,10 +116,11 @@ shifts, migration or compatibility risk grows, or the Verification Plan no longe
 
 - `src/ui/workspace/server/`, `server.js`, and `routes/owner-api.js` — add one owner search API/service used by both
   views, manual refresh, per-Project freshness, type-aware readers, and authenticated destination routing. Own scanner
-  startup, shutdown, and database closure here.
-- `src/ui/workspace/layouts/WorkspaceLayout.astro` and `static/workspace-shell.ts` — connect the global Search action
-  and shortcut to the shared quick-search view. Reuse the shell work from child 03; do not add a second navigation
-  action.
+  startup, shutdown, and database closure here. Include `src/cmd/workspace/serve.ts` where needed so application cleanup
+  completes before the caller closes the owner coordination store.
+- `src/ui/workspace/layouts/WorkspaceLayout.astro` and `static/workspace-shell.ts` — add the global Search action and
+  shortcut to the shared quick-search view. Child 03 deliberately leaves out Search; this child adds the working action
+  within that shared shell, without duplicating navigation.
 - `src/ui/workspace/pages/`, `components/`, and `islands/` — add the centered quick-search surface, `Cmd+K` / `Ctrl+K`,
   visible Search action, filters, and full search page.
 - `src/ui/workspace/react/ArtifactReadSurface.tsx` and `server/astro-owner-data.js` — add Project-level Work Record and
@@ -152,8 +153,10 @@ needed there. Agent Project Knowledge Search, source-code tools, and local Plan 
 Existing functions, modules, or patterns to reuse:
 
 - `src/shared/work-records/search.js:readWorkRecordById`, `list.js:isCurrentWorkRecord`, and `store.js:listWorkRecords`
-  — reuse current-only canonical hydration. Enumeration uses `createDir: false`; detect ambiguous duplicate IDs instead
-  of selecting the first. Do not turn the Mnemoteca adapter into a generic search service.
+  — reuse eligibility and hydrated metadata, with explicit current-only access. The current ID reader defaults to all
+  records, creates the directory during lookup, and selects the first duplicate ID. Extend or compose these readers so
+  both enumeration and hydration are non-creating and reject ambiguous IDs. Preserve explicit historical CLI reads and
+  Agent retrieval behavior. Do not turn the Mnemoteca adapter into a generic search service.
 - `src/ui/workspace/react/ArtifactReadSurface.tsx` — extend the read-only document presentation instead of building
   separate viewers for each document type.
 - `src/ui/workspace/server/owner-projects.js:requireOwnerProjectRoot` and `sessionBelongsToOwnerProject` — registered
@@ -164,7 +167,11 @@ Existing functions, modules, or patterns to reuse:
 - `src/shared/session/session-transcript-manifest.ts` and `file-session-store.ts` — verified committed evidence and
   catalog identity. `server/session-continuation.js` supplies display-name conventions, but its raw JSONL reads and
   100-character first-message summary are not sufficient search evidence. Read the first message from verified saved
-  evidence without indexing later messages or storing a second transcript.
+  evidence without indexing later messages or storing a second transcript. `projectAggregateTranscript` verifies saved
+  entries; `summarizeResumableTranscript` can extract their full first user message. Do not use the continuation
+  service's `timeline()` as a search reader: it can initialize generations and overlay unverified name data. Session
+  enumeration must cover all catalog pages and avoid catalog writes; `listProjectSessions` defaults to writing and
+  limits each page to 100 entries.
 - `src/ui/design-system/` — existing dialog, command, list, badge, and empty-state patterns.
 
 ## Implementation Steps
@@ -184,6 +191,7 @@ Existing functions, modules, or patterns to reuse:
   the normal store, with execution-worktree Plan authority where applicable. Session search uses the full available text
   of the first user message, not only its truncated display summary; later messages remain excluded. A named Session
   without a user message can match by name. A Session with neither a name nor a meaningful first user message is hidden.
+  Enumeration covers all catalog pages without changing canonical Session evidence or registering new Sessions.
 - Documentation readers follow `docs/domain-language-map.md` to the applicable context glossaries when present, or use
   `docs/domain-language.md` for a single context. Enumeration is limited to supported Markdown sources, not arbitrary
   links or files. All paths resolve inside the registered root; symlink escapes and traversal are rejected. General
@@ -211,7 +219,8 @@ Existing functions, modules, or patterns to reuse:
 - Workspace startup and healthy Projects remain usable while indexing builds or one Project fails. Freshness follows
   observed source evidence, not elapsed time alone. Each Project failure identifies the failed reader without leaking
   local paths. Closing the server stops scans and releases the search database; repeated startup does not duplicate
-  scans.
+  scans. Direct app users and tests close the app, not only its Session continuation service. Server shutdown awaits
+  search cleanup before its caller closes the owner coordination store.
 - RunWield-owned writes commit canonical state first and request best-effort incremental refresh after. Connect actual
   Plan write completion, Work Record generation/supersession, Session Name/first-message commits, and completed artifact
   writes rather than only browser routes. Where a writer runs in another process, use a bounded best-effort refresh
@@ -223,7 +232,10 @@ Existing functions, modules, or patterns to reuse:
   shared read-only artifact surface. No Plan parsing, identity assignment, Session creation, writer activation, or
   review exit request occurs to open these documents. Work Records show source links, confidence, and applicable
   notices. Project-level readers have one Workspace header and Back to Search; existing Session readers retain Back to
-  Session.
+  Session. Reader payloads explicitly distinguish Project, Session, and standalone launches; a missing return query in a
+  Project launch falls back to Search, never `/api/review/exit`. Project-reader return URLs accept only local Search
+  destinations. Project payloads do not copy the existing absolute `imageBaseDir`. New document labels do not expand
+  Session artifact registration types merely for display.
 - Search and refresh routes use existing owner pairing and request protections; refresh changes only derived search
   data. No search or reader endpoint can send messages, approve Plans, or perform lifecycle actions.
 - `docs/prd/runwield-workspace-prd.md` records the delivered v2 scope and matching acceptance scenarios. Opt-out, full
@@ -236,8 +248,14 @@ Existing functions, modules, or patterns to reuse:
   lookup as part of Workspace search, not shared knowledge or cross-Session Agent retrieval. Keep the current glossary's
   transcript privacy rule and reconcile the PRD's broader proposed terminology only where this change makes it true.
 
+## Approval Confirmation
+
+No Work Record supersession is proposed.
+
 ## Verification Plan
 
+- Automated: run `deno task workspace:build` before destination integration tests. Search acceptance must assert
+  successful rendering through the built Astro app; HTTP 503 or a missing build is a failure, not accepted evidence.
 - Automated: create or extend `src/ui/workspace/personal-remote-workspace-v2.acceptance.test.ts`, then run
   `deno run -A scripts/run-tests.js src/ui/workspace/personal-remote-workspace-v2.acceptance.test.ts`. Use the
   production owner app, registered temporary Git Projects, canonical Plan/Work Record files, committed file-backed
@@ -254,15 +272,19 @@ Existing functions, modules, or patterns to reuse:
 - Automated: prove current Plans, Epics, On-Hold Plans, terminal Plans, current approved Work Records, PRDs, ADRs,
   design-system docs, single- and multi-context domain-language docs, Session Names, and first user messages are
   eligible. Give main-checkout and authoritative execution-worktree Plans different search text; only the authoritative
-  version matches. Match a token beyond character 100 of a first user message. Name-only Sessions remain searchable.
+  version matches. Match a token beyond character 100 of a first user message and a Session beyond the first 100 catalog
+  entries. Name-only Sessions remain searchable. Scan and query leave committed Session generations unchanged.
 - Automated: give each excluded source unique text: Archived Plans; Draft, Pending Verification, Superseded, and
   Archived Work Records; Markdown without durable Plan IDs; later Session messages, tools, and reasoning; arbitrary
   Markdown; source code and Plan-worktree code. None matches. A Plan without an ID yields a repair diagnostic and its
-  bytes stay unchanged after scans, queries, and failed opens. Duplicate IDs are diagnosed, not silently selected.
+  bytes stay unchanged after scans, queries, and failed opens. Duplicate Plan and Work Record IDs are diagnosed, not
+  silently selected. A Project without a Work Record directory still has none after enumeration, hydration, or a failed
+  open. An issued Work Record link refuses a record that became ineligible after indexing.
 - Automated: corrupt the search database and use a newer schema version; prove quarantine and async rebuild do not block
   Project registration, Session reads, Plan reads, or Dashboard. Search reports rebuilding until results are available;
   a single failed Project does not suppress healthy Project results. Assert actual recovered results after rebuild, not
-  just successful responses. Close and restart the server and prove old scan tasks and database handles are released.
+  just successful responses. Close and restart both the direct owner app and production HTTP server; prove old scan
+  tasks and database handles are released before owner coordination closes.
 - Automated: externally add, edit, and remove eligible documents with the owner server running. Prove automatic scan
   updates without query-triggered full scanning or manual refresh. Use a bounded wait within the configured interval;
   verify the default is at most 30 seconds. A manual refresh requests an earlier scan. Run representative production
@@ -276,7 +298,9 @@ Existing functions, modules, or patterns to reuse:
 - Automated: open every supported result type through its real destination. Assert correct current Markdown, type,
   Project, and return link; Work Records retain confidence/notices. No Session or artifact registration is created.
   Denied pairing and invalid refresh request protection remain enforced. A Project reader without return state remains
-  read-only and does not invoke standalone review exit. These checks fail for a static result list or cache-only reader.
+  read-only and returns to Search without invoking standalone review exit. Reject external or non-Search return URLs;
+  assert no absolute image directory in its payload. Preserve standalone Close and Session Back to Session behavior.
+  These checks fail for a static result list or cache-only reader.
 - Automated regression: run
   `deno run -A scripts/run-tests.js src/ui/workspace/owner-workspace.test.js
   src/ui/workspace/workspace-board.test.js src/ui/workspace/workspace-lifecycle.test.js

@@ -145,11 +145,11 @@ not include YAML front matter in the content. Use the system prompt's current lo
 
 If the Epic contains proposed domain language, assign each glossary update to the child planned change whose
 implementation makes that language true. That child's **Expected Change Surface** must include the applicable
-domain-language file: `docs/domain-language.md` for a single-context project, or the context-specific
-`domain-language.md` identified by `docs/domain-language-map.md` for a multi-context project. Its **Implementation
-Steps** must update the definitions, avoided aliases, and stable relationships, and its **Verification Plan** must
-confirm that behavior and glossary land together. Do not edit the glossary during decomposition, duplicate the same
-update across unrelated children, or promote proposed language that no child implements.
+domain-language file: `docs/domain-language.md`, or the applicable glossary identified by `docs/domain-language-map.md`
+when glossaries are separate. Its **Implementation Steps** must update the definitions, avoided aliases, and stable
+relationships, and its **Verification Plan** must confirm that behavior and glossary land together. Do not edit the
+glossary during decomposition, duplicate the same update across unrelated children, or promote proposed language that no
+child implements.
 
 For child planned changes owned by Frontend Engineer, headed browser verification is mandatory unless blocked. Write a
 Verification Plan that names the browser-visible behavior to prove, the relevant route/user flow, and any known dev

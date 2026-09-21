@@ -189,7 +189,6 @@ export function formatLeaks(leaks: ProjectSpecificLeak[]): string {
  */
 const SKILL_CONTAINER_DIRS = [
     "skills",
-    ".agents/skills",
     ".claude/skills",
     ".codex/skills",
     ".cursor/skills",

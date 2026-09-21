@@ -117,6 +117,16 @@ Users can:
 A leading slash that resolves to an available command is a command, not a User Request. Disabled or unknown commands
 must fail visibly and must not fall through to Router.
 
+**Requirement: Recover stale terminal visuals without disrupting work.**
+
+Returning focus to the terminal repaints the screen. Ctrl+L also forces a full redraw. Both preserve the unsent draft,
+conversation scroll position, active interaction, and running Agent turn.
+
+**Requirement: Keep expanded tool output responsive.**
+
+Ctrl+O toggles only tool groups that intersect the current TUI viewport. Each expanded tool block shows at most 500
+output lines. For longer output, it keeps the start and end and shows how many middle lines it omitted.
+
 **Acceptance scenarios:**
 
 - Given a new conversation, when the user submits a request, Router handles initial triage; after a specialist handoff,
@@ -125,6 +135,10 @@ must fail visibly and must not fall through to Router.
   changes again.
 - Given an existing topic, when the user chooses `/new`, a fresh routed conversation opens; `/agent router` instead
   routes within the same Session.
+- Given erased terminal contents while the input still accepts typing, returning focus or pressing Ctrl+L restores the
+  input and conversation without submitting or discarding the draft, scrolling, or interrupting the Agent.
+- Given tool groups above and inside the current viewport, when the user presses Ctrl+O, only the intersecting groups
+  toggle. A tool result longer than 500 lines keeps its first and last lines and identifies the omitted middle lines.
 
 <a id="32-routing-intents"></a>
 <a id="33-triage-experience"></a>
@@ -201,6 +215,21 @@ failure, or rollback. A metadata problem must never be blamed on the user's pros
 made since that content was opened; protecting those edits is separate from deciding whether metadata can advance.
 Actual changes to the intended work still follow normal Plan review and approval.
 
+**Requirement: Domain reasoning fits the user's project.**
+
+For changes affecting domain behavior, Architect and Planner identify relevant concepts, identities, rules, owners,
+consistency needs, and external translations using the project's language and conventions. Architect establishes the
+relationships and trade-offs; Planner carries affected rules into implementation and verification. Depth follows the
+change's needs and risk across software types and languages, without requiring an entity model, additional document, or
+prescribed architecture.
+
+**Requirement: Architectural commitments are supported by evidence.**
+
+During Epic design, Architect explains consequential commitments, the practical implications of changing direction, and
+the assumptions that could invalidate a choice. It recommends how to proceed using available evidence and focused
+experiments where useful, justifies added flexibility, and records conditions for reconsideration. The Epic captures
+relevant conclusions at a depth appropriate to the decision; individual ADRs follow the project's policy.
+
 **Requirement: External Markdown Plans are first-class.**
 
 A plain Markdown file in `docs/plans/` is a valid draft even without RunWield metadata. Listing, browsing, or inspecting
@@ -217,6 +246,17 @@ does not reset its lifecycle or decisions.
 - Given malformed lifecycle metadata, when recovery runs, RunWield repairs its own state rather than rejecting the
   user's prose or requiring the user to edit internal fields.
 - Given an already adopted Plan, when it is loaded again, its age, identity, and lifecycle decisions remain intact.
+- Given a change affecting domain rules, architecture and planning identify their owners and necessary consistency and
+  recovery behavior, then carry those rules into verification using the project's existing conventions.
+- Given a project without an entity model, or a change needing little domain reasoning, planning proceeds without
+  requiring a modeling artifact or imposing classes, services, or events.
+- Given a consequential architectural choice, the Epic identifies affected dependencies, lasting effects, and the
+  practical changes involved in choosing another direction.
+- Given an assumption that could invalidate the design, Architect identifies evidence that would resolve it and
+  recommends how to proceed. A proposed experiment states its observable result, effect on the recommendation, and
+  whether its implementation is disposable or intended for production.
+- Given a choice about flexibility, the Epic explains the concrete concern it addresses, the complexity introduced, and
+  the evidence or changed requirement that would justify reconsideration. Routine choices receive brief treatment.
 
 <a id="35-plan-lifecycle"></a>
 <a id="user-verified-plan-lifecycle-outcome"></a>
@@ -374,7 +414,16 @@ Workflow Validation requirements:
 - keep publication-conflict repairs attached to the publication attempt, not CI or code-review repair checkpoints; an
   accepted `task_completed` continues Git verification and publication without another user prompt, whether the Agent
   staged the resolutions or committed them;
+- when publication is pending, keep that distinction visible when loading the parent Epic and offer the child’s
+  publication continuation instead of presenting validation as finished delivery;
+- preserve Plan document bytes during controller-only updates, including publication retries;
+- recover unstaged, formatting-only Plan drift from the sealed candidate on publication retry, without overwriting
+  changed definitions, body text, staged changes, or committed changes;
+- show interrupted validation as paused, never as still running, while retaining its saved continuation;
 - deliver validated work to its configured target and confirm that outcome before reporting delivery complete;
+- retain the validated implementation commit and actual target branch in the committed Plan; completed delivery must
+  remain recognizable from Git after temporary workflow records are removed. In non-Git projects, the completed Plan
+  status is sufficient;
 - after a normal Plan publication completes, keep follow-up messages with Engineer from the primary checkout, not from
   the removed execution worktree;
 - when a published child Plan has an active parent Epic continuation, first leave the child worktree context, then let
@@ -397,12 +446,29 @@ Recovery requirements:
 
 - Given a ready approved Plan and existing checkout edits, when execution starts, the approved work is isolated and the
   user’s edits remain preserved.
+- Given a completed Plan without controller records, loading it recognizes delivery when Git proves its validated commit
+  belongs to its target branch. A commit on an unrelated branch is not enough. A pending attempt offers continuation of
+  publication or cleanup, rather than being treated as finished merely because validation passed.
+- Given a committed archived Plan with no active attempt, Doctor reports no publication problem merely because its
+  historical target branch or pre-squash commit disappeared. An archived Plan with an unfinished attempt still receives
+  the normal recovery check. Archiving alone does not prove publication or authorize deletion of unmerged work.
 - When project checks or review fail, the user sees repair progress or a concrete recovery choice; implementation
   completion alone does not claim verification or delivery.
 - Given a paused Validation Repair Engineer conversation, when the user replies after compaction, RunWield continues the
   same Session and repair worktree instead of failing because storage and execution roots differ.
 - When publication succeeds, follow-up returns to the primary checkout or the parent Epic’s next action; it does not
   operate in a removed worktree.
+- Loading a Plan opens its picker or action menu. It does not remove branches, move leftover files, or resume
+  publication cleanup. After confirmed publication, leftover cleanup records do not require the execution document or
+  recreate its removed worktree. The user can view the Plan or explicitly choose to remove the published worktree and
+  branch.
+- Given publication succeeded and the target branch gained later commits, normal publication cleanup or explicitly
+  requested cleanup finishes when that branch still contains the published commits, even if temporary checkouts are
+  already gone. It does not repeat publication, alter primary-checkout edits, or ask the user to repair normal Git
+  history. If the published commits cannot be confirmed on the target, remaining files are kept.
+- Given confirmed publication and leftover checkout files whose Git registration is gone, cleanup preserves the entire
+  directory in a named saved-files folder and finishes without asking the user to repair Git bookkeeping. It reports
+  that folder and never discards uncommitted, untracked, or ignored files on the strength of commit history alone.
 - When interrupted validation resumes, preserved work is reused without silently repeating completed actions or deleting
   unmerged changes.
 - Given stale locks, inconsistent settings/storage, or mismatched Plan bookkeeping during a workflow, when RunWield
@@ -433,6 +499,46 @@ findings and inspect repair changes for regressions. Each finding remains identi
 open items visible. Repair reports address every finding; an independent Reviewer verifies fixes rather than accepting
 self-approval.
 
+**Requirement: Use one target-relative review diff.**
+
+For Git worktree execution, the full review patch is the direct difference from the recorded target branch's current
+commit to all current worktree files. It includes committed, staged, unstaged, and non-ignored untracked changes. It
+does not use the execution recovery baseline or a shared ancestor. The same comparison supplies Semantic Code Review,
+repair context, and Local Human Code Review, including reload and continuation. One shared comparison owner produces the
+patch; review tools page it and review interfaces present it without creating another Git comparison.
+
+The recorded target branch remains authoritative when it is not `main`. A missing target is a recoverable comparison
+failure, not an empty diff or permission to use another branch. Each computation resolves one target commit. A later
+review refresh can use a newer target tip. The execution baseline remains authoritative only for recovery and explicit
+before-and-after repair comparisons.
+
+**Acceptance scenarios:**
+
+- Given target work imported after execution starts, when review runs, unchanged imported files are absent from the full
+  patch and separate worktree changes remain present.
+- Given a target that advances without the worktree importing it, when review refreshes, target-only content appears as
+  removed or changed because the comparison is direct, not shared-ancestor based.
+- Given identical target and worktree state, AI review, repair context, and human review receive the same full patch.
+- Given a missing recorded target, review stops with a recoverable comparison failure and does not use `main`, `HEAD`,
+  the recovery baseline, or an empty patch.
+
+**Requirement: Complete inspection before a review decision.**
+
+The Reviewer receives the actual approved Plan content. Rounds one and two must read the complete diff for every changed
+file. Round three onward must read the complete repair diff and assess every open issue; those rounds do not rediscover
+unrelated defects in the original change. Both approving and rejecting require complete coverage of the relevant diff.
+An incomplete decision returns the unread file chunks and instructions for reading them, in the same review context.
+Listing files, rereading one chunk, or reading the wrong diff scope cannot satisfy coverage. Coverage proves that the
+code was supplied to the Reviewer, not that the judgment is correct.
+
+**Requirement: Distinguish repair claims from confirmed fixes.**
+
+Issue states are `new`, `fix claimed`, `fix confirmed`, and `fix rejected`. Accepted repair completion claims a fix for
+each supplied open issue. Independent review confirms or rejects each claim; rejection retains the issue identity and
+explains what is still wrong. Only confirmed fixes close issues. These states and rejection reasons survive recovery.
+Metrics separately distinguish first-round findings, defects missed in the original change, repair-introduced defects,
+and existing issues still open. Origin is Reviewer attribution for diagnosis, not a new issue state or proof of cause.
+
 Semantic and human-feedback repairs receive focused, fresh context in the same user-visible Session and Plan workflow.
 Human feedback, annotations, and images must survive the handoff. Unclear references require clarification, not guesses.
 Repair is about correctness; it does not introduce Pair design checkpoints.
@@ -455,6 +561,14 @@ convergence without more escaped defects, not approval rate alone.
 
 - Given a concrete missing Plan requirement, when independent review identifies it, the finding remains visible through
   repair until the Reviewer verifies the correction.
+- Given an unread diff chunk, when the Reviewer attempts either verdict, completion returns its path and read command;
+  the review continues with its existing findings and can complete once every required chunk is read.
+- Given a round-one rejection, round two checks the entire implementation and prior findings. Round three and later
+  check only open issues and repair regressions, including when the workflow resumes in a fresh process.
+- Given a claimed fix that is incomplete, review records `fix rejected` and a reason under the same issue identity.
+  Another completed repair moves it to `fix claimed`; independent confirmation closes it without creating a new issue.
+- Given a prior finding that attributes unchanged target content to the current work, repair reports it as already
+  satisfied with evidence and independent review can confirm it without requiring a file edit. The issue keeps its ID.
 - Given only a maintainability preference, when review completes, it remains advisory and cannot become an invented
   implementation obligation.
 - After the automatic-round boundary, when the user chooses human review, feedback leads to repair and checks and
@@ -529,6 +643,24 @@ scope.
 
 **Target: concise project briefing.** Provide compressed project context where useful without flooding every prompt.
 
+**Requirement: Glossary layout does not prescribe architecture.** A project may keep one glossary covering several
+contexts or use a map linking separate glossaries where distinct terminology makes that useful. Agents discover model
+boundaries from behavior, terminology, and ownership, not file count. Separate glossaries may live with code or in
+documentation directories without requiring code reorganization.
+
+**Requirement: Keep edit failures focused.** Failed source and Markdown edits report the underlying error without
+automatically appending file contents. Agents can retrieve the relevant source separately when needed.
+
+**Requirement: Batch known code reads efficiently.** Agents can request up to five known source or outline reads
+together. Reads of the same kind share one Cymbal invocation, with duplicate targets read once. Results retain request
+order and identify individual failures without discarding successful reads. Each result receives an equal share of the
+50,000-character response limit, including its heading, status, and truncation notice; a large result cannot hide later
+results. Agents can request narrower reads for truncated content.
+
+**Requirement: Report code-query failures accurately.** Failed Cymbal commands and invalid responses are errors, not
+successful empty queries. Batch results expose success or failure and truncation for each requested item. The whole
+batch is marked failed when every item fails; partial success retains successful results and identifies failed items.
+
 Future code-intelligence work should address demonstrated gaps in finding relevant code, understanding dependencies, or
 assessing change impact. Indexing technology belongs in architecture and implementation documents.
 
@@ -536,8 +668,18 @@ assessing change impact. Indexing technology belongs in architecture and impleme
 
 - Given an existing project, when Init completes, the project glossary and saved facts provide terminology and context
   for future work.
+- Given one glossary describing several contexts, Agents preserve their distinct meanings without assuming a single
+  model or requiring separate files. Given a glossary map, Agents follow its links regardless of code layout.
 - When an Agent needs a symbol or related prior decision, it can retrieve relevant project code or memory without
   treating operational memory as a Work Record.
+- Given an edit that fails, including in a large file, the Agent receives the error without an automatic source dump and
+  can request the relevant code before retrying.
+- Given interleaved source and outline requests, the Agent receives results in the requested order using at most one
+  Cymbal invocation per kind. A missing source target does not hide successful results in the same batch.
+- Given an oversized first result and an error in a later item, both remain visible with their statuses, and the full
+  response stays within its limit. Truncation is indicated separately from failure.
+- Given a missing Cymbal executable or a batch in which all reads fail, the tool reports failure. A successful empty
+  query remains successful.
 
 ### Compaction and image context
 
@@ -556,6 +698,9 @@ through a model preset; the preset takes precedence and an unset fallback is dis
 and authentication apply. Users see which model will describe the image. Missing or unsuitable fallback configuration
 explains how to fix setup while preserving typed text and image previews, including after a model change before Send.
 
+Standalone releases include the image resize worker and its image-processing dependencies. Reading or sending an image
+must not print worker-loading errors over the terminal interface or silently disable image resizing.
+
 The Agent can ask `see_image` about a saved Session attachment or an explicitly referenced project image. Descriptions
 include readable text, relevant visual state, and uncertainty. Resuming retains attachment access; unrelated Sessions do
 not inherit it. Future Session deletion also removes its images. See
@@ -569,6 +714,8 @@ not inherit it. Future Session deletion also removes its images. See
   model before Send, setup guidance preserves the typed message and image preview.
 - When the user resumes a Session with saved images, those attachments remain available without exposing images from
   unrelated Sessions.
+- Given a standalone release running outside the source checkout, resizing an image produces a valid image within the
+  requested dimensions without worker-loading errors or stray terminal output.
 
 ### Work records
 
@@ -592,6 +739,9 @@ renaming; search can be rebuilt from the documents.
 - `wld wr` provides listing, search, reading, index rebuild, and backfill. Backfill previews missing records for
   eligible active and archived completed Plans and asks before generation. It avoids duplicating existing linked
   records.
+- Older Work Records using a non-empty `Result` section remain readable as summaries without rewriting their files. A
+  genuinely invalid existing record stops backfill before generation, identifies the filename and required repair, and
+  does not produce a fatal stack trace or silently generate a duplicate.
 - Default retrieval includes current approved records. Pending, draft, superseded, and archived records require explicit
   historical or maintenance access and clear notices; they are not settled current guidance.
 - Ideator, Planner, and Architect retrieve relevant current records. Guide can inspect historical records with their
@@ -781,6 +931,26 @@ Candidate.
 Upgrades that change project runtime layout follow [Work protection](#work-protection). Installation must not bypass
 safe adoption or blocked-layout preservation.
 
+**Requirement: Qualify release packages before publication and preserve published bytes.**
+
+Candidate and Stable releases must pass native Windows and macOS Homebrew package checks before GitHub publication.
+Candidate checks must not update Stable package channels. A packaging recovery must keep the released tag and asset
+bytes unchanged, verify the existing asset set, and resume package publication without rebuilding published binaries.
+Missing or inconsistent release assets must stop publication rather than cause a silent replacement. Native Homebrew
+checks use a supported runner with available dependency bottles, show command progress while work runs, and have a
+bounded job duration. A timeout blocks publication; it does not waive installation checks.
+
+**Acceptance scenarios:**
+
+- Given a package check fails for a new Candidate or Stable, no GitHub Release is created.
+- Given a native Homebrew check serves Candidate or Stable assets from localhost before publication, the formula and
+  installed ownership metadata retain the release version, not a number inferred from the archive architecture.
+- Given a slow Homebrew command, its output is visible before it exits. If the job reaches its time limit, publication
+  remains blocked and the log identifies the command in progress.
+- Given Stable assets are published but tap publication fails, recovery verifies and reuses those assets and leaves the
+  tag unchanged.
+- Given duplicate asset names, missing required assets, or checksum disagreement, publication stops before upload.
+
 **Requirement: Install required local runtime pieces without hiding package ownership.**
 
 Users can install RunWield as a standalone binary with the shell installer or, after owner publication, with the
@@ -791,7 +961,7 @@ Homebrew requirements:
 
 - provide `gandazgul/tap/wld` for macOS Apple Silicon and Intel
 - provide independent `gandazgul/tap/mnemoteca`
-- use package dependencies for Mnemoteca, Cymbal, Ketch, agent-browser, and Git
+- use package dependencies for Mnemoteca, Cymbal, Ketch (from Homebrew Core), agent-browser, and Git
 - keep Mnemoteca model setup and browser setup as first-use actions
 - store package-owner metadata beside the installed executable
 - make `wld update` and `wld upgrade` print the package-manager command for package-managed installs
@@ -812,6 +982,8 @@ Windows WinGet requirements:
 
 **Acceptance scenarios:**
 
+- Given a new Homebrew install, when dependencies resolve, Ketch comes from Homebrew Core without the retired
+  `1broseidon/tap/ketch` formula. Native package checks must pass before publication.
 - Given a Homebrew-owned `wld`, when the user runs `wld update`, RunWield prints `brew upgrade gandazgul/tap/wld` and
   does not run the shell installer.
 - Given a WinGet-owned `wld`, when the user runs `wld update`, RunWield prints
@@ -835,9 +1007,10 @@ Windows WinGet requirements:
 
 **Requirement: Enter project runtime state before use.**
 
-Core enters project runtime state before normal project-local runtime reads, locks, or writes. Entry adopts eligible
-legacy state or refuses unsafe layouts with a retryable reason and safe paths. Refusal stops normal writes and preserves
-user work. See [ADR-017](../adr/017-project-runtime-state-under-wld-internal.md).
+Core enters project runtime state before normal project-local runtime reads, locks, or writes. RunWield 0.11 performs a
+one-way adoption of eligible 0.10 state. Entry adopts eligible legacy state or refuses unsafe layouts with a retryable
+reason and safe paths. Refusal stops normal writes and preserves user work. After adoption, downgrade or concurrent use
+with 0.10 is not supported. See [ADR-017](../adr/017-project-runtime-state-under-wld-internal.md).
 
 **Requirement: Keep Project Runtime State out of repository changes.**
 
@@ -922,6 +1095,8 @@ Required outcomes:
 - open surfaces update when another surface saves work, while preserving unsent drafts;
 - a long conversation or completed Plan does not by itself disable the next user message;
 - retrying a request after a connection failure does not submit the same work twice;
+- automatic workflow and repair handoffs retain the original request as context without emitting it as a new user
+  message;
 - leaving or reloading the browser does not cancel running work;
 - after a process failure, saved history remains available and the user receives a clear next action without silent
   repetition of unfinished work;
@@ -936,6 +1111,8 @@ create additional product restrictions on which screen the owner may use.
 
 - Given a fresh empty composer, when the user opens it without submitting work, no project runtime state is created; the
   first submitted work enters the project runtime.
+- When validation starts another repair, observers see the repair activity without a second copy of the user's original
+  request. Workflow reports keep their call identity across live delivery and saved replay.
 - Given an idle open TUI, when its owner sends the next message from a phone, the same Session continues and the TUI
   updates when the owner returns.
 - When a browser reloads or a completed Plan receives a follow-up, saved history remains usable and unsent drafts

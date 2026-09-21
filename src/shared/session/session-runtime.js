@@ -510,6 +510,41 @@ function buildSemanticRepairCiState(options, workflow, handoff) {
     return handoff.ciState ? { ...state, ...handoff.ciState } : state;
 }
 
+/**
+ * @param {Record<string, unknown>} activeWorkflowMeta
+ * @returns {Array<import('../workflow/workflow-presentation.ts').WorkflowProgressFact>}
+ */
+function workflowProgressFactsFromActiveMeta(activeWorkflowMeta) {
+    /** @type {Array<import('../workflow/workflow-presentation.ts').WorkflowProgressFact>} */
+    const facts = [];
+    const checkpoint = activeWorkflowMeta.validationCheckpoint;
+    if (checkpoint && typeof checkpoint === "object" && !Array.isArray(checkpoint)) {
+        const source = /** @type {Record<string, unknown>} */ (checkpoint);
+        facts.push({
+            kind: "validation_checkpoint",
+            phase: typeof source.nextPhase === "string" ? source.nextPhase : null,
+            state: typeof source.state === "string" ? source.state : null,
+            repairKind: typeof source.repairKind === "string" ? source.repairKind : null,
+            updatedAt: typeof source.updatedAt === "string" ? source.updatedAt : null,
+        });
+    }
+    const publication = activeWorkflowMeta.publication;
+    if (publication && typeof publication === "object" && !Array.isArray(publication)) {
+        const source = /** @type {Record<string, unknown>} */ (publication);
+        facts.push({
+            kind: "publication",
+            phase: typeof source.phase === "string" ? source.phase : null,
+            failure: Boolean(source.failure),
+            updatedAt: typeof source.updatedAt === "string" ? source.updatedAt : null,
+        });
+    }
+    const worktreeStatus = typeof activeWorkflowMeta.worktreeStatus === "string"
+        ? activeWorkflowMeta.worktreeStatus
+        : "";
+    if (worktreeStatus) facts.push({ kind: "registry", status: worktreeStatus });
+    return facts;
+}
+
 export class SessionRuntime {
     /** @type {SessionHost} */
     #sessionHost;
@@ -628,8 +663,46 @@ export class SessionRuntime {
             ? rawSessionManagerId
             : null;
         const activeExecutionWorkflow = session.getActiveExecutionWorkflow();
-        const workflowContext = session.getWorkflowContext() || (managedDormant ? managed?.workflowContext : null) ||
+        const baseWorkflowContext = session.getWorkflowContext() ||
+            (managedDormant ? managed?.workflowContext : null) ||
             deriveWorkflowContextFromExecutionWorkflow(activeExecutionWorkflow) || null;
+        const activeInteractions = [...session.getActiveInteractions().values()];
+        const liveQuestion = activeInteractions.some((record) =>
+            record.request?.type !== "plan_review" && record.request?.type !== "code_review"
+        );
+        const livePlanReview = activeInteractions.some((record) => record.request?.type === "plan_review");
+        const liveCodeReview = activeInteractions.some((record) => record.request?.type === "code_review");
+        const liveReview = activeInteractions.find((record) =>
+            record.request?.type === "plan_review" || record.request?.type === "code_review"
+        );
+        const workflowProgressFacts = Array.isArray(baseWorkflowContext?.progressFacts)
+            ? baseWorkflowContext.progressFacts.map((fact) => ({ ...fact }))
+            : [];
+        const activeWorkflowMeta = activeExecutionWorkflow?.triageMeta || {};
+        workflowProgressFacts.push(
+            ...workflowProgressFactsFromActiveMeta(/** @type {Record<string, unknown>} */ (activeWorkflowMeta)),
+        );
+        const hasValidationCheckpoint = workflowProgressFacts.some((fact) => fact.kind === "validation_checkpoint");
+        const hasRepairCheckpoint = workflowProgressFacts.some((fact) =>
+            fact.kind === "validation_checkpoint" && (fact.state === "awaiting_repair" || Boolean(fact.repairKind))
+        );
+        const workflowContext = baseWorkflowContext
+            ? {
+                ...baseWorkflowContext,
+                ...(typeof activeWorkflowMeta.planId === "string" ? { planId: activeWorkflowMeta.planId } : {}),
+                ...(typeof activeWorkflowMeta.status === "string" ? { status: activeWorkflowMeta.status } : {}),
+                ...(workflowProgressFacts.length ? { progressFacts: workflowProgressFacts } : {}),
+                ...(liveQuestion ? { liveQuestion } : {}),
+                ...(livePlanReview ? { livePlanReview } : {}),
+                ...(liveCodeReview ? { liveCodeReview } : {}),
+                ...(liveReview?.request?.reviewUrl ? { liveReviewUrl: liveReview.request.reviewUrl } : {}),
+                ...(baseWorkflowContext.canRun === true || activeWorkflowMeta.status === "ready_for_work"
+                    ? { canRun: true }
+                    : {}),
+                ...(baseWorkflowContext.canResume === true || hasValidationCheckpoint ? { canResume: true } : {}),
+                ...(baseWorkflowContext.canRecover === true || hasRepairCheckpoint ? { canRecover: true } : {}),
+            }
+            : null;
         const contextCapacity = getRuntimeContextCapacity(session);
         const systemContextTokens = getRootSessionStaticContextTokens(session);
         const activeModelState = session.getActiveModelState();
@@ -691,6 +764,7 @@ export class SessionRuntime {
             activeTurnId: session.getActiveTurnId(),
             queuedMessages: this.getQueuedMessages(session.id),
             workflowContext: workflowContext ? { ...workflowContext } : null,
+            planAssociations: activeSessionInfo?.planAssociations || [],
             artifacts,
             activeExecutionWorkflow: activeExecutionWorkflow ? { ...activeExecutionWorkflow } : null,
             systemContextTokens,
@@ -1555,6 +1629,7 @@ export class SessionRuntime {
             session.id,
             {
                 name: "workflow_operation",
+                emitPromptEvents: false,
                 options: {
                     ...options,
                     expectedGeneration: managed.generation ?? undefined,
@@ -1872,12 +1947,16 @@ export class SessionRuntime {
             }
             session.setActiveExecutionWorkflow(/** @type {any} */ (continuation.activeWorkflow));
             const { buildValidationRepairPrompt } = await import("../workflow/validation-repair-prompt.ts");
+            const { getWorktreeReviewDiff } = await import("../workflow/git-snapshot.js");
             const { createReviewDiffTool, buildDiffInspectionSection } = await import(
                 "../workflow/review-diff-tool.js"
             );
             const { acknowledgeTaskCompletion, claimPendingTaskCompletion } = await import(
                 "./task-completion-session.ts"
             );
+            const diffText = workflow.executionMode === "non_git_in_place" || workflow.nonGitInPlace
+                ? continuation.repair.diffText
+                : await getWorktreeReviewDiff(executionCwd, workflow.worktreeBaseBranch || "");
             await runActiveAgentTurn({
                 hostedSession: session,
                 agentName: AGENTS.REVIEWER_FEEDBACK_ENGINEER,
@@ -1894,7 +1973,7 @@ export class SessionRuntime {
                         "",
                         continuation.repair.findingsSection || "(no findings text supplied)",
                         "",
-                        buildDiffInspectionSection(continuation.repair.diffText),
+                        buildDiffInspectionSection(diffText),
                     ].join("\n"),
                     completionInstruction:
                         "Report a disposition for every finding, then call task_completed. If a finding is still open because something blocked you, stop in plain text instead and name it.",
@@ -1902,7 +1981,7 @@ export class SessionRuntime {
                 cwd: executionCwd,
                 dispatchKind: "validation_repair",
                 subAgentDefinition: { id: SUBAGENTS.REVIEWER_FEEDBACK_ENGINEER },
-                customTools: [createReviewDiffTool({ full: continuation.repair.diffText }, { hostedSession: session })],
+                customTools: [createReviewDiffTool({ full: diffText }, { hostedSession: session })],
             });
             const acceptedCompletion = claimPendingTaskCompletion(session, null);
             const completed = Boolean(acceptedCompletion);

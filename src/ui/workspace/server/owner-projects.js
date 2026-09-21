@@ -1,6 +1,6 @@
 /** @module ui/workspace/server/owner-projects */
 
-import { basename, resolve } from "@std/path";
+import { basename, resolve } from "node:path";
 
 /** @param {string} root */
 export function sanitizeRootLabel(root) {

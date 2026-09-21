@@ -168,7 +168,8 @@ These checks apply to the finished layout. The earlier child checklists remain h
 - [x] Automated migration fixtures refuse symlinked runtime roots and publication checkout roots without changing an
       external sentinel.
 - [x] Automated linked-checkout fixtures adopt one 0.10 project secret into the primary store, preserve conflicts,
-      retain the source identity across an interrupted rename, and use the adopted store in collaboration commands.
+      retain the source identity across an interrupted rename, and use the same migrated content key and maintainer
+      capability for named pull and push commands without a new share or global secret copy.
 - [x] Automated subprocess fixtures refuse active primary Plan and Work Record locks. Retry succeeds after lock release.
 - [x] Automated Git fixtures classify old and current secret files and temporary files as secret exposure without
       printing their values.
@@ -177,7 +178,22 @@ These checks apply to the finished layout. The earlier child checklists remain h
 - [ ] Install `v0.11.0-rc.1` in an isolated user environment and run fresh-project and disposable 0.10 adoption checks.
 - [ ] Run the compiled Candidate publication journey with repository symlinks.
 - [x] Native Windows package qualification passed for source `a56d754570e7c0ca9b9a43f4fb79c6f3c58ba4fd` in
-      [Windows package diagnostic run 35242972855](https://github.com/gandazgul/runwield/actions/runs/35242972855).
+      [Windows package diagnostic run 35242972855](https://github.com/gandazgul/runwield/actions/runs/35242972855). This
+      older run does not qualify the combined 0.11 source.
+- [ ] Confirm the tagged Candidate source passes the actual native Windows package check and macOS Homebrew check.
+      Record both workflow jobs against the exact Candidate commit; a skipped or older run is not sufficient.
 - [ ] Record Candidate assets and checksums, prerelease status, and unchanged latest Stable.
 - [ ] After Candidate qualification and separate owner approval, promote the exact Candidate commit and verify Stable
       assets, identity, latest-release status, and notes.
+
+### Pre-merge local qualification
+
+The release handoff records the integration commit that contains these results. Tagged native package checks and
+Candidate installation remain pending until the owner confirms merge and publication.
+
+- [x] The focused runtime, collaboration, Doctor, publication, worktree, and release-policy command passed.
+- [x] `deno task pr:check` passed 401 source test files and 34 Golden TUI files.
+- [x] `deno task release:check --build-version v0.11.0-rc.1` passed compiled Workspace routes, release binary and
+      package smoke checks, standalone Plan surfaces, and all 34 extensive Golden TUI files.
+- [x] A focused 47-test migration run passed, including concurrent migration lock initialization. Focused Doctor and
+      registry runs passed with preservation guidance and fresh incomplete lock coverage.

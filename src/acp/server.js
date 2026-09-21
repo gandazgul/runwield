@@ -13,6 +13,7 @@ import { RuntimeEventTypes } from "../shared/session/session-runtime-events.js";
 import { AcpSessionMap, normalizeAcpSessionIdForLoad } from "./session-map.js";
 import { mapRuntimeEventToAcpSessionNotification } from "./event-mapper.js";
 import { createAcpInteractionAdapter } from "./interaction-mapper.js";
+import { buildAcpModelOptions } from "./model-options.ts";
 import { getCommandDefinition, getSlashCommandDefinition, getSlashCommandDefinitions } from "../cmd/registry.js";
 import { ProjectRuntimeEntryRefusedError } from "../shared/project-runtime-layout.ts";
 import { RuntimeInteractionOutcomes, RuntimeInteractionTypes } from "../shared/session/session-runtime-interactions.js";
@@ -67,6 +68,12 @@ function isAuthenticationSetupFailure(message) {
 /** @typedef {import('../shared/session/session-runtime.js').SessionRuntime} SessionRuntime */
 
 /**
+ * @typedef {Object} AcpNotificationContext
+ * @property {{ notify?: Function }} [client]
+ * @property {Function} [notify]
+ */
+
+/**
  * @typedef {Object} RunWieldAcpServerOptions
  * @property {(message: string) => void | Promise<void>} [diagnostic]
  */
@@ -104,7 +111,8 @@ export function createInitializeResponse(request) {
         agentCapabilities: {
             loadSession: true,
             promptCapabilities: {
-                _meta: { runwield: { contentTypes: ["text", "resource_link"] } },
+                image: true,
+                _meta: { runwield: { contentTypes: ["text", "image", "resource_link"] } },
             },
             sessionCapabilities: {
                 close: {},
@@ -116,6 +124,7 @@ export function createInitializeResponse(request) {
                             "session/prompt",
                             "session/cancel",
                             "session/close",
+                            "session/set_config_option",
                         ],
                         updateNotifications: ["session/update"],
                     },
@@ -265,19 +274,48 @@ function validateAcpMcpServers(value) {
 }
 
 /**
- * @param {Array<Record<string, any>>} blocks
- * @returns {string}
+ * @typedef {Object} AcpPromptBlock
+ * @property {string} [type]
+ * @property {string | null} [text]
+ * @property {string | null} [data]
+ * @property {string | null} [mimeType]
+ * @property {string | null} [title]
+ * @property {string | null} [name]
+ * @property {string | null} [uri]
  */
-export function convertAcpPromptToText(blocks) {
+
+/**
+ * @typedef {Object} ConvertedAcpPrompt
+ * @property {string} text
+ * @property {import('../shared/session/types.js').ImageAttachment[]} images
+ */
+
+/**
+ * @param {AcpPromptBlock[]} blocks
+ * @returns {ConvertedAcpPrompt}
+ */
+export function convertAcpPrompt(blocks) {
     if (!Array.isArray(blocks) || blocks.length === 0) {
         throwInvalidParams("session/prompt requires at least one prompt content block");
     }
     /** @type {string[]} */
     const parts = [];
+    /** @type {import('../shared/session/types.js').ImageAttachment[]} */
+    const images = [];
     for (const block of blocks) {
         if (!block || typeof block !== "object") throwInvalidParams("Invalid prompt content block");
         if (block.type === "text") {
             parts.push(String(block.text || ""));
+            continue;
+        }
+        if (block.type === "image") {
+            if (typeof block.data !== "string" || !block.data) {
+                throwInvalidParams("ACP image prompt content requires base64 data", { contentType: block.type });
+            }
+            if (typeof block.mimeType !== "string" || !block.mimeType) {
+                throwInvalidParams("ACP image prompt content requires a MIME type", { contentType: block.type });
+            }
+            images.push({ base64: block.data, mimeType: block.mimeType });
             continue;
         }
         if (block.type === "resource_link") {
@@ -289,7 +327,7 @@ export function convertAcpPromptToText(blocks) {
             contentType: block.type,
         });
     }
-    return parts.join("\n").trim();
+    return { text: parts.join("\n").trim(), images };
 }
 
 /**
@@ -360,6 +398,22 @@ async function notifyAcpCommandCatalog(context, runtime, runtimeSessionId, acpSe
         update: {
             sessionUpdate: "available_commands_update",
             availableCommands: await buildAcpAvailableCommands(runtime, runtimeSessionId),
+        },
+    });
+}
+
+/**
+ * @param {AcpNotificationContext} context
+ * @param {SessionRuntime} runtime
+ * @param {string} runtimeSessionId
+ * @param {string} acpSessionId
+ */
+async function notifyAcpModelOptions(context, runtime, runtimeSessionId, acpSessionId) {
+    await notifyClient(context, methods.client.session.update, {
+        sessionId: acpSessionId,
+        update: {
+            sessionUpdate: "config_option_update",
+            configOptions: await buildAcpModelOptions(runtime, runtimeSessionId),
         },
     });
 }
@@ -526,6 +580,11 @@ async function dispatchAcpBuiltinCommand(options) {
                     return pending;
                 }
                 const notification = mapEventWithSessionCost(options.sessionMap, options.acpSessionId, event);
+                if (event.type === RuntimeEventTypes.MODEL_CHANGED || event.type === RuntimeEventTypes.AGENT_CHANGED) {
+                    pendingNotifications.push(
+                        notifyAcpModelOptions(options.context, options.runtime, runtimeSessionId, options.acpSessionId),
+                    );
+                }
                 if (!notification) return;
                 const pending = notifyClient(options.context, methods.client.session.update, notification);
                 pendingNotifications.push(pending);
@@ -772,11 +831,13 @@ function createRunWieldAcpServer(context) {
             { persistedSessionId },
         );
         await replaySetupEvents(context, runtime, sessionMap, runtimeSessionId, record.acpSessionId);
+        const configOptions = await buildAcpModelOptions(runtime, runtimeSessionId);
         queueMicrotask(() => {
             notifyAcpCommandCatalog(context, runtime, runtimeSessionId, record.acpSessionId).catch(() => {});
         });
         return {
             sessionId: record.acpSessionId,
+            configOptions,
             _meta: {
                 runwield: {
                     runtimeSessionId,
@@ -810,10 +871,12 @@ function createRunWieldAcpServer(context) {
                 .filter(Boolean)
                 .map((notification) => notifyClient(context, methods.client.session.update, notification));
             await Promise.allSettled(notifications);
+            const configOptions = await buildAcpModelOptions(runtime, result.sessionId);
             queueMicrotask(() => {
                 notifyAcpCommandCatalog(context, runtime, result.sessionId, record.acpSessionId).catch(() => {});
             });
             return {
+                configOptions,
                 _meta: {
                     runwield: {
                         runtimeSessionId: result.sessionId,
@@ -836,6 +899,40 @@ function createRunWieldAcpServer(context) {
                 cwd: request.cwd,
             });
         }
+    });
+
+    app.onRequest(methods.agent.session.setConfigOption, async (context) => {
+        const { sessionId, configId, value } = context.params;
+        if (typeof sessionId !== "string" || !sessionId) {
+            throwInvalidParams("session/set_config_option requires sessionId");
+        }
+        const runtimeSessionId = sessionMap.getRuntimeSessionId(sessionId);
+        if (!runtimeSessionId) throwUnknownSession(sessionId);
+        if (configId !== "model" || typeof value !== "string") {
+            throwInvalidParams("Expected a model config option with a string value");
+        }
+        if (sessionMap.getRecord(sessionId)?.activePrompt) {
+            throw new RequestError(ACP_INVALID_STATE, "Wait for the active turn to finish before switching models", {
+                sessionId,
+            });
+        }
+        const models = await listUserModelOptions();
+        const selected = models.find((model) => `${model.provider}/${model.id}` === value);
+        if (!selected) throwInvalidParams(`Model is not available: ${value}`, { configId, value });
+        const result = await applyUserModelSelection(runtime, runtimeSessionId, selected.id, selected.provider);
+        if (!result.ok) {
+            throw new RequestError(ACP_INVALID_STATE, result.error || "Model switch failed", {
+                sessionId,
+                configId,
+                value,
+            });
+        }
+        const configOptions = await buildAcpModelOptions(runtime, runtimeSessionId);
+        await notifyClient(context, methods.client.session.update, {
+            sessionId,
+            update: { sessionUpdate: "config_option_update", configOptions },
+        });
+        return { configOptions };
     });
 
     app.onRequest(methods.agent.session.prompt, async (context) => {
@@ -877,10 +974,10 @@ function createRunWieldAcpServer(context) {
                 });
             }
         }
-        const promptText = convertAcpPromptToText(request.prompt);
+        const { text: promptText, images: promptImages } = convertAcpPrompt(request.prompt);
         const initialSnapshot = runtime.getSessionSnapshot(runtimeSessionId);
         if (initialSnapshot?.managed?.syncState?.status === "active_elsewhere") {
-            const queued = runtime.queueNextTurnMessage(runtimeSessionId, promptText, [], {
+            const queued = runtime.queueNextTurnMessage(runtimeSessionId, promptText, promptImages, {
                 deliverWhenAvailable: true,
             });
             if (!queued.ok) {
@@ -962,6 +1059,9 @@ function createRunWieldAcpServer(context) {
                     return;
                 }
                 const notification = mapEventWithSessionCost(sessionMap, acpSessionId, event);
+                if (event.type === RuntimeEventTypes.MODEL_CHANGED || event.type === RuntimeEventTypes.AGENT_CHANGED) {
+                    pendingNotifications.push(notifyAcpModelOptions(context, runtime, runtimeSessionId, acpSessionId));
+                }
                 if (!notification) return;
                 const pending = notifyClient(context, methods.client.session.update, notification);
                 pendingNotifications.push(pending);
@@ -972,7 +1072,7 @@ function createRunWieldAcpServer(context) {
         try {
             const runtimePrompt = runtime.promptUserTurn(runtimeSessionId, {
                 initialRequest: promptText,
-                initialImages: [],
+                initialImages: promptImages,
                 onTurnStarted: (/** @type {{ turnId: string }} */ { turnId }) => {
                     activePrompt = sessionMap.beginPrompt(
                         acpSessionId,
@@ -1011,7 +1111,7 @@ function createRunWieldAcpServer(context) {
                     result.error === "managed_operation_in_progress" &&
                     !sessionMap.getRecord(acpSessionId)?.activePrompt
                 ) {
-                    const queued = runtime.queueNextTurnMessage(runtimeSessionId, promptText, [], {
+                    const queued = runtime.queueNextTurnMessage(runtimeSessionId, promptText, promptImages, {
                         deliverWhenAvailable: true,
                     });
                     if (queued.ok) {
@@ -1070,7 +1170,6 @@ function createRunWieldAcpServer(context) {
     registerUnimplementedRequest(app, methods.agent.session.fork);
     registerUnimplementedRequest(app, methods.agent.session.resume);
     registerUnimplementedRequest(app, methods.agent.session.setMode);
-    registerUnimplementedRequest(app, methods.agent.session.setConfigOption);
     registerUnimplementedRequest(app, methods.agent.nes.start);
     registerUnimplementedRequest(app, methods.agent.nes.suggest);
     registerUnimplementedRequest(app, methods.agent.nes.close);

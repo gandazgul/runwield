@@ -79,6 +79,7 @@ function executionMetadataOverrides(canonicalAttrs, executionAttrs) {
         "userVerifiedAt",
         "userVerificationNote",
         "closedWithoutVerificationReason",
+        "closedWithoutVerificationAt",
         "workRecord",
         "epicCompletionMode",
         "epicDoneEnoughAt",

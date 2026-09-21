@@ -20,7 +20,7 @@ For a Homebrew-owned install, repair packages instead:
 ```bash
 brew reinstall gandazgul/tap/wld
 brew reinstall gandazgul/tap/mnemoteca
-brew reinstall 1broseidon/tap/cymbal 1broseidon/tap/ketch agent-browser
+brew reinstall 1broseidon/tap/cymbal ketch agent-browser
 ```
 
 The Homebrew command is available only after the owner publishes `gandazgul/homebrew-tap`.

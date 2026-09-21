@@ -30,28 +30,56 @@ if [ "$1" = "--repo" ]; then
 fi
 if [ "$1" = "trust" ]; then exit 0; fi
 if [ "$1" = "tap" ]; then exit 0; fi
+printf 'audit stdout is live\\n'
+printf 'audit stderr is live\\n' >&2
+while [ ! -f "$BREW_RELEASE" ]; do sleep 0.1; done
 printf 'intentional stop after tap registration\\n' >&2
 exit 42
 `,
         );
         await Deno.chmod(brew, 0o755);
 
-        const output = await new Deno.Command(Deno.execPath(), {
+        const child = new Deno.Command(Deno.execPath(), {
             args: ["run", "-A", "scripts/package-homebrew-check.js", "--tap", tap],
             cwd: Deno.cwd(),
             env: {
                 PATH: `${bin}:${Deno.env.get("PATH") || ""}`,
                 BREW_LOG: log,
                 MISSING_TAP: missingTap,
+                BREW_RELEASE: join(root, "release"),
             },
             stdout: "piped",
             stderr: "piped",
-        }).output();
-        const stderr = new TextDecoder().decode(output.stderr);
+        }).spawn();
+        let stdout = "";
+        let stderr = "";
+        const readStdout = (async () => {
+            for await (const chunk of child.stdout) stdout += new TextDecoder().decode(chunk);
+        })();
+        const readStderr = (async () => {
+            for await (const chunk of child.stderr) stderr += new TextDecoder().decode(chunk);
+        })();
+        let streamed = false;
+        try {
+            for (let attempt = 0; attempt < 100; attempt++) {
+                if (stdout.includes("audit stdout is live") && stderr.includes("audit stderr is live")) {
+                    streamed = true;
+                    break;
+                }
+                await new Promise((resolve) => setTimeout(resolve, 50));
+            }
+        } finally {
+            await Deno.writeTextFile(join(root, "release"), "");
+        }
+        const output = await child.status;
+        await Promise.all([readStdout, readStderr]);
+        assertEquals(streamed, true, "Both streams must be visible before brew exits");
         const calls = (await Deno.readTextFile(log)).trim().split("\n");
 
         assertEquals(output.success, false);
         assertStringIncludes(stderr, "intentional stop after tap registration");
+        assertStringIncludes(stderr, "failed with exit code 42");
+        assertEquals(stdout.includes(missingTap), false, "Query output stays captured");
         assertEquals(calls.slice(0, 3), [
             "--repo gandazgul/tap",
             `trust file://${tap}`,

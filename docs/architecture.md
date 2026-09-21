@@ -595,7 +595,8 @@ At invocation time:
 2. runtime custom tools are added explicitly;
 3. named RunWield tools such as `triage_report`, `plan_written`, `task_completed`, and `user_interview` are wired to
    concrete implementations;
-4. RunWield replaces selected built-ins with guarded variants such as grep and edit fallback.
+4. RunWield adapts selected built-ins, including grep and the single-replacement edit tool. Edit errors propagate
+   without appending file contents.
 
 ### Prompt and model assembly
 

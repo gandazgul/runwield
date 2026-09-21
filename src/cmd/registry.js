@@ -4,16 +4,8 @@
  */
 
 import { CLI_BIN, DEV_CLI_RUN } from "../constants.js";
-import { runPlansCommand } from "./plans/index.ts";
-import { runWorkRecordsCommand } from "./wr/index.ts";
-import { runRouterCommand } from "./router/index.ts";
-import { runSleepCommand, SYSTEM_SLEEP_MNEMOTECA_PORT } from "./sleep/index.ts";
-import { runHelpCommand } from "./help/index.js";
-import { getAgentCompletions, runAgentsCommand } from "./agents/index.ts";
-import { getModelCompletions, runModelsCommand } from "./models/index.ts";
 import { runLoginCommand, runLogoutCommand, runStatusCommand } from "./auth/index.ts";
 import { runQuitCommand } from "./quit/index.ts";
-import { getLoadPlanCompletions, runLoadPlanCommand } from "./load-plan/index.ts";
 import { runExportCommand } from "./export/index.js";
 import { runNewCommand } from "./new/index.ts";
 import { runNameCommand } from "./name/index.ts";
@@ -21,12 +13,9 @@ import { runSessionCommand } from "./session/index.js";
 import { runContextCommand } from "./context/index.js";
 import { runShareCommand, SYSTEM_GITHUB_CLI_PORT } from "./share/index.ts";
 import { runResumeCommand } from "./resume/index.ts";
-import { runInitCommand } from "./init/index.ts";
-import { runThemeCommand } from "./theme/index.ts";
 import { runInstallCommand } from "./install/index.ts";
 import { runRemoveCommand } from "./remove/index.ts";
 import { runCompactCommand } from "./compact/index.js";
-import { runSettingsCommand } from "./settings/index.ts";
 import { runCopyCommand } from "./copy/index.js";
 import { runReloadCommand } from "./reload/index.js";
 import { runVersionCommand } from "./version/index.js";
@@ -38,11 +27,9 @@ import {
     SYSTEM_UPDATE_NETWORK_PORT,
 } from "./update/index.ts";
 import { runSnipFiltersCommand } from "./snip-filters/index.ts";
-import { runAcpCommand } from "./acp/index.js";
 import { getMcpCompletions, runMcpCommand } from "./mcp/index.ts";
 import { runWorkspaceCommand } from "./workspace/index.ts";
 import { getAgentDisplayName } from "../shared/session/agents.js";
-import { SYSTEM_INTERACTIVE_SESSION_PORT } from "../ui/tui/interactive-session-port.ts";
 import { SYSTEM_WORK_RECORD_MNEMOTECA_PORT } from "../shared/work-records/mnemoteca-port.ts";
 
 /** Known CLI / slash command names. Defined alongside the registry so adding a new command only touches one file. */
@@ -155,8 +142,13 @@ export const commandRegistry = {
             "This is the default command when no explicit command is provided.",
             `Source-run fallback: ${DEV_CLI_RUN} "<user request>"`,
         ],
-        execute: (argv, options) =>
-            runRouterCommand(argv, { ...options, sessionPort: SYSTEM_INTERACTIVE_SESSION_PORT }),
+        execute: async (argv, options) => {
+            const [{ runRouterCommand }, { SYSTEM_INTERACTIVE_SESSION_PORT }] = await Promise.all([
+                import("./router/index.ts"),
+                import("../ui/tui/interactive-session-port.ts"),
+            ]);
+            await runRouterCommand(argv, { ...options, sessionPort: SYSTEM_INTERACTIVE_SESSION_PORT });
+        },
         surfaces: ["cli"],
     },
     [COMMAND_NAMES.ACP]: {
@@ -172,7 +164,7 @@ export const commandRegistry = {
             "CLI only: stdout is reserved for ACP JSON-RPC protocol frames.",
             "Handles initialize, session new/load/prompt/close, and session cancellation; other ACP methods return structured unimplemented errors.",
         ],
-        execute: runAcpCommand,
+        execute: async (argv) => await (await import("./acp/index.js")).runAcpCommand(argv),
         surfaces: ["cli"],
     },
     [COMMAND_NAMES.MCP]: {
@@ -209,11 +201,17 @@ export const commandRegistry = {
             "Bypasses the router triage flow — sends prompts directly to the agent.",
             "Use /agent inside the TUI to switch agents at any time.",
         ],
-        execute: (argv, options) =>
-            runAgentsCommand(argv, { ...options, sessionPort: SYSTEM_INTERACTIVE_SESSION_PORT }),
+        execute: async (argv, options) => {
+            const [{ runAgentsCommand }, { SYSTEM_INTERACTIVE_SESSION_PORT }] = await Promise.all([
+                import("./agents/index.ts"),
+                import("../ui/tui/interactive-session-port.ts"),
+            ]);
+            await runAgentsCommand(argv, { ...options, sessionPort: SYSTEM_INTERACTIVE_SESSION_PORT });
+        },
         surfaces: ["cli", "slash"],
         slashSurfaces: ["tui", "acp", "workspace"],
-        getArgumentCompletions: getAgentCompletions,
+        getArgumentCompletions: async (argumentPrefix) =>
+            await (await import("./agents/index.ts")).getAgentCompletions(argumentPrefix),
     },
     [COMMAND_NAMES.MODEL]: {
         name: COMMAND_NAMES.MODEL,
@@ -232,10 +230,11 @@ export const commandRegistry = {
             "The slash command switches the current runtime Session; the CLI command sets the default for future Sessions.",
             "Inside the interactive session, use '/model <tab>' for autocomplete.",
         ],
-        execute: runModelsCommand,
+        execute: async (argv, options) => await (await import("./models/index.ts")).runModelsCommand(argv, options),
         surfaces: ["cli", "slash"],
         slashSurfaces: ["tui", "acp", "workspace"],
-        getArgumentCompletions: getModelCompletions,
+        getArgumentCompletions: async (argumentPrefix) =>
+            await (await import("./models/index.ts")).getModelCompletions(argumentPrefix),
     },
     [COMMAND_NAMES.LOGIN]: {
         name: COMMAND_NAMES.LOGIN,
@@ -318,10 +317,12 @@ export const commandRegistry = {
         notes: [
             "If the plan is approved, you can proceed, re-open review, or inspect details.",
         ],
-        execute: runLoadPlanCommand,
+        execute: async (argv, options) =>
+            await (await import("./load-plan/index.ts")).runLoadPlanCommand(argv, options),
         surfaces: ["cli", "slash"],
         slashSurfaces: ["tui", "acp"],
-        getArgumentCompletions: getLoadPlanCompletions,
+        getArgumentCompletions: async (argumentPrefix) =>
+            await (await import("./load-plan/index.ts")).getLoadPlanCompletions(argumentPrefix),
     },
     [COMMAND_NAMES.RESUME]: {
         name: COMMAND_NAMES.RESUME,
@@ -478,7 +479,7 @@ export const commandRegistry = {
             "Use --bind/--host only for explicit non-loopback exposure; RunWield prints a plaintext Plan-content warning.",
             "Workspace HTML and APIs require the per-server token in the launch URL or x-runwield-workspace-token header.",
         ],
-        execute: runPlansCommand,
+        execute: async (argv) => await (await import("./plans/index.ts")).runPlansCommand(argv),
         surfaces: ["cli"],
         slashSurfaces: ["workspace"],
     },
@@ -533,8 +534,11 @@ export const commandRegistry = {
             "Backfill asks about each generated supersession proposal even with --yes. Proposal decisions do not change whether backfill succeeded.",
             "Manual create remains deferred to later Work Records slices.",
         ],
-        execute: (argv, options) =>
-            runWorkRecordsCommand(argv, { ...options, mnemotecaPort: SYSTEM_WORK_RECORD_MNEMOTECA_PORT }),
+        execute: async (argv, options) =>
+            await (await import("./wr/index.ts")).runWorkRecordsCommand(argv, {
+                ...options,
+                mnemotecaPort: SYSTEM_WORK_RECORD_MNEMOTECA_PORT,
+            }),
         surfaces: ["cli"],
     },
     [COMMAND_NAMES.SLEEP]: {
@@ -552,12 +556,17 @@ export const commandRegistry = {
             "Starts or switches to Engineer and keeps that Agent active for follow-up questions.",
             "You can also run /sleep directly inside the interactive TUI.",
         ],
-        execute: (argv, options) =>
-            runSleepCommand(argv, {
+        execute: async (argv, options) => {
+            const [sleep, { SYSTEM_INTERACTIVE_SESSION_PORT }] = await Promise.all([
+                import("./sleep/index.ts"),
+                import("../ui/tui/interactive-session-port.ts"),
+            ]);
+            await sleep.runSleepCommand(argv, {
                 ...options,
-                mnemotecaPort: SYSTEM_SLEEP_MNEMOTECA_PORT,
+                mnemotecaPort: sleep.SYSTEM_SLEEP_MNEMOTECA_PORT,
                 sessionPort: SYSTEM_INTERACTIVE_SESSION_PORT,
-            }),
+            });
+        },
         surfaces: ["cli", "slash"],
         slashSurfaces: ["tui", "acp"],
     },
@@ -574,7 +583,7 @@ export const commandRegistry = {
             `${bin("<command> --help")}`,
         ],
         notes: [],
-        execute: runHelpCommand,
+        execute: async (argv, options) => await (await import("./help/index.js")).runHelpCommand(argv, options),
         surfaces: ["cli", "slash"],
         slashSurfaces: ["tui", "acp", "workspace"],
     },
@@ -658,8 +667,12 @@ export const commandRegistry = {
             "Safe to run multiple times — subsequent runs in the same directory will warn and exit.",
             "This command is also available as /init inside the interactive TUI.",
         ],
-        execute: (argv, options) =>
-            options?.sessionRuntime && options.sessionId
+        execute: async (argv, options) => {
+            const [{ runInitCommand }, { SYSTEM_INTERACTIVE_SESSION_PORT }] = await Promise.all([
+                import("./init/index.ts"),
+                import("../ui/tui/interactive-session-port.ts"),
+            ]);
+            await (options?.sessionRuntime && options.sessionId
                 ? runInitCommand(argv, {
                     uiAPI: options.uiAPI,
                     sessionPort: SYSTEM_INTERACTIVE_SESSION_PORT,
@@ -670,7 +683,8 @@ export const commandRegistry = {
                 : runInitCommand(argv, {
                     uiAPI: options?.uiAPI,
                     sessionPort: SYSTEM_INTERACTIVE_SESSION_PORT,
-                }),
+                }));
+        },
         surfaces: ["cli", "slash"],
         slashSurfaces: ["tui", "acp"],
     },
@@ -687,7 +701,7 @@ export const commandRegistry = {
         notes: [
             "Inside the TUI, /theme opens an interactive picker with live previews.",
         ],
-        execute: runThemeCommand,
+        execute: async (argv, options) => await (await import("./theme/index.ts")).runThemeCommand(argv, options),
         surfaces: ["cli", "slash"],
         slashSurfaces: ["tui"],
     },
@@ -773,7 +787,7 @@ export const commandRegistry = {
             "Slash command only (interactive session).",
             "Exposes compaction settings (auto-compact, reserve tokens, keep-recent tokens) and model preset selection (activeModelPreset).",
         ],
-        execute: runSettingsCommand,
+        execute: async (argv, options) => await (await import("./settings/index.ts")).runSettingsCommand(argv, options),
         surfaces: ["slash"],
         slashSurfaces: ["tui", "acp", "workspace"],
     },

@@ -50,6 +50,32 @@ Deno.test("TUI Plan review resumes progress after feedback and review failures",
     }
 });
 
+Deno.test("TUI interaction adapter closes a question answered on another surface", async () => {
+    let resolvePrompt = /** @type {(value: string | null) => void} */ (() => {});
+    let promptClosed = false;
+    const uiAPI = /** @type {any} */ ({
+        promptSelect: () => new Promise((resolve) => resolvePrompt = resolve),
+        promptText: () => Promise.resolve(null),
+        abortActivePrompt: () => {
+            promptClosed = true;
+            resolvePrompt(null);
+        },
+    });
+    const adapter = createTuiInteractionAdapter(uiAPI);
+    const controller = new AbortController();
+    const responsePromise = adapter.requestInteraction({
+        type: "select",
+        prompt: "Pick",
+        options: [{ value: "valid", label: "Valid" }],
+    }, controller.signal);
+
+    controller.abort();
+    await Promise.resolve();
+
+    assertEquals(promptClosed, true);
+    assertEquals((await responsePromise).outcome, "canceled");
+});
+
 Deno.test("TUI interaction adapter rejects invalid selected options", async () => {
     const adapter = createTuiInteractionAdapter(makeUi("invalid"));
     const response = await adapter.requestInteraction({

@@ -9,11 +9,13 @@
 import { join } from "@std/path";
 import { enterProjectRuntime, resolveProjectRoot, resolveProjectRuntimeLayout } from "../project-runtime-layout.ts";
 import { findById, pruneEntry, updatePublication } from "../worktree-registry.js";
+import { existingPublicationSavedFiles, preserveUnregisteredPublicationFiles } from "./publication-leftover-files.ts";
 import {
     deleteMergedWorktreeBranch,
     deleteRemotelyPublishedWorktreeBranch,
     removeWorktreeGitArtifacts,
 } from "../worktree.js";
+import { writeControllerState } from "./controller-registry.ts";
 import {
     advancePublicationAttempt,
     assertPublicationAttempt,
@@ -149,11 +151,20 @@ async function publishedEvidence(
     const integrationCommit = attempt.integrationCommit;
     const targetBaseCommit = attempt.targetBaseCommit;
     if (!integrationCommit || !targetBaseCommit) return null;
-    const remote = await resolveRemoteTarget(projectRoot, attempt.targetBranch);
+    let remote = attempt.publicationMode === "local"
+        ? null
+        : await resolveRemoteTarget(projectRoot, attempt.targetBranch);
+    if (attempt.publicationMode === "remote") {
+        // Once published, changed branch configuration must not change which
+        // upstream supplies the proof, or silently fall back to local history.
+        if (!attempt.upstreamRemote || !attempt.upstreamBranch) return null;
+        const url = await git(projectRoot, ["remote", "get-url", attempt.upstreamRemote]);
+        if (url.code !== 0 || !url.stdout) return null;
+        remote = { remote: attempt.upstreamRemote, branch: attempt.upstreamBranch, url: url.stdout };
+    }
     if (!remote) {
         const target = `refs/heads/${attempt.targetBranch}`;
-        const targetHead = await git(projectRoot, ["rev-parse", target]);
-        if (targetHead.code !== 0 || targetHead.stdout !== integrationCommit) return null;
+        if (!(await gitAncestor(projectRoot, integrationCommit, target))) return null;
         return {
             targetBaseCommit,
             integrationCommit,
@@ -164,12 +175,33 @@ async function publishedEvidence(
     const remoteHead = await git(projectRoot, ["ls-remote", "--heads", remote.url, `refs/heads/${remote.branch}`]);
     if (remoteHead.code !== 0) return null;
     const head = remoteHead.stdout.split(/\s+/)[0] || "";
-    if (!head || head !== integrationCommit) return null;
+    if (!head) return null;
+    if (head !== integrationCommit) {
+        // The publication clone may already have been cleaned up. Fetch into an
+        // independent bare repository, never the user's checkout or its refs.
+        const inspectionRoot = await Deno.makeTempDir({ prefix: "runwield-publication-proof-" });
+        try {
+            if ((await git(projectRoot, ["init", "--bare", inspectionRoot])).code !== 0) return null;
+            const fetched = await git(projectRoot, [
+                "--git-dir",
+                inspectionRoot,
+                "fetch",
+                "--no-tags",
+                remote.url,
+                `refs/heads/${remote.branch}`,
+            ]);
+            if (fetched.code !== 0 || !(await gitAncestor(inspectionRoot, integrationCommit, "FETCH_HEAD"))) {
+                return null;
+            }
+        } finally {
+            await Deno.remove(inspectionRoot, { recursive: true });
+        }
+    }
     return {
         targetBaseCommit,
         integrationCommit,
         publicationMode: "remote",
-        publishedCommit: head,
+        publishedCommit: integrationCommit,
         upstreamRemote: remote.remote,
         upstreamBranch: remote.branch,
     };
@@ -331,7 +363,16 @@ export type PublicationCleanupResult = {
     worktreeKept: boolean;
     branchKept: boolean;
     details: string[];
+    preservedFiles?: string;
 };
+
+async function retainPublicationCompletion(projectRoot: string, attempt: PublicationAttempt): Promise<void> {
+    if (!attempt.verifiedAt) return;
+    await writeControllerState(projectRoot, { planId: attempt.planId, planName: attempt.planName }, {
+        verifiedAt: attempt.verifiedAt,
+        updatedAt: attempt.verifiedAt,
+    });
+}
 
 /**
  * Finish verified publication cleanup without requiring the execution worktree
@@ -344,13 +385,16 @@ export async function cleanupStoredPublication(
 ): Promise<PublicationCleanupResult> {
     await enterProjectRuntime(projectRoot);
     let attempt = await reconcileStoredPublication(projectRoot, initial);
+    let preservedFiles = await existingPublicationSavedFiles(attempt.executionCwd);
     if (attempt.phase === "cleanup_complete") {
+        await retainPublicationCompletion(projectRoot, attempt);
         await pruneEntry(projectRoot, attempt.attemptId);
-        return { complete: true, attempt, worktreeKept: false, branchKept: false, details: [] };
+        return { complete: true, attempt, worktreeKept: false, branchKept: false, details: [], preservedFiles };
     }
     if (attempt.phase !== "publication_verified") {
         throw new Error(`Publication cleanup requires verified publication, found ${attempt.phase}.`);
     }
+    await retainPublicationCompletion(projectRoot, attempt);
     const stillPublished = await publishedEvidence(projectRoot, attempt);
     if (!stillPublished) {
         const worktreeKept = await Deno.stat(attempt.executionCwd).then((value) => value.isDirectory).catch(() =>
@@ -367,7 +411,7 @@ export async function cleanupStoredPublication(
             attempt,
             worktreeKept,
             branchKept,
-            details: [`The target branch no longer points to ${attempt.publishedCommit || "the published commit"}.`],
+            details: [`Could not confirm that ${attempt.targetBranch} still contains the published commits.`],
         };
     }
     const details: string[] = [];
@@ -378,7 +422,10 @@ export async function cleanupStoredPublication(
             false
         );
         if (worktreeExists) {
-            await removeWorktreeGitArtifacts({ projectRoot, path: attempt.executionCwd, force: false });
+            preservedFiles = await preserveUnregisteredPublicationFiles(projectRoot, attempt.executionCwd);
+            if (!preservedFiles) {
+                await removeWorktreeGitArtifacts({ projectRoot, path: attempt.executionCwd, force: false });
+            }
         }
     } catch (error) {
         if (!(error instanceof Deno.errors.NotFound)) {
@@ -424,11 +471,11 @@ export async function cleanupStoredPublication(
         }
     });
     if (worktreeKept || branchKept || details.length > 0) {
-        return { complete: false, attempt, worktreeKept, branchKept, details };
+        return { complete: false, attempt, worktreeKept, branchKept, details, preservedFiles };
     }
     attempt = await advanceStoredPublication(projectRoot, attempt, "cleanup_complete", {
         cleanedAt: new Date().toISOString(),
     });
     await pruneEntry(projectRoot, attempt.attemptId);
-    return { complete: true, attempt, worktreeKept: false, branchKept: false, details: [] };
+    return { complete: true, attempt, worktreeKept: false, branchKept: false, details: [], preservedFiles };
 }

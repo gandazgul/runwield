@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { RunWieldMenuItem } from "../../design-system/components/react/RunWieldMenu.tsx";
 
 function readPermission(): NotificationPermission | "unsupported" {
     if (typeof globalThis.Notification !== "function") return "unsupported";
@@ -21,55 +22,28 @@ export function BrowserNotificationPermissionControl() {
         }
     };
 
-    if (permission === "unsupported") {
-        return (
-            <span
-                className="rw-toolbar-button workspace-notification-control"
-                aria-label="Alerts unavailable"
-                title="Alerts unavailable"
-            >
-                <span aria-hidden="true">🔕</span>
-                <span>Alerts unavailable</span>
-            </span>
-        );
-    }
-
-    if (permission === "granted") {
-        return (
-            <span
-                className="rw-toolbar-button workspace-notification-control"
-                aria-label="Alerts enabled"
-                title="Alerts enabled"
-            >
-                <span aria-hidden="true">🔔</span>
-                <span>Alerts enabled</span>
-            </span>
-        );
-    }
-
-    if (permission === "denied") {
-        return (
-            <span
-                className="rw-toolbar-button workspace-notification-control"
-                aria-label="Alerts blocked. Change browser site settings to enable alerts."
-                title="Alerts blocked. Change browser site settings to enable alerts."
-            >
-                <span aria-hidden="true">🔕</span>
-                <span>Alerts blocked</span>
-            </span>
-        );
-    }
-
+    const label = permission === "unsupported"
+        ? "Alerts unavailable"
+        : permission === "granted"
+        ? "Alerts enabled"
+        : permission === "denied"
+        ? "Alerts blocked"
+        : "Enable alerts";
     return (
-        <button
-            type="button"
-            className="rw-toolbar-button workspace-notification-control"
+        <RunWieldMenuItem
+            label={label}
+            disabled={permission !== "default"}
             onClick={requestPermission}
-            aria-label="Enable alerts"
-            title="Enable alerts"
-        >
-            <span aria-hidden="true">🔔</span>
-            <span>Enable alerts</span>
-        </button>
+            title={permission === "denied" ? "Change browser site settings to enable alerts." : label}
+            icon={
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"
+                    />
+                </svg>
+            }
+        />
     );
 }

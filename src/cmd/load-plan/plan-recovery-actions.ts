@@ -272,6 +272,13 @@ export async function validateRecoveryPlan(context: RecoveryActionContext): Prom
     const publication = context.worktreeContext?.publication;
     if (publication?.phase === "publication_verified" || publication?.phase === "cleanup_complete") {
         const cleanup = await cleanupStoredPublication(context.projectRoot, publication);
+        if (cleanup.preservedFiles) {
+            context.uiAPI.appendSystemMessage(
+                buildValidationUserMessage({ kind: "publication_files_preserved", path: cleanup.preservedFiles }),
+                false,
+                "RunWield",
+            );
+        }
         if (!cleanup.complete) {
             context.uiAPI.appendSystemMessage(
                 buildValidationUserMessage({

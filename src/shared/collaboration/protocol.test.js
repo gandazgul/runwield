@@ -97,7 +97,7 @@ Deno.test("protocol helpers normalize capability, encrypted plan, encrypted comm
             planId: "plan-1",
             title: "Draft",
             metadata: { status: "approved", order: 4 },
-            body: "encrypted-body",
+            body: " encrypted-body ",
         },
     );
     assertEquals(

@@ -21,8 +21,36 @@ type SteeringReceipt = { input: string; result: Promise<SteerSessionResult> };
 type LiveSessionCommandResult = { ok: boolean; queued?: boolean; error?: string };
 export type LiveSessionInfo = Pick<
     NonNullable<ReturnType<SessionRuntime["getSessionSnapshot"]>>,
-    "name" | "sessionStats" | "contextUsage" | "systemContextTokens"
+    | "name"
+    | "sessionStats"
+    | "contextUsage"
+    | "systemContextTokens"
+    | "activeAgent"
+    | "activeModel"
+    | "thinkingLevel"
+    | "workflowContext"
+    | "activeExecutionWorkflow"
+    | "planAssociations"
 >;
+/** Only user-facing Session state crosses the live observation boundary. */
+export function projectLiveSessionInfo(
+    snapshot: ReturnType<SessionRuntime["getSessionSnapshot"]>,
+): LiveSessionInfo | null {
+    if (!snapshot) return null;
+    return {
+        name: snapshot.name,
+        sessionStats: snapshot.sessionStats,
+        contextUsage: snapshot.contextUsage,
+        systemContextTokens: snapshot.systemContextTokens,
+        activeAgent: snapshot.activeAgent,
+        activeModel: snapshot.activeModel,
+        thinkingLevel: snapshot.thinkingLevel,
+        workflowContext: snapshot.workflowContext,
+        activeExecutionWorkflow: snapshot.activeExecutionWorkflow,
+        planAssociations: snapshot.planAssociations,
+    };
+}
+
 type LiveSessionSnapshot = {
     operationId: string;
     events: SessionRuntimeEvent[];
@@ -57,14 +85,7 @@ export async function openLiveSessionConnection(
                     operationId,
                     events,
                     queuedMessages: runtime.getQueuedMessages(session.id),
-                    sessionInfo: snapshot
-                        ? {
-                            name: snapshot.name,
-                            sessionStats: snapshot.sessionStats,
-                            contextUsage: snapshot.contextUsage,
-                            systemContextTokens: snapshot.systemContextTokens,
-                        }
-                        : null,
+                    sessionInfo: projectLiveSessionInfo(snapshot),
                     interaction: [...session.getActiveInteractions().values()][0]?.request || null,
                 }));
                 return;

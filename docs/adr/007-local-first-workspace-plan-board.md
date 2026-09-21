@@ -106,7 +106,7 @@ The stable decisions from the original ADR remain binding:
 - Workspace remains local-first, cwd-scoped, token-protected, and backed by canonical markdown Plan files.
 - Plan store, Plan Lifecycle, body hash, hierarchy, dependency, and workflow APIs remain the source of truth.
 - The top-level Plan Board and lifecycle semantics remain RunWield-owned, not Plannotator-owned.
-- RunWield visual identity and selected `wld` theme remain the browser UI source of truth.
+- RunWield visual identity remains the browser UI source of truth, independent of the selected TUI theme.
 
 The new Workspace implementation direction is:
 
@@ -117,8 +117,9 @@ The new Workspace implementation direction is:
 - Workspace is a scoped `.astro`/`.ts`/`.tsx` exception zone; non-Workspace RunWield code remains JavaScript/JSDoc.
 - Plannotator components are reused selectively for markdown/document/review/editor/diff surfaces where they fit
   RunWield semantics and theming.
-- `wld` selected theme must flow through the browser theme bridge into the Workspace shell, Plan review screens, code
-  review screens, Radix primitives, and imported Plannotator components.
+- Browser-owned semantic colors flow through the browser theme bridge into the Workspace shell, Plan review screens,
+  code review screens, Radix primitives, and imported Plannotator components. The approved dark brand is the current
+  default regardless of OS or TUI settings; future light/custom themes remain separate, swappable token sets.
 - Plan review and code review may use internal Workspace launchers/routes rather than the public `wld plans ui` route
   shape, but workflow callers should remain behind a review-surface adapter.
 - Before replacing the compiled Plannotator server, implementation must audit whether its `startPlanReviewServer` and
@@ -127,4 +128,13 @@ The new Workspace implementation direction is:
 
 Intermediate Workspace breakage is acceptable on an isolated migration branch because there are no active Workspace
 users. Merge readiness still requires current core Workspace parity for board/detail/lifecycle/body editing, plus headed
-browser verification of theme propagation and review-surface behavior.
+browser verification of browser theme independence and review-surface behavior.
+
+### Browser theme independence
+
+The owner chose a dark-only browser identity matching `brand/` and the website, while explicitly retaining future
+browser themes. Inheriting the TUI theme is excluded: terminal choices must not change the browser brand. A pure browser
+renderer accepts separate semantic color sets and preserves review aliases; geometry and typography stay outside those
+sets. This permits future light/custom themes without a component restyle. No theme picker, light theme, or TUI
+appearance change is part of this decision. See
+[Workspace appearance requirements](../prd/runwield-workspace-prd.md#browser-appearance-and-themes).

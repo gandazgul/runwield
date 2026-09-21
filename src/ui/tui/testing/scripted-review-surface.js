@@ -81,10 +81,10 @@ export class ScriptedHumanReviewSurface {
     /** @param {Record<string, unknown>} request */
     submit(request) {
         if (!this.decisions.length) {
-            throw new Error("Unexpected Local Human Code Review interaction: no scripted decisions remain.");
+            throw new Error("Unexpected Code Review interaction: no scripted decisions remain.");
         }
         const decision = this.decisions.shift();
-        if (!decision) throw new Error("Unexpected Local Human Code Review interaction: no scripted decisions remain.");
+        if (!decision) throw new Error("Unexpected Code Review interaction: no scripted decisions remain.");
         this.consumed.push({ request, decision });
         return {
             approved: decision.approved === true,

@@ -1,8 +1,11 @@
 // @ts-nocheck: served as plain browser JavaScript from the owner Workspace static route.
+import { animateSidebarChange } from "../../design-system/sidebar-motion.js";
 export const LAST_SESSION_KEY = "runwield:owner:last-session";
 export const LAST_PROJECT_KEY = "runwield:owner:last-project";
 export const SIDEBAR_COLLAPSED_KEY = "runwield:owner:sidebar-collapsed";
 export const SIDEBAR_WIDTH_KEY = "runwield:owner:sidebar-width";
+export const EXPANDED_PLANS_KEY = "runwield:owner:expanded-plans";
+export const EXPANDED_PLAN_SESSIONS_KEY = "runwield:owner:expanded-plan-sessions";
 
 export function clampSidebarWidth(width, availableWidth) {
     return Math.round(Math.max(220, Math.min(480, availableWidth - 420, width)));
@@ -74,7 +77,9 @@ let sidebarDelegationInstalled = false;
 let restoreDelegationInstalled = false;
 let refreshGeneration = 0;
 let activeSidebarAbort = null;
+let activeSidebarUrl = null;
 let sidebarHasRendered = false;
+let homeSidebarPayload = null;
 const observedSessionNames = new Map();
 
 export function applySessionName(detail) {
@@ -125,6 +130,19 @@ function writeStored(key, value) {
     }
 }
 
+function readExpandedSet(key) {
+    const stored = readStored(key);
+    return new Set(Array.isArray(stored) ? stored.map(String) : []);
+}
+
+function writeExpandedSet(key, values) {
+    writeStored(key, [...values]);
+}
+
+function expansionKey(projectId, childId = "") {
+    return childId ? `${projectId}:${childId}` : projectId;
+}
+
 export function currentRouteFromUrl(urlLike) {
     const url = urlLike instanceof URL ? urlLike : new URL(String(urlLike), "http://workspace.local");
     const session = /^\/projects\/([^/]+)\/sessions\/([^/?#]+)(?:\/.*)?$/.exec(url.pathname);
@@ -135,13 +153,22 @@ export function currentRouteFromUrl(urlLike) {
             kind: "session",
         };
     }
-    const ownerPlan = /^\/projects\/([^/]+)\/plans\/[^/]+(?:\/progress)?$/.exec(url.pathname);
+    const board = /^\/projects\/([^/]+)\/plans(?:\/(?:closed|on-hold))?\/?$/.exec(url.pathname);
+    if (board) return { projectId: decodeURIComponent(board[1]), kind: "plans" };
+    const ownerPlan = /^\/projects\/([^/]+)\/plans\/([^/]+)(?:\/progress)?$/.exec(url.pathname);
     const planSession = url.searchParams.get("session") || "";
     if (ownerPlan && planSession) {
         return {
             projectId: decodeURIComponent(ownerPlan[1]),
             runwieldSessionId: planSession,
             kind: "session",
+        };
+    }
+    if (ownerPlan) {
+        return {
+            projectId: decodeURIComponent(ownerPlan[1]),
+            planId: decodeURIComponent(ownerPlan[2]),
+            kind: "plan",
         };
     }
     const project = /^\/projects\/([^/]+)(?:\/|$)/.exec(url.pathname);
@@ -166,7 +193,16 @@ function rememberCurrentRoute() {
     } else if (route.projectId) {
         writeStored(LAST_PROJECT_KEY, { projectId: route.projectId });
     }
+    updateWorkspaceHomeLinks();
     return route;
+}
+
+function updateWorkspaceHomeLinks() {
+    const lastSession = readStored(LAST_SESSION_KEY);
+    if (!lastSession?.projectId || !lastSession.runwieldSessionId) return;
+    for (const link of document.querySelectorAll('[aria-label="RunWield Workspace home"]')) {
+        link.href = sessionHref(lastSession.projectId, lastSession.runwieldSessionId);
+    }
 }
 
 function sessionHref(projectId, sessionId) {
@@ -183,6 +219,10 @@ function settingsHref(projectId) {
 
 function plansHref(projectId) {
     return `/projects/${encodeURIComponent(projectId)}/plans`;
+}
+
+function planHref(projectId, planId) {
+    return `/projects/${encodeURIComponent(projectId)}/plans/${encodeURIComponent(planId)}`;
 }
 
 async function ownerJson(url, options = {}) {
@@ -265,7 +305,7 @@ function renderMainHeader(payload, current) {
         ? ""
         : sessionTitleFromPayload(payload, current);
     const restore = document.createElement("button");
-    restore.className = "rw-toolbar-button workspace-sidebar-restore";
+    restore.className = "rw-icon-button workspace-sidebar-restore";
     restore.type = "button";
     restore.dataset.workspaceSidebarRestore = "";
     restore.setAttribute("aria-label", "Open Workspace sidebar");
@@ -353,6 +393,9 @@ function normalizeProject(project) {
         projectId: String(project?.projectId || ""),
         displayName: String(project?.displayName || "Untitled Project"),
         enabled: project?.enabled !== false,
+        diagnostics: Array.isArray(project?.diagnostics) ? project.diagnostics : [],
+        hasMorePlans: Boolean(project?.hasMorePlans),
+        plans: Array.isArray(project?.plans) ? project.plans.filter((plan) => plan?.planId) : [],
         hasMoreSessions: Boolean(project?.hasMoreSessions),
         sessions: Array.isArray(project?.sessions)
             ? project.sessions.filter((session) => session?.runwieldSessionId)
@@ -364,6 +407,9 @@ function snapshotProject(projectElement) {
     const projectId = projectElement.getAttribute("data-sidebar-project") || "";
     return {
         projectId,
+        plans: Array.from(projectElement.querySelectorAll("[data-sidebar-plan]")).map((link) => ({
+            planId: link.getAttribute("data-sidebar-plan") || "",
+        })),
         sessions: Array.from(projectElement.querySelectorAll("[data-sidebar-session]")).map((link) => ({
             runwieldSessionId: link.getAttribute("data-sidebar-session") || "",
             displayName: link.querySelector("span")?.textContent || "",
@@ -401,13 +447,18 @@ function ensureSidebarScaffold(sidebar, payload, current) {
     }
     if (!brand.querySelector("[data-workspace-sidebar-collapse]")) {
         const collapse = document.createElement("button");
-        collapse.className = "workspace-sidebar-collapse";
+        collapse.className = "rw-icon-button workspace-sidebar-collapse";
         collapse.type = "button";
         collapse.dataset.workspaceSidebarCollapse = "";
         collapse.setAttribute("aria-label", "Collapse Workspace sidebar");
         collapse.title = "Collapse Workspace sidebar";
         collapse.innerHTML = panelCollapseIcon("left");
         brand.append(collapse);
+    }
+    let home = sidebar.querySelector(".workspace-sidebar-home");
+    if (!home) {
+        home = createAnchor("workspace-sidebar-home", "/", "Dashboard");
+        sidebar.append(home);
     }
     let newSession = sidebar.querySelector(".workspace-sidebar-new");
     if (!newSession) {
@@ -448,18 +499,36 @@ function makeProjectElement(project, current) {
     item.dataset.sidebarProject = project.projectId;
     const summary = document.createElement("summary");
     summary.innerHTML =
-        `<span class="workspace-sidebar-folder" aria-hidden="true">▸</span><span class="workspace-sidebar-project-name"></span>`;
+        `<span class="workspace-sidebar-folder" aria-hidden="true"><svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor"><path d="M5 2l7 6-7 6z" /></svg></span><span class="workspace-sidebar-project-name"></span>`;
     const gear = document.createElement("a");
     gear.className = "workspace-sidebar-gear";
-    gear.textContent = "⚙";
+    gear.innerHTML =
+        `<svg aria-hidden="true" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 0 0-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 0 0-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 0 0-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 0 0-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 0 0 1.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0z" /></svg>`;
     summary.append(gear);
     const links = document.createElement("div");
     links.className = "workspace-sidebar-project-links";
+    const diagnostics = document.createElement("div");
+    diagnostics.className = "workspace-sidebar-diagnostics";
+    const plans = document.createElement("div");
+    plans.className = "workspace-sidebar-plans";
     const sessions = document.createElement("div");
     sessions.className = "workspace-sidebar-sessions";
-    item.append(summary, links, sessions);
+    item.append(summary, links, diagnostics, plans, sessions);
     updateProjectElement(item, project, current);
     return item;
+}
+
+function reconcileDiagnostics(container, project) {
+    container.replaceChildren();
+    for (const diagnostic of project.diagnostics || []) {
+        const link = createAnchor(
+            "workspace-sidebar-diagnostic",
+            diagnostic.repairHref || settingsHref(project.projectId),
+            diagnostic.message || "Project needs repair.",
+        );
+        link.title = diagnostic.repairLabel || "Open Project settings";
+        container.append(link);
+    }
 }
 
 function updateProjectElement(item, project, current) {
@@ -470,12 +539,118 @@ function updateProjectElement(item, project, current) {
     gear.href = settingsHref(project.projectId);
     gear.setAttribute("aria-label", `${project.displayName} settings`);
     const links = item.querySelector(".workspace-sidebar-project-links");
-    links.replaceChildren(
-        project.enabled
-            ? createAnchor("", plansHref(project.projectId), "Plan Board")
-            : createAnchor("", settingsHref(project.projectId), "Project unavailable · open settings"),
-    );
+    const projectLink = project.enabled
+        ? createAnchor("", plansHref(project.projectId), "All Plans")
+        : createAnchor("", settingsHref(project.projectId), "Project unavailable · open settings");
+    if (project.enabled) {
+        projectLink.dataset.sidebarPlanBoard = project.projectId;
+        updatePlanBoardActive(projectLink, current);
+    }
+    links.replaceChildren(projectLink);
+    reconcileDiagnostics(item.querySelector(".workspace-sidebar-diagnostics"), project);
+    reconcilePlanRows(item.querySelector(".workspace-sidebar-plans"), project, current);
     reconcileSessionRows(item.querySelector(".workspace-sidebar-sessions"), snapshotProject(item), project, current);
+}
+
+function makePlanRow(projectId, plan, current) {
+    const wrapper = document.createElement("div");
+    wrapper.className = plan.muted ? "workspace-sidebar-plan-group muted" : "workspace-sidebar-plan-group";
+    wrapper.dataset.sidebarPlanGroup = plan.planId;
+    const row = createAnchor(
+        "workspace-sidebar-plan",
+        plan.href || planHref(projectId, plan.planId),
+        plan.title || "Plan",
+    );
+    row.dataset.sidebarPlan = plan.planId;
+    row.innerHTML = `<span>${html(plan.title || "Plan")}</span><small>${
+        html(plan.statusLabel || plan.status || "Plan")
+    }</small>`;
+    if (current.kind === "plan" && current.projectId === projectId && current.planId === plan.planId) {
+        row.setAttribute("aria-current", "page");
+    } else row.removeAttribute("aria-current");
+    wrapper.append(row);
+    const sessionList = document.createElement("div");
+    sessionList.className = "workspace-sidebar-plan-sessions";
+    reconcilePlanSessionRows(sessionList, projectId, plan, current);
+    wrapper.append(sessionList);
+    return wrapper;
+}
+
+function reconcilePlanSessionRows(container, projectId, plan, current) {
+    const expanded = readExpandedSet(EXPANDED_PLAN_SESSIONS_KEY).has(expansionKey(projectId, plan.planId));
+    const sessions = Array.isArray(plan.sessions) ? plan.sessions : [];
+    const visible = expanded ? sessions : sessions.slice(0, 2);
+    container.replaceChildren();
+    for (const session of visible) {
+        container.append(makeSessionRow(projectId, session, current, " workspace-sidebar-session-nested"));
+    }
+    if (sessions.length > visible.length) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "workspace-sidebar-show-more";
+        button.dataset.showMorePlanSessions = expansionKey(projectId, plan.planId);
+        button.textContent = `Show ${sessions.length - visible.length} more Sessions...`;
+        container.append(button);
+    }
+}
+
+function reconcilePlanRows(container, project, current) {
+    const plans = Array.isArray(project.plans) ? project.plans : [];
+    const expanded = readExpandedSet(EXPANDED_PLANS_KEY).has(project.projectId);
+    const visible = expanded ? plans : plans.slice(0, 5);
+    const activePlanKey = document.activeElement?.getAttribute?.("data-sidebar-plan") || "";
+    const activeSessionKey = document.activeElement?.getAttribute?.("data-sidebar-session") || "";
+    const activeMorePlansKey = document.activeElement?.getAttribute?.("data-show-more-plans") || "";
+    const activeMorePlanSessionsKey = document.activeElement?.getAttribute?.("data-show-more-plan-sessions") || "";
+    const byId = new Map(
+        Array.from(container.querySelectorAll("[data-sidebar-plan-group]")).map((node) => [
+            node.getAttribute("data-sidebar-plan-group") || "",
+            node,
+        ]),
+    );
+    container.querySelectorAll(":scope > .workspace-sidebar-empty, :scope > [data-show-more-plans]").forEach((node) =>
+        node.remove()
+    );
+    const wanted = new Set(visible.map((plan) => plan.planId));
+    byId.forEach((node, planId) => {
+        if (!wanted.has(planId)) node.remove();
+    });
+    if (!project.enabled) return;
+    if (!plans.length) {
+        container.append(makeEmpty("No active Plans."));
+        return;
+    }
+    for (const plan of visible) {
+        const node = byId.get(plan.planId) || makePlanRow(project.projectId, plan, current);
+        const fresh = makePlanRow(project.projectId, plan, current);
+        node.replaceChildren(...Array.from(fresh.childNodes));
+        node.className = fresh.className;
+        container.append(node);
+    }
+    if (plans.length > visible.length) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "workspace-sidebar-show-more";
+        button.dataset.showMorePlans = project.projectId;
+        button.textContent = `Show ${plans.length - visible.length} more Plans...`;
+        container.append(button);
+    }
+    const focusSelectors = activeSessionKey
+        ? [`[data-sidebar-session="${CSS.escape(activeSessionKey)}"]`]
+        : activePlanKey
+        ? [`[data-sidebar-plan="${CSS.escape(activePlanKey)}"]`]
+        : activeMorePlansKey
+        ? [`[data-show-more-plans="${CSS.escape(activeMorePlansKey)}"]`, "[data-sidebar-plan]"]
+        : activeMorePlanSessionsKey
+        ? [`[data-show-more-plan-sessions="${CSS.escape(activeMorePlanSessionsKey)}"]`, "[data-sidebar-session]"]
+        : [];
+    for (const selector of focusSelectors) {
+        const focusTarget = container.querySelector(selector);
+        if (focusTarget) {
+            focusTarget.focus({ preventScroll: true });
+            break;
+        }
+    }
 }
 
 function reconcileSessionRows(container, existingProject, project, current) {
@@ -579,14 +754,25 @@ function reconcileProjects(list, payload, current) {
 export function renderSidebar(payload, current) {
     const sidebar = document.querySelector("[data-workspace-sidebar]");
     if (!sidebar) return;
+    const scrollTop = sidebar.scrollTop;
     renderMainHeader(payload, current);
     const list = ensureSidebarScaffold(sidebar, payload, current);
     reconcileProjects(list, payload, current);
     setSidebarCollapsed(isSidebarCollapsed());
     sidebarHasRendered = true;
+    updateWorkspaceHomeLinks();
+    sidebar.scrollTop = scrollTop;
+}
+
+function updatePlanBoardActive(link, current) {
+    const active = current.kind === "plans" && link.dataset.sidebarPlanBoard === current.projectId;
+    link.classList.toggle("active", active);
+    if (active) link.setAttribute("aria-current", "page");
+    else link.removeAttribute("aria-current");
 }
 
 export function applyActiveRoute(current) {
+    document.querySelectorAll("[data-sidebar-plan-board]").forEach((link) => updatePlanBoardActive(link, current));
     document.querySelectorAll("[data-sidebar-session]").forEach((row) => {
         row.classList.toggle(
             "active",
@@ -595,19 +781,13 @@ export function applyActiveRoute(current) {
                 row.getAttribute("data-sidebar-session") === current.runwieldSessionId,
         );
     });
+    document.querySelectorAll("[data-sidebar-plan]").forEach((row) => {
+        if (current.kind === "plan" && row.getAttribute("data-sidebar-plan") === current.planId) {
+            row.setAttribute("aria-current", "page");
+        } else row.removeAttribute("aria-current");
+    });
     if (current.projectId) {
         document.querySelector(`[data-sidebar-project="${CSS.escape(current.projectId)}"]`)?.setAttribute("open", "");
-    }
-}
-
-function workspaceNavigate(href, history = "push") {
-    const event = new CustomEvent("runwield:workspace-navigate", {
-        cancelable: true,
-        detail: { href, history },
-    });
-    if (document.dispatchEvent(event)) {
-        if (history === "replace") location.replace(href);
-        else location.assign(href);
     }
 }
 
@@ -619,7 +799,7 @@ function installRestoreDelegation() {
         if (!(target instanceof Element)) return;
         if (!target.closest("[data-workspace-sidebar-restore]")) return;
         event.stopPropagation();
-        openSidebar();
+        animateSidebarChange(openSidebar);
     });
 }
 
@@ -630,7 +810,25 @@ function installSidebarDelegation() {
         const target = event.target;
         if (!(target instanceof Element)) return;
         if (target.closest("[data-workspace-sidebar-collapse]")) {
-            setSidebarCollapsed(true);
+            animateSidebarChange(() => setSidebarCollapsed(true));
+            return;
+        }
+        const showMorePlans = target.closest("[data-show-more-plans]");
+        if (showMorePlans) {
+            const projectId = showMorePlans.getAttribute("data-show-more-plans") || "";
+            const expanded = readExpandedSet(EXPANDED_PLANS_KEY);
+            expanded.add(projectId);
+            writeExpandedSet(EXPANDED_PLANS_KEY, expanded);
+            installWorkspaceShell();
+            return;
+        }
+        const showMorePlanSessions = target.closest("[data-show-more-plan-sessions]");
+        if (showMorePlanSessions) {
+            const key = showMorePlanSessions.getAttribute("data-show-more-plan-sessions") || "";
+            const expanded = readExpandedSet(EXPANDED_PLAN_SESSIONS_KEY);
+            expanded.add(key);
+            writeExpandedSet(EXPANDED_PLAN_SESSIONS_KEY, expanded);
+            installWorkspaceShell();
             return;
         }
         const showMore = target.closest("[data-show-more-sessions]");
@@ -646,8 +844,14 @@ function installSidebarDelegation() {
             label.textContent = " Loading";
             button.append(loading, label);
             try {
+                const query = new URLSearchParams({ page: "0", pageSize: "100", excludeAssociated: "true" });
+                const project = button.closest("[data-sidebar-project]");
+                for (const plan of project?.querySelectorAll("[data-sidebar-plan]") || []) {
+                    const planId = plan.getAttribute("data-sidebar-plan") || "";
+                    if (planId) query.append("nestedPlan", planId);
+                }
                 const data = await ownerJson(
-                    `/api/owner/projects/${encodeURIComponent(projectId)}/sessions?page=0&pageSize=100`,
+                    `/api/owner/projects/${encodeURIComponent(projectId)}/sessions?${query}`,
                 );
                 const parent = button.closest(".workspace-sidebar-sessions");
                 const current = currentRoute();
@@ -683,59 +887,40 @@ function installSidebarOverlayDismiss() {
         const target = event.target;
         if (!(target instanceof Element)) return;
         if (target.closest(".workspace-sidebar")) return;
-        closeSidebarOverlay();
+        animateSidebarChange(closeSidebarOverlay);
     });
 }
 
-async function refreshSidebarForPage() {
+export async function refreshSidebarForPage() {
     installSidebarOverlayDismiss();
     installSidebarDelegation();
     installRestoreDelegation();
     const current = rememberCurrentRoute();
     applyActiveRoute(current);
+    // The initial module and Astro's first page-load can arrive during the same request.
+    if (activeSidebarAbort && activeSidebarUrl === location.href) return;
     activeSidebarAbort?.abort();
     const abort = new AbortController();
     activeSidebarAbort = abort;
     const requestGeneration = refreshGeneration + 1;
     refreshGeneration = requestGeneration;
     const requestUrl = location.href;
+    activeSidebarUrl = requestUrl;
     try {
-        const payload = await ownerJson("/api/owner/sidebar", { signal: abort.signal });
+        const carriedSidebar = homeSidebarPayload;
+        homeSidebarPayload = null;
+        const payload = carriedSidebar || await ownerJson("/api/owner/sidebar", { signal: abort.signal });
         if (!shouldApplySidebarRefresh(requestGeneration, refreshGeneration, requestUrl, location.href)) return;
-        if (location.pathname === "/") {
-            const projects = Array.isArray(payload.projects) ? payload.projects : [];
-            const lastSession = readStored(LAST_SESSION_KEY);
-            const rememberedSessionProject = projects.find((project) =>
-                project.enabled && project.projectId === lastSession?.projectId
-            );
-            const rememberedSession = rememberedSessionProject?.sessions?.find((session) =>
-                session.runwieldSessionId === lastSession?.runwieldSessionId
-            );
-            if (rememberedSessionProject && rememberedSession) {
-                workspaceNavigate(
-                    sessionHref(rememberedSessionProject.projectId, rememberedSession.runwieldSessionId),
-                    "replace",
-                );
-                return;
-            }
-            const lastProject = readStored(LAST_PROJECT_KEY)?.projectId;
-            const fallbackProject = projects.find((project) => project.enabled && project.projectId === lastProject) ||
-                projects.find((project) => project.enabled);
-            const fallbackSession = fallbackProject?.sessions?.[0];
-            if (fallbackProject && fallbackSession) {
-                workspaceNavigate(sessionHref(fallbackProject.projectId, fallbackSession.runwieldSessionId), "replace");
-                return;
-            }
-            if (fallbackProject) {
-                workspaceNavigate(newSessionHref(fallbackProject.projectId), "replace");
-                return;
-            }
-        }
         renderSidebar(payload, current);
     } catch (error) {
         if (error?.name === "AbortError") return;
         const sidebar = document.querySelector("[data-workspace-sidebar]");
         if (sidebar && !sidebarHasRendered) sidebar.replaceChildren(makeEmpty("Sidebar failed to load."));
+    } finally {
+        if (activeSidebarAbort === abort) {
+            activeSidebarAbort = null;
+            activeSidebarUrl = null;
+        }
     }
 }
 
@@ -749,6 +934,14 @@ let workspaceShellBrowserInstalled = false;
 export function installWorkspaceShellBrowser() {
     if (workspaceShellBrowserInstalled) return;
     workspaceShellBrowserInstalled = true;
+    let sidebarScrollTop = 0;
+    document.addEventListener("astro:before-swap", () => {
+        sidebarScrollTop = document.querySelector("[data-workspace-sidebar]")?.scrollTop || 0;
+    });
+    document.addEventListener("astro:after-swap", () => {
+        const sidebar = document.querySelector("[data-workspace-sidebar]");
+        if (sidebar) sidebar.scrollTop = sidebarScrollTop;
+    });
     document.addEventListener("runwield:session-named", (event) => applySessionName(event.detail));
     if (document.readyState === "loading") {
         document.addEventListener("DOMContentLoaded", installWorkspaceShell, { once: true });

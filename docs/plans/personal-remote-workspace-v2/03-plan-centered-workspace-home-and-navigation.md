@@ -34,13 +34,14 @@ devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://127.0.0.1:5173"
 devServerHmr: true
 createdAt: "2026-09-03T00:54:13.050Z"
-status: "ready_for_work"
+status: "validated"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v2"
 order: 3
 dependencies:
     - "01-durable-plan-to-session-continuity"
 userVerifiedAt: null
+targetBranch: "main"
 ---
 
 # Plan-Centered Workspace Home and Navigation

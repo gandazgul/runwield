@@ -391,6 +391,7 @@ Deno.test("manual closure is terminal and does not pretend validation passed", (
     assertEquals(updates.status, "closed_without_verification");
     assertEquals(updates.updatedAt, "2026-01-02T03:04:05.000Z");
     assertEquals(updates.closedWithoutVerificationReason, "Verified manually in staging.");
+    assertEquals(updates.closedWithoutVerificationAt, "2026-01-02T03:04:05.000Z");
     assertEquals(updates.verifiedAt, undefined);
     assertEquals(updates.humanReviewDecision, undefined);
     assertEquals(updates.epicCompletionMode, undefined);

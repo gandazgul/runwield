@@ -3,7 +3,7 @@
  * TUI singleton manager.
  */
 
-import { ProcessTerminal, type Terminal, type TUI, TuiAltScreen } from "@earendil-works/pi-tui";
+import { Key, matchesKey, ProcessTerminal, type Terminal, type TUI, TuiAltScreen } from "@earendil-works/pi-tui";
 import { type BrowserPort, SYSTEM_BROWSER_PORT } from "../../shared/browser-port.ts";
 import { createTuiCrashGuards } from "./tui-crash-guards.ts";
 import { createTuiManager } from "./tui-manager.ts";
@@ -18,6 +18,13 @@ export class RunWieldTui extends TuiAltScreen {
     constructor(terminal: Terminal, browser: BrowserPort = SYSTEM_BROWSER_PORT) {
         super(terminal, undefined, undefined, {
             openUrl: (url) => void browser.open(url),
+        });
+        this.addInputListener((data) => {
+            if (!matchesKey(data, Key.ctrl("l"))) return;
+            // Repaint even unchanged rows when the terminal no longer matches
+            // the renderer's cached screen. Preserve input, focus and scroll.
+            this.requestRender(true);
+            return { consume: true };
         });
     }
 }

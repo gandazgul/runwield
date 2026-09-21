@@ -235,8 +235,8 @@ Local review, unreviewed delivery
 **Change Request Delivery**: An explicitly selected delivery mode that verifies the canonical Plan only after a proven
 Forge merge of the validated Publication Candidate. _Avoid_: PR mode, remote merge-back, Direct Delivery
 
-**Dual Review**: A Change Request Delivery policy that requires both RunWield's local human code review and review on
-the Forge Change Request. _Avoid_: Semantic Agent Review, duplicate review
+**Dual Review**: A Change Request Delivery policy that requires both RunWield Code Review and review on the Forge Change
+Request. _Avoid_: Semantic Review, duplicate review
 
 ### Plans & Review
 
@@ -334,10 +334,10 @@ Resume, restart
 Validation; CI or review repairs return here for fresh CI. _Avoid_: Completed plan, done plan
 
 **CI-Validated Plan**: A Plan at `validated_ci`, meaning Mechanical Validation passed and the next validation call
-resumes at Semantic Code Review. _Avoid_: Verified plan, implemented plan
+resumes at Semantic Review. _Avoid_: Verified plan, implemented plan
 
-**Reviewer-Validated Plan**: A Plan at `validated_reviewer`, meaning Semantic Code Review passed and the next validation
-call handles Local Human Code Review and publication. _Avoid_: Verified plan, human-review status
+**Reviewer-Validated Plan**: A Plan at `validated_reviewer`, meaning Semantic Review passed and the next validation call
+handles Code Review and publication. _Avoid_: Verified plan, code-review status
 
 **Verified Plan**: A Plan whose execution and Workflow Validation both finished successfully. _Avoid_: Completed plan,
 done plan
@@ -348,22 +348,25 @@ Verified plan, archived plan, on-hold plan
 **Review Loop**: The cycle where a planning agent writes or revises a Plan and the user approves or returns it through
 Plannotator. _Avoid_: Feedback loop, approval cycle
 
-**Semantic Code Review**: The internal state-machine term for the Reviewer check during Workflow Validation. It compares
-implementation against the approved Plan. TUI and Workspace progress copy calls this **AI code review**. _Avoid_: Local
-Human Code Review, Forge review, automated tests
+**Semantic Review**: The internal state-machine term for the automated Reviewer check during Workflow Validation. It
+compares the approved Plan with the full patch from the recorded target branch tip to the current execution-worktree
+files. TUI and Workspace progress copy calls this **AI review**. _Avoid_: Code Review, Forge review, automated tests
 
-**Local Human Code Review**: The optional RunWield gate where a person reviews the implementation diff before delivery.
-The user approves the diff or sends feedback; TUI and Workspace progress copy calls this **human review**. _Avoid_:
-Semantic Code Review, Forge review, Plan Review Loop
+**Code Review**: The optional RunWield gate where a person reviews the same full target-relative patch used by Semantic
+Review before delivery. Reload recomputes it from the recorded target and current worktree files. The user approves the
+diff or sends feedback. Internal compatibility identifiers can still use `humanReview` or `human_review`, but
+user-facing copy calls this **code review**. _Avoid_: Human Review, Semantic Review, Forge review, Plan Review Loop
 
 **Review Issue Ledger**: The temporary per-attempt record of requirement coverage, Review Issues, repair claims, and
 Reviewer re-verification. _Avoid_: Review log, durable Plan history, Work Record
 
-**Review Issue**: A blocking Semantic Code Review finding that shows the implementation fails an unambiguous approved
-Plan requirement. It must be repaired, or resolved by a user-confirmed Plan Deviation that replaces the requirement,
-before approval. _Avoid_: Review Advisory, style note, suggestion
+**Review Issue**: A blocking Semantic Review finding that shows the target-relative implementation change fails an
+unambiguous approved Plan requirement. It must be repaired, or resolved by a user-confirmed Plan Deviation that replaces
+the requirement, before approval. If later evidence proves the finding was attributed to unchanged target context,
+independent review can confirm it as already satisfied without a file edit; its identity remains stable. _Avoid_: Review
+Advisory, style note, suggestion
 
-**Review Advisory**: A non-blocking Semantic Code Review finding that explains an ambiguity in the approved Plan without
+**Review Advisory**: A non-blocking Semantic Review finding that explains an ambiguity in the approved Plan without
 preventing implementation approval. _Avoid_: Review Issue, warning, waived defect
 
 **Review Override**: A proposed one-delivery user decision to accept a specific Review Issue without changing the Plan
@@ -396,7 +399,15 @@ replacement for Plans
 workflows, distinct from the uppercase `PROJECT` Routing Intent. _Avoid_: Workspace, workspace root, project space
 
 **Attention Dashboard**: The Workspace surface aggregating work needing user judgment and active or recent workflow
-state across Projects. _Avoid_: Project grid, task board, notifications page
+state across Projects. It has Needs You, Ready to Continue, In Progress, and Recently Finished groups. _Avoid_: Project
+grid, task board, notifications page
+
+**Plan Home**: The existing Workspace Plan detail route that shows the readable Plan, workflow diagram, blocker, next
+action, and proven working Session link. _Avoid_: Plan progress page, second Plan detail
+
+**Workflow Sidebar**: The Session context tab that shows the same Plan workflow presentation used by Plan Home, adapted
+for Workspace and TUI. It displays workflow facts; it does not own lifecycle transitions. _Avoid_: Progress page,
+Session status mapper
 
 **Code Surface**: The Workspace surface for inspecting or manually changing a Project's main checkout. _Avoid_:
 Workspace shell, Plan worktree editor, Agent terminal
@@ -728,7 +739,7 @@ continuation, database interaction record
 - Planned work uses either **Direct Delivery** or explicitly selected **Change Request Delivery**.
 - **Change Request Delivery** can produce a **Verified Plan** only after a proven Forge merge of a revision covered by
   **Workflow Validation**.
-- **Dual Review** adds **Local Human Code Review** to Forge review without replacing **Semantic Code Review**.
+- **Dual Review** adds **Code Review** to Forge review without replacing **Semantic Review**.
 - One user request produces exactly one **Triage Report**.
 - A **Triage Report** contains one **Routing Intent**, one **Complexity**, and one summary.
 - A **Plan** lists zero or more **Affected Paths** in its front matter; a directory with no meaningful project files
@@ -770,7 +781,8 @@ continuation, database interaction record
   retrieval. Supersession does not change a Work Record's completion mode or remove its applicable confidence notices
   from explicit retrieval.
 - One implementation attempt has at most one temporary **Review Issue Ledger**.
-- A **Review Issue** blocks Semantic Code Review approval until repaired or resolved by a confirmed Plan Deviation.
+- A **Review Issue** blocks Semantic Review approval until repaired, independently confirmed as already satisfied from
+  unchanged target context, or resolved by a confirmed Plan Deviation.
 - A **Review Advisory** does not block approval.
 - A proposed **Review Override** applies to one delivery only and does not change Plan authority.
 - Denied Plan review produces **Feedback**, and each response to Feedback produces one **Revision**.

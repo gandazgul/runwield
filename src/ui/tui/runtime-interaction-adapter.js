@@ -21,6 +21,23 @@ const MAX_PAIR_PROMPT_VALUE_LENGTH = 500;
 const MAX_PAIR_EVIDENCE_ITEMS = 8;
 
 /**
+ * @param {import('./types.js').UiAPI} uiAPI
+ * @param {AbortSignal | undefined} signal
+ * @param {() => Promise<string | null>} openPrompt
+ * @returns {Promise<string | null>}
+ */
+async function waitForPrompt(uiAPI, signal, openPrompt) {
+    if (signal?.aborted) return null;
+    const abort = () => uiAPI.abortActivePrompt?.();
+    signal?.addEventListener("abort", abort, { once: true });
+    try {
+        return await openPrompt();
+    } finally {
+        signal?.removeEventListener("abort", abort);
+    }
+}
+
+/**
  * @param {unknown} value
  * @returns {string}
  */
@@ -45,7 +62,11 @@ export function createTuiInteractionAdapter(uiAPI, ports) {
         },
         async requestInteraction(request, signal) {
             if (request.type === RuntimeInteractionTypes.SELECT || request.type === RuntimeInteractionTypes.APPROVAL) {
-                const value = await uiAPI.promptSelect(request.prompt, request.options || []);
+                const value = await waitForPrompt(
+                    uiAPI,
+                    signal,
+                    () => uiAPI.promptSelect(request.prompt, request.options || []),
+                );
                 if (value === null) return { outcome: RuntimeInteractionOutcomes.CANCELED };
                 const option = (request.options || []).find((item) => item.value === value);
                 if ((request.options || []).length && !option) {
@@ -72,11 +93,16 @@ export function createTuiInteractionAdapter(uiAPI, ports) {
                 };
             }
             if (request.type === RuntimeInteractionTypes.TEXT) {
-                const value = await uiAPI.promptText(request.prompt, {
-                    defaultValue: request.defaultValue,
-                    placeholder: request.placeholder,
-                    allowEmpty: request.allowEmpty,
-                });
+                const value = await waitForPrompt(
+                    uiAPI,
+                    signal,
+                    () =>
+                        uiAPI.promptText(request.prompt, {
+                            defaultValue: request.defaultValue,
+                            placeholder: request.placeholder,
+                            allowEmpty: request.allowEmpty,
+                        }),
+                );
                 if (value === null) return { outcome: RuntimeInteractionOutcomes.CANCELED };
                 return { outcome: RuntimeInteractionOutcomes.TEXT, value };
             }
@@ -239,7 +265,7 @@ export function createTuiInteractionAdapter(uiAPI, ports) {
                     planContent: meta.planContent,
                     planAttrs: meta.planAttrs,
                     executionCwd: meta.executionCwd,
-                    baselineTree: typeof meta.baselineTree === "string" ? meta.baselineTree : undefined,
+                    targetBranch: typeof meta.targetBranch === "string" ? meta.targetBranch : undefined,
                     guidedReview: meta.guidedReview,
                     reviewConversation: meta.reviewConversation,
                     agentLabel: typeof meta.agentLabel === "string" ? meta.agentLabel : undefined,

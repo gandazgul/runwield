@@ -130,7 +130,7 @@ async function saveRunningMechanicalCheckpoint(projectRoot: string, attrs: Recor
     }, { expectedRevision: plan.revision });
 }
 
-Deno.test("human-review change repair resumes through CI and returns to Local Human Code Review", async () => {
+Deno.test("human-review change repair resumes through CI and returns to Code Review", async () => {
     const projectRoot = await makeImplementedPlan({
         humanReviewMode: "always",
         humanReviewDecision: "changes_requested",

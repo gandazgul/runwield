@@ -3,11 +3,19 @@
 bin/
 dist/
 node_modules/
+docs-site/src/content/docs/
+docs-site/public/docs-assets/
+docs-site/.astro/
 /artifacts/
 
 .history/
 .pi/
 .astro/
+.agents/
+.claude/skills/
+.styleseed/
+STYLESEED.md
+skills-lock.json
 
 debug.log
 

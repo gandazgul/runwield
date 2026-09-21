@@ -210,6 +210,7 @@ The capabilities below own browser-specific requirements. They reference Core fo
 Session behavior. Scope labels distinguish the existing foundation, the required Personal v1 journey, and later team
 work; they do not claim rollout completion.
 
+- [Browser appearance and themes](#browser-appearance-and-themes)
 - [Local Plan management](#local-plan-management)
 - [Shared Plan collaboration](#shared-plan-collaboration)
 - [Attention dashboard](#attention-dashboard)
@@ -225,6 +226,35 @@ work; they do not claim rollout completion.
 - [Team artifact privacy and authorship](#team-artifact-privacy-and-authorship)
 - [Team planning intelligence](#team-planning-intelligence)
 - [Team code review and delivery](#team-code-review-and-delivery)
+
+### Browser appearance and themes
+
+**Scope and maturity:** Current browser implementation uses the approved dark identity. Light/custom theme delivery and
+a theme picker remain deferred; support for separate browser themes must remain intact.
+
+**Requirement: Keep a consistent dark browser workbench.**
+
+Workspace, Plan Review, and Code Review use the approved RunWield brand colors and website typography. Keep compact
+controls, a mint sidebar brand rail, blue selected context and actions, and distinct semantic status colors. OS color
+preferences and TUI theme choices do not change browser appearance. TUI appearance and Session behavior are unchanged.
+
+**Requirement: Preserve future browser theme choices without a restyle.**
+
+Browser colors remain separate from component layout, spacing, and typography. A future light or custom token set can
+replace the dark set through the same browser theme renderer, including shared review components, without restyling each
+surface or depending on TUI settings. The current UI offers no theme picker, light theme, or OS-following mode.
+
+**Acceptance scenarios:**
+
+- Given light OS settings or a light TUI theme, when the owner opens Workspace, Plan Review, or Code Review, each uses
+  the approved dark browser identity; changing TUI themes does not change browser colors.
+- Given a future alternate browser token set, when it is supplied to the renderer, Workspace and review components use
+  its semantic colors without changes to their layout, typography, or component styles. This does not claim a shipped
+  light/custom theme.
+- When the owner opens browser controls or the Session command menu, no browser theme picker or light-mode action is
+  offered; ordinary Session commands and TUI theme controls keep their existing behavior.
+
+Implementation guidance: [RunWield Design System](../design-system.md#browser-themes).
 
 ### Local Plan management
 
@@ -252,6 +282,12 @@ document surfaces should feel consistent while keeping Plan lifecycle controls s
 - When the user moves or manually closes work, the board reflects that choice without claiming automatic verification;
   failure and hold expose recovery or resume.
 - When a Plan or Epic is renamed, its existing links still resolve and child progress remains visible.
+- The local board shows its W. logo and heading; the embedded Project board omits duplicate branding, Project title, and
+  checkout health. View tabs and search share the header row, with search trailing the tabs. Columns use separators
+  instead of enclosing borders, and an empty column has one consistent empty message. Drag/drop feedback appears only
+  during an interaction; there is no default instruction footer.
+- Plan Board views, Session context, and annotation/chat views in Plan and Code Review share square underline tabs: a
+  thin baseline and a thicker active indicator.
 
 ### Shared Plan collaboration
 
@@ -310,7 +346,9 @@ Default ordering:
 
 1. **Pinned:** user-pinned Sessions, Projects, Plans, or workflow items. Pinning makes work easier to find.
 2. **Needs You:** actual human decisions or external prerequisites, such as approval, feedback, human review, or a Pair
-   checkpoint. Internal repair, failed validation, and retry exhaustion alone do not create user chores.
+   checkpoint. Use current unanswered Session interactions (including `plan_written` Plan reviews and code reviews), or
+   an associated Agent that stopped with unfinished execution. Draft, feedback, validated, configured review modes, and
+   historical repair flags alone do not request attention. Internal diagnostics remain in Project settings/navigation.
 3. **Ready to Continue:** approved Plans ready for work, paused workflows, child Plans ready in a PROJECT sequence, or
    other safe next actions.
 4. **Recently Finished:** successfully published or deliberately abandoned delivery workflows, and completed
@@ -324,6 +362,15 @@ remain explorable, but users should not have to inspect every Project to discove
 The Dashboard shows current work across Projects and links to the Session or Plan where the owner can act. It does not
 create an additional approval step or change which work the owner can continue.
 
+**Requirement: Bound navigation reads and share concurrent refreshes.** Dashboard and sidebar requests made together
+share their in-progress read. Navigation reads only the recent Session page it needs, without counting the full Session
+archive, and reads each Session's Plan associations once per refresh. Completed reads are not retained as a stale cache;
+the next refresh reads current workflow evidence.
+
+Each section defaults to most recently updated first, has a header button to reverse its sort, and initially shows five
+items. **Read more** expands that section, and **Show less** collapses it. Sort and expansion choices survive automatic
+refreshes. Ready-for-work Plans belong in Ready to Continue unless a current unanswered interaction needs the owner.
+
 **Acceptance scenarios:**
 
 - Given two registered Projects with blocked, ready, finished, and running work, when the owner opens Workspace, the
@@ -331,6 +378,13 @@ create an additional approval step or change which work the owner can continue.
 - When the owner pins work, it becomes easier to find but does not gain approval or execution permission.
 - When work reaches a required human decision, the attention signal leads to the correct Session or Plan; quietly
   running work stays secondary.
+- Given a Project with thousands of archived Sessions, opening the Dashboard and sidebar together does not read every
+  archived transcript or duplicate the dashboard scan. A later refresh reflects newly completed work.
+- Given a ready Plan with old repair or review flags, it appears in Ready to Continue. A live question, Plan review,
+  code review, or Pair checkpoint appears in Needs You and links to the associated Session; answering it removes that
+  attention signal. Active TUI Sessions are observed without first opening them in the browser.
+- Given more than five items in any section, only the five newest appear initially. Reversing sort shows the oldest
+  first; expanding shows all eligible items, and refresh preserves both choices.
 
 <a id="63-project-experience"></a>
 
@@ -354,12 +408,107 @@ For each registered Project, Workspace shows:
 Registration, disabling, and removal affect Workspace access and indexing only. They must not delete repository data,
 Plans, Work Records, Session history, branches, or RunWield worktrees.
 
+**Requirement: Remove a Project registration completely.** Remove deletes the registration and its dependent Workspace
+SQLite records, rather than retaining a visible removed entry. Previously removed registrations are cleaned up on
+upgrade. Adding the directory again creates a new Workspace registration and rediscovers its file-authoritative Sessions
+and artifacts. Removal returns to Projects; disabling remains reversible in the existing settings page.
+
+Project settings reads the Workspace registration independently of repository availability. Missing or disabled roots
+must not block opening settings, relinking the root, or disabling/removing the registration. Repository-dependent reads
+remain unavailable until the Project is enabled and its root is available.
+
+Dashboard attention rows use the Plan name from the live review or linked Plan. Questions without a Plan use the Session
+name. The waiting reason belongs in the secondary status text, never as a repeated generic row title.
+
+**Requirement: Open Workspace without repeating startup work.**
+
+Workspace home opens the Attention Dashboard. Logo links return directly to the last visited Session. Navigation
+preserves the mounted sidebar and its loaded data; its viewport height stays stable while destination content loads. The
+sidebar reads only enough Session names to fill its recent list and determine whether more exist, without waiting for
+names from every older conversation. Session contents load independently of the sidebar.
+
+**Requirement: Keep global actions and Session context in consistent headers.**
+
+The hamburger menu to the left of the Workspace logo contains browser notification permission and its current state,
+plus a link to the public RunWield documentation. Session context tabs occupy the main header above their pane. One
+collapse/restore control stays on that row, moving only horizontally and reversing its icon when the pane opens or
+closes. Session, Plan Review, and Code Review use the same header alignment. Their hamburger menus and sidebar controls
+share the same borderless buttons, hover treatment, and compact height at every screen width. Review and Workspace menus
+share their popup and item styling. Segmented tool selectors keep a steady footprint and slide the selection highlight
+when selection changes. Labels switch immediately without width animation; reduced-motion preferences keep the highlight
+immediate.
+
+The Workspace brand, main title, and Session context tabs share a top-aligned header row. Navigation retains its header
+while its list scrolls. Workflow content inside a Session uses the existing Workflow tab as its heading and the sidebar
+as its scroll area; it must not introduce a duplicate heading, nested scrolling pane, or bulky per-stage cards.
+
+Dashboard, Sessions, and Plan home keep the same mounted Workspace navigation sidebar, preserving expanded Projects and
+scroll position across navigation. Plan home uses it for switching between Plans and uses its shared title header
+without a second logo or reader header. Contents starts collapsed, and Contents and Workflow controls share one aligned
+row. Both panes remain reopenable on mobile. Workflow steps use the active stripe instead of Current/Upcoming labels;
+their descriptions explain the work, proven results, waiting user actions, and available errors. Code Review follows AI
+review, then Publication. Ready-for-work Plans show Planning as complete and Execution as the next step. Publication
+facts describe the confirmed phase and any recorded failure.
+
 **Acceptance scenarios:**
 
 - Given two registered roots and one unregistered directory, when the owner browses Projects, only the registered roots
   are available to Workspace.
 - When a Project is disabled or removed, Workspace access and indexing stop without deleting repository data, saved
   Sessions, branches, or worktrees.
+- Removing a Project makes it disappear from Projects, the sidebar, and the dashboard, and its old settings URL no
+  longer resolves. Its files remain unchanged; adding its directory again rediscovers the saved Sessions.
+- From a Session or its review, clicking the Workspace logo returns to the last Session without an intermediate home
+  request or clearing the sidebar.
+- From Workspace, opening Documentation in the hamburger menu opens `docs.runwield.dev` without changing the active
+  Session.
+- Opening home shows a plain shared loader, reuses its sidebar result on the destination page, and opens Projects when
+  no enabled Project is available.
+- With many saved Sessions, the sidebar resolves only its visible recent names plus one lookahead; unnamed Sessions
+  remain hidden and Show more remains available.
+- The Project’s Plan Board navigation item stays active across its Plan Board, Closed, and On Hold views, and clears
+  when the owner opens a Session or another Project’s board.
+- Projects and Devices share Workspace-level header tabs and consistent content margins. Project rows open a child
+  settings page with a Back to Projects control, root controls, and maintenance actions. Linking a Project opens that
+  settings page. Settings omits duplicate Plan Board or New Session actions. Devices applies across Workspace, and the
+  current browser has a compact badge beside its device name.
+- Opening the Workspace menu reveals notification permission without occupying Session or review header space.
+- On mobile, scrolling a Session or embedded review and resizing the browser viewport keeps sidebar controls in the
+  visible header; the document behind the workbench cannot scroll them offscreen.
+- On Android Chrome, opening the keyboard shrinks the Session workbench so the focused composer and its actions remain
+  visible above the keyboard. Closing it restores the available height while retaining the draft and history position.
+- At 980px or narrower, Plan Review starts with Contents and Annotations collapsed. Both can be opened and closed
+  explicitly; each fills the workbench below the header with reachable tabs and a close control. Opening one hides the
+  other. Contents/version selection returns to the document. The compact header retains title and approval, while
+  execution and annotation tools remain available from menus; View, Edit, and Changes stay visible. Resizing into this
+  range collapses both panels without preventing manual reopening.
+- The Session sidebar shows the current Agent, provider/model, and Thinking at the top, omitting the name already in the
+  header. Values follow the active Session state; a queued configuration change is not displayed as already active.
+- A Session started with Ideator and switched to Planner follows the new Plan as soon as `plan_written` attaches it,
+  without reloading or waiting for the response to finish. Live workflow and agent changes reach both local and attached
+  browsers. A newly attached Plan selects Workflow once; progress continues updating during execution and review.
+- Saved history and live events appear once in chronological order, including completion, QA, and review reports. A
+  delayed result cannot change an accepted report's time. Repair handoffs do not repeat the original user prompt.
+  Activity groups contain only consecutive completed tools and Thinking between messages or special blocks.
+- Opening Activity keeps it open as new events arrive. Its toggle opens/closes Thinking blocks, including new Thinking
+  rows while open, without changing individual tool blocks. Thinking can also be toggled independently.
+- On desktop and mobile, an unfocused composer is one compact row containing attachment, Agent/model/Thinking summary,
+  and the primary action. Focusing it reveals the full input and dropdowns; moving focus between its controls keeps it
+  open. Leaving it collapses without losing text, attachments, or queued messages.
+- While a stoppable Session is running, an empty composer shows Stop in the primary action slot. Typing text or
+  attaching an image changes it back to Send/Steer; clearing the draft returns Stop. Queue remains a separate action.
+- Plan and Code Review use shared underline tabs for their left sidebar views. Their right sidebar header contains
+  annotation/chat tabs and the collapse control in one row, with no duplicate Annotations heading. Collapsed restore
+  controls retain their existing position and behavior.
+
+- Opening and closing Session context preserves the header height and the toggle's vertical position; on phones its tabs
+  replace the title on that row, while the Workspace navigation control remains reachable. The expanded pane's header
+  background and vertical divider reach the top of the page, with no additional pane divider beneath its tab rail.
+- Entering a Session at 900px or narrower, or resizing into that range, hides its context sidebar even when desktop
+  preferences saved it open. The owner can reopen it explicitly. Widening restores the desktop preference; narrow-screen
+  toggles do not overwrite it. Hamburger and collapse buttons keep their compact height.
+- Opening or closing navigation, Session context, Plan/Code Review, or artifact Contents sidebars uses consistent,
+  subtle motion. Reduced-motion preferences apply immediately, and repeated toggles preserve the final requested state.
 
 <a id="64-session-experience"></a>
 
@@ -407,22 +556,35 @@ expose TUI-only process controls.
   no title or message does not appear.
 - Given a typed message and image attachments, when sending fails or the browser refreshes, the draft and previews
   remain available.
+- On desktop and mobile, the unfocused composer shows only Attach, the Agent/provider/model/Thinking summary and the
+  primary action. Focusing the summary expands the textarea and settings; moving focus outside collapses it without
+  losing text, images or selections. Moving between its controls keeps it expanded. Expansion and collapse animate
+  without losing the visible history position or requiring live followers to scroll down again; reduced motion is
+  respected. The primary action stops running work when the draft is empty and sends or steers when text or images are
+  present.
 - On a phone, opening the Session sidebar fills the available height below the Workspace header. Its tabs and close
   control remain reachable while scrolling; closing it restores the conversation and composer in place.
 - When Core becomes busy after a message, the live end of the conversation immediately shows the shared dots loader and
   “Thinking...”, including before any assistant text arrives. It clears when Core is idle or the live operation ends,
   and pauses while a human answer is needed. Reopening saved history does not show an old busy indicator.
 - When a workflow tool finishes, its full report and outcome remain readable in live and saved history and its block
-  stops showing Running.
+  stops showing Running. All special tool blocks, including completion and QA reports, have square corners and mint
+  titles and left rails identifying RunWield, distinct from blue user messages. Failure status remains visibly red.
+  Their rails match other timeline stripes in thickness and meet the frame squarely, without diagonal joins.
+- Normal System notices use a mint stripe and tint, distinct from blue user messages; warning and error stripes remain
+  amber and red.
 - When the owner changes Agents through browser controls, the selected Agent, model defaults, and thinking behavior
   match the TUI.
 
 **Requirement: Read Session artifacts comfortably on desktop and phone.**
 
 Opening an artifact gives immediate loading feedback until its document is ready. Browser waiting states use one
-consistent dots indicator, familiar from the TUI. An embedded reader uses Workspace’s title and actions, with no second
-application header. Contents starts collapsed on small screens and can be opened and closed with the same panel control
-as Plan and Code Review. The owner can return directly to the originating Session.
+consistent dots indicator, familiar from the TUI. One shared Markdown reader serves Plans, PRDs, ADRs, Work Records,
+Epic artifacts, and reports from every read-only entry point, including Ideator review prompts, Workspace/TUI Session
+artifacts, and the Plan/Work Record read commands. It replaces Workspace navigation with its own full-window logo/title
+header and one Contents header. Contents starts collapsed on small screens and uses the same panel control as Plan and
+Code Review. Workspace launches return directly to the originating Session; local launches have Close. Feedback stays in
+the owning Session interaction. TUI users can choose a registered artifact with Alt+] and open this same reader.
 
 **Acceptance scenarios:**
 
@@ -430,7 +592,12 @@ as Plan and Code Review. The owner can return directly to the originating Sessio
   document replaces it.
 - On a phone, an artifact opens with its document visible and Contents closed; the owner can open Contents, select a
   heading, and return to the document, or collapse Contents without selecting anything.
-- In Workspace, the artifact title appears once in the shared header and Back to Session returns to its conversation.
+- In Workspace, the artifact title appears once in the reader header, Workspace navigation is absent, and Back to
+  Session returns to its conversation.
+- An Ideator PRD review, a registered Session artifact, and a Plan/Work Record read command display the same reader;
+  only artifact metadata and the return/close action differ.
+- In a TUI Session, Alt+] lists registered artifacts and opens the selected artifact in that reader without changing the
+  running Agent or artifact content.
 
 <a id="65-moving-between-tui-and-phone"></a>
 
@@ -482,7 +649,16 @@ journeys.
 The owner can review, give feedback, approve for later, or approve and run the current Plan from Workspace. Opening a
 Plan or its associated Session does not give that screen permanent control of the work.
 
-Embedded Plan and Code Review use Workspace’s header for their title and actions, without a second application header.
+Plan and Code Review replace the entire Workspace shell with the full-window review layout. Each uses its own toolbar
+and Contents/Files and Annotations sidebars; the Workspace Project/Session sidebar and its restore control are absent.
+Returning to a Session restores the normal Workspace shell. The right sidebar places its Annotations/chat tabs and
+collapse control in a single header row, matching standalone reviews, with no duplicate title row. The left sidebars use
+that same underline-tab treatment for Contents/Versions and Files/Changes, with both labels visible. Read-only Plan and
+artifact views use the same full-window shell with their own logo/title header and Back to Session action. Contents has
+one header and collapse control, without a second tab row.
+
+Linked source files open with compact, consistent line spacing. Short files must not stretch their rows to fill the
+dialog; long files scroll within the reader.
 
 If a Plan changes after the owner opens it, Workspace shows the changed content before accepting an approval for the new
 version. Repeated delivery of the same click does not run the action twice. Actual failures explain what happened and
@@ -508,6 +684,10 @@ Review offers distinct outcomes:
 
 Plan approval never implies ambient permission for a different Session to execute it.
 
+The Plan home and Session Workflow sidebar show the same workflow presentation: ordered stages, current step, blocker,
+next action, and proven working Session link when available. The separate Plan Progress page is not a product surface;
+its read data feeds Plan home and Session context.
+
 Shared rules: [Core Plan review](runwield-core-prd.md#plan-review), [lifecycle](runwield-core-prd.md#plan-lifecycle),
 and [execution, validation, and recovery](runwield-core-prd.md#execution-validation-and-recovery).
 
@@ -518,10 +698,17 @@ internal repair procedures.
 
 **Acceptance scenarios:**
 
+- Opening either review through a direct link or Workspace navigation shows one review toolbar and only review sidebars
+  on desktop and mobile. Read-only artifacts likewise omit Workspace navigation and show a single Contents header.
+  Returning to the Session restores Project/Session navigation.
 - Given a Plan changed since the review opened, when the owner tries to approve, the changed content is shown before the
   approval is accepted.
+- Opening a short linked source file keeps adjacent lines together at every viewport size; a longer file remains
+  scrollable without pushing the reader controls offscreen.
 - On a phone, the Plan document fits the screen with its controls and approval actions reachable. Opening or closing
   Contents or Annotations does not widen the page, and the owner can scroll to the end of the document.
+- On a phone, Code Review keeps a readable, scrollable diff below its file list. The list cannot squeeze the diff shut;
+  layout controls wrap without widening the page.
 - When the same approval click is delivered twice, the action occurs once; Approve for Later never starts execution.
 - Given an executing Plan, when the owner opens its workflow surface, its review, changes, validation, recovery, and
   resulting record are accessible in context.

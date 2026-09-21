@@ -1,8 +1,9 @@
 import { validateSequenceReviewDecision } from "../../../shared/workflow/sequence-review.ts";
 /* @module ui/workspace/server/session-continuation */
 
+import { mergePlanAssociations } from "../../../shared/session/plan-association.ts";
 import { appendLiveSessionEvent } from "../../../shared/session/live-session-events.ts";
-import { readLiveSessionConnection } from "../../../shared/session/live-session-connection.ts";
+import { projectLiveSessionInfo, readLiveSessionConnection } from "../../../shared/session/live-session-connection.ts";
 import { createHash } from "node:crypto";
 import { findPlanEvidenceById } from "../../../plan-store.js";
 import { getMergedCustomSetting, getSettingsManager } from "../../../shared/settings.js";
@@ -15,10 +16,9 @@ import {
     requireUserAgentOption,
     requireUserModelOption,
 } from "../../../shared/session/user-selection.ts";
-import { getCommandDefinition, getSlashCommandDefinitions } from "../../../cmd/registry.js";
 import { normalizeBrowserNotificationPolicy } from "../../../shared/session/notification-content.ts";
 import { applySharedPlanReviewDecision } from "../../../shared/workflow/plan-review-actions.ts";
-import { getWorkflowDiff } from "../../../shared/workflow/git-snapshot.js";
+import { getWorktreeReviewDiff, WorktreeReviewTargetError } from "../../../shared/workflow/git-snapshot.js";
 import {
     createSessionRuntime,
     deriveManagedSessionContinuationDecision,
@@ -38,6 +38,7 @@ import { requireOwnerProjectRoot, sessionBelongsToOwnerProject } from "./owner-p
 
 /** @typedef {"off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"} WorkspaceThinkingLevel */
 /** @typedef {{ name: string, firstMessage: string }} SessionListInfo */
+/** @typedef {{ page?: number, pageSize?: number, includeEmpty?: boolean, includeTotal?: boolean }} SessionListOptions */
 /** @typedef {{ operationId: string, status: string, runwieldSessionId: string | null, generation: number | null }} CreateSessionResult */
 /** @typedef {{ requestHash: string, settled: Promise<void> }} PendingCreateRequest */
 /** @typedef {(value?: void | PromiseLike<void>) => void} VoidResolver */
@@ -128,7 +129,6 @@ function safePlanReviewReference(request) {
 function safeCodeReviewReference(request) {
     const meta = request._meta && typeof request._meta === "object" ? request._meta : {};
     const rawPatch = typeof meta.diffText === "string" ? meta.diffText : "";
-    if (!rawPatch) return null;
     const planName = typeof meta.planName === "string" && meta.planName.trim()
         ? meta.planName.trim()
         : "Workspace changes";
@@ -252,6 +252,7 @@ async function readSessionDisplayName(paths) {
  * @property {string} projectId
  * @property {import("../../../shared/session/session-runtime-events.js").SessionRuntimeEvent[]} events
  * @property {boolean} [remote]
+ * @property {import("../../../shared/session/live-session-connection.ts").LiveSessionInfo | null} [sessionInfo]
  * @property {import("../../../shared/session/session-runtime-events.js").RuntimeQueuedMessage[]} [queuedMessages]
  * @property {string} [error]
  * @property {number | null} [generation]
@@ -284,7 +285,7 @@ export class WorkspaceSessionContinuationService {
         this.createRequests = new Map();
         /** @type {Map<string, PendingCreateRequest>} */
         this.pendingCreateRequests = new Map();
-        /** @type {Map<string, { cwd: string, baselineTree?: string }>} */
+        /** @type {Map<string, { cwd: string, targetBranch: string }>} */
         this.codeReviewRefreshContexts = new Map();
     }
 
@@ -359,11 +360,12 @@ export class WorkspaceSessionContinuationService {
         const defaultProvider = settings.getDefaultProvider?.() || "";
         const defaultModel = settings.getDefaultModel?.() || "";
         const defaultThinkingLevel = settings.getDefaultThinkingLevel?.() || "default";
-        const [templates, skills] = await Promise.all([
+        const [templates, skills, commandRegistry] = await Promise.all([
             listPromptTemplates({ cwd: projectRoot }),
             listSkills({ cwd: projectRoot }),
+            import("../../../cmd/registry.js"),
         ]);
-        const builtins = getSlashCommandDefinitions("workspace");
+        const builtins = commandRegistry.getSlashCommandDefinitions("workspace");
         return {
             defaults: {
                 agentName: defaultAgent.name,
@@ -378,7 +380,7 @@ export class WorkspaceSessionContinuationService {
                     description: command.description,
                     kind: "action",
                 })),
-                ...templates.filter((template) => !getCommandDefinition(template.name))
+                ...templates.filter((template) => !commandRegistry.getCommandDefinition(template.name))
                     .map((template) => ({ name: template.name, description: template.description, kind: "prompt" })),
                 ...skills.map((skill) => ({
                     name: `skill:${skill.name}`,
@@ -393,29 +395,9 @@ export class WorkspaceSessionContinuationService {
 
     /**
      * @param {string} projectId
-     * @param {{ page?: number, pageSize?: number, includeEmpty?: boolean }} [options]
+     * @param {SessionListOptions} [options]
      */
     async listSessions(projectId, options = {}) {
-        // Normal listing reads the incremental catalog. Full transcript discovery remains an explicit rescan path.
-        const result = await this.store.listProjectSessions(projectId, { page: 0, pageSize: 100, catalog: false });
-        const catalog = [...result.sessions];
-        let nextPage = result.hasNext;
-        for (let page = 1; nextPage; page++) {
-            const next = await this.store.listProjectSessions(projectId, { page, pageSize: 100, catalog: false });
-            catalog.push(...next.sessions);
-            nextPage = next.hasNext;
-        }
-        const visible = [];
-        // Read one Session at a time: large histories must not be loaded together just to build navigation.
-        for (const session of catalog) {
-            const segments = this.store.listSessionTranscriptSegments(session.runwieldSessionId);
-            const paths = segments.length
-                ? [...segments].sort((a, b) => a.ordinal - b.ordinal).map((segment) => segment.transcriptPath)
-                : [session.transcriptPath].filter(Boolean);
-            const displayName = await readSessionDisplayName(paths);
-            if (!options.includeEmpty && !displayName) continue;
-            visible.push({ ...session, displayName });
-        }
         const page = typeof options.page === "number" && Number.isInteger(options.page) && options.page >= 0
             ? options.page
             : 0;
@@ -424,11 +406,35 @@ export class WorkspaceSessionContinuationService {
                 ? Math.min(options.pageSize, 100)
                 : 30;
         const start = page * pageSize;
+        // Navigation needs one visible page and a lookahead, not a count of every transcript.
+        const visibleLimit = options.includeTotal === false ? start + pageSize + 1 : Infinity;
+        const result = await this.store.listProjectSessions(projectId, { page: 0, pageSize: 100, catalog: false });
+        let batch = result;
+        const visible = [];
+        for (let catalogPage = 0;; catalogPage++) {
+            // Keep transcript reads bounded; never load all large histories in parallel.
+            for (const session of batch.sessions) {
+                const segments = this.store.listSessionTranscriptSegments(session.runwieldSessionId);
+                const paths = segments.length
+                    ? [...segments].sort((a, b) => a.ordinal - b.ordinal).map((segment) => segment.transcriptPath)
+                    : [session.transcriptPath].filter(Boolean);
+                const displayName = await readSessionDisplayName(paths);
+                if (!options.includeEmpty && !displayName) continue;
+                visible.push({ ...session, displayName });
+                if (visible.length >= visibleLimit) break;
+            }
+            if (visible.length >= visibleLimit || !batch.hasNext) break;
+            batch = await this.store.listProjectSessions(projectId, {
+                page: catalogPage + 1,
+                pageSize: 100,
+                catalog: false,
+            });
+        }
         return {
             ...result,
             page,
             pageSize,
-            total: visible.length,
+            total: options.includeTotal === false ? null : visible.length,
             hasNext: start + pageSize < visible.length,
             hasPrevious: page > 0 && start < visible.length,
             diagnostics: result.diagnostics || [],
@@ -537,8 +543,10 @@ export class WorkspaceSessionContinuationService {
         });
         if (projection.ok) {
             /** @type {import('../../../shared/session/live-session-connection.ts').LiveSessionInfo | null | undefined} */
-            let liveInfo = this.runtime.listSessions().find((item) =>
-                item.managed?.runwieldSessionId === runwieldSessionId && !item.managed.dormant
+            let liveInfo = projectLiveSessionInfo(
+                this.runtime.listSessions().find((item) =>
+                    item.managed?.runwieldSessionId === runwieldSessionId && !item.managed.dormant
+                ) || null,
             );
             if (!liveInfo && state === "active" && inspected.activation?.operationId) {
                 try {
@@ -552,8 +560,15 @@ export class WorkspaceSessionContinuationService {
             const paths = segments.length
                 ? [...segments].sort((a, b) => a.ordinal - b.ordinal).map((segment) => segment.transcriptPath)
                 : [session.transcriptPath].filter(Boolean);
+            if (liveInfo) {
+                const planAssociations = mergePlanAssociations(
+                    getCommittedTranscriptAuthorityFacts(projection).planAssociations,
+                    liveInfo.planAssociations,
+                );
+                const sessionStats = liveInfo.sessionStats || projection.snapshot.sessionStats;
+                Object.assign(projection.snapshot, liveInfo, { planAssociations, sessionStats });
+            }
             projection.snapshot.name = liveInfo?.name || await readSessionDisplayName(paths);
-            if (liveInfo?.sessionStats) projection.snapshot.sessionStats = liveInfo.sessionStats;
             projection.snapshot.contextUsage = liveInfo?.contextUsage || null;
             projection.snapshot.systemContextTokens = liveInfo?.systemContextTokens ?? null;
         }
@@ -837,10 +852,11 @@ export class WorkspaceSessionContinuationService {
         if (codeReview) {
             const meta = request._meta && typeof request._meta === "object" ? request._meta : {};
             const executionCwd = typeof meta.executionCwd === "string" ? meta.executionCwd.trim() : "";
-            if (executionCwd) {
+            const targetBranch = typeof meta.targetBranch === "string" ? meta.targetBranch.trim() : "";
+            if (executionCwd && targetBranch) {
                 this.codeReviewRefreshContexts.set(`${operationId}:${interactionId}`, {
                     cwd: executionCwd,
-                    ...(typeof meta.baselineTree === "string" && { baselineTree: meta.baselineTree }),
+                    targetBranch,
                 });
             }
         }
@@ -1553,8 +1569,9 @@ export class WorkspaceSessionContinuationService {
         let rawPatch = String(codeReview.rawPatch);
         if (refresh) {
             try {
-                rawPatch = await getWorkflowDiff(refresh.cwd, refresh.baselineTree);
-            } catch {
+                rawPatch = await getWorktreeReviewDiff(refresh.cwd, refresh.targetBranch);
+            } catch (error) {
+                if (error instanceof WorktreeReviewTargetError) throw error;
                 // Keep the last complete interaction patch while the checkout is temporarily unreadable.
             }
         }
@@ -1607,9 +1624,9 @@ export class WorkspaceSessionContinuationService {
     }
 
     /**
-     * @param {{ runwieldSessionId: string, projectId: string, expectedGeneration: number, planName: string, triageMeta?: Record<string, unknown>, reviewFeedback?: string, reviewImages?: Array<{ base64: string, mimeType: string }> }} options
+     * @param {{ action?: string, runwieldSessionId: string, projectId: string, expectedGeneration: number, planName: string, planContent?: string, triageMeta?: Record<string, unknown>, reviewFeedback?: string, reviewImages?: Array<{ base64: string, mimeType: string }> }} options
      */
-    async startPlanExecutionHandoff(options) {
+    async startPlanWorkflowHandoff(options) {
         const session = this.store.getSessionById(options.runwieldSessionId);
         if (!session || !sessionBelongsToOwnerProject(this.store, session, options.projectId)) {
             throw new Error("Session not found.");
@@ -1621,6 +1638,19 @@ export class WorkspaceSessionContinuationService {
         if (!options.triageMeta) throw new Error("Plan execution handoff requires approval-time Plan action evidence.");
         const adopted = this.runtime.adoptManagedSession({ session, generation: options.expectedGeneration });
         try {
+            const status = String(options.triageMeta.status || "");
+            const validationStatus = ["implemented", "validated_ci", "validated_reviewer", "validated"].includes(
+                status,
+            );
+            if (validationStatus || options.action === "recover") {
+                return await this.runtime.runValidation(adopted.sessionId, {
+                    planName: options.planName,
+                    planContent: options.planContent || "",
+                    triageMeta: options.triageMeta,
+                    trigger: options.action === "recover" ? "repair" : "session_resume",
+                    expectedGeneration: options.expectedGeneration,
+                });
+            }
             return await this.runtime.executePlan(adopted.sessionId, {
                 planName: options.planName,
                 triageMeta: options.triageMeta,
@@ -1662,6 +1692,7 @@ export class WorkspaceSessionContinuationService {
             remote: true,
             generation,
             events: live.events,
+            sessionInfo: live.sessionInfo,
             queuedMessages: live.queuedMessages,
         });
         if (live.interaction) {
@@ -1712,12 +1743,16 @@ export class WorkspaceSessionContinuationService {
     getOperation(operationId) {
         const live = this.operations.get(operationId);
         const durable = this.store.getOperationReceipt(operationId);
+        const sessionInfo = live?.runtimeSessionId
+            ? projectLiveSessionInfo(this.runtime.getSessionSnapshot(live.runtimeSessionId))
+            : live?.sessionInfo || null;
         if (!durable) {
             if (!live) return { operationId, status: "unknown", events: [] };
             const { answer: _answer, runtimeSessionId: _runtimeSessionId, ...snapshot } = live;
             return {
                 operationId,
                 ...snapshot,
+                sessionInfo,
                 queuedMessages: live.runtimeSessionId
                     ? this.runtime.getQueuedMessages(live.runtimeSessionId)
                     : live.queuedMessages || [],
@@ -1739,6 +1774,7 @@ export class WorkspaceSessionContinuationService {
             generation: durable.resultGeneration,
             error: durable.errorMessage || durable.errorCode,
             events: live?.events || [],
+            sessionInfo,
             queuedMessages: live?.runtimeSessionId
                 ? this.runtime.getQueuedMessages(live.runtimeSessionId)
                 : live?.queuedMessages || [],

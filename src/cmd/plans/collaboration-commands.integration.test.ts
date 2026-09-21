@@ -1,10 +1,17 @@
 import { assert, assertEquals, assertRejects, assertStringIncludes, assertThrows } from "@std/assert";
 import { dirname, join } from "@std/path";
-import { injectFrontMatter, loadPlan, savePlan, updatePlanCollaborationMetadata } from "../../plan-store.js";
+import {
+    hashPlanBody,
+    injectFrontMatter,
+    loadPlan,
+    savePlan,
+    updatePlanCollaborationMetadata,
+} from "../../plan-store.js";
 import { git } from "../../shared/git-test-fixture.ts";
 import { resolveProjectRuntimeLayout } from "../../shared/project-runtime-layout.ts";
+import { generateBearerCapability, hashCapability, MAINTAINER_SCOPE } from "../../shared/collaboration/capabilities.js";
 import { createCollaborationClient, SYSTEM_COLLABORATION_FETCH } from "../../shared/collaboration/client.js";
-import { encryptJsonPayload, importContentKey } from "../../shared/collaboration/crypto.js";
+import { encryptJsonPayload, generateContentKeyString, importContentKey } from "../../shared/collaboration/crypto.js";
 import { COLLABORATION_LOCK_BYPASS } from "../../shared/collaboration/lock.js";
 import {
     getGlobalSecretStoreLocation,
@@ -204,6 +211,162 @@ Deno.test("share, push, pull, and unshare compose through real Plan, crypto, sec
                     "Plan Server error 404",
                 );
             });
+        },
+    );
+});
+
+Deno.test("named pull and push use a linked checkout's migrated 0.10 capability", async () => {
+    await withRuntimeCommandFixture(
+        "runwield-plan-collaboration-migrated-capability-",
+        async ({ alternateRoot, projectRoot, setModelResponse }) => {
+            const originalSandboxHome = Deno.env.get("WLD_TEST_SANDBOX_HOME");
+            try {
+                Deno.env.delete("WLD_TEST_SANDBOX_HOME");
+                await withCollaborationServer(async ({ adapter, serverUrl }) => {
+                    const planName = "migrated-capability";
+                    const planId = crypto.randomUUID();
+                    const body = "# Migrated capability\n\nContent encrypted before runtime migration.\n";
+                    const contentKey = await generateContentKeyString();
+                    const maintainerCapability = generateBearerCapability();
+                    await savePlan(projectRoot, planName, body, {
+                        planId,
+                        classification: "PLANNED_CHANGE",
+                        complexity: "LOW",
+                        status: "approved",
+                        summary: "Migrated capability",
+                    });
+                    await createLinkedCheckout(projectRoot, alternateRoot);
+                    const existingPlan = await loadPlan(alternateRoot, planName);
+                    assert(existingPlan);
+                    const storedBody = existingPlan.body;
+                    const payloadCiphertext = await encryptJsonPayload(
+                        {
+                            planId,
+                            title: "Migrated capability",
+                            metadata: {
+                                classification: "PLANNED_CHANGE",
+                                complexity: "LOW",
+                                status: "approved",
+                                summary: "Migrated capability",
+                            },
+                            body: storedBody,
+                        },
+                        await importContentKey(contentKey),
+                    );
+                    const created = adapter.createSharedSpace({
+                        planId,
+                        payloadCiphertext,
+                        capabilities: [{
+                            scope: MAINTAINER_SCOPE,
+                            capabilityHash: await hashCapability(maintainerCapability),
+                        }],
+                    });
+                    await updatePlanCollaborationMetadata(
+                        alternateRoot,
+                        planName,
+                        {
+                            collaborationState: "remote_canonical",
+                            collaborationServerUrl: serverUrl,
+                            collaborationSpaceId: created.spaceId,
+                            collaborationRevision: 1,
+                            collaborationBodyHash: await hashPlanBody(storedBody),
+                        },
+                        COLLABORATION_LOCK_BYPASS.share,
+                        { body: storedBody },
+                    );
+                    assertEquals((await loadPlan(alternateRoot, planName))?.body, storedBody);
+                    await Deno.rename(
+                        join(projectRoot, ".wld", "internal", "controller"),
+                        join(projectRoot, ".wld", "controller"),
+                    );
+                    await Deno.remove(join(projectRoot, ".wld", "internal"), { recursive: true });
+                    await Deno.remove(join(alternateRoot, ".wld", "internal"), { recursive: true }).catch(() => {});
+
+                    const recordKey = `${planId}:${created.spaceId}`;
+                    const legacyStorePath = join(alternateRoot, ".wld", "collaboration-secrets.json");
+                    const legacyStoreBytes = `${
+                        JSON.stringify(
+                            {
+                                schemaVersion: 1,
+                                records: {
+                                    [recordKey]: {
+                                        planId,
+                                        spaceId: created.spaceId,
+                                        contentKey,
+                                        maintainerCapability,
+                                        updatedAt: "2026-01-01T00:00:00.000Z",
+                                    },
+                                },
+                            },
+                            null,
+                            2,
+                        )
+                    }\n`;
+                    await Deno.mkdir(dirname(legacyStorePath), { recursive: true });
+                    await Deno.writeTextFile(legacyStorePath, legacyStoreBytes, { mode: 0o600 });
+                    await Deno.chmod(legacyStorePath, 0o600).catch(() => {});
+                    assertEquals(Object.keys((await readSecretStore(getGlobalSecretStoreLocation())).records), []);
+
+                    Deno.chdir(alternateRoot);
+                    setModelResponse("The migrated collaboration content remains valid.");
+                    const runtime = createSessionRuntime();
+                    try {
+                        const sessionId = await runtime.createPromptReadySession({
+                            cwd: alternateRoot,
+                            agentName: "router",
+                        });
+                        const migratedStore = await readSecretStore(await getProjectSecretStoreLocation(alternateRoot));
+                        assertEquals(Object.keys(migratedStore.records), [recordKey]);
+                        assertEquals((await loadPlan(alternateRoot, planName))?.body, storedBody);
+                        const pulledOutput = await captureConsole(() =>
+                            runPlansPullCommand([planName, "--project-secrets"], { sessionRuntime: runtime, sessionId })
+                        );
+                        assertStringIncludes(pulledOutput.logs.join("\n"), "revision 1");
+                    } finally {
+                        runtime.closeAllSessions();
+                    }
+                    assertEquals((await loadPlan(alternateRoot, planName))?.body, storedBody);
+
+                    const primaryStorePath = resolveProjectRuntimeLayout(alternateRoot).primary.projectSecretStorePath;
+                    assertEquals(await Deno.readTextFile(primaryStorePath), legacyStoreBytes);
+                    if (Deno.build.os !== "windows") {
+                        assertEquals(((await Deno.stat(primaryStorePath)).mode ?? 0) & 0o777, 0o600);
+                    }
+                    await assertRejects(() => Deno.stat(legacyStorePath));
+                    assertEquals(Object.keys((await readSecretStore(getGlobalSecretStoreLocation())).records), []);
+
+                    const pushedBody = "# Migrated capability\n\nChanged after migration.\n";
+                    const pulledPlan = await loadPlan(alternateRoot, planName);
+                    assert(pulledPlan);
+                    await Deno.writeTextFile(pulledPlan.path, injectFrontMatter(pushedBody, pulledPlan.attrs));
+                    const pushedOutput = await captureConsole(() =>
+                        runPlansPushCommand([planName, "--project-secrets"])
+                    );
+                    assertStringIncludes(pushedOutput.logs.join("\n"), "revision 2");
+                    assertEquals(adapter.getSharedSpace(created.spaceId).latestRevision, 2);
+                    assertEquals(
+                        adapter.database.handle.prepare(
+                            "SELECT capability_hash FROM space_capabilities WHERE space_id = ? AND scope = ?",
+                        ).get(created.spaceId, MAINTAINER_SCOPE)?.capability_hash,
+                        await hashCapability(maintainerCapability),
+                    );
+                    assertEquals(await Deno.readTextFile(primaryStorePath), legacyStoreBytes);
+
+                    await Deno.writeTextFile(
+                        primaryStorePath,
+                        `${JSON.stringify({ schemaVersion: 1, records: {} })}\n`,
+                        { mode: 0o600 },
+                    );
+                    await assertRejects(
+                        () => captureConsole(() => runPlansPullCommand([planName, "--project-secrets"])),
+                        Error,
+                        "maintainer secrets are missing",
+                    );
+                });
+            } finally {
+                if (originalSandboxHome === undefined) Deno.env.delete("WLD_TEST_SANDBOX_HOME");
+                else Deno.env.set("WLD_TEST_SANDBOX_HOME", originalSandboxHome);
+            }
         },
     );
 });

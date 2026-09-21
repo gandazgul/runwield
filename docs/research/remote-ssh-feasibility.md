@@ -1,6 +1,6 @@
 # Remote SSH Feasibility
 
-Last checked: 2026-09-17 EDT
+Last checked: 2026-09-20 EDT
 
 ## Question
 
@@ -8,8 +8,14 @@ Can `wld remote host[:folder]` run an interactive TUI against remote files while
 memories, and Session history stay on the user's local machine?
 
 This check supports the [Remote SSH proposal](../prd/remote-ssh-prd.md). It inspected source, selected tests, and
-first-party documentation. No SSH connection, live provider experiment, or automated test was run. Findings establish
-constraints and plausible directions, not working remote support.
+first-party documentation. On 2026-09-20, a later throwaway prototype also ran the Pi model path over SSH. Findings
+establish feasibility, not delivered remote support.
+
+A remote Pi Agent on `sct` used locally authenticated `openai-codex/gpt-5.6-luna`, executed a remote-only tool, streamed
+the tool result through a second local model request, propagated cancellation, settled after reverse-tunnel loss, and
+worked on a fresh connection. Full evidence is in ignored `prototypes/remote-ssh-model-proof/evidence.json`; the
+continuity summary is in the [development draft](../plans/remote-ssh-development.md#live-pi-model-path-evidence). This
+does not prove a full remote RunWield Session or Claude/Antigravity CLI support.
 
 ## Findings
 
@@ -30,7 +36,7 @@ constraints and plausible directions, not working remote support.
 | Provider path                  | Current evidence                                                                                                                                                       | Remote feasibility assessment                                                                                                                    |
 | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Pi API-key and OAuth providers | `createRunWieldModelRuntime` uses RunWield's credential store and model configuration. `buildAgentSession` supplies the model runtime and tool definitions separately. | Keeping authenticated model requests local appears feasible. Remote context and tools still need adaptation.                                     |
-| OpenAI Codex through Pi        | Installed Pi provides `openai-codex` OAuth and model-request handling. It is not a Codex CLI subprocess.                                                               | Same assessment as other Pi providers; live remote behavior remains unverified.                                                                  |
+| OpenAI Codex through Pi        | Installed Pi provides `openai-codex` OAuth and model-request handling. It is not a Codex CLI subprocess.                                                               | A live Pi proxy proof passed with local OAuth and remote tools; production Session integration remains unverified.                               |
 | Local/custom API endpoints     | RunWield supports configured model endpoints, headers, and credentials.                                                                                                | A laptop-local endpoint must remain reachable from the machine issuing requests. Copying a `localhost` URL remotely changes its meaning.         |
 | Claude CLI                     | RunWield starts `claude` in the project directory, enables native file/shell tools, and uses CLI-owned sign-in.                                                        | Current integration does not separate local authentication from remote native tools. Requires proof before claiming support under this proposal. |
 | Antigravity CLI                | RunWield starts `agy` in the project directory and uses CLI-owned sign-in and same-machine Agent/MCP configuration.                                                    | Same unresolved split. Additional CLI history/cache behavior also needs verification.                                                            |
@@ -115,8 +121,9 @@ Keep the agreed product contract. Require evidence for local data ownership, rea
 review, reconnect, and connection-loss cleanup. Use Pi-backed providers as the first feasibility proof, not as a silent
 reduction of the requested provider scope.
 
-Do not copy provider credentials or switch models to hide a compatibility gap. A limited release that excludes CLI
-backends needs an explicit scope decision. Keep architecture and implementation choices in the planning handoff.
+Do not copy provider credentials or switch models to hide a compatibility gap. The owner has now deferred CLI backends
+from the first release. Keep their future compatibility gap explicit, and keep architecture and implementation choices
+in the planning handoff.
 
 ## Open Checks
 

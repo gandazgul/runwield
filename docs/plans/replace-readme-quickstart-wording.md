@@ -14,6 +14,11 @@ userVerifiedAt: null
 routingIntent: "PLANNED_CHANGE"
 sessionName: "README Quickstart Wording"
 targetBranch: "main"
+workRecord:
+    status: "generated"
+    recordId: "2e76b38f-a4a4-4423-a2ee-453072a38bd9"
+    path: "docs/work-records/2026-09-20-clarified-readme-quickstart-wording.md"
+    lastAttemptAt: "2026-09-20T03:13:44.800Z"
 ---
 
 # Replace README Quickstart Wording

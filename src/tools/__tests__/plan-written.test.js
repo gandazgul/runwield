@@ -654,6 +654,7 @@ Deno.test("plan_written persists an Epic child relationship in Session workflow 
         complexity: "MEDIUM",
         planName: "runtime-boundary",
         parentPlan: "runtime-epic",
+        status: "approved",
     });
 });
 

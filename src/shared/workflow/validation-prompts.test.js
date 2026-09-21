@@ -50,6 +50,7 @@ Deno.test("Semantic review prompt includes the canonical effective Plan projecti
         { semanticRound: 1, reviewLedger: { items: [], sequence: 0 }, repairBaselineTree: "", lastRepairReport: "" },
         "discovery",
         "diff --git a/src/app.js b/src/app.js",
+        "",
         `---
 planDeviations:
   - id: call-1
@@ -78,8 +79,8 @@ Deno.test("bundled discovery reviewer prompt states an approval default", async 
     // "good enough" is not.
     assertStringIncludes(prompt, "Your Default Is Approval");
     assertStringIncludes(
-        prompt,
-        "Approve unless you can name **both** the specific Plan requirement and the specific changed code",
+        prompt.replace(/\s+/g, " "),
+        "Approve unless you can name the specific Plan requirement or concrete correctness, regression, or security defect, and the changed code responsible for it.",
     );
     assertStringIncludes(prompt.replace(/\s+/g, " "), "are not reasons to reject");
     assertStringIncludes(prompt, "This does not lower the bar for plan adherence");
@@ -156,12 +157,16 @@ Deno.test("bundled verification reviewer prompt treats repair claims as evidence
     const prompt = await readBundledPrompt("reviewer-verify-prompt.md");
 
     assertStringIncludes(prompt, "never proof");
-    assertStringIncludes(prompt, "An item is resolved when you have seen the fix, not when it was claimed");
+    assertStringIncludes(prompt, "only after you confirm the code fix or effective Plan supersession");
     assertStringIncludes(prompt, "Omitting an item does not resolve it");
     assertStringIncludes(prompt, "Never renumber, reuse, or invent identities");
-    // An empty repair means the fix was not implemented, not that there is
-    // nothing to object to.
-    assertStringIncludes(prompt.replace(/\s+/g, " "), "Reject; do not approve for lack of evidence");
+    // An empty diff is neither proof of a fix nor proof an already-satisfied item is broken.
+    assertStringIncludes(
+        prompt.replace(/\s+/g, " "),
+        "An empty repair diff is not proof of a fix or proof that an already-satisfied item is broken",
+    );
+    assertStringIncludes(prompt.replace(/\s+/g, " "), "full target-relative diff");
+    assertStringIncludes(prompt.replace(/\s+/g, " "), "otherwise reject the fix with a reason");
 });
 
 Deno.test("bundled validation repair engineer prompt is repair-scoped without Plan or general Engineer context", async () => {
@@ -171,6 +176,8 @@ Deno.test("bundled validation repair engineer prompt is repair-scoped without Pl
     assertStringIncludes(prompt, "repair the validation problem you were given and report what you did");
     assertStringIncludes(compact, "the general Engineer prompt");
     assertStringIncludes(prompt, "one bounded repair packet");
+    assertStringIncludes(prompt, "supplied full review diff");
+    assertStringIncludes(prompt, "`already satisfied`");
     assertStringIncludes(prompt, "CI diagnostics");
     assertStringIncludes(compact, "semantic review findings");
     assertEquals(prompt.includes("Plan"), false);

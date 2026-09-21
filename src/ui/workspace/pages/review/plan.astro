@@ -1,4 +1,5 @@
 ---
+import { sessionArtifactKindLabel } from "../../../../shared/session/session-sidebar.ts";
 import LoadingSurface from "../../components/LoadingSurface.astro";
 import ReviewLayout from "../../layouts/ReviewLayout.astro";
 import { ArtifactReadSurface } from "../../react/ArtifactReadSurface.tsx";
@@ -17,19 +18,7 @@ if (!payload) {
 }
 const isArtifactRead = payload.surface === "artifact-read";
 const artifactKind = typeof payload.artifactKind === "string" ? payload.artifactKind : "";
-const artifactLabel = artifactKind === "plan"
-    ? "Plan"
-    : artifactKind === "prd"
-    ? "PRD"
-    : artifactKind === "adr"
-    ? "ADR"
-    : artifactKind === "work-record"
-    ? "Work Record"
-    : artifactKind === "epic-artifact"
-    ? "Epic Artifact"
-    : artifactKind === "report"
-    ? "Report"
-    : "Artifact";
+const artifactLabel = sessionArtifactKindLabel(artifactKind);
 const pageTitle = isArtifactRead ? `${artifactLabel} · RunWield Workspace` : "Plan Review · RunWield Workspace";
 const embeddedPayload = escapeReviewPayloadJson(JSON.stringify(payload));
 ---

@@ -33,20 +33,22 @@ deno task cli "your request"
 deno task check
 deno task test
 deno task ci
+deno task docs:dev
+deno task docs:check
 deno task compile
 ```
 
-`deno task ci` starts the eight pre-test gates together: submodule checks, Snip filter checks, Deno checks, Workspace
-checks, lint, language-policy checks, seam checks, and doc-link checks. Tests start only after all eight gates pass. The
-test task still uses `scripts/write-version.js` and the safe `scripts/run-tests.js` runner. Always use `deno task test`
-or `deno run -A scripts/run-tests.js <deno test args>` for tests; do not run `deno test` directly, because the test
-runner sandboxes `HOME` and process-global state per file.
+`deno task ci` starts the nine pre-test gates together: submodule checks, Snip filter checks, Deno checks, Workspace
+checks, lint, language-policy checks, seam checks, repository doc-link checks, and the public documentation build. Tests
+start only after all eight gates pass. The test task still uses `scripts/write-version.js` and the safe
+`scripts/run-tests.js` runner. Always use `deno task test` or `deno run -A scripts/run-tests.js <deno test args>` for
+tests; do not run `deno test` directly, because the test runner sandboxes `HOME` and process-global state per file.
 
 The ordinary test task does not include the Golden TUI Scenario portfolio; it is too slow for the everyday loop.
 `deno task test` excludes `src/ui/tui/golden-scenarios` and `src/ui/tui/testing`, and `deno task test:golden-tui` runs
-exactly those. `deno task pr:check` is the full gate — `deno task ci` followed by the portfolio — and it is the same
-command the GitHub PR workflow runs. `deno task test:golden-tui:extensive` is the release-tier alias, which
-`deno task release:check` runs.
+exactly those. `deno task pr:check` is the full local gate: `deno task ci` followed by the portfolio. GitHub runs those
+two gates in parallel for pull requests. `deno task test:golden-tui:extensive` is the release-tier alias. The release
+workflow runs it in parallel with source quality and binary smoke checks.
 
 Interactive RunWield sessions expect these helper binaries in `PATH`:
 
@@ -58,9 +60,8 @@ Interactive RunWield sessions expect these helper binaries in `PATH`:
 
 The shell installer is the normal standalone recovery path for missing helper binaries. Package-managed installs should
 be repaired with their package manager instead. The prepared Homebrew formula uses `gandazgul/tap/mnemoteca`,
-`1broseidon/tap/cymbal`, `1broseidon/tap/ketch`, `agent-browser`, and `git`; it does not run helper setup during formula
-installation. RunWield also ships bundled Snip filters for Deno validation output; install or remove user-level copies
-with:
+`1broseidon/tap/cymbal`, `ketch`, `agent-browser`, and `git`; it does not run helper setup during formula installation.
+RunWield also ships bundled Snip filters for Deno validation output; install or remove user-level copies with:
 
 ```bash
 wld snip-filters install
@@ -99,16 +100,24 @@ runtime. Run them with:
 
 ```bash
 deno task test:golden-tui
-# release-tier alias, run by deno task release:check
+# release-tier alias
 deno task test:golden-tui:extensive
 ```
 
 Each test file runs in its own sandboxed process. That is most of the portfolio's wall time and is what keeps the
 scenarios isolated, but it also made the portfolio too expensive for `deno task ci`, which every change waits on. The
-portfolio now runs at the two slower gates instead:
+portfolio now runs at slower gates instead:
 
-- `deno task pr:check` locally and the `pr-gate` GitHub workflow on every pull request.
-- `deno task release:check` locally and in the release workflow's `release-check` job.
+- `deno task pr:check` locally and a parallel `golden` job on every pull request.
+- the `golden-tui` workflow after pushes to `main` and `release/**`.
+- a fail-fast `golden` job during release qualification. Local `deno task release:check` still runs the full check.
+
+CI records each file duration, prints the ten slowest files, and stores `.ci-cache/golden-timings.json`. Later runs use
+that history to start slow files first after three measured runs. New files start near the historical median until they
+have enough data. CI uses three workers by default. Manually dispatch `golden-tui` with four workers to compare capacity
+without changing the default. Set `WLD_TEST_CONCURRENCY` locally to reproduce either setting. The test runner can also
+reuse a safe dependency cache through `WLD_TEST_DENO_DIR`; HOME and mutable RunWield state remain isolated per worker
+slot.
 
 Run `deno task test:golden-tui` yourself whenever you change the TUI or the workflow runtime; `deno task ci` alone will
 not catch a composed scenario regression.
@@ -166,6 +175,18 @@ rewriting, and focused tests.
   `src/testing/process-global-lock.js`.
 - Preserve the layered customization model: project `.wld/` overrides home `~/.wld/`, which overrides bundled defaults.
 - Keep docs, plans, ADRs, PRDs, and Work Records as Markdown.
+
+## Public documentation
+
+The public manual uses the selected Markdown guides in `docs/`; `docs/index.md` is its home. `deno task docs:dev` starts
+the Starlight preview at `http://localhost:4322`. `deno task docs:check` validates and builds the published pages. PRDs,
+Plans, Work Records, audits, and research remain in the repository but are not public manual pages.
+
+`docs/stable` is the source for `docs.runwield.dev`. It identifies the Stable release it describes. Make corrections to
+that branch through normal review, then forward-port the same correction to `main`. Do not add unreleased product
+behavior to `docs/stable`. A Stable release merges its tagged source into the branch without force-pushing, so retained
+corrections survive. Resolve a merge conflict by checking the instruction against the released product; a failed merge
+leaves the existing site live.
 
 ## Pull request checklist
 

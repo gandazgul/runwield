@@ -28,20 +28,26 @@ import {
 } from "../../shared/update-check.js";
 import { endBlink, renderBootLogo } from "./boot-logo.ts";
 import { createUiApi } from "./api.js";
-import { SpinnerBlock } from "./blocks.js";
+import { SpinnerBlock, ToolExecutionBlock, ToolExecutionGroupBlock } from "./blocks.js";
 import { type FooterTheme, renderUpdateNoticeLine } from "./chat-footer.ts";
 import { installUiApiOverrides } from "./ui-api-overrides.ts";
 import { hasClipboardImage } from "./clipboard.ts";
 import type { Component } from "@earendil-works/pi-tui";
 import type { ThemeColor } from "@earendil-works/pi-coding-agent";
 import type { ImageAttachment } from "../../shared/session/types.js";
+import type { WorkflowPresentationAction } from "../../shared/workflow/workflow-presentation.ts";
 import type { UiAPI } from "./types.js";
 import {
     composePinnedSessionSidebar,
+    isSessionArtifactOpenKey,
+    isSessionSidebarActionKey,
     isSessionSidebarCycleKey,
     TuiSessionSidebar,
     type TuiSessionSidebarSnapshot,
 } from "./session-sidebar.ts";
+import { readSessionArtifact } from "../../shared/session/read-session-artifact.ts";
+import { SYSTEM_BROWSER_PORT } from "../../shared/browser-port.ts";
+import { startArtifactReadSurface } from "../review/review-launcher.ts";
 
 const SESSION_SIDEBAR_MIN_WIDTH = 132;
 
@@ -60,7 +66,31 @@ export interface ChatViewOptions {
     suppressStartupHeader: boolean;
     setActiveModel(model: string, provider?: string): Promise<{ status: "active" | "deferred"; message?: string }>;
     configureUiAPI?: (uiAPI: UiAPI) => void;
+    onWorkflowAction?: (action: WorkflowPresentationAction, snapshot: ChatViewSessionSnapshot) => void | Promise<void>;
 }
+interface RenderedChildLayout {
+    component: Component;
+    height: number;
+}
+
+type VisibleToolBlock = ToolExecutionGroupBlock | ToolExecutionBlock;
+
+class MeasuredContainer extends Container {
+    renderedChildren: RenderedChildLayout[] = [];
+
+    override render(width: number): string[] {
+        const lines: string[] = [];
+        this.renderedChildren = [];
+        for (const child of this.children) {
+            const childLines = child.render(width);
+            this.renderedChildren.push({ component: child, height: childLines.length });
+            lines.push(...childLines);
+        }
+        Reflect.set(this, "mouseLayout", { width, children: this.renderedChildren });
+        return lines;
+    }
+}
+
 export interface ChatView {
     uiAPI: UiAPI;
     tui: TUI;
@@ -84,6 +114,42 @@ export interface ChatView {
 }
 
 const CLIPBOARD_IMAGE_HINT_TEXT = "Image in clipboard · ctrl+v to paste";
+
+export function findVisibleToolBlocks(
+    containerLayout: RenderedChildLayout[],
+    messageList: Component,
+    messageLayout: RenderedChildLayout[],
+    scrollTop: number,
+    viewportHeight: number,
+): VisibleToolBlock[] {
+    if (viewportHeight <= 0) return [];
+
+    let messageTop = 0;
+    let foundMessageList = false;
+    for (const child of containerLayout) {
+        if (child.component === messageList) {
+            foundMessageList = true;
+            break;
+        }
+        messageTop += child.height;
+    }
+    if (!foundMessageList) return [];
+
+    const viewportBottom = scrollTop + viewportHeight;
+    let childTop = messageTop;
+    const visibleBlocks: VisibleToolBlock[] = [];
+    for (const child of messageLayout) {
+        const childBottom = childTop + child.height;
+        if (
+            childBottom > scrollTop && childTop < viewportBottom &&
+            (child.component instanceof ToolExecutionGroupBlock || child.component instanceof ToolExecutionBlock)
+        ) {
+            visibleBlocks.push(child.component);
+        }
+        childTop = childBottom;
+    }
+    return visibleBlocks;
+}
 
 export function renderClipboardImageHintLines(
     clipboardImageAvailable: boolean,
@@ -113,7 +179,7 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
     initRunWieldTheme();
     await applyPersistedTheme();
     const tui = options.tui;
-    const container = new Container();
+    const container = new MeasuredContainer();
     if (!options.suppressStartupHeader) {
         const titleLine = `${theme.fg("accent", theme.bold("RunWield ─ Plan-by-Default Harness"))} ${
             theme.fg("dim", `${VERSION}`)
@@ -149,7 +215,7 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
         container.addChild(new Spacer(1));
         container.addChild(new Spacer(1));
     }
-    const messageList = new Container();
+    const messageList = new MeasuredContainer();
     container.addChild(messageList);
     container.addChild(new Spacer(1));
     const validationPanelContainer = new Container();
@@ -217,11 +283,13 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
         },
         render: (w: number) => [...transcriptArea.render(w), ...bottomDock.render(w)],
     };
+    let transcriptScrollView: ScrollView | undefined;
     if (isViewportTUI(tui)) {
+        transcriptScrollView = new ScrollView(transcriptArea, { follow: "end", primary: true, scrollbar: "auto" });
         tui.setLayoutRoot(
             new VStack([
                 {
-                    component: new ScrollView(transcriptArea, { follow: "end", primary: true, scrollbar: "auto" }),
+                    component: transcriptScrollView,
                     basis: 0,
                     grow: 1,
                     minSize: 1,
@@ -232,7 +300,57 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
     } else {
         tui.addChild(rootWrapper);
     }
+    const artifactReaders = new Set<Awaited<ReturnType<typeof startArtifactReadSurface>>>();
+    let selectingArtifact = false;
+    let disposed = false;
+    async function openSessionArtifact() {
+        if (selectingArtifact || activeInteractionContainer.children.length > 0) return;
+        const snapshot = options.sessionRuntime.getSessionSnapshot(options.getSessionId());
+        if (!snapshot?.artifacts?.length) return;
+        selectingArtifact = true;
+        try {
+            const artifactId = await uiAPI.promptSelect(
+                "Open artifact",
+                snapshot.artifacts.slice().reverse().map((artifact) => ({
+                    value: artifact.artifactId,
+                    label: artifact.title,
+                    description: artifact.path,
+                })),
+                { persistResult: false },
+            );
+            const artifact = snapshot.artifacts.find((item) => item.artifactId === artifactId);
+            if (!artifact || disposed) return;
+            const document = await readSessionArtifact(snapshot.cwd, artifact);
+            const surface = await startArtifactReadSurface({
+                cwd: snapshot.cwd,
+                markdown: document.markdown,
+                artifactKind: artifact.kind,
+                title: artifact.title,
+                path: artifact.path,
+                imageBaseDir: document.imageBaseDir,
+                browser: SYSTEM_BROWSER_PORT,
+            });
+            if (disposed) {
+                await surface.stop();
+                return;
+            }
+            artifactReaders.add(surface);
+            if (!surface.opened) uiAPI.appendSystemMessage(`Open artifact: ${surface.url}`);
+            void surface.waitForDecision().finally(async () => {
+                artifactReaders.delete(surface);
+                await surface.stop();
+            }).catch(() => {});
+        } catch (error) {
+            uiAPI.appendSystemMessage(error instanceof Error ? error.message : String(error), true);
+        } finally {
+            selectingArtifact = false;
+        }
+    }
     const removeSidebarKeyListener = tui.addInputListener((data) => {
+        if (isSessionArtifactOpenKey(data)) {
+            void openSessionArtifact();
+            return { consume: true };
+        }
         if (!isSessionSidebarCycleKey(data)) return undefined;
         sessionSidebar.cycleTab();
         tui.requestRender();
@@ -247,7 +365,27 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
         validationPanelContainer,
         activeInteractionContainer,
         queuedInputContainer,
+        transcriptScrollView
+            ? () =>
+                findVisibleToolBlocks(
+                    container.renderedChildren,
+                    messageList,
+                    messageList.renderedChildren,
+                    transcriptScrollView.scrollTop,
+                    transcriptScrollView.viewportHeight,
+                )
+            : undefined,
     );
+    const removeSidebarActionListener = tui.addInputListener((data) => {
+        if (!isSessionSidebarActionKey(data)) return undefined;
+        const snapshot = options.sessionRuntime.getSessionSnapshot(options.getSessionId());
+        const action = sessionSidebar.currentAction(snapshot || undefined);
+        if (!snapshot || !action) return undefined;
+        void Promise.resolve(options.onWorkflowAction?.(action, snapshot)).catch((error) => {
+            uiAPI.appendSystemMessage(error instanceof Error ? error.message : String(error), true, "Workflow action");
+        });
+        return { consume: true };
+    });
     const baseSetManagedSyncStatus = uiAPI.setManagedSyncStatus?.bind(uiAPI);
     uiAPI.setManagedSyncStatus = (state) => {
         baseSetManagedSyncStatus?.(state);
@@ -372,7 +510,11 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
             tui.requestRender();
         },
         dispose() {
+            disposed = true;
+            for (const surface of artifactReaders) void Promise.resolve(surface.stop()).catch(() => {});
+            artifactReaders.clear();
             removeSidebarKeyListener();
+            removeSidebarActionListener();
             clearInterval(clipboardPollingInterval);
             unsubscribeThemeChange();
             if (isViewportTUI(tui)) tui.setLayoutRoot(undefined);

@@ -8,6 +8,7 @@ import {
     type SessionSidebarTab,
 } from "../../shared/session/session-sidebar.ts";
 import type { SessionArtifactReference } from "../../shared/session/file-session-store-types.ts";
+import type { WorkflowProgressFact } from "../../shared/workflow/workflow-presentation.ts";
 import { theme } from "../theme/theme.js";
 
 export interface TuiSessionSidebarSnapshot {
@@ -21,10 +22,29 @@ export interface TuiSessionSidebarSnapshot {
         planId?: string | null;
         planName?: string | null;
         parentPlan?: string | null;
+        classification?: string | null;
+        status?: string | null;
+        progressFacts?: readonly WorkflowProgressFact[];
+        liveQuestion?: boolean;
+        livePlanReview?: boolean;
+        liveCodeReview?: boolean;
+        canRun?: boolean;
+        canResume?: boolean;
+        canRecover?: boolean;
+        liveReviewUrl?: string | null;
     } | null;
     activeExecutionWorkflow?: {
         planName?: string | null;
-        triageMeta?: { parentPlan?: string | null } | null;
+        triageMeta?: {
+            planId?: string | null;
+            parentPlan?: string | null;
+            classification?: string | null;
+            routingIntent?: string | null;
+            complexity?: string | null;
+            status?: string | null;
+        } | null;
+        validationContinuation?: boolean;
+        validationRepairGeneration?: string | null;
     } | null;
     managed?: { generation?: number | null } | null;
     sessionStats?: {
@@ -66,6 +86,17 @@ export function tuiSessionSidebarProjection(snapshot: TuiSessionSidebarSnapshot)
         workflowPlan: plan,
         workflowEpic: epic,
         workflowIntent: snapshot.workflowContext?.routingIntent,
+        workflowStatus: activeWorkflow?.triageMeta?.status || snapshot.workflowContext?.status,
+        workflowClassification: activeWorkflow?.triageMeta?.classification || snapshot.workflowContext?.classification,
+        workflowProgressFacts: snapshot.workflowContext?.progressFacts?.map((fact) => ({ ...fact })),
+        workflowSessionState: snapshot.busy ? "active" : "idle",
+        workflowHasWorkingSession: Boolean(plan),
+        workflowHasLiveQuestion: snapshot.workflowContext?.liveQuestion,
+        workflowHasPlanReview: snapshot.workflowContext?.livePlanReview,
+        workflowHasCodeReview: snapshot.workflowContext?.liveCodeReview,
+        workflowCanRun: snapshot.workflowContext?.canRun,
+        workflowCanResume: snapshot.workflowContext?.canResume,
+        workflowCanRecover: snapshot.workflowContext?.canRecover,
         artifacts: snapshot.artifacts,
     });
 }
@@ -97,6 +128,14 @@ export function isSessionSidebarCycleKey(data: string): boolean {
     return !isKeyRelease(data) && !isKeyRepeat(data) && matchesKey(data, Key.ctrl("]"));
 }
 
+export function isSessionSidebarActionKey(data: string): boolean {
+    return !isKeyRelease(data) && !isKeyRepeat(data) && matchesKey(data, Key.ctrl("enter"));
+}
+
+export function isSessionArtifactOpenKey(data: string): boolean {
+    return !isKeyRelease(data) && !isKeyRepeat(data) && matchesKey(data, Key.alt("]"));
+}
+
 function field(label: string, value: string, width: number): string[] {
     return [theme.fg("dim", fit(label.toUpperCase(), width)), fit(value, width)];
 }
@@ -116,6 +155,12 @@ export class TuiSessionSidebar {
     }
 
     invalidate(): void {}
+
+    currentAction(snapshotOverride?: TuiSessionSidebarSnapshot): SessionSidebarProjection["workflow"]["action"] {
+        const snapshot = snapshotOverride || this.getSnapshot();
+        if (!snapshot?.managed) return null;
+        return tuiSessionSidebarProjection(snapshot).workflow.action;
+    }
 
     render(width: number, snapshotOverride?: TuiSessionSidebarSnapshot): string[] {
         const snapshot = snapshotOverride || this.getSnapshot();
@@ -140,6 +185,27 @@ export class TuiSessionSidebar {
             content.push(...field("Plan", projection.workflow.plan, inner));
             content.push("");
             content.push(...field("Workflow", projection.workflow.intent.replaceAll("_", " "), inner));
+            if (projection.workflow.stages.length) {
+                content.push("");
+                for (const [index, stage] of projection.workflow.stages.entries()) {
+                    const marker = stage.current ? "●" : stage.state === "completed" ? "✓" : "○";
+                    const connector = index === 0 ? " " : "│";
+                    content.push(fit(`${connector} ${marker} ${stage.label}`, inner));
+                    if (stage.current) content.push(theme.fg("dim", fit(`│ ${stage.detail}`, inner)));
+                }
+                for (
+                    const connection of projection.workflow.connections.filter((item) => item.kind === "repair_return")
+                ) {
+                    content.push(theme.fg("dim", fit(`└ ${connection.from} returns to ${connection.to}`, inner)));
+                }
+            }
+            if (projection.workflow.blocker) {
+                content.push("", ...field("Blocked by", projection.workflow.blocker, inner));
+            }
+            if (projection.workflow.action) {
+                content.push("", ...field("Action", projection.workflow.action.label, inner));
+                content.push(theme.fg("dim", fit("ctrl+enter runs this action", inner)));
+            }
             if (!projection.workflow.active) {
                 content.push("", theme.fg("dim", fit("No Plan workflow is active.", inner)));
             }
@@ -160,6 +226,9 @@ export class TuiSessionSidebar {
             }
         }
         content.push("", theme.fg("dim", fit("ctrl+] switch tab", inner)));
+        if (this.#activeTab === "artifacts" && projection.artifacts.length > 0) {
+            content.push(theme.fg("dim", fit("alt+] open artifact", inner)));
+        }
         const border = theme.fg("dim", "│");
         return content.map((line) => `${border} ${fit(line, inner)}`);
     }

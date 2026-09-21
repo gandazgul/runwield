@@ -1,6 +1,7 @@
 .eyebrow,
 .card-kicker {
-    color: var(--rw-accent-strong);
+    color: var(--rw-text-dim);
+    font-family: var(--rw-font-mono);
     text-transform: uppercase;
     letter-spacing: 0.12em;
     font-size: 0.75rem;
@@ -63,6 +64,49 @@
 .rw-toolbar-button:disabled {
     cursor: not-allowed;
     opacity: 0.58;
+}
+
+/* Compact, borderless controls keep their size across every sidebar breakpoint. */
+.rw-icon-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.375rem;
+    flex: none;
+    box-sizing: border-box;
+    height: var(--rw-control-height-compact);
+    min-height: var(--rw-control-height-compact);
+    min-width: var(--rw-control-height-compact);
+    border: 0;
+    border-radius: var(--rw-radius-control);
+    padding: 0.375rem;
+    background: transparent;
+    color: var(--rw-text-muted);
+    font: inherit;
+    font-size: 0.75rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.rw-icon-button > svg {
+    flex: none;
+}
+
+.rw-icon-button:hover:not(:disabled),
+.rw-icon-button:focus-visible:not(:disabled),
+.rw-menu-trigger[aria-expanded="true"] {
+    background: var(--rw-surface-muted);
+    color: var(--rw-text-strong);
+}
+
+.rw-icon-button:focus-visible {
+    outline: 2px solid var(--rw-accent);
+    outline-offset: 2px;
+}
+
+.rw-icon-button:disabled {
+    opacity: 0.58;
+    cursor: not-allowed;
 }
 
 .rw-toolbar-select {
@@ -142,6 +186,8 @@
 }
 
 .rw-segmented-toggle {
+    position: relative;
+    isolation: isolate;
     display: inline-flex;
     gap: 0.25rem;
     border: 1px solid color-mix(in srgb, var(--rw-border) 75%, transparent);
@@ -151,6 +197,9 @@
 }
 
 .rw-segmented-toggle button {
+    position: relative;
+    z-index: 1;
+    flex-shrink: 0;
     display: inline-flex;
     width: 1.75rem !important;
     min-width: 0;
@@ -168,13 +217,17 @@
     font-weight: 600;
     line-height: 1;
     white-space: nowrap;
-    transition: border-color 150ms ease, background-color 150ms ease, color 150ms ease;
+    transition:
+        border-color var(--rw-control-motion-duration) var(--rw-control-motion-ease),
+        background-color var(--rw-control-motion-duration) var(--rw-control-motion-ease),
+        color var(--rw-control-motion-duration) var(--rw-control-motion-ease) !important;
 }
 
 .rw-segmented-toggle button > div {
     align-items: center;
     gap: 0.35rem !important;
     padding-left: 0 !important;
+    transition: none !important;
 }
 
 .rw-segmented-toggle button svg {
@@ -189,12 +242,13 @@
     max-width: 0;
     overflow: hidden;
     opacity: 0;
+    transition: none !important;
 }
 
 .rw-segmented-toggle button.active,
 .rw-segmented-toggle button[aria-pressed="true"],
 .rw-segmented-toggle button[aria-selected="true"] {
-    width: auto !important;
+    width: var(--rw-segmented-selection-width, auto) !important;
     gap: 0.35rem;
     padding-inline: 0.55rem;
 }
@@ -225,9 +279,44 @@
     color: var(--rw-accent);
 }
 
+/* The selection slides; button widths and label visibility switch immediately. */
+.rw-segmented-toggle[data-selection-ready]::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0;
+    pointer-events: none;
+    box-sizing: border-box;
+    width: var(--rw-segmented-highlight-width);
+    height: var(--rw-segmented-selection-height);
+    transform: translate(var(--rw-segmented-selection-x), var(--rw-segmented-selection-y));
+    border: 1px solid color-mix(in srgb, var(--rw-accent) 45%, var(--rw-border));
+    border-radius: var(--rw-radius-control);
+    background: color-mix(in srgb, var(--rw-accent) 12%, transparent);
+}
+
+.rw-segmented-toggle[data-selection-motion]::before {
+    transition: transform var(--rw-control-motion-duration) var(--rw-control-motion-ease);
+}
+
+.rw-segmented-toggle[data-selection-ready] button:is(.active, [aria-pressed="true"], [aria-selected="true"]) {
+    border-color: transparent;
+    background: transparent;
+    box-shadow: none;
+}
+
 .rw-segmented-toggle button:disabled {
     cursor: not-allowed;
     opacity: 0.45;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .rw-segmented-toggle::before,
+    .rw-segmented-toggle button,
+    .rw-segmented-toggle button > div,
+    .rw-segmented-toggle button span:not([aria-hidden]) {
+        transition: none !important;
+    }
 }
 
 /* TUI Braille frames: ⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏, advancing every 120 ms.
@@ -292,6 +381,71 @@ svg.animate-spin > * {
     padding: 1.5rem;
 }
 
+.rw-menu-positioner {
+    z-index: 90;
+}
+
+.rw-menu-popup {
+    min-width: 14rem;
+    max-width: calc(100vw - 1.5rem);
+    padding: 0.25rem 0;
+    border: 1px solid var(--rw-border);
+    border-radius: var(--rw-radius-panel);
+    background: var(--rw-surface-raised);
+    color: var(--rw-text);
+    box-shadow: 0 8px 24px color-mix(in srgb, var(--rw-page-bg) 60%, transparent);
+}
+
+.rw-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    border: 0;
+    border-radius: 0;
+    padding: 0.5rem 0.75rem;
+    background: transparent;
+    color: var(--rw-text);
+    font: inherit;
+    font-size: 0.75rem;
+    text-align: left;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.rw-menu-item:hover:not(:disabled),
+.rw-menu-item:focus-visible:not(:disabled) {
+    background: var(--rw-surface-muted);
+    color: var(--rw-text-strong);
+}
+
+.rw-menu-item:focus-visible {
+    outline: 2px solid var(--rw-accent);
+    outline-offset: -2px;
+}
+
+.rw-menu-item:disabled {
+    color: var(--rw-text-muted);
+    cursor: default;
+}
+
+.rw-menu-item-icon {
+    display: inline-flex;
+    flex: none;
+    color: var(--rw-text-muted);
+}
+
+.rw-menu-item-icon svg {
+    width: 0.875rem;
+    height: 0.875rem;
+}
+
+@media (max-width: 768px) {
+    .rw-menu-trigger-label {
+        display: none;
+    }
+}
+
 @media (prefers-reduced-motion: reduce) {
     .rw-thinking-glyph,
     .animate-spin,
@@ -308,11 +462,11 @@ svg.animate-spin > * {
     flex: none !important;
     min-height: 2.25rem !important;
     border: 1px solid color-mix(in srgb, var(--primary, var(--rw-accent)) 56%, transparent) !important;
-    border-radius: 0.625rem !important;
+    border-radius: var(--rw-radius-control) !important;
     padding: 0.5rem 0.9rem !important;
     background: color-mix(in srgb, var(--primary, var(--rw-accent)) 84%, var(--rw-surface-raised, transparent))
         !important;
-    color: var(--primary-foreground, var(--rw-accent-contrast)) !important;
+    color: var(--primary-foreground, var(--rw-on-accent)) !important;
     box-shadow: none !important;
     font-size: 0.78rem !important;
     font-weight: 650 !important;
@@ -386,8 +540,8 @@ svg.animate-spin > * {
     border-radius: var(--rw-radius-control);
     padding: 0.45rem 0.8rem;
     background: color-mix(in srgb, var(--rw-accent) 88%, var(--rw-surface-raised));
-    color: var(--rw-page-bg);
-    box-shadow: 0 0.25rem 0.8rem color-mix(in srgb, var(--rw-accent) 18%, transparent);
+    color: var(--rw-on-accent);
+    box-shadow: none;
     cursor: pointer;
     font: inherit;
     font-size: 0.78rem;
@@ -403,8 +557,7 @@ svg.animate-spin > * {
 .rw-review-action-button:focus-visible:not(:disabled) {
     border-color: var(--rw-accent);
     background: color-mix(in srgb, var(--rw-accent) 76%, var(--rw-text-strong));
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--rw-accent) 20%, transparent),
-        0 0.35rem 1rem color-mix(in srgb, var(--rw-accent) 20%, transparent);
+    box-shadow: none;
 }
 
 .rw-review-action [data-slot="button"]:focus-visible,
@@ -503,7 +656,7 @@ svg.animate-spin > * {
 .rw-artifact-conversation-message p {
     margin: 0;
     color: var(--rw-text);
-    font-size: 0.76rem;
+    font-size: 1rem;
     line-height: 1.5;
     white-space: pre-wrap;
 }
@@ -577,7 +730,7 @@ svg.animate-spin > * {
 
 .rw-artifact-conversation-error {
     margin: 0;
-    color: var(--rw-danger, var(--destructive));
+    color: var(--rw-error);
     font-size: 0.7rem;
     line-height: 1.4;
 }
@@ -602,11 +755,11 @@ svg.animate-spin > * {
     border: 1px solid var(--rw-border);
     border-radius: var(--rw-radius-panel);
     padding: var(--rw-space-panel);
-    box-shadow: 0 12px 32px #0004;
+    box-shadow: none;
 }
 
 .detail {
-    margin-top: 22px;
+    margin-top: 1.5rem;
 }
 
 .epic-card {
@@ -653,8 +806,7 @@ svg.animate-spin > * {
 
 .clickable-card:hover {
     border-color: var(--rw-accent);
-    box-shadow: 0 22px 60px #0007, 0 0 0 1px color-mix(in srgb, var(--rw-accent) 35%, transparent);
-    transform: translateY(-2px);
+    box-shadow: inset 0 0 0 1px var(--rw-accent);
 }
 
 .card-hit-area {
@@ -879,7 +1031,7 @@ button.primary-action,
 .card-actions a.primary-action {
     background: var(--rw-accent);
     border: 1px solid var(--rw-accent);
-    color: #fff;
+    color: var(--rw-on-accent);
 }
 
 .secondary-action,
@@ -901,7 +1053,6 @@ button.primary-action:hover {
     background: color-mix(in srgb, var(--rw-accent) 82%, var(--rw-text-strong));
     border-color: var(--rw-accent-strong);
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--rw-accent) 22%, transparent);
-    transform: translateY(-1px);
 }
 
 .secondary-action:hover,
@@ -910,7 +1061,6 @@ button.secondary-action:hover {
     border-color: var(--rw-accent);
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--rw-accent) 20%, transparent);
     color: var(--rw-text-strong);
-    transform: translateY(-1px);
 }
 
 .danger-action:hover,
@@ -919,11 +1069,10 @@ button.danger-action:hover {
     border-color: color-mix(in srgb, var(--rw-error) 72%, var(--rw-text-strong));
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--rw-error) 25%, transparent);
     color: var(--rw-text-strong);
-    transform: translateY(-1px);
 }
 
 .markdown-view {
-    background: color-mix(in srgb, var(--rw-page-bg) 72%, black);
+    background: var(--rw-page-bg);
     border: 1px solid var(--rw-border);
     border-radius: var(--rw-radius-card);
     line-height: 1.65;
@@ -967,7 +1116,7 @@ button.danger-action:hover {
 
 .metadata-section {
     display: grid;
-    gap: 18px;
+    gap: 1rem;
     margin-top: 12px;
 }
 
@@ -1027,7 +1176,7 @@ button.danger-action:disabled {
     overflow: hidden;
     border: 1px solid var(--rw-border);
     border-radius: var(--rw-radius-panel);
-    background: color-mix(in srgb, var(--rw-page-bg) 72%, black);
+    background: var(--rw-page-bg);
     box-shadow: inset 0 1px 0 color-mix(in srgb, var(--rw-text) 7%, transparent);
 }
 
@@ -1035,13 +1184,13 @@ button.danger-action:disabled {
     min-height: 65vh;
     height: min(72vh, 56rem);
     width: 100%;
-    background: color-mix(in srgb, var(--rw-page-bg) 72%, black) !important;
+    background: var(--rw-page-bg) !important;
     color: var(--rw-text) !important;
     font-size: 0.95rem;
 }
 
 .codemirror-shell .cm-scroller {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    font-family: var(--rw-font-mono);
     overflow: auto;
 }
 
@@ -1156,7 +1305,7 @@ button.danger-action:disabled {
 }
 
 .rw-dialog-backdrop {
-    background: color-mix(in srgb, var(--rw-page-bg) 72%, black);
+    background: var(--rw-page-bg);
     inset: 0;
     position: fixed;
     z-index: 50;
@@ -1176,7 +1325,7 @@ button.danger-action:disabled {
     background: var(--rw-surface-raised);
     border: 1px solid var(--rw-border);
     border-radius: var(--rw-radius-panel);
-    box-shadow: 0 24px 70px #0008;
+    box-shadow: none;
     color: var(--rw-text);
     display: grid;
     gap: 1rem;
@@ -1321,6 +1470,184 @@ button.danger-action:disabled {
         padding: 1rem;
     }
 }
+/* Sidebar snapshots animate removed panels too, without leaving focusable hidden UI.
+   Names are applied only during a sidebar action, never during route transitions. */
+.rw-sidebar-motion .workspace-sidebar {
+    view-transition-name: rw-navigation;
+}
+.rw-sidebar-motion .workspace-main-shell {
+    view-transition-name: rw-workspace-main;
+}
+.rw-sidebar-motion .session-context-sidebar {
+    view-transition-name: rw-session-context;
+}
+.rw-sidebar-motion .session-stream-panel {
+    view-transition-name: rw-session-main;
+}
+.rw-sidebar-motion .session-context-header .rw-panel-toggle {
+    view-transition-name: rw-session-toggle;
+}
+.rw-sidebar-motion .rw-plannotator-plan-layout > aside:not([data-annotation-panel]),
+.rw-sidebar-motion .rw-artifact-contents,
+.rw-sidebar-motion .rw-review-file-tree {
+    view-transition-name: rw-review-left;
+}
+.rw-sidebar-motion .rw-plan-review-annotation-sidebar,
+.rw-sidebar-motion .rw-code-review-annotation-sidebar {
+    view-transition-name: rw-review-right;
+}
+.rw-sidebar-motion .rw-plannotator-main-pane,
+.rw-sidebar-motion .rw-review-all-files-host {
+    view-transition-name: rw-review-main;
+}
+
+.rw-sidebar-motion::view-transition-group(*) {
+    animation-duration: var(--rw-sidebar-motion-duration);
+    animation-timing-function: var(--rw-sidebar-motion-ease);
+}
+
+.rw-sidebar-motion::view-transition-old(root) {
+    display: none;
+}
+.rw-sidebar-motion::view-transition-new(root) {
+    animation: none;
+}
+
+/* Unchanged panes move with the layout without flashing or crossfading. */
+.rw-sidebar-motion::view-transition-old(*):not(:only-child) {
+    display: none;
+}
+.rw-sidebar-motion::view-transition-new(*):not(:only-child) {
+    animation: none;
+}
+
+.rw-sidebar-motion::view-transition-old(*),
+.rw-sidebar-motion::view-transition-new(*) {
+    animation-duration: var(--rw-sidebar-motion-duration);
+    animation-timing-function: var(--rw-sidebar-motion-ease);
+    animation-fill-mode: both;
+}
+
+/* Keep text at its natural size while the available canvas changes width. */
+.rw-sidebar-motion::view-transition-image-pair(rw-workspace-main),
+.rw-sidebar-motion::view-transition-image-pair(rw-session-main),
+.rw-sidebar-motion::view-transition-image-pair(rw-review-main) {
+    overflow: clip;
+}
+.rw-sidebar-motion::view-transition-old(rw-workspace-main),
+.rw-sidebar-motion::view-transition-old(rw-session-main),
+.rw-sidebar-motion::view-transition-old(rw-review-main) {
+    display: none;
+}
+.rw-sidebar-motion::view-transition-new(rw-workspace-main),
+.rw-sidebar-motion::view-transition-new(rw-session-main),
+.rw-sidebar-motion::view-transition-new(rw-review-main) {
+    height: 100%;
+    object-fit: none;
+    object-position: left top;
+    animation: none;
+}
+
+.rw-sidebar-motion::view-transition-new(rw-navigation):only-child,
+.rw-sidebar-motion::view-transition-new(rw-review-left):only-child {
+    animation-name: rw-sidebar-enter-left;
+}
+.rw-sidebar-motion::view-transition-old(rw-navigation):only-child,
+.rw-sidebar-motion::view-transition-old(rw-review-left):only-child {
+    animation-name: rw-sidebar-exit-left;
+}
+.rw-sidebar-motion::view-transition-new(rw-session-context):only-child,
+.rw-sidebar-motion::view-transition-new(rw-review-right):only-child {
+    animation-name: rw-sidebar-enter-right;
+}
+.rw-sidebar-motion::view-transition-old(rw-session-context):only-child,
+.rw-sidebar-motion::view-transition-old(rw-review-right):only-child {
+    animation-name: rw-sidebar-exit-right;
+}
+
+@keyframes rw-sidebar-enter-left {
+    from {
+        opacity: 0;
+        transform: translateX(-12px);
+    }
+}
+@keyframes rw-sidebar-exit-left {
+    to {
+        opacity: 0;
+        transform: translateX(-12px);
+    }
+}
+@keyframes rw-sidebar-enter-right {
+    from {
+        opacity: 0;
+        transform: translateX(12px);
+    }
+}
+@keyframes rw-sidebar-exit-right {
+    to {
+        opacity: 0;
+        transform: translateX(12px);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .rw-sidebar-motion::view-transition-group(*),
+    .rw-sidebar-motion::view-transition-old(*),
+    .rw-sidebar-motion::view-transition-new(*) {
+        animation: none !important;
+    }
+}
+
+/* Peer-view navigation: links and tab buttons share the same square underline rail. */
+.rw-underline-tabs {
+    align-items: stretch;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    box-shadow: inset 0 -1px 0 var(--rw-border);
+    display: flex;
+    gap: 0;
+    min-width: 0;
+    padding: 0;
+}
+
+.rw-underline-tabs > :is(a, button) {
+    align-items: center;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    color: var(--rw-text-muted);
+    cursor: pointer;
+    display: inline-flex;
+    flex: 1 1 auto;
+    font: inherit;
+    font-size: var(--rw-tab-font-size, 0.8rem);
+    font-weight: 600;
+    gap: 0.3rem;
+    justify-content: center;
+    min-height: var(--rw-tab-height, var(--rw-control-height));
+    min-width: 0;
+    padding: 0 var(--rw-space-control-x);
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.rw-underline-tabs > :is(a, button):hover {
+    background: var(--rw-surface-muted);
+    color: var(--rw-text-strong);
+}
+
+.rw-underline-tabs > :is([aria-selected="true"], [aria-current="page"], [data-state="active"]) {
+    box-shadow: inset 0 -3px 0 var(--rw-accent);
+    color: var(--rw-text-strong);
+}
+
+.rw-underline-tabs > :is(a, button):focus-visible {
+    outline: 2px solid var(--rw-accent);
+    outline-offset: -2px;
+}
+
 .rw-panel-toggle {
     flex-shrink: 0;
 }
@@ -1378,9 +1705,9 @@ button.danger-action:disabled {
 .rw-workflow-block {
     margin-block: var(--rw-space-panel);
     padding: var(--rw-space-panel);
-    border: 1px solid var(--rw-border);
-    border-inline-start: 3px solid var(--rw-accent);
-    border-radius: var(--rw-radius-card);
+    border: 0;
+    box-shadow: inset 2px 0 var(--rw-brand), inset 0 0 0 1px var(--rw-border);
+    border-radius: 0;
     background: var(--rw-surface-raised);
     overflow-wrap: anywhere;
 }
@@ -1392,7 +1719,7 @@ button.danger-action:disabled {
     gap: var(--rw-space-control-x);
 }
 .rw-workflow-block > header {
-    color: var(--rw-accent-text);
+    color: var(--rw-brand);
 }
 .rw-workflow-block > .markdown-view {
     background: transparent;
@@ -1406,8 +1733,8 @@ button.danger-action:disabled {
     color: var(--rw-text-dim);
     font-size: 0.8rem;
 }
-.rw-workflow-block.status-failed {
-    border-inline-start-color: var(--rw-error);
+.rw-workflow-block.status-failed > header > span {
+    color: var(--rw-error);
 }
 
 .rw-question-fixture {
@@ -1485,5 +1812,11 @@ button.danger-action:disabled {
 
 .rw-toolbar-button-primary {
     background: var(--rw-accent);
-    color: var(--rw-page-bg);
+    color: var(--rw-on-accent);
+}
+
+.rw-toolbar-button-primary:hover:not(:disabled),
+.rw-toolbar-button-primary:focus-visible:not(:disabled) {
+    background: var(--rw-accent-strong);
+    color: var(--rw-on-accent-strong);
 }

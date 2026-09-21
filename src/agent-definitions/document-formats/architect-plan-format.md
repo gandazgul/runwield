@@ -32,6 +32,10 @@ additions, changes, and removals. Preserve user outcomes across capability and e
 Clear statement of what changes and why. Reference any ADRs created. Name the main option you did not take and what it
 would have cost.
 
+For consequential choices, explain the commitments, what changing direction involves, and the evidence supporting the
+chosen approach. State how material uncertainties will be resolved, why any added flexibility is useful, and what would
+justify reconsidering the decision. Scale this detail to the choice's consequences and link applicable ADRs.
+
 ## Vertical Slice Findings
 
 Brief summary of what you traced deeply and how it informs the plan. Show the paths you walked — a call path, a small

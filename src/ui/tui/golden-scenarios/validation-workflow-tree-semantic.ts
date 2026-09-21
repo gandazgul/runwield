@@ -35,7 +35,7 @@ export const validationTreeSemanticRepairIncompleteScenario = withValidationBran
         ...plannedChangeReviewRepairValidationScenario,
         name: "validation-tree-semantic-repair-incomplete-base",
         script: [
-            ...(plannedChangeReviewRepairValidationScenario.script as GoldenScriptTurn[]).slice(0, 5),
+            ...(plannedChangeReviewRepairValidationScenario.script as GoldenScriptTurn[]).slice(0, 6),
             {
                 id: "engineer-semantic-repair-without-completion",
                 agent: "engineer",
@@ -54,7 +54,7 @@ export const validationTreeSemanticRepairIncompleteScenario = withValidationBran
                 phase: "engineer",
                 ordinal: 4,
                 optional: true,
-                text: "Semantic Code Review repair stopped before task_completed.",
+                text: "Semantic Review repair stopped before task_completed.",
             },
         ],
         actions: [
@@ -115,7 +115,7 @@ export const validationTreeSemanticReviewerIncompletePauseScenario = withValidat
             { type: "type", text: "/load-plan semantic-reviewer-incomplete" },
             { type: "enter" },
             { type: "enter" },
-            { type: "waitForScreen", text: "AI code review", timeoutMs: 90000 },
+            { type: "waitForScreen", text: "AI review", timeoutMs: 90000 },
             { type: "waitForIdle", timeoutMs: 90000 },
             { type: "captureProjectState", planNames: ["semantic-reviewer-incomplete"] },
         ],
@@ -179,14 +179,37 @@ export const validationTreeSemanticProviderErrorRetryScenario = withValidationBr
                 },
             },
             {
-                id: "semantic-review-approves-after-provider-retry",
+                id: "semantic-review-approves-after-provider-retry-inspects-diff",
                 agent: "reviewer",
                 phase: "semantic_review",
                 planName: "semantic-provider-error-retry",
                 ordinal: 2,
-                requiredTools: ["review_diff", "review_complete"],
+                requiredTools: ["review_diff"],
                 toolCalls: [
-                    { name: "review_diff", arguments: { command: "list" } },
+                    { name: "review_diff", arguments: { command: "list", scope: "full" } },
+                    { name: "review_diff", arguments: { command: "show", scope: "full", path: ".gitignore" } },
+                    {
+                        name: "review_diff",
+                        arguments: { command: "show", scope: "full", path: "semantic-provider-error-retry.txt" },
+                    },
+                    {
+                        name: "review_diff",
+                        arguments: {
+                            command: "show",
+                            scope: "full",
+                            path: "docs/plans/semantic-provider-error-retry.md",
+                        },
+                    },
+                ],
+            },
+            {
+                id: "semantic-review-approves-after-provider-retry",
+                agent: "reviewer",
+                phase: "semantic_review",
+                planName: "semantic-provider-error-retry",
+                ordinal: 3,
+                requiredTools: ["review_complete"],
+                toolCalls: [
                     {
                         name: "review_complete",
                         arguments: { approved: true, feedback: "Approved after the provider recovered." },
@@ -207,7 +230,7 @@ export const validationTreeSemanticProviderErrorRetryScenario = withValidationBr
             { type: "enter" },
             {
                 type: "waitForScreen",
-                text: "The model provider could not complete AI code review",
+                text: "The model provider could not complete AI review",
                 timeoutMs: 90000,
             },
             {
@@ -232,20 +255,43 @@ export const validationTreeSemanticNudgeOmittedPriorFindingScenario = withValida
         script: [
             ...plannedChangeReviewRepairValidationScenario.script.slice(0, 4),
             {
-                id: "semantic-reviewer-rejects-with-ledger-finding",
+                id: "semantic-reviewer-rejects-with-ledger-finding-inspects-diff",
                 agent: "reviewer",
                 phase: "semantic_review",
                 ordinal: 1,
-                requiredTools: ["review_diff", "review_complete"],
-                thinking: "Inspect the diff, then reject with a tracked finding.",
+                requiredTools: ["review_diff"],
+                thinking: "Inspect every changed file before deciding.",
                 toolCalls: [
-                    { name: "review_diff", arguments: { command: "list" } },
+                    { name: "review_diff", arguments: { command: "list", scope: "full" } },
+                    { name: "review_diff", arguments: { command: "show", scope: "full", path: ".gitignore" } },
+                    {
+                        name: "review_diff",
+                        arguments: { command: "show", scope: "full", path: "golden-planned-change.txt" },
+                    },
+                    {
+                        name: "review_diff",
+                        arguments: { command: "show", scope: "full", path: ".wld/settings.json" },
+                    },
+                    {
+                        name: "review_diff",
+                        arguments: { command: "show", scope: "full", path: "docs/plans/plan.md" },
+                    },
+                ],
+            },
+            {
+                id: "semantic-reviewer-rejects-with-ledger-finding",
+                agent: "reviewer",
+                phase: "semantic_review",
+                ordinal: 2,
+                requiredTools: ["review_complete"],
+                toolCalls: [
                     {
                         name: "review_complete",
                         arguments: {
                             approved: false,
                             feedback: "Missing durable evidence.",
                             findings: [{
+                                status: "new",
                                 title: "Missing durable evidence",
                                 requirement: "Plan",
                                 evidence: "golden-planned-change.txt",
@@ -258,14 +304,36 @@ export const validationTreeSemanticNudgeOmittedPriorFindingScenario = withValida
                 turn.agent === "engineer" && turn.ordinal >= 3
             ),
             {
+                id: "semantic-reviewer-omits-prior-finding-after-repair-inspects-diff",
+                agent: "reviewer",
+                phase: "semantic_review",
+                ordinal: 3,
+                requiredTools: ["review_diff"],
+                thinking: "Inspect every changed file before deciding.",
+                toolCalls: [
+                    { name: "review_diff", arguments: { command: "list", scope: "full" } },
+                    { name: "review_diff", arguments: { command: "show", scope: "full", path: ".gitignore" } },
+                    {
+                        name: "review_diff",
+                        arguments: { command: "show", scope: "full", path: "golden-planned-change.txt" },
+                    },
+                    {
+                        name: "review_diff",
+                        arguments: { command: "show", scope: "full", path: ".wld/settings.json" },
+                    },
+                    {
+                        name: "review_diff",
+                        arguments: { command: "show", scope: "full", path: "docs/plans/plan.md" },
+                    },
+                ],
+            },
+            {
                 id: "semantic-reviewer-omits-prior-finding-after-repair",
                 agent: "reviewer",
                 phase: "semantic_review",
-                ordinal: 2,
-                requiredTools: ["review_diff", "review_complete"],
-                thinking: "Inspect the repair diff, then approve while omitting the existing open finding.",
+                ordinal: 4,
+                requiredTools: ["review_complete"],
                 toolCalls: [
-                    { name: "review_diff", arguments: { command: "list" } },
                     {
                         name: "review_complete",
                         arguments: { approved: true, feedback: "Approved but omitted prior finding.", findings: [] },
@@ -273,20 +341,42 @@ export const validationTreeSemanticNudgeOmittedPriorFindingScenario = withValida
                 ],
             },
             {
+                id: "semantic-reviewer-accounts-for-prior-finding-after-nudge-inspects-diff",
+                agent: "reviewer",
+                phase: "semantic_review",
+                ordinal: 5,
+                requiredTools: ["review_diff"],
+                thinking: "Inspect every changed file before deciding.",
+                toolCalls: [
+                    { name: "review_diff", arguments: { command: "list", scope: "full" } },
+                    { name: "review_diff", arguments: { command: "show", scope: "full", path: ".gitignore" } },
+                    {
+                        name: "review_diff",
+                        arguments: { command: "show", scope: "full", path: "golden-planned-change.txt" },
+                    },
+                    {
+                        name: "review_diff",
+                        arguments: { command: "show", scope: "full", path: ".wld/settings.json" },
+                    },
+                    {
+                        name: "review_diff",
+                        arguments: { command: "show", scope: "full", path: "docs/plans/plan.md" },
+                    },
+                ],
+            },
+            {
                 id: "semantic-reviewer-accounts-for-prior-finding-after-nudge",
                 agent: "reviewer",
                 phase: "semantic_review",
-                ordinal: 3,
-                requiredTools: ["review_diff", "review_complete"],
-                thinking: "Answer the nudge by accounting for the existing finding identity.",
+                ordinal: 6,
+                requiredTools: ["review_complete"],
                 toolCalls: [
-                    { name: "review_diff", arguments: { command: "list" } },
                     {
                         name: "review_complete",
                         arguments: {
                             approved: true,
                             feedback: "Approved after accounting for prior finding.",
-                            findings: [{ id: "R1-1", resolved: true, title: "Missing durable evidence" }],
+                            findings: [{ id: "R1-1", status: "fix_confirmed", title: "Missing durable evidence" }],
                         },
                     },
                 ],
@@ -343,14 +433,41 @@ export const validationTreeSemanticNudgeMissingReviewCompleteScenario = withVali
                 text: "I inspected the situation but did not call review_complete.",
             },
             {
-                id: "reviewer-completes-after-review-complete-nudge",
+                id: "reviewer-completes-after-review-complete-nudge-inspects-diff",
                 agent: "reviewer",
                 phase: "semantic_review",
                 planName: "semantic-nudge-missing-review-complete",
                 ordinal: 2,
-                requiredTools: ["review_diff", "review_complete"],
+                requiredTools: ["review_diff"],
                 toolCalls: [
-                    { name: "review_diff", arguments: { command: "list" } },
+                    { name: "review_diff", arguments: { command: "list", scope: "full" } },
+                    { name: "review_diff", arguments: { command: "show", scope: "full", path: ".gitignore" } },
+                    {
+                        name: "review_diff",
+                        arguments: {
+                            command: "show",
+                            scope: "full",
+                            path: "semantic-nudge-review-complete-implementation.txt",
+                        },
+                    },
+                    {
+                        name: "review_diff",
+                        arguments: {
+                            command: "show",
+                            scope: "full",
+                            path: "docs/plans/semantic-nudge-missing-review-complete.md",
+                        },
+                    },
+                ],
+            },
+            {
+                id: "reviewer-completes-after-review-complete-nudge",
+                agent: "reviewer",
+                phase: "semantic_review",
+                planName: "semantic-nudge-missing-review-complete",
+                ordinal: 3,
+                requiredTools: ["review_complete"],
+                toolCalls: [
                     {
                         name: "review_complete",
                         arguments: { approved: true, feedback: "Approved after review_complete nudge." },
@@ -416,14 +533,37 @@ export const validationTreeSemanticNudgeMissingDiffInspectionScenario = withVali
                 }],
             },
             {
-                id: "reviewer-approves-after-diff-inspection-nudge",
+                id: "reviewer-approves-after-diff-inspection-nudge-inspects-diff",
                 agent: "reviewer",
                 phase: "semantic_review",
                 planName: "semantic-nudge-missing-diff",
                 ordinal: 2,
-                requiredTools: ["review_diff", "review_complete"],
+                requiredTools: ["review_diff"],
                 toolCalls: [
-                    { name: "review_diff", arguments: { command: "list" } },
+                    { name: "review_diff", arguments: { command: "list", scope: "full" } },
+                    { name: "review_diff", arguments: { command: "show", scope: "full", path: ".gitignore" } },
+                    {
+                        name: "review_diff",
+                        arguments: { command: "show", scope: "full", path: "semantic-nudge-implementation.txt" },
+                    },
+                    {
+                        name: "review_diff",
+                        arguments: {
+                            command: "show",
+                            scope: "full",
+                            path: "docs/plans/semantic-nudge-missing-diff.md",
+                        },
+                    },
+                ],
+            },
+            {
+                id: "reviewer-approves-after-diff-inspection-nudge",
+                agent: "reviewer",
+                phase: "semantic_review",
+                planName: "semantic-nudge-missing-diff",
+                ordinal: 3,
+                requiredTools: ["review_complete"],
+                toolCalls: [
                     {
                         name: "review_complete",
                         arguments: { approved: true, feedback: "Approved after diff inspection." },
@@ -477,20 +617,44 @@ export const validationTreeSemanticRoundLimitStopScenario = withValidationBranch
         }],
         script: [
             {
-                id: "reviewer-rejects-semantic-round-limit-stop-1",
+                id: "reviewer-rejects-semantic-round-limit-stop-1-inspects-diff",
                 agent: "reviewer",
                 phase: "semantic_review",
                 planName: "semantic-round-limit-stop",
                 ordinal: 1,
-                requiredTools: ["review_diff", "review_complete"],
+                requiredTools: ["review_diff"],
                 toolCalls: [
-                    { name: "review_diff", arguments: { command: "list" } },
+                    { name: "review_diff", arguments: { command: "list", scope: "full" } },
+                    { name: "review_diff", arguments: { command: "show", scope: "full", path: ".gitignore" } },
+                    {
+                        name: "review_diff",
+                        arguments: { command: "show", scope: "full", path: "semantic-round-limit-stop.txt" },
+                    },
+                    {
+                        name: "review_diff",
+                        arguments: {
+                            command: "show",
+                            scope: "full",
+                            path: "docs/plans/semantic-round-limit-stop.md",
+                        },
+                    },
+                ],
+            },
+            {
+                id: "reviewer-rejects-semantic-round-limit-stop-1",
+                agent: "reviewer",
+                phase: "semantic_review",
+                planName: "semantic-round-limit-stop",
+                ordinal: 2,
+                requiredTools: ["review_complete"],
+                toolCalls: [
                     {
                         name: "review_complete",
                         arguments: {
                             approved: false,
                             feedback: "Round 1 still has open work.",
                             findings: [{
+                                status: "new",
                                 title: "Round-limit issue",
                                 requirement: "Semantic review",
                                 evidence: "The repair still needs verification.",
@@ -521,14 +685,37 @@ export const validationTreeSemanticRoundLimitStopScenario = withValidationBranch
                 toolCalls: [{ name: "task_completed", arguments: { message: "- Repaired semantic round 1." } }],
             },
             {
+                id: "reviewer-rejects-semantic-round-limit-stop-2-inspects-diff",
+                agent: "reviewer",
+                phase: "semantic_review",
+                planName: "semantic-round-limit-stop",
+                ordinal: 3,
+                requiredTools: ["review_diff"],
+                toolCalls: [
+                    { name: "review_diff", arguments: { command: "list", scope: "full" } },
+                    { name: "review_diff", arguments: { command: "show", scope: "full", path: ".gitignore" } },
+                    {
+                        name: "review_diff",
+                        arguments: { command: "show", scope: "full", path: "semantic-round-limit-stop.txt" },
+                    },
+                    {
+                        name: "review_diff",
+                        arguments: {
+                            command: "show",
+                            scope: "full",
+                            path: "docs/plans/semantic-round-limit-stop.md",
+                        },
+                    },
+                ],
+            },
+            {
                 id: "reviewer-rejects-semantic-round-limit-stop-2",
                 agent: "reviewer",
                 phase: "semantic_review",
                 planName: "semantic-round-limit-stop",
-                ordinal: 2,
-                requiredTools: ["review_diff", "review_complete"],
+                ordinal: 4,
+                requiredTools: ["review_complete"],
                 toolCalls: [
-                    { name: "review_diff", arguments: { command: "list" } },
                     {
                         name: "review_complete",
                         arguments: {
@@ -536,7 +723,8 @@ export const validationTreeSemanticRoundLimitStopScenario = withValidationBranch
                             feedback: "Round 2 still has open work.",
                             findings: [{
                                 id: "R1-1",
-                                resolved: false,
+                                status: "fix_rejected",
+                                rejectionReason: "The issue remains after repair round 1.",
                                 title: "Round-limit issue",
                                 requirement: "Semantic review",
                                 evidence: "The issue remains after repair round 1.",
@@ -567,14 +755,28 @@ export const validationTreeSemanticRoundLimitStopScenario = withValidationBranch
                 toolCalls: [{ name: "task_completed", arguments: { message: "- Repaired semantic round 2." } }],
             },
             {
+                id: "reviewer-rejects-semantic-round-limit-stop-3-inspects-diff",
+                agent: "reviewer",
+                phase: "semantic_review",
+                planName: "semantic-round-limit-stop",
+                ordinal: 5,
+                requiredTools: ["review_diff"],
+                toolCalls: [
+                    { name: "review_diff", arguments: { command: "list", scope: "repair" } },
+                    {
+                        name: "review_diff",
+                        arguments: { command: "show", scope: "repair", path: "semantic-round-limit-stop.txt" },
+                    },
+                ],
+            },
+            {
                 id: "reviewer-rejects-semantic-round-limit-stop-3",
                 agent: "reviewer",
                 phase: "semantic_review",
                 planName: "semantic-round-limit-stop",
-                ordinal: 3,
-                requiredTools: ["review_diff", "review_complete"],
+                ordinal: 6,
+                requiredTools: ["review_complete"],
                 toolCalls: [
-                    { name: "review_diff", arguments: { command: "list" } },
                     {
                         name: "review_complete",
                         arguments: {
@@ -582,7 +784,8 @@ export const validationTreeSemanticRoundLimitStopScenario = withValidationBranch
                             feedback: "Round 3 still has open work.",
                             findings: [{
                                 id: "R1-1",
-                                resolved: false,
+                                status: "fix_rejected",
+                                rejectionReason: "The issue remains after repair round 2.",
                                 title: "Round-limit issue",
                                 requirement: "Semantic review",
                                 evidence: "The issue remains after repair round 2.",
@@ -613,21 +816,36 @@ export const validationTreeSemanticRoundLimitStopScenario = withValidationBranch
                 toolCalls: [{ name: "task_completed", arguments: { message: "- Repaired semantic round 3." } }],
             },
             {
+                id: "reviewer-approves-semantic-round-limit-continue-inspects-diff",
+                agent: "reviewer",
+                phase: "semantic_review",
+                planName: "semantic-round-limit-stop",
+                ordinal: 7,
+                optional: true,
+                requiredTools: ["review_diff"],
+                toolCalls: [
+                    { name: "review_diff", arguments: { command: "list", scope: "repair" } },
+                    {
+                        name: "review_diff",
+                        arguments: { command: "show", scope: "repair", path: "semantic-round-limit-stop.txt" },
+                    },
+                ],
+            },
+            {
                 id: "reviewer-approves-semantic-round-limit-continue",
                 agent: "reviewer",
                 phase: "semantic_review",
                 planName: "semantic-round-limit-stop",
-                ordinal: 4,
+                ordinal: 8,
                 optional: true,
-                requiredTools: ["review_diff", "review_complete"],
+                requiredTools: ["review_complete"],
                 toolCalls: [
-                    { name: "review_diff", arguments: { command: "list" } },
                     {
                         name: "review_complete",
                         arguments: {
                             approved: true,
                             feedback: "Focused round-limit recheck approved.",
-                            findings: [{ id: "R1-1", resolved: true, title: "Round-limit issue" }],
+                            findings: [{ id: "R1-1", status: "fix_confirmed", title: "Round-limit issue" }],
                         },
                     },
                 ],
@@ -708,17 +926,36 @@ export const validationTreeSemanticRoundLimitStopDirectScenario = withValidation
                 ordinal: turn.agent === "engineer" ? turn.ordinal + 2 : turn.ordinal,
                 ...(Array.isArray(turn.toolCalls)
                     ? {
-                        toolCalls: turn.toolCalls.map((call) =>
-                            call.name === "write"
-                                ? {
+                        toolCalls: turn.toolCalls.map((call) => {
+                            if (
+                                call.name === "write" ||
+                                (call.name === "review_diff" &&
+                                    call.arguments?.command === "show" &&
+                                    call.arguments?.path === "semantic-round-limit-stop.txt")
+                            ) {
+                                return {
                                     ...call,
                                     arguments: {
                                         ...call.arguments,
                                         path: "semantic-round-limit-stop-direct.txt",
                                     },
-                                }
-                                : call
-                        ),
+                                };
+                            }
+                            if (
+                                call.name === "review_diff" &&
+                                call.arguments?.command === "show" &&
+                                call.arguments?.path === "docs/plans/semantic-round-limit-stop.md"
+                            ) {
+                                return {
+                                    ...call,
+                                    arguments: {
+                                        ...call.arguments,
+                                        path: "docs/plans/semantic-round-limit-stop-direct.md",
+                                    },
+                                };
+                            }
+                            return call;
+                        }),
                     }
                     : {}),
             })),
@@ -830,7 +1067,10 @@ export const validationTreeSemanticRoundLimitFollowUpScenario = {
         { type: "select", promptIncludes: "Look once more, read it, or stop.", value: "continue" },
     ],
     script: [
-        ...validationTreeSemanticRoundLimitStopScenario.script,
+        ...(validationTreeSemanticRoundLimitStopScenario.script as GoldenScriptTurn[]).filter((turn) =>
+            turn.id !== "reviewer-approves-semantic-round-limit-continue-inspects-diff" &&
+            turn.id !== "reviewer-approves-semantic-round-limit-continue"
+        ),
         {
             id: "engineer-applies-round-limit-follow-up",
             agent: "engineer",
@@ -848,6 +1088,35 @@ export const validationTreeSemanticRoundLimitFollowUpScenario = {
             ordinal: 8,
             requiredTools: ["task_completed"],
             toolCalls: [{ name: "task_completed", arguments: { message: "Follow-up applied." } }],
+        },
+        {
+            ...(validationTreeSemanticRoundLimitStopScenario.script as GoldenScriptTurn[]).find((turn) =>
+                turn.id === "reviewer-approves-semantic-round-limit-continue-inspects-diff"
+            ),
+            toolCalls: [
+                { name: "review_diff", arguments: { command: "list", scope: "repair" } },
+                {
+                    name: "review_diff",
+                    arguments: { command: "show", scope: "repair", path: "semantic-round-limit-stop.txt" },
+                },
+                {
+                    name: "review_diff",
+                    arguments: { command: "show", scope: "repair", path: "followup-ci.txt" },
+                },
+            ],
+        },
+        {
+            ...(validationTreeSemanticRoundLimitStopScenario.script as GoldenScriptTurn[]).find((turn) =>
+                turn.id === "reviewer-approves-semantic-round-limit-continue"
+            ),
+            toolCalls: [{
+                name: "review_complete",
+                arguments: {
+                    approved: true,
+                    feedback: "Focused round-limit recheck approved.",
+                    findings: [{ id: "R1-1", status: "fix_confirmed", title: "Round-limit issue" }],
+                },
+            }],
         },
     ],
     actions: [
@@ -922,14 +1191,41 @@ export const validationTreeSemanticRoundModeDiscoveryToVerifyScenario = withVali
         }],
         script: [
             {
-                id: "reviewer-approves-verify-mode-round",
+                id: "reviewer-approves-verify-mode-round-inspects-diff",
                 agent: "reviewer",
                 phase: "semantic_review",
                 planName: "semantic-round-mode-discovery-to-verify",
                 ordinal: 1,
-                requiredTools: ["review_diff", "review_complete"],
+                requiredTools: ["review_diff"],
                 toolCalls: [
-                    { name: "review_diff", arguments: { command: "list" } },
+                    { name: "review_diff", arguments: { command: "list", scope: "full" } },
+                    { name: "review_diff", arguments: { command: "show", scope: "full", path: ".gitignore" } },
+                    {
+                        name: "review_diff",
+                        arguments: {
+                            command: "show",
+                            scope: "full",
+                            path: "semantic-round-mode-discovery-to-verify.txt",
+                        },
+                    },
+                    {
+                        name: "review_diff",
+                        arguments: {
+                            command: "show",
+                            scope: "full",
+                            path: "docs/plans/semantic-round-mode-discovery-to-verify.md",
+                        },
+                    },
+                ],
+            },
+            {
+                id: "reviewer-approves-verify-mode-round",
+                agent: "reviewer",
+                phase: "semantic_review",
+                planName: "semantic-round-mode-discovery-to-verify",
+                ordinal: 2,
+                requiredTools: ["review_complete"],
+                toolCalls: [
                     {
                         name: "review_complete",
                         arguments: { approved: true, feedback: "Focused verification approved." },

@@ -12,7 +12,7 @@ The visual direction is dark, focused, compact, and workflow-oriented. Keep the 
 Review as the baseline:
 
 - dark page background with layered slate surfaces;
-- blue accent for navigational emphasis and primary intent;
+- mint sidebar brand rail, with blue for selected working context and primary intent;
 - compact rectangular controls with 6px corners;
 - squared-off cards and panels with 6–8px corners, subtle borders, and restrained shadows;
 - 28px compact toolbar controls and 32px standard controls on desktop;
@@ -55,7 +55,9 @@ The rest of Workspace should reuse that language through these implementation la
 
 - CSS baseline: `src/ui/design-system/tokens.css`, `src/ui/design-system/components.css`, and
   `src/ui/workspace/static/workspace.css`
+- browser colors: `src/ui/design-system/themes/dark.ts`
 - theme bridge: `src/ui/design-system/theme-bridge.js`
+- bundled website fonts: `src/ui/design-system/fonts.css`
 - shell and navigation: `src/ui/workspace/layouts/WorkspaceLayout.astro`
 - shared Plan Board page composition: `src/ui/workspace/components/PlanBoardPage.astro`
 - board patterns: `src/ui/workspace/components/BoardColumn.jsx`, `PlanCard.jsx`, and `EpicCard.jsx`
@@ -67,17 +69,27 @@ and Workspace so they agree again.
 
 ### Canonical density examples
 
-| Pattern                          | Reference                               | Desktop rule                                           |
-| -------------------------------- | --------------------------------------- | ------------------------------------------------------ |
-| Compact icon or segmented option | Review toolbar                          | 28px high, 6px radius, 11–12px label                   |
-| Standard button, input, or tab   | Workspace navigation and review actions | 32px high, 6px radius, 12–14px label                   |
-| Touch-critical control           | Session composer on narrow screens      | 44px minimum height; do not apply this desktop-wide    |
-| Card                             | Plan Card                               | 12px padding, 6px radius                               |
-| Panel or board column            | Review sidebars and Workspace columns   | 8px radius, 10–16px padding                            |
-| Status, count, or short metadata | Review state labels                     | pill radius; never use this shape for ordinary actions |
+| Pattern                          | Reference                               | Desktop rule                                                  |
+| -------------------------------- | --------------------------------------- | ------------------------------------------------------------- |
+| Compact icon or segmented option | Review toolbar                          | 28px high, 6px radius, 11–12px label                          |
+| Standard button, input, or tab   | Workspace navigation and review actions | 32px high, 6px radius, 12–14px label                          |
+| Touch-critical control           | Session composer on narrow screens      | 44px minimum width and height; do not apply this desktop-wide |
+| Card                             | Plan Card                               | 12px padding, 6px radius                                      |
+| Board column                     | Workspace Plan Board                    | Square edges, separators only, 10–16px padding                |
+| Status, count, or short metadata | Review state labels                     | pill radius; never use this shape for ordinary actions        |
 
 These values are defaults, not a reason to add `!important`. A specialized interaction may differ when its content or
 accessibility behavior requires it.
+
+Attention Dashboard section headers reuse `.rw-toolbar-button` for newest/oldest sorting. Sections show five rows by
+default, with a matching Read more/Show less button using `aria-expanded` and `aria-controls`. Refreshes preserve each
+section's sort, expansion, and focused control.
+
+Workspace brand, main, and Session context headers start at the top edge and share `--rw-shell-header-height` (52px).
+Review title bars use the same minimum height. Sidebar controls remain vertically aligned when panels collapse; avoid
+negative margins or extra top padding to simulate a shared row. The navigation brand row stays visible when its list
+scrolls. Embedded workflow content uses its host's tab header and scroll area, with compact square rows and separators,
+not a second heading or nested card stack.
 
 ## Component architecture
 
@@ -100,6 +112,18 @@ Primitive visual components such as buttons, cards, badges, notices, tabs, input
 RunWield-owned without a headless interaction dependency unless they require non-trivial keyboard, focus, portal, or
 ARIA behavior.
 
+### Shared Markdown artifact reader
+
+`ArtifactReadSurface` is the single read-only Markdown reader for Plans, PRDs, ADRs, Work Records, Epic artifacts, and
+reports. Artifact kind changes labels and document metadata, never the reader implementation. All launches use its
+full-window logo/title header, one Contents header, shared sidebar controls, and read-only document body.
+
+Workspace Session links and Ideator PRD/ADR review prompts use the registered-artifact route. TUI artifact review
+prompts, the Session artifact picker, `wld plans read`, and `wld wr read` use `startArtifactReadSurface`, which renders
+the same component. Workspace launches return to the originating Session; local launches use Close. Feedback remains in
+the owning Session interaction; opening or closing a reader does not approve a Plan. Surface Lab has one Read-only
+Markdown fixture for the shared reader.
+
 ### Phone review layout
 
 Embedded reviews constrain the Workspace grid column to the viewport. At phone widths, header actions and document
@@ -114,6 +138,8 @@ button actions. It uses the TUI’s Braille dot sequence and 120 ms frame timing
 `showLabel={false}` in compact buttons. Astro islands use `LoadingSurface` in their `fallback` slot so the loader
 appears before JavaScript finishes loading. Workspace also shows it while fetching the next page.
 
+Workspace startup uses a plain `LoadingSurface` labeled “Workspace loading”, without a card or explanatory copy.
+
 The shared `.rw-thinking-glyph` mask in `src/ui/design-system/components.css` is the single browser animation; static
 server HTML and the plain browser shell use that same class. Imported review spinners (`.animate-spin`), including
 portals, and image-loading skeletons receive this artwork through the shared stylesheet. Do not introduce another
@@ -121,6 +147,9 @@ spinner, pulsing dots, or animated loading skeleton. Reduced-motion mode shows a
 `--rw-text-muted` by default.
 
 ### Session timeline and control patterns
+
+Normal System, recovery, and interaction-result notices use a mint (`--rw-brand`) stripe and tint to identify RunWield.
+Warnings and errors retain their amber and red stripes. User messages use blue.
 
 Core’s `busy_changed` event drives a shared dots loader labelled “Thinking...” at the live end of the Session timeline,
 including before the first assistant output. Idle removes it; saved history never restores it. Pause it while a live
@@ -154,10 +183,19 @@ Composers accept images by paste, drag-and-drop, or **Attach image**, including 
 before sending with a Remove action, and preserve it in the conversation after sending and reloading. Use the shared
 `.rw-image-previews` treatment. Save image drafts in IndexedDB; browser storage limits must never block Send.
 
-Keep the composer footer in one row, including on phones: a small **+** attachment button on the left, Agent,
-provider/model, Thinking, and an icon-only Send button. Stop and Queue also use labeled icons while working. Preserve
-accessible names and tooltips for icon buttons; model options include their provider. Enabled settings use normal text
-contrast, a visible control background and border, and a pointer cursor; only disabled controls look muted.
+On desktop and mobile, the composer starts collapsed and collapses when focus leaves it. Its compact row contains
+Attach, a single line with Agent, provider/model and Thinking, and the primary action. Mark retained text or images as
+Draft. Focusing the summary opens and focuses the textarea; moving focus among composer controls keeps it expanded.
+Retain mounted text, images, pending messages and settings through collapse/expand. Show dropdowns, previews, queue and
+command choices only while expanded. Animate composer height with the shared control duration and easing; reduced motion
+switches immediately. As its height changes, preserve the bottom visible line of history, keeping live followers at the
+bottom and readers at their current place.
+
+Keep the expanded composer footer in one row, including on phones: a small **+** attachment button on the left, Agent,
+provider/model, Thinking, and one primary icon button: Stop while work runs and the draft is empty, Send/Steer when text
+or images are present. Queue remains a separate expanded-only action. Preserve accessible names and tooltips for icon
+buttons; model options include their provider. Enabled settings use normal text contrast, a visible control background
+and border, and a pointer cursor; only disabled controls look muted.
 
 The TUI is the behavior reference for Session controls and commands. Agent selection loads that Agent's settings,
 including the active model preset. Displaying these defaults does not create a manual override. Explicit model and
@@ -187,57 +225,146 @@ small in-memory queue directly above the composer input—not in transcript hist
 accepted after Session Control becomes idle. Workspace keeps this array only in the current browser tab. The TUI uses
 the same placement immediately above its editor.
 
+Session and review workbenches constrain the outer shell to `100dvh` with no document scrolling. Only the transcript,
+sidebar, and review panes scroll. Do not retain a `100vh` minimum on their shell or navigation pane: mobile browser
+chrome can make that larger than the visible workspace and scroll header controls offscreen.
+
+Workspace and review layouts request `interactive-widget=resizes-content` in their viewport metadata. On Android Chrome,
+this lets the keyboard shrink the layout and its viewport units, keeping the composer and controls above the keyboard.
+`100dvh` alone does not respond to the keyboard with Chrome's default viewport behavior. Preserve normal browser zoom.
+
+### Compact Plan Review
+
+At 980px and below, follow Plannotator's document-first mobile layout: both review sidebars start collapsed, a compact
+header retains the title and approval action, and secondary execution/annotation controls use `RunWieldMenu`. Keep View,
+Edit, Changes, Contents, and Annotations reachable in a single document toolbar. Use 44px touch targets for mobile
+review navigation. Preserve the existing desktop layout.
+
+An expanded review panel fills the workbench below the header, with square edges, its own scrolling content, and tabs
+beside its close control. Show one panel at a time; closing it restores the document's position and focus. Choosing a
+Contents entry or comparison version returns to the document. Resizing into the compact range collapses both panels;
+manual reopening remains available until the next breakpoint change.
+
 ### Session context sidebar
 
 Every persisted Session has one durable context sidebar beside its transcript. Do not show the sidebar for the
-unsubmitted New Session composer. Use `RunWieldPanelToggle` for collapse and restore, matching the review sidebars:
-collapse at the left edge before the tabs, restore in the main header. Do not repeat tab titles as inner headings.
-Remember the choice; default to collapsed on narrow screens so the conversation and composer stay visible. The sidebar
-has three peer tabs: **Workflow**, **Session**, and **Artifacts**. Default to Workflow when the Session has an active
-workflow; otherwise default to Session. Preserve the reader's selected tab while the same Session remains open.
+unsubmitted New Session composer. Use one `RunWieldPanelToggle` in the main Workspace header for collapse and restore,
+matching the review sidebars. When open, the tabs sit beside it over the sidebar, with the same width and divider as the
+pane below. When closed, the button moves to the right edge and reverses its icon without changing height. Keep the
+header at one consistent height in both states. The open pane's background and divider extend to the viewport top; its
+top padding stays inside that background, preserving the controls' vertical alignment. No horizontal divider separates
+the tab rail from the sidebar content; the full header divider spans only the conversation. On phones, open tabs take
+the title's space in the same row. Do not repeat tab titles as inner headings. Remember the desktop choice. At 900px or
+narrower, hide the sidebar on entry and when crossing that breakpoint, regardless of the saved desktop choice. Allow
+explicit reopening; restore the desktop choice when widening again. Narrow-screen toggles do not overwrite that choice.
+The sidebar has three peer tabs: **Workflow**, **Session**, and **Artifacts**. Default to Workflow when the Session has
+an active workflow; otherwise default to Session. Preserve the reader's selected tab while the same Session remains
+open, except when a new Plan attaches and selects Workflow.
 
-Workflow shows canonical workflow stages and their state, not a second transcript. When the active Plan explicitly
-belongs to an Epic, show **Epic** and its name above **Plan** and the child Plan name; omit Epic for standalone Plans.
-Workspace and TUI render the same `sessionSidebarFields` list, including labels, precision, and unavailable values.
-Session shows durable, user-facing facts such as its name, message and tool-call counts, compaction count, queued
-prompts, and context composition. Context composition shows used versus model capacity and splits the used context into
-**System & setup** (agent instructions, tools, instruction files, memories, skills, and Project state) versus
-**Conversation** (Session chat and provider overhead). Do not expose storage generation or restate that the Session
-being viewed is active. In the TUI, do not repeat agent, model, thinking, cost, folder, or branch details from the
-footer; the detailed context breakdown may expand on the footer's compact context percentage. Artifacts lists only
-explicitly registered, Project-relative Markdown artifacts; never infer an artifact by scraping transcript text. Each
-artifact opens in the shared read-only artifact surface and returns to the owning Session.
+Workflow shows canonical workflow stages, the current step, blocker text, and the next action. It is not a second
+transcript and not a separate progress page. When the active Plan explicitly belongs to an Epic, show **Epic** and its
+name above **Plan** and the child Plan name; omit Epic for standalone Plans. Workspace and TUI use the same workflow
+presentation facts and `sessionSidebarFields` list, including labels, precision, and unavailable values. Workspace adds
+the current **Agent**, **Model** (`provider/model`), and **Thinking** at the top, omitting the name already in the
+header. Use the active Session snapshot rather than staged composer selections. Live operation updates keep these fields
+and the workflow association current before the turn finishes. Attaching a new Plan selects Workflow once; subsequent
+updates preserve the chosen tab. Workflow progress refreshes independently of transcript streaming. Session shows
+durable, user-facing facts such as its name, message and tool-call counts, compaction count, queued prompts, and context
+composition. Context composition shows used versus model capacity and splits the used context into **System & setup**
+(agent instructions, tools, instruction files, memories, skills, and Project state) versus **Conversation** (Session
+chat and provider overhead). Do not expose storage generation or restate that the Session being viewed is active. In the
+TUI, do not repeat agent, model, thinking, cost, folder, or branch details from the footer; the detailed context
+breakdown may expand on the footer's compact context percentage. Artifacts lists only explicitly registered,
+Project-relative Markdown artifacts; never infer an artifact by scraping transcript text. Each artifact opens in the
+shared read-only artifact surface and returns to the owning Session.
 
-Embedded artifact readers use Workspace’s header for their title and Back to Session action; the standalone logo/title
-bar is omitted. The document toolbar uses `RunWieldPanelToggle` for Contents, matching review controls. Contents starts
-collapsed at widths of 980 px or less. On phones, opening it fills the document pane; selecting a heading returns to the
-document. The toolbar remains reachable for collapsing or restoring Contents.
+Artifact readers replace the Workspace shell with the same full-window layout as standalone readers. Keep the W. logo,
+artifact title, path, and Back to Session action in their own header. Standalone launches retain Close. The document
+toolbar uses `RunWieldPanelToggle` for Contents, matching review controls. Contents starts collapsed at widths of 980 px
+or less. On phones, opening it fills the document pane; selecting a heading returns to the document. The toolbar remains
+reachable for collapsing or restoring Contents. Show one Contents header and collapse control; hide the imported
+sidebar’s duplicate tab row.
 
 Use the `.session-context-*` classes and `--rw-*` semantic tokens for the tab rail, fields, workflow rows, and artifact
 links. The sidebar is a flat adjacent pane with dividers, not a stack of floating cards. At narrow browser widths it
-moves above the transcript without changing its information model.
+overlays the conversation below the shared header without changing its information model.
+
+**Sidebar motion**
+
+Workspace navigation, Session context, review Contents/files and annotations, and artifact Contents share a short
+horizontal slide and fade when opened or closed. Use `animateSidebarChange` from the shared design system (or
+`animateSidebarUpdate` for React state) for user actions. Native view transitions preserve the outgoing panel image
+without retaining hidden interactive content. The adjacent canvas follows the layout change; document text does not
+scale. Motion uses `--rw-sidebar-motion-duration` (180ms) and `--rw-sidebar-motion-ease`, with a 12px edge offset and no
+bounce. Initial state, responsive layout changes, unsupported browsers, and reduced-motion preferences stay instant.
+Sidebar transitions are scoped separately from page navigation and do not animate panel resizing.
 
 The TUI uses the same Session projection. Wide terminals show the context pane on the right, pinned to the top of the
 visible terminal viewport while transcript blocks scroll independently, and cycle the three tabs with **Ctrl+]**. Its
 two-line footer remains full width below both panes. Narrow terminals retain the existing transcript-only layout. If a
-TUI user opens an artifact, prefer the configured Workspace reader and fall back to the short-lived local read-only
-reader.
+TUI user presses **Alt+]**, show a picker of registered Session artifacts and open the selection in the shared browser
+reader through a token-protected local launch. Close stops that reader without changing the artifact or running turn.
 
 Workspace navigation uses a draggable `.rw-panel-resize-handle` on its right edge. Keep the sidebar between 220 and
 480px while reserving at least 420px for the main pane. Remember its width separately from its collapsed state. The
 handle is a focusable separator: arrow keys adjust width, Home/End select the limits, and double-click restores 280px.
-Hide the handle in the narrow-screen overlay layout. Every Session list uses the saved name (including rename entries),
-then the first user message. Suppress Sessions that have neither; never fill lists with “Untitled Session.” Keep the
-same naming and visibility rules in Workspace and the TUI.
+Hide the handle in the narrow-screen overlay layout. Project navigation lists active Plans before standalone Sessions.
+Nest up to two proven associated Sessions below each Plan, exclude those Sessions from the standalone list, and expand
+Plan or nested-Session overflow in place so focus stays in the sidebar. Muted On-Hold Plans appear after active work.
+Session lists use saved names (including rename entries), never the first prompt. Omit unnamed, empty Sessions by
+default; keep named, nonempty, and unreadable Sessions accessible.
+
+Workspace-wide actions live in the hamburger menu to the left of the Workspace logo. Browser notification permission,
+its enabled/blocked state, and the public Documentation link belong inside that menu, not among Session or review header
+actions. Use the shared `RunWieldMenu` popover and `.rw-menu-*` styles: semantic tokens, keyboard focus, Escape and
+outside-click dismissal, and a portal so the navigation pane cannot clip it. Plan and Code Review options use the same
+menu and `RunWieldMenuItem` rows. All hamburger and sidebar collapse/restore controls use `RunWieldIconButton`
+(`.rw-icon-button` for the imperative Workspace shell): transparent and borderless, muted hover/open fill, visible
+keyboard focus, and a fixed compact 28px height at every viewport width. Menu navigation links use the same
+`.rw-menu-item` row as actions. Optional text labels may extend the width.
+
+### Settings and devices
+
+Projects and Devices are peer Workspace-level views in `SettingsLayout.astro`. Their shared underline tabs sit in the
+Workspace header; content has matching panel spacing on both sides with a 64rem maximum width. Cards and Project rows on
+Projects, Project Settings, and Devices use square corners. Project rows open that Project’s settings as a child page.
+Its header replaces the tabs with a **Back to Projects** control and **Project settings** title. Keep the Project name
+and root status as compact context inside the content. Do not repeat Plan Board or New Session actions here. Devices
+lists Workspace-wide paired browsers and never inherits a Project-specific scope. Device rows place the shared `badge`
+for **Current** beside the device name and the Revoke action at the trailing edge; narrow screens wrap the action
+beneath the metadata without stretching the badge.
+
+Project disclosure triangles and settings gears use explicit 16px SVGs, matching the sidebar controls rather than
+font-dependent text glyphs. The triangle rotates between right and down; the gear keeps a compact 28px hit area.
 
 ## Token model
 
 Workspace already exposes semantic CSS custom properties using the `--rw-*` prefix. Keep this as the public browser UI
 token namespace.
 
+### Narrow Code Review
+
+Below 980px, Code Review stacks its file list, diff, and annotations. The file list is bounded; the diff retains a
+readable scroll area instead of shrinking to its toolbar. Diff controls wrap when space is limited. Session context tabs
+and Workspace navigation rows use 44px touch targets on phones.
+
+### Browser themes
+
+Browser surfaces currently use the approved dark identity from `brand/` and the sibling `../runwield.dev/` website,
+regardless of OS color preference or the selected TUI theme. TUI settings and appearance remain independent.
+
+`src/ui/design-system/themes/dark.ts` exports `DARK_BROWSER_THEME` with `name`, `colorScheme`, and semantic `colors`.
+`renderRunWieldThemeCss(theme = DARK_BROWSER_THEME)` in `theme-bridge.js` is a pure browser renderer. It keeps the Radix
+and Plannotator aliases without reading TUI settings. Both browser `/theme.css` endpoints call it without arguments. The
+old `loadRunWieldThemeCss` loader and unused Workspace `server/theme-css.js` module are removed.
+
+Keep browser theme support: a future light or custom theme supplies a separate token set to the same renderer, without
+restyling components or changing spacing and typography. No light theme, theme picker, or OS-following mode is shipped.
+See [Workspace browser appearance requirements](prd/runwield-workspace-prd.md#browser-appearance-and-themes).
+
 ### Color tokens
 
-Use existing tokens before adding new ones.
+Use existing tokens before adding new ones. Literal browser colors belong in the theme module, not component CSS.
 
 | Token                    | Purpose                                                      |
 | ------------------------ | ------------------------------------------------------------ |
@@ -259,34 +386,39 @@ Use existing tokens before adding new ones.
 | `--rw-warning`           | In-progress, implemented, blocked, or caution state.         |
 | `--rw-error`             | Failed, missing, denied, or destructive state.               |
 | `--rw-code`              | Code and editor accent.                                      |
+| `--rw-brand`             | Brand mark and sidebar rail; not an action color.            |
+| `--rw-on-accent`         | Text on accent-filled controls.                              |
 | `--rw-complexity-low`    | LOW Complexity label.                                        |
 | `--rw-complexity-medium` | MEDIUM Complexity label.                                     |
 | `--rw-complexity-high`   | HIGH Complexity label.                                       |
 
+Filled colors have separate text roles: `--rw-on-accent-strong`, `--rw-on-success`, `--rw-on-warning`, `--rw-on-error`,
+and `--rw-on-brand`. A theme must supply these roles. Do not assume the page background is readable on every filled
+control. Primary controls retain contrasting text on hover and keyboard focus.
+
 ### Shape, control, and spacing tokens
 
-| Token                                           | Purpose                                                  |
-| ----------------------------------------------- | -------------------------------------------------------- |
-| `--rw-radius-control`                           | Buttons, inputs, tabs, and other ordinary controls.      |
-| `--rw-radius-card`                              | Cards and nested content blocks.                         |
-| `--rw-radius-panel`                             | Board columns, sidebars, dialogs, and larger containers. |
-| `--rw-radius-pill`                              | Statuses, counts, and short metadata only.               |
-| `--rw-control-height-compact`                   | Review-style compact toolbar controls.                   |
-| `--rw-control-height`                           | Standard desktop controls.                               |
-| `--rw-space-control-x` / `--rw-space-control-y` | Standard control padding.                                |
-| `--rw-space-card`                               | Card padding.                                            |
-| `--rw-space-panel`                              | Page-edge and panel padding.                             |
+| Token                                           | Purpose                                              |
+| ----------------------------------------------- | ---------------------------------------------------- |
+| `--rw-radius-control`                           | Buttons, inputs, tabs, and other ordinary controls.  |
+| `--rw-radius-card`                              | Cards and nested content blocks.                     |
+| `--rw-radius-panel`                             | Dialogs and enclosed panels; not flat board columns. |
+| `--rw-radius-pill`                              | Statuses, counts, and short metadata only.           |
+| `--rw-control-height-compact`                   | Review-style compact toolbar controls.               |
+| `--rw-control-height`                           | Standard desktop controls.                           |
+| `--rw-space-control-x` / `--rw-space-control-y` | Standard control padding.                            |
+| `--rw-space-card`                               | Card padding.                                        |
+| `--rw-space-panel`                              | Page-edge and panel padding.                         |
 
 Shared CSS owns a border-box reset so declared control heights include borders and padding. Without it, a nominal 32px
 control can render much taller. Do not override this reset locally.
 
-The browser design system must share the active theme with the TUI. The shared design-system module owns the browser
-theme bridge at `src/ui/design-system/theme-bridge.js`, which maps the active RunWield TUI theme into these variables.
-New browser surfaces should consume the generated variables; they should not read theme JSON directly.
-
 Shared CSS should be split by responsibility rather than kept as one broad `styles.css` file:
 
-- `tokens.css` for base CSS variables, resets, typography defaults, and theme-derived token usage;
+- `themes/dark.ts` for the current browser color set; future themes use separate modules with the same semantic roles;
+- `theme-bridge.js` for browser color variables and shared review aliases;
+- `tokens.css` for non-color typography, geometry, spacing, resets, and derived Complexity intent;
+- `fonts.css` for locally bundled Outfit Variable and IBM Plex Mono, matching the website;
 - `components.css` for reusable design-system primitives such as actions, cards, badges, notices, forms, metadata,
   dialogs, and editor/markdown surfaces;
 - surface-specific CSS, such as `workspace.css`, for layouts and patterns that are not yet shared across browser
@@ -299,7 +431,7 @@ Only add a token when an existing semantic token cannot describe the intended us
 - prefixed with `--rw-`;
 - semantic rather than literal;
 - documented in this file;
-- mapped in `src/ui/design-system/theme-bridge.js` when they should respond to user themes;
+- defined in each browser theme when they represent colors; keep review aliases in `theme-bridge.js`;
 - used by at least one real pattern.
 
 Avoid component-specific tokens until a component genuinely needs stable customization across surfaces.
@@ -325,13 +457,26 @@ Use tabs for peer workspace views, such as active, closed, and on-hold Plan grou
 
 Tab rules:
 
-- use compact 32px rounded rectangles inside a thin bordered tab bar;
-- use the control radius, never the pill radius;
-- active tabs use `--rw-surface-muted`, strong text, and an inset accent marker;
-- hover states use `--rw-surface-strong` and stronger borders;
+- use the shared `.rw-underline-tabs` rail for Plan Board views, Session context, and both review sidebars;
+- in every standalone and Workspace Plan/Code Review, put the Annotations/chat tabs in the right sidebar header beside
+  its collapse control. Do not add a separate Annotations heading above them. Without chat, retain the simple heading;
+- use the same tabs for Plan Contents/Versions and Code Files/Changes in the left sidebar header; keep both labels
+  visible and the collapse control beside the rail;
+- keep the rail and its links/buttons square, with no enclosing box; a thin baseline runs under the tabs;
+- active tabs use strong text and a thicker 3px accent underline; links use `aria-current`, buttons use `aria-selected`;
+- hover states use `--rw-surface-muted`; keyboard focus has a visible inset outline;
+- use compact 32px controls by default, with the Session header's compact/touch size overrides;
 - tabs may include a trailing utility slot, such as search, when it filters the current view.
 
 Do not use tabs for one-off actions. Use action buttons instead.
+
+### Segmented controls
+
+Use `RunWieldSegmentedControl` for compact selectors. Imported controls use its shared `attachSegmentedSelection`
+adapter. Both reserve enough width for the longest selected label, keeping the toolbar's footprint steady. Labels and
+button sizes switch immediately; only the selection highlight slides for 180ms. Never animate button width, padding, or
+gaps. Use `--rw-control-motion-duration` and `--rw-control-motion-ease`, including for imported controls. Reduced-motion
+preferences disable the transition. Selection and tool behavior update immediately.
 
 ### Action controls
 
@@ -550,14 +695,11 @@ Plan Detail, Plan Review, and read-only Plan are modes of the same Plan workbenc
 review shell, compact title toolbar, document canvas, and pane boundaries. Change the available controls and side-rail
 content for each mode; do not give one mode a separate dashboard-detail layout.
 
-When a review or artifact reader is embedded in Workspace, the Workspace main header is its only title and decision bar.
-Code Review puts its options and approval there; an artifact reader puts Back to Session there. For Plan Review, Show
-`Plan Review — [Plan title]` on the left and the execution-policy controls plus approval action on the right. Begin the
-embedded surface directly with the Plan workbench: do not repeat the logo/title/options header or the Project/Session
-breadcrumb strip. Reuse the Session screen's `workspace-main-header` height, title alignment, and shell spacing; do not
-create review-specific header geometry. Keep one `--rw-space-panel` gap below that shared header before the embedded
-workbench begins. Workspace Plan Review defaults to the wide document canvas. Standalone review keeps its compact
-launcher header because it has no owner Workspace shell.
+Workspace Plan Review and Code Review replace the entire owner shell with `ReviewLayout.astro`, the same full-window
+layout used by standalone reviews. Their own compact toolbar contains branding, options, and decision controls; only the
+review's Contents/Files and Annotations sidebars are present. Do not mount the Workspace Project/Session sidebar, its
+restore control, or a second header on review routes. Workspace Plan Review keeps its wide document canvas. Read-only
+artifact readers use that full-window shell too, with their own logo/title header and Back to Session.
 
 Plannotator-specific mapping:
 
@@ -599,10 +741,11 @@ Before adding or changing browser UI, check:
 
 ## Non-goals for v1
 
-- No marketing-site design language.
+- No marketing-page layouts or effects; brand colors and website typography are shared.
 - No large-radius, oversized SaaS-dashboard component language.
 - No requirement to extract a full component library immediately.
-- No replacement of RunWield theme files with a separate design-token build system.
+- No generated palette replacing the approved brand or browser theme modules.
+- No browser theme picker or light theme in the current scope; keep future themes easy to swap.
 - No commitment to W3C Design Tokens file format until a real integration needs it.
 
 ## Plannotator component reuse exception
@@ -625,9 +768,14 @@ When imported Plannotator components are used:
 The Plan Board, Plan Review, and Code Review each have one surface body. Shells are explicit presentation concerns:
 
 - `PlanBoardPage.astro` renders the same board, filters, tabs, cards, and empty states with either the compact local
-  `wld plans ui` shell or the owner Workspace sidebar shell;
-- `PlanReviewSurface` and `CodeReviewSurface` use `presentation="standalone"` for TUI-launched browser windows and
-  `presentation="workspace"` when a live Session opens the review in the Workspace shell;
+  `wld plans ui` shell or the owner Workspace sidebar shell. Both place view tabs and trailing search in the header row.
+  Only the local shell shows the W. logo and RunWield Plans heading; the owner shell does not repeat Project title or
+  checkout health above the board. Narrow screens may wrap search below the tabs. Columns have square edges and only
+  separators between them, with one empty message per column and no duplicate whole-board empty notice. Keep the drag
+  feedback region hidden until there is an actual move or rejection to report; omit the default instruction card;
+- `PlanReviewSurface` and `CodeReviewSurface` use their default full-window presentation in `ReviewLayout.astro` for
+  both TUI-launched browser windows and Workspace review routes. `ArtifactReadSurface` uses this same full-window shell
+  for Session artifacts, with its own title and return action. Workspace payloads retain their own APIs and navigation;
 - behavior, payload interpretation, annotations, and decision controls stay in the shared surface. Do not fork a
   Workspace-only copy of either review.
 
@@ -635,9 +783,13 @@ Astro development entrypoints:
 
 - `deno task workspace:dev` starts the development server and opens `/dev`, the catalog for every paired presentation;
 - `/` and `/projects/dev-project/plans` compare the local and Workspace Plan Board shells;
-- `/dev/plan-review` and `/dev/workspace/plan-review` compare standalone and in-situ Plan Review;
-- `/dev/code-review` and `/dev/workspace/code-review` compare standalone and in-situ Code Review;
-- `/projects/dev-project/sessions/choose-terraform-folder-name` exercises the Session shell and timeline.
+- `/dev/plan-review` and `/dev/workspace/plan-review` exercise standalone and Workspace-launched full-window Plan
+  Review;
+- `/dev/code-review` and `/dev/workspace/code-review` exercise standalone and Workspace-launched full-window Code
+  Review;
+- `/projects/dev-project/sessions/choose-terraform-folder-name` exercises the Session shell and timeline: user and Agent
+  messages, collapsed Activity, individual tool states, thinking, Plan and Code Review prompts, every special workflow
+  tool (including triage, completion, and QA), and system notices.
 
 Plan Review fixture variants are linked from `/dev`; fixture pages do not render an additional variant switcher above
 the review surface.
@@ -645,6 +797,10 @@ the review surface.
 The `/dev` routes are fixture-only and return 404 in production. The standalone `/review/plan` and `/review/code` routes
 remain the real token-protected TUI launch targets. Live Workspace Plan and Code Review decisions return to the same
 Session interaction through owner Workspace endpoints.
+
+Linked source-file dialogs keep code rows at their natural line height, even for short files in tall dialogs. The shared
+review stylesheet gives the imported reader a content-sized grid track; its surrounding pane scrolls long files. Keep
+this rule shared by standalone and Workspace reviews.
 
 ## Guided Review Explainer blocks
 
@@ -684,15 +840,30 @@ proof-bearing RunWield Verified. Badges, buttons, and metadata should reuse exis
 closed/success states and pair the label with explanatory text such as “verified by the user; Workflow Validation was
 not claimed.” Do not add a separate theme or token for this status.
 
-### Workflow progress
+### Plan home, Dashboard rows, and workflow progress
 
-Use the workflow progress pattern when a surface must show an ordered RunWield workflow such as execution, Mechanical
-Validation, Semantic Code Review, repair, delivery, and completion.
+Dashboard, Sessions, and Plan home share the persistent Workspace navigation sidebar for switching Plans and Sessions.
+The shared artifact reader uses the Workspace title header and action slot, without a duplicate header or logo. Contents
+starts collapsed; Contents and Workflow pane controls share one aligned row and the shared sidebar motion. On narrow
+screens both panes start collapsed and open over the document. Keep Plan home usable when workflow evidence is
+unavailable.
 
-- Render stages as an ordered list with text status and color status. Do not rely on color alone.
+The owner Dashboard uses compact category rows for **Needs You**, **Ready to Continue**, **In Progress**, and **Recently
+Finished**. Rows are links to the repair destination, Plan, or Session. Long names shrink and truncate inside the row;
+the action label must remain reachable on phones.
+
+Use the workflow progress pattern when Plan home or a Session Workflow sidebar must show an ordered RunWield workflow
+such as Execution, Tests and CI, AI review, repair, Code Review, Publication, and Completion.
+
+- Render stages as plain ordered rows without decorative connector ticks. Omit Current/Upcoming labels; retain
+  meaningful completed, blocked, and paused states. Descriptions explain purpose, recorded progress, errors, or user
+  actions rather than repeating the step state.
+- Mark the current stage with `aria-current="step"` and an accent rail.
+- Put blocker text and the next action near the diagram. The action must route to the existing review, prompt, Session,
+  continuation, or recovery flow.
 - Use `--rw-*` semantic tokens for borders, surfaces, success, warning, error, and accent states.
-- Keep the model read-only. Progress views can link to related Plan and Session pages, but they must not advance the
-  workflow.
+- Use links for navigation actions and buttons for existing continuation or recovery actions. Do not add a second
+  workflow mutation path.
 - Long failure text must wrap inside the card and must not create whole-page horizontal overflow.
 
 ## Grouped Plan review
@@ -707,10 +878,22 @@ header controls as single-Plan review. Surface Lab includes standalone and embed
 
 Only tools that advance the workflow or record its decisions and completed steps belong in `WORKFLOW_TOOL_NAMES` and
 render as expanded `.rw-workflow-block` entries. Inspection tools such as `review_diff` stay collapsed with routine
-activity. Each workflow entry has one outer container; its Markdown body has no separate border, background, or padding.
+activity. Every special tool block has square corners, including completion and QA blocks. Its title and left rail use
+RunWield mint (`--rw-brand`) to distinguish it from blue user messages; failures use red status text. All timeline rails
+are 2px inset stripes. Draw the special block's frame separately so its stripe has square ends, without diagonal border
+joins. Each workflow entry has one outer container; its Markdown body has no separate border, background, or padding.
 Show its name, running/completed/failed state, full report or decision, and available artifact/review actions. Keep
 routing intent, complexity, plan outcomes, completion summaries, review findings, and checklists visible. Accepted
 workflow records close the block even when a tool stops its own turn before a provider tool result is persisted. Live
 events and reloaded history show the same information once per call. Do not infer acceptance from tool arguments.
 
 Message images open in the shared dialog styling with an explicit Close action and Escape support.
+
+Activity groups retain their open/closed state as events arrive; group identity must not depend on the event count.
+Opening or closing Activity also opens or closes its Thinking rows. New Thinking rows inherit the group's current state.
+Tool rows keep their own disclosure state. Individual Thinking rows remain independently toggleable between group
+toggles.
+
+Session history and live activity form one chronological timeline. Reconcile workflow/tool copies by call identity
+before grouping; accepted report times survive delayed tool results. Activity contains only consecutive completed tools
+and Thinking, ending at every message, special block, or system notice. Never move activity across a user message.

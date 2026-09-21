@@ -3,6 +3,7 @@
  * Registered Project lifecycle and health APIs for owner coordination.
  */
 
+import { deleteProjectRegistration } from "./project-removal.ts";
 import { basename, isAbsolute, resolve } from "@std/path";
 
 /**
@@ -176,15 +177,6 @@ export function registerProject(database, options) {
         const now = isoNow(options.now);
         if (existingRoot) {
             const existingProjectId = String(existingRoot.id);
-            if (existingRoot.lifecycle === "removed") {
-                db.prepare(
-                    "UPDATE projects SET lifecycle = 'enabled', registered_root = ?, current_root = ?, display_name = ?, updated_at = ?, restored_at = ?, removed_at = NULL WHERE id = ?",
-                ).run(enteredRoot, canonicalRoot, displayName, now, now, existingProjectId);
-                db.prepare(
-                    "UPDATE project_roots SET root_state = 'historical', ended_at = COALESCE(ended_at, ?) WHERE project_id = ?",
-                )
-                    .run(now, existingProjectId);
-            }
             ensureProjectRootEvidence(db, {
                 projectId: existingProjectId,
                 enteredRoot,
@@ -233,9 +225,6 @@ export function setProjectEnabled(database, projectId, enabled, options = {}) {
     return ownerDb.transaction(() => {
         const project = getProjectById(ownerDb, projectId);
         if (!project) throw new Error(`Project not found: ${projectId}`);
-        if (project.lifecycle === "removed") {
-            throw new Error(`Removed Project must be restored before enabling: ${projectId}`);
-        }
         const now = isoNow(options.now);
         ownerDb.handle.prepare(
             "UPDATE projects SET lifecycle = ?, updated_at = ?, disabled_at = ? WHERE id = ?",
@@ -245,41 +234,16 @@ export function setProjectEnabled(database, projectId, enabled, options = {}) {
 }
 
 /**
+ * Delete Workspace database records only; repository and Session files are untouched.
  * @param {import('./database.js').OwnerCoordinationDatabase} database
  * @param {string} projectId
- * @param {{ now?: () => string }} [options]
- * @returns {RegisteredProject}
+ * @returns {void}
  */
-export function removeProject(database, projectId, options = {}) {
+export function removeProject(database, projectId) {
     const ownerDb = requireDatabase(database);
-    return ownerDb.transaction(() => {
-        const project = getProjectById(ownerDb, projectId);
-        if (!project) throw new Error(`Project not found: ${projectId}`);
-        const now = isoNow(options.now);
-        ownerDb.handle.prepare(
-            "UPDATE projects SET lifecycle = 'removed', updated_at = ?, removed_at = ?, disabled_at = NULL WHERE id = ?",
-        ).run(now, now, projectId);
-        return /** @type {RegisteredProject} */ (getProjectById(ownerDb, projectId));
-    });
-}
-
-/**
- * @param {import('./database.js').OwnerCoordinationDatabase} database
- * @param {string} projectId
- * @param {{ now?: () => string }} [options]
- * @returns {RegisteredProject}
- */
-export function restoreProject(database, projectId, options = {}) {
-    const ownerDb = requireDatabase(database);
-    return ownerDb.transaction(() => {
-        const project = getProjectById(ownerDb, projectId);
-        if (!project) throw new Error(`Project not found: ${projectId}`);
-        if (project.lifecycle !== "removed") throw new Error(`Project is not removed: ${projectId}`);
-        const now = isoNow(options.now);
-        ownerDb.handle.prepare(
-            "UPDATE projects SET lifecycle = 'enabled', updated_at = ?, restored_at = ?, removed_at = NULL WHERE id = ?",
-        ).run(now, now, projectId);
-        return /** @type {RegisteredProject} */ (getProjectById(ownerDb, projectId));
+    ownerDb.transaction(() => {
+        if (!getProjectById(ownerDb, projectId)) throw new Error(`Project not found: ${projectId}`);
+        deleteProjectRegistration(ownerDb.handle, projectId);
     });
 }
 

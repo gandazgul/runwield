@@ -45,6 +45,7 @@ export const RuntimeInteractionOutcomes = Object.freeze({
  * @property {string} [placeholder]
  * @property {boolean} [allowEmpty]
  * @property {string} [toolCallId]
+ * @property {string} [reviewUrl]
  * @property {Record<string, unknown>} [_meta]
  */
 

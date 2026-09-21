@@ -190,6 +190,7 @@ export function createReplayEvents(sessionId, entries, options = {}) {
                     agentName: replayAgentName,
                     messageKind: "workflow",
                     workflowMessage: "task_completed",
+                    toolCallId,
                 });
             }
             continue;
@@ -231,6 +232,7 @@ export function createReplayEvents(sessionId, entries, options = {}) {
                         agentName: replayAgentName,
                         messageKind: "workflow",
                         workflowMessage: "task_completed",
+                        toolCallId,
                     });
                 }
                 continue;
@@ -456,6 +458,7 @@ export function createReplayEvents(sessionId, entries, options = {}) {
                 agentName: manualQaChecklist.agentName,
                 messageKind: "workflow",
                 workflowMessage: "manual_qa_checklist",
+                ...(manualQaChecklist.toolCallId ? { toolCallId: manualQaChecklist.toolCallId } : {}),
             });
         }
     }
@@ -942,6 +945,7 @@ export function buildProjectedSessionInfo(entries, options) {
     const summary = summarizeProjectedEntries(entries);
     const info = {
         name: summary.name || "",
+        planAssociations: summary.planAssociations,
         file: options.transcriptPath || "Committed transcript",
         persistedId: options.sessionId,
         compactionCount: 0,

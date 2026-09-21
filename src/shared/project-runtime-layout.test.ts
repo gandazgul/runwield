@@ -1373,6 +1373,28 @@ Deno.test("legacy migration rechecks registry after waiting for the legacy regis
     }
 });
 
+Deno.test("legacy migration waits while another migration initializes its lock records", async () => {
+    const project = await makeMigrationProject();
+    let lockHolder: Deno.ChildProcess | undefined;
+    try {
+        const layout = resolveProjectRuntimeLayout(project.selectedRoot);
+        const signalPath = join(project.primaryRoot, ".migration-lock-test-started");
+        await writeText(join(getRunWieldRuntimeDir(project.primaryRoot), "controller", "plans", "plan.json"), "x\n");
+        lockHolder = spawnDriver("hold-initializing-migration-locks", project.primaryRoot, signalPath);
+        await readReadyLine(lockHolder.stdout);
+        await writeText(signalPath, "start\n");
+        const result = await migrateLegacyProjectRuntimeState(project.selectedRoot);
+        if (result.kind !== "ready") throw new Error(JSON.stringify(result));
+        assertEquals(await Deno.readTextFile(join(layout.primary.controllerPlansDir, "plan.json")), "x\n");
+        await lockHolder.status;
+        lockHolder = undefined;
+    } finally {
+        lockHolder?.kill("SIGKILL");
+        await lockHolder?.status.catch(() => {});
+        await project.cleanup();
+    }
+});
+
 Deno.test("legacy migration lock serializes concurrent stale-lock recovery", async () => {
     const project = await makeMigrationProject();
     try {

@@ -194,11 +194,13 @@ export function getStoredPlanPath(cwd, planName) {
  * @property {string|null} [userVerifiedAt] - ISO timestamp when the user attested verification outside Workflow Validation
  * @property {string|null} [userVerificationNote] - Required note for user_verified terminal plans
  * @property {string|null} [closedWithoutVerificationReason] - Required reason for new manual closed_without_verification transitions
+ * @property {string|null} [closedWithoutVerificationAt] - ISO timestamp when the Plan was manually closed without verification
  * @property {{ status?: "generated"|"failed", recordId?: string, path?: string, lastAttemptAt?: string, error?: string }} [workRecord] - Neutral backlink to canonical Work Record generation state
  * @property {"done_enough"|null} [epicCompletionMode] - Explicit Epic completion mode when an Epic is marked done enough for now
  * @property {string|null} [epicDoneEnoughAt] - ISO timestamp when an Epic was marked done enough for now
  * @property {string|null} [epicDoneEnoughSummary] - Human-readable summary captured when an Epic was marked done enough for now
  * @property {string} [targetBranch] - User-selected target branch, independent of the current execution attempt
+ * @property {string|null} [validatedCommit] - Validated implementation commit; durable after runtime cleanup
  * @property {PlanFrontMatter["status"]|null} [heldFromStatus] - Status captured before the Plan moved to on_hold
  * @property {string|null} [heldAt] - ISO timestamp when the Plan was put on hold
  * @property {string|null} [holdReason] - Optional human reason for the hold
@@ -440,6 +442,7 @@ function formatFrontMatter(fm) {
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.userVerifiedAt, fm.userVerifiedAt);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.userVerificationNote, fm.userVerificationNote);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.closedWithoutVerificationReason, fm.closedWithoutVerificationReason);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.closedWithoutVerificationAt, fm.closedWithoutVerificationAt);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.executionReport, fm.executionReport);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.workRecord, fm.workRecord);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.humanReviewMode, fm.humanReviewMode);
@@ -457,6 +460,7 @@ function formatFrontMatter(fm) {
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.worktreeBranch, fm.worktreeBranch);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.worktreeBaseBranch, fm.worktreeBaseBranch);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.targetBranch, fm.targetBranch);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.validatedCommit, fm.validatedCommit);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.worktreeStatus, fm.worktreeStatus);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.heldFromStatus, fm.heldFromStatus);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.heldAt, fm.heldAt);
@@ -1048,6 +1052,7 @@ export function injectFrontMatter(markdown, overrides = {}) {
             existingFm,
             "closedWithoutVerificationReason",
         ),
+        closedWithoutVerificationAt: optionalFrontMatterValue(overrides, existingFm, "closedWithoutVerificationAt"),
         executionReport: optionalFrontMatterValue(overrides, existingFm, "executionReport"),
         workRecord: Object.hasOwn(overrides, "workRecord")
             ? normalizeWorkRecordBacklink(overrides.workRecord)
@@ -1083,6 +1088,7 @@ export function injectFrontMatter(markdown, overrides = {}) {
         worktreeBranch: optionalFrontMatterValue(overrides, existingFm, "worktreeBranch"),
         worktreeBaseBranch: optionalFrontMatterValue(overrides, existingFm, "worktreeBaseBranch"),
         targetBranch: optionalStringValue(overrides, existingFm, "targetBranch"),
+        validatedCommit: optionalFrontMatterValue(overrides, existingFm, "validatedCommit"),
         worktreeStatus: normalizeWorktreeStatus(
             Object.hasOwn(overrides, "worktreeStatus") ? overrides.worktreeStatus : existingFm.worktreeStatus,
         ),
@@ -1193,6 +1199,9 @@ export function parsePlanFrontMatter(markdown, opts = {}) {
             closedWithoutVerificationReason: typeof attrs.closedWithoutVerificationReason === "string"
                 ? attrs.closedWithoutVerificationReason
                 : undefined,
+            closedWithoutVerificationAt: typeof attrs.closedWithoutVerificationAt === "string"
+                ? attrs.closedWithoutVerificationAt
+                : undefined,
             executionReport: typeof attrs.executionReport === "string" ? attrs.executionReport : undefined,
             workRecord: normalizeWorkRecordBacklink(attrs.workRecord),
             humanReviewMode: normalizeHumanReviewMode(attrs.humanReviewMode),
@@ -1208,6 +1217,7 @@ export function parsePlanFrontMatter(markdown, opts = {}) {
             epicDoneEnoughSummary: attrs.epicDoneEnoughSummary,
             executionMode: normalizeExecutionMode(attrs.executionMode),
             deliveryEvidence: normalizeDeliveryEvidence(attrs.deliveryEvidence),
+            validatedCommit: typeof attrs.validatedCommit === "string" ? attrs.validatedCommit : undefined,
             executionBaselineTree: attrs.executionBaselineTree,
             worktreeId: attrs.worktreeId,
             worktreePath: attrs.worktreePath,
@@ -2422,7 +2432,10 @@ export async function updatePlanFrontMatter(
         }
         const attrs = { ...recoveryAttrs, ...updates, updatedAt: updates.updatedAt ?? new Date().toISOString() };
         const normalizedAttrs = parsePlanFrontMatter(injectFrontMatter(result.markdown, attrs)).attrs;
-        const previousValues = new Map(Object.entries(extractYaml(result.markdown).attrs || {}));
+        const previousValues = new Map(Object.entries(result.attrs));
+        const storedValues = new Map(
+            Object.entries(hasFrontMatter(result.markdown) ? extractYaml(result.markdown).attrs : {}),
+        );
         const nextValues = new Map(Object.entries(normalizedAttrs));
         /** @type {Partial<PlanFrontMatter>} */
         const normalizedOverrides = {};
@@ -2430,10 +2443,11 @@ export async function updatePlanFrontMatter(
             // Recovery attributes often contain the entire loaded Plan. Replacing
             // unchanged fields reformats YAML lists and invalidates sealed commits
             // during controller-only operations such as claiming a retry.
-            const unchanged = JSON.stringify(nextValues.get(key)) === JSON.stringify(previousValues.get(key));
-            const normalizesRetiredStatus = key === "status" &&
-                getDeclaredPlanStatus(result.markdown) !== nextValues.get(key);
-            if (unchanged && !normalizesRetiredStatus) continue;
+            // Explicit document updates must compare against the stored value:
+            // parsing may already normalize a retired status that still needs
+            // to be repaired on disk. Recovery defaults are not explicit edits.
+            const previous = Object.hasOwn(updates, key) ? storedValues.get(key) : previousValues.get(key);
+            if (JSON.stringify(nextValues.get(key)) === JSON.stringify(previous)) continue;
             /** @type {Record<string, unknown>} */ (normalizedOverrides)[key] =
                 /** @type {Record<string, unknown>} */ (normalizedAttrs)[key];
         }

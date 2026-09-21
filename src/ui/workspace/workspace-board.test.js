@@ -19,8 +19,6 @@ import { draftRecoveryState, planBodyDraftKey, restoredDraftExpectedBodyHash } f
 
 import { matchingPlanIds, normalizePlanSearchQuery, PLAN_SEARCH_QUERY_PARAM } from "./islands/PlanBoardSearch.jsx";
 
-import { renderRunWieldThemeCss } from "../design-system/theme-bridge.js";
-
 Deno.test("serializePlanSummary omits absolute paths and surfaces hierarchy/dependency metadata", () => {
     const summary = serializePlanSummary({
         planId: "p1",
@@ -419,63 +417,6 @@ Deno.test("renderMarkdown renders links and escapes unsafe markdown input", () =
     assertStringIncludes(html, 'href="https://runwield.dev"');
     assertStringIncludes(html, 'href="#"');
     assertStringIncludes(html, "<pre");
-});
-
-Deno.test("renderRunWieldThemeCss maps agent theme tokens to workspace CSS variables", () => {
-    const css = renderRunWieldThemeCss({
-        name: 'agent "theme"',
-        vars: {
-            base: "#010203",
-            overlay1: "#505152",
-            text: "#202122",
-            muted: "#303132",
-            warning: "#404142",
-        },
-        colors: {
-            accent: "#abcdef",
-            borderAccent: "#123456",
-            muted: "muted",
-            success: "#0bad55",
-            error: "#fedcba",
-            warning: "warning",
-        },
-        export: {
-            pageBg: "base",
-            cardBg: "#111213",
-            infoBg: "#141516",
-        },
-    });
-
-    assertStringIncludes(css, '--rw-theme-name: "agent \\"theme\\""');
-    assertStringIncludes(css, "--rw-page-bg: #010203;");
-    assertStringIncludes(css, "--rw-surface: #111213;");
-    assertStringIncludes(css, "--rw-surface-raised: #141516;");
-    assertStringIncludes(css, "--rw-accent: #abcdef;");
-    assertStringIncludes(css, "--rw-accent-strong: #123456;");
-    assertStringIncludes(css, "--rw-error: #fedcba;");
-    assertStringIncludes(css, "--rw-warning: #404142;");
-    assertStringIncludes(css, "--rw-complexity-low: #0bad55;");
-    assertStringIncludes(css, "--rw-complexity-medium: #404142;");
-    assertStringIncludes(css, "--rw-complexity-high: #fedcba;");
-    assertStringIncludes(css, "--rw-text: #202122;");
-    assertStringIncludes(css, "--rw-text-dim: #505152;");
-    assertStringIncludes(css, ".theme-runwield {");
-    assertStringIncludes(css, "--background: var(--rw-page-bg);");
-    assertStringIncludes(css, "--primary: var(--rw-accent);");
-});
-
-Deno.test("renderRunWieldThemeCss renders bundled Catppuccin Mocha export colors", async () => {
-    const themeJson = JSON.parse(
-        await Deno.readTextFile(new URL("../theme/catppuccin-mocha.json", import.meta.url)),
-    );
-    const css = renderRunWieldThemeCss(themeJson);
-
-    assertStringIncludes(css, '--rw-theme-name: "catppuccin-mocha"');
-    assertStringIncludes(css, "--rw-page-bg: #11111b;");
-    assertStringIncludes(css, "--rw-surface: #181825;");
-    assertStringIncludes(css, "--rw-surface-raised: #313244;");
-    assertStringIncludes(css, "--rw-text: #cdd6f4;");
-    assertStringIncludes(css, "--rw-accent: #cba6f7;");
 });
 
 Deno.test("workspace detail header CSS lets lifecycle actions wrap without squeezing summary", async () => {
