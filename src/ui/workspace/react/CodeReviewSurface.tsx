@@ -123,6 +123,9 @@ export function CodeReviewSurface({ payload, presentation = "standalone" }) {
         ? initialPayload.planName.trim()
         : "Code changes";
     const codeReviewHeading = `Code Review - ${codeReviewPlanTitle}`;
+    useEffect(() => {
+        document.title = codeReviewHeading;
+    }, [codeReviewHeading]);
     const highlightingReady = useCodeReviewHighlighting(files);
     const [activeFileIndex, setActiveFileIndex] = useState(0);
     const [annotations, setAnnotations] = useState([]);

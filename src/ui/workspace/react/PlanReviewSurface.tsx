@@ -245,6 +245,11 @@ function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup,
             frontmatter: frontmatterResult.frontmatter,
         };
     }, [plan]);
+    const planTitle = parsed.blocks.find((block) => block.type === "heading" && block.level === 1)?.content.trim() ||
+        initialPayload.planTitle?.trim() || initialPayload.planName?.trim() || "Untitled plan";
+    useEffect(() => {
+        if (active) document.title = `Plan Review - ${planTitle}`;
+    }, [active, planTitle]);
     const printPlan = editorMode === "edit" ? draftPlan : plan;
     const printablePlan = useMemo(() => ({
         blocks: parseMarkdownToBlocks(printPlan),
