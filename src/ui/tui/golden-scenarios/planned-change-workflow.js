@@ -389,6 +389,80 @@ export const plannedChangeReviewRepairValidationScenario = {
     ],
 };
 
+export const onboardingTutorialDeliveryScenario = {
+    ...plannedChangeReviewRepairValidationScenario,
+    name: "onboarding-tutorial-real-change-delivery",
+    onboardingOfferHandled: false,
+    coverage: [...plannedChangeReviewRepairValidationScenario.coverage, "tutorial:onboarding"],
+    scriptedInteractions: [
+        { type: "select", promptIncludes: "This tutorial makes a real change", value: "start" },
+        { type: "select", promptIncludes: "Tutorial guidance", value: "continue" },
+        ...plannedChangeReviewRepairValidationScenario.scriptedInteractions,
+    ],
+    script: [
+        {
+            id: "tutorial-planner-suggests-small-changes",
+            agent: "planner",
+            phase: "plan_review",
+            ordinal: 1,
+            thinking: "Inspect a bounded area and offer a small set of real improvements.",
+            text:
+                "Choose one small improvement: clarify the Quickstart tutorial, tighten one validation message, or improve one command description.",
+        },
+        ...plannedChangeReviewRepairValidationScenario.script.map((turn) =>
+            turn.agent === "planner" && turn.phase === "plan_review"
+                ? { ...turn, ordinal: Number(turn.ordinal) + 1 }
+                : turn
+        ),
+    ],
+    actions: [
+        plannedChangeReviewRepairValidationScenario.actions[0],
+        { type: "type", text: "Use the documentation clarification and submit it for Plan Review" },
+        ...plannedChangeReviewRepairValidationScenario.actions.slice(2, 9),
+        { type: "captureProjectState", planNames: ["plan"] },
+        { type: "waitForScreen", text: "Tutorial complete", timeoutMs: 90000 },
+        { type: "captureProjectState", planNames: ["plan"], key: "tutorialCompletedState" },
+        ...plannedChangeReviewRepairValidationScenario.actions.slice(9),
+    ],
+    assertions: [
+        ...plannedChangeReviewRepairValidationScenario.assertions,
+        assertsGoldenCoverage("tutorial:onboarding", (result) => {
+            const transcript = `${result.scrollbackText || ""}\n${result.screenText || ""}`;
+            assertStringIncludes(transcript, "Tutorial complete");
+            assertStringIncludes(transcript, "Plan:");
+            const tutorialState =
+                /** @type {{ projectState?: { runtimeSnapshot?: { tutorialContext?: { shownExplanationIds?: string[], recapShown?: boolean } } }, tutorialCompletedState?: { runtimeSnapshot?: { tutorialContext?: { shownExplanationIds?: string[], recapShown?: boolean } } } }} */ (
+                    result.state
+                );
+            const tutorialContext = tutorialState.projectState?.runtimeSnapshot?.tutorialContext;
+            const completedContext = tutorialState.tutorialCompletedState?.runtimeSnapshot?.tutorialContext;
+            assertEquals(completedContext?.recapShown, true, "Verified recap must persist after it is displayed.");
+            assertEquals(
+                completedContext?.shownExplanationIds?.filter((shown) => shown === "verified-recap").length,
+                1,
+                "Verified recap must persist once.",
+            );
+            for (
+                const id of [
+                    "choose-improvement",
+                    "plan-review",
+                    "implementation",
+                    "project-checks",
+                    "ai-review",
+                    "ai-repair",
+                    "delivery",
+                ]
+            ) {
+                assertEquals(
+                    tutorialContext?.shownExplanationIds?.filter((shown) => shown === id).length,
+                    1,
+                    `${id} teaching must persist once across execution and repair rollover.`,
+                );
+            }
+        }),
+    ],
+};
+
 /**
  * Reuse a turn from the main PLANNED_CHANGE script by name.
  *
@@ -1060,6 +1134,7 @@ export const plannedChangeFrontendIdentityScenario = {
 
 export const plannedChangeWorkflowScenarios = [
     plannedChangeReviewRepairValidationScenario,
+    onboardingTutorialDeliveryScenario,
     plannedChangeFrontendIdentityScenario,
     plannedChangeCiRepairReentryScenario,
     plannedChangeNonGitInPlaceScenario,

@@ -7,6 +7,7 @@ import { resolvePrimaryCheckoutRoot } from "./primary-checkout.ts";
 import { getHomeDir } from "../constants.js";
 
 export const PLAN_SERVER_URL_SETTING_KEY = "planServerUrl";
+export const ONBOARDING_TUTORIAL_OFFER_HANDLED_SETTING_KEY = "onboardingTutorialOfferHandled";
 
 /** @type {Map<string, string>} */
 const projectSettingsRootMemo = new Map();
@@ -28,6 +29,7 @@ const RUNWIELD_CUSTOM_SETTING_KEYS = [
     "nonGitExecutionConsent",
     "enableExternalSkills",
     "enableExternalGlobalAgentsMd",
+    ONBOARDING_TUTORIAL_OFFER_HANDLED_SETTING_KEY,
     PLAN_SERVER_URL_SETTING_KEY,
 ];
 

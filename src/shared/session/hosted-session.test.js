@@ -1,6 +1,7 @@
 import { assert, assertEquals, assertStrictEquals, assertThrows } from "@std/assert";
 import { HostedSession } from "./hosted-session.js";
 import { WORKFLOW_CONTEXT_CUSTOM_TYPE } from "./workflow-context-session.js";
+import { TUTORIAL_CONTEXT_CUSTOM_TYPE } from "./tutorial-context-session.ts";
 
 /**
  * @param {string} id
@@ -771,6 +772,74 @@ Deno.test("HostedSession requires the current managed operation capability for w
     assertEquals(session.getRootAgentSession(), null);
     assertEquals(session.getRootAgentName(), null);
     assertEquals(session.getSubAgentSessions().size, 0);
+});
+
+Deno.test("HostedSession restores tutorial context and requires managed writer ownership", () => {
+    /** @type {Array<Record<string, unknown>>} */
+    const entries = [{
+        type: "custom",
+        customType: TUTORIAL_CONTEXT_CUSTOM_TYPE,
+        data: {
+            version: 1,
+            guidanceEnabled: true,
+            shownExplanationIds: ["welcome"],
+            recapShown: false,
+            planId: null,
+        },
+    }];
+    const manager = makeSessionManager("tutorial-context-session", entries);
+    const session = new HostedSession({
+        id: "tutorial-context-runtime",
+        cwd: "/work/tutorial-context",
+        sessionManager: manager,
+        managed: {
+            runwieldSessionId: "runwield-managed",
+            projectId: "project-managed",
+            piSessionId: "tutorial-context-session",
+            transcriptPath: "/work/tutorial-context/session.jsonl",
+            currentSegmentId: "segment-1",
+            generation: 0,
+            name: null,
+            activeAgent: null,
+            workflowContext: null,
+        },
+    });
+    assertEquals(session.getTutorialContext()?.shownExplanationIds, ["welcome"]);
+    assertThrows(
+        () => session.updateTutorialContext({ shownExplanationIds: ["welcome", "plans"] }),
+        Error,
+        "managed_operation_required",
+    );
+
+    const capability = makeManagedCapability();
+    session.setManagedOperationCapability(capability);
+    session.setRootSessionManager(manager, capability);
+    assertThrows(
+        () => session.updateTutorialContext({ planId: "plan-1" }),
+        Error,
+        "tutorial_context_plan_association_required",
+    );
+    const updated = session.updateTutorialContext(
+        { guidanceEnabled: false, shownExplanationIds: ["welcome", "plans", "plans"], planId: "plan-1" },
+        [{
+            planId: "plan-1",
+            planName: "example-plan",
+            purpose: "planning",
+            segmentId: "segment-1",
+            segmentKind: "planning",
+            recordedAt: "2026-01-01T00:00:00.000Z",
+            committedGeneration: 0,
+        }],
+    );
+
+    assertEquals(updated, {
+        version: 1,
+        guidanceEnabled: false,
+        shownExplanationIds: ["welcome", "plans"],
+        recapShown: false,
+        planId: "plan-1",
+    });
+    assertEquals(entries.at(-1)?.customType, TUTORIAL_CONTEXT_CUSTOM_TYPE);
 });
 
 Deno.test("HostedSession records Plan Association through the managed capability", () => {

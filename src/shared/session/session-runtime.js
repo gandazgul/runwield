@@ -259,6 +259,7 @@ function resolvePersistedPairRootConfiguration(hostedSession) {
  * @property {string} [modelOverride]
  * @property {string} [preparedModelOverride]
  * @property {import('./named-invocation.ts').NamedInvocationPayload} [namedInvocationPayload]
+ * @property {import('./tutorial-context-session.ts').TutorialContext} [initialTutorialContext]
  * @property {AbortSignal} [signal]
  */
 
@@ -735,6 +736,8 @@ export class SessionRuntime {
                 ...(baseWorkflowContext.canRecover === true || hasRepairCheckpoint ? { canRecover: true } : {}),
             }
             : null;
+        const tutorialContext = session.getTutorialContext?.() ||
+            (managedDormant ? managed?.tutorialContext || null : null);
         const contextCapacity = getRuntimeContextCapacity(session);
         const systemContextTokens = getRootSessionStaticContextTokens(session);
         const activeModelState = session.getActiveModelState();
@@ -746,6 +749,12 @@ export class SessionRuntime {
         const artifacts = managed && this.#sessionStore
             ? this.#sessionStore.listSessionArtifacts(managed.runwieldSessionId, managed.projectId)
             : [];
+        const planAssociations = activeSessionInfo?.planAssociations ||
+            (managed && this.#sessionStore
+                ? this.#sessionStore.listSessionPlanAssociations(managed.runwieldSessionId, managed.projectId)
+                    .filter((association) => Number.isInteger(association.committedGeneration))
+                    .map(({ committedGeneration: _committedGeneration, ...association }) => association)
+                : []);
         return {
             id: session.id,
             cwd: session.cwd,
@@ -796,7 +805,10 @@ export class SessionRuntime {
             activeTurnId: session.getActiveTurnId(),
             queuedMessages: this.getQueuedMessages(session.id),
             workflowContext: workflowContext ? { ...workflowContext } : null,
-            planAssociations: activeSessionInfo?.planAssociations || [],
+            tutorialContext: tutorialContext
+                ? { ...tutorialContext, shownExplanationIds: [...tutorialContext.shownExplanationIds] }
+                : null,
+            planAssociations,
             artifacts,
             activeExecutionWorkflow: activeExecutionWorkflow ? { ...activeExecutionWorkflow } : null,
             systemContextTokens,
@@ -2784,6 +2796,31 @@ export class SessionRuntime {
         return await verifyPlanAssociatedSession(this.#sessionStore, candidate);
     }
 
+    /** @param {string} sessionId @param {import('./tutorial-context-session.ts').TutorialContextUpdate} update */
+    async updateTutorialContext(sessionId, update) {
+        const session = this.#sessionHost.getSession(sessionId);
+        const managed = session?.getManagedMetadata?.() || null;
+        if (!session || !managed) return { ok: false, error: "not_managed" };
+        if (!this.#sessionStore) return { ok: false, error: "session_store_unavailable" };
+        const committedPlanAssociations = this.#sessionStore.listSessionPlanAssociations(
+            managed.runwieldSessionId,
+            managed.projectId,
+        );
+        try {
+            return await this.#runManagedStandaloneMutation(
+                sessionId,
+                "workflow_operation",
+                (activeSession) => ({
+                    ok: true,
+                    tutorialContext: activeSession.updateTutorialContext(update, committedPlanAssociations),
+                }),
+                { activateAgent: false },
+            );
+        } catch (error) {
+            return { ok: false, error: error instanceof Error ? error.message : String(error) };
+        }
+    }
+
     /** @param {string} sessionId @param {{ planId: string, planName: string, purpose: import('./plan-association.ts').AssociationPurpose }} entry */
     async recordPlanAssociation(sessionId, entry) {
         try {
@@ -3294,6 +3331,7 @@ export class SessionRuntime {
                 name: pendingProject.name || managedSession.displayName,
                 activeAgent: null,
                 workflowContext: null,
+                tutorialContext: null,
                 syncState: {
                     type: RuntimeEventTypes.MANAGED_SYNC_STATE_CHANGED,
                     status: "syncing",
@@ -3443,6 +3481,7 @@ export class SessionRuntime {
                 provider: managedModelState.provider,
                 thinkingLevel: hostedSession.getThinkingLevel?.() || managed.thinkingLevel || "off",
                 workflowContext: hostedSession.getWorkflowContext?.() || managed.workflowContext || null,
+                tutorialContext: hostedSession.getTutorialContext?.() || managed.tutorialContext || null,
             });
             this.#pendingManagedCreations.delete(hostedSession.id);
             this.#pendingManagedCreationProjects.delete(hostedSession.id);
@@ -3671,6 +3710,7 @@ export class SessionRuntime {
                 provider: summary.provider ?? managed.provider ?? null,
                 thinkingLevel: summary.thinkingLevel ?? managed.thinkingLevel ?? null,
                 workflowContext: summary.workflowContext ?? managed.workflowContext ?? null,
+                tutorialContext: summary.tutorialContext ?? managed.tutorialContext ?? null,
                 syncState: {
                     type: RuntimeEventTypes.MANAGED_SYNC_STATE_CHANGED,
                     status: activeElsewhere ? "active_elsewhere" : "current",
@@ -3777,7 +3817,7 @@ export class SessionRuntime {
      * Adopt a Session as a dormant Runtime shell. This path deliberately
      * does not open a writable Pi Session Manager.
      *
-     * @param {{ session: import('../owner-coordination/sessions.js').CatalogedSession, generation?: number | null, acknowledgedEventId?: string | null, hostedSessionId?: string | null, name?: string | null, activeAgent?: string | null, model?: string | null, provider?: string | null, thinkingLevel?: string | null, workflowContext?: import('./workflow-context-session.js').WorkflowContext | null }} options
+     * @param {{ session: import('../owner-coordination/sessions.js').CatalogedSession, generation?: number | null, acknowledgedEventId?: string | null, hostedSessionId?: string | null, name?: string | null, activeAgent?: string | null, model?: string | null, provider?: string | null, thinkingLevel?: string | null, workflowContext?: import('./workflow-context-session.js').WorkflowContext | null, tutorialContext?: import('./tutorial-context-session.ts').TutorialContext | null }} options
      */
     adoptManagedSession(options) {
         const cataloged = options?.session;
@@ -3805,6 +3845,7 @@ export class SessionRuntime {
                 provider: options.provider ?? null,
                 thinkingLevel: options.thinkingLevel ?? null,
                 workflowContext: options.workflowContext ?? null,
+                tutorialContext: options.tutorialContext ?? null,
                 syncState: {
                     type: RuntimeEventTypes.MANAGED_SYNC_STATE_CHANGED,
                     status: "current",
@@ -4151,6 +4192,10 @@ export class SessionRuntime {
         }
         if (!this.#sessionStore) throw new Error("Session coordination is unavailable");
         const state = this.#sessionStore.inspectSessionActivation(managed.runwieldSessionId);
+        const committedPlanAssociations = this.#sessionStore.listSessionPlanAssociations(
+            managed.runwieldSessionId,
+            managed.projectId,
+        );
         const latestGeneration = state.generation?.generation ?? null;
         const options = descriptor.options || {};
         const expectedGeneration = options.expectedGeneration ?? managed.generation ?? latestGeneration ?? null;
@@ -4309,6 +4354,9 @@ export class SessionRuntime {
                 managedSegmentCwd: managedProjectSessionDir ? generationSegment?.transcriptCwd : undefined,
             });
             hostedSession.setRootSessionManager(/** @type {any} */ (sessionManager), capability);
+            if (options.initialTutorialContext !== undefined) {
+                hostedSession.updateTutorialContext(options.initialTutorialContext, committedPlanAssociations);
+            }
             const pairRootConfiguration = resolvePersistedPairRootConfiguration(hostedSession);
             const preparedModelOverride = "preparedModelOverride" in options &&
                     typeof options.preparedModelOverride === "string"
@@ -4403,6 +4451,7 @@ export class SessionRuntime {
                 provider: managedModelState.provider,
                 thinkingLevel: hostedSession.getThinkingLevel?.() || managed.thinkingLevel || "off",
                 workflowContext: hostedSession.getWorkflowContext?.() || managed.workflowContext || null,
+                tutorialContext: hostedSession.getTutorialContext?.() || managed.tutorialContext || null,
             };
             hostedSession.dehydrateManagedSession();
             this.#removeAllQueueSourceSubscriptions(sessionId);
@@ -4710,6 +4759,7 @@ export class SessionRuntime {
                     name: managedSession.displayName,
                     activeAgent: null,
                     workflowContext: null,
+                    tutorialContext: null,
                     syncState: {
                         type: RuntimeEventTypes.MANAGED_SYNC_STATE_CHANGED,
                         status: "syncing",
@@ -5068,6 +5118,7 @@ export class SessionRuntime {
                 name: managedSession.displayName,
                 activeAgent: null,
                 workflowContext: null,
+                tutorialContext: null,
                 syncState: {
                     type: RuntimeEventTypes.MANAGED_SYNC_STATE_CHANGED,
                     status: "syncing",

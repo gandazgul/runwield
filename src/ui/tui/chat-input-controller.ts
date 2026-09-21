@@ -9,6 +9,8 @@ import { createGenerationGuard } from "./generation-guard.js";
 import { type ChatView, createPastedImagePreview } from "./chat-view.ts";
 import type { ImageAttachment } from "../../shared/session/types.js";
 import type { UiAPI } from "./types.js";
+import type { TutorialContext } from "../../shared/session/tutorial-context-session.ts";
+import { AGENTS } from "../../constants.js";
 import { ClaudeCliBackendError } from "../../shared/session/backends/claude-cli/failure.ts";
 import { AgyCliBackendError } from "../../shared/session/backends/agy-cli/failure.ts";
 import { AgyCliMcpSetupApprovalError } from "../../shared/session/backends/agy-cli/mcp-setup.ts";
@@ -47,12 +49,14 @@ export interface ChatInputControllerOptions {
     replaceRuntimeSession(nextSessionId: string, options?: { oldRetired?: boolean }): void;
     markCtrlCPendingExit(): void;
     isCtrlCPendingExit(): boolean;
+    beginOnboarding?(): Promise<void>;
 }
 export interface ChatInputController {
     isProcessingSubmission(): boolean;
     forceResetUI(): void;
     restoreQueuedItemToEditor(item: QueuedInput): void;
     processSubmissions(initialItem?: QueuedInput | null): Promise<void>;
+    submitTutorialRequest(request: string, context: TutorialContext): Promise<void>;
     dispose(): Promise<void>;
 }
 
@@ -192,6 +196,7 @@ export function createChatInputController(options: ChatInputControllerOptions): 
         userRequest: string,
         savedImages: ImageAttachment[],
         preparedModelOverride?: string,
+        promptOptions: { agentName?: string; initialTutorialContext?: TutorialContext } = {},
     ): Promise<void> {
         const thisGen = generationGuard.bump();
         try {
@@ -200,6 +205,7 @@ export function createChatInputController(options: ChatInputControllerOptions): 
                 initialRequest: userRequest,
                 initialImages: savedImages,
                 preparedModelOverride,
+                ...promptOptions,
             });
             if (result?.error === "refresh_required") {
                 await runtime.synchronizeManagedSession(options.getSessionId());
@@ -252,12 +258,28 @@ export function createChatInputController(options: ChatInputControllerOptions): 
                 resolveTemplateModel,
                 dispatchExpandedUserRequest: (request, images) =>
                     submitToActiveRoot(request, images, preparedModelOverride),
+                beginOnboarding: options.beginOnboarding,
                 replaceRuntimeSession: options.replaceRuntimeSession,
                 generationGuard,
             })
             : false;
         if (handledSlash) return;
         await submitToActiveRoot(text, savedImages, preparedModelOverride);
+    }
+    async function submitTutorialRequest(request: string, context: TutorialContext): Promise<void> {
+        const ownsProcessingState = !isProcessingSubmission;
+        if (ownsProcessingState) isProcessingSubmission = true;
+        try {
+            await submitToActiveRoot(request, [], undefined, {
+                agentName: AGENTS.PLANNER,
+                initialTutorialContext: context,
+            });
+        } finally {
+            if (ownsProcessingState) {
+                isProcessingSubmission = false;
+                forceResetUI();
+            }
+        }
     }
     async function processSubmissions(initialItem: QueuedInput | null = null): Promise<void> {
         if (isProcessingSubmission) return;
@@ -465,6 +487,7 @@ export function createChatInputController(options: ChatInputControllerOptions): 
         forceResetUI,
         restoreQueuedItemToEditor,
         processSubmissions,
+        submitTutorialRequest,
         dispose: async () => {
             editor.onChange = originalOnChange;
             await flushPendingThinkingLevelPersistence();

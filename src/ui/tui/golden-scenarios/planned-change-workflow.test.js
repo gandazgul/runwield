@@ -1,5 +1,6 @@
 import { assertEquals } from "@std/assert";
 import {
+    onboardingTutorialDeliveryScenario,
     plannedChangeCiRepairReentryScenario,
     plannedChangeFrontendIdentityScenario,
     plannedChangeNonGitInPlaceScenario,
@@ -12,6 +13,7 @@ import {
 const scenarioExportNames = new Map(
     /** @type {Array<[object, string]>} */ ([
         [plannedChangeReviewRepairValidationScenario, "plannedChangeReviewRepairValidationScenario"],
+        [onboardingTutorialDeliveryScenario, "onboardingTutorialDeliveryScenario"],
         [plannedChangeFrontendIdentityScenario, "plannedChangeFrontendIdentityScenario"],
         [plannedChangeCiRepairReentryScenario, "plannedChangeCiRepairReentryScenario"],
         [plannedChangeNonGitInPlaceScenario, "plannedChangeNonGitInPlaceScenario"],

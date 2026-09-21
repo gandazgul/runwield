@@ -1963,6 +1963,80 @@ Deno.test("SessionRuntime managed workflow operations hold activation during mod
     );
 });
 
+Deno.test("SessionRuntime persists tutorial context before the first model turn and restores it dormant", async () => {
+    const sessionHost = new SessionHost();
+    const runtime = makeRuntime({ sessionHost });
+    const cwd = runtimeProjectRoot();
+    let contextSeenByModel = null;
+    setRuntimeModelResponseFactories([() => {
+        const active = runtime.listSessions()[0];
+        contextSeenByModel = active?.tutorialContext || null;
+        return fauxAssistantMessage(fauxText("Tutorial context observed."));
+    }]);
+    const sessionId = await runtime.createPromptReadySession({ cwd, agentName: "guide" });
+    const initialTutorialContext = {
+        version: 1,
+        guidanceEnabled: true,
+        shownExplanationIds: ["welcome", "welcome"],
+        recapShown: false,
+        planId: null,
+    };
+    try {
+        const first = await runtime.promptUserTurn(sessionId, {
+            initialRequest: "Start the tutorial.",
+            initialTutorialContext,
+        });
+        assertEquals(first.ok, true);
+        assertEquals(contextSeenByModel, { ...initialTutorialContext, shownExplanationIds: ["welcome"] });
+        assertEquals(runtime.getSessionSnapshot(sessionId)?.managed?.dormant, true);
+
+        const rejected = await runtime.updateTutorialContext(sessionId, { planId: "plan-1" });
+        assertEquals(rejected, { ok: false, error: "tutorial_context_plan_association_required" });
+        const association = await runtime.recordPlanAssociation(sessionId, {
+            planId: "plan-1",
+            planName: "example-plan",
+            purpose: "planning",
+        });
+        assertEquals(association.ok, true);
+        const updated = await runtime.updateTutorialContext(sessionId, {
+            guidanceEnabled: false,
+            shownExplanationIds: ["welcome", "plans", "plans"],
+            recapShown: true,
+            planId: "plan-1",
+        });
+        assertEquals(updated.ok, true);
+        assertEquals(updated.tutorialContext, {
+            version: 1,
+            guidanceEnabled: false,
+            shownExplanationIds: ["welcome", "plans"],
+            recapShown: true,
+            planId: "plan-1",
+        });
+        const runwieldSessionId = runtime.getSessionSnapshot(sessionId)?.managed?.runwieldSessionId;
+        assert(runwieldSessionId);
+        await runtime.closeAllSessions();
+
+        const reloaded = makeRuntime();
+        try {
+            const loaded = await reloaded.createInteractiveSession({
+                cwd,
+                mode: "continue",
+                resumeSessionId: runwieldSessionId,
+            });
+            assertEquals(reloaded.getSessionSnapshot(loaded.sessionId)?.managed?.dormant, true);
+            assertEquals(reloaded.getSessionSnapshot(loaded.sessionId)?.tutorialContext, updated.tutorialContext);
+            assertEquals(
+                reloaded.getSessionSnapshot(loaded.sessionId)?.planAssociations?.map((entry) => entry.planId),
+                ["plan-1"],
+            );
+        } finally {
+            await reloaded.closeAllSessions();
+        }
+    } finally {
+        await runtime.closeAllSessions();
+    }
+});
+
 Deno.test("SessionRuntime uses one segmented user-turn submission path", async () => {
     setRuntimeModelMessages([fauxAssistantMessage(fauxText("Normalized request received."))]);
     const runtime = makeRuntime();

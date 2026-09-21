@@ -29,6 +29,7 @@ export type LiveSessionInfo = Pick<
     | "activeModel"
     | "thinkingLevel"
     | "workflowContext"
+    | "tutorialContext"
     | "activeExecutionWorkflow"
     | "planAssociations"
 >;
@@ -46,6 +47,7 @@ export function projectLiveSessionInfo(
         activeModel: snapshot.activeModel,
         thinkingLevel: snapshot.thinkingLevel,
         workflowContext: snapshot.workflowContext,
+        tutorialContext: snapshot.tutorialContext,
         activeExecutionWorkflow: snapshot.activeExecutionWorkflow,
         planAssociations: snapshot.planAssociations,
     };

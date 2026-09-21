@@ -33,9 +33,10 @@ import { getAgentDisplayName } from "../shared/session/agents.js";
 import { SYSTEM_WORK_RECORD_MNEMOTECA_PORT } from "../shared/work-records/mnemoteca-port.ts";
 
 /** Known CLI / slash command names. Defined alongside the registry so adding a new command only touches one file. */
-/** @type {Readonly<{ROUTER: string, AGENT: string, MODEL: string, LOGIN: string, LOGOUT: string, STATUS: string, EXPORT: string, SHARE: string, LOAD_PLAN: string, RESUME: string, NEW: string, NAME: string, SESSION: string, PLANS: string, WR: string, SLEEP: string, HELP: string, VERSION: string, UPDATE: string, QUIT: string, EXIT: string, INIT: string, THEME: string, INSTALL: string, REMOVE: string, COMPACT: string, SETTINGS: string, RELOAD: string, SNIP_FILTERS: string, COPY: string, CONTEXT: string, ACP: string, MCP: string, WORKSPACE: string}>} */
+/** @type {Readonly<{ROUTER: string, ONBOARD: string, AGENT: string, MODEL: string, LOGIN: string, LOGOUT: string, STATUS: string, EXPORT: string, SHARE: string, LOAD_PLAN: string, RESUME: string, NEW: string, NAME: string, SESSION: string, PLANS: string, WR: string, SLEEP: string, HELP: string, VERSION: string, UPDATE: string, QUIT: string, EXIT: string, INIT: string, THEME: string, INSTALL: string, REMOVE: string, COMPACT: string, SETTINGS: string, RELOAD: string, SNIP_FILTERS: string, COPY: string, CONTEXT: string, ACP: string, MCP: string, WORKSPACE: string}>} */
 export const COMMAND_NAMES = Object.freeze({
     ROUTER: "router",
+    ONBOARD: "onboard",
     AGENT: "agent",
     MODEL: "model",
     LOGIN: "login",
@@ -105,6 +106,7 @@ function requireInteractiveCommandContext(options) {
  * @property {(eventName: string, options?: object) => void | Promise<unknown>} [notifyRunWieldEvent]
  * @property {"tui" | "acp" | "workspace"} [slashSurface]
  * @property {boolean} [skipPostLoginSetup]
+ * @property {() => Promise<void>} [beginOnboarding]
  */
 
 /**
@@ -150,6 +152,34 @@ export const commandRegistry = {
             await runRouterCommand(argv, { ...options, sessionPort: SYSTEM_INTERACTIVE_SESSION_PORT });
         },
         surfaces: ["cli"],
+    },
+    [COMMAND_NAMES.ONBOARD]: {
+        name: COMMAND_NAMES.ONBOARD,
+        displayName: "Onboard",
+        description: "Start the guided first-change tutorial",
+        summary: "Guide one small real project change through Plan Review, validation, and delivery.",
+        usage: [
+            `${bin("onboard")}`,
+            `${bin("onboard --help")}`,
+            "/onboard",
+        ],
+        notes: [
+            "TUI guidance only. The tutorial warns before it starts real work or uses a model.",
+            "Skipping the automatic offer does not disable this explicit command.",
+        ],
+        execute: async (argv, options) => {
+            const [{ runOnboardCommand }, { SYSTEM_INTERACTIVE_SESSION_PORT }] = await Promise.all([
+                import("./onboard/index.ts"),
+                import("../ui/tui/interactive-session-port.ts"),
+            ]);
+            await runOnboardCommand(argv, {
+                uiAPI: options?.uiAPI,
+                beginOnboarding: options?.beginOnboarding,
+                sessionPort: SYSTEM_INTERACTIVE_SESSION_PORT,
+            });
+        },
+        surfaces: ["cli", "slash"],
+        slashSurfaces: ["tui"],
     },
     [COMMAND_NAMES.ACP]: {
         name: COMMAND_NAMES.ACP,

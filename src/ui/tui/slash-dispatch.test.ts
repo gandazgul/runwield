@@ -155,6 +155,21 @@ Deno.test("handleSlashCommand distinguishes regular input and unknown commands t
     });
 });
 
+Deno.test("handleSlashCommand runs onboarding only through the active TUI flow", async () => {
+    await withSlashFixture({}, async ({ context, submittedRequests }) => {
+        const slashContext = context("/onboard");
+        let calls = 0;
+        slashContext.beginOnboarding = () => {
+            calls += 1;
+            return Promise.resolve();
+        };
+
+        assertEquals(await handleSlashCommand(slashContext), true);
+        assertEquals(calls, 1);
+        assertEquals(submittedRequests, []);
+    });
+});
+
 Deno.test("handleSlashCommand executes built-in help through the real command registry", async () => {
     await withSlashFixture({}, async ({ context, messages }) => {
         assertEquals(await handleSlashCommand(context("/help model")), true);

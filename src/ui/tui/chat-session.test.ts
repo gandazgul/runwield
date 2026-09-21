@@ -3,12 +3,19 @@ import { createSessionRuntime } from "../../shared/session/session-runtime.js";
 import { runResumeCommand } from "../../cmd/resume/index.ts";
 import { openOwnerCoordinationStore } from "../../shared/owner-coordination/index.js";
 import { getRunWieldSessionsBaseDir } from "../../shared/session/root-session.js";
-import { getSettingsManager } from "../../shared/settings.js";
+import {
+    getCustomSetting,
+    getSettingsManager,
+    ONBOARDING_TUTORIAL_OFFER_HANDLED_SETTING_KEY,
+    setCustomSetting,
+} from "../../shared/settings.js";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { NO_OPEN_BROWSER_PORT } from "../../shared/browser-port.ts";
 import { resolveTemplateModel } from "../../shared/models/model-validation.ts";
 import { createInteractiveTuiComposition } from "./interactive-tui-composition.ts";
 import { VirtualTerminal } from "./testing/virtual-terminal.js";
+import { recordInitOffered } from "../../cmd/init/init-state.ts";
+import { ONBOARDING_TUTORIAL_REQUEST, ONBOARDING_WARNING } from "./onboarding-content.ts";
 import {
     getActiveModel,
     persistThinkingLevel,
@@ -122,6 +129,61 @@ Deno.test("TUI resume preserves the Session thinking choice over the global defa
     });
 });
 
+Deno.test("TUI resume asks before restoring saved tutorial guidance", async () => {
+    await withRuntimeCommandFixture(
+        "chat-session-resume-tutorial-",
+        async ({ projectRoot, setModelResponse }) => {
+            Deno.chdir(projectRoot);
+            setModelResponse("Choose a small change.");
+            const runtime = createSessionRuntime();
+            let resumeSessionId = "";
+            try {
+                const created = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
+                await runtime.promptUserTurn(created.sessionId, {
+                    initialRequest: "Start tutorial",
+                    initialImages: [],
+                    agentName: "planner",
+                    initialTutorialContext: {
+                        version: 1,
+                        guidanceEnabled: true,
+                        shownExplanationIds: ["choose-improvement"],
+                        recapShown: false,
+                        planId: null,
+                    },
+                });
+                resumeSessionId = runtime.getSessionSnapshot(created.sessionId)?.managed?.runwieldSessionId || "";
+            } finally {
+                await runtime.closeAllSessionsWhenIdle();
+            }
+
+            const prompts: string[] = [];
+            const composition = await createInteractiveTuiComposition(null, {
+                browser: NO_OPEN_BROWSER_PORT,
+                terminal: new VirtualTerminal({ columns: 100, rows: 30 }),
+                skipModelWelcome: true,
+                sessionStartMode: "continue",
+                resumeSessionId,
+                configureUiAPI: (uiAPI) => {
+                    uiAPI.promptSelect = (title) => {
+                        prompts.push(title);
+                        return Promise.resolve(title.includes("Resume tutorial guidance") ? "without" : null);
+                    };
+                },
+            });
+            try {
+                await composition.waitForIdle();
+                assertEquals(prompts.some((title) => title.includes("Resume tutorial guidance")), true);
+                assertEquals(
+                    composition.runtime.getSessionSnapshot(composition.sessionId)?.tutorialContext?.guidanceEnabled,
+                    false,
+                );
+            } finally {
+                await composition.dispose();
+            }
+        },
+    );
+});
+
 Deno.test("chat session starts a real composed TUI through the public composition interface", async () => {
     await withRuntimeCommandFixture("chat-session-composed-startup-", async () => {
         const terminal = new VirtualTerminal({ columns: 100, rows: 30 });
@@ -188,6 +250,12 @@ Deno.test("chat session startup does not show busy or thinking output before a t
         let thinkingBlocks = 0;
         let clearMessages = 0;
         Deno.chdir(projectRoot);
+        await setCustomSetting(
+            ONBOARDING_TUTORIAL_OFFER_HANDLED_SETTING_KEY,
+            true,
+            "global",
+            projectRoot,
+        );
         const composition = await createInteractiveTuiComposition(null, {
             browser: NO_OPEN_BROWSER_PORT,
             terminal,
@@ -313,4 +381,134 @@ Deno.test("submit handoff loop invokes one Runtime prompt by opaque id", async (
             runtime.closeAllSessions();
         }
     });
+});
+
+Deno.test("automatic onboarding Skip persists globally and creates no managed Session", async () => {
+    await withRuntimeCommandFixture(
+        "chat-session-onboarding-skip-",
+        async ({ projectRoot, alternateRoot }) => {
+            await Deno.writeTextFile(`${projectRoot}/README.md`, "project\n");
+            await Deno.writeTextFile(`${alternateRoot}/README.md`, "alternate\n");
+            await recordInitOffered(projectRoot);
+            Deno.chdir(projectRoot);
+            const prompts: string[] = [];
+            const first = await createInteractiveTuiComposition(null, {
+                browser: NO_OPEN_BROWSER_PORT,
+                terminal: new VirtualTerminal({ columns: 100, rows: 30 }),
+                configureUiAPI: (uiAPI) => {
+                    uiAPI.promptSelect = (title) => {
+                        prompts.push(title);
+                        return Promise.resolve(title.includes(ONBOARDING_WARNING) ? "skip" : "no");
+                    };
+                },
+            });
+            try {
+                assertEquals(prompts.some((title) => title.includes(ONBOARDING_WARNING)), true);
+                assertStringIncludes(prompts.find((title) => title.includes(ONBOARDING_WARNING)) || "", projectRoot);
+                assertEquals(first.runtime.getSessionSnapshot(first.sessionId)?.managed, null);
+                assertEquals(
+                    getCustomSetting(ONBOARDING_TUTORIAL_OFFER_HANDLED_SETTING_KEY, "global", projectRoot),
+                    true,
+                );
+            } finally {
+                await first.dispose();
+            }
+
+            await recordInitOffered(alternateRoot);
+            Deno.chdir(alternateRoot);
+            let offeredAgain = false;
+            const second = await createInteractiveTuiComposition(null, {
+                browser: NO_OPEN_BROWSER_PORT,
+                terminal: new VirtualTerminal({ columns: 100, rows: 30 }),
+                configureUiAPI: (uiAPI) => {
+                    uiAPI.promptSelect = (title) => {
+                        if (title.includes(ONBOARDING_WARNING)) offeredAgain = true;
+                        return Promise.resolve("no");
+                    };
+                },
+            });
+            try {
+                assertEquals(offeredAgain, false);
+                assertEquals(second.runtime.getSessionSnapshot(second.sessionId)?.managed, null);
+            } finally {
+                await second.dispose();
+            }
+        },
+    );
+});
+
+Deno.test("automatic onboarding Start submits one real Planner turn after consent", async () => {
+    await withRuntimeCommandFixture(
+        "chat-session-onboarding-start-",
+        async ({ projectRoot, setModelResponse }) => {
+            await Deno.writeTextFile(`${projectRoot}/README.md`, "project\n");
+            await recordInitOffered(projectRoot);
+            Deno.chdir(projectRoot);
+            setModelResponse("Choose one of these small changes.");
+            const submitted: string[] = [];
+            const prompts: string[] = [];
+            const composition = await createInteractiveTuiComposition(null, {
+                browser: NO_OPEN_BROWSER_PORT,
+                terminal: new VirtualTerminal({ columns: 100, rows: 30 }),
+                onSessionReady: (sessionId, runtime) => {
+                    runtime.subscribeSessionEvents(sessionId, (event) => {
+                        if (event.type === "user_message") submitted.push(event.text);
+                    });
+                },
+                configureUiAPI: (uiAPI) => {
+                    uiAPI.promptSelect = (title) => {
+                        prompts.push(title);
+                        return Promise.resolve(title.includes(ONBOARDING_WARNING) ? "start" : "no");
+                    };
+                },
+            });
+            try {
+                assertEquals(submitted, [ONBOARDING_TUTORIAL_REQUEST]);
+                assertEquals(composition.runtime.getSessionSnapshot(composition.sessionId)?.activeAgent, "planner");
+                assertEquals(composition.runtime.getSessionSnapshot(composition.sessionId)?.tutorialContext, {
+                    version: 1,
+                    guidanceEnabled: true,
+                    shownExplanationIds: ["choose-improvement"],
+                    recapShown: false,
+                    planId: null,
+                });
+                assertStringIncludes(prompts.find((title) => title.includes(ONBOARDING_WARNING)) || "", projectRoot);
+            } finally {
+                await composition.dispose();
+            }
+        },
+    );
+});
+
+Deno.test("explicit onboarding shows consent before model setup or Init", async () => {
+    await withRuntimeCommandFixture(
+        "chat-session-explicit-onboarding-consent-",
+        async ({ projectRoot }) => {
+            await Deno.writeTextFile(`${projectRoot}/README.md`, "project\n");
+            Deno.chdir(projectRoot);
+            const prompts: string[] = [];
+            const composition = await createInteractiveTuiComposition(null, {
+                browser: NO_OPEN_BROWSER_PORT,
+                terminal: new VirtualTerminal({ columns: 100, rows: 30 }),
+                startupIntent: "onboard",
+                configureUiAPI: (uiAPI) => {
+                    uiAPI.promptSelect = (title) => {
+                        prompts.push(title);
+                        return Promise.resolve("skip");
+                    };
+                },
+            });
+            try {
+                assertEquals(prompts.length, 1);
+                assertStringIncludes(prompts[0], ONBOARDING_WARNING);
+                assertStringIncludes(prompts[0], projectRoot);
+                const snapshot = composition.runtime.getSessionSnapshot(composition.sessionId);
+                assertEquals(snapshot?.managed, null);
+                assertEquals(snapshot?.activeAgent, null);
+            } finally {
+                await composition.dispose();
+            }
+        },
+        { providerState: "none" },
+    );
 });
