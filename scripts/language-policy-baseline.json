@@ -205,5 +205,6 @@
     "src/ui/workspace/server/remote-schema.js",
     "src/ui/workspace/server/session-continuation.js",
     "src/ui/workspace/vite.config.js",
+    "src/ui/workspace/workspace-styles.js",
     "src/ui/workspace/workspace-test-helpers.js"
 ]

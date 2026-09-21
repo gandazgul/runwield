@@ -146,8 +146,9 @@ Deno.test("exact-path worktree registry locking does not steal a fresh incomplet
         await Deno.mkdir(dirname(lockPath), { recursive: true });
         (await Deno.open(lockPath, { createNew: true, write: true })).close();
         let entered = false;
-        const waiting = withWorktreeRegistryLockAtPath(lockPath, async () => {
+        const waiting = withWorktreeRegistryLockAtPath(lockPath, () => {
             entered = true;
+            return Promise.resolve();
         });
         await delay(120);
         assertEquals(entered, false);
