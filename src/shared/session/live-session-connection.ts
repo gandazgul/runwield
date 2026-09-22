@@ -1,16 +1,22 @@
 /** Temporary access to the running agent from another surface on the same machine. */
 import { createHash } from "node:crypto";
-import { createServer, request as httpRequest } from "node:http";
+import { createServer, request as httpRequest, type ServerResponse } from "node:http";
 import { getHomeDir } from "../../constants.js";
 
 import type { ImageAttachment } from "./types.js";
 import type { RuntimeInteractionRequest, RuntimeInteractionResponse } from "./session-runtime-interactions.js";
-import type { RuntimeQueuedMessage, SessionRuntimeEvent } from "./session-runtime-events.js";
+import type {
+    NotificationSurface,
+    RuntimeAttentionRequestedEvent,
+    RuntimeQueuedMessage,
+    SessionRuntimeEvent,
+} from "./session-runtime-events.js";
 import type { SessionRuntime, SteerSessionResult } from "./session-runtime.js";
 import type { HostedSession } from "./hosted-session.js";
 
 type LiveSessionCommand = {
     action: "answer" | "cancel" | "steer";
+    inputSurface?: NotificationSurface;
     requestId?: string;
     text?: string;
     images?: ImageAttachment[];
@@ -29,7 +35,6 @@ export type LiveSessionInfo = Pick<
     | "activeModel"
     | "thinkingLevel"
     | "workflowContext"
-    | "tutorialContext"
     | "activeExecutionWorkflow"
     | "planAssociations"
 >;
@@ -47,7 +52,6 @@ export function projectLiveSessionInfo(
         activeModel: snapshot.activeModel,
         thinkingLevel: snapshot.thinkingLevel,
         workflowContext: snapshot.workflowContext,
-        tutorialContext: snapshot.tutorialContext,
         activeExecutionWorkflow: snapshot.activeExecutionWorkflow,
         planAssociations: snapshot.planAssociations,
     };
@@ -76,11 +80,26 @@ export async function openLiveSessionConnection(
     if (!managed) throw new Error("A live connection requires a managed Session.");
     const path = socketPath(managed.runwieldSessionId, operationId);
     const steeringRequests = new Map<string, SteeringReceipt>();
+    const streams = new Set<ServerResponse>();
     const server = createServer(async (request, response) => {
         response.setHeader("content-type", "application/json");
         try {
             session.getManagedOperationCapability()?.assertLive();
             if (!session.getManagedOperationCapability()) throw new Error("The turn has finished.");
+            if (request.method === "GET" && request.url === "/attention") {
+                response.setHeader("content-type", "text/event-stream");
+                response.flushHeaders();
+                streams.add(response);
+                const unsubscribe = runtime.subscribeSessionEvents(session.id, (event) => {
+                    if (event.type !== "attention_requested") return;
+                    response.write(`data: ${JSON.stringify(event)}\n\n`);
+                });
+                response.on("close", () => {
+                    streams.delete(response);
+                    unsubscribe();
+                });
+                return;
+            }
             if (request.method === "GET") {
                 const snapshot = runtime.getSessionSnapshot(session.id);
                 response.end(JSON.stringify({
@@ -100,15 +119,18 @@ export async function openLiveSessionConnection(
                 if (body.length > 12 * 1024 * 1024) throw new Error("Answer is too large.");
             }
             const command: LiveSessionCommand = JSON.parse(body);
+            if (command.inputSurface && !["tui", "workspace", "acp", "test"].includes(command.inputSurface)) {
+                throw new Error("Invalid input surface.");
+            }
             if (command.action === "steer" && command.requestId) {
                 if (!command.text?.trim() && !command.images?.length) {
                     throw new Error("A message or image is required.");
                 }
-                const input = JSON.stringify([command.text, command.images]);
+                const input = JSON.stringify([command.text, command.images, command.inputSurface]);
                 const previous = steeringRequests.get(command.requestId);
                 if (previous && previous.input !== input) throw new Error("This message ID was already used.");
                 const result = previous?.result ||
-                    runtime.steerSession(session.id, command.text || "", command.images || []);
+                    runtime.steerSession(session.id, command.text || "", command.images || [], command.inputSurface);
                 steeringRequests.set(command.requestId, { input, result });
                 try {
                     response.end(JSON.stringify(await result));
@@ -125,7 +147,7 @@ export async function openLiveSessionConnection(
             } else if (command.action === "answer" && command.interactionId && command.response) {
                 const interaction = session.getActiveInteractions().get(command.interactionId);
                 if (!interaction?.answer) throw new Error("This question has already been answered or interrupted.");
-                interaction.answer(command.response);
+                interaction.answer(command.response, command.inputSurface);
             } else {
                 throw new Error("Invalid live Session command.");
             }
@@ -146,6 +168,7 @@ export async function openLiveSessionConnection(
         throw error;
     }
     return async () => {
+        for (const stream of streams) stream.end();
         await new Promise<void>((resolve) => server.close(() => resolve(undefined)));
     };
 }
@@ -186,5 +209,49 @@ export function readLiveSessionConnection(
         request.setTimeout(3000, () => request.destroy(new Error("The running agent did not respond. Try again.")));
         request.on("error", reject);
         request.end(command ? JSON.stringify(command) : undefined);
+    });
+}
+
+/** Subscribe before sending remote input, so even a fast final stop is delivered. */
+export function subscribeLiveSessionAttention(
+    sessionId: string,
+    operationId: string,
+    onEvent: (event: RuntimeAttentionRequestedEvent) => void,
+): Promise<() => void> {
+    return new Promise((resolve, reject) => {
+        const request = httpRequest({
+            socketPath: socketPath(sessionId, operationId),
+            path: "/attention",
+            agent: false,
+        }, (response) => {
+            clearTimeout(timeout);
+            if (response.statusCode !== 200) {
+                response.resume();
+                reject(new Error("The running agent is no longer available."));
+                return;
+            }
+            response.setEncoding("utf8");
+            let pending = "";
+            response.on("data", (chunk: string) => {
+                pending += chunk;
+                let boundary;
+                while ((boundary = pending.indexOf("\n\n")) >= 0) {
+                    const frame = pending.slice(0, boundary);
+                    pending = pending.slice(boundary + 2);
+                    if (frame.startsWith("data: ")) {
+                        const event: RuntimeAttentionRequestedEvent = JSON.parse(frame.slice(6));
+                        onEvent(event);
+                    }
+                }
+            });
+            response.on("error", () => {});
+            resolve(() => response.destroy());
+        });
+        const timeout = setTimeout(() => request.destroy(new Error("The running agent did not respond.")), 3000);
+        request.on("error", (error) => {
+            clearTimeout(timeout);
+            reject(error);
+        });
+        request.end();
     });
 }

@@ -360,6 +360,7 @@ export function attachTuiRuntimeAdapter({
                 uiAPI.requestRender();
                 break;
             case RuntimeEventTypes.ATTENTION_REQUESTED: {
+                if (value.notificationSurface && !["tui", "test"].includes(value.notificationSurface)) break;
                 notifyRunWieldEvent(value.reason, {
                     sessionName: value.sessionName,
                     agentName: value.agentName,

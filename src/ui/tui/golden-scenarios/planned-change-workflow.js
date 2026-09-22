@@ -8,6 +8,20 @@ import { assertEventIncludes, assertScreenIncludes } from "../testing/scenario-r
 import { assertRuntimeEvent, assertsGoldenCoverage } from "../testing/portfolio-assertions.js";
 
 /** @typedef {import('../testing/scenario-runner.js').GoldenScenarioResult} GoldenScenarioResult */
+/** @typedef {{ shownExplanationIds?: string[], recapShown?: boolean }} TutorialContextSnapshot */
+/** @typedef {{ runtimeSnapshot?: { tutorialContext?: TutorialContextSnapshot } }} TutorialCapturedState */
+/** @typedef {{ remoteHead?: string, remotePlanStatus?: string, deliveredText?: string }} TutorialPublicationState */
+/**
+ * @typedef {object} TutorialScenarioState
+ * @property {{ head?: string }} [publicationBaseline]
+ * @property {TutorialCapturedState} [tutorialPausedState]
+ * @property {TutorialCapturedState} [tutorialRepairedState]
+ * @property {TutorialCapturedState} [projectState]
+ * @property {TutorialCapturedState} [tutorialCompletedState]
+ * @property {TutorialCapturedState} [tutorialReloadedCompletedState]
+ * @property {TutorialPublicationState} [tutorialPublicationBeforeReload]
+ * @property {TutorialPublicationState} [tutorialPublicationAfterReload]
+ */
 
 /**
  * @param {GoldenScenarioResult} result
@@ -393,11 +407,26 @@ export const onboardingTutorialDeliveryScenario = {
     ...plannedChangeReviewRepairValidationScenario,
     name: "onboarding-tutorial-real-change-delivery",
     onboardingOfferHandled: false,
+    committedProjectFiles: [
+        {
+            path: "tutorial-behavior.test.ts",
+            text:
+                'import { tutorialLabel } from "./tutorial-behavior.ts";\nDeno.test("tutorial behavior", () => { if (tutorialLabel() !== "ready") throw new Error("not ready"); });\n',
+        },
+    ],
     coverage: [...plannedChangeReviewRepairValidationScenario.coverage, "tutorial:onboarding"],
     scriptedInteractions: [
         { type: "select", promptIncludes: "This tutorial makes a real change", value: "start" },
         { type: "select", promptIncludes: "Tutorial guidance", value: "continue" },
-        ...plannedChangeReviewRepairValidationScenario.scriptedInteractions,
+        ...plannedChangeReviewRepairValidationScenario.scriptedInteractions.map((interaction) =>
+            interaction.type === "text" && interaction.promptIncludes.includes("runs this project's tests")
+                ? { ...interaction, value: "sleep 5; deno test tutorial-behavior.test.ts" }
+                : interaction
+        ),
+        { type: "select", promptIncludes: "were stopped before they finished", value: "stop" },
+        { type: "select", promptIncludes: "Resume tutorial guidance", value: "resume" },
+        { type: "select", promptIncludes: "Plan recovery", value: "validate" },
+        { type: "select", promptIncludes: "Resume tutorial guidance", value: "resume" },
     ],
     script: [
         {
@@ -409,20 +438,97 @@ export const onboardingTutorialDeliveryScenario = {
             text:
                 "Choose one small improvement: clarify the Quickstart tutorial, tighten one validation message, or improve one command description.",
         },
-        ...plannedChangeReviewRepairValidationScenario.script.map((turn) =>
-            turn.agent === "planner" && turn.phase === "plan_review"
-                ? { ...turn, ordinal: Number(turn.ordinal) + 1 }
-                : turn
-        ),
+        ...plannedChangeReviewRepairValidationScenario.script.map((turn) => {
+            if (turn.agent === "planner" && turn.phase === "plan_review") {
+                return { ...turn, ordinal: Number(turn.ordinal) + 1 };
+            }
+            if (turn.id === "engineer-implements-plan") {
+                return {
+                    ...turn,
+                    toolCalls: [
+                        ...turn.toolCalls,
+                        {
+                            name: "write",
+                            arguments: {
+                                path: "tutorial-behavior.ts",
+                                content: 'export function tutorialLabel() { return "ready"; }\n',
+                            },
+                        },
+                    ],
+                };
+            }
+            if (turn.agent === "reviewer" && turn.requiredTools?.includes("review_diff")) {
+                return {
+                    ...turn,
+                    toolCalls: [
+                        ...turn.toolCalls,
+                        {
+                            name: "review_diff",
+                            arguments: { command: "show", scope: "full", path: "tutorial-behavior.ts" },
+                        },
+                        {
+                            name: "review_diff",
+                            arguments: { command: "show", scope: "full", path: "tutorial-behavior.test.ts" },
+                        },
+                    ],
+                };
+            }
+            return turn;
+        }),
     ],
     actions: [
         plannedChangeReviewRepairValidationScenario.actions[0],
+        { type: "capturePublicationBaseline" },
         { type: "type", text: "Use the documentation clarification and submit it for Plan Review" },
-        ...plannedChangeReviewRepairValidationScenario.actions.slice(2, 9),
+        { type: "enter" },
+        { type: "waitForEvent", event: "runtime:tool:start:task_completed", timeoutMs: 60000 },
+        { type: "waitForScreen", text: "Running the tests in", timeoutMs: 60000 },
+        { type: "escape" },
+        { type: "waitForIdle", timeoutMs: 60000 },
+        { type: "captureProjectState", planNames: ["plan"], key: "tutorialPausedState" },
+        { type: "restartTui", sessionStartMode: "continue" },
+        { type: "type", text: "/load-plan plan" },
+        { type: "enter" },
+        { type: "enter" },
+        { type: "waitForEventCount", event: "runtime:tool:end:task_completed", count: 2, timeoutMs: 240000 },
+        { type: "waitForEventCount", event: "runtime:turn_end", count: 9, timeoutMs: 60000 },
+        { type: "escape" },
+        { type: "waitForIdle", timeoutMs: 60000 },
+        { type: "captureProjectState", planNames: ["plan"], key: "tutorialRepairedState" },
+        { type: "restartTui", sessionStartMode: "continue" },
+        { type: "type", text: "/load-plan plan" },
+        { type: "enter" },
+        { type: "enter" },
+        { type: "waitForIdle", timeoutMs: 240000 },
+        { type: "waitForRemotePlanStatus", planName: "plan", statuses: ["validated"], timeoutMs: 240000 },
+        { type: "waitForWorktreeRegistryStatus", planName: "plan", statuses: ["absent"], timeoutMs: 90000 },
+        { type: "waitForIdle", timeoutMs: 90000 },
+        { type: "assertWorkflowDurability" },
+        {
+            type: "capturePublicationState",
+            planName: "plan",
+            deliveredPath: "tutorial-behavior.ts",
+            key: "tutorialPublicationBeforeReload",
+        },
+        // Full tutorial completion requires the Plan's exact legacy `verified`
+        // status in addition to confirmed publication evidence.
+        { type: "setPrimaryPlanStatus", planName: "plan", status: "verified" },
+        { type: "setNextModelResponse", text: "The verified tutorial Session remains interactive after reload." },
+        { type: "type", text: "show the verified tutorial recap" },
+        { type: "enter" },
+        { type: "waitForIdle", timeoutMs: 60000 },
         { type: "captureProjectState", planNames: ["plan"] },
         { type: "waitForScreen", text: "Tutorial complete", timeoutMs: 90000 },
         { type: "captureProjectState", planNames: ["plan"], key: "tutorialCompletedState" },
+        { type: "restartTui", sessionStartMode: "continue" },
+        { type: "captureProjectState", planNames: ["plan"], key: "tutorialReloadedCompletedState" },
         ...plannedChangeReviewRepairValidationScenario.actions.slice(9),
+        {
+            type: "capturePublicationState",
+            planName: "plan",
+            deliveredPath: "tutorial-behavior.ts",
+            key: "tutorialPublicationAfterReload",
+        },
     ],
     assertions: [
         ...plannedChangeReviewRepairValidationScenario.assertions,
@@ -430,17 +536,53 @@ export const onboardingTutorialDeliveryScenario = {
             const transcript = `${result.scrollbackText || ""}\n${result.screenText || ""}`;
             assertStringIncludes(transcript, "Tutorial complete");
             assertStringIncludes(transcript, "Plan:");
-            const tutorialState =
-                /** @type {{ projectState?: { runtimeSnapshot?: { tutorialContext?: { shownExplanationIds?: string[], recapShown?: boolean } } }, tutorialCompletedState?: { runtimeSnapshot?: { tutorialContext?: { shownExplanationIds?: string[], recapShown?: boolean } } } }} */ (
-                    result.state
+            assertEventIncludes(result, "runtime:cancellation");
+            assertEquals(
+                result.events.filter((event) => event === "tui:restarted").length,
+                3,
+                "The tutorial must reload during CI, after semantic repair, and after verified delivery.",
+            );
+            for (const id of ["engineer-implements-plan", "engineer-repairs-after-reviewer-rejection"]) {
+                assertEquals(
+                    result.actor.consumed.filter((consumed) => consumed === id).length,
+                    1,
+                    `Reload must preserve ${id} instead of running it again.`,
                 );
+            }
+            const tutorialState = /** @type {TutorialScenarioState} */ (result.state);
+            const pausedContext = tutorialState.tutorialPausedState?.runtimeSnapshot?.tutorialContext;
+            const repairedContext = tutorialState.tutorialRepairedState?.runtimeSnapshot?.tutorialContext;
             const tutorialContext = tutorialState.projectState?.runtimeSnapshot?.tutorialContext;
             const completedContext = tutorialState.tutorialCompletedState?.runtimeSnapshot?.tutorialContext;
+            const reloadedContext = tutorialState.tutorialReloadedCompletedState?.runtimeSnapshot?.tutorialContext;
+            const publicationBeforeReload = tutorialState.tutorialPublicationBeforeReload;
+            const publicationAfterReload = tutorialState.tutorialPublicationAfterReload;
+            assertEquals(pausedContext?.recapShown, false, "Pause must settle before verification and publication.");
+            assert(
+                repairedContext?.shownExplanationIds?.includes("ai-review"),
+                "Semantic repair teaching must persist before its reload.",
+            );
             assertEquals(completedContext?.recapShown, true, "Verified recap must persist after it is displayed.");
+            assertEquals(reloadedContext?.recapShown, true, "Verified recap must remain complete after reload.");
             assertEquals(
-                completedContext?.shownExplanationIds?.filter((shown) => shown === "verified-recap").length,
+                reloadedContext?.shownExplanationIds?.filter((shown) => shown === "verified-recap").length,
                 1,
-                "Verified recap must persist once.",
+                "Verified recap must persist once after reload.",
+            );
+            assert(
+                publicationBeforeReload?.remoteHead !== tutorialState.publicationBaseline?.head,
+                "The tutorial must publish a new remote commit.",
+            );
+            assertEquals(publicationBeforeReload?.remotePlanStatus, "validated");
+            assertEquals(
+                publicationBeforeReload?.deliveredText,
+                'export function tutorialLabel() { return "ready"; }',
+                "Publication must preserve the implemented tutorial work.",
+            );
+            assertEquals(
+                publicationAfterReload?.remoteHead,
+                publicationBeforeReload?.remoteHead,
+                "Reload after verified delivery must not publish again.",
             );
             for (
                 const id of [
@@ -449,7 +591,6 @@ export const onboardingTutorialDeliveryScenario = {
                     "implementation",
                     "project-checks",
                     "ai-review",
-                    "ai-repair",
                     "delivery",
                 ]
             ) {

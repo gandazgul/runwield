@@ -865,3 +865,25 @@ Deno.test("TUI displays an already reported backend error once while preserving 
     assertEquals(transcript, ["system:error:Blocked: read_file", "system:error:A different failure"]);
     adapter.dispose();
 });
+
+Deno.test("TUI does not alert for Workspace- or ACP-owned attention", () => {
+    const { runtime, sessionId } = makeRuntimeHarness("notification-owner");
+    const { uiAPI } = makeUi();
+    /** @type {string[]} */
+    const notifications = [];
+    const adapter = attachTuiRuntimeAdapter({
+        runtime,
+        sessionId,
+        uiAPI,
+        notifyRunWieldEvent: (reason) => notifications.push(reason),
+    });
+    for (const notificationSurface of /** @type {const} */ (["workspace", "acp", "tui"])) {
+        runtime.emitSessionEvent(sessionId, {
+            type: RuntimeEventTypes.ATTENTION_REQUESTED,
+            reason: "agentStopped",
+            notificationSurface,
+        });
+    }
+    assertEquals(notifications, ["agentStopped"]);
+    adapter.dispose();
+});

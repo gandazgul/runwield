@@ -34,6 +34,7 @@ type RollSessionTranscriptSegmentOptions = {
     ownerInstanceId: string;
     ownerProcessKind: "workspace" | "tui" | "acp" | "test";
     kind: RolloverKind;
+    transcriptCwd?: string;
     continuation: JsonValue;
     expectedGeneration?: number | null;
     lineageGroupKey?: string | null;
@@ -75,6 +76,7 @@ export async function rollSessionTranscriptSegment(
     const predecessor = options.ownerCoordinationStore.listSessionTranscriptSegments(managed.runwieldSessionId)
         .find((segment) => segment.segmentId === managed.currentSegmentId);
     if (!predecessor) throw new Error("The current Session transcript segment is unavailable");
+    const transcriptCwd = options.transcriptCwd || options.hostedSession.cwd;
     const tutorialContext = options.hostedSession.getTutorialContext();
 
     let proof = options.ownerCoordinationStore.acquireSessionActivation({
@@ -98,10 +100,10 @@ export async function rollSessionTranscriptSegment(
 
         proof = options.ownerCoordinationStore.changeSessionActivationPhase(proof, "hydrated");
         proof = options.ownerCoordinationStore.changeSessionActivationPhase(proof, "checkpointing");
-        const successorManager = await createRootSessionManager("new", options.hostedSession.cwd);
+        const successorManager = await createRootSessionManager("new", transcriptCwd);
         const successorPiSessionId = successorManager.getSessionId();
         const successorTranscriptPath = await resolveCreatedRootSessionPath(
-            options.hostedSession.cwd,
+            transcriptCwd,
             successorManager,
         );
         const successorSegmentId = crypto.randomUUID();
@@ -119,13 +121,13 @@ export async function rollSessionTranscriptSegment(
         await syncTranscriptFileAndParent(successorTranscriptPath);
         const successorEvidence = await captureTranscriptEvidence({
             transcriptPath: successorTranscriptPath,
-            transcriptCwd: options.hostedSession.cwd,
+            transcriptCwd,
         });
         const successorSafeLocator = await options.ownerCoordinationStore.validateSuccessorSegmentLocator({
             projectId: managed.projectId,
             piSessionId: successorPiSessionId,
             transcriptPath: successorTranscriptPath,
-            transcriptCwd: options.hostedSession.cwd,
+            transcriptCwd,
         });
         const generation = (managed.generation ?? -1) + 1;
         const committed = options.ownerCoordinationStore.commitSegmentRolloverAndPublish(proof, {
@@ -136,7 +138,7 @@ export async function rollSessionTranscriptSegment(
                 projectId: managed.projectId,
                 piSessionId: successorPiSessionId,
                 transcriptPath: successorTranscriptPath,
-                transcriptCwd: options.hostedSession.cwd,
+                transcriptCwd,
                 kind: options.kind,
                 lineageParentSegmentId: predecessor.segmentId,
                 lineageParentPiSessionId: predecessor.piSessionId,

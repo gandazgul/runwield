@@ -9,6 +9,8 @@ type BrowserAttentionEvent = {
     reason?: string;
     agentName?: string;
     sessionName?: string;
+    notificationSurface?: string;
+    url?: string;
 };
 
 type TrackedNotification = {
@@ -17,7 +19,10 @@ type TrackedNotification = {
 };
 
 export type SessionTabNotificationController = {
-    notifyAgentStopped(event: BrowserAttentionEvent, policy: BrowserNotificationPolicy | null | undefined): void;
+    notifyAgentStopped(
+        event: BrowserAttentionEvent,
+        policy: BrowserNotificationPolicy | null | undefined,
+    ): Promise<void>;
     dispose(): void;
 };
 
@@ -25,10 +30,11 @@ const DEFAULT_SESSION_NAME = "RunWield";
 
 export function createSessionTabNotificationController(): SessionTabNotificationController {
     const active = new Set<TrackedNotification>();
+    let disposed = false;
 
     return {
-        notifyAgentStopped(event, policy) {
-            if (!canNotifyAgentStopped(event, policy)) return;
+        async notifyAgentStopped(event, policy) {
+            if (disposed || !canNotifyAgentStopped(event, policy)) return;
             const NotificationConstructor = globalThis.Notification;
             if (typeof NotificationConstructor !== "function" || NotificationConstructor.permission !== "granted") {
                 return;
@@ -38,14 +44,26 @@ export function createSessionTabNotificationController(): SessionTabNotification
             ) return;
 
             try {
-                const notification = new NotificationConstructor(
-                    buildSharedNotificationTitle(
-                        "agentStopped",
-                        normalizedSessionName(event.sessionName),
-                        event.agentName,
-                    ),
-                    { body: getNotificationBaseMessage("agentStopped") },
-                ) as TrackedNotification;
+                const title = buildSharedNotificationTitle(
+                    "agentStopped",
+                    normalizedSessionName(event.sessionName),
+                    event.agentName,
+                );
+                const body = getNotificationBaseMessage("agentStopped");
+                const href = event.url ? new URL(event.url, globalThis.location?.href).href : globalThis.location?.href;
+                if (globalThis.navigator?.serviceWorker) {
+                    const registration = await navigator.serviceWorker.getRegistration();
+                    if (disposed) return;
+                    if (registration?.active) {
+                        await registration.showNotification(title, {
+                            body,
+                            icon: "/pwa/icon-192.png",
+                            data: { url: href },
+                        });
+                        return;
+                    }
+                }
+                const notification = new NotificationConstructor(title, { body }) as TrackedNotification;
                 active.add(notification);
                 notification.onclick = () => {
                     try {
@@ -56,15 +74,18 @@ export function createSessionTabNotificationController(): SessionTabNotification
                     active.delete(notification);
                     try {
                         globalThis.focus();
+                        if (event.url && globalThis.location) globalThis.location.assign(event.url);
                     } catch {
                         // Browser-owned best effort.
                     }
                 };
-            } catch {
-                // Notification delivery must not affect the Session turn.
+            } catch (error) {
+                // Keep the turn running, but expose delivery failures for diagnosis.
+                console.warn("Workspace notification delivery failed:", error);
             }
         },
         dispose() {
+            disposed = true;
             for (const notification of active) {
                 try {
                     notification.onclick = null;
@@ -82,7 +103,8 @@ export function canNotifyAgentStopped(
     event: BrowserAttentionEvent,
     policy: BrowserNotificationPolicy | null | undefined,
 ): boolean {
-    return event.type === "attention_requested" && event.reason === "agentStopped" && policy?.enabled !== false &&
+    return event.type === "attention_requested" && event.reason === "agentStopped" &&
+        (!event.notificationSurface || event.notificationSurface === "workspace") && policy?.enabled !== false &&
         policy?.events?.agentStopped !== false;
 }
 

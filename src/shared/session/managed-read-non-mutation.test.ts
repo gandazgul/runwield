@@ -244,6 +244,9 @@ Deno.test("managed read sweep drives read paths without writable Pi calls or tra
             await run("listSessionContextFiles", async () => {
                 await runtime.listSessionContextFiles(adopted.sessionId);
             });
+            await run("getSessionProjectRoot", () => {
+                runtime.getSessionProjectRoot(adopted.sessionId);
+            });
             await run("listSessionPromptTemplates", async () => {
                 await runtime.listSessionPromptTemplates(adopted.sessionId);
             });

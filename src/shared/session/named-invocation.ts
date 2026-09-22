@@ -1,13 +1,12 @@
 import { extractYaml, test as hasFrontMatter } from "@std/front-matter";
-import { basename, dirname, join } from "@std/path";
-import { AGENTS, getHomeDir, SKILLS_DIR } from "../../constants.js";
-import { directoryExists, fileExists } from "../helpers.js";
-import { getCustomSetting } from "../settings.js";
+import { basename, join } from "@std/path";
+import { AGENTS } from "../../constants.js";
+import { fileExists } from "../helpers.js";
 import { parseProviderModel } from "../models/model-validation.ts";
 import { resolveInstalledPackagePromptResources } from "../package-resources.js";
 import { isWorkflowOnlyAgent, loadAgentDef, normalizeAgentInternalName } from "./agents.js";
-import { extractBundledSkills } from "./agent-assets.js";
 import { getPromptTemplatePaths } from "./session.js";
+import { expandSkillRecord, findSkill } from "./skill-catalog.ts";
 import type { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 
@@ -86,14 +85,6 @@ type PromptTemplateResource = {
     packageSource?: string;
 };
 
-type SkillResource = {
-    name: string;
-    path: string;
-    source: NamedInvocationSource;
-    raw: string;
-    body: string;
-};
-
 const ALLOWED_PROMPT_FRONT_MATTER = new Set([
     "description",
     "argument-hint",
@@ -123,9 +114,9 @@ export async function resolveNamedInvocation(options: { cwd: string; text: strin
     if (command.startsWith("skill:")) {
         const skillName = command.slice("skill:".length).trim();
         if (!skillName) return { kind: "ordinary", text: options.text } satisfies OrdinaryInvocation;
-        const skill = await findSkillResource(options.cwd, skillName);
+        const skill = await findSkill(skillName, { cwd: options.cwd });
         if (!skill) return { kind: "ordinary", text: options.text } satisfies OrdinaryInvocation;
-        const expandedRequest = expandSkillResource(skill, instructions || undefined);
+        const expandedRequest = await expandSkillRecord(skill, instructions || undefined);
         const payload = await createPayload({
             kind: "skill",
             compactInvocation: options.text,
@@ -303,47 +294,6 @@ async function findPromptTemplateResource(cwd: string, name: string): Promise<Pr
     return null;
 }
 
-async function findSkillResource(cwd: string, commandName: string): Promise<SkillResource | null> {
-    const extractedBundledDir = await extractBundledSkills();
-    const bundledDirs = extractedBundledDir && extractedBundledDir !== SKILLS_DIR
-        ? [extractedBundledDir, SKILLS_DIR]
-        : [SKILLS_DIR];
-    const homeDir = getHomeDir();
-    const enableExternalSkills = getCustomSetting("enableExternalSkills", "global") ?? true;
-    const layers = [
-        { dir: join(cwd, ".wld", "skills"), source: "local" as const },
-        ...(homeDir ? [{ dir: join(homeDir, ".wld", "skills"), source: "home" as const }] : []),
-        ...bundledDirs.map((dir) => ({ dir, source: "bundled" as const })),
-        ...(enableExternalSkills && homeDir
-            ? [{ dir: join(homeDir, ".agents", "skills"), source: "external" as const }]
-            : []),
-    ];
-    const seen = new Set<string>();
-    for (const layer of layers) {
-        if (!(await directoryExists(layer.dir))) continue;
-        for await (const entry of Deno.readDir(layer.dir)) {
-            if (!entry.isDirectory || seen.has(entry.name)) continue;
-            const skillPath = join(layer.dir, entry.name, "SKILL.md");
-            if (!(await fileExists(skillPath))) continue;
-            seen.add(entry.name);
-            const byDirectoryName = entry.name === commandName;
-            const raw = await Deno.readTextFile(skillPath);
-            const parsed = parseMarkdown(raw);
-            const frontMatterName = readOptionalStringField(parsed.attrs.name, "Skill", entry.name, "name") ||
-                entry.name;
-            if (!byDirectoryName && frontMatterName !== commandName) continue;
-            return {
-                name: frontMatterName,
-                path: skillPath,
-                source: layer.source,
-                raw,
-                body: parsed.body,
-            };
-        }
-    }
-    return null;
-}
-
 async function readPromptTemplateForInvocation(path: string, templateName: string) {
     let raw = "";
     try {
@@ -439,17 +389,6 @@ function expandPromptTemplateBody(body: string, additionalInstructions: string |
     const trimmed = body.trim();
     if (additionalInstructions) return `${trimmed}\n\n${additionalInstructions}`;
     return trimmed;
-}
-
-function expandSkillResource(skill: SkillResource, additionalInstructions: string | undefined) {
-    const body = skill.body.trim();
-    const skillBlock = `<skill name="${skill.name}" location="${skill.path}">\nReferences are relative to ${
-        dirname(skill.path)
-    }.\n\n${body}\n</skill>`;
-    const header = `The user has invoked the "${skill.name}" skill. Follow the instructions below:`;
-    const expanded = `${header}\n\n${skillBlock}`;
-    if (additionalInstructions) return `${expanded}\n\n${additionalInstructions}`;
-    return expanded;
 }
 
 async function sha256Hex(text: string) {

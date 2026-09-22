@@ -65,6 +65,7 @@ import {
 import { authenticateOwnerRequest, authorizeOwnerUpgradeRequest, isOwnerUpgradeRequest } from "./server/owner-auth.js";
 import { createWorkspaceSessionContinuationService } from "./server/session-continuation.js";
 import {
+    ownerNotificationsStreamApi,
     ownerProjectSessionsApi,
     ownerSessionBootstrapApi,
     ownerSessionConfigureApi,
@@ -254,6 +255,7 @@ export function createOwnerWorkspaceApp(options) {
             );
         }
     });
+    app.get("/api/owner/notifications/stream", ownerNotificationsStreamApi);
     app.get("/", async (ctx) => {
         const headers = new Headers(ctx.req.headers);
         headers.set("x-runwield-owner-dashboard", "true");

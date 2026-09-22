@@ -363,7 +363,7 @@ These keys are read by RunWield outside the upstream Pi `SettingsManager` schema
 | `workRecords.autoGenerateOnPlanCompletion` | boolean           | default `true`                                  | global + project | Automatically generates or reconciles eligible Work Records after terminal planned-work outcomes. Only literal `false` disables automation; explicit `wld wr` commands still work.                                                                    |
 | `notifications`                            | object            | enabled by default                              | global + project | Attention notifications. TUI uses terminal BEL/OSC for agent stops, `plan_written`, `user_interview`, and `/compact`. Workspace uses browser alerts for live `agentStopped` events. Focused surfaces stay quiet by default.                           |
 | `workflowMetrics`                          | boolean or object | default disabled                                | global + project | Opt-in local-only JSONL workflow metrics under `~/.wld/workflow-metrics/<encoded-project-root>/metrics.jsonl`. Linked worktrees write to the primary project file. Accepts `true` or `{ "enabled": true }`.                                           |
-| `enableExternalSkills`                     | boolean           | default `true`                                  | global           | When true, RunWield includes skills from `~/.agents/skills` after local, home, and bundled RunWield skills.                                                                                                                                           |
+| `enableExternalSkills`                     | boolean           | default `true`                                  | global           | When true, RunWield includes project `.agents/skills` and home `~/.agents/skills`. When false, it omits both folders. External skills cannot conflict with bundled names or aliases.                                                                  |
 | `enableExternalGlobalAgentsMd`             | boolean           | default `true`                                  | global           | When true, global prompt loading includes `~/.agents/AGENTS.md` after `~/.wld/RUNWIELD.md` and `~/.wld/AGENTS.md`.                                                                                                                                    |
 
 ### `workflowMetrics`
@@ -554,7 +554,7 @@ These keys come from the upstream `@earendil-works/pi-coding-agent` settings sch
 | `trackingId`                | string       | generated when analytics is enabled                                          | Analytics tracking identifier.                                                                                                |
 | `packages`                  | array        | default `[]`                                                                 | Installed npm/git/local package sources. RunWield registers theme resources and package prompt templates from these packages. |
 | `extensions`                | string array | default `[]`                                                                 | Local extension file paths or directories.                                                                                    |
-| `skills`                    | string array | default `[]`                                                                 | Local skill file paths or directories.                                                                                        |
+| `skills`                    | string array | default `[]`                                                                 | Ignored by RunWield. Use project or home `.wld/skills` or `.agents/skills`.                                                   |
 | `prompts`                   | string array | default `[]`                                                                 | Local prompt template file paths or directories.                                                                              |
 | `themes`                    | string array | default `[]`                                                                 | Local theme file paths or directories.                                                                                        |
 | `enableSkillCommands`       | boolean      | default `true`                                                               | Register skills as Core-owned `/skill:name` named invocations.                                                                |
@@ -676,9 +676,10 @@ silently replace those templates. If a package prompt name collides with a built
 When invoked, Prompt Template Front Matter can select `agent`, `model`, and `thinkingLevel` for that one auxiliary turn;
 invalid values fail before a model call.
 
-RunWield still ignores Pi package skills. When `wld install <source>` finds package skills, it reports them as ignored
-and prints `npx skills add <source>` guidance so users can install them through the external skills CLI instead.
-RunWield does not shell out to `npx`, copy package skills, or mutate skill directories.
+RunWield ignores all Pi-discovered skills, including configured `skills` paths, package skills, and extension skills.
+When `wld install <source>` finds package skills, it reports them as ignored and prints `npx skills add <source>`
+guidance so users can install them through the external skills CLI instead. RunWield does not shell out to `npx`, copy
+package skills, or mutate skill directories.
 
 Pi code extensions are not loaded from packages by default because they can execute arbitrary extension logic. RunWield
 only loads package code extensions when both conditions are met:

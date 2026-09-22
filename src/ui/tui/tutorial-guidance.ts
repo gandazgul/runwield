@@ -2,14 +2,16 @@ import { join } from "@std/path";
 import { AGENTS } from "../../constants.js";
 import { RuntimeEventTypes } from "../../shared/session/session-runtime-events.js";
 import { listWorkRecords } from "../../shared/work-records/store.js";
-import { loadPlan } from "../../plan-store.js";
+import { findPlanEvidenceById } from "../../plan-store.js";
 import { readControllerRecord } from "../../shared/workflow/controller-registry.ts";
+import { getCustomSetting } from "../../shared/settings.js";
+import { INIT_VERIFICATION_COMMAND_PLACEHOLDER } from "../../tools/init-verification-command.ts";
 import type { UiAPI } from "./types.js";
 
 type SessionRuntimeEvent = import("../../shared/session/session-runtime-events.js").SessionRuntimeEvent;
 type SessionSnapshot = import("../../shared/types.js").SessionSnapshot;
 type SessionRuntime = ReturnType<typeof import("../../shared/session/session-runtime.js").createSessionRuntime>;
-type LoadedPlan = NonNullable<Awaited<ReturnType<typeof loadPlan>>>;
+type LoadedPlan = Awaited<ReturnType<typeof findPlanEvidenceById>>;
 
 type TutorialExplanation = {
     id: string;
@@ -88,10 +90,13 @@ export function getTutorialExplanation(event: SessionRuntimeEvent): TutorialExpl
     }
     if (progress.stage === "semantic_review" || progress.stage === "engineer_repair") {
         const repairing = progress.stage === "engineer_repair";
+        const repairsProjectChecks = repairing && progress.checks.ci === "failed";
         return {
-            id: repairing ? "ai-repair" : "ai-review",
+            id: repairsProjectChecks ? "project-repair" : repairing ? "ai-repair" : "ai-review",
             header: repairing ? "Tutorial · Repair" : "Tutorial · AI review",
-            text: repairing
+            text: repairsProjectChecks
+                ? "Project checks found an issue. The normal repair cycle is active, and the verified recap remains blocked."
+                : repairing
                 ? "AI review found an issue. The normal repair cycle is active, and the verified recap remains blocked."
                 : "An independent AI review now checks the implementation against the approved Plan.",
         };
@@ -131,15 +136,14 @@ function associatedPlanId(snapshot: SessionSnapshot): string | null {
 async function readVerifiedTutorialPlan(
     snapshot: SessionSnapshot,
     planId: string,
+    projectRoot: string,
 ): Promise<VerifiedTutorialPlan | null> {
     const association = snapshot.planAssociations?.find((entry) => entry.planId === planId);
     if (!association?.planName) return null;
-    const plan = await loadPlan(snapshot.cwd, association.planName);
-    if (
-        !plan || plan.attrs.planId !== planId ||
-        ["user_verified", "closed_without_verification"].includes(plan.attrs.status)
-    ) return null;
-    const controller = await readControllerRecord(snapshot.cwd, {
+    const plan = await findPlanEvidenceById(projectRoot, planId).catch(() => null);
+    if (!plan || plan.planName !== association.planName || plan.attrs.planId !== planId) return null;
+    if (plan.attrs.status !== "verified") return null;
+    const controller = await readControllerRecord(projectRoot, {
         planId,
         planName: association.planName,
     });
@@ -151,15 +155,16 @@ async function buildRecap(
     snapshot: SessionSnapshot,
     planId: string,
     verifiedPlan: VerifiedTutorialPlan,
+    projectRoot: string,
 ): Promise<string> {
     const lines: string[] = [];
     lines.push(`Plan: ${verifiedPlan.plan.path}`);
     try {
-        const records = await listWorkRecords(snapshot.cwd, { createDir: false });
+        const records = await listWorkRecords(projectRoot, { createDir: false });
         const workRecord = records.find((record) => record.attrs.provenance?.sourcePlans?.includes(planId));
         if (workRecord) lines.push(`Work Record: ${workRecord.relativePath}`);
         else {
-            const directory = join(snapshot.cwd, "docs", "work-records");
+            const directory = join(projectRoot, "docs", "work-records");
             for await (const entry of Deno.readDir(directory)) {
                 if (!entry.isFile || !entry.name.endsWith(".md")) continue;
                 const text = await Deno.readTextFile(join(directory, entry.name));
@@ -171,6 +176,10 @@ async function buildRecap(
         }
     } catch {
         // Missing optional artifacts do not change verified workflow truth.
+    }
+    for (const artifact of snapshot.artifacts || []) {
+        if (artifact.kind !== "report" || !/(review|qa)/i.test(`${artifact.title} ${artifact.path}`)) continue;
+        lines.push(`Review/QA Artifact: ${artifact.path}`);
     }
     lines.push("Type an ordinary request to start your next RunWield task.");
     return lines.join("\n");
@@ -212,18 +221,17 @@ export async function presentTutorialEvent(
             text: "AI review found an issue. The normal repair cycle ran before this new review.",
         };
     }
+    if (!explanation || context.shownExplanationIds.includes(explanation.id)) return;
     if (
-        explanation?.id === "implementation" && context.shownExplanationIds.includes("implementation") &&
-        context.shownExplanationIds.includes("ai-review") && !context.shownExplanationIds.includes("delivery")
+        explanation.id === "project-checks" &&
+        getCustomSetting("verification_command", "project", snapshot.cwd) === INIT_VERIFICATION_COMMAND_PLACEHOLDER
     ) {
         explanation = {
-            id: "ai-repair",
-            header: "Tutorial · Repair",
+            ...explanation,
             text:
-                "AI review found an issue. The normal repair cycle is active, and the verified recap remains blocked.",
+                "This project has no implemented verification command. RunWield is running Init's placeholder command, not real test coverage.",
         };
     }
-    if (!explanation || context.shownExplanationIds.includes(explanation.id)) return;
     const activePlanId = associatedPlanId(snapshot);
     if (context.planId && activePlanId && activePlanId !== context.planId) return;
     if (explanation.recap && (!planId || context.recapShown)) return;
@@ -231,18 +239,19 @@ export async function presentTutorialEvent(
     if (explanation.recap) {
         const waitsForPublication = event.type === RuntimeEventTypes.SYSTEM_STATUS &&
             event.validationProgress?.stage === "terminal";
-        const attempts = waitsForPublication ? 31 : 1;
+        const attempts = waitsForPublication ? 101 : 1;
         let verifiedPlan: VerifiedTutorialPlan | null = null;
+        const projectRoot = runtime.getSessionProjectRoot(sessionId) || snapshot.cwd;
         for (let attempt = 0; attempt < attempts; attempt += 1) {
             snapshot = runtime.getSessionSnapshot(sessionId);
             context = snapshot?.tutorialContext;
             if (!snapshot || !context?.guidanceEnabled || context.recapShown) return;
-            verifiedPlan = await readVerifiedTutorialPlan(snapshot, planId || "");
+            verifiedPlan = await readVerifiedTutorialPlan(snapshot, planId || "", projectRoot);
             if (verifiedPlan) break;
             if (attempt + 1 < attempts) await new Promise((resolve) => setTimeout(resolve, 100));
         }
         if (!verifiedPlan) return;
-        const recap = await buildRecap(snapshot, planId || "", verifiedPlan);
+        const recap = await buildRecap(snapshot, planId || "", verifiedPlan, projectRoot);
         uiAPI.appendSystemMessage(`${explanation.text}\n\n${recap}`, false, explanation.header);
         await runtime.updateTutorialContext(sessionId, {
             shownExplanationIds: [...context.shownExplanationIds, explanation.id],
@@ -253,14 +262,9 @@ export async function presentTutorialEvent(
 
     const implementationStarted = explanation.id === "project-checks" &&
         !context.shownExplanationIds.includes("implementation");
-    const repairOccurred = explanation.id === "delivery" && !context.shownExplanationIds.includes("ai-repair") &&
-        snapshot.planAssociations?.some((association) =>
-            association.planId === context.planId && association.purpose === "recovery"
-        );
     const shownExplanationIds = [
         ...context.shownExplanationIds,
         ...(implementationStarted ? ["implementation"] : []),
-        ...(repairOccurred ? ["ai-repair"] : []),
         explanation.id,
     ];
     const update = await runtime.updateTutorialContext(sessionId, { shownExplanationIds });
@@ -270,13 +274,6 @@ export async function presentTutorialEvent(
             "The approved Plan is running in its isolated worktree. Press Escape to request cancellation; RunWield will preserve completed work and report the settled state.",
             false,
             "Tutorial · Implementation",
-        );
-    }
-    if (repairOccurred) {
-        uiAPI.appendSystemMessage(
-            "AI review found an issue. The normal repair cycle completed before delivery.",
-            false,
-            "Tutorial · Repair",
         );
     }
     uiAPI.appendSystemMessage(explanation.text, false, explanation.header);

@@ -30,16 +30,16 @@ One theme owns this child: **no installed package's executable code runs until t
 Today `runInstallCommand` (`src/cmd/install/index.ts`) calls `installAndPersist` before consent, so an unrestricted
 package registration exists before the user is asked. Refusal later disables extensions, but interruption or prompt
 failure can leave the unrestricted registration available to a subsequent Session. The sibling Plan
-[Protect New Package Extension Consent](protect-new-package-extension-consent.md) is `ready_for_work` with verified
+[Protect New Package Extension Consent](../protect-new-package-extension-consent.md) is `ready_for_work` with verified
 findings and is absorbed here at the owner's direction.
 
 Separately, `isWldCompatibleExtension` (`src/shared/extensions/wld-extension-manifest.js:35`) gates on
 `wld.kind === "code-extension"`, and `resolveInstalledWldExtensionResources` (L137) loads through Pi's package manager.
 A metrics exporter is not a Pi Agent extension and must not load through `DefaultResourceLoader` or `buildAgentSession`.
 
-Owning PRD: [Agent and skill customization](../prd/runwield-core-prd.md#agent-and-skill-customization) gains a narrow,
-separately approved metrics-exporter kind. **Work protection** keeps its requirement that destructive or trust-granting
-actions are deliberate.
+Owning PRD: [Agent and skill customization](../../prd/runwield-core-prd.md#agent-and-skill-customization) gains a
+narrow, separately approved metrics-exporter kind. **Work protection** keeps its requirement that destructive or
+trust-granting actions are deliberate.
 
 ## Objective
 

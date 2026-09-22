@@ -49,6 +49,15 @@ Core already emits `attention_requested` from Agent handling. The TUI adapter re
 terminal-specific delivery. Workspace already forwards runtime events through its live operation stream. Reuse those
 paths.
 
+## Subsequent notification repair
+
+The Workspace notification repair supersedes this Plan's loaded-Session-only observation and unconditional TUI-delivery
+assumptions. Notification destination now follows accepted user input; the Workspace shell listens across navigation and
+receives live attention from remotely steered turns. Mobile delivery uses the existing PWA service worker. Current
+requirements live in [Workspace](../../prd/runwield-workspace-prd.md) and
+[Core Session continuity](../../prd/runwield-core-prd.md#session-continuity); no durable attention ledger or Web Push
+was added.
+
 ## Objective
 
 Move reusable notification content and setting interpretation into Core. Keep terminal delivery in TUI and surface
@@ -155,8 +164,9 @@ Core** meanings without adding or redefining a product term.
    `document.hasFocus()`, and `window.focus()` boundaries. It delivers only permitted, enabled `agentStopped` events;
    suppresses only when the document is both visible and focused and the setting enables suppression; uses shared title
    and base message text; closes and focuses the originating tab on click; catches constructor/click failures; and
-   closes tracked notifications and clears handlers on disposal. It adds no persistence, service worker, Web Lock,
-   delivery ledger, or product-owned dependency-injection seam.
+   closes tracked desktop notifications and clears handlers on disposal. Mobile delivery now uses the existing PWA
+   service worker; see the current Workspace PRD Session-alert requirement. No push subscription, delivery ledger, Web
+   Lock, or product-owned dependency-injection seam is added.
 7. `SessionSurface` remembers seen live stop events per Session and operation in memory. It recognizes the event shape
    `{ type: "attention_requested", reason: "agentStopped" }`; status changes and historical replay cannot alert.
    Restored snapshots seed observation silently. New operations scan immediately. Repeated snapshots, overlapping

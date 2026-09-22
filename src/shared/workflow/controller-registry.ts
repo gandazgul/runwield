@@ -216,7 +216,9 @@ export async function writeControllerState(
     const lock = await Deno.open(`${path}.lock`, { create: true, read: true, write: true });
     try {
         await lock.lock(true);
-        const before = await readControllerRecord(cwd, identity);
+        // Runtime entry precedes the inode lock. Re-entering migration here
+        // could recover an old write and wait for the very lock we own.
+        const before = await readControllerRecordAtPath(dirname(path), identity);
         if (options.initializeOnly && before) return before;
         if (options.expectedRevision !== undefined && (before?.revision || 0) !== options.expectedRevision) {
             throw new StaleControllerWriteError();

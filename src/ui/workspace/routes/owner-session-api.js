@@ -468,3 +468,48 @@ export function ownerSessionOperationStreamApi(ctx) {
     headers.set("connection", "keep-alive");
     return new Response(body, { headers });
 }
+
+/**
+ * @typedef {Object} NotificationStreamState
+ * @property {import('../server/session-continuation.js').WorkspaceSessionContinuationService} sessionContinuation
+ * @property {{ deviceId: string }} ownerDevice
+ * @property {ReturnType<typeof import('../server/owner-connections.js').createOwnerConnectionRegistry>} ownerConnections
+ */
+/**
+ * @typedef {Object} NotificationStreamContext
+ * @property {NotificationStreamState} state
+ */
+/** Live alerts belong to the Workspace, independent of the displayed page. @param {NotificationStreamContext} ctx */
+export function ownerNotificationsStreamApi(ctx) {
+    const encoder = new TextEncoder();
+    let unsubscribe = () => {};
+    let unregister = () => {};
+    const body = new ReadableStream({
+        start(controller) {
+            controller.enqueue(encoder.encode(": connected\n\n"));
+            unregister = ctx.state.ownerConnections.register(ctx.state.ownerDevice.deviceId, {
+                close() {
+                    unsubscribe();
+                    unregister();
+                    controller.close();
+                },
+            });
+            unsubscribe = ctx.state.sessionContinuation.subscribeNotifications(
+                (
+                    /** @type {import('../server/session-continuation.js').WorkspaceAttentionNotification} */ notification,
+                ) => {
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify(notification)}\n\n`));
+                },
+            );
+        },
+        cancel() {
+            unregister();
+            unsubscribe();
+        },
+    });
+    const headers = ownerSecurityHeaders(new Headers());
+    headers.set("content-type", "text/event-stream");
+    headers.set("cache-control", "no-cache");
+    headers.set("connection", "keep-alive");
+    return new Response(body, { headers });
+}

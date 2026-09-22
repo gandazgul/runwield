@@ -32,6 +32,23 @@ Deno.test("Gitignore retains legacy publication protection only while the direct
     }
 });
 
+Deno.test("Gitignore keeps recovered legacy lock directories out of user commits", async () => {
+    const root = await Deno.makeTempDir({ prefix: "runwield-recovery-ignore-" });
+    try {
+        await Deno.mkdir(join(root, ".wld", "controller", "plans"), { recursive: true });
+        await Deno.mkdir(join(root, ".wld", "plan-locks"), { recursive: true });
+        await Deno.writeTextFile(join(root, ".wld", "controller", "plans", "demo.json.lock"), "");
+        await ensureRunWieldOwnedGitignoreBlock(root);
+        const content = await Deno.readTextFile(join(root, ".gitignore"));
+        assertStringIncludes(content, ".wld/internal/\n");
+        assertStringIncludes(content, ".wld/controller/\n");
+        assertStringIncludes(content, ".wld/plan-locks/\n");
+        assertEquals((await ensureRunWieldOwnedGitignoreBlock(root)).changed, false);
+    } finally {
+        await Deno.remove(root, { recursive: true });
+    }
+});
+
 Deno.test("RunWield runtime classifiers separate current state from legacy hazards", () => {
     const cases = [
         { path: ".wld/internal", current: true, legacy: false, aggregate: true },

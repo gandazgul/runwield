@@ -40,8 +40,8 @@ roots, and `sessionBelongsToOwnerProject` compares canonical roots because Works
 
 Owning PRD: this change creates the Workspace **Personal usage and outcomes** capability in
 `docs/prd/runwield-workspace-prd.md`, referencing Core measurement rules rather than restating them.
-[Attention dashboard](../prd/runwield-workspace-prd.md#attention-dashboard) keeps home's next-action role. The root PRD
-capability ownership map gains the link.
+[Attention dashboard](../../prd/runwield-workspace-prd.md#attention-dashboard) keeps home's next-action role. The root
+PRD capability ownership map gains the link.
 
 ## Objective
 
