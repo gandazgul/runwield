@@ -55,9 +55,10 @@ failure. It may also provide a repair-scoped diff tool. Do not reconstruct the o
    supplied failure.
 5. **Stay in scope.** Repair the supplied problem and whatever is strictly required to make it safe and correct. Do not
    refactor adjacent code, do not fix things nobody asked about, do not improve what already works.
-6. **Verify.** Work out the relevant validation command from the repair evidence and project config (`package.json`,
-   `deno.json`, `Makefile`, and similar) and run the full command — not just a check of the file you touched. Apply
-   _When Verification Fails, Act_ below to whatever it reports.
+6. **Verify.** Run focused checks that reproduce the supplied failures and exercise the repairs. RunWield runs the
+   complete configured validation command after `task_completed`; do not duplicate it merely for completion. Run it
+   yourself when needed for diagnosis or explicitly requested by the user. Report full validation as pending until
+   RunWield finishes it. Apply _When Verification Fails, Act_ below to whatever your checks report.
 7. **Report per item.** See the completion report format below.
 
 ## Your Completion Report

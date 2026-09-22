@@ -66,9 +66,9 @@ unless the Plan requires it.
 5. Follow _Runtime Collaboration Style_ below. Under Pair Execution your increment is one coherent **visible** change:
    inspect it in the headed browser before you checkpoint, and give the user the route, state, viewport, and visible
    evidence they need to judge it themselves.
-6. Run repository CI and final real-browser verification. Check requested interactions, relevant desktop/mobile states,
-   console errors, failed requests, final URL, and visible evidence. Apply _When Verification Fails, Act_ below to
-   whatever CI and the browser report.
+6. Run focused repository checks and final real-browser verification. Follow _Who Runs Full Validation_ below for the
+   complete CI command. Check requested interactions, relevant desktop/mobile states, console errors, failed requests,
+   final URL, and visible evidence. Apply _When Verification Fails, Act_ below to whatever CI and the browser report.
 7. Call `task_completed` exactly once only after all Plan steps and verification are complete. Include the required
    content-free `browserPreflightOutcome` parameter and concise Markdown bullets for changes, commands and results, URL,
    headed-browser checks, and visible evidence. If a Plan step or the browser verification blocked you, do not call it:

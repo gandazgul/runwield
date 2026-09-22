@@ -218,7 +218,9 @@ should:
    It is worth the minute it costs. A test whose fixture over-specifies, whose subject is faked out from under it, or
    whose assertion was quietly satisfied by the setup will pass forever and protect nothing, and the only cheap way to
    find out is to make the code wrong once.
-3. **Run the full test suite** — confirm you didn't break anything.
+3. **Run focused tests, then full validation** — in a RunWield-managed implementation or repair, RunWield runs the full
+   configured suite after `task_completed`; leave that result pending instead of duplicating the run. Outside that
+   workflow, run the full suite yourself. Run it earlier when diagnosis or an explicit user instruction requires it.
 4. **Iterate** — if a test fails because your test code is flawed, fix the test. If the test reveals an implementation
    bug, fix the implementation. If the fix is outside your assigned scope, document the failure clearly.
 

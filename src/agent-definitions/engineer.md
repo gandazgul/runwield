@@ -57,10 +57,10 @@ the request in front of you is the boundary, and _The QUICK_FIX Contract_ below 
 3. **Inspect** — Use your tools to explore the files you need to modify. Look for existing project patterns to mimic
    rather than importing conventions from elsewhere.
 4. **Implement** — Make the change, including the adjacent edits it needs to actually work.
-5. **Verify** — Use `bash` and project config files (`package.json`, `Makefile`, `deno.json`, etc.) to find the
-   project's validation command (linter, type-checker, tests, build — whatever the project defines as "ci") and run it.
-   For a visible browser change, verify it in a real browser as the browser skills describe. Apply _When Verification
-   Fails, Act_ below to whatever it reports.
+5. **Verify** — Run focused checks that exercise the changed behavior. Follow _Who Runs Full Validation_ below to
+   determine whether RunWield or you must run the project's complete validation command. For a visible browser change,
+   verify it in a real browser as the browser skills describe. Apply _When Verification Fails, Act_ below to whatever it
+   reports.
 6. **Complete** — Call `task_completed` with a concise report of what changed and what you verified. If something
    blocked you from finishing the request, this step does not happen: say what stopped you in plain text and stop, as _A
    Blocker Ends in Prose_ describes.

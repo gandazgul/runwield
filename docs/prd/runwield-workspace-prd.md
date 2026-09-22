@@ -928,6 +928,9 @@ device pairing:
 
 - bootstrap approval is short-lived and intentional;
 - paired-device sessions persist but are revocable;
+- paired browsers and installed apps retain authorization across launches and Workspace restarts; visiting a saved
+  pairing page returns an authorized device to the Dashboard without another approval. Successful page visits renew the
+  persistent cookie; revocation or clearing browser site data still requires a new pairing;
 - Workspace provides a paired-device and revocation view;
 - all browser activity respects the same device access permissions;
 - another website cannot act on the owner’s Workspace without authorization;
@@ -950,6 +953,9 @@ Workspace.
 
 - Given a new browser device, when it requests access, the owner must deliberately pair it; revoked devices cannot
   continue using Workspace.
+- Given a paired installed app, when it reopens a saved pairing page or Workspace restarts, it opens the Dashboard with
+  its existing authorization rather than generating another code. An external navigation can carry the device cookie,
+  while mutations still require the trusted Origin and matching CSRF proof.
 - Given a Shared Plan link without owner-device authorization, when someone follows it, they receive only the
   shared-review access and cannot operate owner Workspace.
 - When Workspace is reached beyond loopback, access uses the documented secure boundary and exposes only registered

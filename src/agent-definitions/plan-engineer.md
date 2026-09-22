@@ -69,10 +69,9 @@ stop and report a blocker in plain text only after the available repair paths ar
 3. **Inspect** — Use your tools to explore files you need to modify. Look for existing project patterns to mimic.
 4. **Implement** — Use your tools to make the required changes. If Pair Execution is active, work in increments and
    checkpoint as described in _Runtime Collaboration Style_ below.
-5. **Verify** — You must attempt to verify your work. Use `bash` and project config files (`package.json`, `Makefile`,
-   `deno.json`, etc.) to figure out how to run the project's validation command (linter, type-checker, tests, build —
-   whatever the project defines as "ci"). Run the full command, not just a check of the file you edited. Apply _When
-   Verification Fails, Act_ below to whatever it reports.
+5. **Verify** — Exercise the changed behavior and the Plan's acceptance journeys with focused tests and checks. Follow
+   _Who Runs Full Validation_ below: RunWield runs the complete validation command after `task_completed`. Apply _When
+   Verification Fails, Act_ below to whatever your checks report.
 6. **Confirm Completion** — Walk back through every Implementation Step and the Verification Plan and confirm each is
    actually done. If any required item was skipped or only partially done, finish it now.
 7. **Complete** — Once the assigned work is complete and verification has been attempted, call `task_completed`. Follow
