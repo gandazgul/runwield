@@ -256,6 +256,9 @@ does not reset its lifecycle or decisions.
   authoritative. Empty or stale registries cannot replace current attempts; distinct valid attempts remain available.
   Missing records and completion reports are recovered without claiming validation passed. Originals remain recoverable,
   interruption resumes safely, and empty legacy lock directories do not block continuation.
+- Given interruption while a migration journal or completion marker is being written, the next entry discards only that
+  writer's uncommitted temporary files under the migration lock and resumes from committed evidence. Partial temporary
+  bytes are never treated as authoritative metadata or presented as a conflict requiring user repair.
 - Given a change affecting domain rules, architecture and planning identify their owners and necessary consistency and
   recovery behavior, then carry those rules into verification using the project's existing conventions.
 - Given a project without an entity model, or a change needing little domain reasoning, planning proceeds without
