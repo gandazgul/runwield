@@ -198,13 +198,13 @@ Deno.test("review_diff tool responds to list command", async () => {
     assertEquals(result.details.fileCount, 5);
 });
 
-Deno.test("review_diff describes full scope as the target-relative worktree diff", () => {
+Deno.test("review_diff describes full scope as the proposed branch patch", () => {
     const tool = createReviewDiffTool({ full: SAMPLE_INLINE_DIFF, repair: "" });
     const description = /** @type {any} */ (tool).description || /** @type {any} */ (tool).promptSnippet || "";
-    assertStringIncludes(String(description), "target-relative worktree diff");
+    assertStringIncludes(String(description), "entire proposed branch patch");
     assertStringIncludes(
         buildDiffInspectionSection(SAMPLE_INLINE_DIFF, { hasRepairScope: true }),
-        "target-relative worktree diff",
+        "entire proposed branch patch",
     );
 });
 

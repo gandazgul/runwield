@@ -112,7 +112,7 @@ Deno.test("Workspace Code Review live interaction keeps planTitle in its payload
     }
 });
 
-Deno.test("Workspace Code Review reload reads the latest target-relative worktree diff", async () => {
+Deno.test("Workspace Code Review reload reads the latest proposed branch patch", async () => {
     const projectRoot = await Deno.makeTempDir({ prefix: "runwield-workspace-code-reload-" });
     const service = new WorkspaceSessionContinuationService({ store: {} });
     try {
@@ -160,6 +160,47 @@ Deno.test("Workspace Code Review reload reads the latest target-relative worktre
         assertStringIncludes(String(liveReview?.request?.codeReview?.rawPatch), "+export const label = 'second';");
         assertFalse(String(liveReview?.request?.codeReview?.rawPatch).includes("label = 'base'"));
         assertFalse(JSON.stringify(liveReview).includes(projectRoot));
+
+        const indexPath = `${projectRoot}/.git/index`;
+        const savedIndexPath = `${projectRoot}/.git/index.saved`;
+        await Deno.rename(indexPath, savedIndexPath);
+        await Deno.mkdir(indexPath);
+        try {
+            const fallbackReview = await service.getLiveCodeReview({
+                projectId: "project-1",
+                runwieldSessionId: "session-1",
+                operationId: "operation-reload",
+                interactionId: "interaction-reload",
+            });
+            assertEquals(fallbackReview?.request?.codeReview?.rawPatch, "stale patch");
+        } finally {
+            await Deno.remove(indexPath);
+            await Deno.rename(savedIndexPath, indexPath);
+        }
+
+        const unrelatedRoot = await Deno.makeTempDir({ prefix: "runwield-unrelated-review-target-" });
+        try {
+            await runGit(unrelatedRoot, ["init", "-b", "target"]);
+            await runGit(unrelatedRoot, ["config", "user.email", "runwield@example.com"]);
+            await runGit(unrelatedRoot, ["config", "user.name", "RunWield Test"]);
+            await Deno.writeTextFile(`${unrelatedRoot}/unrelated.ts`, "export const unrelated = true;\n");
+            await runGit(unrelatedRoot, ["add", "unrelated.ts"]);
+            await runGit(unrelatedRoot, ["commit", "-m", "unrelated target"]);
+            await runGit(projectRoot, ["fetch", unrelatedRoot, "+target:refs/heads/target"]);
+            await assertRejects(
+                () =>
+                    service.getLiveCodeReview({
+                        projectId: "project-1",
+                        runwieldSessionId: "session-1",
+                        operationId: "operation-reload",
+                        interactionId: "interaction-reload",
+                    }),
+                Error,
+                "no common ancestor",
+            );
+        } finally {
+            await Deno.remove(unrelatedRoot, { recursive: true });
+        }
 
         await runGit(projectRoot, ["update-ref", "-d", "refs/heads/target"]);
         await assertRejects(
