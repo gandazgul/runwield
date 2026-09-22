@@ -1,10 +1,12 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
-import { Container, Spacer, Text, TuiAltScreen } from "@earendil-works/pi-tui";
+import { type Component, Container, Spacer, StdinBuffer, Text, TuiAltScreen } from "@earendil-works/pi-tui";
 import { createChatView, findVisibleToolBlocks } from "./chat-view.ts";
 import { ToolExecutionGroupBlock } from "./blocks.js";
 import { VirtualTerminal } from "./testing/virtual-terminal.js";
 import { RunWieldTui } from "./tui.ts";
 import { installTerminalFocusState } from "./terminal-focus-state.ts";
+import { installKeybindings } from "./keybindings.ts";
+import { createGenerationGuard } from "./generation-guard.js";
 
 Deno.test("TUI artifact shortcut opens the shared-reader picker without changing the draft", async () => {
     const terminal = new VirtualTerminal({ columns: 150, rows: 30 });
@@ -43,6 +45,230 @@ Deno.test("TUI artifact shortcut opens the shared-reader picker without changing
         await terminal.flush();
         assertEquals(view.editor.getText(), "Keep my draft");
     } finally {
+        view.dispose();
+        tui.stop();
+    }
+});
+
+Deno.test("chat view reconstructs delayed mouse-wheel input without changing a draft or cancelling work", async () => {
+    const terminal = new VirtualTerminal({ columns: 80, rows: 12 });
+    const tui = new RunWieldTui(terminal);
+    const focus = installTerminalFocusState(terminal, () => tui.requestRender(true));
+    const view = await createChatView({
+        tui,
+        suppressStartupHeader: true,
+        getSessionId: () => "fragmented-wheel-session",
+        sessionRuntime: {
+            getSessionSnapshot: () => ({ cwd: "/tmp/fragmented-wheel-fixture", activeModel: {} }),
+        },
+        setActiveModel: () => Promise.resolve({ status: "active" }),
+    });
+    let cancellationCount = 0;
+    let ctrlCPendingExit = false;
+    const submissions: string[] = [];
+    view.editor.onSubmit = (text) => submissions.push(text);
+    installKeybindings({
+        editor: view.editor,
+        tui,
+        uiAPI: view.uiAPI,
+        pastedImages: view.pastedImages,
+        previewImages: view.previewImages,
+        generationGuard: createGenerationGuard(),
+        dismissActivePrompt: () => {},
+        dequeueLastSubmission: () => false,
+        recallQueuedSubmissionsToEditor: () => {},
+        forceResetUI: () => {},
+        markCtrlCPendingExit: () => {
+            ctrlCPendingExit = true;
+        },
+        isCtrlCPendingExit: () => ctrlCPendingExit,
+        cycleThinkingLevel: () => {},
+        readClipboardImage: () => Promise.resolve(null),
+        cancelRuntimeSession: () => {
+            cancellationCount++;
+            return true;
+        },
+    });
+    const mouseSequence = "\x1b[<64;1;1M";
+
+    try {
+        tui.start();
+        for (let index = 0; index < 30; index++) {
+            view.uiAPI.appendUserMessage?.(`retained message ${index}`);
+        }
+        view.uiAPI.setBusy?.(true);
+        view.editor.setText("keep this draft");
+        tui.renderNow(true);
+        await terminal.flush();
+
+        for (let split = 1; split < mouseSequence.length; split++) {
+            tui.scrollToBottom();
+            tui.renderNow();
+            const beforeScroll = tui.viewportTop;
+            const input = new StdinBuffer({ timeout: 80, escapeTimeout: 80 });
+            input.on("data", (data: string) => terminal.input(data));
+            input.process(mouseSequence.slice(0, split));
+            input.process(mouseSequence.slice(split));
+            tui.renderNow();
+            await terminal.flush();
+            assertEquals(tui.viewportTop < beforeScroll, true);
+            assertEquals(view.editor.getText(), "keep this draft");
+            assertEquals(cancellationCount, 0);
+            assertEquals(submissions, []);
+        }
+
+        tui.scrollToBottom();
+        tui.renderNow();
+        const beforeDelayedScroll = tui.viewportTop;
+        const delayedInput = new StdinBuffer({ timeout: 1, escapeTimeout: 1 });
+        delayedInput.on("data", (data: string) => terminal.input(data));
+        delayedInput.process("\x1b");
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        delayedInput.process(mouseSequence.slice(1));
+        tui.renderNow();
+        await terminal.flush();
+
+        assertEquals(tui.viewportTop < beforeDelayedScroll, true);
+        assertEquals(view.editor.getText(), "keep this draft");
+        assertEquals(cancellationCount, 0);
+        assertEquals(submissions, []);
+
+        const incompleteInput = new StdinBuffer({ timeout: 1, escapeTimeout: 1 });
+        incompleteInput.on("data", (data: string) => terminal.input(data));
+        incompleteInput.process("\x1b");
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        incompleteInput.process(mouseSequence.slice(1, -1));
+        await new Promise((resolve) => setTimeout(resolve, 70));
+        assertEquals(view.editor.getText(), "keep this draft");
+        assertEquals(cancellationCount, 0);
+        assertEquals(submissions, []);
+
+        terminal.input("\x1b");
+        await new Promise((resolve) => setTimeout(resolve, 70));
+        assertEquals(cancellationCount, 1);
+    } finally {
+        view.uiAPI.setBusy?.(false);
+        focus.dispose();
+        view.dispose();
+        tui.stop();
+    }
+});
+
+Deno.test("chat view shows messages appended after the first frame", async () => {
+    const terminal = new VirtualTerminal({ columns: 80, rows: 12 });
+    const tui = new RunWieldTui(terminal);
+    const view = await createChatView({
+        tui,
+        suppressStartupHeader: true,
+        getSessionId: () => "append-after-first-frame",
+        sessionRuntime: {
+            getSessionSnapshot: () => ({ cwd: "/tmp/append-after-first-frame-fixture", activeModel: {} }),
+        },
+        setActiveModel: () => Promise.resolve({ status: "active" }),
+    });
+    try {
+        tui.start();
+        tui.renderNow(true);
+        await terminal.flush();
+
+        view.uiAPI.appendUserMessage?.("message after the first frame");
+        tui.renderNow();
+        await terminal.flush();
+
+        assertStringIncludes(terminal.getScreenText(), "message after the first frame");
+    } finally {
+        view.dispose();
+        tui.stop();
+    }
+});
+
+Deno.test("chat view keeps unchanged retained blocks out of live-update renders", async () => {
+    const retainedCounts = [100, 500, 998];
+    for (const retainedCount of retainedCounts) {
+        const terminal = new VirtualTerminal({ columns: 80, rows: 12 });
+        const tui = new RunWieldTui(terminal);
+        const view = await createChatView({
+            tui,
+            suppressStartupHeader: true,
+            getSessionId: () => `retained-render-${retainedCount}`,
+            sessionRuntime: {
+                getSessionSnapshot: () => ({ cwd: "/tmp/retained-render-fixture", activeModel: {} }),
+            },
+            setActiveModel: () => Promise.resolve({ status: "active" }),
+        });
+        const renderCounts = Array.from({ length: retainedCount }, () => 0);
+        for (let index = 0; index < retainedCount; index++) {
+            const marker = `retained marker ${index}`;
+            const component: Component = {
+                invalidate: () => {},
+                render: () => {
+                    renderCounts[index]++;
+                    return [marker];
+                },
+            };
+            view.messageList.addChild(component);
+        }
+        try {
+            tui.start();
+            const thinking = view.uiAPI.appendThinkingStart?.();
+            if (!thinking) throw new Error("TUI API is incomplete.");
+            thinking.appendDelta("live update one");
+            tui.renderNow(true);
+            await terminal.flush();
+            const initialRenderCounts = [...renderCounts];
+            assertEquals(initialRenderCounts.every((count) => count > 0), true);
+
+            tui.scrollToTop();
+            tui.renderNow();
+            await terminal.flush();
+            assertStringIncludes(terminal.getScreenText(), "retained marker 0");
+
+            thinking.appendDelta(" live update two");
+            tui.renderNow();
+            await terminal.flush();
+            assertEquals(renderCounts, initialRenderCounts);
+
+            tui.scrollToBottom();
+            tui.renderNow();
+            await terminal.flush();
+            assertStringIncludes(terminal.getScreenText(), "live update two");
+        } finally {
+            view.dispose();
+            tui.stop();
+        }
+    }
+});
+
+Deno.test("chat view refreshes an active tool without reformatting retained message blocks", async () => {
+    const terminal = new VirtualTerminal({ columns: 80, rows: 12 });
+    const tui = new RunWieldTui(terminal);
+    const view = await createChatView({
+        tui,
+        suppressStartupHeader: true,
+        getSessionId: () => "active-tool-render-session",
+        sessionRuntime: {
+            getSessionSnapshot: () => ({ cwd: "/tmp/active-tool-render-fixture", activeModel: {} }),
+        },
+        setActiveModel: () => Promise.resolve({ status: "active" }),
+    });
+    try {
+        tui.start();
+        for (let index = 0; index < 20; index++) {
+            view.uiAPI.appendUserMessage?.(`retained message ${index}`);
+        }
+        const tool = view.uiAPI.startToolExecution?.("tool-1", "bash", "! echo streaming");
+        if (!tool) throw new Error("TUI API is incomplete.");
+        tool.setOutput("first tool output");
+        tui.renderNow(true);
+        await terminal.flush();
+        assertStringIncludes(terminal.getScreenText(), "first tool output");
+
+        tool.setOutput("updated tool output");
+        tui.renderNow();
+        await terminal.flush();
+        assertStringIncludes(terminal.getScreenText(), "updated tool output");
+    } finally {
+        view.uiAPI.setBusy?.(false);
         view.dispose();
         tui.stop();
     }

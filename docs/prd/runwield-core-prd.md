@@ -130,6 +130,12 @@ conversation scroll position, active interaction, and running Agent turn.
 Ctrl+O toggles only tool groups that intersect the current TUI viewport. Each expanded tool block shows at most 500
 output lines. For longer output, it keeps the start and end and shows how many middle lines it omitted.
 
+**Requirement: Keep long conversations responsive and scrolling safe.**
+
+The TUI must not reformat unchanged retained conversation blocks for each live update. Local terminal scroll input must
+move the conversation viewport without adding terminal control text to the draft or interrupting the active Agent turn.
+A deliberate Escape key remains available to interrupt the turn.
+
 **Acceptance scenarios:**
 
 - Given a new conversation, when the user submits a request, Router handles initial triage; after a specialist handoff,
@@ -142,6 +148,9 @@ output lines. For longer output, it keeps the start and end and shows how many m
   routes within the same Session.
 - Given erased terminal contents while the input still accepts typing, returning focus or pressing Ctrl+L restores the
   input and conversation without submitting or discarding the draft, scrolling, or interrupting the Agent.
+- Given a long local conversation while an Agent turn is active, when the user scrolls and types a draft, the viewport
+  moves without terminal control text in the draft or interruption of the Agent turn; a deliberate Escape still
+  interrupts it.
 - Given tool groups above and inside the current viewport, when the user presses Ctrl+O, only the intersecting groups
   toggle. A tool result longer than 500 lines keeps its first and last lines and identifies the omitted middle lines.
 
