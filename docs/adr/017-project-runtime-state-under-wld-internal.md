@@ -79,6 +79,12 @@ are not sufficient reasons to overwrite the adopted controller. Replaying interr
 inode locks remain stable while their data files are retired, so an older waiter cannot acquire a different lock inode.
 Empty legacy directories and dormant controller lock files do not block entry.
 
+This ownership rule also covers recreated registry files, migration reports, and debug data. An empty or stale legacy
+registry cannot replace current attempts or reset publication progress. Distinct legacy attempts are imported only after
+checkout and identity checks; ambiguous attempts keep both copies intact. Registry recovery holds both registry locks,
+archives originals, and journals retirement. Normal registry operations enter the runtime before taking their lock and
+retain that checked layout for the operation, avoiding migration re-entry while holding a lock recovery needs.
+
 RunWield 0.11.0 does not support downgrade or concurrent use with an older RunWield process after migration. Current
 processes use one migration lock. The legacy registry lock is held from publication preflight through durable marker
 commit and retirement of legacy authoritative data; it is released before its own obsolete lock file is retired. Each

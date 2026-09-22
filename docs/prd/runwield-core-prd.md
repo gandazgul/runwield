@@ -255,6 +255,9 @@ does not reset its lifecycle or decisions.
   decisions, retry counters, execution identity, or publication progress. Missing records and completion reports are
   recovered without claiming validation passed. Originals remain recoverable, and interruption during this recovery
   resumes safely on the next attempt. Empty legacy lock directories do not block continuation.
+- Given recreated empty or stale runtime registry files, migration reports, or debug files, selecting a Plan recovers
+  them automatically without replacing current attempts. Distinct valid attempts remain available; originals remain
+  recoverable. Registry recovery and ordinary writers cannot overwrite each other or wait on their own locks.
 - Given a change affecting domain rules, architecture and planning identify their owners and necessary consistency and
   recovery behavior, then carry those rules into verification using the project's existing conventions.
 - Given a project without an entity model, or a change needing little domain reasoning, planning proceeds without
