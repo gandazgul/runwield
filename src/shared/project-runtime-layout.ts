@@ -369,9 +369,18 @@ export async function migrateLegacyProjectRuntimeState(
     const marker = await readLayoutMarker(layout);
     if (isBlocked(marker)) return marker;
 
+    // An in-flight migration may expose intermediate files between these reads.
+    // Recheck under its lock instead of treating that transient state as corruption.
+    const migrationWasInFlight = await lstatOrNull(layout.primary.layoutMigrationLockPath);
     const beforeLock = await preflight(layout, primaryCheckoutRoot, marker.marker);
-    if (isBlocked(beforeLock)) return beforeLock;
-    const unchanged = await completeMarkerNeedsNoWork(layout, marker.marker, beforeLock);
+    if (
+        isBlocked(beforeLock) && !migrationWasInFlight &&
+        !(await lstatOrNull(layout.primary.layoutMigrationLockPath)) &&
+        !(beforeLock.reason === "active_legacy_writer" &&
+            beforeLock.paths.every((path) => path === legacyWorktreeRegistryLockPath(primaryCheckoutRoot)))
+    ) return beforeLock;
+    const unchanged = !isBlocked(beforeLock) &&
+        await completeMarkerNeedsNoWork(layout, marker.marker, beforeLock);
     if (unchanged && marker.marker) {
         return {
             kind: "ready",

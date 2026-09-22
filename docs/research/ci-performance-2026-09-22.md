@@ -8,7 +8,7 @@ remain available without verbose console output.
 
 ## Ranking and reevaluation
 
-The final ranking prioritizes release wall time, then measured local savings. Hosted estimates remain unverified until a
+The first round prioritized release wall time, then measured local savings. Hosted estimates remain unverified until a
 pushed workflow run.
 
 Quiet output and measurement came first. Initial ranking from the last successful release was: parallelize test
@@ -121,10 +121,12 @@ The next ranking is based on the owner's repeated local validation cost:
    RunWield still executes the full configured gate after completion and every repair. Standalone Agents still run full
    validation. This can avoid one entire CI duration per handoff, but is a guidance change, not a measured
    model-behavior guarantee. No successful result is cached or accepted from an Agent's narrative.
-2. **Measure greater local concurrency and scheduling.** Twelve workers are being compared with the existing eight.
-   Scheduling currently discards measurements until a file has three observations, even though changing execution order
-   cannot remove coverage. Replaying the previous complete suite's measured durations predicts a 31.7s shorter tail at
-   twelve workers when all observations are used; this is a scheduling simulation, not a wall-time claim.
+2. **Measure greater local concurrency and scheduling.** Twelve workers completed the whole gate in 523.5s (457 files
+   passed, one prompt-contract failure subsequently fixed), versus the earlier 606.8s at eight. This initially suggested
+   a twelve-worker default; the final paired comparison below rejected that choice. Hosted worker overrides stay
+   unchanged. Scheduling now uses the first observation instead of discarding timings for two further runs; changing
+   order cannot remove coverage. Replaying the previous complete suite's measured durations predicts a 31.7s shorter
+   tail at twelve workers when all observations are used; this is a scheduling simulation, not a wall-time claim.
 3. **Try Vite+/Vitest before migrating.** Actual experiment below found no advantage on the slow composed workloads.
 4. **Make external binary fixtures consistent.** Local composed tests previously used installed Cymbal/Ketch while
    hosted CI provided shell stubs. Shared fixtures now cover Mnemoteca, Cymbal, and Ketch, with unsupported calls both
@@ -144,7 +146,7 @@ Mnemoteca path. Golden used the existing real child protocol and reusable real G
 | Same two files, two isolated workers | Total wall time | Cleanup integration (34 tests) | Publication Golden (9 tests) |
 | ------------------------------------ | --------------: | -----------------------------: | ---------------------------: |
 | Current Deno runner                  |           90.7s |                          89.9s |                        62.7s |
-| Vite+ / Vitest under Deno            | at least 111.8s |                         111.8s |                        64.2s |
+| Vite+ / Vitest under Deno            |          112.4s |                         111.8s |                        64.2s |
 
 All 43 original tests passed in both runs. These are sequential local observations, not a statistical benchmark.
 Vitest's registration wrapper used native imports for application code, so this compares runner orchestration, not a
@@ -179,3 +181,87 @@ References: [Vite+ test command](https://viteplus.dev/guide/test),
 [Vitest runtime requirements](https://vitest.dev/guide/),
 [Vitest isolation and performance](https://vitest.dev/guide/improving-performance),
 [Deno CLI code-cache options](https://docs.deno.com/runtime/reference/cli/run/).
+
+### Import cost in real crash tests
+
+The publication driver loaded the full agent package through three static dependencies: URL normalization in Plan
+locking, non-Git consent in generic Git helpers, and metrics settings. The unchanged URL validator now lives in the
+existing URL module; consent helpers live in their own settings-dependent module; metrics import settings when actually
+recording a metric. Ordinary Git/publication processes no longer initialize the agent package. Metrics still honor the
+real settings, and consent still persists through the real settings implementation. No internal operation is
+substituted.
+
+Sequential one-worker runs of `publication-machine.e2e.test.ts`, each with a fresh per-run cache, took **78.06s before
+and 61.96s after** (20.6% less wall time). All three top-level tests and all 32 crash/restart subcases passed unchanged.
+Evidence: `crash-before-imports/`, `crash-after-imports/`, and the before/after `publication-driver-graph*.json` files
+under `/private/tmp/runwield-ci-speed/`. This measured result promoted import cleanup above speculative fixture or
+runner gains.
+
+### Failure collection and concurrency repairs
+
+CI collects all test failures by default. `deno task ci --fail-fast` is optional: it stops scheduling new files after a
+failure and lets already-running files finish. Collecting failures costs more on that individual failed run, but permits
+one repair batch instead of repeated model turns and reruns. No fail-fast run with skipped files counts as a complete
+qualification run.
+
+Import cleanup and higher concurrency exposed test assumptions and a real runtime race. Lock-holder subprocesses now
+keep themselves alive explicitly instead of depending on background handles from an unrelated agent import. Migration
+rechecks transient state under its migration lock and waits for an active registry lock before rereading the registry;
+the existing test now observes the real migration lock instead of guessing readiness with a sleep. The large ACP usage
+fixture retains its complete 48,000-token context and assertions, while allowing more than 80 transport chunks.
+
+The concurrent Golden model fixture previously assigned both sessions the first session's Plan identity and shared turn
+ordinals. It now matches the real model request's canonical working directory to the correct Runtime snapshot, with
+distinct Plan scripts. All lifecycle, publication, registry, identity, and rendered UX assertions remain.
+
+### Real macOS clipboard contention
+
+A subsequent loaded run exposed another external dependency: every composed TUI polled the user's real clipboard every
+1.5 seconds. With an image on this machine's clipboard, individual `osascript` probes used approximately 270 MB and
+substantial CPU. Concurrent Golden processes multiplied that unrelated work and made the external state affect screens.
+The shared binary fixtures now answer only the exact image-availability AppleScript with an empty clipboard; unsupported
+AppleScript fails and is recorded. Production clipboard logic still invokes a real subprocess. Dedicated clipboard
+reader tests and the composed paste test retain their image, extraction, attachment, error, and cleanup coverage.
+
+### Accurate TUI idle detection
+
+Loaded runs exposed that `waitForIdle` only observed Runtime busy state and a stable screen. A slash command can still
+be processing before the Runtime becomes busy, so the harness could assert incomplete output or dispose the fixture
+under a running command. Composition now also observes the real input controller's pending submission. A composed
+regression opens the real theme selector, confirms the Runtime is not busy, verifies idle cannot finish while selection
+is pending, then cancels through terminal input and observes completion. No command, lifecycle, or lock is substituted.
+
+## Final verification and worker reevaluation
+
+Both complete gates passed on the repaired code. The runs used the same saved input timing history, fresh per-run Deno
+caches, and exactly the same 460 files and 3,826 JUnit cases. There were **3,824 passing cases and two unchanged
+Windows-only skips** on this macOS machine (12 logical CPUs, 48 GiB RAM).
+
+| Complete local CI                                   | Wall time | Result                                              |
+| --------------------------------------------------- | --------: | --------------------------------------------------- |
+| Earlier eight-worker checkpoint                     |    606.8s | 456 files; 3,788 cases including two platform skips |
+| Repaired code, twelve workers                       |    527.9s | All 460 files passed                                |
+| Same repaired code and input history, eight workers |    505.4s | All 460 files passed                                |
+
+**Keep eight workers by default.** Twelve increased contention; its complete run was 22.5s slower. The final observed
+reduction from the earlier checkpoint is 101.4s (16.7%), despite 38 additional cases from this work and concurrent
+repository changes. These are sequential observations on a working machine, not repeated statistical trials; do not
+attribute the entire difference to one change. The controlled publication-driver comparison remains 78.06s versus
+61.96s. Hosted release savings still require a pushed workflow run.
+
+The final ranking is: avoid a prescribed duplicate full gate; overlap required hosted qualification and builds; remove
+artificial external latency and costly unrelated imports; reuse real fixtures and schedule long files early; then tune
+workers from measurements. The alternate runner and a twelve-worker default did not justify adoption. All Golden
+journeys remain required by local CI. The original Golden inventory is preserved. The four names missing from the older
+combined inventory are replacements: the timing policy and repair-guidance assertions changed intentionally, while
+concurrent ACP work strengthened the schema/usage tests with exact context and unknown-capacity cases. No test was
+deleted as redundant.
+
+The successful commands each printed only the Deno task banner and `CI passed (...)`. Detailed task times, individual
+case durations, and failure diagnostics remain in artifacts. Repaired reruns also passed the 25 journeys in the four
+previously failing Golden groups, all three Epic journeys under load, the clipboard/paste checks, migration tests, and
+the new real-input idle regression. The zero-internal-seam check still passes.
+
+Final evidence: `ci-repaired-eight-report/`, `ci-repaired-twelve-report/`, their `*-tasks.json` and `*-summary.json`
+files, and `repaired-worker-comparison-input.json` under `/private/tmp/runwield-ci-speed/`. The intermediate failed
+collect-all run is retained as `ci-collect-all-failure-report/`; it is not counted as a successful timing result.

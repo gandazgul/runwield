@@ -956,12 +956,33 @@ async function runComposedTuiScenario(scenario, options) {
                 /** @type {unknown} */ _providerState,
                 /** @type {{ id?: string, provider?: string }} */ model,
             ) => {
-                const snapshot = composition?.runtime.getSessionSnapshot(composition.sessionId);
+                let snapshot = composition?.runtime.getSessionSnapshot(composition.sessionId);
                 const availableTools = getContextToolNames(context);
                 const systemPrompt = String(
                     /** @type {{ systemPrompt?: unknown }} */ (context && typeof context === "object" ? context : {})
                         .systemPrompt || "",
                 );
+                // Route the external model fixture by the request's real working
+                // directory. Concurrent sessions must never borrow the first TUI's
+                // Plan identity or consume its scripted turns.
+                if (concurrentSessions.size > 0) {
+                    const requestCwd = systemPrompt.match(/^Current working directory: (.+)$/m)?.[1]?.trim();
+                    const snapshots = [
+                        snapshot,
+                        ...[...concurrentSessions.values()].map(({ composition: sessionComposition }) =>
+                            sessionComposition.runtime.getSessionSnapshot(sessionComposition.sessionId)
+                        ),
+                    ].filter((candidate) =>
+                        candidate && requestCwd && Deno.realPathSync(candidate.cwd) === Deno.realPathSync(requestCwd)
+                    );
+                    if (snapshots.length === 1) snapshot = snapshots[0];
+                    else if (availableTools.includes("task_completed") || availableTools.includes("review_complete")) {
+                        const message = `Cannot route concurrent model request for ${requestCwd || "missing cwd"}`;
+                        events.push(`model:fixture-error:${message}`);
+                        void writeHeartbeat().catch(() => {});
+                        throw new Error(message);
+                    }
+                }
                 const { agent, phase } = inferGoldenTurnIdentity(
                     snapshot?.activeAgent || undefined,
                     availableTools,

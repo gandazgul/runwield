@@ -8,14 +8,15 @@ const SHARED_PRACTICE_DIR = join(BUNDLED_AGENT_DEFS, "shared-practice");
 Deno.test("managed engineering assigns full validation to RunWield and keeps standalone verification", async () => {
     for (const name of ["engineer", "plan-engineer", "frontend-engineer"]) {
         const { systemPrompt } = await loadAgentDef(name);
-        assertStringIncludes(systemPrompt, "Who Runs Full Validation");
-        assertStringIncludes(systemPrompt, "mandatory Mechanical Validation");
+        const normalizedPrompt = systemPrompt.replaceAll(/\s+/g, " ");
+        assertStringIncludes(normalizedPrompt, "Who Runs Full Validation");
+        assertStringIncludes(normalizedPrompt, "mandatory Mechanical Validation");
         assertStringIncludes(
-            systemPrompt,
+            normalizedPrompt,
             "Outside a managed workflow, run the full project validation command yourself",
         );
-        assertStringIncludes(systemPrompt, "full validation is pending");
-        assertEquals(systemPrompt.includes("Run the full command, not just a check"), false);
+        assertStringIncludes(normalizedPrompt, "full validation is pending");
+        assertEquals(normalizedPrompt.includes("Run the full command, not just a check"), false);
     }
 });
 

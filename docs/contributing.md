@@ -124,10 +124,11 @@ Timing does not require verbose output. Reports under `.ci-cache/` contain:
 - `*-report/*.xml`: Deno's JUnit results with each test's name, duration, failure, and ignored status.
 
 Use `--report-dir <directory>` for separate benchmark runs and `--timings-file <file>` for an explicit history. CI
-uploads these reports even on failure. Timing history starts slow files first after three observations. Dependency
-caches can be reused with `WLD_TEST_DENO_DIR`; mutable RunWield state remains isolated per file. Release fail-fast stops
-scheduling after a failure but lets active files finish and keeps their evidence. It never turns a failed or skipped
-gate green.
+uploads these reports even on failure. Timing history starts slow files first from the first observation. Dependency
+caches can be reused with `WLD_TEST_DENO_DIR`; mutable RunWield state remains isolated per file. `deno task ci` collects
+all failures by default so an Agent can repair them together. Use `deno task ci --fail-fast` for quicker first-failure
+feedback: it stops scheduling new files after a failure and lets active files finish. Passing runs still execute every
+selected test; failures and unexecuted files never produce a green gate.
 
 Author scenarios under `src/ui/tui/golden-scenarios/` and shared harness helpers under `src/ui/tui/testing/`:
 

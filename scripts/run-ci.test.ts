@@ -1,5 +1,38 @@
 import { assertEquals } from "@std/assert";
+import { fromFileUrl, join } from "@std/path";
 import { type CiTaskName, type CiTaskResult, PRE_TEST_TASKS, runCi } from "./run-ci.ts";
+
+Deno.test("CI collects all failures by default and supports explicit fail-fast", async () => {
+    const root = await Deno.makeTempDir({ prefix: "ci-command-fixture-" });
+    try {
+        const tasks = Object.fromEntries(PRE_TEST_TASKS.map((name) => [name, "deno eval 'void 0'"]));
+        await Deno.writeTextFile(
+            join(root, "deno.json"),
+            JSON.stringify({
+                tasks: { ...tasks, "test:all": "deno run -A check-args.ts", test: "deno run -A check-args.ts" },
+            }),
+        );
+        await Deno.writeTextFile(
+            join(root, "check-args.ts"),
+            'await Deno.writeTextFile("args.json", JSON.stringify(Deno.args)); Deno.exit(7);\n',
+        );
+        for (const flags of [[], ["--fail-fast"], ["--source-only", "--fail-fast"]]) {
+            const output = await new Deno.Command(Deno.execPath(), {
+                args: ["run", "-A", fromFileUrl(new URL("./run-ci.ts", import.meta.url)), ...flags],
+                cwd: root,
+                stdout: "piped",
+                stderr: "piped",
+            }).output();
+            assertEquals(output.code, 7);
+            assertEquals(
+                JSON.parse(await Deno.readTextFile(join(root, "args.json"))),
+                flags.includes("--fail-fast") ? ["--fail-fast"] : [],
+            );
+        }
+    } finally {
+        await Deno.remove(root, { recursive: true });
+    }
+});
 
 interface DeferredTask {
     promise: Promise<CiTaskResult>;

@@ -25,7 +25,7 @@ import { sessionDirForRoot } from "./file-session-storage.ts";
 import { openOwnerCoordinationStore } from "../owner-coordination/index.js";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import { getPlanRevisionForText, savePlan } from "../../plan-store.js";
-import { rememberNonGitExecutionConsent } from "../git.js";
+import { rememberNonGitExecutionConsent } from "../non-git-execution-consent.ts";
 import { McpToolPool } from "../mcp/pool.ts";
 import { loadPlanActionEvidence } from "../workflow/plan-actions.ts";
 import { buildSemanticRepairSegmentContinuation } from "../workflow/execution-segment-handoff.ts";

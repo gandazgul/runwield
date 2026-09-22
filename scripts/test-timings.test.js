@@ -34,16 +34,16 @@ Deno.test("historical timings schedule slow files first and place new files near
     ]);
 });
 
-Deno.test("timing history keeps stable order until files have three observations", () => {
+Deno.test("the first observation schedules slow files first without changing membership", () => {
     const root = "/repo";
     const files = ["a.test.ts", "b.test.ts"].map((file) => join(root, file));
 
     assertEquals(
         orderTestsByTiming(files, root, {
-            "a.test.ts": { durationMs: 10, runs: 2 },
-            "b.test.ts": { durationMs: 100, runs: 2 },
+            "a.test.ts": { durationMs: 10, runs: 1 },
+            "b.test.ts": { durationMs: 100, runs: 1 },
         }),
-        files,
+        [...files].reverse(),
     );
 });
 

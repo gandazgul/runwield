@@ -1869,7 +1869,8 @@ Deno.test("ACP streams exact current context usage from a real Runtime turn", as
                     prompt: [{ type: "text", text: "x".repeat(65_000) }],
                 },
             });
-            await readThroughResponse(handle, "usage-prompt");
+            // This deliberately large response can exceed 80 streamed chunks.
+            await readThroughResponse(handle, "usage-prompt", 10_000);
 
             const frames = sessionUpdateFrames(handle, "usage_update");
             assert(frames.length > 0, "a real turn should report usage");

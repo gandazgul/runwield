@@ -40,6 +40,17 @@ fi
     ketch: `
 if [ "$*" = "--help" ]; then echo 'Usage: ketch <command>'; exit 0; fi
 `,
+    osascript: `
+if [ "$#" -eq 2 ] && [ "$1" = "-e" ] && [ "$2" = 'try
+        the clipboard as «class PNGf»
+        return "image"
+      on error
+        return "none"
+      end try' ]; then
+  echo none
+  exit 0
+fi
+`,
 };
 
 /** Install only external boundaries used by the default workflow scenarios. */
@@ -49,10 +60,11 @@ export async function writeWorkflowBinaryFixtures(root: string): Promise<string>
     await Promise.all(
         Object.entries(SCRIPTS).map(async ([name, script]) => {
             const path = join(binDir, name);
+            const quotedBinDir = "'" + binDir.replaceAll("'", "'\\''") + "'";
             await Deno.writeTextFile(
                 path,
                 `#!/bin/sh
-fixture_bin_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+fixture_bin_dir=${quotedBinDir}
 printf '%s\\n' '${name}' "$@" >> "$fixture_bin_dir/calls.log"
 ${script}
 printf 'Unsupported ${name} fixture call: %s\\n' "$*" >> "$fixture_bin_dir/unexpected.log"

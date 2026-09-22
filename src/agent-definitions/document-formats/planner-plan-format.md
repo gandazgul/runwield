@@ -16,7 +16,7 @@ affectedPaths:
 devServerCommand: null
 devServerUrl: null
 devServerHmr: null
-# Optional: target execution branch when explicitly requested by the user.
+# Optional: target an execution branch when explicitly requested by the user.
 # targetBranch: "feature/base-branch"
 createdAt: "<ISO-8601 date or timestamp>"
 status: "draft"
@@ -91,7 +91,8 @@ confirms it. An existing declared value is already confirmed; preserve it unless
 
 ## Verification Plan
 
-- Automated: exact command(s) to run
+- Automated: exact command (s) to run. Only add focused tests or validation steps here, not the project's full CI;
+  RunWield will run the full CI always after plan implementation.
 - Manual: precise user flows / checks
 - Expected results for key scenarios
 - For browser UI work: the exact headed-browser checks a Frontend Engineer must perform, and the dev-server command and
@@ -105,6 +106,6 @@ confirms it. An existing declared value is already confirmed; preserve it unless
 
 ## Edge Cases & Considerations
 
-- Risk 1 + mitigation
+- One per line, Risk plus mitigation
 - Compatibility or migration concerns
 - Open assumptions (if any)

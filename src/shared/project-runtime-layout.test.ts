@@ -1401,7 +1401,12 @@ Deno.test("legacy migration rechecks registry after waiting for the legacy regis
         lockHolder = spawnDriver("hold-registry-lock", project.primaryRoot);
         await readReadyLine(lockHolder.stdout);
         const migration = spawnDriver("migrate", project.selectedRoot);
-        await new Promise((resolveTimer) => setTimeout(resolveTimer, 100));
+        const migrationLockPath = resolveProjectRuntimeLayout(project.selectedRoot).primary.layoutMigrationLockPath;
+        const deadline = Date.now() + 10_000;
+        while (!(await Deno.lstat(migrationLockPath).catch(() => null))) {
+            assert(Date.now() < deadline, "migration should reach the held registry lock");
+            await new Promise((resolveTimer) => setTimeout(resolveTimer, 5));
+        }
         await Deno.writeTextFile(registryPath, "not json\n");
         lockHolder.kill("SIGKILL");
         await lockHolder.status.catch(() => {});

@@ -74,9 +74,11 @@ export async function runCi(executeTask: ExecuteCiTask, options: CiOptions = {})
     return { exitCode: testResult.code, failures: testFailures };
 }
 
-async function executeDenoTask(taskName: CiTaskName): Promise<CiTaskResult> {
+async function executeDenoTask(taskName: CiTaskName, failFast: boolean): Promise<CiTaskResult> {
     const start = performance.now();
-    const result = await runWithSnip("deno", ["task", "-q", taskName], {
+    const args = ["task", "-q", taskName];
+    if (failFast && (taskName === "test" || taskName === "test:all")) args.push("--fail-fast");
+    const result = await runWithSnip("deno", args, {
         stdin: "inherit",
         failureLabel: `ci ${taskName}`,
         quietOnSuccess: true,
@@ -91,13 +93,13 @@ function formatElapsed(elapsedMs: number): string {
 }
 
 if (import.meta.main) {
-    if (Deno.args.some((arg) => arg !== "--source-only")) {
-        throw new Error("usage: deno task ci [--source-only]");
+    if (Deno.args.some((arg) => arg !== "--source-only" && arg !== "--fail-fast")) {
+        throw new Error("usage: deno task ci [--source-only] [--fail-fast]");
     }
     const start = performance.now();
     const timings: CiTaskResult[] = [];
     const result = await runCi(async (name) => {
-        const task = await executeDenoTask(name);
+        const task = await executeDenoTask(name, Deno.args.includes("--fail-fast"));
         timings.push(task);
         return task;
     }, { sourceOnly: Deno.args.includes("--source-only") });

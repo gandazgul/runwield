@@ -29,6 +29,22 @@ export function normalizeServerUrl(value) {
 }
 
 /**
+ * @param {unknown} value
+ * @returns {string}
+ */
+export function normalizePlanServerUrl(value) {
+    if (typeof value !== "string" || value.trim() === "") {
+        throw new Error("Plan Server URL must be a non-empty string.");
+    }
+    const normalized = normalizeServerUrl(value.trim());
+    const url = new URL(normalized);
+    if (/(?:^|\/)p\/[^/]+\/?$/.test(url.pathname)) {
+        throw new Error("Plan Server URL must not be a full collaboration share URL.");
+    }
+    return normalized;
+}
+
+/**
  * @param {{ serverUrl: string, spaceId: string, contentKey: string, bearerCapability: string, role: "reviewer" | "maintainer" }} parts
  * @returns {string}
  */

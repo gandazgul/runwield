@@ -263,6 +263,9 @@ does not reset its lifecycle or decisions.
 - Given recreated empty or stale runtime registry files, migration reports, or debug files, selecting a Plan recovers
   them automatically without replacing current attempts. Distinct valid attempts remain available; originals remain
   recoverable. Registry recovery and ordinary writers cannot overwrite each other or wait on their own locks.
+- Given simultaneous runtime migrations, transient files written by the first migration do not cause the second to
+  report corruption. It waits for the migration owner and rechecks the resulting state. If an older process holds the
+  registry lock, migration waits and validates the registry again after that writer releases it.
 - Given a change affecting domain rules, architecture and planning identify their owners and necessary consistency and
   recovery behavior, then carry those rules into verification using the project's existing conventions.
 - Given a project without an entity model, or a change needing little domain reasoning, planning proceeds without

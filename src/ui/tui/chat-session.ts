@@ -49,6 +49,7 @@ const CHAT_PROMPT_AGENT_NAME = AGENTS.OPERATOR;
 export type SessionRuntime = ReturnType<typeof createSessionRuntime>;
 
 export interface InteractiveLifecycleHandle {
+    isProcessingSubmission(): boolean;
     dispose(): Promise<void>;
 }
 export interface TerminalPairPort {
@@ -139,7 +140,9 @@ export async function startInteractiveSession(
     const disposables: Array<() => void | Promise<void>> = [];
     let uiAPIForDispose: UiAPI | null = null;
     let lifecycleDisposed = false;
+    let inputControllerForPause: { isProcessingSubmission(): boolean } | null = null;
     const lifecycleHandle: InteractiveLifecycleHandle = {
+        isProcessingSubmission: () => inputControllerForPause?.isProcessingSubmission() || false,
         dispose: async () => {
             if (lifecycleDisposed) return;
             lifecycleDisposed = true;
@@ -271,7 +274,6 @@ export async function startInteractiveSession(
         view.footerContainer.addChild(footer.component);
         const uiAPI = view.uiAPI;
         uiAPIForDispose = uiAPI;
-        let inputControllerForPause: { isProcessingSubmission(): boolean } | null = null;
         let tuiRuntimeAdapter = attachTuiRuntimeAdapter({
             runtime: sessionRuntime,
             sessionId,

@@ -17,7 +17,7 @@ import {
     resolvePullSecretRecord,
 } from "../../shared/collaboration/secrets.js";
 import { buildCollaborationUrl } from "../../shared/collaboration/urls.js";
-import { normalizePlanServerUrl } from "../../shared/settings.js";
+import { normalizePlanServerUrl } from "../../shared/collaboration/urls.js";
 import { enterProjectRuntime } from "../../shared/project-runtime-layout.ts";
 
 interface PlansPushArgs {
