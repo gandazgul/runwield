@@ -688,11 +688,11 @@ The global Search action uses the compact rectangular control language and stays
 Enter opens it, and Escape closes the dialog and restores focus. Project and content-type filters, Refresh, and View all
 results remain normal touch-capable controls.
 
-Quick search and the full Search page use `.rw-workspace-search-*` for one result-list pattern. Each result has one
-title, a content-type badge, Project name, and a short current-source excerpt. Selected rows use a surface change, not
-color alone. Loading uses `RunWieldThinkingDots`. Blank input gives a query prompt; no-match and Project indexing
-failures keep the query and filters visible. At phone widths, filters wrap and use 44px controls without horizontal
-overflow.
+Quick search and the full Search page use the `.rw-workspace-search-*` pattern in `src/ui/design-system/components.css`
+for one result list. Each result has one title, a content-type badge, Project name, and a short current-source excerpt.
+Selected rows use a surface change, not color alone. Loading uses `RunWieldThinkingDots`. Blank input gives a query
+prompt; no-match and Project indexing failures keep the query and filters visible. At phone widths, filters wrap and use
+44px controls without horizontal overflow.
 
 ## Forms and inputs
 

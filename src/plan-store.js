@@ -1805,6 +1805,15 @@ export async function loadPlanStrict(cwd, planName) {
     return await loadPlanFileStrict(filePath);
 }
 
+/** @param {string} filePath */
+function workspaceSearchRootForPlanPath(filePath) {
+    const normalizedPath = resolve(filePath).replaceAll("\\", "/");
+    const marker = `/${PLANS_DIR_NAME}/`;
+    const markerIndex = normalizedPath.lastIndexOf(marker);
+    if (markerIndex < 0) return null;
+    return resolvePrimaryCheckoutRoot(normalizedPath.slice(0, markerIndex));
+}
+
 /**
  * Atomically replace an existing Plan after verifying its byte revision.
  * @param {string} filePath
@@ -1833,9 +1842,8 @@ export async function writePlanMarkdownWithRevision(filePath, nextMarkdown, expe
     const frontMatterRevision = await getPlanFrontMatterRevisionForText(nextMarkdown);
     recordPlanWriteRevision(filePath, revision, frontMatterRevision);
     rememberFrontMatterRevision(revision, frontMatterRevision);
-    if (basename(dirname(filePath)) === "plans") {
-        requestWorkspaceSearchRefresh(dirname(dirname(dirname(filePath))));
-    }
+    const searchRoot = workspaceSearchRootForPlanPath(filePath);
+    if (searchRoot) await requestWorkspaceSearchRefresh(searchRoot);
     return revision;
 }
 
@@ -2233,6 +2241,7 @@ export async function savePlan(cwd, planName, content, fmOverrides = {}, options
             await loadControllerView(cwd, { planName, planId: documentAttrs.planId }, documentAttrs);
             if (existing.kind === "not_found") {
                 await atomicWriteTextFileIfAbsent(filePath, planDocumentMarkdown(withFm));
+                await requestWorkspaceSearchRefresh(resolvePrimaryCheckoutRoot(cwd));
             } else {
                 await writePlanMarkdownWithRevision(filePath, withFm, options.expectedRevision);
             }

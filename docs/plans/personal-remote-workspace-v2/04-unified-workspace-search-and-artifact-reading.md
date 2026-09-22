@@ -34,7 +34,7 @@ dependencies:
     - "03-plan-centered-workspace-home-and-navigation"
 userVerifiedAt: null
 targetBranch: "main"
-status: "implemented"
+status: "validated_reviewer"
 ---
 
 # Unified Workspace Search and Artifact Reading

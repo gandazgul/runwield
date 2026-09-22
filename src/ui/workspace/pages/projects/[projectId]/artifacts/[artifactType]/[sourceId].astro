@@ -30,8 +30,11 @@ let error = "";
 try {
     artifact = await loadOwnerProjectArtifact(projectId, artifactType, sourceId);
 } catch (caught) {
-    error = caught instanceof Error ? caught.message : String(caught);
-    Astro.response.status = error.toLocaleLowerCase().includes("not found") ? 404 : 409;
+    const message = caught instanceof Error ? caught.message : String(caught);
+    error = message.toLocaleLowerCase().includes("not found")
+        ? "Project artifact was not found."
+        : "Project artifact is unavailable.";
+    Astro.response.status = message.toLocaleLowerCase().includes("not found") ? 404 : 409;
 }
 const payload = artifact
     ? {
@@ -41,6 +44,10 @@ const payload = artifact
         title: artifact.title,
         artifactPath: artifact.path,
         notices: artifact.notices,
+        sourceLinks: (artifact.sourceLinks || []).map((planId: string) => ({
+            label: planId,
+            href: `/projects/${encodeURIComponent(projectId)}/plans/${encodeURIComponent(planId)}?return=${encodeURIComponent(returnHref)}`,
+        })),
         returnHref,
         returnLabel: "Back to Search",
         launch: "project",

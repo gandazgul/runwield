@@ -44,6 +44,7 @@ export type ArtifactReadOptions = {
     title: string;
     artifactPath?: string;
     notices?: string[];
+    sourceLinks?: Array<{ label: string; href: string }>;
     mode: "workflow" | "dev";
     launch?: "standalone" | "session" | "project";
     imageBaseDir?: string;

@@ -52,6 +52,11 @@ export function RemotePlanReview({ spaceId }) {
             frontmatter: frontmatterResult.frontmatter,
         };
     }, [markdown]);
+    const planTitle = plan?.title?.trim() ||
+        parsed.blocks.find((block) => block.type === "heading" && block.level === 1)?.content.trim() || "Untitled plan";
+    useEffect(() => {
+        if (plan) document.title = `Plan Review - ${planTitle}`;
+    }, [plan, planTitle]);
     const annotations = useMemo(() => comments.map(remoteCommentToPlannotatorAnnotation), [comments]);
 
     useEffect(() => {

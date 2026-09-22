@@ -2,19 +2,24 @@
 /** @module ui/workspace/server/workspace-search */
 
 import { DatabaseSync } from "node:sqlite";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { getHomeDir } from "../../../constants.js";
 import { findPlanEvidenceById, listPlanResources } from "../../../plan-store.js";
-import { listWorkRecords } from "../../../shared/work-records/store.js";
+import { getWorkRecordsDir, listWorkRecords } from "../../../shared/work-records/store.js";
 import { isCurrentWorkRecord, workRecordNotices } from "../../../shared/work-records/list.js";
 import { projectAggregateTranscript } from "../../../shared/session/session-transcript-manifest.ts";
 import { getWorkspaceSearchRefreshMarker } from "../../../shared/workspace-search-refresh.ts";
+import {
+    assertAuthorizedPlanPath,
+    assertContainedProjectPath,
+    domainLanguagePaths,
+    readSafeProjectMarkdown,
+} from "./project-artifacts.ts";
 
 const SEARCH_SCHEMA_VERSION = 1;
 export const WORKSPACE_SEARCH_SCAN_INTERVAL_MS = 30_000;
 const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 50;
-const CANDIDATE_LIMIT = 500;
 const SUPPORTED_TYPES = new Set(["plan", "work-record", "prd", "adr", "design-system", "domain-language", "session"]);
 
 /** @typedef {{ projectId: string, projectName: string, type: string, sourceId: string, relativePath: string, title: string, headings: string, body: string, revision: string, updatedAt: string, metadata: string }} SearchDocument */
@@ -34,14 +39,8 @@ function markdownFacts(markdown) {
 
 /** @param {string} root @param {string} path */
 async function readContainedMarkdown(root, path) {
-    const canonicalRoot = await Deno.realPath(root);
-    const canonicalPath = await Deno.realPath(path);
-    const contained = relative(canonicalRoot, canonicalPath);
-    if (isAbsolute(contained) || contained === ".." || contained.startsWith("../")) {
-        throw new Error("Document path leaves the registered Project.");
-    }
-    if (!canonicalPath.endsWith(".md")) throw new Error("Only Markdown documents are supported.");
-    return await Deno.readTextFile(canonicalPath);
+    const relativePath = relative(root, path).replaceAll("\\", "/");
+    return await readSafeProjectMarkdown(root, relativePath);
 }
 
 /** @param {string} root @param {string} directory @param {string} type */
@@ -49,6 +48,7 @@ async function scanMarkdownDirectory(root, directory, type) {
     /** @type {SearchDocument[]} */
     const documents = [];
     try {
+        await assertContainedProjectPath(root, join(root, directory));
         const pending = [directory];
         while (pending.length) {
             const current = pending.pop();
@@ -61,7 +61,7 @@ async function scanMarkdownDirectory(root, directory, type) {
                 if (!entry.isFile || !entry.name.endsWith(".md")) continue;
                 const markdown = await readContainedMarkdown(root, join(root, relativePath));
                 const facts = markdownFacts(markdown);
-                const stat = await Deno.stat(join(root, relativePath));
+                const stat = await Deno.stat(await assertContainedProjectPath(root, join(root, relativePath)));
                 documents.push({
                     projectId: "",
                     projectName: "",
@@ -84,36 +84,11 @@ async function scanMarkdownDirectory(root, directory, type) {
     return documents;
 }
 
-/** @param {string} root */
-async function domainLanguagePaths(root) {
-    const mapPath = join(root, "docs", "domain-language-map.md");
-    try {
-        const map = await readContainedMarkdown(root, mapPath);
-        const paths = [];
-        for (const match of map.matchAll(/\]\(([^)]+domain-language\.md)\)/g)) {
-            const target = match[1].split("#")[0];
-            const relativePath = relative(root, resolve(dirname(mapPath), target)).replaceAll("\\", "/");
-            if (relativePath === "docs/domain-language-map.md" || relativePath.startsWith("../")) continue;
-            paths.push(relativePath);
-        }
-        return [...new Set(paths)];
-    } catch (error) {
-        if (!(error instanceof Deno.errors.NotFound)) throw error;
-        try {
-            await Deno.stat(join(root, "docs", "domain-language.md"));
-            return ["docs/domain-language.md"];
-        } catch (nested) {
-            if (nested instanceof Deno.errors.NotFound) return [];
-            throw nested;
-        }
-    }
-}
-
 /** @param {string} root @param {string} relativePath @param {string} type */
 async function documentationRecord(root, relativePath, type) {
     const markdown = await readContainedMarkdown(root, join(root, relativePath));
     const facts = markdownFacts(markdown);
-    const stat = await Deno.stat(join(root, relativePath));
+    const stat = await Deno.stat(await assertContainedProjectPath(root, join(root, relativePath)));
     return {
         projectId: "",
         projectName: "",
@@ -129,73 +104,134 @@ async function documentationRecord(root, relativePath, type) {
     };
 }
 
+class SearchReaderError extends Error {
+    /** @param {string} reader @param {unknown} cause */
+    constructor(reader, cause) {
+        const causeMessage = cause instanceof Error ? cause.message : "";
+        const repairMessage = /without durable identity|duplicate durable identities|duplicate planId values/i.test(
+                causeMessage,
+            )
+            ? ` ${causeMessage}`
+            : "";
+        super(`${reader} indexing failed.${repairMessage}`);
+        this.name = "SearchReaderError";
+        this.reader = reader;
+        this.cause = cause;
+    }
+}
+
+/** @param {string} reader @param {() => Promise<SearchDocument[]>} read */
+async function readSearchDocuments(reader, read) {
+    try {
+        return await read();
+    } catch (error) {
+        throw new SearchReaderError(reader, error);
+    }
+}
+
 /** @param {string} root */
 async function scanProjectDocuments(root) {
     /** @type {SearchDocument[]} */
     const documents = [];
-    const plans = await listPlanResources(root, { backfillMissing: false });
-    for (const plan of plans) {
-        if (!plan.planId) {
-            throw new Error("Plan reader found a Plan without durable identity. Repair the Plan before indexing.");
-        }
-        const facts = markdownFacts(plan.markdown);
-        documents.push({
-            projectId: "",
-            projectName: "",
-            type: "plan",
-            sourceId: plan.planId,
-            relativePath: plan.relativePath,
-            title: plan.attrs.title || facts.title || plan.planName,
-            headings: facts.headings,
-            body: plan.markdown,
-            revision: plan.revision,
-            updatedAt: String(plan.attrs.updatedAt || plan.attrs.createdAt || ""),
-            metadata: JSON.stringify({ status: plan.attrs.status || "" }),
-        });
-    }
+    documents.push(
+        ...await readSearchDocuments("Plan reader", async () => {
+            try {
+                await assertContainedProjectPath(root, join(root, "docs", "plans"));
+            } catch (error) {
+                if (!(error instanceof Deno.errors.NotFound)) throw error;
+            }
+            const found = [];
+            const plans = await listPlanResources(root, { backfillMissing: false });
+            for (const plan of plans) {
+                await assertAuthorizedPlanPath(root, plan.path, plan.planName);
+                if (!plan.planId) {
+                    throw new Error(
+                        "Plan reader found a Plan without durable identity. Repair the Plan before indexing.",
+                    );
+                }
+                const facts = markdownFacts(plan.markdown);
+                found.push({
+                    projectId: "",
+                    projectName: "",
+                    type: "plan",
+                    sourceId: plan.planId,
+                    relativePath: plan.relativePath,
+                    title: plan.attrs.title || facts.title || plan.planName,
+                    headings: facts.headings,
+                    body: plan.markdown,
+                    revision: plan.revision,
+                    updatedAt: String(plan.attrs.updatedAt || plan.attrs.createdAt || ""),
+                    metadata: JSON.stringify({ status: plan.attrs.status || "" }),
+                });
+            }
+            return found;
+        }),
+    );
 
-    const records = await listWorkRecords(root, { createDir: false });
-    const recordIds = new Map();
-    for (const record of records) {
-        const id = record.attrs.recordId.toLowerCase();
-        recordIds.set(id, (recordIds.get(id) || 0) + 1);
-    }
-    if ([...recordIds.values()].some((count) => count > 1)) {
-        throw new Error("Work Record reader found duplicate durable identities. Repair the records before indexing.");
-    }
-    for (const record of records) {
-        if (!isCurrentWorkRecord(record)) continue;
-        const facts = markdownFacts(record.markdown);
-        documents.push({
-            projectId: "",
-            projectName: "",
-            type: "work-record",
-            sourceId: record.attrs.recordId,
-            relativePath: record.relativePath,
-            title: record.title,
-            headings: facts.headings,
-            body: record.markdown,
-            revision: await fingerprint(record.markdown),
-            updatedAt: record.attrs.createdAt,
-            metadata: JSON.stringify({
-                summary: record.summary,
-                completionMode: record.attrs.completionMode,
-                sourceLinks: record.attrs.provenance?.sourcePlans || [],
-                notices: workRecordNotices(record),
-            }),
-        });
-    }
+    documents.push(
+        ...await readSearchDocuments("Work Record reader", async () => {
+            try {
+                await assertContainedProjectPath(root, getWorkRecordsDir(root));
+            } catch (error) {
+                if (error instanceof Deno.errors.NotFound) return [];
+                throw error;
+            }
+            const found = [];
+            const records = await listWorkRecords(root, { createDir: false });
+            const recordIds = new Map();
+            for (const record of records) {
+                await assertContainedProjectPath(root, record.path);
+                const id = record.attrs.recordId.toLowerCase();
+                recordIds.set(id, (recordIds.get(id) || 0) + 1);
+            }
+            if ([...recordIds.values()].some((count) => count > 1)) {
+                throw new Error(
+                    "Work Record reader found duplicate durable identities. Repair the records before indexing.",
+                );
+            }
+            for (const record of records) {
+                if (!isCurrentWorkRecord(record)) continue;
+                const facts = markdownFacts(record.markdown);
+                found.push({
+                    projectId: "",
+                    projectName: "",
+                    type: "work-record",
+                    sourceId: record.attrs.recordId,
+                    relativePath: record.relativePath,
+                    title: record.title,
+                    headings: facts.headings,
+                    body: record.markdown,
+                    revision: await fingerprint(record.markdown),
+                    updatedAt: record.attrs.createdAt,
+                    metadata: JSON.stringify({
+                        summary: record.summary,
+                        completionMode: record.attrs.completionMode,
+                        sourceLinks: record.attrs.provenance?.sourcePlans || [],
+                        notices: workRecordNotices(record),
+                    }),
+                });
+            }
+            return found;
+        }),
+    );
 
-    documents.push(...await scanMarkdownDirectory(root, "docs/prd", "prd"));
-    documents.push(...await scanMarkdownDirectory(root, "docs/adr", "adr"));
-    try {
-        documents.push(await documentationRecord(root, "docs/design-system.md", "design-system"));
-    } catch (error) {
-        if (!(error instanceof Deno.errors.NotFound)) throw error;
-    }
-    for (const relativePath of await domainLanguagePaths(root)) {
-        documents.push(await documentationRecord(root, relativePath, "domain-language"));
-    }
+    documents.push(
+        ...await readSearchDocuments("Documentation reader", async () => {
+            const found = [
+                ...await scanMarkdownDirectory(root, "docs/prd", "prd"),
+                ...await scanMarkdownDirectory(root, "docs/adr", "adr"),
+            ];
+            try {
+                found.push(await documentationRecord(root, "docs/design-system.md", "design-system"));
+            } catch (error) {
+                if (!(error instanceof Deno.errors.NotFound)) throw error;
+            }
+            for (const relativePath of await domainLanguagePaths(root)) {
+                found.push(await documentationRecord(root, relativePath, "domain-language"));
+            }
+            return found;
+        }),
+    );
     return documents;
 }
 
@@ -253,33 +289,39 @@ async function scanSessionDocuments(store, projectId, root) {
 function initializeDatabase(dbPath) {
     Deno.mkdirSync(dirname(dbPath), { recursive: true });
     const db = new DatabaseSync(dbPath);
-    db.exec("PRAGMA busy_timeout = 5000");
-    const version = Number(db.prepare("PRAGMA user_version").get().user_version || 0);
-    if (version > SEARCH_SCHEMA_VERSION) {
+    try {
+        db.exec("PRAGMA busy_timeout = 5000");
+        const version = Number(db.prepare("PRAGMA user_version").get().user_version || 0);
+        if (version > SEARCH_SCHEMA_VERSION) {
+            throw new Error(
+                `Workspace search schema ${version} is newer than supported schema ${SEARCH_SCHEMA_VERSION}.`,
+            );
+        }
+        db.exec(`
+            CREATE TABLE IF NOT EXISTS search_documents (
+                identity TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                project_name TEXT NOT NULL,
+                content_type TEXT NOT NULL,
+                source_id TEXT NOT NULL,
+                relative_path TEXT NOT NULL,
+                title TEXT NOT NULL,
+                headings TEXT NOT NULL,
+                body TEXT NOT NULL,
+                revision TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                metadata TEXT NOT NULL
+            );
+            CREATE VIRTUAL TABLE IF NOT EXISTS search_documents_fts USING fts5(
+                identity UNINDEXED, title, headings, body, tokenize='unicode61'
+            );
+            PRAGMA user_version = ${SEARCH_SCHEMA_VERSION};
+        `);
+        return db;
+    } catch (error) {
         db.close();
-        throw new Error(`Workspace search schema ${version} is newer than supported schema ${SEARCH_SCHEMA_VERSION}.`);
+        throw error;
     }
-    db.exec(`
-        CREATE TABLE IF NOT EXISTS search_documents (
-            identity TEXT PRIMARY KEY,
-            project_id TEXT NOT NULL,
-            project_name TEXT NOT NULL,
-            content_type TEXT NOT NULL,
-            source_id TEXT NOT NULL,
-            relative_path TEXT NOT NULL,
-            title TEXT NOT NULL,
-            headings TEXT NOT NULL,
-            body TEXT NOT NULL,
-            revision TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            metadata TEXT NOT NULL
-        );
-        CREATE VIRTUAL TABLE IF NOT EXISTS search_documents_fts USING fts5(
-            identity UNINDEXED, title, headings, body, tokenize='unicode61'
-        );
-        PRAGMA user_version = ${SEARCH_SCHEMA_VERSION};
-    `);
-    return db;
 }
 
 /** @param {string} path */
@@ -343,10 +385,18 @@ async function hydrateCandidate(root, row, store) {
         const documents = await scanSessionDocuments(store, row.project_id, root);
         const document = documents.find((candidate) => candidate.sourceId === row.source_id);
         if (!document) throw new Error("Session evidence is unavailable.");
-        return { ...row, title: document.title, headings: "", body: document.body, revision: document.revision };
+        return {
+            ...row,
+            title: document.title,
+            headings: "",
+            body: document.body,
+            revision: document.revision,
+            updated_at: document.updatedAt,
+        };
     }
     if (row.content_type === "plan") {
         const plan = await findPlanEvidenceById(root, row.source_id);
+        await assertAuthorizedPlanPath(root, plan.path, plan.planName);
         const facts = markdownFacts(plan.markdown);
         return {
             ...row,
@@ -354,14 +404,18 @@ async function hydrateCandidate(root, row, store) {
             headings: facts.headings,
             body: plan.markdown,
             revision: plan.revision,
+            updated_at: String(plan.attrs.updatedAt || plan.attrs.createdAt || ""),
+            metadata: JSON.stringify({ status: plan.attrs.status || "" }),
         };
     }
     if (row.content_type === "work-record") {
+        await assertContainedProjectPath(root, getWorkRecordsDir(root));
         const records = (await listWorkRecords(root, { createDir: false })).filter((record) =>
             record.attrs.recordId.toLowerCase() === row.source_id.toLowerCase()
         );
         if (records.length !== 1 || !isCurrentWorkRecord(records[0])) throw new Error("Work Record is not current.");
         const record = records[0];
+        await assertContainedProjectPath(root, record.path);
         const facts = markdownFacts(record.markdown);
         return {
             ...row,
@@ -369,16 +423,29 @@ async function hydrateCandidate(root, row, store) {
             headings: facts.headings,
             body: record.markdown,
             revision: await fingerprint(record.markdown),
+            updated_at: record.attrs.createdAt,
+            metadata: JSON.stringify({
+                summary: record.summary,
+                completionMode: record.attrs.completionMode,
+                sourceLinks: record.attrs.provenance?.sourcePlans || [],
+                notices: workRecordNotices(record),
+            }),
         };
     }
+    if (
+        row.content_type === "domain-language" &&
+        !(await domainLanguagePaths(root)).includes(row.relative_path)
+    ) throw new Error("Domain Language document is not in the current map.");
     const markdown = await readContainedMarkdown(root, join(root, row.relative_path));
     const facts = markdownFacts(markdown);
+    const stat = await Deno.stat(await assertContainedProjectPath(root, join(root, row.relative_path)));
     return {
         ...row,
         title: facts.title,
         headings: facts.headings,
         body: markdown,
         revision: await fingerprint(markdown),
+        updated_at: stat.mtime?.toISOString() || "",
     };
 }
 
@@ -419,7 +486,12 @@ export function createWorkspaceSearchService(options) {
                 try {
                     const root = options.store.requireEnabledProjectRoot(project.projectId);
                     const documents = await scanProjectDocuments(root);
-                    documents.push(...await scanSessionDocuments(options.store, project.projectId, root));
+                    documents.push(
+                        ...await readSearchDocuments(
+                            "Session reader",
+                            () => scanSessionDocuments(options.store, project.projectId, root),
+                        ),
+                    );
                     db.exec("BEGIN IMMEDIATE");
                     try {
                         const oldIdentities = db.prepare("SELECT identity FROM search_documents WHERE project_id = ?")
@@ -460,12 +532,11 @@ export function createWorkspaceSearchService(options) {
                     }
                     projectStates.set(project.projectId, { state: "ready" });
                 } catch (error) {
+                    const reader = error instanceof SearchReaderError ? error.reader : "Search database";
                     projectStates.set(project.projectId, {
                         state: "failed",
-                        reader: "Project knowledge",
-                        message: error instanceof Error && !/[/\\]/.test(error.message)
-                            ? error.message
-                            : "Project indexing failed.",
+                        reader,
+                        message: error instanceof SearchReaderError ? error.message : `${reader} indexing failed.`,
                     });
                 }
             }
@@ -542,7 +613,7 @@ export function createWorkspaceSearchService(options) {
         const rows = db.prepare(
             `SELECT documents.* FROM search_documents_fts JOIN search_documents documents USING(identity) WHERE ${
                 filters.join(" AND ")
-            } LIMIT ${CANDIDATE_LIMIT}`,
+            }`,
         ).all(...values);
         const valid = [];
         for (const row of rows) {
@@ -559,8 +630,8 @@ export function createWorkspaceSearchService(options) {
                     headings: String(hydrated.headings),
                     body: String(hydrated.body),
                     revision: String(hydrated.revision),
-                    updatedAt: String(row.updated_at),
-                    metadata: String(row.metadata),
+                    updatedAt: String(hydrated.updated_at),
+                    metadata: String(hydrated.metadata),
                 });
                 if (!documentMatches(candidate, query)) continue;
                 const rank = matchRank(candidate, query);

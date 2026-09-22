@@ -95,7 +95,6 @@ import { createOwnerConnectionRegistry } from "./server/owner-connections.js";
 import { setAstroOwnerWorkspaceSessionContinuation, setAstroOwnerWorkspaceStore } from "./server/astro-owner-data.js";
 import { WORKSPACE_PWA_PATHS, workspacePwaResponse } from "./server/workspace-pwa.ts";
 import { createWorkspaceSearchService } from "./server/workspace-search.ts";
-import { readProjectArtifact } from "./server/project-artifacts.ts";
 
 const WORKSPACE_DIR = join(RUNWIELD_SOURCE_ROOT, "ui", "workspace");
 const ROOT_DIR = RUNWIELD_ROOT;
@@ -209,7 +208,7 @@ export function createRemoteWorkspaceApp(options = { mode: "remote" }) {
 export function createOwnerWorkspaceApp(options) {
     const app = createWorkspaceRouter();
     const store = options.store;
-    setAstroOwnerWorkspaceStore(store, readProjectArtifact);
+    setAstroOwnerWorkspaceStore(store);
     const connections = createOwnerConnectionRegistry();
     const sessionContinuation = createWorkspaceSessionContinuationService({ store });
     const workspaceSearch = createWorkspaceSearchService({ store });

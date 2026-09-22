@@ -7,9 +7,20 @@ function refreshDirectory() {
     return join(getHomeDir(), ".runwield-workspace-search-refresh");
 }
 
-/** @param {string} root */
+/**
+ * Marker path for one Project root. Writers and the owner service can hold
+ * different spellings of the same root (symlinks, `/var` versus
+ * `/private/var`), so the key is derived from the canonical real path.
+ * @param {string} root
+ */
 export async function getWorkspaceSearchRefreshMarker(root: string) {
-    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(root));
+    let canonical = root;
+    try {
+        canonical = await Deno.realPath(root);
+    } catch {
+        // An unresolvable root still gets a stable marker key.
+    }
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical));
     const key = [...new Uint8Array(digest)].slice(0, 16)
         .map((byte) => byte.toString(16).padStart(2, "0")).join("");
     return join(refreshDirectory(), key);
