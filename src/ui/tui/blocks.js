@@ -25,6 +25,15 @@ import stripAnsi from "strip-ansi";
  * @property {string} mimeType
  */
 
+/**
+ * Per-report markdown renderer slot.
+ * @typedef {Object} ReportRendererSlot
+ * @property {string | null} text
+ * @property {MermaidMarkdown | null} renderer
+ * @property {number} width
+ * @property {string[] | null} lines
+ */
+
 const TOOL_OUTPUT_LINE_LIMIT = 500;
 
 // ─── Utilities ───────────────────────────────────────────────────────────────
@@ -406,6 +415,12 @@ export class ValidationHandoffBlock {
             render: (w) => this.renderContent(w),
             invalidate: () => {},
         });
+        // Keep one renderer per report so the mermaid cache stays warm between renders.
+        /** @type {{ engineer: ReportRendererSlot, reviewer: ReportRendererSlot }} */
+        this.reportRenderers = {
+            engineer: { text: null, renderer: null, width: 0, lines: null },
+            reviewer: { text: null, renderer: null, width: 0, lines: null },
+        };
     }
 
     /**
@@ -420,6 +435,10 @@ export class ValidationHandoffBlock {
     }
 
     invalidate() {
+        // Wiping the text here forces the next render to redraw with the
+        // current theme, so a theme swap can't leave stale colors behind.
+        this.reportRenderers.engineer.text = null;
+        this.reportRenderers.reviewer.text = null;
         this.block.invalidate();
     }
 
@@ -434,12 +453,26 @@ export class ValidationHandoffBlock {
      * @param {string} title
      * @param {string} markdownText
      * @param {number} width
+     * @param {"engineer" | "reviewer"} slot
      */
-    appendMarkdownSection(lines, title, markdownText, width) {
+    appendMarkdownSection(lines, title, markdownText, width, slot) {
         lines.push("");
         lines.push(theme.fg("accent", theme.bold(title)));
-        const markdown = new MermaidMarkdown(markdownText || "(no report text)", 0, 0, getMarkdownTheme());
-        lines.push(...markdown.render(width));
+        const body = markdownText || "(no report text)";
+        const cached = this.reportRenderers[slot];
+        let renderer = cached.renderer;
+        if (renderer === null) {
+            renderer = new MermaidMarkdown(body, 0, 0, getMarkdownTheme());
+            cached.renderer = renderer;
+        } else if (cached.text !== body) {
+            renderer.setText(body);
+        }
+        if (cached.text !== body || cached.width !== width) {
+            cached.text = body;
+            cached.width = width;
+            cached.lines = renderer.render(width);
+        }
+        lines.push(...(cached.lines ?? []));
     }
 
     /** @param {number} w */
@@ -462,6 +495,7 @@ export class ValidationHandoffBlock {
                 `${engineer.agentName || "Engineer"} latest completion report`,
                 engineer.markdown,
                 width,
+                "engineer",
             );
         }
         if (reviewer) {
@@ -474,6 +508,7 @@ export class ValidationHandoffBlock {
                 `${reviewer.agentName || "Reviewer"} latest AI review — ${verdict}${stale}`,
                 reviewer.markdown || (reviewer.approved ? "Approved." : "Rejected without detailed feedback."),
                 width,
+                "reviewer",
             );
         }
         return lines;

@@ -872,3 +872,48 @@ Deno.test("SpinnerBlock renders tasks when provided", () => {
     assertEquals(plainText.includes("agent"), true);
     assertEquals(plainText.includes("Task 1"), true);
 });
+
+/** @type {import('../../shared/session/session-runtime-events.js').RuntimeValidationProgress} */
+const verifiedReportProgress = {
+    kind: "mechanical",
+    outcome: "verified",
+    stage: "terminal",
+    checks: { ci: "passed", semanticReview: "skipped", humanReview: "skipped", merge: "skipped" },
+    message: "done",
+};
+
+Deno.test("ValidationHandoffBlock caches panel lines until state changes", () => {
+    const state = {
+        progress: verifiedReportProgress,
+        engineer: { agentName: "Engineer", markdown: "# report one", completedOrder: 1 },
+        reviewer: null,
+    };
+    const block = new ValidationHandoffBlock(state);
+
+    const first = block.render(80);
+    const second = block.render(80);
+    assertEquals(second, first, "idle frames should reuse the cached panel lines");
+
+    block.setState({
+        progress: verifiedReportProgress,
+        engineer: { agentName: "Engineer", markdown: "# report two", completedOrder: 2 },
+        reviewer: null,
+    });
+    const third = block.render(80);
+    assert(third !== first, "new report markdown must rebuild the panel");
+    assertEquals(stripAnsi(third.join("\n")).includes("report two"), true);
+});
+
+Deno.test("ValidationHandoffBlock rebuilds report lines after invalidate", () => {
+    const block = new ValidationHandoffBlock({
+        progress: verifiedReportProgress,
+        engineer: { agentName: "Engineer", markdown: "# keep me", completedOrder: 1 },
+        reviewer: null,
+    });
+    const before = block.render(80);
+
+    block.invalidate();
+    const after = block.render(80);
+    assertEquals(after, before);
+    assertEquals(stripAnsi(after.join("\n")).includes("keep me"), true);
+});
