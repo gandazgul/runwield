@@ -30,6 +30,7 @@ import {
 import { endBlink, renderBootLogo } from "./boot-logo.ts";
 import { createUiApi } from "./api.js";
 import { SpinnerBlock, ToolExecutionBlock, ToolExecutionGroupBlock } from "./blocks.js";
+import { createSessionSnapshotWindow } from "./session-snapshot-window.ts";
 import { type FooterTheme, renderUpdateNoticeLine } from "./chat-footer.ts";
 import { installUiApiOverrides } from "./ui-api-overrides.ts";
 import { hasClipboardImage } from "./clipboard.ts";
@@ -59,6 +60,7 @@ export interface ChatViewSessionSnapshot extends TuiSessionSidebarSnapshot {
 
 export interface ChatViewRuntime {
     getSessionSnapshot(sessionId: string): ChatViewSessionSnapshot | null;
+    subscribeSessionEvents?(sessionId: string, listener: (event: { type: string }) => void): () => void;
 }
 export interface ChatViewOptions {
     tui: TUI;
@@ -320,6 +322,13 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
         options.getSessionId,
         () => options.sessionRuntime.getSessionSnapshot(options.getSessionId()),
     );
+    const snapshotWindow = createSessionSnapshotWindow(options.sessionRuntime, options.getSessionId);
+    const unsubscribeSessionEvents = options.sessionRuntime.subscribeSessionEvents?.(
+        options.getSessionId(),
+        // Any session event means state may have changed; refresh on the next
+        // frame instead of serving the window's stale snapshot.
+        () => snapshotWindow.invalidate(),
+    );
     const bottomDock: Component = {
         invalidate: () => {
             composerContainer.invalidate();
@@ -340,7 +349,7 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
         },
         render: (w: number) => {
             const availableWidth = Math.max(10, w - 2);
-            const snapshot = options.sessionRuntime.getSessionSnapshot(options.getSessionId());
+            const snapshot = snapshotWindow.read();
             if (!snapshot?.managed || availableWidth < SESSION_SIDEBAR_MIN_WIDTH) {
                 return container.render(availableWidth);
             }
@@ -372,7 +381,7 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
         const sidebarArea: Component = {
             invalidate: () => sessionSidebar.invalidate(),
             render: (width: number) => {
-                const snapshot = options.sessionRuntime.getSessionSnapshot(options.getSessionId());
+                const snapshot = snapshotWindow.read();
                 return snapshot?.managed ? sessionSidebar.render(width, snapshot) : [];
             },
         };
@@ -389,7 +398,7 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
                 shrink: 0,
                 visible: (viewport) =>
                     viewport.width >= SESSION_SIDEBAR_MIN_WIDTH &&
-                    Boolean(options.sessionRuntime.getSessionSnapshot(options.getSessionId())?.managed),
+                    Boolean(snapshotWindow.read()?.managed),
             },
         ], { gap: 1 });
         tui.setLayoutRoot(
@@ -602,6 +611,7 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
         resetForSessionReplacement() {
             pastedImages.length = 0;
             previewImages.clear();
+            snapshotWindow.invalidate();
             uiAPI.hideKeyboardHelp?.();
             uiAPI.clearValidationPanel?.();
             uiAPI.clearMessages?.();
@@ -619,6 +629,7 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
             disposed = true;
             for (const surface of artifactReaders) void Promise.resolve(surface.stop()).catch(() => {});
             artifactReaders.clear();
+            unsubscribeSessionEvents?.();
             removeSidebarKeyListener();
             removeSidebarActionListener();
             clearInterval(clipboardPollingInterval);

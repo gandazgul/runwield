@@ -3,6 +3,7 @@ import { theme } from "../theme/theme.js";
 import { AGENTS, getCwd, getHomeDir, RUNWIELD_DIR_NAME } from "../../constants.js";
 import { getSettingsManager } from "../../shared/settings.js";
 import { getAgentDisplayName } from "../../shared/session/agents.js";
+import { createSessionSnapshotWindow } from "./session-snapshot-window.ts";
 import { RuntimeEventTypes } from "../../shared/session/session-runtime-events.js";
 import { readRunWieldPackageInstallSync } from "../../shared/package-install.ts";
 import type { Component } from "@earendil-works/pi-tui";
@@ -274,6 +275,7 @@ export function createChatFooterController(options: CreateChatFooterControllerOp
     let ctrlCPendingExit = false;
     let ctrlCPendingTimer: ReturnType<typeof setTimeout> | null = null;
     const footerBranchCache = new Map<string, string>();
+    const snapshotWindow = createSessionSnapshotWindow(options.runtime, options.getSessionId);
     const getCachedFooterBranch = (branchCwd: string): string => {
         if (!footerBranchCache.has(branchCwd)) {
             footerBranchCache.set(branchCwd, readGitBranchSync(branchCwd) || "unknown");
@@ -288,6 +290,9 @@ export function createChatFooterController(options: CreateChatFooterControllerOp
         runtimeUsage.cacheWrite = 0;
         runtimeUsage.cost = 0;
         unsubscribeRuntimeTelemetry = options.runtime.subscribeSessionEvents(sessionId, (event) => {
+            // Any session event means state may have changed; refresh on the
+            // next frame instead of serving the window's stale snapshot.
+            snapshotWindow.invalidate();
             if (!isUsageEvent(event)) return;
             runtimeUsage.input += event.usage.inputTokens;
             runtimeUsage.output += event.usage.outputTokens;
@@ -318,7 +323,7 @@ export function createChatFooterController(options: CreateChatFooterControllerOp
     const component: Component = {
         invalidate: () => {},
         render: (w: number) => {
-            const snapshot = options.runtime.getSessionSnapshot(options.getSessionId());
+            const snapshot = snapshotWindow.read();
             if (!snapshot) return ["", ctrlCPendingExit ? theme.fg("warning", "Ctrl+C - Press again to exit") : ""];
             const { model, provider, thinkingLevel } = getModelAndProvider(snapshot);
             const modelStr = model
@@ -383,6 +388,7 @@ export function createChatFooterController(options: CreateChatFooterControllerOp
             return ctrlCPendingExit;
         },
         rebindSession(sessionId: string) {
+            snapshotWindow.invalidate();
             attachRuntimeTelemetry(sessionId);
         },
         dispose() {
