@@ -167,6 +167,61 @@ Deno.test("live footer controller subscribes to usage and rebinds on Session rep
     }
 });
 
+Deno.test("live footer controller reuses one snapshot across idle frames", () => {
+    const activeSessionId = "session-one";
+    const runtime = makeFooterRuntime(activeSessionId);
+    let snapshotCalls = 0;
+    const controller = createChatFooterController({
+        runtime: {
+            getSessionSnapshot: (sessionId) => {
+                snapshotCalls += 1;
+                return runtime.snapshots.get(sessionId) || null;
+            },
+            subscribeSessionEvents: () => () => {},
+        },
+        getSessionId: () => activeSessionId,
+        requestRender: () => {},
+    });
+    try {
+        const first = controller.component.render(120);
+        const second = controller.component.render(120);
+        assertEquals(snapshotCalls, 1);
+        assertEquals(second, first);
+    } finally {
+        controller.dispose();
+    }
+});
+
+Deno.test("live footer controller refreshes the snapshot after a session event", () => {
+    const activeSessionId = "session-one";
+    const runtime = makeFooterRuntime(activeSessionId);
+    let snapshotCalls = 0;
+    const controller = createChatFooterController({
+        runtime: {
+            getSessionSnapshot: (sessionId) => {
+                snapshotCalls += 1;
+                return runtime.snapshots.get(sessionId) || null;
+            },
+            subscribeSessionEvents: (sessionId, listener) => {
+                runtime.listeners.set(sessionId, listener);
+                return () => runtime.unsubscribed.push(sessionId);
+            },
+        },
+        getSessionId: () => activeSessionId,
+        requestRender: () => {},
+    });
+    try {
+        controller.component.render(120);
+        assertEquals(snapshotCalls, 1);
+
+        runtime.listeners.get(activeSessionId)?.({ type: "agent_changed" });
+        controller.component.render(120);
+        assertEquals(snapshotCalls, 2, "session events must drop the cached snapshot");
+    } finally {
+        controller.dispose();
+    }
+});
+
 Deno.test("live footer controller tolerates startup before a Session exists", () => {
     const controller = createChatFooterController({
         runtime: {
