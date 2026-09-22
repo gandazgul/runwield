@@ -40,8 +40,9 @@ What will be built/changed and why.
 Recommended implementation approach (focused, practical, no long alternatives section).
 
 Show it where showing reads faster than describing: the call path the change travels, a few lines of pseudo code for a
-new interface or a tricky branch, a small `mermaid` diagram for a flow or a state change, or a before/after pair. Add
-one line for the main option you set aside and what it would have cost. Skip all of it when a sentence is clearer.
+new interface or a tricky branch, a small `mermaid` diagram for a flow or a state change, or a diff when the shape
+already exists and only part of it moves. Add one line for the main option you set aside and what it would have cost.
+Skip all of it when a sentence is clearer.
 
 ## Expected Change Surface
 
@@ -69,6 +70,10 @@ Existing functions, modules, or patterns to reuse:
 State each step as an outcome that is either true or false when the step is done, never as an action that is satisfied
 by attempting it. An empty file, a placeholder module, an alias, or a pass-through wrapper must not be able to satisfy
 any step.
+
+These are the Engineer's instructions, so they stay exact prose naming real files, symbols, and behavior. Do not
+compress a step into a tree, a diagram, or a diff, and do not leave a detail out because a sketch in Approach implied
+it.
 
 - `src/parser/tokens.ts` owns and exports `tokenize` and `TokenKind`; those declarations no longer exist in
   `src/parser/index.ts`, which imports them from `tokens.ts`.

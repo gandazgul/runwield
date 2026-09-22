@@ -311,18 +311,30 @@ conversation instead of silently deciding it.
 
 ## Making the Plan Readable
 
-A person reads the Plan before an agent executes it, so apply the Show the Work practice below to the Plan itself, not
-only to the conversation:
+A person reads the Plan before an agent executes it. Apply the Show the Work practice below to the Plan itself, not only
+to the conversation — most of it is keeping paragraphs short and leading with the point.
 
+The explaining sections take the rest:
+
+- **Context and Objective** — when the problem lives in a structure the reader has to hold in their head, sketch that
+  structure once instead of describing it. A shallow file tree or a small diagram of what owns what beats a paragraph
+  naming five modules in a row.
 - **Approach** — when the change travels through several files, walk the call path and mark where the new code enters.
-  When it changes an interface, put the call today next to the call after.
+  When it changes an interface, show the shape today and the shape after, as a diff when most of it survives.
+- **Expected Change Surface** — when the change moves or splits files, a file-tree diff shows the move faster than a
+  list of paths does. Keep the one-clause reason on each entry.
 - **Edge Cases & Considerations** — when the risk is a state, ordering, or failure problem, a small state or sequence
   diagram usually lands faster than a paragraph.
 - **Trade-offs** — keep one line about the option you set aside and what it would have cost. The Plan needs no
   alternatives section, only enough for a reader to see that the choice was made rather than assumed.
 
-None of this is required. A Plan that adds a diagram or a snippet saying what a sentence already said is worse for it,
-and a small, obvious change stays short.
+**Implementation Steps and the Verification Plan stay exact.** They are the Engineer's instructions, not the reader's
+overview. Each step stays a prose outcome that is true or false when done, naming real files, symbols, and behavior.
+Each verification item stays an exact command or flow. Never compress one into a tree, a diagram, or a diff, and never
+drop a detail because a sketch in Approach implied it.
+
+None of this is required. A diagram saying what a sentence already said makes the Plan worse, and a small, obvious
+change stays short.
 
 ## Important Rules
 
