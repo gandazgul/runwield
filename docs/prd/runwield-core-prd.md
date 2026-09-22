@@ -44,7 +44,11 @@ goals require a distinct product surface.
   project work so simple tasks are not over-planned and large work is not under-specified.
 - **Artifacts over vibes:** Plans, PRDs, ADRs, validation notes, and Work Records are durable project memory.
 - **Session continuity:** Fresh sessions start with Router, but follow-up messages stay with the specialist Agent that
-  owns the current topic unless the user explicitly starts fresh or returns to Router.
+  owns the current topic unless the user explicitly starts fresh or returns to Router. Opening an empty composer does
+  not create project runtime state; the first submitted work enters the project runtime.
+- **Work protection:** Before normal project runtime access, Core uses Project Runtime Entry to adopt eligible legacy
+  state or refuse unsafe layouts. Refusals keep the reason and safe paths, stop writes, and are retryable after cleanup.
+  This follows [ADR-017](../adr/017-project-runtime-state-under-wld-internal.md).
 - **Tool-driven workflow:** Agents declare intent with custom tools; orchestration code decides lifecycle transitions,
   execution, validation, and recovery.
 - **Local-first control:** Core must remain useful without the hosted Workspace.
@@ -235,6 +239,10 @@ does not reset its lifecycle or decisions.
 
 **Acceptance scenarios:**
 
+- Given any runtime layout, including unfinished migration or recovery records, opening `/load-plan` without a Plan
+  argument only lists local Plan documents. It does not migrate storage, import controller metadata, fetch branches,
+  repair worktrees, or change files or Sessions. Cancel leaves everything unchanged. Only selecting a Plan (or supplying
+  its name explicitly) enters that Plan's load and recovery flow.
 - Given an externally written Plan without metadata, when the user opens a listing or board, it remains readable and
   unchanged; deliberate loading then adopts it without changing its prose.
 - Given a user body edit made during a metadata transition, when that transition fails or rolls back, the latest body
@@ -242,6 +250,11 @@ does not reset its lifecycle or decisions.
 - Given malformed lifecycle metadata, when recovery runs, RunWield repairs its own state rather than rejecting the
   user's prose or requiring the user to edit internal fields.
 - Given an already adopted Plan, when it is loaded again, its age, identity, and lifecycle decisions remain intact.
+- Given completed runtime migration and files recreated by an older RunWield process, selecting a Plan automatically
+  preserves and reconciles those files. The adopted controller remains authoritative: old copies cannot reset review
+  decisions, retry counters, execution identity, or publication progress. Missing records and completion reports are
+  recovered without claiming validation passed. Originals remain recoverable, and interruption during this recovery
+  resumes safely on the next attempt. Empty legacy lock directories do not block continuation.
 - Given a change affecting domain rules, architecture and planning identify their owners and necessary consistency and
   recovery behavior, then carry those rules into verification using the project's existing conventions.
 - Given a project without an entity model, or a change needing little domain reasoning, planning proceeds without
@@ -452,6 +465,9 @@ Recovery requirements:
   completion alone does not claim verification or delivery.
 - Given a paused Validation Repair Engineer conversation, when the user replies after compaction, RunWield continues the
   same Session and repair worktree instead of failing because storage and execution roots differ.
+- Given a fresh, unpersisted Session, when its first submitted action starts execution or validation, RunWield registers
+  the Session before entering the execution worktree. An interrupted repair accepts the next message in that same
+  worktree, including after automatic compaction or Session reload. Merely listing Plans remains read-only.
 - When publication succeeds, follow-up returns to the primary checkout or the parent Epic’s next action; it does not
   operate in a removed worktree.
 - Loading a Plan opens its picker or action menu. It does not remove branches, move leftover files, or resume
@@ -825,15 +841,22 @@ does not grant authority to change workflow-owned Plans, ADRs, or Work Records.
 
 **Skills and integrations.**
 
-Core supports layered Skill discovery:
+Core uses one Skill catalog for listing, model advertising, and invocation. It selects skills in this order:
 
-1. local project skills
-2. home skills
-3. bundled skills
-4. external-compatible skills
+1. project `.wld/skills`
+2. project `.agents/skills`
+3. home `~/.wld/skills`
+4. home `~/.agents/skills`
+5. bundled skills
 
-Slash-command skill invocation injects full Skill instructions only when needed. Built-in command names and aliases take
-precedence over prompt templates and Skills on all surfaces, including built-ins unavailable on that surface.
+Skills in either `.agents` folder cannot use a bundled published name or directory alias. Project and home `.wld` skills
+can intentionally replace bundled skills. When external skills are disabled, Core omits both `.agents` folders and uses
+project `.wld`, home `.wld`, then bundled skills. Pi-discovered, configured, extension, and package skills do not form a
+second catalog.
+
+Slash-command skill invocation injects full Skill instructions only when needed and does not change the Agent profile.
+Built-in command names and aliases take precedence over prompt templates and Skills on all surfaces, including built-ins
+unavailable on that surface.
 
 Engineer can ask structured questions with `user_interview` and drives the bundled `/release` prompt. Release choices
 use the current client's structured question interface where supported, including Workspace, before any release
@@ -848,6 +871,13 @@ Configuration and loading details belong in [customization documentation](../cus
   required workflow capabilities remain available.
 - When a user invokes a Skill, its full instructions are available for that task without requiring every Skill or
   optional integration in every prompt.
+- Given a non-bundled Skill in project `.agents/skills`, listing, model advertising, and invocation select that project
+  file before home customization.
+- Given an `.agents` Skill whose published name or directory alias conflicts with a bundled Skill, listing, model
+  advertising, and invocation exclude the external copy. A project or home `.wld` Skill with that name can intentionally
+  replace the bundled Skill.
+- When `enableExternalSkills` is false, neither `.agents` folder participates, while project and home `.wld` Skills and
+  bundled Skills remain available.
 - Invoking `/release` from a Router Session presents the release-operation choices as a structured interview on clients
   that support forms; canceling the interview does not start a release.
 
@@ -941,6 +971,9 @@ Candidate.
 - Given a tested Candidate and a Release Branch that has advanced, when the maintainer promotes that Candidate, Stable
   uses the tested Candidate commit rather than the newer branch tip.
 
+Upgrades that change project runtime layout follow [Work protection](#work-protection). Installation must not bypass
+safe adoption or blocked-layout preservation.
+
 **Requirement: Qualify release packages before publication and preserve published bytes.**
 
 Candidate and Stable releases must pass native Windows and macOS Homebrew package checks before GitHub publication.
@@ -1015,6 +1048,24 @@ Windows WinGet requirements:
 
 **Scope and maturity:** Current baseline; additional command and governance controls remain open questions.
 
+**Requirement: Enter project runtime state before use.**
+
+Core enters project runtime state before normal project-local runtime reads, locks, or writes. RunWield 0.11 performs a
+one-way adoption of eligible 0.10 state. Entry adopts eligible legacy state or refuses unsafe layouts with a retryable
+reason and safe paths. Refusal stops normal writes and preserves user work. After adoption, downgrade or concurrent use
+with 0.10 is not supported. See [ADR-017](../adr/017-project-runtime-state-under-wld-internal.md).
+
+**Requirement: Keep Project Runtime State out of repository changes.**
+
+The managed `.gitignore` block contains only `.wld/internal/`. User `.wld/settings.json`, `.wld/agents/`,
+`.wld/skills/`, and `.wld/prompts/` remain normal repository content. If Git already tracks or stages runtime state,
+Core refuses checkpoint or publication and reports safe cleanup paths instead of deleting files, changing the index, or
+rewriting history. Core preserves and reports a broad user-authored `.wld/` ignore rule because it also hides trackable
+configuration. During a long-running process, unchanged ignore warnings appear once per Project and identify its
+`.gitignore` path. Routine reads continue checking the rules without repeating the warning; a changed warning, or one
+reintroduced after a successful check found it resolved, is reported again. Explicit doctor inspections still report all
+current issues.
+
 **Requirement: Preserve user work and require deliberate destructive actions.**
 
 Users retain control of their work through reviewed intent, isolated planned execution, recoverable baselines,
@@ -1036,6 +1087,31 @@ Open product questions:
 
 **Acceptance scenarios:**
 
+- Given untracked Project Runtime State and changed user `.wld` configuration, when execution checkpoints or publishes,
+  runtime state stays out of commits and user configuration can be committed.
+- Given runtime state already tracked, staged, deleted, renamed, or present in newly published history, when Core tries
+  to checkpoint or publish, it refuses with safe paths and preserves the worktree, index, files, and target refs.
+- Given a broad `.wld/` ignore rule, when Core reconciles ignore rules, it leaves the rule in place and reports that it
+  hides settings, Agents, Skills, and prompts.
+- Given eligible 0.10 runtime state, when Doctor checks the project, it reports pending adoption without locks,
+  migration, ignore writes, controller imports, catalog backfills, journal cleanup, or project-local Git fetches.
+- Given the same eligible state, when Doctor repairs it, guarded Project Runtime Entry adopts it once before normal
+  diagnostics run.
+- Given unfinished 0.10 publication or a saved repair, project entry adopts the bookkeeping without moving publication
+  copies, changing their receipts, or discarding repairs. Load Plan opens normally and publication can resume. Retained
+  staging copies remain Git-ignored. Checking with Doctor stays read-only and reports pending adoption.
+- Given an unsafe 0.10 layout, when Doctor checks or repairs, it preserves all named paths and explains the specific
+  conflict. Unfinished publication alone is not an unsafe layout.
+- Given a repository with ordinary file or directory symlinks, when Core publishes and retries delivery, it preserves
+  the links as Git content and still rejects symlinked runtime roots or publication checkout boundaries.
+- Given one legacy project collaboration secret in a linked checkout, when Core enters that checkout, it adopts the
+  secret into the primary internal store and collaboration commands can use it. Multiple populated stores cause a
+  non-destructive conflict.
+- Given Git tracks an old or current collaboration secret or its atomic temporary file, when Doctor reports the refusal,
+  it names only the path and explains untracking, history removal, and capability rotation without printing secret
+  bytes.
+- Given a populated project-local fallback worktree directory, when Core enters the project, it preserves the worktree,
+  registry, Git refs, and files and refuses adoption instead of moving them.
 - When recovery would reset working changes or delete unmerged work, the user must confirm the destructive action.
 - When a local browser surface is opened, it does not silently authorize other users or broaden project access.
 - Given an unclaimed worktree, when cleanup runs without proof its contents are disposable, the worktree remains
@@ -1082,8 +1158,20 @@ The file storage, operation-scoped writer lock, transcript segments, and synchro
 [ADR-015](../adr/015-file-authoritative-session-bundles.md). These mechanisms implement the outcomes above; they do not
 create additional product restrictions on which screen the owner may use.
 
+**Requirement: Route attention to the latest user-input surface.**
+
+Notification destination follows the latest accepted user input (TUI, Workspace, or ACP), independently of which process
+executes the turn. Sending a message, steering, queueing a follow-up, or answering an interaction changes the
+destination; opening a Session, reconnecting an observer, rejected input, and automated continuation do not.
+Workspace-originated turns always emit an Agent-stop attention event at settlement, including error and previously
+suppressed workflow exits. Delivery still honors the destination's permission and notification settings. ACP continues
+to expose turn completion through its client protocol; browser and terminal alerts must not duplicate it on another
+surface.
+
 **Acceptance scenarios:**
 
+- Given a fresh empty composer, when the user opens it without submitting work, no project runtime state is created; the
+  first submitted work enters the project runtime.
 - When validation starts another repair, observers see the repair activity without a second copy of the user's original
   request. Workflow reports keep their call identity across live delivery and saved replay.
 - Given an idle open TUI, when its owner sends the next message from a phone, the same Session continues and the TUI

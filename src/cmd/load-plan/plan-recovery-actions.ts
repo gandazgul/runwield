@@ -32,6 +32,7 @@ import { settleDiscardedRecoveryAttempt } from "./plan-recovery-discard.ts";
 import { transitionFailureError } from "./transition-failure.ts";
 import { writeControllerState } from "../../shared/workflow/controller-registry.ts";
 import { resolveWorkflowPlanLocation } from "../../shared/workflow/plan-location.ts";
+import { ProjectRuntimeEntryRefusedError } from "../../shared/project-runtime-layout.ts";
 
 import { updatePlanFrontMatter } from "../../plan-store.js";
 import type { UiAPI } from "../../ui/tui/types.js";
@@ -180,7 +181,10 @@ export async function settleRecoveryRecords(context: RecoveryActionContext): Pro
             closed: result.closed,
             remaining: result.remaining.map((record) => ({ ...record, authorityRoot })),
         };
-    })).catch(() => null);
+    })).catch((error) => {
+        if (error instanceof ProjectRuntimeEntryRefusedError) throw error;
+        return null;
+    });
     const closedCount = rechecks?.reduce((count, result) => count + result.closed.length, 0) ?? 0;
     context.unresolvedRecords = rechecks ? rechecks.flatMap((result) => result.remaining) : context.unresolvedRecords;
     if (closedCount > 0) {

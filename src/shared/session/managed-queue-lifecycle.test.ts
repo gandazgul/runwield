@@ -80,8 +80,12 @@ Deno.test("managed deferred messages deliver once and canceled messages stay cle
                 }
                 assertEquals(modelCalls, 2);
                 assertEquals(runtime.getQueuedMessages(created.sessionId), []);
+                // The drain delivers the deferred message as its own turn (model call 3).
+                // Wait for that turn to fire and settle before starting the canceled turn,
+                // otherwise the canceled turn races the drain for the managed operation and
+                // the deferred message is claimed but never reaches the transcript.
                 for (let attempt = 0; attempt < 1_000; attempt += 1) {
-                    if (!runtime.getSessionSnapshot(created.sessionId)?.busy) break;
+                    if (modelCalls >= 3 && !runtime.getSessionSnapshot(created.sessionId)?.busy) break;
                     await delay(10);
                 }
                 assertEquals(runtime.getSessionSnapshot(created.sessionId)?.busy, false);

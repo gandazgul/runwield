@@ -1,9 +1,10 @@
 import { assertEquals, assertExists } from "@std/assert";
+import { join } from "@std/path";
 import { loadPlan, savePlan } from "../../plan-store.js";
-import { getRunWieldRuntimeDir } from "../../constants.js";
 import { buildPlanEventUpdates } from "./plan-lifecycle.js";
 import { createGitPort } from "../git-port.ts";
 import { defineCommittedGitFixture, git } from "../git-test-fixture.ts";
+import { resolveProjectRuntimeLayout } from "../project-runtime-layout.ts";
 import { verifyPostMergeCandidatePublished, verifyRecordedPublication } from "./validation-merge-verification.ts";
 
 const fixture = defineCommittedGitFixture({ "file.txt": "base\n" });
@@ -75,10 +76,10 @@ Deno.test("an unavailable publication remote leaves continuation available witho
 Deno.test("a damaged Git directory cannot turn a validated Plan into non-Git completion", async () => {
     const root = await Deno.makeTempDir({ prefix: "wld-completed-damaged-git-" });
     try {
-        await Deno.mkdir(`${root}/.git`);
         await savePlan(root, "done", "# Not published\n", { status: "validated", targetBranch: "release" });
         const plan = await loadPlan(root, "done");
         assertExists(plan);
+        await Deno.mkdir(`${root}/.git`);
         assertEquals(await verifyRecordedPublication(root, plan.attrs, { planName: "done", markdown: plan.markdown }), {
             published: false,
             targetBranch: "release",
@@ -118,7 +119,9 @@ Deno.test("committed validation stamp survives runtime removal and proves only i
         });
         await git(root, ["add", "docs/plans/done.md"]);
         await git(root, ["commit", "-m", "Record validation"]);
-        await Deno.remove(`${getRunWieldRuntimeDir(root)}/controller`, { recursive: true });
+        await Deno.remove(join(resolveProjectRuntimeLayout(root).primary.internalRoot, "controller"), {
+            recursive: true,
+        });
         const plan = await loadPlan(root, "done");
         assertExists(plan);
         assertEquals(plan.attrs.validatedCommit, executionCommit);

@@ -269,8 +269,9 @@ export async function runRouterForGoldenRequest(requestText, options = {}) {
 
     try {
         const messages = options.rowTimeoutMs
-            ? await withAbortTimeout(messagesPromise, options.rowTimeoutMs, cancel)
+            ? await withAbortTimeout(messagesPromise.then((result) => result), options.rowTimeoutMs, cancel)
             : await messagesPromise;
+        if (!Array.isArray(messages)) throw new Error(messages.error || "Router operation was refused.");
         const triage = readLatestTriageOutcomeFn(messages);
         if (!triage) throw new Error("Router did not call triage_report.");
         return triage;

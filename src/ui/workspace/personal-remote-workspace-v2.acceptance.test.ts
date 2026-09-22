@@ -3,6 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { savePlan } from "../../plan-store.js";
 import { openOwnerCoordinationStore } from "../../shared/owner-coordination/index.js";
+import { resolveProjectRuntimeLayout } from "../../shared/project-runtime-layout.ts";
 import { buildWorkflowPresentation } from "../../shared/workflow/workflow-presentation.ts";
 import { createOwnerWorkspaceApp } from "./server.js";
 import { ownerProjectSessionsApi, ownerSessionPlanWorkflowApi } from "./routes/owner-session-api.js";
@@ -604,7 +605,7 @@ Deno.test("personal remote Workspace v2 Dashboard does not mark READY status rea
         classification: "FEATURE",
         status: "ready_for_work",
     });
-    await Deno.writeTextFile(`${projectRoot}/.wld/worktrees.json`, "{ broken");
+    await Deno.writeTextFile(resolveProjectRuntimeLayout(projectRoot).primary.worktreeRegistryPath, "{ broken");
     const store = {
         listProjects: () => [{ projectId: "project-1", displayName: "Project", lifecycle: "enabled" }],
         getProjectHealth: () => ({ status: "available", evidence: [] }),

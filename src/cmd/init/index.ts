@@ -22,6 +22,7 @@ import { recordInitDone, recordInitOffered } from "./init-state.ts";
 import { isProjectInitComplete, requireProjectInitArtifact } from "./init-completion.ts";
 import { createInitVerificationCommandOperation } from "../../tools/init-verification-command.ts";
 import type { InteractiveSessionPort } from "../../ui/tui/interactive-session-port.ts";
+import { enterProjectRuntime } from "../../shared/project-runtime-layout.ts";
 
 interface InitCommandBaseOptions {
     uiAPI?: Pick<import("../../ui/tui/types.js").UiAPI, "appendSystemMessage">;
@@ -88,6 +89,8 @@ export async function runInitCommand(argv: string[], options: InitCommandOptions
         return;
     }
 
+    await enterProjectRuntime(getCwd());
+
     // ── Init-state guard ──────────────────────────────────────────
     if (await isProjectInitComplete(projectRoot)) {
         const msg = `[RunWield] Init has already been run for this project (${projectRoot}).\n` +
@@ -128,12 +131,15 @@ export async function runInitCommand(argv: string[], options: InitCommandOptions
 
     // Run the canonical hidden init agent, distinct from user-selectable Agents.
     try {
-        await sessionRuntime.runIsolatedAgent(createdSessionId, {
+        const result = await sessionRuntime.runIsolatedAgent(createdSessionId, {
             agentName: AGENTS.INIT,
             userRequest: "Initialize this project for RunWield. Follow the instructions in your system prompt.",
             subAgentDefinition: { id: SUBAGENTS.INIT },
             customTools: [verificationCommandOperation.tool],
         });
+        if (!Array.isArray(result) && result?.ok === false) {
+            throw new Error(`Init agent did not start: ${result.error || "Runtime refused the operation"}`);
+        }
         const confirmedCommand = verificationCommandOperation.getConfirmedCommand();
         if (!confirmedCommand) {
             throw new Error(

@@ -1,4 +1,4 @@
-import type { AgentSession, SessionManager, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { SessionManager, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { ContextUsageSnapshot } from "../../types.js";
 import type { McpServerDefinition } from "../../mcp/config.ts";
 import type { FileSessionStore } from "../file-session-store-types.ts";
@@ -111,11 +111,11 @@ export interface RuntimeQueuedMessageState {
     images: ImageAttachment[];
     delivery: "steer" | "next_turn";
     queuedAt: string;
-    sourceSession?: AgentSession;
+    sourceSession?: import("./support.ts").RuntimeAgentSession;
 }
 
 export interface QueueSourceSubscription {
-    sourceSession: AgentSession;
+    sourceSession: import("./support.ts").RuntimeAgentSession;
     unsubscribe(): void;
 }
 

@@ -25,14 +25,15 @@ import {
 import {
     assertCompatiblePullSecretRecord,
     ensureProjectSecretStoreIgnored,
-    getGlobalSecretStorePath,
-    getProjectSecretStorePath,
+    getGlobalSecretStoreLocation,
+    getProjectSecretStoreLocation,
     putCompatibleSecretRecord,
     resolvePullSecretRecord,
     secretRecordKey,
 } from "../../shared/collaboration/secrets.js";
 import { parseCollaborationUrl, redactCollaborationUrl } from "../../shared/collaboration/urls.js";
 import { normalizePlanServerUrl } from "../../shared/settings.js";
+import { enterProjectRuntime } from "../../shared/project-runtime-layout.ts";
 import { SessionRuntime } from "../../shared/session/session-runtime.ts";
 import {
     buildPullRevisionRequest,
@@ -163,10 +164,10 @@ function normalizeCommentsResponse(value: WireValue): EncryptedComment[] {
 }
 
 /** @param {string} cwd @param {boolean} projectSecrets */
-function secretPaths(cwd: string, projectSecrets: boolean): string[] {
-    const globalPath = getGlobalSecretStorePath();
-    const projectPath = getProjectSecretStorePath(cwd);
-    return projectSecrets ? [projectPath, globalPath] : [globalPath, projectPath];
+async function secretPaths(cwd: string, projectSecrets: boolean) {
+    const globalLocation = getGlobalSecretStoreLocation();
+    const projectLocation = await getProjectSecretStoreLocation(cwd);
+    return projectSecrets ? [projectLocation, globalLocation] : [globalLocation, projectLocation];
 }
 
 function findResourceByPlanId(resources: PlanResource[], planId: string): PlanResource | null {
@@ -201,6 +202,7 @@ export async function pullPlanForRevision(
     pullOptions: PullPlanForRevisionOptions,
 ): Promise<PulledPlanRevision> {
     const cwd = pullOptions.cwd || getCwd();
+    await enterProjectRuntime(cwd);
     const now = new Date().toISOString();
     const target = pullOptions.target;
     const isUrl = looksLikeUrl(target);
@@ -229,7 +231,7 @@ export async function pullPlanForRevision(
         if (!planId || !spaceId || !resource.attrs.collaborationServerUrl) {
             throw new Error("Shared Plan is missing collaboration metadata; cannot pull.");
         }
-        const paths = secretPaths(cwd, Boolean(pullOptions.projectSecrets));
+        const paths = await secretPaths(cwd, Boolean(pullOptions.projectSecrets));
         const found = await resolvePullSecretRecord(paths, planId, spaceId);
         if (!found?.record?.contentKey || !found.record.maintainerCapability) {
             throw new Error(
@@ -284,7 +286,7 @@ export async function pullPlanForRevision(
     }
 
     if (isUrl) {
-        const paths = secretPaths(cwd, Boolean(pullOptions.projectSecrets));
+        const paths = await secretPaths(cwd, Boolean(pullOptions.projectSecrets));
         const importedSecretRecord = {
             planId: planPayload.planId,
             spaceId: resolved.spaceId,
@@ -482,9 +484,11 @@ export async function runPlansPullCommand(
         printPullHelp();
         return;
     }
+    const cwd = getCwd();
+    await enterProjectRuntime(cwd);
     const pulled = await pullPlanForRevision({
         target: parsed.target as string,
-        cwd: getCwd(),
+        cwd,
         planServer: parsed.planServer,
         projectSecrets: parsed.projectSecrets,
         to: parsed.to,

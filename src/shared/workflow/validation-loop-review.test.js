@@ -642,8 +642,8 @@ Deno.test("runValidationPhase dispatches semantic review feedback to Reviewer-Fe
         complexity: "MEDIUM",
         executionAgent: "frontend-engineer",
     });
-    const approvedPlan = (await loadPlan(projectRoot, "p"))?.markdown;
-    assertExists(approvedPlan);
+    const approvedPlanBody = (await loadPlan(projectRoot, "p"))?.body;
+    assertExists(approvedPlanBody);
     const sessions = /** @type {any[]} */ ([]);
     const reviewerWorkflowContexts =
         /** @type {Array<import('../session/workflow-context-session.js').WorkflowContext | null>} */ ([]);
@@ -686,7 +686,11 @@ Deno.test("runValidationPhase dispatches semantic review feedback to Reviewer-Fe
     assertEquals(result.kind, "semantic_repair_handoff");
     assertStringIncludes(result.semanticRepairHandoff?.findingsSection || "", "Missing guard");
     assertEquals(sessions.map((opts) => opts.agentName), ["reviewer"]);
-    assertStringIncludes(sessions[0].userRequest, approvedPlan);
+    assertStringIncludes(
+        sessions[0].userRequest.replace(/\s+/g, " ").trim(),
+        approvedPlanBody.replace(/\s+/g, " ").trim(),
+    );
+    assertEquals(sessions[0].userRequest.includes('classification: "QUICK_FIX"'), false);
     assertEquals(reviewerWorkflowContexts, [expectedWorkflowContext]);
     assertEquals(repairWorkflowContexts, []);
     assertEquals(repairActiveOwners, []);

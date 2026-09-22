@@ -209,8 +209,10 @@ export async function runResumeCommand(argv: string[], options: ResumeCommandOpt
         uiAPI.appendSystemMessage("Compacting session before resume... (Esc to cancel)");
         try {
             const result = await sessionRuntime.compactSession(loaded.sessionId);
-            notice =
-                `Conversation compacted and restored. Previous size: ${result.tokensBefore.toLocaleString()} tokens.`;
+            if ("ok" in result && result.ok === false) throw new Error(result.error);
+            notice = `Conversation compacted and restored. Previous size: ${
+                (result.tokensBefore ?? 0).toLocaleString()
+            } tokens.`;
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             const canceled = message === "Compaction cancelled" || message.includes("cancelled");

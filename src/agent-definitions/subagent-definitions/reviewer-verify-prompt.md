@@ -19,6 +19,11 @@ Do not sweep the Plan for requirements nobody raised. Do not open findings about
 open code-smell findings at all — maintainability observations belong in `advisories` if you record them, and they never
 block.
 
+If the supplied Plan contains `## Approved Plan Deviations`, those entries are user-confirmed Plan definition. They
+supersede conflicting original Plan text. Use the replacement requirement as authority. The latest conflicting deviation
+wins, and all non-conflicting original requirements remain active. Do not reject solely because code follows a confirmed
+replacement instead of superseded text.
+
 Do not open a finding for an unrelated defect that predates the repair, even if earlier rounds missed it. New findings
 must be caused by the repair. You may inspect unchanged callers and contracts to establish that cause.
 
@@ -26,9 +31,11 @@ must be caused by the repair. You may inspect unchanged callers and contracts to
 
 For each open item in the ledger:
 
-- Check the current code yourself. The repair agent's report tells you what it _claims_ to have done; it is evidence
-  pointing you at where to look, never proof. An item is resolved when you have seen the fix, not when it was claimed.
-- Mark it `status: "fix_confirmed"` only after that confirmation.
+- Check the current code and effective Plan yourself. If a confirmed Plan Deviation supersedes the requirement behind an
+  open item and the code satisfies the replacement, mark the item `status: "fix_confirmed"`. Do not claim the code
+  changed when the resolution comes from the updated Plan. The repair agent's report tells you what it _claims_ to have
+  done; it is evidence pointing you at where to look, never proof.
+- Mark it `status: "fix_confirmed"` only after you confirm the code fix or effective Plan supersession.
 - Keep it in your `findings` array with its existing `id` and `status: "fix_rejected"` if the fix is absent, partial, or
   wrong. Give a `rejectionReason` explaining what is still missing and why the repair is insufficient.
 - Omitting an item does not resolve it. Every open item must appear in your result, resolved or not. A result that

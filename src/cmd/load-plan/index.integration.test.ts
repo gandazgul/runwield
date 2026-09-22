@@ -1,5 +1,5 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
-import { getRunWieldRuntimeDir } from "../../constants.js";
+import { join } from "@std/path";
 import {
     type Context,
     fauxAssistantMessage,
@@ -24,6 +24,7 @@ import { executePlanAction, loadPlanActionEvidence } from "../../shared/workflow
 import { recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
 import { writeControllerState } from "../../shared/workflow/controller-registry.ts";
 import { defineCommittedGitFixture } from "../../shared/git-test-fixture.ts";
+import { resolveProjectRuntimeLayout } from "../../shared/project-runtime-layout.ts";
 import { createTestWorktreeAttempt } from "../../shared/worktree-test-helpers.js";
 import { withRuntimeCommandFixture } from "../testing/runtime-command-fixture.ts";
 import { runLoadPlanCommand } from "./index.ts";
@@ -451,7 +452,9 @@ Deno.test("load-plan offers lifecycle actions for a validated Plan already publi
         await git(projectRoot, ["add", "docs/plans/published.md"]);
         await git(projectRoot, ["commit", "-m", "Publish validated Plan"]);
         // Completed Plans must remain usable after all controller bookkeeping is lost.
-        await Deno.remove(`${getRunWieldRuntimeDir(projectRoot)}/controller`, { recursive: true });
+        await Deno.remove(join(resolveProjectRuntimeLayout(projectRoot).primary.internalRoot, "controller"), {
+            recursive: true,
+        });
         const { runtime, sessionId } = await createRuntime(projectRoot);
         const ui = makeUi(["archive"]);
         try {
@@ -474,7 +477,9 @@ Deno.test("load-plan offers lifecycle actions for a validated Plan already publi
 Deno.test("load-plan offers completed actions for a validated non-Git Plan without controller state", async () => {
     await withRuntimeCommandFixture("runwield-load-plan-non-git-completed-", async ({ projectRoot }) => {
         await writePlan(projectRoot, "finished", { status: "validated" });
-        await Deno.remove(`${getRunWieldRuntimeDir(projectRoot)}/controller`, { recursive: true }).catch((error) => {
+        await Deno.remove(join(resolveProjectRuntimeLayout(projectRoot).primary.internalRoot, "controller"), {
+            recursive: true,
+        }).catch((error) => {
             if (!(error instanceof Deno.errors.NotFound)) throw error;
         });
         const { runtime, sessionId } = await createRuntime(projectRoot);

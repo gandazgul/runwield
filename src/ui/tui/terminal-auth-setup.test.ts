@@ -339,12 +339,15 @@ Deno.test("terminal auth setup succeeds against a temporary source mutation wher
         const runtimeSource = await Deno.readTextFile(
             join(REPO_ROOT, "src", "shared", "session", "session-runtime.ts"),
         );
+        const mutatedRuntimeSource = runtimeSource.replace(
+            '    createInteractiveSession(...args: Parameters<RuntimeLifecycle["createInteractiveSession"]>) {',
+            '    createInteractiveSession(...args: Parameters<RuntimeLifecycle["createInteractiveSession"]>) {\n' +
+                '        throw new Error("mutated createInteractiveSession called");',
+        );
+        assert(mutatedRuntimeSource !== runtimeSource);
         await Deno.writeTextFile(
             join(tempRoot, "src", "shared", "session", "session-runtime.ts"),
-            runtimeSource.replace(
-                "    async createInteractiveSession(options) {",
-                '    async createInteractiveSession(options) {\n        throw new Error("mutated createInteractiveSession called");',
-            ),
+            mutatedRuntimeSource,
         );
         const childScript = join(tempRoot, "mutation-proof.ts");
         await Deno.writeTextFile(

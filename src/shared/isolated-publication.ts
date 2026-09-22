@@ -6,6 +6,12 @@
 import { basename, dirname, join } from "@std/path";
 import { assertPreMergeCandidateUnchanged, mergeExecutionWorktree } from "./worktree.js";
 import { RUNWIELD_GITIGNORE_BLOCK } from "./runwield-owned-paths.ts";
+import { enterProjectRuntime } from "./project-runtime-layout.ts";
+import {
+    assertNoRuntimePathsInNewHistory,
+    assertNoTrackedOrIndexedRuntimePaths,
+    stageGitChangesExcludingRuntime,
+} from "./git-runtime-safety.ts";
 import { recoverSealedPlanFormatting } from "./publication-plan-formatting.ts";
 
 interface CommandResult {
@@ -98,6 +104,7 @@ export class IsolatedPublicationError extends Error {
     repairCwd?: string;
     mergeWorktreePath?: string;
     mergeFailureKind?: string;
+    blockingPaths?: string[];
 
     constructor(message: string, details: Partial<IsolatedPublicationError> = {}) {
         super(message);
@@ -119,6 +126,15 @@ async function runGit(cwd: string, args: string[]): Promise<string> {
     const result = await runGitResult(cwd, args);
     if (result.code === 0) return result.stdout;
     throw new Error(`git ${args.join(" ")} failed: ${result.stderr || result.stdout}`);
+}
+
+async function runGitRaw(cwd: string, args: string[]): Promise<string> {
+    const output = await new Deno.Command("git", { cwd, args, stdout: "piped", stderr: "piped" }).output();
+    const decoder = new TextDecoder();
+    const stdout = decoder.decode(output.stdout);
+    const stderr = decoder.decode(output.stderr);
+    if (output.code === 0) return stdout;
+    throw new Error(`git ${args.join(" ")} failed: ${stderr.trim() || stdout.trim()}`);
 }
 
 async function resolveUpstream(projectRoot: string, targetBranch: string): Promise<UpstreamTarget | null> {
@@ -216,7 +232,9 @@ async function pushPublication(
 }
 
 async function commitPublicationMetadata(publicationRoot: string, planName: string): Promise<string> {
-    await runGit(publicationRoot, ["add", "-A"]);
+    await assertNoTrackedOrIndexedRuntimePaths(publicationRoot);
+    await stageGitChangesExcludingRuntime(publicationRoot);
+    await assertNoTrackedOrIndexedRuntimePaths(publicationRoot);
     const staged = await runGit(publicationRoot, ["diff", "--cached", "--name-only"]);
     if (staged) {
         await runGit(publicationRoot, [
@@ -252,16 +270,15 @@ export async function isExecutionCommitPublishedUpstream(
 export async function isCommitPublishedToTarget(
     args: TargetPublicationInspectionArgs,
 ): Promise<boolean> {
-    const localResult = await runGitResult(args.projectRoot, [
-        "merge-base",
-        "--is-ancestor",
-        args.commit,
-        `refs/heads/${args.targetBranch}`,
-    ]);
-    if (localResult.code === 0) return true;
     const upstream = await resolveUpstream(args.projectRoot, args.targetBranch);
     if (!upstream) {
-        return false;
+        const localResult = await runGitResult(args.projectRoot, [
+            "merge-base",
+            "--is-ancestor",
+            args.commit,
+            `refs/heads/${args.targetBranch}`,
+        ]);
+        return localResult.code === 0;
     }
     const inspectionRoot = await Deno.makeTempDir({ prefix: `runwield-inspect-${basename(args.projectRoot)}-` });
     try {
@@ -294,6 +311,7 @@ export async function isCommitPublishedToTarget(
 export async function publishExecutionWorktreeIsolated(
     args: IsolatedPublicationArgs,
 ): Promise<IsolatedPublicationResult> {
+    await enterProjectRuntime(args.projectRoot);
     args.onProgress?.("preparing");
     await recoverSealedPlanFormatting(args);
     await assertPreMergeCandidateUnchanged({
@@ -328,9 +346,11 @@ export async function publishExecutionWorktreeIsolated(
                     },
                 );
             }
+            await assertNoTrackedOrIndexedRuntimePaths(publicationRoot);
             const expectedRemoteHead = await remoteHead(publicationRoot, upstream.url, upstream.branch);
             const targetHeadBeforeMerge = expectedRemoteHead || args.recordedTargetBaseCommit ||
                 await runGit(publicationRoot, ["rev-parse", "HEAD^1"]);
+            const publicationHistoryBase = expectedRemoteHead ? targetHeadBeforeMerge : null;
             if (expectedRemoteHead) {
                 const publicationTargetRef = `refs/remotes/publication/${upstream.branch}`;
                 await runGit(publicationRoot, [
@@ -347,6 +367,11 @@ export async function publishExecutionWorktreeIsolated(
                 if (containsRemoteHead.code !== 0) {
                     args.onProgress?.("updating_target");
                     try {
+                        await assertNoRuntimePathsInNewHistory(
+                            publicationRoot,
+                            targetHeadBeforeMerge,
+                            publicationTargetRef,
+                        );
                         await runGit(publicationRoot, [
                             "merge",
                             "--no-ff",
@@ -355,14 +380,15 @@ export async function publishExecutionWorktreeIsolated(
                             `Integrate ${upstream.remote}/${upstream.branch} before RunWield publication`,
                         ]);
                     } catch (error) {
-                        throw new IsolatedPublicationError(
-                            error instanceof Error ? error.message : String(error),
-                            {
-                                repairCwd: publicationRoot,
-                                mergeWorktreePath: publicationRoot,
-                                mergeFailureKind: "target_sync_conflict",
-                            },
-                        );
+                        const mergeError = error instanceof Error ? error : new Error(String(error));
+                        const classified = mergeError as IsolatedPublicationError;
+                        const runtimeRefusal = classified.mergeFailureKind === "runwield_runtime_tracked";
+                        throw new IsolatedPublicationError(mergeError.message, {
+                            repairCwd: publicationRoot,
+                            mergeWorktreePath: publicationRoot,
+                            mergeFailureKind: runtimeRefusal ? classified.mergeFailureKind : "target_sync_conflict",
+                            blockingPaths: classified.blockingPaths,
+                        });
                     }
                 }
             }
@@ -387,6 +413,11 @@ export async function publishExecutionWorktreeIsolated(
                 "HEAD",
             ]);
             if (containsExecutionHead.code !== 0) {
+                await assertNoRuntimePathsInNewHistory(
+                    publicationRoot,
+                    publicationHistoryBase,
+                    args.sealedExecutionCommit,
+                );
                 await runGit(publicationRoot, [
                     "merge",
                     "--no-ff",
@@ -396,7 +427,18 @@ export async function publishExecutionWorktreeIsolated(
                 ]);
             }
             const deliveryCommit = await runGit(publicationRoot, ["rev-parse", "HEAD"]);
+            await assertNoRuntimePathsInNewHistory(
+                publicationRoot,
+                publicationHistoryBase,
+                deliveryCommit,
+            );
+            preserveForRecovery = true;
             const publicationCommit = await commitPublicationMetadata(publicationRoot, args.planName);
+            await assertNoRuntimePathsInNewHistory(
+                publicationRoot,
+                publicationHistoryBase,
+                publicationCommit,
+            );
             await args.onIntegrated?.({
                 targetBaseCommit: targetHeadBeforeMerge,
                 integrationCommit: publicationCommit,
@@ -430,6 +472,7 @@ export async function publishExecutionWorktreeIsolated(
                 );
             }
             await args.onVerified?.(publishedEvidence);
+            preserveForRecovery = Boolean(requestedPublicationRoot);
             return {
                 publicationMode: "remote",
                 updatedPrimaryCheckout: false,
@@ -481,6 +524,11 @@ export async function publishExecutionWorktreeIsolated(
             if (containsRemote.code !== 0) {
                 args.onProgress?.("updating_target");
                 try {
+                    await assertNoRuntimePathsInNewHistory(
+                        publicationRoot,
+                        sourceTargetHead,
+                        `refs/remotes/publication/${upstream.branch}`,
+                    );
                     await runGit(publicationRoot, [
                         "merge",
                         "--no-ff",
@@ -490,18 +538,20 @@ export async function publishExecutionWorktreeIsolated(
                     ]);
                 } catch (error) {
                     preserveForRecovery = true;
-                    throw new IsolatedPublicationError(
-                        error instanceof Error ? error.message : String(error),
-                        {
-                            repairCwd: publicationRoot,
-                            mergeWorktreePath: publicationRoot,
-                            mergeFailureKind: "target_sync_conflict",
-                        },
-                    );
+                    const mergeError = error instanceof Error ? error : new Error(String(error));
+                    const classified = mergeError as IsolatedPublicationError;
+                    const runtimeRefusal = classified.mergeFailureKind === "runwield_runtime_tracked";
+                    throw new IsolatedPublicationError(mergeError.message, {
+                        repairCwd: publicationRoot,
+                        mergeWorktreePath: publicationRoot,
+                        mergeFailureKind: runtimeRefusal ? classified.mergeFailureKind : "target_sync_conflict",
+                        blockingPaths: classified.blockingPaths,
+                    });
                 }
             }
         }
         const targetHeadBeforeMerge = expectedRemoteHead || sourceTargetHead;
+        const publicationHistoryBase = expectedRemoteHead ? targetHeadBeforeMerge : null;
         await runGit(publicationRoot, [
             "branch",
             "-f",
@@ -510,6 +560,7 @@ export async function publishExecutionWorktreeIsolated(
         ]);
         args.onProgress?.("combining_work");
         try {
+            await assertNoRuntimePathsInNewHistory(publicationRoot, publicationHistoryBase, args.sealedExecutionCommit);
             await mergeExecutionWorktree({
                 projectRoot: publicationRoot,
                 branch: args.executionBranch,
@@ -519,14 +570,20 @@ export async function publishExecutionWorktreeIsolated(
         } catch (error) {
             preserveForRecovery = true;
             const mergeError = error instanceof Error ? error : new Error(String(error));
+            const classified = mergeError as IsolatedPublicationError;
+            const runtimeRefusal = classified.mergeFailureKind === "runwield_runtime_tracked";
             throw new IsolatedPublicationError(mergeError.message, {
                 repairCwd: publicationRoot,
                 mergeWorktreePath: publicationRoot,
-                mergeFailureKind: "isolated_publication_conflict",
+                mergeFailureKind: runtimeRefusal ? classified.mergeFailureKind : "isolated_publication_conflict",
+                blockingPaths: classified.blockingPaths,
             });
         }
         const deliveryCommit = await runGit(publicationRoot, ["rev-parse", "HEAD"]);
+        await assertNoRuntimePathsInNewHistory(publicationRoot, publicationHistoryBase, deliveryCommit);
+        preserveForRecovery = true;
         const publicationCommit = await commitPublicationMetadata(publicationRoot, args.planName);
+        await assertNoRuntimePathsInNewHistory(publicationRoot, publicationHistoryBase, publicationCommit);
         await args.onIntegrated?.({
             targetBaseCommit: targetHeadBeforeMerge,
             integrationCommit: publicationCommit,
@@ -555,6 +612,7 @@ export async function publishExecutionWorktreeIsolated(
             );
         }
         await args.onVerified?.(publishedEvidence);
+        preserveForRecovery = Boolean(requestedPublicationRoot);
         return {
             publicationMode: "remote",
             updatedPrimaryCheckout: false,
@@ -591,10 +649,9 @@ async function publishToLocalTarget(
     let savedOwnedGitignore: string | undefined;
     const savedAuthoritativePlans = new Map<string, Uint8Array>();
     try {
-        const trackedChanges = (await runGit(args.projectRoot, ["diff", "--name-only", "HEAD", "--"]))
-            .split("\n")
-            .map((path) => path.trim())
-            .filter(Boolean);
+        const trackedChanges = (await runGitRaw(args.projectRoot, ["diff", "--name-only", "-z", "HEAD", "--"]))
+            .split("\0")
+            .filter((path) => path.length > 0);
         const allowedPrimaryChanges = new Set(args.allowedPlanPaths);
         if (hasOwnedGitignore) allowedPrimaryChanges.add(".gitignore");
         const blockingTrackedChanges = trackedChanges.filter((path) => !allowedPrimaryChanges.has(path));
@@ -651,6 +708,7 @@ async function publishToLocalTarget(
             }
         }
         args.onProgress?.("combining_work");
+        await assertNoRuntimePathsInNewHistory(args.projectRoot, targetHeadBeforeMerge, args.sealedExecutionCommit);
         await mergeExecutionWorktree({
             projectRoot: args.projectRoot,
             branch: args.executionBranch,
@@ -664,6 +722,7 @@ async function publishToLocalTarget(
         });
         args.onProgress?.("verifying");
         const publicationCommit = await runGit(args.projectRoot, ["rev-parse", `refs/heads/${args.targetBranch}`]);
+        await assertNoRuntimePathsInNewHistory(args.projectRoot, targetHeadBeforeMerge, publicationCommit);
         await args.onIntegrated?.({
             targetBaseCommit: targetHeadBeforeMerge,
             integrationCommit: publicationCommit,

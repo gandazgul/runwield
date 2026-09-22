@@ -13,13 +13,16 @@ import {
 import { getModelRegistry, SYSTEM_MODEL_DISCOVERY_NETWORK } from "../../models/model-registry.ts";
 
 import { getRuntimeRootAgentSession, isRuntimeRootSessionManager, resolvePersistedResumeModel } from "./support.ts";
-import { isManagedOperationFailure } from "./types.ts";
-import type { PromptSessionOptions } from "./types.ts";
+import type { ManagedOperationFailure, PromptSessionOptions } from "./types.ts";
 
 import type { RuntimeServices } from "./base.ts";
 import type { RuntimeManagedOperations } from "./managed-operations.ts";
 
 type RuntimeImageModel = Awaited<ReturnType<typeof resolveModel>>;
+type PersistedSessionImage = Awaited<ReturnType<typeof persistImageAttachment>> & {
+    ok?: true;
+    error?: undefined;
+};
 interface RuntimeImageAgentSession {
     modelRegistry?: ReturnType<typeof getModelRegistry>;
     model?: RuntimeImageModel;
@@ -40,7 +43,7 @@ export class RuntimeImages {
     async persistSessionImage(
         sessionId: string,
         image: import(".././types.js").ImageAttachment,
-    ): Promise<Awaited<ReturnType<typeof persistImageAttachment>> & { error?: string }> {
+    ): Promise<PersistedSessionImage | ManagedOperationFailure> {
         const session = this.services.sessionHost.getSession(sessionId);
         if (!session) throw new Error("SessionRuntime.persistSessionImage: session not found");
         const managed = session.getManagedMetadata?.();
@@ -48,7 +51,7 @@ export class RuntimeImages {
             if (!this.services.sessionStore) {
                 throw new Error("Cannot persist image attachment: no active session is available.");
             }
-            const result = await this.managedOperations.runManagedOperation(
+            return await this.managedOperations.runManagedOperation(
                 sessionId,
                 {
                     name: "submit_user_turn",
@@ -57,7 +60,6 @@ export class RuntimeImages {
                 },
                 async () => await this.persistSessionImage(sessionId, image),
             );
-            return isManagedOperationFailure(result) ? { ...image, error: result.error } : result;
         }
         return await this.persistActiveSessionImage(session, image);
     }

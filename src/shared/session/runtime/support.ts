@@ -31,14 +31,43 @@ export function isRuntimeRootSessionManager(
     );
 }
 
+export interface RuntimeAgentSession {
+    model: import("@earendil-works/pi-coding-agent").AgentSession["model"];
+    settingsManager?: import("@earendil-works/pi-coding-agent").AgentSession["settingsManager"];
+    getContextUsage?: import("@earendil-works/pi-coding-agent").AgentSession["getContextUsage"];
+    subscribe(listener: (event: { type: string; steering?: readonly string[] }) => void): () => void;
+    agent?: import("@earendil-works/pi-coding-agent").AgentSession["agent"];
+    modelRegistry?: ReturnType<typeof getModelRegistry>;
+    isStreaming?: boolean;
+    isCompacting?: boolean;
+    getSteeringMessages?(): readonly string[];
+    clearQueue?(): void | { steering?: readonly string[]; followUp?: readonly string[] };
+    followUp?(text: string): void | Promise<void>;
+    setAutoCompactionEnabled?(enabled: boolean): void;
+    cycleThinkingLevel?(): import("../hosted-session.js").ThinkingLevel | undefined;
+    setThinkingLevel?(level: import("../hosted-session.js").ThinkingLevel): void;
+    compact?: import("@earendil-works/pi-coding-agent").AgentSession["compact"];
+    abortCompaction?(): void;
+    recordBashResult?(
+        command: string,
+        result: {
+            output: string;
+            exitCode: number;
+            cancelled: boolean;
+            truncated: boolean;
+        },
+        options: { excludeFromContext: boolean },
+    ): void;
+}
+
 export function isRuntimeAgentSession(
     session:
         | import("../hosted-session.js").DisposableLike
         | import("@earendil-works/pi-coding-agent").AgentSession
         | null
         | undefined,
-): session is import("@earendil-works/pi-coding-agent").AgentSession {
-    return Boolean(session && "model" in session && "subscribe" in session);
+): session is RuntimeAgentSession {
+    return Boolean(session && "model" in session && "subscribe" in session && typeof session.subscribe === "function");
 }
 
 export function getRuntimeRootAgentSession(session: import("../hosted-session.js").HostedSession) {
@@ -245,9 +274,9 @@ interface SemanticCiState {
     currentPhase?: string;
 }
 interface SemanticWorkflowMeta {
-    validationCheckpoint?: SemanticProgressSource;
-    publication?: SemanticProgressSource;
-    worktreeStatus?: string;
+    validationCheckpoint?: SemanticProgressSource | null;
+    publication?: SemanticProgressSource | null;
+    worktreeStatus?: string | null;
 }
 interface SemanticProgressSource {
     nextPhase?: string;
@@ -282,7 +311,7 @@ export function buildSemanticRepairCiState(
  * @returns {Array<import('../../workflow/workflow-presentation.ts').WorkflowProgressFact>}
  */
 export function workflowProgressFactsFromActiveMeta(
-    activeWorkflowMeta: Partial<import("../../../plan-store.js").PlanFrontMatter>,
+    activeWorkflowMeta: Partial<import("../../../plan-store.js").PlanFrontMatter> & SemanticWorkflowMeta,
 ): import("../../workflow/workflow-presentation.ts").WorkflowProgressFact[] {
     const facts: import("../../workflow/workflow-presentation.ts").WorkflowProgressFact[] = [];
     const checkpoint = activeWorkflowMeta.validationCheckpoint;
@@ -293,6 +322,16 @@ export function workflowProgressFactsFromActiveMeta(
             phase: typeof source.nextPhase === "string" ? source.nextPhase : null,
             state: typeof source.state === "string" ? source.state : null,
             repairKind: typeof source.repairKind === "string" ? source.repairKind : null,
+            updatedAt: typeof source.updatedAt === "string" ? source.updatedAt : null,
+        });
+    }
+    const publication = activeWorkflowMeta.publication;
+    if (publication && typeof publication === "object" && !Array.isArray(publication)) {
+        const source = publication;
+        facts.push({
+            kind: "publication",
+            phase: typeof source.phase === "string" ? source.phase : null,
+            failure: Boolean(source.failure),
             updatedAt: typeof source.updatedAt === "string" ? source.updatedAt : null,
         });
     }

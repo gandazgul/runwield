@@ -1,3 +1,4 @@
+import { getCwd } from "../../constants.js";
 import { listPlans } from "../../plan-store.js";
 
 /**
@@ -5,7 +6,7 @@ import { listPlans } from "../../plan-store.js";
  * @returns {Promise<import('../registry.js').CommandCompletionItem[]>}
  */
 export async function getLoadPlanCompletions(argumentPrefix) {
-    const plans = await listPlans(Deno.cwd());
+    const plans = await listPlans(getCwd());
     return plans
         .filter((plan) => plan.name.startsWith(argumentPrefix))
         .map((plan) => ({

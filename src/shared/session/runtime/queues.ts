@@ -2,6 +2,7 @@ import { steerActiveSessionWithTarget, steerAgentSessionWithTarget } from ".././
 import { getRuntimeErrorMessage, RuntimeEventTypes } from ".././session-runtime-events.js";
 
 import { getRuntimeRootAgentSession, isRuntimeAgentSession, toRuntimeQueuedMessage } from "./support.ts";
+import type { RuntimeAgentSession } from "./support.ts";
 import type { QueueSourceSubscription, RuntimeQueuedMessageState } from "./types.ts";
 
 import type { RuntimeServices } from "./base.ts";
@@ -15,7 +16,7 @@ type RuntimeEventsDependency = Pick<RuntimeEvents, "emitSessionEvent">;
 type RuntimeImagesDependency = Pick<RuntimeImages, "preflightImagesForAgentSession">;
 type RuntimeManagedOperationsDependency = Pick<
     RuntimeManagedOperations,
-    "currentCapability" | "rejectManagedPublicMutation" | "runManagedStandaloneMutation"
+    "currentCapability" | "hasOperation" | "rejectManagedPublicMutation" | "runManagedStandaloneMutation"
 >;
 type RuntimeManagedSyncDependency = Pick<RuntimeManagedSync, "synchronizeManagedSession">;
 type RuntimeTurnsDependency = Pick<RuntimeTurns, "promptUserTurn">;
@@ -43,10 +44,7 @@ export class RuntimeQueues {
         this.turns = turns;
     }
     private queuedMessages = new Map<string, RuntimeQueuedMessageState[]>();
-    private queueSourceSubscriptions = new Map<
-        string,
-        Map<import("@earendil-works/pi-coding-agent").AgentSession, QueueSourceSubscription>
-    >();
+    private queueSourceSubscriptions = new Map<string, Map<RuntimeAgentSession, QueueSourceSubscription>>();
     private queuedMessageDrainTasks = new Map<string, Promise<void>>();
 
     cleanupSession(sessionId: string) {
@@ -78,7 +76,7 @@ export class RuntimeQueues {
                 .filter((message) => message.delivery === "next_turn");
             if (queued.length === 0) return;
             const state = this.services.sessionStore.inspectSessionActivation(managed.runwieldSessionId);
-            if (state.activation?.state !== "idle") {
+            if (state.activation?.state !== "idle" || this.managedOperations.hasOperation(sessionId)) {
                 await new Promise((resolve) => setTimeout(resolve, 300));
                 continue;
             }
@@ -102,7 +100,7 @@ export class RuntimeQueues {
 
     ensureQueueSourceSubscription(
         hostedSession: import(".././hosted-session.js").HostedSession,
-        sourceSession: import("@earendil-works/pi-coding-agent").AgentSession,
+        sourceSession: RuntimeAgentSession,
     ) {
         let subscriptions = this.queueSourceSubscriptions.get(hostedSession.id);
         if (!subscriptions) {
@@ -119,7 +117,7 @@ export class RuntimeQueues {
 
     reconcileQueuedMessages(
         hostedSession: import(".././hosted-session.js").HostedSession,
-        sourceSession: import("@earendil-works/pi-coding-agent").AgentSession,
+        sourceSession: RuntimeAgentSession,
         steering: readonly string[] | undefined,
     ) {
         const sourceMessages = (this.queuedMessages.get(hostedSession.id) || [])
@@ -146,7 +144,7 @@ export class RuntimeQueues {
 
     removeQueueSourceSubscription(
         sessionId: string,
-        sourceSession: import("@earendil-works/pi-coding-agent").AgentSession,
+        sourceSession: RuntimeAgentSession,
     ) {
         const subscriptions = this.queueSourceSubscriptions.get(sessionId);
         if (!subscriptions) return;
@@ -353,7 +351,8 @@ export class RuntimeQueues {
                     throw new Error("source session stopped streaming while restoring its queue");
                 }
             }
-            for (const followUp of cleared.followUp || []) await sourceSession.followUp(followUp);
+            const followUps = cleared && typeof cleared === "object" ? cleared.followUp || [] : [];
+            for (const followUp of followUps) await sourceSession.followUp?.(followUp);
         } catch (error) {
             requeueError = getRuntimeErrorMessage(error);
         }

@@ -22,7 +22,7 @@ import {
     SessionTurnInProgressError,
 } from "./support.ts";
 
-import { isManagedOperationFailure } from "./types.ts";
+import type { ManagedOperationFailure } from "./types.ts";
 import type { RuntimeServices } from "./base.ts";
 import type { RuntimeEvents } from "./events.ts";
 import type { RuntimeLifecycle } from "./lifecycle.ts";
@@ -42,15 +42,14 @@ interface RuntimeMutationResult {
 interface RuntimeThinkingResult {
     ok: boolean;
     error?: string;
-    thinkingLevel: import("../hosted-session.js").ThinkingLevel;
+    thinkingLevel?: import("../hosted-session.js").ThinkingLevel;
 }
 
-interface RuntimeCompactionResult {
-    error?: string;
-    tokensBefore: number;
-    tokensAfter?: number;
-    summary?: string;
-}
+type RuntimeCompactionResult =
+    & Awaited<
+        ReturnType<import("@earendil-works/pi-coding-agent").AgentSession["compact"]>
+    >
+    & { error?: undefined };
 
 type RuntimeEventsDependency = Pick<
     RuntimeEvents,
@@ -243,17 +242,17 @@ export class RuntimeAgentSettings {
             customTools?: import("@earendil-works/pi-coding-agent").ToolDefinition[];
             modelOverride?: string;
         },
-    ): Promise<Awaited<ReturnType<typeof runIsolatedAgentSession>>> {
+    ): Promise<Awaited<ReturnType<typeof runIsolatedAgentSession>> | RuntimeMutationResult | ManagedOperationFailure> {
         const session = this.services.sessionHost.getSession(sessionId);
         if (!session) throw new Error("SessionRuntime.runIsolatedAgent: session not found");
         if (this.managedOperations.hasPendingCreationProof(sessionId) || this.lifecycle.hasPendingProject(sessionId)) {
             const pendingAgent = session.getPendingManagedTurnIntent?.()?.agentName || session.getRootAgentName?.() ||
                 AGENTS.ROUTER;
             const activated = await this.activateSessionAgent(session, { agentName: pendingAgent });
-            if (!activated?.ok) throw new Error("Failed to activate Session Agent.");
+            if (!activated?.ok) return activated;
             return await this.runIsolatedAgent(sessionId, options);
         }
-        const result = await this.managedOperations.runManagedStandaloneMutation(
+        return await this.managedOperations.runManagedStandaloneMutation(
             sessionId,
             "workflow_operation",
             (activeSession, capability) =>
@@ -271,8 +270,6 @@ export class RuntimeAgentSettings {
                     })),
             { activateAgent: false },
         );
-        if (isManagedOperationFailure(result)) throw new Error(result.error);
-        return result;
     }
 
     async setActiveExecutionWorkflow(
@@ -319,8 +316,9 @@ export class RuntimeAgentSettings {
         return { ok: true };
     }
 
-    cycleSessionThinkingLevel(sessionId: string): RuntimeThinkingResult;
-    cycleSessionThinkingLevel(sessionId: string): RuntimeThinkingResult | Promise<RuntimeThinkingResult> {
+    cycleSessionThinkingLevel(
+        sessionId: string,
+    ): RuntimeThinkingResult | Promise<RuntimeThinkingResult | ManagedOperationFailure> {
         /** @param {import('.././hosted-session.js').HostedSession} session */
         const run = (
             session: import(".././hosted-session.js").HostedSession,
@@ -362,34 +360,32 @@ export class RuntimeAgentSettings {
                 "set_thinking_level",
                 run,
                 { activateAgent: true },
-            ).then((result) =>
-                isManagedOperationFailure(result)
-                    ? { ok: false, error: result.error, thinkingLevel: session.getThinkingLevel() }
-                    : result
             );
         }
         return run(session);
     }
 
-    async compactSession(sessionId: string, instructions?: string): Promise<RuntimeCompactionResult> {
-        const result = await this.managedOperations.runManagedStandaloneMutation(
+    async compactSession(
+        sessionId: string,
+        instructions?: string,
+    ): Promise<RuntimeCompactionResult | ManagedOperationFailure> {
+        return await this.managedOperations.runManagedStandaloneMutation(
             sessionId,
             "compact",
             async (session) => {
                 const rootAgentSession = getRuntimeRootAgentSession(session);
-                if (!rootAgentSession?.compact) throw new Error("Runtime session cannot be compacted.");
+                const compact = rootAgentSession?.compact;
+                if (!compact) throw new Error("Runtime session cannot be compacted.");
                 const checkpoint = readCurrentPairCheckpoint(session);
                 const compacted = await this.events.runBusyOperation(
                     session.id,
-                    () => rootAgentSession.compact(instructions),
+                    () => compact.call(rootAgentSession, instructions),
                 );
                 if (checkpoint) recordPairCheckpointSnapshot(session, checkpoint);
                 return compacted;
             },
             { activateAgent: true },
         );
-        if (isManagedOperationFailure(result)) return { error: result.error, tokensBefore: 0 };
-        return { ...result, tokensBefore: result.tokensBefore ?? 0 };
     }
 
     async reloadSession(sessionId: string): Promise<RuntimeMutationResult> {

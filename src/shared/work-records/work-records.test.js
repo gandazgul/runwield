@@ -489,6 +489,105 @@ Deno.test("Work Record generation writes a record and active Plan backlink", asy
     }
 });
 
+Deno.test("Work Record generation always includes confirmed Plan Deviations", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "deviated", "# Deviated\n\n## Plan\n\nReplace nav.", {
+            planId: "plan-deviated",
+            classification: "FEATURE",
+            complexity: "LOW",
+            summary: "Built deviated feature.",
+            affectedPaths: [],
+            createdAt: "2026-07-14T00:00:00.000Z",
+            status: "verified",
+            planDeviations: [{
+                id: "call-1",
+                supersededRequirement: "Replace nav.",
+                replacementRequirement: "Keep current nav.",
+                reason: "The user chose continuity.",
+                approvedAt: "2026-09-10T00:00:00.000Z",
+            }],
+        });
+        const preview = await previewWorkRecordBackfill(cwd);
+        const outcome = await generateWorkRecordForSource(cwd, preview.eligible[0], {
+            mnemotecaPort: createWorkRecordMnemotecaFixture(),
+            idGenerator: () => "45454545-4545-4545-8545-454545454545",
+            now: () => new Date("2026-07-16T00:00:00.000Z"),
+            runRecorderStep: recorderResponse({
+                title: "Deviated Outcome",
+                summary: "Completed with the confirmed user direction.",
+            }),
+        });
+
+        assertEquals(outcome.status, "generated");
+        const record = await findWorkRecordById(cwd, "45454545-4545-4545-8545-454545454545");
+        assertStringIncludes(record?.body || "", "## Deviations from Plan");
+        assertStringIncludes(record?.sections["Deviations from Plan"] || "", "Superseded requirement: Replace nav.");
+        assertStringIncludes(
+            record?.sections["Deviations from Plan"] || "",
+            "Replacement requirement: Keep current nav.",
+        );
+        assertStringIncludes(record?.sections["Deviations from Plan"] || "", "Reason: The user chose continuity.");
+    } finally {
+        await cleanupTempProject(cwd);
+    }
+});
+
+Deno.test("Work Record generation includes confirmed child Plan Deviations in Epic records", async () => {
+    const cwd = await Deno.makeTempDir();
+    try {
+        await savePlan(cwd, "epic", "# Epic\n\n## Plan\n\nParent body.", {
+            planId: "plan-epic-deviated",
+            classification: "PROJECT",
+            complexity: "MEDIUM",
+            summary: "Epic with child deviation.",
+            affectedPaths: [],
+            createdAt: "2026-07-14T00:00:00.000Z",
+            status: "verified",
+            epicCompletionMode: "done_enough",
+        });
+        await savePlan(cwd, "epic/01-child", "# Child\n\n## Plan\n\nReplace nav.", {
+            planId: "plan-child-deviated",
+            classification: "FEATURE",
+            complexity: "LOW",
+            summary: "Child feature.",
+            affectedPaths: [],
+            createdAt: "2026-07-14T00:00:00.000Z",
+            status: "verified",
+            parentPlan: "epic",
+            order: 1,
+            planDeviations: [{
+                id: "call-child",
+                supersededRequirement: "Replace child nav.",
+                replacementRequirement: "Keep child nav.",
+                approvedAt: "2026-09-10T00:00:00.000Z",
+            }],
+        });
+        const source = (await previewWorkRecordBackfill(cwd)).eligible.find((candidate) => candidate.name === "epic");
+        if (!source) throw new Error("Expected Epic source.");
+
+        const outcome = await generateWorkRecordForSource(cwd, source, {
+            mnemotecaPort: createWorkRecordMnemotecaFixture(),
+            idGenerator: () => "46464646-4646-4646-8646-464646464646",
+            now: () => new Date("2026-07-16T00:00:00.000Z"),
+            runRecorderStep: recorderResponse({ title: "Epic Outcome", summary: "Completed the Epic." }),
+        });
+
+        assertEquals(outcome.status, "generated");
+        const record = await findWorkRecordById(cwd, "46464646-4646-4646-8646-464646464646");
+        assertStringIncludes(
+            record?.sections["Deviations from Plan"] || "",
+            "Superseded requirement: Replace child nav.",
+        );
+        assertStringIncludes(
+            record?.sections["Deviations from Plan"] || "",
+            "Replacement requirement: Keep child nav.",
+        );
+    } finally {
+        await cleanupTempProject(cwd);
+    }
+});
+
 Deno.test("Work Record generation rejects missing and self Recorder proposals before successor write", async () => {
     const cases = [
         {
@@ -672,7 +771,19 @@ Deno.test("Work Record recorder prompt includes the task completion report as so
             createdAt: "2026-07-14T00:00:00.000Z",
             status: "verified",
             executionReport: "- Implemented.\n- Verified.",
+            planDeviations: [{
+                id: "call-1",
+                supersededRequirement: "Old requirement.",
+                replacementRequirement: "New requirement.",
+                approvedAt: "2026-09-10T00:00:00.000Z",
+            }],
         },
+        planDeviations: [{
+            id: "call-1",
+            supersededRequirement: "Old requirement.",
+            replacementRequirement: "New requirement.",
+            approvedAt: "2026-09-10T00:00:00.000Z",
+        }],
         body: "# Reported\n\n## Plan\n\nBody",
         markdown: "# Reported\n\n## Plan\n\nBody",
     };
@@ -687,6 +798,8 @@ Deno.test("Work Record recorder prompt includes the task completion report as so
 
     assertEquals(sections.summary, "Distilled the execution report.");
     assertStringIncludes(prompt, '"executionReport": "- Implemented.\\n- Verified."');
+    assertStringIncludes(prompt, '"planDeviations"');
+    assertStringIncludes(prompt, "RunWield will insert them deterministically under Deviations from Plan");
     assertStringIncludes(prompt, "Distill executionReport facts");
 });
 

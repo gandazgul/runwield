@@ -12,6 +12,9 @@ export const CLI_BIN = "wld";
 /** Fallback source-run invocation used in contributor docs and local dev. */
 export const DEV_CLI_RUN = "deno run -A --unstable-no-legacy-abort src/cli.ts";
 
+/** Legacy project-local collaboration secret path, retained for migration and Git hazard checks. */
+export const PROJECT_SECRET_STORE_RELATIVE_PATH = ".wld/collaboration-secrets.json";
+
 /**
  * Primary project root used for RunWield metadata, settings, and command state.
  *
@@ -166,6 +169,9 @@ export const PLAN_UI_COMMAND_LABEL = "plans ui";
 /** Directory name for project-local RunWield metadata. */
 export const RUNWIELD_DIR_NAME = ".wld";
 
+/** Directory name for current project-local runtime state below `.wld`. */
+export const PROJECT_INTERNAL_RUNTIME_DIR_NAME = "internal";
+
 /**
  * Directory holding a project's RunWield runtime state — locks and lifecycle
  * journals.
@@ -284,9 +290,23 @@ if (IS_TEST_REALM && !readOptionalEnv("WLD_TEST_SANDBOX_HOME")) {
  * @returns {string | null}
  */
 export function describeUnsandboxedTestRun({ isTestRealm, sandboxHome, homeDir }) {
-    if (!isTestRealm || !homeDir || sandboxHome) return null;
+    if (!isTestRealm || !homeDir || sandboxHome || isTempTestHome(homeDir)) return null;
     return `Refusing to resolve a home directory (${homeDir}) during an unsandboxed test run. ` +
         UNSANDBOXED_TEST_RUN_MESSAGE;
+}
+
+/**
+ * @param {string} homeDir
+ * @returns {boolean}
+ */
+function isTempTestHome(homeDir) {
+    try {
+        const tempDir = Deno.realPathSync(readOptionalEnv("TMPDIR") || "/tmp");
+        const resolvedHome = Deno.realPathSync(homeDir);
+        return resolvedHome === tempDir || resolvedHome.startsWith(`${tempDir}/`);
+    } catch {
+        return false;
+    }
 }
 
 /**

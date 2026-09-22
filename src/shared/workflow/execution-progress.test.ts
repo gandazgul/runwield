@@ -360,7 +360,7 @@ Deno.test("restart accepts an existing Plan-only preparation commit", async () =
         );
         assertEquals(
             await git(worktree.path, ["diff", "--name-only", `${worktree.baseCommit}..HEAD`]),
-            "docs/plans/prepared-restart.md",
+            ".gitignore\ndocs/plans/prepared-restart.md",
         );
         assertEquals(await git(worktree.path, ["status", "--porcelain"]), "");
     } finally {

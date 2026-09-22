@@ -541,6 +541,7 @@ Deno.test("SessionRuntime keeps dormant managed image persistence read-only but 
                 base64: btoa("img"),
                 mimeType: "image/png",
             });
+            if (!("base64" in persisted)) throw new Error(persisted.error);
 
             const persistedPath = persisted.path || "";
             assertEquals(persisted.ref?.startsWith("attachment:"), true);
