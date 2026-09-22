@@ -466,6 +466,10 @@ for (const runtimeState of ["absent", "legacy", "mixed"] as const) {
                 // Completion is also browsing, before any Plan is selected.
                 Deno.chdir(projectRoot);
                 assertEquals((await getLoadPlanCompletions("ext")).map((item) => item.value), ["external"]);
+                // A finished argument must not keep a suggestion open that
+                // consumes Enter instead of submitting the command.
+                assertEquals(await getLoadPlanCompletions("external"), []);
+                assertEquals(await getLoadPlanCompletions("epic"), []);
                 await runLoadPlanCommand([], {
                     sessionRuntime: runtime,
                     sessionId,

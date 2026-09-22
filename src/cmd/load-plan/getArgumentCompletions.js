@@ -7,6 +7,9 @@ import { getCwd } from "../../constants.js";
  */
 export async function getLoadPlanCompletions(argumentPrefix) {
     const plans = await listPlanDocuments(getCwd());
+    // Pi treats Enter on an argument suggestion as acceptance, not submission.
+    // Once a complete Plan name is typed, there is nothing left to complete.
+    if (plans.some((plan) => plan.name === argumentPrefix)) return [];
     return plans
         .filter((plan) => plan.name.startsWith(argumentPrefix))
         .map((plan) => ({
