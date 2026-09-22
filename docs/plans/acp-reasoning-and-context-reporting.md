@@ -17,7 +17,13 @@ createdAt: "2026-09-21"
 origin: "internal"
 userVerifiedAt: null
 targetBranch: "main"
-status: "validated_reviewer"
+status: "validated"
+validatedCommit: "85fae2574828008df76942bd991a0a163661f40f"
+workRecord:
+    status: "generated"
+    recordId: "943b37ec-5a4d-4a50-a51a-8998620cc916"
+    path: "docs/work-records/2026-09-22-delivered-acp-reasoning-and-exact-context-reporting.md"
+    lastAttemptAt: "2026-09-22T12:34:44.772Z"
 ---
 
 # ACP reasoning control and accurate context reporting
