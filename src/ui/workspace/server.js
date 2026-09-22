@@ -64,7 +64,12 @@ import {
     registerProjectApi,
     revokeDeviceApi,
 } from "./routes/owner-api.js";
-import { authenticateOwnerRequest, authorizeOwnerUpgradeRequest, isOwnerUpgradeRequest } from "./server/owner-auth.js";
+import {
+    authenticateOwnerRequest,
+    authorizeOwnerUpgradeRequest,
+    isOwnerUpgradeRequest,
+    renewDeviceCookies,
+} from "./server/owner-auth.js";
 import { createWorkspaceSessionContinuationService } from "./server/session-continuation.js";
 import {
     ownerNotificationsStreamApi,
@@ -237,6 +242,14 @@ export function createOwnerWorkspaceApp(options) {
             }
             const pairingPath = path === "/pair" || path.startsWith("/api/owner/pairing");
             const publicAssetPath = isPublicWorkspaceAsset(path);
+            if (path === "/pair" && ctx.req.method === "GET") {
+                const device = authenticateOwnerRequest(ctx.req, ctx.state);
+                if (device) {
+                    return withOwnerSecurityHeaders(
+                        renewDeviceCookies(ctx.req, redirectResponse("/"), ctx.state, device.deviceId),
+                    );
+                }
+            }
             if (!pairingPath && !publicAssetPath) {
                 const ownerDevice = authenticateOwnerRequest(ctx.req, ctx.state);
                 if (!ownerDevice) {
@@ -247,7 +260,14 @@ export function createOwnerWorkspaceApp(options) {
                 }
                 ctx.state.ownerDevice = ownerDevice;
             }
-            return withOwnerSecurityHeaders(await ctx.next());
+            let response = await ctx.next();
+            if (
+                ctx.state.ownerDevice && ctx.req.method === "GET" &&
+                response.headers.get("content-type")?.includes("text/html")
+            ) {
+                response = renewDeviceCookies(ctx.req, response, ctx.state, ctx.state.ownerDevice.deviceId);
+            }
+            return withOwnerSecurityHeaders(response);
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             if (ctx.url.pathname.startsWith("/api/")) return ownerJsonResponse({ error: message }, 403);

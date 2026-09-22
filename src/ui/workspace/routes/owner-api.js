@@ -1,6 +1,7 @@
 /** @module ui/workspace/routes/owner-api */
 
 import {
+    authenticateOwnerRequest,
     clearBootstrapProofCookieHeader,
     clearDeviceCookieHeaders,
     deviceCookieHeaders,
@@ -126,6 +127,8 @@ export async function pairingRequestApi(ctx) {
 
 /** @param {any} ctx */
 export function pairingStatusApi(ctx) {
+    const device = authenticateOwnerRequest(ctx.req, ctx.state);
+    if (device) return ownerJson({ state: "paired" });
     const proof = getCookie(ctx.req, "rw_pairing_proof");
     if (!proof) return ownerJson({ state: "missing" }, 404);
     const request = ctx.state.store.getPairingRequestByProof(proof);
