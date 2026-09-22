@@ -66,3 +66,63 @@ Deno.test("unsupported binary calls fail even when the caller swallows the exit 
         await Deno.remove(root, { recursive: true });
     }
 });
+
+Deno.test("shared executable contents keep command logs and failures isolated", async () => {
+    const root = await Deno.makeTempDir({ prefix: "workflow-binaries-isolation'-" });
+    const first = join(root, "first");
+    const second = join(root, "second");
+    try {
+        const [firstBin, secondBin] = await Promise.all([
+            writeWorkflowBinaryFixtures(first),
+            writeWorkflowBinaryFixtures(second),
+        ]);
+        if (Deno.build.os !== "windows") {
+            assertEquals(
+                await Deno.realPath(join(firstBin, "mnemoteca")),
+                await Deno.realPath(join(secondBin, "cymbal")),
+            );
+        }
+        const run = (bin: string, name: string, args: string[]) =>
+            new Deno.Command(name, {
+                args,
+                env: { PATH: `${bin}:${Deno.env.get("PATH") || ""}` },
+                stdout: "piped",
+                stderr: "piped",
+            }).output();
+        const results = await Promise.all([
+            run(firstBin, "mnemoteca", ["unexpected-operation"]),
+            run(secondBin, "cymbal", ["index", "."]),
+        ]);
+        assertEquals(results.map((result) => result.code), [64, 0]);
+        await assertRejects(() => assertWorkflowBinaryCallsSupported(first), Error, "Unsupported mnemoteca");
+        await assertWorkflowBinaryCallsSupported(second);
+        assertEquals(await Deno.readTextFile(join(firstBin, "calls.log")), "mnemoteca\nunexpected-operation\n");
+        assertEquals(await Deno.readTextFile(join(secondBin, "calls.log")), "cymbal\nindex\n.\n");
+        await Deno.remove(first, { recursive: true });
+        assertEquals((await run(secondBin, "mnemoteca", ["--help"])).code, 0);
+        await assertWorkflowBinaryCallsSupported(second);
+    } finally {
+        await Deno.remove(root, { recursive: true });
+    }
+});
+
+Deno.test("GitHub unavailability is opt-in and preserves supported-call checks", async () => {
+    const root = await Deno.makeTempDir({ prefix: "workflow-github-fixture-" });
+    try {
+        const ordinary = await writeWorkflowBinaryFixtures(join(root, "ordinary"));
+        await assertRejects(() => Deno.stat(join(ordinary, "gh")), Deno.errors.NotFound);
+        const goldenRoot = join(root, "golden");
+        const golden = await writeWorkflowBinaryFixtures(goldenRoot, { githubUnavailable: true });
+        const output = await new Deno.Command(join(golden, "gh"), {
+            args: ["auth", "status"],
+            stdout: "piped",
+            stderr: "piped",
+        }).output();
+        assertEquals(output.code, 1);
+        assertStringIncludes(new TextDecoder().decode(output.stderr), "golden fixture: gh unavailable");
+        assertEquals(await Deno.readTextFile(join(golden, "calls.log")), "gh\nauth\nstatus\n");
+        await assertWorkflowBinaryCallsSupported(goldenRoot);
+    } finally {
+        await Deno.remove(root, { recursive: true });
+    }
+});
