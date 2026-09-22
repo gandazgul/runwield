@@ -21,7 +21,13 @@ origin: "internal"
 userVerifiedAt: null
 routingIntent: "PLANNED_CHANGE"
 targetBranch: "main"
-status: "validated_reviewer"
+status: "validated"
+validatedCommit: "63e74a2f28d5d4a3a584f2aaa90b3b12d680222a"
+workRecord:
+    status: "generated"
+    recordId: "a36d95ab-5c2d-4623-9c55-6b436f266b45"
+    path: "docs/work-records/2026-09-22-pr-style-review-patches-across-all-consumers.md"
+    lastAttemptAt: "2026-09-22T17:26:48.815Z"
 ---
 
 # Show PR-Style Patches in Browser and AI Review
