@@ -33,7 +33,7 @@ import {
     recordInitOffered as recordInitOfferedFn,
 } from "../../cmd/init/init-state.ts";
 import { isProjectInitComplete } from "../../cmd/init/init-completion.ts";
-import { createSessionRuntime } from "../../shared/session/session-runtime.js";
+import { createSessionRuntime } from "../../shared/session/session-runtime.ts";
 import { setActiveSessionModel } from "../../shared/session/model-selection.ts";
 import { RuntimeEventTypes } from "../../shared/session/session-runtime-events.js";
 import { renderBootBanner } from "./boot-banner.ts";

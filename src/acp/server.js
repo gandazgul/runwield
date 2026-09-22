@@ -8,7 +8,7 @@ import { isAbsolute } from "@std/path";
 import { VERSION } from "../shared/version.js";
 import { openFileSessionStore } from "../shared/session/file-session-store.ts";
 import { getSelectedDefaultModelAvailability } from "../shared/session/model-readiness.ts";
-import { createSessionRuntime, SessionTurnInProgressError } from "../shared/session/session-runtime.js";
+import { createSessionRuntime, SessionTurnInProgressError } from "../shared/session/session-runtime.ts";
 import { RuntimeEventTypes } from "../shared/session/session-runtime-events.js";
 import { AcpSessionMap, normalizeAcpSessionIdForLoad } from "./session-map.js";
 import { mapRuntimeContextToAcpUpdate, mapRuntimeEventToAcpSessionNotification } from "./event-mapper.js";
@@ -73,7 +73,7 @@ function isAuthenticationSetupFailure(message) {
 /** @typedef {import('@agentclientprotocol/sdk').AgentApp} AgentApp */
 /** @typedef {import('@agentclientprotocol/sdk').AgentConnection} AgentConnection */
 /** @typedef {import('@agentclientprotocol/sdk').Stream} AcpStream */
-/** @typedef {import('../shared/session/session-runtime.js').SessionRuntime} SessionRuntime */
+/** @typedef {import('../shared/session/session-runtime.ts').SessionRuntime} SessionRuntime */
 
 /**
  * @typedef {Object} AcpNotificationContext

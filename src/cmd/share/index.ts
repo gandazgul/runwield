@@ -4,7 +4,7 @@
  */
 
 import { theme } from "../../ui/theme/theme.js";
-import type { SessionRuntime } from "../../shared/session/session-runtime.js";
+import type { SessionRuntime } from "../../shared/session/session-runtime.ts";
 
 interface CommandResult {
     success: boolean;

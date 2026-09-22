@@ -1,7 +1,7 @@
 import { assert, assertEquals } from "@std/assert";
 import { join } from "@std/path";
 import { withRuntimeCommandFixture } from "../testing/runtime-command-fixture.ts";
-import { createSessionRuntime } from "../../shared/session/session-runtime.js";
+import { createSessionRuntime } from "../../shared/session/session-runtime.ts";
 import { runLoadPlanCommand } from "./index.ts";
 import { loadPlan, savePlan, updatePlanFrontMatter } from "../../plan-store.js";
 import { addEntry, findById } from "../../shared/worktree-registry.js";

@@ -3,7 +3,7 @@ import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 import { AGENTS } from "../../constants.js";
 import { openOwnerCoordinationStore } from "../../shared/owner-coordination/index.js";
-import { createSessionRuntime } from "../../shared/session/session-runtime.js";
+import { createSessionRuntime } from "../../shared/session/session-runtime.ts";
 import { RuntimeEventTypes } from "../../shared/session/session-runtime-events.js";
 import { getRunWieldSessionDir } from "../../shared/session/root-session.js";
 import { __resetSettingsForTests } from "../../shared/settings.js";

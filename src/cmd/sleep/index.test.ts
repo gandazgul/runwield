@@ -1,7 +1,7 @@
 import { assert, assertEquals, assertMatch, assertRejects, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
 import { withRuntimeCommandFixture } from "../testing/runtime-command-fixture.ts";
-import { createSessionRuntime } from "../../shared/session/session-runtime.js";
+import { createSessionRuntime } from "../../shared/session/session-runtime.ts";
 import { RuntimeEventTypes } from "../../shared/session/session-runtime-events.js";
 import {
     exportMnemotecaCollection,

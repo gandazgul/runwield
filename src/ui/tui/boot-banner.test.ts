@@ -3,7 +3,7 @@ import { join } from "@std/path";
 import { Container, type TUI, TuiMainScreen } from "@earendil-works/pi-tui";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { getCwdInitState } from "../../cmd/init/init-state.ts";
-import { createSessionRuntime, type SessionRuntime } from "../../shared/session/session-runtime.js";
+import { createSessionRuntime, type SessionRuntime } from "../../shared/session/session-runtime.ts";
 import { getSettingsManager } from "../../shared/settings.js";
 import { createUiApi } from "./api.js";
 import { SpinnerBlock } from "./blocks.js";
