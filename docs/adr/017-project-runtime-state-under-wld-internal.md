@@ -67,9 +67,23 @@ durable phase record and resumes from verified source and destination facts; a p
 independent authority.
 
 The migration resolves primary-shared state to the primary checkout and preserves selected-checkout ownership for
-document-local state. It does not infer or merge two independently populated authorities. If old and new authoritative
-stores both exist without matching migration evidence, RunWield stops and reports the conflict without deleting either
-store.
+document-local state. Before a completed adoption marker, it does not infer ownership between independently populated
+authorities. After that marker, the internal controller owns workflow decisions. Recreated legacy controller, journal,
+backup, and lock directories are recovery input, not a second authority and not grounds to reject ordinary Plan access.
+
+Recovery runs under the migration journal and lock. It saves content-addressed original copies before changing any
+record, imports missing files, and fills an absent completion report without replacing current controller decisions,
+execution identity, validation counters, or publication evidence. It does not infer validation success from an old
+report. Conflicting old records remain in the recovery archive; timestamps and revision numbers from independent writers
+are not sufficient reasons to overwrite the adopted controller. Replaying interrupted recovery is idempotent. Controller
+inode locks remain stable while their data files are retired, so an older waiter cannot acquire a different lock inode.
+Empty legacy directories and dormant controller lock files do not block entry.
+
+This ownership rule also covers recreated registry files, migration reports, and debug data. An empty or stale legacy
+registry cannot replace current attempts or reset publication progress. Distinct legacy attempts are imported only after
+checkout and identity checks; ambiguous attempts keep both copies intact. Registry recovery holds both registry locks,
+archives originals, and journals retirement. Normal registry operations enter the runtime before taking their lock and
+retain that checked layout for the operation, avoiding migration re-entry while holding a lock recovery needs.
 
 RunWield 0.11.0 does not support downgrade or concurrent use with an older RunWield process after migration. Current
 processes use one migration lock. The legacy registry lock is held from publication preflight through durable marker
@@ -100,14 +114,14 @@ The current runtime classifier owns `.wld/internal/` and all descendants. Git st
 and cleanup use that boundary.
 
 A separate legacy-safety classifier continues to recognize known 0.10 runtime paths. It exists only to migrate old
-state, prevent accidental commits, and report unsupported old-writer activity. Normal runtime stores use the internal
+state, preserve and recover returning old writes, and prevent accidental commits. Normal runtime stores use the internal
 root; publication alone can resume an existing checkout at the absolute path in its migrated receipt.
 
 Gitignore reconciliation replaces managed legacy blocks, removes exact obsolete RunWield runtime lines and duplicates,
-and emits the canonical block. While a legacy `.wld/plan-staging/` directory remains, the block also ignores that path
-so retained repositories cannot be accidentally staged. It preserves unrelated user content. A broad user rule such as
-`.wld/` is not removed automatically because RunWield cannot know the user's intent; RunWield reports that the rule also
-hides trackable project configuration.
+and emits the canonical block. While a legacy runtime directory remains, the block also ignores that path so retained
+repositories and old-writer lock files cannot be accidentally staged. It preserves unrelated user content. A broad user
+rule such as `.wld/` is not removed automatically because RunWield cannot know the user's intent; RunWield reports that
+the rule also hides trackable project configuration.
 
 Tracked legacy runtime files require explicit repository cleanup. RunWield does not silently rewrite repository history
 or claim that `.gitignore` can untrack files. Secrets already committed to Git cause a security warning and require
@@ -120,8 +134,9 @@ credential or capability rotation as applicable.
 - Runtime owners retain their current primary-checkout or selected-checkout semantics.
 - Upgrade is automatic for inactive projects, including unfinished publication and repair. It safely stops for live
   older writers, malformed evidence, or conflicting authorities.
-- Downgrade after adoption is unsupported. A 0.10 binary can recreate legacy state, but 0.11 treats that state as a
-  conflict or migration hazard rather than a second authority.
+- Downgrade after adoption is unsupported. Recreated legacy directories recover automatically rather than stranding
+  Plans. This is not concurrent-version support: live older writers still require their real locks, and conflicting
+  worktree registries or secrets cannot be resolved by blindly choosing the newest file.
 - A populated project-local fallback worktree directory is preserved and blocks adoption. RunWield does not move its Git
   worktrees or rewrite their recorded paths. An absent or empty fallback directory does not block adoption.
 - Documentation and recovery messages must use the new paths while explaining the one-way 0.11.0 boundary.
