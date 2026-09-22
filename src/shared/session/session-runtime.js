@@ -34,7 +34,7 @@ import {
     listSkills,
     resolveModel,
     runIsolatedAgentSession,
-    steerActiveSessionWithTarget,
+    steerAgentSessionWithPreparedInput,
     steerAgentSessionWithTarget,
 } from "./session.js";
 import { SessionHost } from "./session-host.js";
@@ -81,6 +81,7 @@ import {
     modelSupportsImageInput,
     persistImageAttachment,
     preflightImageAttachments,
+    prepareImagesForModel,
     resolveVisionFallbackModel,
 } from "./image-attachments.js";
 import { assertModelExecutionBackendSupported } from "../models/model-execution.ts";
@@ -203,6 +204,13 @@ function resolvePersistedPairRootConfiguration(hostedSession) {
  */
 
 /**
+ * @typedef {Object} RuntimeSteeringPreparationTarget
+ * @property {ReturnType<ReturnType<typeof getModelRegistry>["find"]>} [model]
+ * @property {ReturnType<typeof getModelRegistry>} [modelRegistry]
+ * @property {() => void} [dispose]
+ */
+
+/**
  * @typedef {Object} RuntimeContextAgentSession
  * @property {() => import('../types.js').ContextUsageSnapshot | null} [getContextUsage]
  * @property {RuntimeContextModel} [model]
@@ -311,6 +319,7 @@ function resolvePersistedPairRootConfiguration(hostedSession) {
  * @property {"steer" | "next_turn"} delivery
  * @property {string} queuedAt
  * @property {import('@earendil-works/pi-coding-agent').AgentSession} [sourceSession]
+ * @property {boolean} [preparing]
  */
 
 /**
@@ -589,6 +598,8 @@ export class SessionRuntime {
     #turnSettlements;
     /** @type {Map<string, RuntimeQueuedMessageState[]>} */
     #queuedMessages;
+    /** @type {Map<string, Promise<void>>} */
+    #steeringDeliveryTails;
     /** @type {Map<string, Map<import('@earendil-works/pi-coding-agent').AgentSession, QueueSourceSubscription>>} */
     #queueSourceSubscriptions;
     /** @type {Map<string, Promise<void>>} */
@@ -624,6 +635,7 @@ export class SessionRuntime {
         this.#eventListeners = new Map();
         this.#turnSettlements = new Map();
         this.#queuedMessages = new Map();
+        this.#steeringDeliveryTails = new Map();
         this.#queueSourceSubscriptions = new Map();
         this.#queuedMessageDrainTasks = new Map();
         this.#busyOperationDepths = new Map();
@@ -1043,6 +1055,17 @@ export class SessionRuntime {
             .filter((message) => message.sourceSession === sourceSession);
         const consumedCount = Math.max(0, sourceMessages.length - (steering?.length || 0));
         for (const message of sourceMessages.slice(0, consumedCount)) {
+            if (
+                hostedSession.isAgentTransitioning?.() &&
+                hostedSession.queueAgentTransitionSteering(
+                    message.text,
+                    message.images,
+                    toRuntimeQueuedMessage(message),
+                )
+            ) {
+                delete message.sourceSession;
+                continue;
+            }
             this.#transitionQueuedMessage(hostedSession, message, "consumed");
         }
         const sourceStillQueued = (this.#queuedMessages.get(hostedSession.id) || [])
@@ -1097,12 +1120,13 @@ export class SessionRuntime {
         queue.splice(index, 1);
         if (queue.length === 0) this.#queuedMessages.delete(hostedSession.id);
         const publicMessage = toRuntimeQueuedMessage(message);
+        hostedSession.completeAgentSteeringPreparation?.(message.id);
         this.#emitSessionEvent(hostedSession.id, {
             type: RuntimeEventTypes.QUEUED_MESSAGE_CHANGED,
             status,
             message: publicMessage,
             ...(reason ? { reason } : {}),
-        });
+        }, { queueAlreadyTransitioned: true });
         if (status === "consumed" && message.delivery === "steer") {
             this.#emitSessionEvent(hostedSession.id, {
                 type: RuntimeEventTypes.USER_MESSAGE,
@@ -1132,30 +1156,11 @@ export class SessionRuntime {
             hostedSession.getManagedOperationCapability?.() || null;
         const managedRejection = this.#rejectManagedPublicMutation(hostedSession, "steerSession", capability);
         if (managedRejection) return { ...managedRejection, queued: false };
-        if (hostedSession.isAgentTransitioning?.()) {
-            const activeTarget = /** @type {any} */ (hostedSession.getActiveSteeringTargetSession?.());
-            const imagePreflight = await this.#preflightImagesForAgentSession(
-                hostedSession,
-                images,
-                activeTarget || hostedSession.getRootAgentSession(),
-            );
-            if (!imagePreflight.ok) throw new Error(imagePreflight.message);
-            if (hostedSession.queueAgentTransitionSteering(text, images)) {
-                hostedSession.notificationSurface = inputSurface;
-                return { ok: true, queued: true };
-            }
-        }
-        const activeTarget = /** @type {any} */ (hostedSession.getActiveSteeringTargetSession?.());
-        const rootSession = /** @type {any} */ (hostedSession.getRootAgentSession());
-        const expectedTarget = activeTarget?.isStreaming ? activeTarget : rootSession;
-        if (!expectedTarget?.isStreaming) return { ok: true, queued: false, reason: "not_streaming" };
-        const imagePreflight = await this.#preflightImagesForAgentSession(hostedSession, images, expectedTarget);
-        if (!imagePreflight.ok) throw new Error(imagePreflight.message);
 
-        this.#ensureQueueSourceSubscription(hostedSession, expectedTarget);
-        const sourceSession = await steerActiveSessionWithTarget(hostedSession, text, images);
-        if (!sourceSession) {
-            this.#removeQueueSourceSubscription(hostedSession.id, expectedTarget);
+        let activeTarget = /** @type {any} */ (hostedSession.getActiveSteeringTargetSession?.());
+        let rootSession = /** @type {any} */ (hostedSession.getRootAgentSession());
+        let expectedTarget = activeTarget?.isStreaming ? activeTarget : rootSession;
+        if (!hostedSession.isAgentTransitioning?.() && !expectedTarget?.isStreaming) {
             return { ok: true, queued: false, reason: "not_streaming" };
         }
 
@@ -1163,18 +1168,105 @@ export class SessionRuntime {
             id: crypto.randomUUID(),
             text,
             images: images.map((image) => ({ ...image })),
+            inputSurface,
             delivery: "steer",
             queuedAt: new Date().toISOString(),
-            sourceSession,
+            preparing: true,
         });
-        this.#ensureQueueSourceSubscription(hostedSession, sourceSession);
         hostedSession.notificationSurface = inputSurface;
         const publicMessage = this.#trackQueuedMessage(hostedSession, message);
-        const activeSteering = sourceSession.getSteeringMessages?.();
-        if (Array.isArray(activeSteering)) {
-            this.#reconcileQueuedMessages(hostedSession, sourceSession, activeSteering);
+        hostedSession.beginAgentSteeringPreparation(message.id);
+
+        const previousDelivery = this.#steeringDeliveryTails.get(sessionId) || Promise.resolve();
+        /** @type {() => void} */
+        let releaseDelivery = () => {};
+        /** @type {Promise<void>} */
+        const deliveryDone = new Promise((resolve) => {
+            releaseDelivery = resolve;
+        });
+        const deliveryTail = previousDelivery.catch(() => undefined).then(() => deliveryDone);
+        this.#steeringDeliveryTails.set(sessionId, deliveryTail);
+
+        try {
+            await previousDelivery.catch(() => undefined);
+            if (!(this.#queuedMessages.get(sessionId) || []).includes(message)) {
+                return { ok: true, queued: false, reason: "dequeued" };
+            }
+
+            let preparedInput;
+            while (true) {
+                if (hostedSession.queueAgentTransitionSteering(text, images, publicMessage)) {
+                    delete message.preparing;
+                    return { ok: true, queued: true, message: publicMessage };
+                }
+
+                activeTarget = /** @type {any} */ (hostedSession.getActiveSteeringTargetSession?.());
+                rootSession = /** @type {any} */ (hostedSession.getRootAgentSession());
+                expectedTarget = activeTarget?.isStreaming ? activeTarget : rootSession;
+                if (!expectedTarget?.isStreaming) {
+                    this.#transitionQueuedMessage(hostedSession, message, "dequeued", "not_streaming");
+                    return { ok: true, queued: false, reason: "not_streaming" };
+                }
+
+                preparedInput = await this.#prepareSteeringInputForAgentSession(
+                    hostedSession,
+                    text,
+                    images,
+                    expectedTarget,
+                );
+                if (!preparedInput.ok) throw new Error(preparedInput.message);
+                if (!(this.#queuedMessages.get(sessionId) || []).includes(message)) {
+                    return { ok: true, queued: false, reason: "dequeued" };
+                }
+                if (hostedSession.isAgentTransitioning?.()) continue;
+
+                activeTarget = /** @type {any} */ (hostedSession.getActiveSteeringTargetSession?.());
+                rootSession = /** @type {any} */ (hostedSession.getRootAgentSession());
+                const currentTarget = activeTarget?.isStreaming ? activeTarget : rootSession;
+                if (currentTarget === expectedTarget) break;
+            }
+
+            message.sourceSession = expectedTarget;
+            delete message.preparing;
+            this.#ensureQueueSourceSubscription(hostedSession, expectedTarget);
+            let sourceSession;
+            try {
+                sourceSession = await steerAgentSessionWithPreparedInput(
+                    expectedTarget,
+                    preparedInput.text,
+                    preparedInput.images,
+                );
+            } catch (error) {
+                if (message.sourceSession) {
+                    this.#transitionQueuedMessage(hostedSession, message, "dequeued", "delivery_failed");
+                }
+                throw error;
+            }
+            if (!sourceSession) {
+                if (message.sourceSession) {
+                    this.#transitionQueuedMessage(hostedSession, message, "dequeued", "not_streaming");
+                }
+                this.#removeQueueSourceSubscription(hostedSession.id, expectedTarget);
+                return { ok: true, queued: false, reason: "not_streaming" };
+            }
+
+            const activeSteering = sourceSession.getSteeringMessages?.();
+            if (Array.isArray(activeSteering)) {
+                this.#reconcileQueuedMessages(hostedSession, sourceSession, activeSteering);
+            }
+            return { ok: true, queued: true, message: publicMessage };
+        } catch (error) {
+            if ((this.#queuedMessages.get(sessionId) || []).includes(message)) {
+                this.#transitionQueuedMessage(hostedSession, message, "dequeued", "delivery_failed");
+            }
+            throw error;
+        } finally {
+            hostedSession.completeAgentSteeringPreparation(message.id);
+            releaseDelivery();
+            if (this.#steeringDeliveryTails.get(sessionId) === deliveryTail) {
+                this.#steeringDeliveryTails.delete(sessionId);
+            }
         }
-        return { ok: true, queued: true, message: publicMessage };
     }
 
     /**
@@ -1276,8 +1368,29 @@ export class SessionRuntime {
         );
         if (managedRejection) return { ...managedRejection, message: null };
 
+        if (selected.preparing) {
+            const publicMessage = this.#transitionQueuedMessage(
+                hostedSession,
+                selected,
+                "dequeued",
+                "user_recall",
+            );
+            return { ok: true, message: publicMessage };
+        }
+
         const sourceSession = selected.sourceSession;
-        if (!sourceSession) return { ok: false, message: null, error: "queue_not_mutable" };
+        if (!sourceSession) {
+            if (!hostedSession.removeAgentTransitionSteering?.(selected.id)) {
+                return { ok: false, message: null, error: "queue_not_mutable" };
+            }
+            const publicMessage = this.#transitionQueuedMessage(
+                hostedSession,
+                selected,
+                "dequeued",
+                "user_recall",
+            );
+            return { ok: true, message: publicMessage };
+        }
         if (typeof sourceSession.clearQueue !== "function") {
             return { ok: false, message: null, error: "queue_not_mutable" };
         }
@@ -1369,8 +1482,14 @@ export class SessionRuntime {
                 this.#ensureQueueSourceSubscription(hostedSession, sourceSession);
             }
         }
+        const transitionEntries = hostedSession.clearAgentTransitionSteering?.() || [];
+        const transitionMessageIds = new Set(
+            transitionEntries.map((entry) => entry.message?.id).filter(Boolean),
+        );
         const clearedMessages = messages.filter((message) =>
             message.delivery === "next_turn" ||
+            message.preparing ||
+            transitionMessageIds.has(message.id) ||
             (message.sourceSession && clearedSources.has(message.sourceSession))
         );
         for (const message of clearedMessages) {
@@ -2245,8 +2364,49 @@ export class SessionRuntime {
 
     /**
      * @param {import('./hosted-session.js').HostedSession} session
+     * @param {string} text
      * @param {import('./types.js').ImageAttachment[]} images
-     * @param {any} agentSession
+     * @param {RuntimeSteeringPreparationTarget} agentSession
+     * @returns {Promise<ReturnType<typeof prepareImagesForModel>>}
+     */
+    async #prepareSteeringInputForAgentSession(session, text, images, agentSession) {
+        const modelState = session.getActiveModelState();
+        const managed = session.getManagedMetadata?.();
+        const modelProvider = modelState.provider || managed?.provider || "";
+        const modelId = modelState.model || managed?.model || "";
+        const modelRegistry = agentSession?.modelRegistry || getModelRegistry();
+        const activeModel = agentSession?.model ||
+            (modelProvider && modelId ? modelRegistry.find(modelProvider, modelId) : undefined);
+        const provider = /** @type {{ provider?: string, executionBackend?: string }} */ (activeModel || {}).provider;
+        const executionBackend = /** @type {{ executionBackend?: string }} */ (activeModel || {}).executionBackend;
+        if (provider === "agy-cli" || executionBackend === "agy-cli") {
+            return /** @type {ReturnType<typeof prepareImagesForModel>} */ ({
+                ok: false,
+                message: "Antigravity CLI sessions do not support image attachments.",
+            });
+        }
+        let fallbackModelRef;
+        if (images.length > 0 && !modelSupportsImageInput(activeModel)) {
+            try {
+                fallbackModelRef = (await resolveVisionFallbackModel(
+                    modelRegistry,
+                    SYSTEM_MODEL_DISCOVERY_NETWORK,
+                    session.cwd,
+                ))?.modelRef;
+            } catch (error) {
+                return /** @type {ReturnType<typeof prepareImagesForModel>} */ ({
+                    ok: false,
+                    message: error instanceof Error ? error.message : String(error),
+                });
+            }
+        }
+        return prepareImagesForModel({ text, images, activeModel, fallbackModelRef });
+    }
+
+    /**
+     * @param {import('./hosted-session.js').HostedSession} session
+     * @param {import('./types.js').ImageAttachment[]} images
+     * @param {RuntimeSteeringPreparationTarget | null} agentSession
      */
     async #preflightImagesForAgentSession(session, images, agentSession) {
         const modelState = session.getActiveModelState();
@@ -3047,6 +3207,7 @@ export class SessionRuntime {
             for (const queueSubscription of queueSubscriptions?.values() || []) queueSubscription.unsubscribe();
             this.#queueSourceSubscriptions.delete(id);
             this.#queuedMessages.delete(id);
+            this.#steeringDeliveryTails.delete(id);
             this.#busyOperationDepths.delete(id);
             this.#pendingManagedCreations.delete(id);
             this.#pendingManagedCreationProjects.delete(id);
@@ -3145,12 +3306,29 @@ export class SessionRuntime {
     /**
      * @param {string} sessionId
      * @param {Partial<import('./session-runtime-events.js').SessionRuntimeEvent> & { type: string }} event
+     * @param {{ queueAlreadyTransitioned?: boolean }} [options]
      */
-    #emitSessionEvent(sessionId, event) {
+    #emitSessionEvent(sessionId, event, options = {}) {
         const sessionName = event.type === RuntimeEventTypes.ATTENTION_REQUESTED && !("sessionName" in event)
             ? this.#sessionHost.getSession(sessionId)?.getRootSessionManager()?.getSessionName?.() || undefined
             : undefined;
         const enrichedEvent = /** @type {any} */ (sessionName ? { ...event, sessionName } : event);
+        let deliveredTransitionMessage = null;
+        if (event.type === RuntimeEventTypes.QUEUED_MESSAGE_CHANGED && event.message?.id) {
+            const eventMessage = event.message;
+            const queued = this.#queuedMessages.get(sessionId) || [];
+            const settled = queued.find((message) => message.id === eventMessage.id) || null;
+            const settlesTransitionMessage = event.status === "consumed" || event.status === "dequeued";
+            if (
+                settlesTransitionMessage && !settled && !options.queueAlreadyTransitioned &&
+                (event.reason === "agent_transition" || event.reason === "session_cancel")
+            ) return;
+            if (settled && !settled.sourceSession && settlesTransitionMessage) {
+                queued.splice(queued.indexOf(settled), 1);
+                if (queued.length === 0) this.#queuedMessages.delete(sessionId);
+                if (event.status === "consumed") deliveredTransitionMessage = settled;
+            }
+        }
         if (event.type === RuntimeEventTypes.ATTENTION_REQUESTED) {
             const hosted = this.#sessionHost.getSession(sessionId);
             if (hosted && "reason" in event && event.reason === "agentStopped") {
@@ -3174,18 +3352,29 @@ export class SessionRuntime {
                 pending.push(runtimeEvent);
                 this.#pendingReplayEvents.set(sessionId, pending);
             }
-            return;
-        }
-        for (const listener of Array.from(listeners)) {
-            try {
-                const result = listener(runtimeEvent);
-                if (result && typeof result === "object" && "catch" in result && typeof result.catch === "function") {
-                    result.catch(() => {});
+        } else {
+            for (const listener of Array.from(listeners)) {
+                try {
+                    const result = listener(runtimeEvent);
+                    if (
+                        result && typeof result === "object" && "catch" in result &&
+                        typeof result.catch === "function"
+                    ) {
+                        result.catch(() => {});
+                    }
+                } catch {
+                    // Event subscribers are adapter concerns; a bad adapter listener must not
+                    // crash an in-flight RunWield prompt.
                 }
-            } catch {
-                // Event subscribers are adapter concerns; a bad adapter listener must not
-                // crash an in-flight RunWield prompt.
             }
+        }
+        if (deliveredTransitionMessage) {
+            this.#emitSessionEvent(sessionId, {
+                type: RuntimeEventTypes.USER_MESSAGE,
+                messageId: deliveredTransitionMessage.id,
+                text: deliveredTransitionMessage.text,
+                images: deliveredTransitionMessage.images.map((image) => ({ ...image })),
+            });
         }
     }
 
@@ -5327,13 +5516,17 @@ export class SessionRuntime {
             let agentCanceled = false;
             const turnActive = session.isTurnActive();
             try {
-                operationCanceled = Boolean(session.cancelActiveInteractions?.());
+                currentOperation.cancel?.();
+                operationCanceled = Boolean(currentOperation.cancel);
+                operationCanceled = Boolean(session.cancelActiveInteractions?.()) || operationCanceled;
                 const rootAgentSession = /** @type {any} */ (session.getRootAgentSession());
                 if (rootAgentSession?.isCompacting && rootAgentSession?.abortCompaction) {
                     rootAgentSession.abortCompaction();
                     operationCanceled = true;
                 }
                 this.#clearQueuedMessages(session, "session_cancel");
+                const transitionId = session.getAgentTransitionId?.();
+                if (transitionId) session.completeAgentTransition(transitionId);
                 if (!onlyPlanReviewInteraction) {
                     agentCanceled = abortActiveSessionFn(session);
                     if (agentCanceled || turnActive) session.suppressNextAgentStoppedAttention();
@@ -5374,6 +5567,8 @@ export class SessionRuntime {
                 operationCanceled = true;
             }
             this.#clearQueuedMessages(session, "session_cancel");
+            const transitionId = session.getAgentTransitionId?.();
+            if (transitionId) session.completeAgentTransition(transitionId);
             if (!onlyPlanReviewInteraction) {
                 agentCanceled = abortActiveSessionFn(session);
                 if (agentCanceled || turnActive) session.suppressNextAgentStoppedAttention();

@@ -150,6 +150,8 @@ Deno.test("switchActiveAgent leaves the previous real root transaction intact wh
         });
         const previousRoot = hostedSession.getRootAgentSession();
         const previousHandler = hostedSession.getActiveOnMessage();
+        const transitionId = hostedSession.beginAgentTransition();
+        hostedSession.queueAgentTransitionSteering("retain after failure", []);
 
         await assertRejects(
             () =>
@@ -166,6 +168,11 @@ Deno.test("switchActiveAgent leaves the previous real root transaction intact wh
         assertEquals(hostedSession.getRootAgentName(), "guide");
         assertStrictEquals(hostedSession.getRootAgentSession(), previousRoot);
         assertStrictEquals(hostedSession.getActiveOnMessage(), previousHandler);
+        assertEquals(hostedSession.getAgentTransitionId(), transitionId);
+        assertEquals(hostedSession.consumeAgentTransitionSteering().map((entry) => entry.text), [
+            "retain after failure",
+        ]);
+        hostedSession.completeAgentTransition(transitionId);
         hostedSession.dispose();
     });
 });

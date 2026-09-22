@@ -14,7 +14,7 @@ import { HostedSession } from "./hosted-session.js";
 import { ensureRootAgentSession } from "./session.js";
 import { RuntimeEventTypes } from "./session-runtime-events.js";
 import { setCustomSetting } from "../settings.js";
-import { publishWorkflowToolEvent } from "../workflow/workflow-tool-events.ts";
+import { listPendingWorkflowToolEvents, publishWorkflowToolEvent } from "../workflow/workflow-tool-events.ts";
 import { listPendingTaskCompletions } from "./task-completion-session.ts";
 
 const EXTENSION_CONTEXT = {} as ExtensionContext;
@@ -91,9 +91,10 @@ Deno.test("agent handler completes a real root turn and requests user attention"
     });
 });
 
-Deno.test("agent handler dispatches plan_written before the root turn finishes", async () => {
+Deno.test("agent handler settles the accepted plan tool before dispatch without another model answer", async () => {
     await withRuntimeCommandFixture("agent-handler-live-plan-", async ({ projectRoot, setModelMessages }) => {
         const events: CapturedRuntimeEvent[] = [];
+        const toolPublished = deferredVoid();
         const releaseTool = deferredVoid();
         let toolReturned = false;
         const planTool = defineTool({
@@ -108,6 +109,7 @@ Deno.test("agent handler dispatches plan_written before the root turn finishes",
                     kind: "plan_written",
                     payload: { outcome: "saved", planName: "event-plan" },
                 });
+                toolPublished.resolve();
                 await releaseTool.promise;
                 toolReturned = true;
                 return {
@@ -119,12 +121,20 @@ Deno.test("agent handler dispatches plan_written before the root turn finishes",
         });
         setModelMessages([fauxAssistantMessage(fauxToolCall("plan_written", {}))]);
         const fixture: ActiveHandlerFixture = await activateHandler(projectRoot, "guide", events, [planTool]);
+        let handlerSettled = false;
+        const handler = fixture.handler("Save the Plan.", [], fixture.sessionManager).finally(() => {
+            handlerSettled = true;
+        });
 
-        const result = await fixture.handler("Save the Plan.", [], fixture.sessionManager);
+        await toolPublished.promise;
+        await Promise.resolve();
+        await Promise.resolve();
+        assertEquals(handlerSettled, false);
+        releaseTool.resolve();
+        const result = await handler;
 
         assertEquals(result, { kind: "complete" });
-        assertEquals(toolReturned, false);
-        releaseTool.resolve();
+        assertEquals(toolReturned, true);
         fixture.hostedSession.dispose();
     });
 });
@@ -160,6 +170,35 @@ Deno.test("agent handler routes a real triage tool outcome through Operator comp
             ),
             true,
         );
+        fixture.hostedSession.dispose();
+    });
+});
+
+Deno.test("agent handler does not redispatch a stale Triage report on a later invocation", async () => {
+    await withRuntimeCommandFixture("agent-handler-stale-triage-", async ({ projectRoot, setModelResponse }) => {
+        const events: CapturedRuntimeEvent[] = [];
+        setModelResponse("The later Router invocation completed without another routing decision.");
+        const fixture = await activateHandler(projectRoot, "router", events);
+        publishWorkflowToolEvent({
+            hostedSession: fixture.hostedSession,
+            toolCallId: "stale-triage",
+            kind: "triage_report",
+            payload: {
+                routingIntent: "INQUIRY",
+                complexity: "LOW",
+                summary: "A prior Router invocation already reported this request.",
+            },
+        });
+
+        const result = await fixture.handler("A later request.", [], fixture.sessionManager);
+
+        assertEquals(result, { kind: "complete" });
+        assertEquals(fixture.hostedSession.getRootAgentName(), "router");
+        assertEquals(
+            events.filter((event) => event.type === RuntimeEventTypes.AGENT_CHANGED && event.agentName === "guide"),
+            [],
+        );
+        assertEquals(listPendingWorkflowToolEvents(fixture.hostedSession).length, 1);
         fixture.hostedSession.dispose();
     });
 });

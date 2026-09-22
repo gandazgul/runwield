@@ -4,7 +4,7 @@
  * lets workflow tool outcomes decide whether any follow-up workflow step runs.
  */
 
-import { runRootTurn } from "./session.js";
+import { clearAgentSessionQueueForTransition, runRootTurn } from "./session.js";
 import {
     executePlan,
     finalizePlanImplementation,
@@ -35,10 +35,12 @@ import {
 } from "./task-completion-session.ts";
 import {
     claimWorkflowToolEvent,
+    listPendingWorkflowToolEvents,
     type PlanWrittenEventPayload,
     settleWorkflowToolEvent,
     type TriageReportEventPayload,
     waitForWorkflowToolEvent,
+    WorkflowStepCompleted,
     type WorkflowToolEvent,
     type WorkflowToolEventKind,
 } from "../workflow/workflow-tool-events.ts";
@@ -107,9 +109,11 @@ async function runRootTurnUntilRootWorkflowEvent(args: {
     const claimOptions: {
         kinds: WorkflowToolEventKind[];
         owningSession: RootAgentSessionState | null;
+        excludeEventIds: string[];
     } = {
         kinds: ["triage_report", "plan_written"],
         owningSession: args.rootAgentSession,
+        excludeEventIds: listPendingWorkflowToolEvents(args.hostedSession).map((event) => event.eventId),
     };
     const eventPromise = waitForWorkflowToolEvent(args.hostedSession, {
         ...claimOptions,
@@ -142,7 +146,18 @@ async function runRootTurnUntilRootWorkflowEvent(args: {
                 }
                 return { messages, event: first.event };
             }
-            turnPromise.catch(() => undefined);
+            if (!args.hostedSession.isAgentTransitioning()) args.hostedSession.beginAgentTransition();
+            try {
+                clearAgentSessionQueueForTransition(args.rootAgentSession);
+            } catch (error) {
+                turnController.abort(new WorkflowStepCompleted());
+                await turnPromise.catch(() => undefined);
+                const transitionId = args.hostedSession.getAgentTransitionId();
+                if (transitionId) args.hostedSession.completeAgentTransition(transitionId);
+                throw error;
+            }
+            turnController.abort(new WorkflowStepCompleted());
+            await turnPromise.catch(() => undefined);
             return { messages: [], event: first.event };
         }
         waitController.abort(new DOMException("Agent turn finished without root workflow event.", "AbortError"));
@@ -152,6 +167,8 @@ async function runRootTurnUntilRootWorkflowEvent(args: {
             event: waitedEvent || claimWorkflowToolEvent(args.hostedSession, claimOptions),
         };
     } finally {
+        waitController.abort();
+        await eventPromise.catch(() => undefined);
         args.signal?.removeEventListener("abort", abortBoth);
     }
 }
@@ -282,57 +299,70 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
             });
             rootWorkflowEvent = rootTurnResult.event;
         }
+        const completeWorkflowTransition = () => {
+            const transitionId = hostedSession.getAgentTransitionId?.();
+            if (transitionId) hostedSession.completeAgentTransition(transitionId);
+        };
+        const runDuringWorkflowTransition = async <T>(operation: () => Promise<T>): Promise<T> => {
+            try {
+                return await operation();
+            } catch (error) {
+                completeWorkflowTransition();
+                throw error;
+            }
+        };
 
-        const triageEvent = rootWorkflowEvent?.kind === "triage_report"
-            ? rootWorkflowEvent
-            : claimWorkflowToolEvent(hostedSession, {
-                kinds: ["triage_report"],
-                owningSession: rootAgentSession,
-            }) || claimWorkflowToolEvent(hostedSession, {
-                kinds: ["triage_report"],
-                owningSession: null,
-            });
+        const triageEvent = rootWorkflowEvent?.kind === "triage_report" ? rootWorkflowEvent : null;
         if (triageEvent?.kind === "triage_report") {
-            const triage = triageEvent.payload as TriageReportEventPayload;
-            const validationResult = await dispatchPostTriage({
-                hostedSession,
-                triage,
-                userRequest,
-                images,
-                sessionManager,
-                localCI: systemLocalCIPort,
-            });
-            if (triageEvent) settleWorkflowToolEvent(hostedSession, triageEvent);
-            if (validationResult) return { kind: "complete", validationResult };
-            return { kind: "complete" };
+            try {
+                const triage = triageEvent.payload as TriageReportEventPayload;
+                const validationResult = await dispatchPostTriage({
+                    hostedSession,
+                    triage,
+                    userRequest,
+                    images,
+                    sessionManager,
+                    localCI: systemLocalCIPort,
+                    signal,
+                });
+                if (validationResult) return { kind: "complete", validationResult };
+                return { kind: "complete" };
+            } finally {
+                try {
+                    settleWorkflowToolEvent(hostedSession, triageEvent);
+                } finally {
+                    completeWorkflowTransition();
+                }
+            }
         }
 
         // If plan_written publishes an accepted event, dispatch from that event.
         // Tool-result transcript messages are display and audit data only.
-        const planEvent = rootWorkflowEvent?.kind === "plan_written"
-            ? rootWorkflowEvent
-            : claimWorkflowToolEvent(hostedSession, {
-                kinds: ["plan_written"],
-                owningSession: rootAgentSession,
-            }) || claimWorkflowToolEvent(hostedSession, {
-                kinds: ["plan_written"],
-                owningSession: null,
-            });
+        const planEvent = rootWorkflowEvent?.kind === "plan_written" ? rootWorkflowEvent : null;
         const outcome = planEvent?.kind === "plan_written" ? planEvent.payload as PlanWrittenEventPayload : null;
         const planningDecision = decidePostPlanning(outcome, {
             planningAgentName: agentName,
             fallbackTriageMeta: {},
         });
-        await recordWorkflowMetricImpl({
-            category: "planning",
-            event: "decision",
-            agentName,
-            planName: typeof planningDecision.payload.planName === "string"
-                ? planningDecision.payload.planName
-                : undefined,
-            details: summarizeWorkflowDecision(planningDecision),
-        });
-        if (planEvent) settleWorkflowToolEvent(hostedSession, planEvent);
+        await runDuringWorkflowTransition(() =>
+            recordWorkflowMetricImpl({
+                category: "planning",
+                event: "decision",
+                agentName,
+                planName: typeof planningDecision.payload.planName === "string"
+                    ? planningDecision.payload.planName
+                    : undefined,
+                details: summarizeWorkflowDecision(planningDecision),
+            })
+        );
+        if (planEvent) {
+            try {
+                settleWorkflowToolEvent(hostedSession, planEvent);
+            } catch (error) {
+                completeWorkflowTransition();
+                throw error;
+            }
+        }
         if (planningDecision.kind === "start_slicer") {
             const planName = typeof planningDecision.payload.planName === "string"
                 ? planningDecision.payload.planName
@@ -344,14 +374,17 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
             const reviewImages = (Array.isArray(planningDecision.payload.reviewImages)
                 ? planningDecision.payload.reviewImages
                 : undefined) as ImageAttachment[] | undefined;
-            const slicerResult = await runSlicerAgent({
-                planName,
-                triageMeta,
-                reviewFeedback,
-                reviewImages,
-                hostedSession,
-                sessionManager,
-            });
+            const slicerResult = await runDuringWorkflowTransition(() =>
+                runSlicerAgent({
+                    planName,
+                    triageMeta,
+                    reviewFeedback,
+                    reviewImages,
+                    hostedSession,
+                    sessionManager,
+                })
+            );
+            completeWorkflowTransition();
             await recordWorkflowMetricImpl({
                 category: "planning",
                 event: "active_agent_transition",
@@ -365,19 +398,22 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
             if (!slicerResult.ok) {
                 await switchActiveAgent(hostedSession, { agentName });
             }
+            completeWorkflowTransition();
             requestAgentStoppedAttention();
             return { kind: "complete" };
         }
         if (planningDecision.kind === "execute_plan") {
-            await recordWorkflowMetricImpl({
-                category: "planning",
-                event: "active_agent_transition",
-                agentName,
-                planName: typeof planningDecision.payload.planName === "string"
-                    ? planningDecision.payload.planName
-                    : undefined,
-                details: { transition: "execute_plan", decisionKind: planningDecision.kind },
-            });
+            await runDuringWorkflowTransition(() =>
+                recordWorkflowMetricImpl({
+                    category: "planning",
+                    event: "active_agent_transition",
+                    agentName,
+                    planName: typeof planningDecision.payload.planName === "string"
+                        ? planningDecision.payload.planName
+                        : undefined,
+                    details: { transition: "execute_plan", decisionKind: planningDecision.kind },
+                })
+            );
             const planName = typeof planningDecision.payload.planName === "string"
                 ? planningDecision.payload.planName
                 : "";
@@ -399,6 +435,7 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
                     reviewImages,
                 });
             } catch (error) {
+                completeWorkflowTransition();
                 const reason = error instanceof Error ? error.message : String(error);
                 const executionOwner = resolvePlanExecutionRuntimeAgent(
                     hostedSession.getActiveExecutionWorkflow()?.executionAgent || resolveExecutionOwner(triageMeta),
@@ -411,9 +448,11 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
                     { level: "error", header: "RunWield" },
                 );
                 await switchActiveAgent(hostedSession, { agentName: executionOwner });
+                completeWorkflowTransition();
                 requestAgentStoppedAttention();
                 return { kind: "complete" };
             }
+            completeWorkflowTransition();
 
             let planContent = "";
             let validationTriageMeta = triageMeta;
@@ -477,10 +516,12 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
                     semanticReviewPort: SYSTEM_SEMANTIC_REVIEW_PORT,
                     supportsSemanticRepairHandoff: true,
                 });
+                completeWorkflowTransition();
                 requestAgentStoppedAttention();
                 return { kind: "complete", validationResult };
             } else if (executionDecision.kind === "stay_with_agent") {
                 if (executionCanceledBeforeStart) {
+                    completeWorkflowTransition();
                     requestAgentStoppedAttention();
                     return { kind: "complete" };
                 }
@@ -518,6 +559,7 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
                 await switchActiveAgent(hostedSession, { agentName: executionOwner });
                 requestAgentStoppedAttention();
             }
+            completeWorkflowTransition();
             return { kind: "complete" };
         }
 
@@ -538,6 +580,7 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
         }
 
         if (outcome) {
+            completeWorkflowTransition();
             return { kind: "complete" };
         }
 

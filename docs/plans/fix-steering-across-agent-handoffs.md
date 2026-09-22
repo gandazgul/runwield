@@ -21,8 +21,8 @@ createdAt: "2026-09-22"
 origin: "internal"
 userVerifiedAt: null
 routingIntent: "PLANNED_CHANGE"
-status: "in_progress"
 targetBranch: "main"
+status: "implemented"
 ---
 
 # Deliver Steering to the New Agent After Handoff
