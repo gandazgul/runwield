@@ -3,7 +3,7 @@ import { dirname, join } from "@std/path";
 import { listPlans, loadPlan, updatePlanCollaborationMetadata } from "../../plan-store.js";
 import { runLoadPlanCommand } from "../../cmd/load-plan/index.ts";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
-import { createSessionRuntime } from "../session/session-runtime.js";
+import { createSessionRuntime } from "../session/session-runtime.ts";
 import { HostedSession } from "../session/hosted-session.js";
 import { defineGitFixture, git } from "../git-test-fixture.ts";
 import { COLLABORATION_LOCK_BYPASS } from "../collaboration/lock.js";

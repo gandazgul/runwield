@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import { createSessionRuntime } from "../../shared/session/session-runtime.js";
+import { createSessionRuntime } from "../../shared/session/session-runtime.ts";
 import { createManagedSessionSyncController } from "./managed-session-sync.js";
 
 function createTimerFixture() {

@@ -17,7 +17,7 @@ import { loadPlan, savePlan } from "../../plan-store.js";
 import { git } from "../git-test-fixture.ts";
 import { HostedSession } from "../session/hosted-session.js";
 import { SessionHost } from "../session/session-host.js";
-import { SessionRuntime } from "../session/session-runtime.js";
+import { SessionRuntime } from "../session/session-runtime.ts";
 import { RuntimeEventTypes } from "../session/session-runtime-events.js";
 import { openOwnerCoordinationStore } from "../owner-coordination/index.js";
 import type { RuntimeInteractionRequest, RuntimeInteractionResponse } from "../session/session-runtime-interactions.js";
@@ -54,7 +54,6 @@ function createExecutionFixture(projectRoot: string, interaction?: InteractionHa
         },
     });
     // Pi's concrete manager implements the HostedSession runtime contract.
-    // @ts-expect-error The legacy HostedSession JSDoc describes a wider manager.
     hostedSession.setRootSessionManager(sessionManager);
     const agentChanges: string[] = [];
     const statusMessages: string[] = [];

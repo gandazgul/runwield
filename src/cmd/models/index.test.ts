@@ -1,5 +1,5 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
-import { createSessionRuntime } from "../../shared/session/session-runtime.js";
+import { createSessionRuntime } from "../../shared/session/session-runtime.ts";
 import { getSettingsManager, setCustomSetting } from "../../shared/settings.js";
 import { withRuntimeCommandFixture } from "../testing/runtime-command-fixture.ts";
 import { getModelCompletions, runModelsCommand } from "./index.ts";

@@ -9,7 +9,7 @@ import { AGENTS } from "../../constants.js";
 import { ensureMnemotecaBinary } from "../../shared/runtime-preflight.ts";
 import { printCommandHelp } from "../help/index.ts";
 import { COMMAND_NAMES } from "../registry.js";
-import type { SessionRuntime } from "../../shared/session/session-runtime.js";
+import type { SessionRuntime } from "../../shared/session/session-runtime.ts";
 
 interface MnemotecaCommandResult {
     success: boolean;

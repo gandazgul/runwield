@@ -42,7 +42,7 @@ The implementation evidence comes from these source files:
 - `src/acp/session-map.js`
 - `src/acp/event-mapper.js`
 - `src/acp/interaction-mapper.js`
-- `src/shared/session/session-runtime.js`
+- `src/shared/session/session-runtime.ts`
 - `src/shared/session/session-runtime-events.js`
 - `src/shared/session/session-runtime-interactions.js`
 - `src/acp/protocol-smoke.test.js`
@@ -218,7 +218,7 @@ new currently reports the Pi ID, while load prefers the stable RunWield ID. Clie
 substitute that metadata value.
 
 Evidence: `src/acp/server.js` new/load handlers; `src/acp/session-map.js` (`createRecord`,
-`normalizeAcpSessionIdForLoad`); `src/shared/session/session-runtime.js` (`getSessionSnapshot`). The real reload test in
+`normalizeAcpSessionIdForLoad`); `src/shared/session/session-runtime.ts` (`getSessionSnapshot`). The real reload test in
 `src/acp/server.test.js` checks continuation with the returned ACP ID and explicitly checks the differing metadata IDs.
 
 Accepted [ADR-010](adr/010-session-runtime-sibling-adapters-and-acp.md) separates live and transport identities;

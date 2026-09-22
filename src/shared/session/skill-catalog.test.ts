@@ -4,7 +4,7 @@ import { DefaultResourceLoader } from "@earendil-works/pi-coding-agent";
 import { type Context, fauxAssistantMessage, fauxText } from "@earendil-works/pi-ai";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { setCustomSetting } from "../settings.js";
-import { createSessionRuntime } from "./session-runtime.js";
+import { createSessionRuntime } from "./session-runtime.ts";
 import { buildAgentSession, expandSkillCommand, listSkills } from "./session.js";
 import { resolveNamedInvocation } from "./named-invocation.ts";
 

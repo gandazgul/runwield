@@ -1,5 +1,5 @@
 import { listUserModelOptions } from "../shared/session/user-selection.ts";
-import type { SessionRuntime } from "../shared/session/session-runtime.js";
+import type { SessionRuntime } from "../shared/session/session-runtime.ts";
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;

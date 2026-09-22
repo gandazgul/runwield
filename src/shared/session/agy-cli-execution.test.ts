@@ -1,4 +1,4 @@
-import { createSessionRuntime } from "./session-runtime.js";
+import { createSessionRuntime } from "./session-runtime.ts";
 import type { SessionRuntimeEvent } from "./session-runtime-events.js";
 import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";

@@ -4,7 +4,7 @@ import { getModelRegistry } from "../models/model-registry.ts";
 import { parseProviderModel } from "../models/model-validation.ts";
 import { getSettingsManager } from "../settings.js";
 import { buildWorkflowOnlyAgentMessage, isWorkflowOnlyAgent, listAvailableAgents } from "./agents.js";
-import { getConfiguredAgentModel, getConfiguredAgentThinkingLevel } from "./session-runtime.js";
+import { getConfiguredAgentModel, getConfiguredAgentThinkingLevel } from "./session-runtime.ts";
 import { setActiveSessionModel } from "./model-selection.ts";
 
 /**
@@ -75,7 +75,7 @@ export async function requireUserAgentOption(agentName, projectRoot) {
 }
 
 /**
- * @param {import('./session-runtime.js').SessionRuntime} runtime
+ * @param {import('./session-runtime.ts').SessionRuntime} runtime
  * @param {string} sessionId
  * @param {string} agentName
  * @returns {Promise<{ ok: true, agentName: string } | { ok: false, error: string }>}
@@ -132,7 +132,7 @@ export function parseUserModelSelection(value) {
 }
 
 /**
- * @param {import('./session-runtime.js').SessionRuntime} runtime
+ * @param {import('./session-runtime.ts').SessionRuntime} runtime
  * @param {string} sessionId
  * @param {string} model
  * @param {string} provider

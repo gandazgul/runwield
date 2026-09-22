@@ -37,7 +37,6 @@ function createAgentSession(
     });
     // Pi's concrete SessionManager satisfies HostedSession's deliberately small
     // runtime contract, but the legacy JSDoc signature is wider.
-    // @ts-expect-error SessionManager is runtime-compatible with HostedSession.
     hostedSession.setRootSessionManager(sessionManager);
     return { hostedSession, sessionManager };
 }

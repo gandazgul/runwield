@@ -6,7 +6,7 @@ import {
 } from "../testing/runtime-command-fixture.ts";
 import { getModelRegistry, type RunWieldModelRegistry } from "../../shared/models/model-registry.ts";
 import { getLoginProviderOptions, runLoginCommand } from "./index.ts";
-import type { SessionRuntime } from "../../shared/session/session-runtime.js";
+import type { SessionRuntime } from "../../shared/session/session-runtime.ts";
 import {
     createInteractiveCompositionHarness,
     type InteractiveCompositionHarness,

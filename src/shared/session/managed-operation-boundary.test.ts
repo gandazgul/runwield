@@ -2,7 +2,7 @@ import { assertEquals } from "@std/assert";
 import { fauxAssistantMessage, fauxText } from "@earendil-works/pi-ai";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { openOwnerCoordinationStore } from "../owner-coordination/index.js";
-import { createSessionRuntime } from "./session-runtime.js";
+import { createSessionRuntime } from "./session-runtime.ts";
 
 Deno.test("ManagedOperationCapability has no runtime constructor export", async () => {
     const managedOperationModule = await import("./managed-operation.ts");
@@ -14,20 +14,20 @@ function delay(ms: number): Promise<void> {
 }
 
 Deno.test("managed operation re-entry policy is keyed to capability state, not runtime busy state", async () => {
-    const source = await Deno.readTextFile(new URL("./session-runtime.js", import.meta.url));
+    const source = await Deno.readTextFile(new URL("./runtime/managed-operations.ts", import.meta.url));
     const rejectionStart = source.indexOf(
-        "#rejectManagedPublicMutation(hostedSession, operation, capability = null) {",
+        "rejectManagedPublicMutation(",
     );
     const rejectionEnd = source.indexOf("\n    /**", rejectionStart);
     const rejectionBody = source.slice(rejectionStart, rejectionEnd);
-    assertEquals(rejectionBody.includes("#currentManagedOperations"), true);
-    assertEquals(rejectionBody.includes("#busyOperationDepths"), false);
+    assertEquals(rejectionBody.includes("currentManagedOperations"), true);
+    assertEquals(rejectionBody.includes("busyOperationDepths"), false);
     assertEquals(rejectionBody.includes("busy"), false);
 
-    const runStart = source.indexOf("async #runManagedOperation(sessionId, descriptor, body) {");
+    const runStart = source.indexOf("async runManagedOperation<T>(");
     const runEnd = source.indexOf("const managed = hostedSession.getManagedMetadata?.();", runStart);
     const runPrelude = source.slice(runStart, runEnd);
-    assertEquals(runPrelude.includes("#busyOperationDepths"), false);
+    assertEquals(runPrelude.includes("busyOperationDepths"), false);
     assertEquals(runPrelude.includes("busy"), false);
 });
 

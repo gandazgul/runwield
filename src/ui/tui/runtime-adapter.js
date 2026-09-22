@@ -54,12 +54,12 @@ function collectRuntimeDisplayImages(value) {
  * @property {() => void} dispose
  */
 
-/** @type {WeakMap<import('../../shared/session/session-runtime.js').SessionRuntime, Map<string, TuiRuntimeAdapterRegistration>>} */
+/** @type {WeakMap<import('../../shared/session/session-runtime.ts').SessionRuntime, Map<string, TuiRuntimeAdapterRegistration>>} */
 const activeAdapters = new WeakMap();
 
 /**
  * @typedef {Object} TuiRuntimeAdapterOptions
- * @property {import('../../shared/session/session-runtime.js').SessionRuntime} runtime
+ * @property {import('../../shared/session/session-runtime.ts').SessionRuntime} runtime
  * @property {string} sessionId
  * @property {import('./types.js').UiAPI} uiAPI
  * @property {import('../../shared/browser-port.ts').BrowserPort} browser

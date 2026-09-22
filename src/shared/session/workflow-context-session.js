@@ -10,6 +10,8 @@ export const WORKFLOW_CONTEXT_CUSTOM_TYPE = "runwield.workflow_context";
 export const SEGMENT_LINEAGE_CUSTOM_TYPE = "runwield.segment_lineage";
 export const PENDING_SEGMENT_CONTINUATION_CUSTOM_TYPE = "runwield.pending_segment_continuation";
 
+/** @typedef {import('../workflow/execution-segment-handoff.ts').SegmentHandoffPayload} SegmentHandoffPayload */
+
 /**
  * @typedef {Object} LineageSessionManager
  * @property {(customType: string, data: import('../types.js').SessionSegmentLineageEvidence) => string | void} [appendCustomEntry]
@@ -318,8 +320,8 @@ export function readPersistedSegmentLineageEvidence(sessionManager) {
 
 /**
  * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined | null} sessionManager
- * @param {unknown} payload
- * @returns {unknown}
+ * @param {SegmentHandoffPayload} payload
+ * @returns {SegmentHandoffPayload}
  */
 export function recordPendingSegmentContinuation(sessionManager, payload) {
     if (!sessionManager?.appendCustomEntry) return payload;
@@ -333,7 +335,7 @@ export function recordPendingSegmentContinuation(sessionManager, payload) {
 
 /**
  * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined | null} sessionManager
- * @returns {unknown | null}
+ * @returns {SegmentHandoffPayload | null}
  */
 export function readPersistedPendingSegmentContinuation(sessionManager) {
     return readPersistedPendingSegmentContinuationEntry(sessionManager)?.payload ?? null;
@@ -341,7 +343,7 @@ export function readPersistedPendingSegmentContinuation(sessionManager) {
 
 /**
  * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined | null} sessionManager
- * @returns {{ payload: unknown, entryIndex: number, entries: Array<{ type?: string, role?: string, customType?: string }> } | null}
+ * @returns {{ payload: SegmentHandoffPayload, entryIndex: number, entries: Array<{ type?: string, role?: string, customType?: string }> } | null}
  */
 export function readPersistedPendingSegmentContinuationEntry(sessionManager) {
     try {
@@ -453,5 +455,5 @@ function readPendingSegmentContinuationFromEntry(entry) {
     if (/** @type {{ type?: string }} */ (entry).type !== "custom") return undefined;
     const customType = /** @type {{ customType?: string }} */ (entry).customType;
     if (customType !== PENDING_SEGMENT_CONTINUATION_CUSTOM_TYPE) return undefined;
-    return /** @type {{ data?: unknown }} */ (entry).data;
+    return /** @type {{ data?: SegmentHandoffPayload }} */ (entry).data;
 }

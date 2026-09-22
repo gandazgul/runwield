@@ -17,7 +17,7 @@ import { captureTranscriptEvidence } from "./session-transcript-projection.js";
 import { switchActiveAgent } from "./agent-switching.js";
 import { RuntimeEventTypes } from "./session-runtime-events.js";
 import { RuntimeInteractionTypes } from "./session-runtime-interactions.js";
-import { createSessionRuntime, SessionRuntime, SessionTurnInProgressError } from "./session-runtime.js";
+import { createSessionRuntime, SessionRuntime, SessionTurnInProgressError } from "./session-runtime.ts";
 import { getRootSessionRebuildOptions } from "./session.js";
 import { createRootSessionManager, getRunWieldSessionDir, resolveCreatedRootSessionPath } from "./root-session.js";
 import { openFileSessionStore } from "./file-session-store.ts";
@@ -374,7 +374,6 @@ Deno.test("SessionRuntime snapshots keep Session names current with transcript c
     const session = sessionHost.createSession({
         id: crypto.randomUUID(),
         cwd,
-        // @ts-expect-error Real SessionManager is runtime-compatible with HostedSession.
         sessionManager,
     });
 
@@ -543,6 +542,7 @@ Deno.test("SessionRuntime keeps dormant managed image persistence read-only but 
                 base64: btoa("img"),
                 mimeType: "image/png",
             });
+            if (!("base64" in persisted)) throw new Error(persisted.error);
 
             const persistedPath = persisted.path || "";
             assertEquals(persisted.ref?.startsWith("attachment:"), true);
@@ -812,8 +812,8 @@ async function exerciseRepairCompactionFollowUp(disconnect) {
             const actionEvidence = await loadPlanActionEvidence(worktreeRoot, planId);
             if (actionEvidence.kind !== "success") throw new Error(actionEvidence.message);
             const approvedRevision = await getPlanRevisionForText(planBody);
+            /** @type {import('../types.js').ActiveExecutionWorkflow} */
             const activeWorkflow = {
-                routingIntent: "PLANNED_CHANGE",
                 planName: "repair-follow-up",
                 projectRoot: worktreeRoot,
                 executionCwd: worktreeRoot,
@@ -823,9 +823,7 @@ async function exerciseRepairCompactionFollowUp(disconnect) {
                 worktreeBaseBranch: "main",
                 triageMeta: {
                     planId,
-                    planName: "repair-follow-up",
                     status: "validated_ci",
-                    revision: approvedRevision,
                     executionAgent: "engineer",
                 },
             };
@@ -1612,7 +1610,6 @@ Deno.test("SessionRuntime reload preserves the canonical hidden-agent selection"
     const session = sessionHost.createSession({
         id: crypto.randomUUID(),
         cwd,
-        // @ts-expect-error Real SessionManager is runtime-compatible with HostedSession.
         sessionManager,
     });
     const customTool = {
@@ -1901,10 +1898,9 @@ Deno.test("SessionRuntime managed operation prefers persisted active agent over 
 });
 
 Deno.test("SessionRuntime managed prompt acquires activation before writable hydration and publication", async () => {
-    const source = await Deno.readTextFile(new URL("./session-runtime.js", import.meta.url));
-    const promptManagedIndex = source.indexOf("async #runManagedOperation(sessionId, descriptor, body)");
-    const nextMethodIndex = source.indexOf("async promptManagedSession(sessionId, options)", promptManagedIndex);
-    const promptManagedBody = source.slice(promptManagedIndex, nextMethodIndex);
+    const source = await Deno.readTextFile(new URL("./runtime/managed-operations.ts", import.meta.url));
+    const promptManagedIndex = source.indexOf("async runManagedOperation<T>(");
+    const promptManagedBody = source.slice(promptManagedIndex);
     const inspectIndex = promptManagedBody.indexOf("inspectSessionActivation(managed.runwieldSessionId)");
     const acquireIndex = promptManagedBody.indexOf("acquireSessionActivation({", inspectIndex);
     const userMessageIndex = promptManagedBody.indexOf("type: RuntimeEventTypes.USER_MESSAGE", acquireIndex);
@@ -1915,7 +1911,7 @@ Deno.test("SessionRuntime managed prompt acquires activation before writable hyd
     const openIndex = promptManagedBody.indexOf("await openPersistedRootSession({", hydratedIndex);
     const resumeAgentIndex = promptManagedBody.indexOf("await resolveResumeAgentName(sessionManager)", openIndex);
     const activateIndex = promptManagedBody.indexOf(
-        "await this.#activateSessionAgent(hostedSession, {",
+        "await this.settings.activateSessionAgent(hostedSession, {",
         resumeAgentIndex,
     );
     const promptIndex = promptManagedBody.indexOf(
@@ -2846,7 +2842,6 @@ Deno.test("SessionRuntime reconciles consumed steering at turn end when the back
     const hostedSession = sessionHost.createSession({
         id: crypto.randomUUID(),
         cwd,
-        // @ts-expect-error Real SessionManager is runtime-compatible with HostedSession.
         sessionManager,
         managed: {
             runwieldSessionId: "direct-turn",

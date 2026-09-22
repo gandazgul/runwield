@@ -2,7 +2,7 @@ import { assertEquals } from "@std/assert";
 import { join } from "@std/path";
 import { openOwnerCoordinationStore } from "../owner-coordination/index.js";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
-import { createSessionRuntime } from "./session-runtime.js";
+import { createSessionRuntime } from "./session-runtime.ts";
 import { getRunWieldSessionDir } from "./root-session.js";
 
 function digestHex(bytes: Uint8Array): Promise<string> {

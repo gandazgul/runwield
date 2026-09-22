@@ -1,6 +1,6 @@
 // @ts-nocheck: Deno test imports are checked by scripts/run-tests.js, not Astro check.
 import { assertEquals } from "@std/assert";
-import { deriveManagedSessionContinuationDecision } from "../../shared/session/session-runtime.js";
+import { deriveManagedSessionContinuationDecision } from "../../shared/session/session-runtime.ts";
 import { reduceSessionEvents } from "./components/SessionTimeline.jsx";
 
 Deno.test("Workspace creates one Router Session and resumes idle conversational Agents through one stable identity", () => {
