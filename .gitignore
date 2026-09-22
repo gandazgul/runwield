@@ -32,7 +32,6 @@ src/shared/version.js
 
 # BEGIN RunWield owned runtime state
 .wld/internal/
-.wld/plan-staging/
 # END RunWield owned runtime state
 
 # Local timing histories and test reports
