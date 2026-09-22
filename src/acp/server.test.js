@@ -804,6 +804,40 @@ Deno.test("ACP model config switches the next turn and survives session/load", a
             });
             assertEquals(models, ["alternate-model"]);
 
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "restore-model-with-context",
+                method: "session/set_config_option",
+                params: {
+                    sessionId: created.sessionId,
+                    configId: option.id,
+                    value: "runtime-command-fixture/fixture-model",
+                },
+            });
+            const restoredContext = await readThroughResponse(handle, "restore-model-with-context");
+            assertEquals(
+                restoredContext.messages.some((message) => message.params?.update?.sessionUpdate === "usage_update"),
+                false,
+                "a model change must not combine new capacity with stale context tokens",
+            );
+
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "reselect-model",
+                method: "session/set_config_option",
+                params: {
+                    sessionId: created.sessionId,
+                    configId: option.id,
+                    value: "runtime-command-fixture/alternate-model",
+                },
+            });
+            const reselected = await readThroughResponse(handle, "reselect-model");
+            assertEquals(
+                reselected.messages.some((message) => message.params?.update?.sessionUpdate === "usage_update"),
+                false,
+                "a later model change must keep unknown context usage off the wire",
+            );
+
             await closeTestServer(handle);
             handle = startTestServer();
             await sendMessage(handle, {
@@ -838,7 +872,7 @@ Deno.test("ACP model config switches the next turn and survives session/load", a
         } finally {
             await closeTestServer(handle);
         }
-    }, { additionalModels: [{ id: "alternate-model", name: "Alternate Model" }] });
+    }, { additionalModels: [{ id: "alternate-model", name: "Alternate Model", contextWindow: 64_000 }] });
 });
 
 Deno.test("ACP reasoning config controls the next turn, rejects unsupported values, and survives reload", async () => {
@@ -1840,21 +1874,111 @@ Deno.test("ACP streams exact current context usage from a real Runtime turn", as
             const frames = sessionUpdateFrames(handle, "usage_update");
             assert(frames.length > 0, "a real turn should report usage");
             for (const frame of frames) {
-                const update = JSON.parse(frame).params.update;
                 assertAcpFrameSchema("SessionNotification", frame, (message) => message.params);
-                assertEquals(update.used, 48_000);
-                assertEquals(update.size, 128_000);
-                assert(
-                    update.used !== latestInputTokens,
-                    "current context must not use the latest message input count",
-                );
-                // The fixture model is free, so the Session total stays 0 and cost stays off the wire.
+                const update = JSON.parse(frame).params.update;
                 assertEquals(Object.hasOwn(update, "cost"), false);
             }
+            const update = JSON.parse(frames[frames.length - 1]).params.update;
+            assertEquals(update.used, 48_000);
+            assertEquals(update.size, 128_000);
+            assert(
+                update.used !== latestInputTokens,
+                "current context must not use the latest message input count",
+            );
         } finally {
             await closeTestServer(handle);
         }
     });
+});
+
+Deno.test("ACP live wire suppresses usage when Runtime context capacity is unavailable", async () => {
+    await withRuntimeCommandFixture("runwield-acp-unknown-capacity-", async (fixture) => {
+        const handle = startTestServer();
+        try {
+            const created = await createSession(handle, fixture.projectRoot);
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "unknown-capacity-command",
+                method: "session/prompt",
+                params: { sessionId: created.sessionId, prompt: [{ type: "text", text: "/agent guide" }] },
+            });
+            const result = await readThroughResponse(handle, "unknown-capacity-command");
+            assert(result.response.result, JSON.stringify(result.response));
+            assertEquals(
+                result.messages.some((message) => message.params?.update?.sessionUpdate === "usage_update"),
+                false,
+                "unavailable Runtime capacity must suppress usage on the live wire",
+            );
+        } finally {
+            await closeTestServer(handle);
+        }
+    }, { contextWindow: 0 });
+});
+
+Deno.test("ACP live wire suppresses unknown post-compaction context and restores exact usage", async () => {
+    await withRuntimeCommandFixture("runwield-acp-compacted-usage-", async (fixture) => {
+        fixture.setModelResponseFactories([
+            () => fauxAssistantMessage(fauxText("Context before compaction.")),
+            () => fauxAssistantMessage(fauxText("Compacted context summary.")),
+            () => fauxAssistantMessage(fauxText("Exact context restored.")),
+        ]);
+        const handle = startTestServer();
+        try {
+            const created = await createSession(handle, fixture.projectRoot);
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "before-compaction",
+                method: "session/prompt",
+                params: { sessionId: created.sessionId, prompt: [{ type: "text", text: "Establish context." }] },
+            });
+            const before = await readThroughResponse(handle, "before-compaction");
+            assert(before.messages.some((message) => message.params?.update?.sessionUpdate === "usage_update"));
+
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "compact-context",
+                method: "session/prompt",
+                params: { sessionId: created.sessionId, prompt: [{ type: "text", text: "/compact" }] },
+            });
+            assertEquals((await readThroughResponse(handle, "compact-context")).response.result, {
+                stopReason: "end_turn",
+            });
+
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "model-after-compaction",
+                method: "session/set_config_option",
+                params: {
+                    sessionId: created.sessionId,
+                    configId: "model",
+                    value: "runtime-command-fixture/alternate-model",
+                },
+            });
+            const changed = await readThroughResponse(handle, "model-after-compaction");
+            assertEquals(
+                changed.messages.some((message) => message.params?.update?.sessionUpdate === "usage_update"),
+                false,
+                "unknown post-compaction tokens must stay off the live wire",
+            );
+
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "after-compaction",
+                method: "session/prompt",
+                params: { sessionId: created.sessionId, prompt: [{ type: "text", text: "Continue." }] },
+            });
+            const after = await readThroughResponse(handle, "after-compaction");
+            assert(
+                after.messages.some((message) =>
+                    message.params?.update?.sessionUpdate === "usage_update" &&
+                    message.params.update.size === 64_000
+                ),
+                "the next exact Runtime snapshot must restore live usage",
+            );
+        } finally {
+            await closeTestServer(handle);
+        }
+    }, { additionalModels: [{ id: "alternate-model", name: "Alternate Model", contextWindow: 64_000 }] });
 });
 
 Deno.test("ACP usage_update uses exact Runtime context and suppresses unknown capacity", () => {

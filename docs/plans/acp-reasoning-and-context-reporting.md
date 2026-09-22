@@ -17,7 +17,7 @@ createdAt: "2026-09-21"
 origin: "internal"
 userVerifiedAt: null
 targetBranch: "main"
-status: "implemented"
+status: "validated_reviewer"
 ---
 
 # ACP reasoning control and accurate context reporting

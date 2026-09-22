@@ -239,6 +239,10 @@ does not reset its lifecycle or decisions.
 
 **Acceptance scenarios:**
 
+- Given any runtime layout, including unfinished migration or recovery records, opening `/load-plan` without a Plan
+  argument only lists local Plan documents. It does not migrate storage, import controller metadata, fetch branches,
+  repair worktrees, or change files or Sessions. Cancel leaves everything unchanged. Only selecting a Plan (or supplying
+  its name explicitly) enters that Plan's load and recovery flow.
 - Given an externally written Plan without metadata, when the user opens a listing or board, it remains readable and
   unchanged; deliberate loading then adopts it without changing its prose.
 - Given a user body edit made during a metadata transition, when that transition fails or rolls back, the latest body
@@ -246,6 +250,14 @@ does not reset its lifecycle or decisions.
 - Given malformed lifecycle metadata, when recovery runs, RunWield repairs its own state rather than rejecting the
   user's prose or requiring the user to edit internal fields.
 - Given an already adopted Plan, when it is loaded again, its age, identity, and lifecycle decisions remain intact.
+- Given completed runtime migration and files recreated by an older RunWield process, selecting a Plan automatically
+  preserves and reconciles those files. The adopted controller remains authoritative: old copies cannot reset review
+  decisions, retry counters, execution identity, or publication progress. Missing records and completion reports are
+  recovered without claiming validation passed. Originals remain recoverable, and interruption during this recovery
+  resumes safely on the next attempt. Empty legacy lock directories do not block continuation.
+- Given recreated empty or stale runtime registry files, migration reports, or debug files, selecting a Plan recovers
+  them automatically without replacing current attempts. Distinct valid attempts remain available; originals remain
+  recoverable. Registry recovery and ordinary writers cannot overwrite each other or wait on their own locks.
 - Given a change affecting domain rules, architecture and planning identify their owners and necessary consistency and
   recovery behavior, then carry those rules into verification using the project's existing conventions.
 - Given a project without an entity model, or a change needing little domain reasoning, planning proceeds without
@@ -456,6 +468,9 @@ Recovery requirements:
   completion alone does not claim verification or delivery.
 - Given a paused Validation Repair Engineer conversation, when the user replies after compaction, RunWield continues the
   same Session and repair worktree instead of failing because storage and execution roots differ.
+- Given a fresh, unpersisted Session, when its first submitted action starts execution or validation, RunWield registers
+  the Session before entering the execution worktree. An interrupted repair accepts the next message in that same
+  worktree, including after automatic compaction or Session reload. Merely listing Plans remains read-only.
 - When publication succeeds, follow-up returns to the primary checkout or the parent Epic’s next action; it does not
   operate in a removed worktree.
 - Loading a Plan opens its picker or action menu. It does not remove branches, move leftover files, or resume
@@ -1049,7 +1064,10 @@ The managed `.gitignore` block contains only `.wld/internal/`. User `.wld/settin
 `.wld/skills/`, and `.wld/prompts/` remain normal repository content. If Git already tracks or stages runtime state,
 Core refuses checkpoint or publication and reports safe cleanup paths instead of deleting files, changing the index, or
 rewriting history. Core preserves and reports a broad user-authored `.wld/` ignore rule because it also hides trackable
-configuration.
+configuration. During a long-running process, unchanged ignore warnings appear once per Project and identify its
+`.gitignore` path. Routine reads continue checking the rules without repeating the warning; a changed warning, or one
+reintroduced after a successful check found it resolved, is reported again. Explicit doctor inspections still report all
+current issues.
 
 **Requirement: Preserve user work and require deliberate destructive actions.**
 
@@ -1140,6 +1158,16 @@ Required outcomes:
 The file storage, operation-scoped writer lock, transcript segments, and synchronization design live in
 [ADR-015](../adr/015-file-authoritative-session-bundles.md). These mechanisms implement the outcomes above; they do not
 create additional product restrictions on which screen the owner may use.
+
+**Requirement: Route attention to the latest user-input surface.**
+
+Notification destination follows the latest accepted user input (TUI, Workspace, or ACP), independently of which process
+executes the turn. Sending a message, steering, queueing a follow-up, or answering an interaction changes the
+destination; opening a Session, reconnecting an observer, rejected input, and automated continuation do not.
+Workspace-originated turns always emit an Agent-stop attention event at settlement, including error and previously
+suppressed workflow exits. Delivery still honors the destination's permission and notification settings. ACP continues
+to expose turn completion through its client protocol; browser and terminal alerts must not duplicate it on another
+surface.
 
 **Acceptance scenarios:**
 

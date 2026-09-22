@@ -214,7 +214,11 @@ export function disposeOperationBrowserNotifications() {
 
 export function observeOperationBrowserNotifications(current, payload, cursorRef) {
     const events = (Array.isArray(payload.events) ? payload.events : [])
-        .filter((event) => !event.eventId && event.type === "attention_requested" && event.reason === "agentStopped");
+        // Tagged events are delivered by the persistent Workspace notification stream.
+        .filter((event) =>
+            !event.notificationSurface && !event.eventId && event.type === "attention_requested" &&
+            event.reason === "agentStopped"
+        );
     const key = `${current.scopeKey || ""}:${current.operationId}`;
     if (!cursorRef.current || cursorRef.current.key !== key) {
         cursorRef.current = {

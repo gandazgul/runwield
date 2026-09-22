@@ -11,7 +11,7 @@ import { getSelectedDefaultModelAvailability } from "../shared/session/model-rea
 import { createSessionRuntime, SessionTurnInProgressError } from "../shared/session/session-runtime.js";
 import { RuntimeEventTypes } from "../shared/session/session-runtime-events.js";
 import { AcpSessionMap, normalizeAcpSessionIdForLoad } from "./session-map.js";
-import { mapRuntimeEventToAcpSessionNotification } from "./event-mapper.js";
+import { mapRuntimeContextToAcpUpdate, mapRuntimeEventToAcpSessionNotification } from "./event-mapper.js";
 import { createAcpInteractionAdapter } from "./interaction-mapper.js";
 import { buildAcpModelOptions } from "./model-options.ts";
 import { getCommandDefinition, getSlashCommandDefinition, getSlashCommandDefinitions } from "../cmd/registry.js";
@@ -427,6 +427,22 @@ async function notifyAcpModelOptions(context, runtime, runtimeSessionId, acpSess
 }
 
 /**
+ * @param {AcpNotificationContext} context
+ * @param {SessionRuntime} runtime
+ * @param {AcpSessionMap} sessionMap
+ * @param {string} runtimeSessionId
+ * @param {string} acpSessionId
+ */
+async function notifyAcpContextUsage(context, runtime, sessionMap, runtimeSessionId, acpSessionId) {
+    const contextUsage = runtime.getSessionSnapshot(runtimeSessionId)?.contextUsage || null;
+    const update = mapRuntimeContextToAcpUpdate(
+        contextUsage,
+        sessionMap.getRecord(acpSessionId)?.usageCostUsd || 0,
+    );
+    if (update) await notifyClient(context, methods.client.session.update, { sessionId: acpSessionId, update });
+}
+
+/**
  * @typedef {{ value: string, label: string, description?: string, [key: string]: unknown }} AcpCommandSelectOption
  */
 
@@ -598,9 +614,16 @@ async function dispatchAcpBuiltinCommand(options) {
                     event.type === RuntimeEventTypes.MODEL_CHANGED || event.type === RuntimeEventTypes.AGENT_CHANGED ||
                     event.type === RuntimeEventTypes.THINKING_LEVEL_CHANGED
                 ) {
-                    pendingNotifications.push(
+                    pendingNotifications.push(Promise.all([
                         notifyAcpModelOptions(options.context, options.runtime, runtimeSessionId, options.acpSessionId),
-                    );
+                        notifyAcpContextUsage(
+                            options.context,
+                            options.runtime,
+                            options.sessionMap,
+                            runtimeSessionId,
+                            options.acpSessionId,
+                        ),
+                    ]));
                 }
                 if (!notification) return;
                 const pending = notifyClient(options.context, methods.client.session.update, notification);
@@ -987,6 +1010,7 @@ function createRunWieldAcpServer(context) {
             sessionId,
             update: { sessionUpdate: "config_option_update", configOptions },
         });
+        await notifyAcpContextUsage(context, runtime, sessionMap, runtimeSessionId, sessionId);
         return { configOptions };
     });
 
@@ -1119,7 +1143,18 @@ function createRunWieldAcpServer(context) {
                     event.type === RuntimeEventTypes.MODEL_CHANGED || event.type === RuntimeEventTypes.AGENT_CHANGED ||
                     event.type === RuntimeEventTypes.THINKING_LEVEL_CHANGED
                 ) {
-                    pendingNotifications.push(notifyAcpModelOptions(context, runtime, runtimeSessionId, acpSessionId));
+                    pendingNotifications.push(
+                        Promise.all([
+                            notifyAcpModelOptions(context, runtime, runtimeSessionId, acpSessionId),
+                            notifyAcpContextUsage(
+                                context,
+                                runtime,
+                                sessionMap,
+                                runtimeSessionId,
+                                acpSessionId,
+                            ),
+                        ]).then(() => undefined),
+                    );
                 }
                 if (!notification) return;
                 const pending = notifyClient(context, methods.client.session.update, notification);

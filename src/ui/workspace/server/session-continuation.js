@@ -3,7 +3,11 @@ import { validateSequenceReviewDecision } from "../../../shared/workflow/sequenc
 
 import { mergePlanAssociations } from "../../../shared/session/plan-association.ts";
 import { appendLiveSessionEvent } from "../../../shared/session/live-session-events.ts";
-import { projectLiveSessionInfo, readLiveSessionConnection } from "../../../shared/session/live-session-connection.ts";
+import {
+    projectLiveSessionInfo,
+    readLiveSessionConnection,
+    subscribeLiveSessionAttention,
+} from "../../../shared/session/live-session-connection.ts";
 import { createHash } from "node:crypto";
 import { findPlanEvidenceById } from "../../../plan-store.js";
 import { getMergedCustomSetting, getSettingsManager } from "../../../shared/settings.js";
@@ -265,6 +269,13 @@ async function readSessionDisplayName(paths) {
  * @property {{ resolve: (value: import("../../../shared/session/session-runtime-interactions.js").RuntimeInteractionResponse) => void | Promise<void>, reject: (error: Error) => void } | null} [answer]
  */
 
+/**
+ * @typedef {Object} WorkspaceAttentionNotification
+ * @property {import('../../../shared/session/session-runtime-events.js').RuntimeAttentionRequestedEvent} event
+ * @property {string} url
+ * @property {import('../../../shared/session/notification-content.ts').BrowserNotificationPolicy} policy
+ */
+
 export class WorkspaceSessionContinuationService {
     /**
      * @param {{ store: import('../../../shared/owner-coordination/index.js').OwnerCoordinationStore }} options
@@ -281,6 +292,10 @@ export class WorkspaceSessionContinuationService {
         this.operations = new Map();
         /** @type {Map<string, Set<(snapshot: Record<string, unknown>) => void>>} */
         this.operationListeners = new Map();
+        /** @type {Set<(notification: WorkspaceAttentionNotification) => void>} */
+        this.notificationListeners = new Set();
+        /** @type {Map<string, Promise<() => void>>} */
+        this.remoteNotificationStreams = new Map();
         /** @type {Map<string, { requestHash: string, operationId: string }>} */
         this.createRequests = new Map();
         /** @type {Map<string, PendingCreateRequest>} */
@@ -292,6 +307,11 @@ export class WorkspaceSessionContinuationService {
     close() {
         this.runtime.closeAllSessionsWhenIdle?.();
         this.operationListeners.clear();
+        this.notificationListeners.clear();
+        for (const stream of this.remoteNotificationStreams.values()) {
+            void stream.then((close) => close()).catch(() => {});
+        }
+        this.remoteNotificationStreams.clear();
         this.codeReviewRefreshContexts.clear();
     }
 
@@ -321,7 +341,52 @@ export class WorkspaceSessionContinuationService {
             record.runwieldSessionId =
                 this.runtime.getSessionSnapshot(record.runtimeSessionId)?.managed?.runwieldSessionId || null;
         }
+        this.notifyAttention(record, event);
         this.notifyOperation(operationId);
+    }
+
+    /** @param {WorkspaceOperationRecord} record @param {import("../../../shared/session/session-runtime-events.js").SessionRuntimeEvent} event */
+    notifyAttention(record, event) {
+        if (event.type !== "attention_requested" || event.notificationSurface !== "workspace" || event.eventId) return;
+        if (!record.runwieldSessionId) return;
+        const notification = {
+            event,
+            url: `/projects/${encodeURIComponent(record.projectId)}/sessions/${
+                encodeURIComponent(record.runwieldSessionId)
+            }`,
+            policy: this.resolveBrowserNotificationPolicy(record.projectId),
+        };
+        for (const listener of this.notificationListeners) {
+            try {
+                listener(notification);
+            } catch (error) {
+                console.warn("Workspace notification subscriber disconnected:", error);
+            }
+        }
+    }
+
+    /** @param {(notification: WorkspaceAttentionNotification) => void} listener */
+    subscribeNotifications(listener) {
+        this.notificationListeners.add(listener);
+        return () => this.notificationListeners.delete(listener);
+    }
+
+    /** @param {string} operationId @param {WorkspaceOperationRecord | undefined} operation */
+    async watchRemoteNotifications(operationId, operation) {
+        if (!operation?.remote || !operation.runwieldSessionId) return;
+        let stream = this.remoteNotificationStreams.get(operationId);
+        if (!stream) {
+            stream = subscribeLiveSessionAttention(operation.runwieldSessionId, operationId, (event) => {
+                this.notifyAttention(operation, event);
+            });
+            this.remoteNotificationStreams.set(operationId, stream);
+        }
+        try {
+            await stream;
+        } catch (error) {
+            this.remoteNotificationStreams.delete(operationId);
+            throw error;
+        }
     }
 
     /** @param {string} projectId */
@@ -757,8 +822,10 @@ export class WorkspaceSessionContinuationService {
         }
         const activation = this.store.inspectSessionActivation(operation.runwieldSessionId).activation;
         if (activation?.state !== "active" || !activation.operationId) return { ok: true, queued: false };
+        await this.watchRemoteNotifications(activation.operationId, operation);
         return await readLiveSessionConnection(operation.runwieldSessionId, activation.operationId, {
             action: "steer",
+            inputSurface: "workspace",
             requestId: options.requestId,
             text: options.text,
             images: options.images,
@@ -1699,8 +1766,10 @@ export class WorkspaceSessionContinuationService {
             const interactionId = live.interaction.id;
             this.registerInteraction(operationId, live.interaction, {
                 resolve: async (response) => {
+                    await this.watchRemoteNotifications(operationId, this.operations.get(operationId));
                     await readLiveSessionConnection(runwieldSessionId, operationId, {
                         action: "answer",
+                        inputSurface: "workspace",
                         interactionId,
                         response,
                     });
@@ -1708,6 +1777,7 @@ export class WorkspaceSessionContinuationService {
                 reject: () => {
                     void readLiveSessionConnection(runwieldSessionId, operationId, {
                         action: "answer",
+                        inputSurface: "workspace",
                         interactionId,
                         response: { outcome: "canceled" },
                     }).catch(() => {});

@@ -84,11 +84,53 @@ Deno.test("Project Runtime Entry reconciles gitignore and reports broad wld rule
             );
             assertEquals(second, first);
             assertStringIncludes(warnings[0], ".wld/settings.json");
+            assertStringIncludes(warnings[0], join(await Deno.realPath(projectRoot), ".gitignore"));
+            await Promise.all([enterProjectRuntime(projectRoot), enterProjectRuntime(projectRoot)]);
+            await Deno.writeTextFile(join(projectRoot, ".gitignore"), `${first}# Unrelated edit\n`);
+            await enterProjectRuntime(projectRoot);
+            assertEquals(warnings.length, 1);
         } finally {
             console.warn = originalWarn;
             if (originalSandboxHome === undefined) Deno.env.delete("WLD_TEST_SANDBOX_HOME");
             else Deno.env.set("WLD_TEST_SANDBOX_HOME", originalSandboxHome);
             await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+        }
+    });
+});
+
+Deno.test("Project Runtime Entry reports changed warnings independently per project", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const firstRoot = await fixture.checkout({ prefix: "runwield-ignore-warning-first-" });
+        const secondRoot = await fixture.checkout({ prefix: "runwield-ignore-warning-second-" });
+        const originalWarn = console.warn;
+        const warnings: string[] = [];
+        try {
+            console.warn = (message) => warnings.push(String(message));
+            for (const root of [firstRoot, secondRoot]) {
+                await Deno.writeTextFile(join(root, ".gitignore"), ".wld/\n");
+                await enterProjectRuntime(root);
+            }
+            assertEquals(warnings.length, 2);
+            assertStringIncludes(warnings[0], join(await Deno.realPath(firstRoot), ".gitignore"));
+            assertStringIncludes(warnings[1], join(await Deno.realPath(secondRoot), ".gitignore"));
+
+            await Deno.writeTextFile(join(firstRoot, ".gitignore"), "/.wld/\n");
+            await enterProjectRuntime(firstRoot);
+            assertEquals(warnings.length, 3);
+            assertStringIncludes(warnings[2], "rule /.wld/");
+
+            await Deno.writeTextFile(join(firstRoot, ".gitignore"), "");
+            await enterProjectRuntime(firstRoot);
+            assertEquals(warnings.length, 3);
+            await Deno.writeTextFile(join(firstRoot, ".gitignore"), "/.wld/\n");
+            await enterProjectRuntime(firstRoot);
+            await enterProjectRuntime(secondRoot);
+            assertEquals(warnings.length, 4);
+            assertStringIncludes(warnings[3], "rule /.wld/");
+        } finally {
+            console.warn = originalWarn;
+            await Deno.remove(firstRoot, { recursive: true });
+            await Deno.remove(secondRoot, { recursive: true });
         }
     });
 });

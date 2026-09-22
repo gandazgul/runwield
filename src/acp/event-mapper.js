@@ -39,6 +39,24 @@ function mapToolContent(content) {
 }
 
 /**
+ * @param {{ tokens: number | null, contextWindow: number } | null} contextUsage exact current Runtime context usage
+ * @param {number} [sessionCostUsd] cumulative USD cost of the ACP Session so far
+ * @returns {Record<string, any> | null}
+ */
+export function mapRuntimeContextToAcpUpdate(contextUsage, sessionCostUsd = 0) {
+    const used = contextUsage?.tokens;
+    const size = contextUsage?.contextWindow;
+    if (typeof used !== "number" || !Number.isFinite(used) || used < 0) return null;
+    if (typeof size !== "number" || !Number.isFinite(size) || size <= 0) return null;
+    return {
+        sessionUpdate: "usage_update",
+        used,
+        size,
+        ...(sessionCostUsd > 0 ? { cost: { amount: sessionCostUsd, currency: "USD" } } : {}),
+    };
+}
+
+/**
  * @param {import('../shared/session/session-runtime-events.js').SessionRuntimeEvent} event
  * @param {number} [sessionCostUsd] cumulative USD cost of the ACP Session so far
  * @param {{ tokens: number | null, contextWindow: number } | null} [contextUsage] exact current Runtime context usage
@@ -104,20 +122,8 @@ export function mapRuntimeEventToAcpUpdate(event, sessionCostUsd = 0, contextUsa
                 rawOutput: { content: event.content, details: event.details },
                 _meta: runtimeMeta(event, { toolName: event.toolName, durationMs: event.durationMs }),
             };
-        case RuntimeEventTypes.USAGE: {
-            const used = contextUsage?.tokens;
-            const size = contextUsage?.contextWindow;
-            if (typeof used !== "number" || !Number.isFinite(used) || used < 0) return null;
-            if (typeof size !== "number" || !Number.isFinite(size) || size <= 0) return null;
-            // ACP defines cost.amount as the cumulative Session cost. A total of 0 means
-            // no message has a known price yet, so cost stays off the wire.
-            return {
-                sessionUpdate: "usage_update",
-                used,
-                size,
-                ...(sessionCostUsd > 0 ? { cost: { amount: sessionCostUsd, currency: "USD" } } : {}),
-            };
-        }
+        case RuntimeEventTypes.USAGE:
+            return mapRuntimeContextToAcpUpdate(contextUsage, sessionCostUsd);
         case RuntimeEventTypes.PLAN_REVIEW_LINK: {
             return {
                 sessionUpdate: "agent_message_chunk",

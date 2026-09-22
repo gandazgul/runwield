@@ -957,7 +957,41 @@ export const loadPlanDirectReviewRunScenario = {
     ],
 };
 
+export const loadPlanReadOnlyPickerScenario = {
+    name: "load-plan-picker-cancel-preserves-project",
+    composedTui: true,
+    initialAgentName: "guide",
+    terminal: { columns: 100, rows: 30 },
+    timeoutMs: 20000,
+    coverage: ["workflow:load-plan"],
+    initialProjectFiles: [{ path: "docs/plans/plain.md", text: "# Plain user-authored Plan\n" }],
+    scriptedInteractions: [{ type: "select", promptIncludes: "Load plan:", value: null }],
+    actions: [
+        // The harness enters runtime storage at startup. Model a subsequent user
+        // edit so that another implicit runtime entry cannot hide behind that setup.
+        { type: "writeProjectFile", path: ".gitignore", text: "# User-owned Git settings\n" },
+        { type: "captureProjectFileText", path: ".gitignore", key: "ignoreBeforePicker" },
+        { type: "type", text: "/load-plan" },
+        { type: "enter" },
+        { type: "enter" },
+        { type: "waitForIdle", timeoutMs: 10000 },
+        { type: "captureProjectFileText", path: ".gitignore", key: "ignoreAfterPicker" },
+        { type: "assertOnlyProjectChanges", paths: [".gitignore"] },
+    ],
+    assertions: [
+        assertsGoldenCoverage("workflow:load-plan", (result: GoldenScenarioResult) => {
+            assertEventIncludes(result, "terminal:type:/load-plan");
+            assertEquals(result.state.ignoreAfterPicker, result.state.ignoreBeforePicker);
+            assertEquals([...recoveryOptionValues(result)], ["plain"]);
+            assertEquals(result.actor.consumed, []);
+            assert(!result.screenText.includes("Error:"));
+            assert(!result.screenText.includes("Plan loaded:"));
+        }),
+    ],
+};
+
 export const loadPlanWorkflowScenarios = [
+    loadPlanReadOnlyPickerScenario,
     loadPlanActionsScenario,
     loadPlanDirectReviewScenario,
     loadPlanDirectReviewRunScenario,
