@@ -7,5 +7,6 @@
 @import "./workspace-styles/session-timeline.css";
 @import "./workspace-styles/session-composer.css";
 @import "./workspace-styles/navigation.css";
+@import "./workspace-styles/search.css";
 @import "./workspace-styles/settings.css";
 @import "./workspace-styles/workflow.css";

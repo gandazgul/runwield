@@ -14,8 +14,11 @@ import { readSessionArtifact } from "../../../shared/session/read-session-artifa
 const BUNDLED_PLAN_ADAPTER_KEY = Symbol.for("runwield.workspace.plan-adapter-module");
 // Production needs the bundled adapter; dev uses the canonical loader's native
 // Deno import so Vite does not try to resolve Core's JSR imports through Node.
+/** @type {Promise<typeof import("./project-artifacts.ts")> | undefined} */
+let bundledProjectArtifacts;
 if (!import.meta.env?.DEV) {
     Reflect.set(globalThis, BUNDLED_PLAN_ADAPTER_KEY, import("./plan-adapter.js"));
+    bundledProjectArtifacts = import("./project-artifacts.ts");
 }
 
 export const OWNER_WORKSPACE_STORE_KEY = Symbol.for("runwield.workspace.owner-store");
@@ -82,6 +85,19 @@ export async function loadOwnerProjectPlanProgress(projectId, planId, runwieldSe
     if (!store) throw new Error("Owner Workspace store is not available.");
     const { loadOwnerPlanProgress } = await import("./owner-plan-progress.ts");
     return await loadOwnerPlanProgress(store, { projectId, planId, runwieldSessionId });
+}
+
+/** @param {string} projectId @param {string} artifactType @param {string} sourceId */
+export async function loadOwnerProjectArtifact(projectId, artifactType, sourceId) {
+    const store = getAstroOwnerWorkspaceStore();
+    if (!store) throw new Error("Owner Workspace store is not available.");
+    const root = requireOwnerProjectRoot(store, projectId);
+    const module = import.meta.env?.DEV
+        ? await Function("specifier", "return import(specifier)")(
+            new URL("./project-artifacts.ts", import.meta.url).href,
+        )
+        : await bundledProjectArtifacts;
+    return await module.readProjectArtifact(root, artifactType, sourceId);
 }
 
 /** @param {string} projectId @param {string} runwieldSessionId @param {string} artifactId */

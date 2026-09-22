@@ -3,6 +3,7 @@ import "../../design-system/fonts.css";
 import { RunWieldThinkingDots } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 import { ClientRouter } from "astro:transitions";
 import { WorkspaceMenu } from "../react/WorkspaceMenu.tsx";
+import { UnifiedWorkspaceSearch } from "../react/UnifiedWorkspaceSearch.tsx";
 import WorkspacePwaHead from "../components/WorkspacePwaHead.astro";
 import WorkspaceConnection from "../components/WorkspaceConnection.astro";
 import { PLAN_SEARCH_QUERY_PARAM, PLAN_UI_TOKEN_QUERY } from "../constants.js";
@@ -85,7 +86,7 @@ function linkWithToken(path: string) {
             <div class="workspace-shell workspace-shell-with-sidebar" data-selected-tab={selectedTab} data-astro-workspace-shell>
                 <aside class="workspace-sidebar" data-workspace-sidebar aria-label="Workspace navigation" transition:name="workspace-sidebar" transition:persist>
                     <div class="workspace-sidebar-brand">
-                        <WorkspaceMenu client:load />
+                        <WorkspaceMenu client:only="react" />
                         <a href={linkWithToken("/")} aria-label="RunWield Workspace home">
                             <img src="/brand/logo.svg" alt="" aria-hidden="true" />
                             <span>RunWield</span>
@@ -109,7 +110,9 @@ function linkWithToken(path: string) {
                             <slot name="toolbar" />
                         </div>
                         <div class="workspace-main-header-action-row">
-                            <div class="workspace-main-header-actions" data-workspace-header-actions></div>
+                            <div class="workspace-main-header-actions" data-workspace-header-actions>
+                                <UnifiedWorkspaceSearch client:only="react" />
+                            </div>
                         </div>
                     </header>
                     <main>

@@ -1,6 +1,6 @@
 import { assertEquals, assertRejects } from "@std/assert";
 import { join } from "@std/path";
-import { readWorkspaceStyles } from "../src/ui/workspace/workspace-styles.js";
+import { readWorkspaceStyles } from "../src/ui/workspace/workspace-styles.ts";
 import {
     buildPlanServerRuntime,
     findProhibitedRuntimeFiles,

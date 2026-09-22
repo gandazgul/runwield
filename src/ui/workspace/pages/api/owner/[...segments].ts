@@ -52,6 +52,33 @@ export const GET = ({ request, params }: { request: Request; params: { segments?
     const url = new URL(request.url);
 
     if (segments.join("/") === "sidebar") return json(devOwnerSidebar());
+    if (segments.join("/") === "search") {
+        const query = url.searchParams.get("q") || "";
+        const contentType = url.searchParams.get("type") || "";
+        const result = {
+            id: `${DEV_OWNER_PROJECT.projectId}:plan:${DEV_OWNER_WORKFLOW_PLAN.planId}`,
+            projectId: DEV_OWNER_PROJECT.projectId,
+            projectName: DEV_OWNER_PROJECT.displayName,
+            contentType: "plan",
+            sourceId: DEV_OWNER_WORKFLOW_PLAN.planId,
+            title: DEV_OWNER_WORKFLOW_PLAN.planName,
+            snippet: "A Plan fixture for the unified Workspace search surface.",
+            revision: "dev-revision",
+            freshness: "current",
+            destination: `/projects/${DEV_OWNER_PROJECT.projectId}/plans/${DEV_OWNER_WORKFLOW_PLAN.planId}`,
+        };
+        const results = query && (!contentType || contentType === result.contentType) ? [result] : [];
+        return json({
+            query,
+            page: 1,
+            pageSize: pageValue(url, "pageSize", 20),
+            total: results.length,
+            results,
+            projects: [{ projectId: DEV_OWNER_PROJECT.projectId, name: DEV_OWNER_PROJECT.displayName }],
+            contentTypes: ["plan", "work-record", "prd", "adr", "design-system", "domain-language", "session"],
+            states: [{ projectId: DEV_OWNER_PROJECT.projectId, state: "ready" }],
+        });
+    }
     if (segments.join("/") === "projects") return json({ projects: [DEV_OWNER_PROJECT] });
     if (segments.join("/") === "devices") {
         return json({ devices: [DEV_OWNER_DEVICE], currentDeviceId: DEV_OWNER_DEVICE.deviceId });
@@ -92,6 +119,7 @@ export const GET = ({ request, params }: { request: Request; params: { segments?
 export const POST = ({ params }: { params: { segments?: string } }) => {
     if (!import.meta.env.DEV) return json({ error: "Not found." }, 404);
     const segments = routeSegments({ params });
+    if (segments.join("/") === "search/refresh") return json({ refreshed: true });
     if (segments.join("/") === "pairing/request") {
         return json({
             code: "DEV123",

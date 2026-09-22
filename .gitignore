@@ -22,6 +22,7 @@ STYLESEED.md
 skills-lock.json
 
 debug.log
+.runwield-workspace-search-refresh/
 
 # Local throwaway prototypes. Executable prototype files must stay under
 # prototypes/<kebab-case-slug>/ and must not be tracked or placed beside src/ code.
@@ -33,4 +34,5 @@ src/shared/version.js
 .wld/internal/
 .wld/plan-staging/
 .wld/controller/
+.wld/plan-locks/
 # END RunWield owned runtime state

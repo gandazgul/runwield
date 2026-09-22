@@ -1,0 +1,9 @@
+---
+import WorkspaceLayout from "../layouts/WorkspaceLayout.astro";
+import { UnifiedWorkspaceSearch } from "../react/UnifiedWorkspaceSearch.tsx";
+
+export const prerender = false;
+---
+<WorkspaceLayout title="Search · RunWield Workspace" url={Astro.url} surfaceTitle="Search">
+    <UnifiedWorkspaceSearch fullPage client:only="react" />
+</WorkspaceLayout>

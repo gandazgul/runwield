@@ -100,6 +100,15 @@ if (plan && provenSessionId && operationId && interactionId && !error) {
     }
 }
 const fromDashboard = Astro.url.searchParams.get("from") === "dashboard";
+let searchReturnHref = "";
+try {
+    const candidate = new URL(Astro.url.searchParams.get("return") || "", Astro.url.origin);
+    if (candidate.origin === Astro.url.origin && candidate.pathname === "/search") {
+        searchReturnHref = `${candidate.pathname}${candidate.search}`;
+    }
+} catch {
+    searchReturnHref = "";
+}
 const sessionId = provenSessionId;
 if (store && plan && sessionId && recoveryGeneration === null && !error) {
     try {
@@ -127,8 +136,8 @@ const planHomePayload = plan
         parentPlan: plan.parentPlan || plan.attrs?.parentPlan,
         artifactPath: plan.path,
         markdown: plan.markdown || plan.body || "",
-        returnHref: fromDashboard ? "/" : `/projects/${encodeURIComponent(projectId)}/plans`,
-        returnLabel: fromDashboard ? "Back to Dashboard" : "Back to Plans",
+        returnHref: searchReturnHref || (fromDashboard ? "/" : `/projects/${encodeURIComponent(projectId)}/plans`),
+        returnLabel: searchReturnHref ? "Back to Search" : fromDashboard ? "Back to Dashboard" : "Back to Plans",
         planHref: `/projects/${encodeURIComponent(projectId)}/plans/${encodeURIComponent(planId)}`,
         sessionHref,
         reviewHref: operationId && interactionId && sessionId
