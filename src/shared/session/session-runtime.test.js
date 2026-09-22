@@ -6,7 +6,13 @@ import {
     assertStrictEquals,
     assertStringIncludes,
 } from "@std/assert";
-import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
+import {
+    fauxAssistantMessage,
+    fauxText,
+    fauxToolCall,
+    getCurrentSystemPrompt,
+    getCurrentTools,
+} from "@earendil-works/pi-ai";
 import { registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { join } from "@std/path";
@@ -1878,7 +1884,7 @@ Deno.test("SessionRuntime managed operation prefers persisted active agent over 
                 setModelResponseFactory((context, _options, _state, model) => {
                     turns.push({
                         agent: runtime.getSessionSnapshot(sessionId)?.activeAgent,
-                        prompt: context.systemPrompt || "",
+                        prompt: getCurrentSystemPrompt(context.messages),
                         model: model.id,
                     });
                     return fauxAssistantMessage(fauxText("The saved Guide handled this turn."));
@@ -2059,8 +2065,8 @@ Deno.test("SessionRuntime keeps the next Epic decomposition reply with Slicer", 
     setRuntimeModelResponseFactories([
         () => fauxAssistantMessage(fauxText("I recommend two child Plans. Should I finalize them?")),
         (context) => {
-            resumedSystemPrompt = context.systemPrompt || "";
-            for (const tool of context.tools || []) resumedToolNames.add(tool.name);
+            resumedSystemPrompt = getCurrentSystemPrompt(context.messages);
+            for (const tool of getCurrentTools(context.messages)) resumedToolNames.add(tool.name);
             return fauxAssistantMessage(fauxText("I will keep refining this Epic decomposition."));
         },
     ]);

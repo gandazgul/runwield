@@ -4,7 +4,7 @@
  */
 
 import { assert, assertEquals, assertStringIncludes, assertThrows } from "@std/assert";
-import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, fauxText, fauxToolCall, getSystemMessageText } from "@earendil-works/pi-ai";
 import { dirname, fromFileUrl, join, resolve } from "@std/path";
 import { withRuntimeCommandFixture } from "../cmd/testing/runtime-command-fixture.ts";
 import { openFileSessionStore } from "../shared/session/file-session-store.ts";
@@ -103,18 +103,22 @@ function fauxContentToText(content) {
 
 /** @param {import('@earendil-works/pi-ai').Message} message */
 function fauxMessageToText(message) {
+    if (message.role === "system") {
+        return [
+            getSystemMessageText(message),
+            ...(message.toolsRemoved?.map((tool) => `tool-:${JSON.stringify(tool)}`) ?? []),
+            ...(message.toolsAdded?.map((tool) => `tool+:${JSON.stringify(tool)}`) ?? []),
+        ].filter((part) => part.length > 0).join("\n");
+    }
     if (message.role === "toolResult") {
         return [message.toolName, ...message.content.map((block) => fauxContentToText([block]))].join("\n");
     }
     return fauxContentToText(message.content);
 }
 
-/** @param {import('@earendil-works/pi-ai').Context} context */
+/** @param {import('@earendil-works/pi-ai').TranscriptContext} context */
 function estimateFauxPromptTokens(context) {
-    const parts = [];
-    if (context.systemPrompt) parts.push(`system:${context.systemPrompt}`);
-    for (const message of context.messages) parts.push(`${message.role}:${fauxMessageToText(message)}`);
-    if (context.tools?.length) parts.push(`tools:${JSON.stringify(context.tools)}`);
+    const parts = context.messages.map((message) => `${message.role}:${fauxMessageToText(message)}`);
     return Math.ceil(parts.join("\n\n").length / 4);
 }
 
@@ -663,7 +667,8 @@ Deno.test("ACP image prompts reach vision models", async () => {
         const handle = startTestServer();
         try {
             const created = await createSession(handle, fixture.projectRoot);
-            const imageData = btoa("discord-image");
+            const imageData =
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
             await sendMessage(handle, {
                 jsonrpc: "2.0",
                 id: "image-prompt",

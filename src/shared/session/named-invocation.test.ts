@@ -1,7 +1,7 @@
 import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
 import { fauxAssistantMessage, fauxText } from "@earendil-works/pi-ai";
-import type { Context } from "@earendil-works/pi-ai";
+import type { TranscriptContext } from "@earendil-works/pi-ai";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { createPayload, resolveNamedInvocation } from "./named-invocation.ts";
@@ -142,10 +142,122 @@ Deno.test("resolveNamedInvocation obeys disabled external Skill discovery", asyn
     });
 });
 
+Deno.test("legacy Named Invocation repair preserves branch edits and omits summarized entries", async () => {
+    await withRuntimeCommandFixture("named-invocation-pi-repair-rules-", async ({ projectRoot }) => {
+        const payload = await createPayload({
+            kind: "prompt_template",
+            compactInvocation: "/legacy saved request",
+            expandedRequest: "Expanded legacy request",
+            images: [{ base64: "aW1hZ2U=", mimeType: "image/png", ref: "legacy-image.png" }],
+            source: { layer: "local", name: "legacy" },
+            profile: { agentName: "operator" },
+        });
+        const manager = SessionManager.inMemory(projectRoot);
+
+        const replacementMetadataId = manager.appendCustomEntry("runwield.named_invocation", payload);
+        const replacementTargetId = manager.appendMessage({
+            role: "user",
+            content: [{ type: "text", text: "/legacy saved request" }],
+            timestamp: Date.now(),
+        });
+        manager.appendContextEdit(replacementTargetId, {
+            content: [{ type: "text", text: "Existing replacement wins" }],
+        });
+
+        manager.appendCustomEntry("runwield.named_invocation", payload);
+        const omittedTargetId = manager.appendMessage({
+            role: "user",
+            content: [{ type: "text", text: "/legacy saved request" }],
+            timestamp: Date.now(),
+        });
+        manager.appendContextEdit(omittedTargetId, null);
+
+        const siblingMetadataId = manager.appendCustomEntry("runwield.named_invocation", payload);
+        const siblingTargetId = manager.appendMessage({
+            role: "user",
+            content: [{ type: "text", text: "/legacy saved request" }],
+            timestamp: Date.now(),
+        });
+        manager.appendContextEdit(siblingTargetId, {
+            content: [{ type: "text", text: "Sibling-only replacement" }],
+        });
+        manager.branch(siblingMetadataId);
+        const activeSiblingTargetId = manager.appendMessage({
+            role: "user",
+            content: [{ type: "text", text: "/legacy saved request" }],
+            timestamp: Date.now(),
+        });
+
+        const hosted = new HostedSession({
+            id: "named-invocation-pi-repair-rules",
+            cwd: projectRoot,
+            sessionManager: manager as never,
+        });
+        try {
+            await ensureRootAgentSession({ hostedSession: hosted, agentName: "operator" });
+        } finally {
+            hosted.dispose();
+        }
+
+        const allEntries = manager.getEntries();
+        assertEquals(
+            allEntries.filter((entry) => entry.type === "context_edit" && entry.targetId === replacementTargetId)
+                .length,
+            1,
+        );
+        assertEquals(
+            allEntries.filter((entry) => entry.type === "context_edit" && entry.targetId === omittedTargetId).length,
+            1,
+        );
+        assertEquals(
+            allEntries.filter((entry) => entry.type === "context_edit" && entry.targetId === activeSiblingTargetId)
+                .length,
+            1,
+        );
+        const activeContext = JSON.stringify(manager.buildSessionContext().messages);
+        assertStringIncludes(activeContext, "Existing replacement wins");
+        assertStringIncludes(activeContext, "Expanded legacy request");
+        assertStringIncludes(activeContext, "[Image attached: legacy-image.png image/png]");
+        assertEquals(activeContext.includes("Sibling-only replacement"), false);
+        assertEquals(activeContext.includes(`\"id\":\"${replacementMetadataId}\"`), false);
+
+        const compactedManager = SessionManager.inMemory(projectRoot);
+        compactedManager.appendCustomEntry("runwield.named_invocation", payload);
+        const summarizedTargetId = compactedManager.appendMessage({
+            role: "user",
+            content: [{ type: "text", text: "/legacy saved request" }],
+            timestamp: Date.now(),
+        });
+        compactedManager.appendMessage(fauxAssistantMessage(fauxText("old answer")));
+        const retainedId = compactedManager.appendMessage({
+            role: "user",
+            content: [{ type: "text", text: "retained request" }],
+            timestamp: Date.now(),
+        });
+        compactedManager.appendCompaction("Summary without the old invocation", retainedId, 100, {}, false, undefined);
+        const compactedHosted = new HostedSession({
+            id: "named-invocation-pi-repair-summarized",
+            cwd: projectRoot,
+            sessionManager: compactedManager as never,
+        });
+        try {
+            await ensureRootAgentSession({ hostedSession: compactedHosted, agentName: "operator" });
+        } finally {
+            compactedHosted.dispose();
+        }
+        assertEquals(
+            compactedManager.getEntries().some((entry) =>
+                entry.type === "context_edit" && entry.targetId === summarizedTargetId
+            ),
+            false,
+        );
+    });
+});
+
 Deno.test("Prompt Template expansion is restored for kept pre-compaction Pi entries", async () => {
     await withRuntimeCommandFixture(
         "named-invocation-pi-restore-kept-",
-        async ({ projectRoot, setModelResponseFactory }) => {
+        async ({ projectRoot, setModelResponseFactories }) => {
             const manager = SessionManager.inMemory(projectRoot);
             const payload = await createPayload({
                 kind: "prompt_template",
@@ -155,34 +267,77 @@ Deno.test("Prompt Template expansion is restored for kept pre-compaction Pi entr
                 source: { layer: "local", name: "kept-template" },
                 profile: { agentName: "operator" },
             });
-            const namedEntryId = manager.appendCustomEntry("runwield.named_invocation", payload);
-            manager.appendMessage({
+            manager.appendCustomEntry("runwield.named_invocation", payload);
+            const userEntryId = manager.appendMessage({
                 role: "user",
                 content: [{ type: "text", text: "/kept-template saved request" }],
                 timestamp: Date.now(),
             });
             manager.appendMessage(fauxAssistantMessage(fauxText("The compact request was answered.")));
-            manager.appendCompaction("Earlier history summary", namedEntryId, 100, {}, false, undefined);
+            manager.appendCompaction("Earlier history summary", userEntryId, 100, {}, false, undefined);
+            for (let index = 0; index < 4; index += 1) {
+                manager.appendMessage({
+                    role: "user",
+                    content: [{ type: "text", text: `later request ${index} ${"x".repeat(20_000)}` }],
+                    timestamp: Date.now(),
+                });
+                manager.appendMessage(fauxAssistantMessage(fauxText(`later answer ${index} ${"y".repeat(20_000)}`)));
+            }
 
-            let modelRequest = "";
-            setModelResponseFactory((context: Context) => {
-                modelRequest = JSON.stringify(context.messages);
-                return fauxAssistantMessage(fauxText("resumed answer"));
+            const modelRequests: string[] = [];
+            setModelResponseFactories([
+                (context: TranscriptContext) => {
+                    modelRequests.push(JSON.stringify(context.messages));
+                    return fauxAssistantMessage(fauxText("Compaction summary: Expanded kept request"));
+                },
+                (context: TranscriptContext) => {
+                    modelRequests.push(JSON.stringify(context.messages));
+                    return fauxAssistantMessage(fauxText("resumed answer"));
+                },
+            ]);
+            const firstActivation = new HostedSession({
+                id: "named-invocation-pi-restore-kept-first",
+                cwd: projectRoot,
+                sessionManager: manager as never,
             });
-            const hostedSession = new HostedSession({
-                id: "named-invocation-pi-restore-kept",
+            await ensureRootAgentSession({ hostedSession: firstActivation, agentName: "operator" });
+            firstActivation.dispose();
+            assertEquals(
+                manager.getBranch().filter((entry) => entry.type === "context_edit" && entry.targetId === userEntryId)
+                    .length,
+                1,
+            );
+
+            const resumed = new HostedSession({
+                id: "named-invocation-pi-restore-kept-resumed",
                 cwd: projectRoot,
                 sessionManager: manager as never,
             });
             try {
-                await ensureRootAgentSession({ hostedSession, agentName: "operator" });
-                await runRootTurn({ hostedSession, agentName: "operator", userRequest: "continue" });
+                const session = await ensureRootAgentSession({ hostedSession: resumed, agentName: "operator" });
+                await session.compact("Preserve the exact kept request.");
+                await runRootTurn({ hostedSession: resumed, agentName: "operator", userRequest: "continue" });
             } finally {
-                hostedSession.dispose();
+                resumed.dispose();
             }
 
-            assertStringIncludes(modelRequest, "Expanded kept request");
-            assertEquals(modelRequest.includes("/kept-template saved request"), false);
+            const branch = manager.getBranch();
+            assertEquals(
+                branch.filter((entry) => entry.type === "context_edit" && entry.targetId === userEntryId).length,
+                1,
+            );
+            const savedUser = branch.find((entry) => entry.id === userEntryId);
+            assertEquals(
+                savedUser?.type === "message" && savedUser.message.role === "user" ? savedUser.message.content : null,
+                [
+                    { type: "text", text: "/kept-template saved request" },
+                ],
+            );
+            assertEquals(modelRequests.length, 2);
+            for (const modelRequest of modelRequests) {
+                assertStringIncludes(modelRequest, "Expanded kept request");
+                assertEquals(modelRequest.includes("/kept-template saved request"), false);
+            }
         },
     );
 });

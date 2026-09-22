@@ -1,4 +1,10 @@
-import { type Context, fauxAssistantMessage, fauxText, type Message } from "@earendil-works/pi-ai";
+import {
+    fauxAssistantMessage,
+    fauxText,
+    getSystemMessageText,
+    type Message,
+    type TranscriptContext,
+} from "@earendil-works/pi-ai";
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { openFileSessionStore } from "../../shared/session/file-session-store.ts";
 import { withRuntimeCommandFixture } from "../testing/runtime-command-fixture.ts";
@@ -37,6 +43,13 @@ function contentToText(content: Message["content"]): string {
 }
 
 function messageToText(message: Message): string {
+    if (message.role === "system") {
+        return [
+            getSystemMessageText(message),
+            ...(message.toolsRemoved?.map((tool) => `tool-:${JSON.stringify(tool)}`) ?? []),
+            ...(message.toolsAdded?.map((tool) => `tool+:${JSON.stringify(tool)}`) ?? []),
+        ].filter((part) => part.length > 0).join("\n");
+    }
     if (message.role === "toolResult") {
         return [
             message.toolName,
@@ -46,11 +59,8 @@ function messageToText(message: Message): string {
     return contentToText(message.content);
 }
 
-function estimateFirstFauxUsage(context: Context, output: string) {
-    const parts: string[] = [];
-    if (context.systemPrompt) parts.push(`system:${context.systemPrompt}`);
-    for (const message of context.messages) parts.push(`${message.role}:${messageToText(message)}`);
-    if (context.tools?.length) parts.push(`tools:${JSON.stringify(context.tools)}`);
+function estimateFirstFauxUsage(context: TranscriptContext, output: string) {
+    const parts = context.messages.map((message) => `${message.role}:${messageToText(message)}`);
     const inputTokens = estimateFauxTokens(parts.join("\n\n"));
     return {
         inputTokens,

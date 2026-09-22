@@ -1,11 +1,12 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
 import {
-    type Context,
     fauxAssistantMessage,
     type FauxResponseFactory,
     fauxText,
     fauxToolCall,
+    getCurrentSystemPrompt,
+    type TranscriptContext,
 } from "@earendil-works/pi-ai";
 import {
     loadArchivedPlan,
@@ -246,9 +247,9 @@ async function assertImplementedFollowUpRebindsFromAgent(initialAgentName: strin
             });
             let modelCalls = 0;
             let systemPrompt = "";
-            setModelResponseFactory((context: Context) => {
+            setModelResponseFactory((context: TranscriptContext) => {
                 modelCalls++;
-                systemPrompt = context.systemPrompt || "";
+                systemPrompt = getCurrentSystemPrompt(context.messages);
                 return fauxAssistantMessage(fauxText("Follow-up response."));
             });
             try {
@@ -300,8 +301,8 @@ Deno.test("load-plan follow-up replaces the TUI Session with one rooted in the e
                 if (event.type === "session_replaced") replacementId = event.newSessionId;
             });
             let systemPrompt = "";
-            setModelResponseFactory((context: Context) => {
-                systemPrompt = context.systemPrompt || "";
+            setModelResponseFactory((context: TranscriptContext) => {
+                systemPrompt = getCurrentSystemPrompt(context.messages);
                 return fauxAssistantMessage(fauxText("Follow-up response."));
             });
             try {

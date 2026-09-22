@@ -80,6 +80,18 @@ RunWield groups lineage-bearing transcripts by stable Session ID and orders them
 Session IDs. Older planning roots that predate embedded lineage can be recovered from their successor's parent IDs.
 Malformed or branching lineage fails closed instead of guessing.
 
+### Named Invocation context uses append-only edits
+
+A Named Invocation keeps its compact user message in raw history. RunWield appends the invocation metadata, the compact
+user entry, and a Pi context edit that targets that user entry and contains the exact expanded text and image blocks.
+Provider requests and compaction use Pi's canonical context projection, so they receive the expansion without rewriting
+the raw message.
+
+When writable activation opens an older transcript that has invocation metadata but no applicable edit, RunWield appends
+one repair edit under the existing Session Writer Lock. The repair follows only the active branch, changes only retained
+user entries, respects later replacements or omissions, and is idempotent. Read-only listing and history rendering do
+not repair or otherwise mutate transcripts.
+
 An older database-only stable ID may be replaced during file migration when the transcript contains no copy of that ID.
 This is an internal identity migration: the visible conversation and transcript are preserved without prompting the
 user.
