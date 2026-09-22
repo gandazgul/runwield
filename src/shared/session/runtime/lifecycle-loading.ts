@@ -305,6 +305,7 @@ export class RuntimeLifecycleLoading {
                 name: managedSession.displayName,
                 activeAgent: null,
                 workflowContext: null,
+                tutorialContext: null,
                 syncState: {
                     type: RuntimeEventTypes.MANAGED_SYNC_STATE_CHANGED,
                     status: "syncing",

@@ -44,6 +44,7 @@ export interface MaybeShowModelWelcomeOptions {
     /** Project root that scopes the settings manager used for defaults. */
     projectRoot: string;
     deferRootActivation?: boolean;
+    cancelBehavior?: "exit" | "return-to-input";
 }
 
 export interface ModelWelcomeResult {
@@ -103,8 +104,19 @@ export async function maybeShowModelWelcome(options: MaybeShowModelWelcomeOption
     });
 
     if (setupResult.status === "canceled" && !setupResult.modelSelectionShown) {
-        options.uiAPI.appendSystemMessage("Model setup cancelled. Exiting RunWield.", false, "RunWield");
-        await commandRegistry[COMMAND_NAMES.QUIT].execute([], runCommandContext(options));
+        if (options.cancelBehavior === "return-to-input") {
+            options.uiAPI.appendSystemMessage(
+                "Model setup cancelled. The tutorial did not start. Run /onboard when you are ready.",
+                false,
+                "Tutorial",
+            );
+            options.editor.disableSubmit = false;
+            options.tui.setFocus(options.editor);
+            options.tui.requestRender();
+        } else {
+            options.uiAPI.appendSystemMessage("Model setup cancelled. Exiting RunWield.", false, "RunWield");
+            await commandRegistry[COMMAND_NAMES.QUIT].execute([], runCommandContext(options));
+        }
         return { shown: true, suppressBootBanner: true, noModel: true, setupCompleted: false };
     }
 

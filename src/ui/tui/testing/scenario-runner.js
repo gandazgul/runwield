@@ -176,6 +176,7 @@ function findFixturePlanLifecycle(directory, expectedStatus) {
  * @property {"default" | "none" | "provider-without-models"} [modelSetup]
  * @property {Array<{ id: string, name?: string, reasoning?: boolean }>} [models]
  * @property {Record<string, unknown>} [globalSettings]
+ * @property {boolean} [onboardingOfferHandled]
  * @property {boolean} [skipModelWelcome]
  * @property {boolean} [captureModelTurns]
  * @property {boolean} [captureGlobalSettings]
@@ -787,6 +788,22 @@ async function runComposedTuiScenario(scenario, options) {
                 }),
             );
         }
+        if (runwieldDir && scenario.onboardingOfferHandled !== false) {
+            const settingsPath = join(runwieldDir, "settings.json");
+            let settings = {};
+            try {
+                settings = JSON.parse(await Deno.readTextFile(settingsPath));
+            } catch {
+                settings = {};
+            }
+            await Deno.writeTextFile(
+                settingsPath,
+                JSON.stringify({
+                    ...settings,
+                    onboardingTutorialOfferHandled: true,
+                }),
+            );
+        }
         // Runtime entry is startup state, not a scenario mutation. Complete it
         // before concurrent UI reads begin and before the project baseline is saved.
         await enterProjectRuntime(getCwd());
@@ -832,6 +849,7 @@ async function runComposedTuiScenario(scenario, options) {
         let unsubscribe = () => {};
         /** @type {string | null} */
         let artifactDir = null;
+        let restartedTuiHistory = "";
         /** @type {Array<{ event: string, status?: unknown, updatedAt?: unknown }>} */
         const persistedLifecycleEvents = [];
         const writeHeartbeat = async () => {
@@ -1333,6 +1351,11 @@ async function runComposedTuiScenario(scenario, options) {
                     );
                     events.push("tui:concurrent-screens:captured");
                 } else if (typed.type === "restartTui") {
+                    restartedTuiHistory = [
+                        restartedTuiHistory,
+                        terminal.getScrollbackText(),
+                        terminal.getScreenText(),
+                    ].filter(Boolean).join("\n");
                     unsubscribe();
                     await composition?.dispose?.();
                     terminal = new VirtualTerminal(typed.terminal || scenario.terminal);
@@ -1351,18 +1374,7 @@ async function runComposedTuiScenario(scenario, options) {
                         await new Promise((resolve) => setTimeout(resolve, 20));
                     }
                     if (!terminal.started) throw new Error("Restarted terminal did not start.");
-                    unsubscribe = composition.runtime.subscribeSessionEvents(composition.sessionId, (event) => {
-                        events.push(`runtime:${event.type}`);
-                        if (event.type === "tool_start") {
-                            const eventToolName = /** @type {{ toolName?: string }} */ (event).toolName || "";
-                            events.push(`runtime:tool:start:${eventToolName}`);
-                        }
-                        if (event.type === "agent_changed") {
-                            const name = /** @type {{ agentName?: string }} */ (event).agentName || "";
-                            events.push(`runtime:agent:${name}`);
-                            state.activeAgent = name;
-                        }
-                    });
+                    unsubscribe = composition.runtime.subscribeSessionEvents(composition.sessionId, handleRuntimeEvent);
                     events.push("tui:restarted");
                 } else if (typed.type === "enter") terminal.pressEnter();
                 else if (typed.type === "switchAgent") {
@@ -2496,7 +2508,7 @@ async function runComposedTuiScenario(scenario, options) {
                         ),
                     );
                     const remotePlanAttrs = parsePlanFrontMatter(remotePlanText).attrs;
-                    state.publication = {
+                    const capturedPublication = {
                         validatedCommitPublished: Boolean(remotePlanAttrs.validatedCommit) && await runGoldenGit(
                             [
                                 "--git-dir",
@@ -2551,6 +2563,8 @@ async function runComposedTuiScenario(scenario, options) {
                         registryEntries: registry.entries,
                         worktreeBranchExists: branchExists,
                     };
+                    state.publication = capturedPublication;
+                    if (typed.key) state[String(typed.key)] = capturedPublication;
                     events.push(`publication:state-captured:${planName}`);
                 } else if (typed.type === "captureLocalPublicationState") {
                     const planName = String(typed.planName || "");
@@ -2645,8 +2659,9 @@ async function runComposedTuiScenario(scenario, options) {
             await terminal.flush();
             await writeHeartbeat();
             const snapshot = composition.runtime.getSessionSnapshot(composition.sessionId);
+            const finalScrollback = [restartedTuiHistory, terminal.getScrollbackText()].filter(Boolean).join("\n");
             state.screen = terminal.getScreenText();
-            state.scrollback = terminal.getScrollbackText();
+            state.scrollback = finalScrollback;
             state.snapshot = snapshot;
             state.activeAgent = snapshot?.activeAgent || state.activeAgent;
             state.editorUsable = snapshot?.busy === false;
@@ -2692,7 +2707,7 @@ async function runComposedTuiScenario(scenario, options) {
                 state,
                 events,
                 screenText: terminal.getScreenText(),
-                scrollbackText: terminal.getScrollbackText(),
+                scrollbackText: finalScrollback,
                 actor: actor.diagnostics(),
                 artifactDir,
             };

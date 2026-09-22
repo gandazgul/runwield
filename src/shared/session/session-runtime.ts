@@ -116,6 +116,9 @@ export class SessionRuntime {
     getSessionSnapshot(...args: Parameters<RuntimeReads["getSessionSnapshot"]>) {
         return this.#reads.getSessionSnapshot(...args);
     }
+    getSessionProjectRoot(...args: Parameters<RuntimeReads["getSessionProjectRoot"]>) {
+        return this.#reads.getSessionProjectRoot(...args);
+    }
     getRuntimeActiveAgentName(...args: Parameters<RuntimeReads["getRuntimeActiveAgentName"]>) {
         return this.#reads.getRuntimeActiveAgentName(...args);
     }
@@ -163,6 +166,9 @@ export class SessionRuntime {
     }
     setProjectStateContext(...args: Parameters<RuntimeAgentSettings["setProjectStateContext"]>) {
         return this.#settings.setProjectStateContext(...args);
+    }
+    updateTutorialContext(...args: Parameters<RuntimeAgentSettings["updateTutorialContext"]>) {
+        return this.#settings.updateTutorialContext(...args);
     }
     runIsolatedAgent(...args: Parameters<RuntimeAgentSettings["runIsolatedAgent"]>) {
         return this.#settings.runIsolatedAgent(...args);

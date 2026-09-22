@@ -174,6 +174,8 @@ export class RuntimeReads {
         const hasRepairCheckpoint = workflowProgressFacts.some((fact) =>
             fact.kind === "validation_checkpoint" && (fact.state === "awaiting_repair" || Boolean(fact.repairKind))
         );
+        const tutorialContext = session.getTutorialContext?.() ||
+            (managedDormant ? managed?.tutorialContext || null : null);
         const workflowContext = baseWorkflowContext
             ? {
                 ...baseWorkflowContext,
@@ -202,6 +204,12 @@ export class RuntimeReads {
         const artifacts = managed && this.services.sessionStore
             ? this.services.sessionStore.listSessionArtifacts(managed.runwieldSessionId, managed.projectId)
             : [];
+        const planAssociations = activeSessionInfo?.planAssociations ||
+            (managed && this.services.sessionStore
+                ? this.services.sessionStore.listSessionPlanAssociations(managed.runwieldSessionId, managed.projectId)
+                    .filter((association) => Number.isInteger(association.committedGeneration))
+                    .map(({ committedGeneration: _committedGeneration, ...association }) => association)
+                : []);
         return {
             id: session.id,
             cwd: session.cwd,
@@ -252,12 +260,23 @@ export class RuntimeReads {
             activeTurnId: session.getActiveTurnId(),
             queuedMessages: this.queues.getQueuedMessages(session.id),
             workflowContext: workflowContext ? { ...workflowContext } : null,
-            planAssociations: activeSessionInfo?.planAssociations || [],
+            tutorialContext: tutorialContext
+                ? { ...tutorialContext, shownExplanationIds: [...tutorialContext.shownExplanationIds] }
+                : null,
+            planAssociations,
             artifacts,
             activeExecutionWorkflow: activeExecutionWorkflow ? { ...activeExecutionWorkflow } : null,
             systemContextTokens,
             ...contextCapacity,
         };
+    }
+
+    getSessionProjectRoot(sessionId: string) {
+        const session = this.services.sessionHost.getSession(sessionId);
+        if (!session) return null;
+        const managed = session.getManagedMetadata?.();
+        if (!managed || !this.services.sessionStore) return session.cwd;
+        return this.services.sessionStore.requireSessionProjectRoot(managed.projectId);
     }
 
     getRuntimeActiveAgentName(sessionId: string) {

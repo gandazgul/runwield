@@ -2,6 +2,7 @@ import { RuntimeEventTypes } from ".././session-runtime-events.js";
 import { captureTranscriptEvidence, toProjectionFailure } from ".././session-transcript-projection.js";
 import { projectAggregateTranscript } from ".././session-transcript-manifest.ts";
 import { dirname } from "@std/path";
+import { normalizeTutorialContext } from "../tutorial-context-session.ts";
 import { normalizeWorkflowContext } from "../workflow-context-session.js";
 
 import { isSameManagedSyncState } from "./support.ts";
@@ -164,6 +165,7 @@ export class RuntimeManagedSync {
                     ? summary.thinkingLevel
                     : managed.thinkingLevel ?? null,
                 workflowContext: normalizeWorkflowContext(summary.workflowContext) ?? managed.workflowContext ?? null,
+                tutorialContext: normalizeTutorialContext(summary.tutorialContext) ?? managed.tutorialContext ?? null,
                 syncState: {
                     type: RuntimeEventTypes.MANAGED_SYNC_STATE_CHANGED,
                     status: activeElsewhere ? "active_elsewhere" : "current",

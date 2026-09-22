@@ -8,6 +8,7 @@ export interface InteractiveSessionOptions {
     initialAgentName?: string;
     sessionStartMode?: "new" | "continue";
     resumeSessionId?: string;
+    startupIntent?: "onboard";
 }
 
 export interface InteractiveSessionPort {

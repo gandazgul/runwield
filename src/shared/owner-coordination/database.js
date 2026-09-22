@@ -237,11 +237,6 @@ function fileExists(path) {
     }
 }
 
-/** @param {string} value */
-function quoteSqlString(value) {
-    return `'${value.replaceAll("'", "''")}'`;
-}
-
 /**
  * @param {string} dbPath
  * @param {number} sourceVersion
@@ -265,7 +260,10 @@ function backupOwnerDatabase(db, dbPath, sourceVersion, now) {
     if (!dbPath || dbPath === ":memory:" || !fileExists(dbPath)) return;
     const backupPath = backupPathFor(dbPath, sourceVersion, now);
     Deno.mkdirSync(dirname(backupPath), { recursive: true, mode: 0o700 });
-    db.exec(`VACUUM INTO ${quoteSqlString(backupPath)}`);
+    // node:sqlite cannot open a VACUUM INTO destination in this runtime. Checkpoint
+    // WAL content before copying so the backup includes all committed data.
+    db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+    Deno.copyFileSync(dbPath, backupPath);
     try {
         Deno.chmodSync(backupPath, 0o600);
     } catch {
@@ -285,5 +283,14 @@ function backupOwnerDatabase(db, dbPath, sourceVersion, now) {
         }
     } finally {
         backup.close();
+        // This node:sqlite build creates empty sidecars while opening the new
+        // backup read-only. They are inspection artifacts, not backup data.
+        for (const suffix of ["-wal", "-shm"]) {
+            try {
+                Deno.removeSync(`${backupPath}${suffix}`);
+            } catch {
+                // The SQLite build did not create this sidecar.
+            }
+        }
     }
 }

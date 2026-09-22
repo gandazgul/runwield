@@ -90,6 +90,15 @@ Deno.test("update command is CLI-only and upgrade resolves to update", () => {
     assertEquals(getSlashCommandDefinitions().some((definition) => definition.name === "update"), false);
 });
 
+Deno.test("onboard is a CLI command and a TUI-only slash command", () => {
+    const command = getCommandDefinition("onboard");
+    assertEquals(command?.name, "onboard");
+    assertEquals(command ? hasCommandSurface(command, "cli") : false, true);
+    assertEquals(getSlashCommandDefinition("onboard", "tui")?.name, "onboard");
+    assertEquals(getSlashCommandDefinition("onboard", "acp"), undefined);
+    assertEquals(getSlashCommandDefinition("onboard", "workspace"), undefined);
+});
+
 Deno.test("workspace command is CLI-only", () => {
     const command = getCommandDefinition("workspace");
     assertEquals(command?.name, "workspace");

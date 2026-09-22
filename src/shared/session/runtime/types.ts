@@ -74,6 +74,7 @@ export interface PromptSessionOptions {
     modelOverride?: string;
     preparedModelOverride?: string;
     namedInvocationPayload?: NamedInvocationPayload;
+    initialTutorialContext?: import("../tutorial-context-session.ts").TutorialContext;
     signal?: AbortSignal;
     planName?: string;
     planContent?: string;

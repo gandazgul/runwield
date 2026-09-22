@@ -284,8 +284,8 @@ flows.
 ## Slash commands
 
 Type `/` in the editor for completion. TUI shows all interactive commands. ACP advertises and runs the same shared
-commands except `/copy`, `/theme`, `/quit`, `/exit`, `/new`, `/resume`, and `/login`. Workspace hides `/theme`, `/quit`,
-and `/exit` and keeps its browser navigation commands.
+commands except `/copy`, `/theme`, `/quit`, `/exit`, `/new`, `/resume`, `/login`, and `/onboard`. Workspace hides
+`/theme`, `/quit`, `/exit`, and `/onboard` and keeps its browser navigation commands.
 
 | Command          | Description                                                                     |
 | ---------------- | ------------------------------------------------------------------------------- |
@@ -295,6 +295,7 @@ and `/exit` and keeps its browser navigation commands.
 | `/model`         | Switch active model.                                                            |
 | `/agent`         | Switch active agent.                                                            |
 | `/init`          | Initialize the current project.                                                 |
+| `/onboard`       | Guide one real change through the normal Plan workflow.                         |
 | `/load-plan`     | Continue a saved plan.                                                          |
 | `/resume`        | Browse and resume a recent session.                                             |
 | `/new`           | Start a new root session.                                                       |
@@ -308,6 +309,13 @@ and `/exit` and keeps its browser navigation commands.
 | `/export`        | Export the current session to HTML or JSONL.                                    |
 | `/share`         | Export and upload the session as a secret GitHub Gist.                          |
 | `/quit`, `/exit` | Exit.                                                                           |
+
+`/onboard` is TUI-only. Before it starts, RunWield shows the current project path and warns that the Tutorial makes a
+real change and uses the configured model. **Skip** permanently disables automatic offers across projects, but the
+explicit command remains available. The Plan Review teaching checkpoint can continue guidance, continue the workflow
+without guidance, or pause by requesting normal Escape cancellation. RunWield reports the settled workflow state rather
+than claiming immediate suspension. Resuming a saved Session asks whether to restore guidance. Saved guidance and shown
+explanations survive execution and repair transcript rollover. Ctrl+C first clears input.
 
 Prompt templates and skills can also appear as slash commands. Core resolves them the same way in TUI, Workspace, and
 ACP. Prompt Templates run one auxiliary turn and then restore the root profile; Skills expand into the current Agent's
@@ -331,6 +339,7 @@ wld plans unshare <plan>         # destructively delete a remote Shared Space
 wld load-plan <name-or-path>     # continue a plan
 wld wr [list|search|read|backfill|index rebuild] # Work Record retrieval and recovery
 wld init                         # initialize project context
+wld onboard                      # start the guided first-change Tutorial
 wld sleep                        # memory/context cleanup prompt
 wld theme <name>                 # set theme
 wld theme --list                 # list themes

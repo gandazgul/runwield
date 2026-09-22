@@ -6,6 +6,7 @@
 import { dirname, resolve } from "@std/path";
 import { ACTIVE_AGENT_CUSTOM_TYPE, readActiveAgentFromEntry } from "./active-agent-session.js";
 import { readPersistedWorkflowContext } from "./workflow-context-session.js";
+import { readPersistedTutorialContext } from "./tutorial-context-session.ts";
 import { readPlanAssociations } from "./plan-association.ts";
 import { normalizeRuntimeToolResult, normalizeRuntimeUsage, RuntimeEventTypes } from "./session-runtime-events.js";
 import { describeRuntimeTool } from "./tool-event-title.js";
@@ -733,13 +734,14 @@ export async function projectCommittedTranscript(options) {
  * is the active source of truth, such as idle continuation gates or hydration.
  *
  * @param {{ snapshot?: Record<string, any> | null } | null | undefined} projection
- * @returns {{ activeAgent: string | null, workflowContext: unknown | null, model: string | null, provider: string | null, thinkingLevel: string | null, planAssociations: import("./plan-association.ts").PlanAssociation[] }}
+ * @returns {{ activeAgent: string | null, workflowContext: unknown | null, tutorialContext: import('./tutorial-context-session.ts').TutorialContext | null, model: string | null, provider: string | null, thinkingLevel: string | null, planAssociations: import("./plan-association.ts").PlanAssociation[] }}
  */
 export function getCommittedTranscriptAuthorityFacts(projection) {
     const snapshot = projection?.snapshot || {};
     return {
         activeAgent: typeof snapshot.activeAgent === "string" && snapshot.activeAgent ? snapshot.activeAgent : null,
         workflowContext: snapshot.workflowContext || null,
+        tutorialContext: snapshot.tutorialContext || null,
         model: typeof snapshot.model === "string" && snapshot.model ? snapshot.model : null,
         provider: typeof snapshot.provider === "string" && snapshot.provider ? snapshot.provider : null,
         thinkingLevel: typeof snapshot.thinkingLevel === "string" && snapshot.thinkingLevel
@@ -865,6 +867,7 @@ export function summarizeProjectedEntries(entries) {
     let thinkingLevel = null;
     let executionBackend = null;
     const planAssociations = readPlanAssociations(entries);
+    const tutorialContext = readPersistedTutorialContext({ getEntries: () => entries });
     for (const entry of entries) {
         const value = /** @type {any} */ (entry || {});
         if ((value.type === "session" || value.type === "session_info") && typeof value.name === "string") {
@@ -892,6 +895,7 @@ export function summarizeProjectedEntries(entries) {
         provider,
         thinkingLevel,
         workflowContext,
+        tutorialContext,
         planAssociations,
         executionBackend,
     };
