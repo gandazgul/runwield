@@ -1,7 +1,7 @@
 import { assertEquals, assertExists, assertStringIncludes } from "@std/assert";
 import { executeWorkflowTestTools } from "../../testing/workflow-agent-tools.ts";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
-import { getWorktreeReviewDiff } from "../../shared/workflow/git-snapshot.js";
+import { captureWorktreeTree, diffTrees, getWorktreeReviewDiff } from "../../shared/workflow/git-snapshot.js";
 import { parseDiffFiles } from "../../shared/workflow/review-diff-tool.js";
 import {
     git,
@@ -73,10 +73,12 @@ Deno.test("AI, repair, and both human review surfaces receive the same patch", (
         await git(projectRoot, ["add", "."]);
         await git(projectRoot, ["commit", "-m", "execution baseline"]);
         const baselineTree = await git(projectRoot, ["rev-parse", "HEAD^{tree}"]);
-        await Deno.writeTextFile(`${projectRoot}/inherited.js`, "export const inherited = true;\n");
-        await git(projectRoot, ["add", "inherited.js"]);
-        await git(projectRoot, ["commit", "-m", "target behavior"]);
         await git(projectRoot, ["switch", "-c", "execution"]);
+        await git(projectRoot, ["switch", "target"]);
+        await Deno.writeTextFile(`${projectRoot}/target-only.js`, "export const targetOnly = true;\n");
+        await git(projectRoot, ["add", "target-only.js"]);
+        await git(projectRoot, ["commit", "-m", "target-only behavior"]);
+        await git(projectRoot, ["switch", "execution"]);
         const implementation = Array.from(
             { length: 40 },
             (_, index) => `export const planned${index} = true;`,
@@ -138,7 +140,9 @@ Deno.test("AI, repair, and both human review surfaces receive the same patch", (
 
         assertEquals(result.kind, "semantic_repair_handoff");
         const repairPatch = result.semanticRepairHandoff?.diffText;
-        const expectedPatch = await getWorktreeReviewDiff(projectRoot, "target");
+        const currentTree = await captureWorktreeTree(projectRoot);
+        const expectedPatch = await diffTrees(projectRoot, baselineTree, currentTree);
+        assertEquals(await getWorktreeReviewDiff(projectRoot, "target"), expectedPatch);
         const previousDisableBuiltServer = Deno.env.get("WLD_WORKSPACE_DISABLE_BUILT_SERVER");
         Deno.env.set("WLD_WORKSPACE_DISABLE_BUILT_SERVER", "1");
         const standalone = await startCodeReviewSurface({
@@ -194,7 +198,8 @@ Deno.test("AI, repair, and both human review surfaces receive the same patch", (
             assertEquals(repairPatch, expectedPatch);
             assertEquals(standalonePatch, expectedPatch);
             assertEquals(workspacePatch, expectedPatch);
-            assertEquals(expectedPatch.includes("inherited.js"), false);
+            assertStringIncludes(expectedPatch, "plan-change.js");
+            assertEquals(expectedPatch.includes("target-only.js"), false);
         } finally {
             workspace.close();
         }

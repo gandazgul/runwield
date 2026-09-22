@@ -222,7 +222,7 @@ Deno.test("runValidationPhase resumes at validated_ci and skips CI before record
     assertEquals(plan?.attrs.status, "validated_reviewer");
 });
 
-Deno.test("runValidationPhase reviews the target-relative worktree diff from validated_ci", async () => {
+Deno.test("runValidationPhase reviews the proposed branch patch from validated_ci", async () => {
     const expectedWorkflowContext = {
         routingIntent: "QUICK_FIX",
         complexity: "MEDIUM",
@@ -254,7 +254,7 @@ Deno.test("runValidationPhase reviews the target-relative worktree diff from val
     assertEquals(plan?.attrs.status, "validated_reviewer");
 });
 
-Deno.test("AI review and repair receive the same target-relative patch", async () => {
+Deno.test("AI review and repair receive the same proposed branch patch", async () => {
     const projectRoot = await makeValidationProjectRoot("p", {
         classification: "QUICK_FIX",
         status: "validated_ci",
