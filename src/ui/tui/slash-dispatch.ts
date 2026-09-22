@@ -75,6 +75,7 @@ export interface SlashContext {
     replaceRuntimeSession?(nextSessionId: string): void;
     notifyRunWieldEvent?(eventName: string, options?: NotificationOptions): Promise<void> | void;
     dispatchExpandedUserRequest?(text: string, images: ImageAttachment[]): Promise<void>;
+    beginOnboarding?(): Promise<void>;
     generationGuard: GenerationGuard;
 }
 
@@ -167,6 +168,7 @@ async function dispatchBuiltin(
             originalHandleInput: ctx.originalHandleInput,
             replaceRuntimeSession: ctx.replaceRuntimeSession,
             notifyRunWieldEvent,
+            beginOnboarding: ctx.beginOnboarding,
             slashSurface: "tui",
         });
     } catch (error) {

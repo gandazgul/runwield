@@ -39,6 +39,12 @@ interface RuntimeMutationResult {
     provider?: string;
     changed?: boolean;
 }
+interface TutorialContextMutationResult {
+    ok: boolean;
+    error?: string;
+    tutorialContext?: import("../tutorial-context-session.ts").TutorialContext | null;
+}
+
 interface RuntimeThinkingResult {
     ok: boolean;
     error?: string;
@@ -226,6 +232,33 @@ export class RuntimeAgentSettings {
             session.setProjectStateContext(context);
             return { ok: true };
         }, { activateAgent: false });
+    }
+
+    async updateTutorialContext(
+        sessionId: string,
+        update: import("../tutorial-context-session.ts").TutorialContextUpdate,
+    ): Promise<TutorialContextMutationResult> {
+        const session = this.services.sessionHost.getSession(sessionId);
+        const managed = session?.getManagedMetadata?.() || null;
+        if (!session || !managed) return { ok: false, error: "not_managed" };
+        if (!this.services.sessionStore) return { ok: false, error: "session_store_unavailable" };
+        const committedPlanAssociations = this.services.sessionStore.listSessionPlanAssociations(
+            managed.runwieldSessionId,
+            managed.projectId,
+        );
+        try {
+            return await this.managedOperations.runManagedStandaloneMutation(
+                sessionId,
+                "workflow_operation",
+                (activeSession) => ({
+                    ok: true,
+                    tutorialContext: activeSession.updateTutorialContext(update, committedPlanAssociations),
+                }),
+                { activateAgent: false },
+            );
+        } catch (error) {
+            return { ok: false, error: error instanceof Error ? error.message : String(error) };
+        }
     }
 
     async runIsolatedAgent(

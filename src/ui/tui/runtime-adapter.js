@@ -8,6 +8,7 @@ import { normalizeAgentInternalName } from "../../shared/session/agents.js";
 import { formatImageAttachmentMarker } from "../../shared/session/image-attachments.js";
 import { createTuiInteractionAdapter } from "./runtime-interaction-adapter.js";
 import { setTerminalTitleForName } from "./terminal-title.ts";
+import { presentTutorialEvent } from "./tutorial-guidance.ts";
 
 const HIDDEN_TOOL_BLOCK_NAMES = new Set(["task_completed", "review_complete", "triage_report", "user_interview"]);
 
@@ -52,6 +53,7 @@ function collectRuntimeDisplayImages(value) {
 /**
  * @typedef {Object} TuiRuntimeAdapterRegistration
  * @property {() => void} dispose
+ * @property {(options?: { discard?: boolean }) => void} resumeTutorialPresentation
  */
 
 /** @type {WeakMap<import('../../shared/session/session-runtime.ts').SessionRuntime, Map<string, TuiRuntimeAdapterRegistration>>} */
@@ -65,6 +67,7 @@ const activeAdapters = new WeakMap();
  * @property {import('../../shared/browser-port.ts').BrowserPort} browser
  * @property {typeof import('./system-notifications.ts').notifyRunWieldEventQuietly} notifyRunWieldEvent
  * @property {(replacement: { oldSessionId: string, newSessionId: string }) => void} [onSessionReplaced]
+ * @property {boolean} [pauseTutorialPresentation]
  */
 
 /**
@@ -80,7 +83,7 @@ export function formatQueuedMessageText(message) {
 
 /**
  * @param {TuiRuntimeAdapterOptions} options
- * @returns {{ dispose: () => void }}
+ * @returns {TuiRuntimeAdapterRegistration}
  */
 export function attachTuiRuntimeAdapter({
     runtime,
@@ -89,6 +92,7 @@ export function attachTuiRuntimeAdapter({
     browser,
     notifyRunWieldEvent,
     onSessionReplaced,
+    pauseTutorialPresentation = false,
 }) {
     let registrations = activeAdapters.get(runtime);
     if (!registrations) {
@@ -116,6 +120,19 @@ export function attachTuiRuntimeAdapter({
     let hiddenValidationReportCached = false;
     /** @type {Set<string>} */
     const seenProjectedEventIds = new Set();
+    let tutorialPresentation = Promise.resolve();
+    let tutorialPresentationPaused = pauseTutorialPresentation;
+    /** @type {import('../../shared/session/session-runtime-events.js').SessionRuntimeEvent[]} */
+    const bufferedTutorialEvents = [];
+    /**
+     * @param {import('../../shared/session/session-runtime-events.js').SessionRuntimeEvent} event
+     * @param {string} [tutorialSessionId]
+     */
+    const queueTutorialPresentation = (event, tutorialSessionId = sessionId) => {
+        tutorialPresentation = tutorialPresentation
+            .then(() => presentTutorialEvent({ runtime, sessionId: tutorialSessionId, uiAPI, event }))
+            .catch((error) => console.error(`[RunWield] tutorial_presentation_failed ${error}`));
+    };
     const shouldCacheValidationReport = () => {
         if (validationSessionActive) return true;
         return currentRoutingIntent === "PLANNED_CHANGE" || currentRoutingIntent === "FEATURE" ||
@@ -351,6 +368,13 @@ export function attachTuiRuntimeAdapter({
                 break;
             }
         }
+        if (tutorialPresentationPaused) bufferedTutorialEvents.push(event);
+        else {
+            const tutorialSessionId = event.type === RuntimeEventTypes.SESSION_REPLACED
+                ? value.newSessionId
+                : sessionId;
+            queueTutorialPresentation(event, tutorialSessionId);
+        }
     });
 
     for (const message of initialSnapshot?.queuedMessages || []) {
@@ -359,6 +383,14 @@ export function attachTuiRuntimeAdapter({
 
     let disposed = false;
     const registration = {
+        /** @param {{ discard?: boolean }} [options] */
+        resumeTutorialPresentation(options = {}) {
+            if (!tutorialPresentationPaused) return;
+            tutorialPresentationPaused = false;
+            const buffered = bufferedTutorialEvents.splice(0);
+            if (options.discard) return;
+            for (const event of buffered) queueTutorialPresentation(event);
+        },
         dispose() {
             if (disposed) return;
             disposed = true;

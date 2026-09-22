@@ -288,6 +288,7 @@ export class RuntimeManagedOperations {
                 name: name || acquired.session.displayName,
                 activeAgent: null,
                 workflowContext: null,
+                tutorialContext: null,
                 syncState: {
                     type: RuntimeEventTypes.MANAGED_SYNC_STATE_CHANGED,
                     status: "syncing",
@@ -365,6 +366,7 @@ export class RuntimeManagedOperations {
                 provider: managedModelState.provider,
                 thinkingLevel: hostedSession.getThinkingLevel?.() || managed.thinkingLevel || "off",
                 workflowContext: hostedSession.getWorkflowContext?.() || managed.workflowContext || null,
+                tutorialContext: hostedSession.getTutorialContext?.() || managed.tutorialContext || null,
             });
             this.clearPendingCreationProof(hostedSession.id);
             this.lifecycle.clearPendingProject(hostedSession.id);
@@ -490,6 +492,10 @@ export class RuntimeManagedOperations {
         }
         if (!this.services.sessionStore) throw new Error("Session coordination is unavailable");
         const state = this.services.sessionStore.inspectSessionActivation(managed.runwieldSessionId);
+        const committedPlanAssociations = this.services.sessionStore.listSessionPlanAssociations(
+            managed.runwieldSessionId,
+            managed.projectId,
+        );
         const latestGeneration = state.generation?.generation ?? null;
         const options = descriptor.options || {};
         const expectedGeneration = options.expectedGeneration ?? managed.generation ?? latestGeneration ?? null;
@@ -642,6 +648,9 @@ export class RuntimeManagedOperations {
                 managedSegmentCwd: managedProjectSessionDir ? generationSegment?.transcriptCwd : undefined,
             });
             hostedSession.setRootSessionManager(sessionManager, capability);
+            if (options.initialTutorialContext !== undefined) {
+                hostedSession.updateTutorialContext(options.initialTutorialContext, committedPlanAssociations);
+            }
             const pairRootConfiguration = resolvePersistedPairRootConfiguration(hostedSession);
             const preparedModelOverride = "preparedModelOverride" in options &&
                     typeof options.preparedModelOverride === "string"
@@ -736,6 +745,7 @@ export class RuntimeManagedOperations {
                 provider: managedModelState.provider,
                 thinkingLevel: hostedSession.getThinkingLevel?.() || managed.thinkingLevel || "off",
                 workflowContext: hostedSession.getWorkflowContext?.() || managed.workflowContext || null,
+                tutorialContext: hostedSession.getTutorialContext?.() || managed.tutorialContext || null,
             };
             hostedSession.dehydrateManagedSession();
             this.queues.removeAllQueueSourceSubscriptions(sessionId);

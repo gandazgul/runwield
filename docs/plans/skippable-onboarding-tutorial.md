@@ -16,8 +16,15 @@ executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-09-11"
 origin: "internal"
-status: "ready_for_work"
 userVerifiedAt: null
+targetBranch: "main"
+status: "validated"
+validatedCommit: "6154c43495761781b3fe2cd2ca85a9640f8a755b"
+workRecord:
+    status: "generated"
+    recordId: "05d1aa33-187b-4577-9be9-932a559522ea"
+    path: "docs/work-records/2026-09-22-delivered-skippable-onboarding-tutorial.md"
+    lastAttemptAt: "2026-09-22T16:17:42.129Z"
 ---
 
 # Skippable Onboarding Tutorial

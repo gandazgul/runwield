@@ -5,6 +5,7 @@
 
 import { dirname, resolve } from "@std/path";
 import { readCatalogSafeRootSessionLocator } from "./root-session.js";
+import type { TutorialContextCandidate } from "./tutorial-context-session.ts";
 import {
     buildProjectedSessionInfo,
     captureTranscriptEvidence,
@@ -78,6 +79,12 @@ type AggregateProjectionFailure = {
     events: [];
 };
 
+type ProjectedSessionSnapshot = {
+    activeAgent?: string | null;
+    tutorialContext?: TutorialContextCandidate | null;
+    [key: string]: unknown;
+};
+
 type AggregateProjectionResult = {
     ok: true;
     generation: number;
@@ -85,7 +92,7 @@ type AggregateProjectionResult = {
     nextCursor: string | null;
     nextCursorOrdinal: number | null;
     complete: boolean;
-    snapshot: { [key: string]: unknown };
+    snapshot: ProjectedSessionSnapshot;
     segments: VerifiedSegmentMetadata[];
     cursorReset: boolean;
     previousCursor?: string | null;

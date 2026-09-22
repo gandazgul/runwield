@@ -689,6 +689,44 @@ scope.
 - **Snip:** optional command-output filtering for compact diagnostics.
 - **Project context:** `docs/domain-language.md`, memories, settings, and Plan files provide durable project knowledge.
 
+**Requirement: Offer an optional guided first change.**
+
+On one eligible new TUI Session, RunWield offers a Tutorial after model setup and the Init decision. The offer
+identifies the current project and warns that starting will make a real project change, use the configured model,
+require Plan Review, and keep normal checks and delivery approvals. Start and Skip are explicit. The offer and Skip do
+not start a model turn or persist a Session, Plan, or repository file. A separately accepted Init can still write its
+own artifacts.
+
+Skip or offer cancellation permanently suppresses automatic Tutorial offers at the user level across restarts and
+projects. `/onboard` and interactive `wld onboard` remain available. Explicit entry shows consent before model setup or
+Init. Non-interactive CLI entry exits without work. Empty projects retain ordinary startup guidance and can use explicit
+entry after meaningful files exist.
+
+After Start, Planner inspects a bounded area and suggests at most three small changes before Plan authorship. The
+selected change uses normal Plan Review, approved execution, project checks, AI review, optional Code Review, delivery,
+and Work Record generation. Teaching messages follow real workflow events and do not approve, advance, or complete work.
+Only a RunWield Verified and published change receives the successful Tutorial recap. Manual verification, closure
+without verification, pauses, and failures remain distinct.
+
+**Acceptance scenarios:**
+
+- Given an eligible new TUI Session, when the offer appears, it shows the real-project warning and project path. Skip or
+  cancel returns to ordinary input with no Tutorial model call or repository artifact and suppresses later automatic
+  offers in this and other projects.
+- Given a permanent Skip, when the user runs `/onboard` or interactive `wld onboard`, the warning still appears before
+  setup, Init, discovery, or model work.
+- Given Start, when the user selects an improvement, one ordinary draft Plan enters Plan Review. Feedback, Approve for
+  Later, Approve & Run, validation, repair, Code Review, and delivery keep their normal meanings.
+- Given the Plan Review teaching checkpoint, the user can continue guidance, continue the workflow without guidance, or
+  request normal Escape cancellation. Given a later resume, RunWield asks before restoring saved guidance. Guidance,
+  shown explanations, and the associated Plan survive execution and repair transcript rollover without becoming workflow
+  authority.
+- Given Init's placeholder verification command, project-check teaching identifies it as a placeholder and does not
+  claim real test coverage.
+- Given a failed, paused, user-verified, closed-without-verification, or not-yet-verified workflow, the Tutorial does
+  not show a verified recap. Given confirmed RunWield Verified publication, the recap uses the Plan, Work Record, and
+  available review or QA artifacts.
+
 **Target: concise project briefing.** Provide compressed project context where useful without flooding every prompt.
 
 **Requirement: Glossary layout does not prescribe architecture.** A project may keep one glossary covering several
@@ -1175,7 +1213,9 @@ Required outcomes:
 - after a process failure, saved history remains available and the user receives a clear next action without silent
   repetition of unfinished work;
 - Plan review and execution use the current Plan and preserve the user's explicit approval choices;
-- rebuilding Workspace registration or pairing does not prevent TUI or ACP from using intact local Sessions.
+- rebuilding Workspace registration or pairing does not prevent TUI or ACP from using intact local Sessions;
+- TUI Tutorial guidance state survives execution and semantic-repair transcript rollover without becoming workflow
+  lifecycle authority. Workspace-native Tutorial controls remain deferred.
 
 The file storage, operation-scoped writer lock, transcript segments, and synchronization design live in
 [ADR-015](../adr/015-file-authoritative-session-bundles.md). These mechanisms implement the outcomes above; they do not
@@ -1204,6 +1244,9 @@ surface.
 - When a connection retry repeats the same submission, it does not start duplicate work; process loss leaves history and
   an actionable recovery choice.
 - When Workspace registration is rebuilt, intact local Sessions remain available through TUI and ACP.
+- Given a Tutorial-enabled Session, when work pauses, reloads, or rolls into execution or semantic repair, TUI guidance
+  resumes from committed Session context without repeating explanations, discovery, implementation, or publication.
+  Choosing ordinary continuation keeps guidance off while preserving the Plan and workflow.
 
 ### Capability-organized product requirements
 
