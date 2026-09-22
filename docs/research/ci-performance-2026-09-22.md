@@ -603,3 +603,74 @@ loader work; it does not make their real Git and durable-write work disappear. F
 operations before changing persistence or adding caches. The earlier trace found no identical manifest rewrites to skip
 safely. Raising concurrency should also be remeasured on an idle host now that loader overhead is lower; an unmeasured
 increase would not establish a gain.
+
+## Source publication follow-up
+
+The last combined run ranked source test files as follows. These are contended per-file times, not idle-host timings:
+
+| Source test file                                            |   Time |
+| ----------------------------------------------------------- | -----: |
+| `src/cmd/load-plan/publication-cleanup.integration.test.ts` | 223.5s |
+| `src/shared/workflow/publication-machine.e2e.test.ts`       | 178.3s |
+| `src/cmd/load-plan/index.integration.test.ts`               | 178.1s |
+| `src/cmd/load-plan/plan-recovery-flow.test.ts`              | 107.4s |
+
+The longest individual test container was the publication process-death matrix (124.25s), followed by the real-Git
+failure/recovery matrix (100.61s). Both contain multiple separately asserted recovery cases. Docs branch publication was
+next at 62.55s. Pre-test gates were much smaller: the slowest gate took 11.72s and gates ran concurrently.
+
+The eight-worker test runner was already close to fully occupied: its recorded file durations totalled 4,517.7 worker
+seconds, implying a 564.7s floor for that measured workload, versus 566.2s elapsed. Splitting long files alone would
+therefore not materially reduce local CI at the same concurrency and per-case cost. This prioritizes reducing repeated
+work over rearranging files.
+
+### Remove duplicate publication preflights
+
+Publication reads, starts, phase advances, failure recording, and cleanup previously performed an immediate runtime
+preflight before delegating to code that performed it again. The retained change uses the existing registry-boundary
+validation for reads/writes and reconciliation's validation before cleanup. No-op phase returns still explicitly
+validate, because they do not reach a registry operation. Registry locks, migration checks, Git safety rules, actual
+filesystem writes, and sync behavior are unchanged. There is no new cache or injection seam.
+
+The same 34 cleanup/recovery cases passed before and after, with identical JUnit names:
+
+| Actual command count | Before | After |   Reduction |
+| -------------------- | -----: | ----: | ----------: |
+| All Git calls        |  7,486 | 6,922 |  564 (7.5%) |
+| Worktree listings    |  1,578 | 1,296 | 282 (17.9%) |
+| Migration Git checks |  2,946 | 2,382 | 564 (19.1%) |
+
+Whole-file profiling took 93.22s before and 159.42s afterward while other validation workloads changed. That does not
+establish a whole-file timing improvement. A separate paired experiment alternated the original and updated real
+publication APIs for eight pairs, each using its own real committed Git fixture and persisted registry. Median time for
+six publication read/write/retry operations fell from **354.90ms to 251.19ms (29.2%)**; all eight pairs improved. The
+original implementation was loaded only from a temporary source copy for that diagnostic, then removed. No original test
+was replaced by this experiment.
+
+A new regression stages a real runtime file in Git after a successful publication start. It checks that load, resume,
+advance, repeat-phase, failure recording, reconciliation, and cleanup all reject it without changing the receipt or the
+staged file. Removing the hazard permits a fresh write and read. The three-file focused runtime/Git-safety check passed.
+Evidence is in `/private/tmp/runwield-publication-speed/`: paired trials, both full profiles, matching JUnit
+inventories, `comparison.json`, and validation logs.
+
+### Source validation
+
+`deno task ci --source-only` passed all ten pre-test gates and **416 files / 3,679 reported cases and steps**: **3,677
+passed, two existing Windows-only skips, zero failures**. CI took **400.30s (6m40s)**; the test runner took 374.26s.
+Other CI work overlapped part of the run. The three affected Golden publication/PROJECT files then passed all **13
+unchanged cases** in 51.96s.
+
+Compared with the older archived full-suite inventory, unrelated merged work also renamed and added source tests. That
+comparison is therefore not a claim of an identical whole-repository inventory. This change retains every original
+publication-machine test and adds one regression with seven steps. The profiled 34-case cleanup inventory and the
+13-case affected Golden inventory match exactly.
+
+The latest source-only run still ranks cleanup/recovery first (253.0s), publication end-to-end second (207.2s), and
+load-plan integration third (198.6s). Its longest individual test container is the crash-boundary matrix at 160.8s.
+These loaded-run timings should not be compared directly with older isolated or differently contended timings. The
+paired API measurements and reduced command counts are the demonstrated improvement; they do not imply a 29% reduction
+in total CI time. Further work should target remaining repeated Git inspection and fixture construction before more
+runner rearrangement, while preserving real crash/recovery behavior and durable writes.
+
+Saved validation: `/private/tmp/runwield-publication-speed/validation-summary.json`, `source-report/`,
+`ci-source-tasks.json`, and `golden-report/`. Successful CI output remains its task invocation and one pass summary.
