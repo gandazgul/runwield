@@ -396,6 +396,10 @@ export async function migrateLegacyProjectRuntimeState(
                     cleanupInternalRoot = true;
                     return locked;
                 }
+                // A crashed atomic writer can leave bytes that were never
+                // committed by rename. Only the journal/marker paths are authority.
+                // The migration lock excludes a writer still using these temps.
+                await discardMigrationTemporaryWrites(layout.primary.internalRoot);
                 const lockedUnchanged = await completeMarkerNeedsNoWork(layout, lockedMarker.marker, locked, {
                     ignoreMigrationLock: true,
                 });
@@ -545,6 +549,7 @@ async function completeMarkerNeedsNoWork(
         !preflightResult.selectedCheckoutRoots.every((root) => marker.adoptedSelectedCheckoutRoots.includes(root))
     ) return false;
     return !(await lstatOrNull(layout.primary.layoutMigrationJournalPath)) &&
+        (await migrationTemporaryWrites(layout.primary.internalRoot)).length === 0 &&
         (options.ignoreMigrationLock || !(await lstatOrNull(layout.primary.layoutMigrationLockPath)));
 }
 
@@ -1108,6 +1113,8 @@ async function currentConflictsInRoot(
     const conflicts: string[] = [];
     for (const entry of entries) {
         if (allowedRootNames.has(entry.name)) continue;
+        const temporaryAuthority = migrationTemporaryAuthority(entry.name);
+        if (entry.isFile && temporaryAuthority && allowedRootNames.has(temporaryAuthority)) continue;
         const path = join(internalRoot, entry.name);
         if (allowedPaths.has(path)) continue;
         if (await isEmptyDirectory(path)) continue;
@@ -1827,6 +1834,30 @@ async function atomicWriteJson(path: string, value: MigrationJournal | LayoutMar
             if (!(error instanceof Deno.errors.NotFound)) throw error;
         });
     }
+}
+
+function migrationTemporaryAuthority(name: string): string | undefined {
+    // Match only names produced by atomicWriteJson for the two migration files,
+    // not arbitrary .tmp files, directories, or temporary writes from other owners.
+    return /^(layout(?:-migration)?\.json)\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.tmp$/
+        .exec(name)?.[1];
+}
+
+async function migrationTemporaryWrites(internalRoot: string): Promise<string[]> {
+    const entries = await safeReadDir(internalRoot);
+    return (entries || [])
+        .filter((entry) => entry.isFile && migrationTemporaryAuthority(entry.name))
+        .map((entry) => join(internalRoot, entry.name));
+}
+
+async function discardMigrationTemporaryWrites(internalRoot: string): Promise<void> {
+    const paths = await migrationTemporaryWrites(internalRoot);
+    for (const path of paths) {
+        await Deno.remove(path).catch((error) => {
+            if (!(error instanceof Deno.errors.NotFound)) throw error;
+        });
+    }
+    if (paths.length > 0) await syncDirectory(internalRoot);
 }
 
 async function acquireMigrationLock(lockPath: string): Promise<{ release: () => Promise<void> }> {

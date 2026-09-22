@@ -1483,6 +1483,110 @@ Deno.test("legacy migration resumes after a subprocess stops at each effect boun
     }
 });
 
+for (const effect of ["journal-initial-write", "journal-progress-write", "marker-write"] as const) {
+    Deno.test(`atomic migration writes recover after process death at ${effect}`, async () => {
+        const project = await makeMigrationProject();
+        try {
+            const layout = resolveProjectRuntimeLayout(project.selectedRoot);
+            const primaryBase = getRunWieldRuntimeDir(project.primaryRoot);
+            await writeText(join(primaryBase, "controller/plans/plan.json"), "controller evidence\n");
+            await writeText(
+                join(getRunWieldRuntimeDir(project.selectedRoot), "plan-transitions/pending.json"),
+                "transition evidence\n",
+            );
+            const child = spawnDriver("migrate-exit-after-effect", project.selectedRoot, effect);
+            const [status, stdout, stderr] = await Promise.all([
+                child.status,
+                new Response(child.stdout).text(),
+                new Response(child.stderr).text(),
+            ]);
+            assertEquals(status.code, 86, `${stdout}${stderr}`);
+            const temps: string[] = [];
+            for await (const entry of Deno.readDir(layout.primary.internalRoot)) {
+                if (entry.name.endsWith(".tmp")) temps.push(join(layout.primary.internalRoot, entry.name));
+            }
+            assertEquals(temps.length, 1, "The process must leave its actual uncommitted atomic write.");
+            const result = await migrateLegacyProjectRuntimeState(project.selectedRoot);
+            assertEquals(result.kind, "ready", JSON.stringify(result));
+            assertEquals(
+                await Deno.readTextFile(join(layout.primary.controllerPlansDir, "plan.json")),
+                "controller evidence\n",
+            );
+            assertEquals(
+                await Deno.readTextFile(join(layout.selected.transitionJournalsDir, "pending.json")),
+                "transition evidence\n",
+            );
+            for (const path of temps) await assertMissing(path);
+            await assertMissing(layout.primary.layoutMigrationJournalPath);
+            const again = await migrateLegacyProjectRuntimeState(project.selectedRoot);
+            assertEquals(again.kind, "ready", JSON.stringify(again));
+        } finally {
+            await project.cleanup();
+        }
+    });
+}
+
+Deno.test("atomic migration writes discard incomplete temporary bytes without adopting them", async () => {
+    const project = await makeMigrationProject();
+    try {
+        const layout = resolveProjectRuntimeLayout(project.selectedRoot);
+        await writeText(
+            join(getRunWieldRuntimeDir(project.primaryRoot), "controller/plans/plan.json"),
+            "saved evidence\n",
+        );
+        const journalTemp = `${layout.primary.layoutMigrationJournalPath}.${crypto.randomUUID()}.tmp`;
+        const markerTemp = `${layout.primary.layoutMarkerPath}.${crypto.randomUUID()}.tmp`;
+        await writeText(journalTemp, "{");
+        await writeText(markerTemp, "");
+        const result = await migrateLegacyProjectRuntimeState(project.selectedRoot);
+        assertEquals(result.kind, "ready", JSON.stringify(result));
+        assertEquals(await Deno.readTextFile(join(layout.primary.controllerPlansDir, "plan.json")), "saved evidence\n");
+        await assertMissing(journalTemp);
+        await assertMissing(markerTemp);
+        const marker = JSON.parse(await Deno.readTextFile(layout.primary.layoutMarkerPath));
+        assertEquals(marker.version, 1);
+        // A completed marker must not bypass cleanup of interrupted later writes.
+        await writeText(journalTemp, "{");
+        await writeText(markerTemp, "");
+        const repeated = await migrateLegacyProjectRuntimeState(project.selectedRoot);
+        assertEquals(repeated.kind, "ready", JSON.stringify(repeated));
+        await assertMissing(journalTemp);
+        await assertMissing(markerTemp);
+        assertEquals(await Deno.readTextFile(join(layout.primary.controllerPlansDir, "plan.json")), "saved evidence\n");
+    } finally {
+        await project.cleanup();
+    }
+});
+
+for (const kind of ["unrelated file", "directory", "symlink"] as const) {
+    Deno.test(`atomic migration writes preserve a ${kind} resembling a temporary write`, async () => {
+        const project = await makeMigrationProject();
+        try {
+            const layout = resolveProjectRuntimeLayout(project.selectedRoot);
+            const path = kind === "unrelated file"
+                ? `${layout.primary.layoutMarkerPath}.user.tmp`
+                : `${layout.primary.layoutMarkerPath}.${crypto.randomUUID()}.tmp`;
+            const sentinel = join(project.primaryRoot, "user-sentinel.txt");
+            await writeText(sentinel, "keep this\n");
+            await Deno.mkdir(layout.primary.internalRoot, { recursive: true });
+            if (kind === "symlink") await Deno.symlink(sentinel, path);
+            else if (kind === "directory") await writeText(join(path, "sentinel.txt"), "keep this\n");
+            else await writeText(path, "keep this\n");
+            const result = await migrateLegacyProjectRuntimeState(project.selectedRoot);
+            assertEquals(result.kind, "blocked", JSON.stringify(result));
+            if (result.kind !== "blocked") throw new Error("Expected protected runtime entry");
+            assertEquals(result.reason, kind === "symlink" ? "symlink" : "authority_conflict");
+            assertEquals(await Deno.readTextFile(sentinel), "keep this\n");
+            assertEquals(
+                await Deno.readTextFile(kind === "directory" ? join(path, "sentinel.txt") : path),
+                "keep this\n",
+            );
+        } finally {
+            await project.cleanup();
+        }
+    });
+}
+
 Deno.test("registry operation does not reenter recovery while holding its current lock", async () => {
     const project = await makeMigrationProject();
     try {

@@ -18,6 +18,9 @@ interface LegacyWorkRecordLockRecord {
 }
 
 type MigrationExitEffect =
+    | "journal-initial-write"
+    | "journal-progress-write"
+    | "marker-write"
     | "journal-commit"
     | "primary-rename"
     | "secret-rename"
@@ -147,6 +150,7 @@ async function writeJsonFile(file: Deno.FsFile, text: string): Promise<void> {
 
 function parseMigrationExitEffect(value: string | undefined): MigrationExitEffect {
     if (
+        value === "journal-initial-write" || value === "journal-progress-write" || value === "marker-write" ||
         value === "journal-commit" || value === "primary-rename" || value === "secret-rename" ||
         value === "selected-rename" ||
         value === "stale-lock-retirement" || value === "marker-replacement" || value === "journal-cleanup" ||
@@ -165,6 +169,13 @@ function installExitAfterEffect(checkoutRoot: string, effect: MigrationExitEffec
     Object.defineProperty(Deno, "rename", {
         configurable: true,
         value: async (from: string | URL, to: string | URL): Promise<void> => {
+            // Stop a real atomic write after its temporary bytes were synced,
+            // before rename commits them. No migration work is performed here.
+            if (to === layout.primary.layoutMigrationJournalPath) {
+                if (effect === "journal-initial-write") Deno.exit(86);
+                if (effect === "journal-progress-write" && await Deno.lstat(to).catch(() => null)) Deno.exit(86);
+            }
+            if (effect === "marker-write" && to === layout.primary.layoutMarkerPath) Deno.exit(86);
             await originalRename(from, to);
             if (typeof from === "string" && typeof to === "string" && shouldExitAfterRename(effect, from, to, layout)) {
                 Deno.exit(86);
