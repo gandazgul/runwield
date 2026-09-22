@@ -21,7 +21,7 @@ origin: "internal"
 userVerifiedAt: null
 routingIntent: "PLANNED_CHANGE"
 targetBranch: "main"
-status: "implemented"
+status: "validated_reviewer"
 ---
 
 # Show PR-Style Patches in Browser and AI Review

@@ -2,7 +2,12 @@
 import { dirname, join, resolve } from "@std/path";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { resolvePrimaryCheckoutRoot } from "../primary-checkout.ts";
-import { enterProjectRuntime, resolveProjectRuntimeLayout } from "../project-runtime-layout.ts";
+import {
+    enterProjectRuntime,
+    invalidateProjectRuntimeReadScope,
+    resolveProjectRuntimeLayout,
+    withProjectRuntimeReadScope,
+} from "../project-runtime-layout.ts";
 import { inspectWorktreeRegistry, inspectWorktreeRegistryAtPath } from "../worktree-registry.js";
 import { isPublicationCleanupPending } from "./publication-attempt.ts";
 import {
@@ -209,42 +214,47 @@ export async function writeControllerState(
     updates: WorkflowControllerState,
     options: ControllerWriteOptions = {},
 ): Promise<ControllerRecord> {
-    const path = await enteredControllerRecordPath(cwd, identity);
-    await Deno.mkdir(dirname(path), { recursive: true });
-    // Keep this inode: deleting a lock file lets a third process lock a different
-    // inode while an existing waiter still owns the original one.
-    const lock = await Deno.open(`${path}.lock`, { create: true, read: true, write: true });
+    invalidateProjectRuntimeReadScope();
     try {
-        await lock.lock(true);
-        // Runtime entry precedes the inode lock. Re-entering migration here
-        // could recover an old write and wait for the very lock we own.
-        const before = await readControllerRecordAtPath(dirname(path), identity);
-        if (options.initializeOnly && before) return before;
-        if (options.expectedRevision !== undefined && (before?.revision || 0) !== options.expectedRevision) {
-            throw new StaleControllerWriteError();
-        }
-        const recovery = options.recovery === undefined ? before?.recovery : options.recovery;
-        const record: ControllerRecord = {
-            version: 1,
-            revision: (before?.revision || 0) + 1,
-            ...identity,
-            state: { ...before?.state, ...pickControllerState(updates) },
-            ...(recovery ? { recovery } : {}),
-        };
-        if (
-            before && controllerStatesEqual(before.state, record.state) &&
-            JSON.stringify(before.recovery) === JSON.stringify(record.recovery)
-        ) return before;
-        await atomicWrite(path, record);
-        if (!options.initializeOnly) {
-            for (let scope = writes.getStore(); scope; scope = scope.parent) {
-                scope.revisions.set(path, record.revision);
-                if (!scope.previousRecovery.has(path)) scope.previousRecovery.set(path, before?.recovery);
+        const path = await enteredControllerRecordPath(cwd, identity);
+        await Deno.mkdir(dirname(path), { recursive: true });
+        // Keep this inode: deleting a lock file lets a third process lock a different
+        // inode while an existing waiter still owns the original one.
+        const lock = await Deno.open(`${path}.lock`, { create: true, read: true, write: true });
+        try {
+            await lock.lock(true);
+            // Runtime entry precedes the inode lock. Re-entering migration here
+            // could recover an old write and wait for the very lock we own.
+            const before = await readControllerRecordAtPath(dirname(path), identity);
+            if (options.initializeOnly && before) return before;
+            if (options.expectedRevision !== undefined && (before?.revision || 0) !== options.expectedRevision) {
+                throw new StaleControllerWriteError();
             }
+            const recovery = options.recovery === undefined ? before?.recovery : options.recovery;
+            const record: ControllerRecord = {
+                version: 1,
+                revision: (before?.revision || 0) + 1,
+                ...identity,
+                state: { ...before?.state, ...pickControllerState(updates) },
+                ...(recovery ? { recovery } : {}),
+            };
+            if (
+                before && controllerStatesEqual(before.state, record.state) &&
+                JSON.stringify(before.recovery) === JSON.stringify(record.recovery)
+            ) return before;
+            await atomicWrite(path, record);
+            if (!options.initializeOnly) {
+                for (let scope = writes.getStore(); scope; scope = scope.parent) {
+                    scope.revisions.set(path, record.revision);
+                    if (!scope.previousRecovery.has(path)) scope.previousRecovery.set(path, before?.recovery);
+                }
+            }
+            return record;
+        } finally {
+            lock.close();
         }
-        return record;
     } finally {
-        lock.close();
+        invalidateProjectRuntimeReadScope();
     }
 }
 
@@ -274,20 +284,22 @@ export async function readControllerWorktree(cwd: string, identity: WorkflowIden
 
 /** Document candidates include reopened Plans, but never expose retired attempt IDs as live. */
 export async function listControllerDocumentWorktrees(cwd: string) {
-    const registry = await inspectWorktreeRegistry(projectRoot(cwd));
-    const active = registry.entries.filter((entry) => entry.status !== "abandoned");
-    const selected = new Set(active.map((entry) => entry.planName));
-    const live = active.filter((entry) => !isPublicationCleanupPending(entry.publication));
-    const retired = registry.entries.filter((entry) => entry.status === "abandoned")
-        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-    for (const entry of retired) {
-        if (selected.has(entry.planName)) continue;
-        const controller = await readControllerRecord(cwd, { planName: entry.planName, planId: entry.planId });
-        if (controller?.state.documentWorktreeId !== entry.id) continue;
-        live.push(entry);
-        selected.add(entry.planName);
-    }
-    return live;
+    return await withProjectRuntimeReadScope(async () => {
+        const registry = await inspectWorktreeRegistry(projectRoot(cwd));
+        const active = registry.entries.filter((entry) => entry.status !== "abandoned");
+        const selected = new Set(active.map((entry) => entry.planName));
+        const live = active.filter((entry) => !isPublicationCleanupPending(entry.publication));
+        const retired = registry.entries.filter((entry) => entry.status === "abandoned")
+            .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+        for (const entry of retired) {
+            if (selected.has(entry.planName)) continue;
+            const controller = await readControllerRecord(cwd, { planName: entry.planName, planId: entry.planId });
+            if (controller?.state.documentWorktreeId !== entry.id) continue;
+            live.push(entry);
+            selected.add(entry.planName);
+        }
+        return live;
+    });
 }
 
 export type PendingControllerRepair = "import_legacy_state" | "clear_obsolete_recovery";
@@ -372,68 +384,70 @@ export async function loadControllerView(
     identity: WorkflowIdentity,
     legacy: WorkflowControllerState & WorkflowWorktreeContext,
 ) {
-    const lookup = await inspectControllerWorktree(cwd, identity);
-    const liveEntry = lookup.kind === "live" ? lookup.entry : null;
-    const attempt = liveEntry?.status === "planning" ? null : liveEntry;
-    const documentEntry = liveEntry?.status === "planning"
-        ? null
-        : liveEntry || (lookup.kind === "retired" ? lookup.entry : null);
-    let record = await readControllerRecord(cwd, identity);
-    if ((attempt || lookup.kind === "retired") && record?.recovery) {
-        // Once the registry owns the attempt, old import hints are finished.
-        // Keeping them would resurrect a phantom attempt after publication prunes it.
-        record = await writeControllerState(cwd, identity, {}, { recovery: null });
-    }
-    if (!record) {
-        // Only the execution copy may seed legacy state once execution exists.
-        // A stale primary document is never a fallback for missing runtime facts.
-        const mayImport = lookup.kind === "absent" ||
-            (attempt && canonicalPath(attempt.path) === canonicalPath(cwd));
-        if (
-            mayImport &&
-            (Object.values(pickControllerState(legacy)).some((value) => value != null) || legacy.worktreeId)
-        ) {
-            const recovery = !attempt && legacy.worktreeId
-                ? {
-                    worktreeId: legacy.worktreeId,
-                    worktreePath: legacy.worktreePath,
-                    worktreeBranch: legacy.worktreeBranch,
-                    worktreeBaseBranch: legacy.worktreeBaseBranch,
-                    worktreeBaseCommit: legacy.worktreeBaseCommit,
-                    worktreeStatus: legacy.worktreeStatus,
-                    executionBaselineTree: legacy.executionBaselineTree,
-                }
-                : undefined;
-            record = await writeControllerState(cwd, identity, pickControllerState(legacy), {
-                initializeOnly: true,
-                recovery,
-            });
+    return await withProjectRuntimeReadScope(async () => {
+        const lookup = await inspectControllerWorktree(cwd, identity);
+        const liveEntry = lookup.kind === "live" ? lookup.entry : null;
+        const attempt = liveEntry?.status === "planning" ? null : liveEntry;
+        const documentEntry = liveEntry?.status === "planning"
+            ? null
+            : liveEntry || (lookup.kind === "retired" ? lookup.entry : null);
+        let record = await readControllerRecord(cwd, identity);
+        if ((attempt || lookup.kind === "retired") && record?.recovery) {
+            // Once the registry owns the attempt, old import hints are finished.
+            // Keeping them would resurrect a phantom attempt after publication prunes it.
+            record = await writeControllerState(cwd, identity, {}, { recovery: null });
         }
-    }
-    const state = record?.state || {};
-    const worktree: WorkflowWorktreeContext = documentEntry && documentEntry.status !== "abandoned"
-        ? {
-            worktreeId: documentEntry.id,
-            worktreePath: documentEntry.path,
-            worktreeBranch: documentEntry.branch,
-            worktreeBaseBranch: documentEntry.baseBranch,
-            worktreeBaseCommit: documentEntry.baseCommit,
-            worktreeStatus: documentEntry.status === "validated" ? "completed" : documentEntry.status,
-            executionBaselineTree: documentEntry.status === "planning"
-                ? undefined
-                : documentEntry.executionBaselineTree || documentEntry.baseTree,
+        if (!record) {
+            // Only the execution copy may seed legacy state once execution exists.
+            // A stale primary document is never a fallback for missing runtime facts.
+            const mayImport = lookup.kind === "absent" ||
+                (attempt && canonicalPath(attempt.path) === canonicalPath(cwd));
+            if (
+                mayImport &&
+                (Object.values(pickControllerState(legacy)).some((value) => value != null) || legacy.worktreeId)
+            ) {
+                const recovery = !attempt && legacy.worktreeId
+                    ? {
+                        worktreeId: legacy.worktreeId,
+                        worktreePath: legacy.worktreePath,
+                        worktreeBranch: legacy.worktreeBranch,
+                        worktreeBaseBranch: legacy.worktreeBaseBranch,
+                        worktreeBaseCommit: legacy.worktreeBaseCommit,
+                        worktreeStatus: legacy.worktreeStatus,
+                        executionBaselineTree: legacy.executionBaselineTree,
+                    }
+                    : undefined;
+                record = await writeControllerState(cwd, identity, pickControllerState(legacy), {
+                    initializeOnly: true,
+                    recovery,
+                });
+            }
         }
-        : lookup.kind === "retired"
-        ? { worktreeStatus: "abandoned" }
-        : lookup.kind === "uncertain"
-        ? {}
-        : record?.recovery || {};
-    return {
-        state: {
-            ...state,
-            ...(attempt && attempt.status !== "abandoned" ? { executionMode: "worktree" as const } : {}),
-            ...worktree,
-        },
-        revision: record?.revision || 0,
-    };
+        const state = record?.state || {};
+        const worktree: WorkflowWorktreeContext = documentEntry && documentEntry.status !== "abandoned"
+            ? {
+                worktreeId: documentEntry.id,
+                worktreePath: documentEntry.path,
+                worktreeBranch: documentEntry.branch,
+                worktreeBaseBranch: documentEntry.baseBranch,
+                worktreeBaseCommit: documentEntry.baseCommit,
+                worktreeStatus: documentEntry.status === "validated" ? "completed" : documentEntry.status,
+                executionBaselineTree: documentEntry.status === "planning"
+                    ? undefined
+                    : documentEntry.executionBaselineTree || documentEntry.baseTree,
+            }
+            : lookup.kind === "retired"
+            ? { worktreeStatus: "abandoned" }
+            : lookup.kind === "uncertain"
+            ? {}
+            : record?.recovery || {};
+        return {
+            state: {
+                ...state,
+                ...(attempt && attempt.status !== "abandoned" ? { executionMode: "worktree" as const } : {}),
+                ...worktree,
+            },
+            revision: record?.revision || 0,
+        };
+    });
 }

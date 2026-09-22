@@ -263,6 +263,9 @@ does not reset its lifecycle or decisions.
 - Given recreated empty or stale runtime registry files, migration reports, or debug files, selecting a Plan recovers
   them automatically without replacing current attempts. Distinct valid attempts remain available; originals remain
   recoverable. Registry recovery and ordinary writers cannot overwrite each other or wait on their own locks.
+- Given a Plan listing or a grouped evidence read, nested reads of the same checkout share runtime-layout verification
+  for that operation. Later reads and writes revalidate changed evidence; background work cannot retain verification
+  after its initiating read ends. Plan contents, controller state, and publication evidence remain freshly read.
 - Given simultaneous runtime migrations, transient files written by the first migration do not cause the second to
   report corruption. It waits for the migration owner and rechecks the resulting state. If an older process holds the
   registry lock, migration waits and validates the registry again after that writer releases it.
