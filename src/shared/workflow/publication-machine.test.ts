@@ -1,12 +1,101 @@
 import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
+import { defineCommittedGitFixture, git } from "../git-test-fixture.ts";
+import { ProjectRuntimeEntryRefusedError, resolveProjectRuntimeLayout } from "../project-runtime-layout.ts";
 import { addEntry } from "../worktree-registry.js";
 import {
     advanceStoredPublication,
+    cleanupStoredPublication,
+    failStoredPublication,
     loadPublicationAttempt,
     publicationRootForAttempt,
+    reconcileStoredPublication,
     startPublicationAttempt,
 } from "./publication-machine.ts";
+
+const gitFixture = defineCommittedGitFixture({
+    "README.md": "Publication runtime safety\n",
+    "docs/plans/demo.md": "# Demo\n",
+});
+
+Deno.test("publication operations reject newly staged runtime state without changing their receipt", async (test) => {
+    const projectRoot = await gitFixture.checkout();
+    const directory = await Deno.makeTempDir({ prefix: "publication-safety-execution-" });
+    const executionCwd = join(directory, "execution");
+    try {
+        const head = await git(projectRoot, ["rev-parse", "HEAD"]);
+        await git(projectRoot, ["worktree", "add", "-b", "worktree/demo", executionCwd]);
+        await addEntry(projectRoot, {
+            id: "attempt-1",
+            planId: "plan-1",
+            planName: "demo",
+            baseBranch: "main",
+            baseRef: "refs/heads/main",
+            baseCommit: head,
+            branch: "worktree/demo",
+            path: executionCwd,
+            status: "completed",
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+        });
+        const request = {
+            projectRoot,
+            attemptId: "attempt-1",
+            planName: "demo",
+            targetBranch: "main",
+            executionBranch: "worktree/demo",
+            executionCwd,
+            validatedCommit: head,
+            targetHeadAtSeal: head,
+        };
+        const started = await startPublicationAttempt(request);
+        const layout = resolveProjectRuntimeLayout(projectRoot);
+        const before = await Deno.readTextFile(layout.primary.worktreeRegistryPath);
+        const hazardDirectory = join(projectRoot, ".wld", "internal");
+        await Deno.mkdir(hazardDirectory, { recursive: true });
+        const hazard = join(hazardDirectory, "staged-runtime.json");
+        await Deno.writeTextFile(hazard, "{}\n");
+        await git(projectRoot, ["add", "-f", "--", hazard]);
+
+        const operations = [
+            { name: "load", run: () => loadPublicationAttempt(projectRoot, "attempt-1") },
+            { name: "start or resume", run: () => startPublicationAttempt(request) },
+            {
+                name: "advance",
+                run: () =>
+                    advanceStoredPublication(projectRoot, started, "artifacts_committed", {
+                        artifactCommit: head,
+                        planPaths: ["docs/plans/demo.md"],
+                    }),
+            },
+            { name: "repeat phase", run: () => advanceStoredPublication(projectRoot, started, "candidate_sealed", {}) },
+            {
+                name: "record failure",
+                run: () => failStoredPublication(projectRoot, started, { kind: "test", message: "Publication failed" }),
+            },
+            { name: "reconcile", run: () => reconcileStoredPublication(projectRoot, started) },
+            { name: "cleanup", run: () => cleanupStoredPublication(projectRoot, started) },
+        ];
+        for (const operation of operations) {
+            await test.step(operation.name, async () => {
+                await assertRejects(operation.run, ProjectRuntimeEntryRefusedError);
+                assertEquals(await Deno.readTextFile(layout.primary.worktreeRegistryPath), before);
+                assertEquals(await Deno.readTextFile(hazard), "{}\n");
+            });
+        }
+        // Restoring safe Git state must permit the next real registry write.
+        await git(projectRoot, ["reset", "HEAD", "--", hazard]);
+        const advanced = await advanceStoredPublication(projectRoot, started, "artifacts_committed", {
+            artifactCommit: head,
+            planPaths: ["docs/plans/demo.md"],
+        });
+        assertEquals(advanced.phase, "artifacts_committed");
+        assertEquals((await loadPublicationAttempt(projectRoot, "attempt-1"))?.revision, advanced.revision);
+    } finally {
+        await Deno.remove(directory, { recursive: true });
+        await Deno.remove(projectRoot, { recursive: true });
+    }
+});
 
 async function fixture() {
     const projectRoot = await Deno.makeTempDir({ prefix: "publication-machine-" });
