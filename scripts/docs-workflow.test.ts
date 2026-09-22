@@ -127,11 +127,40 @@ Deno.test("fresh and existing releases traverse the actual qualification conditi
     assertEquals(evaluateReleaseCondition(jobCondition(release), recovery), true);
     assertEquals(evaluateReleaseCondition(jobCondition(publish), recovery), true);
     assertStringIncludes(jobBlock(workflow, "release-check"), "needs: metadata");
-    assertStringIncludes(jobBlock(workflow, "golden"), "needs: metadata");
-    assertStringIncludes(assets, "needs.ci.result == 'success'");
-    assertStringIncludes(assets, "needs.golden.result == 'success'");
-    assertStringIncludes(assets, "needs.release-check.result == 'success'");
+    assertStringIncludes(jobBlock(workflow, "golden-shards"), "needs: metadata");
+    for (const gate of ["ci", "golden"]) {
+        const aggregate = jobBlock(workflow, gate);
+        assertStringIncludes(aggregate, `needs: ${gate}-shards`);
+        assertStringIncludes(aggregate, "if: always()");
+        assertStringIncludes(aggregate, "test '${{ needs." + gate + "-shards.result }}' = 'success'");
+    }
+    assertStringIncludes(release, "needs.ci.result == 'success'");
+    assertStringIncludes(release, "needs.golden.result == 'success'");
+    assertStringIncludes(release, "needs.release-check.result == 'success'");
     assertStringIncludes(release, "needs.assets.result == 'success'");
+    for (
+        const key of [
+            "ciResult",
+            "goldenResult",
+            "releaseCheckResult",
+            "assetsResult",
+            "windowsResult",
+            "homebrewResult",
+        ]
+    ) {
+        for (const status of ["failure", "cancelled", "skipped"]) {
+            assertEquals(
+                evaluateReleaseCondition(jobCondition(release), { ...successfulRelease, [key]: status }),
+                false,
+            );
+            assertEquals(evaluateReleaseCondition(jobCondition(release), { ...recovery, [key]: status }), false);
+        }
+    }
+    assertEquals(
+        evaluateReleaseCondition(jobCondition(assets), { ...successfulRelease, buildResult: "failure" }),
+        false,
+    );
+    assertEquals(evaluateReleaseCondition(jobCondition(release), { ...successfulRelease, cancelled: true }), false);
 });
 
 Deno.test("production release selection stops on API errors and old release retries", async () => {

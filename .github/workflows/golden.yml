@@ -24,9 +24,15 @@ concurrency:
     cancel-in-progress: true
 
 jobs:
-    golden:
+    golden-shards:
         runs-on: ubuntu-latest
+        strategy:
+            fail-fast: false
+            matrix:
+                shard: [1, 2, 3, 4]
         env:
+            DENO_DIR: /tmp/runwield-deno-dir
+            WLD_TEST_SHARD: ${{ matrix.shard }}/4
             WLD_TEST_DENO_DIR: /tmp/runwield-deno-dir
 
         steps:
@@ -40,7 +46,15 @@ jobs:
               with:
                   deno-version: v2.9.3
 
+            - name: Restore Snip binary
+              id: snip-cache
+              uses: actions/cache@v4
+              with:
+                  path: ${{ runner.temp }}/runwield-ci-bin/snip
+                  key: snip-${{ runner.os }}-${{ runner.arch }}-v0.24.1
+
             - name: Setup Go for Snip
+              if: steps.snip-cache.outputs.cache-hit != 'true'
               uses: actions/setup-go@v6
               with:
                   go-version: "1.25.x"
@@ -56,9 +70,9 @@ jobs:
               uses: actions/cache/restore@v4
               with:
                   path: .ci-cache/golden-timings.json
-                  key: golden-timings-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+                  key: golden-timings-${{ runner.os }}-${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
                   restore-keys: |
-                      golden-timings-${{ runner.os }}-
+                      golden-timings-${{ runner.os }}-${{ matrix.shard }}-
 
             - name: Prepare Golden environment
               run: |
@@ -71,9 +85,11 @@ jobs:
                   EOF
                     chmod +x "$RUNNER_TEMP/runwield-ci-bin/$binary"
                   done
-                  GOBIN="$RUNNER_TEMP/runwield-ci-bin" go install github.com/edouard-claude/snip/cmd/snip@v0.24.1
-                  deno run -A scripts/write-version.js
-                  PATH="$RUNNER_TEMP/runwield-ci-bin:$PATH" deno run -A src/cli.ts snip-filters install
+                  if [[ ! -x "$RUNNER_TEMP/runwield-ci-bin/snip" ]]; then
+                    GOBIN="$RUNNER_TEMP/runwield-ci-bin" go install github.com/edouard-claude/snip/cmd/snip@v0.24.1
+                  fi
+                  mkdir -p "$HOME/.config/snip/filters"
+                  cp src/snip-filters/*.yaml "$HOME/.config/snip/filters/"
                   echo "$RUNNER_TEMP/runwield-ci-bin" >> "$GITHUB_PATH"
 
             - name: Run Golden TUI gate
@@ -86,14 +102,15 @@ jobs:
               uses: actions/cache/save@v4
               with:
                   path: .ci-cache/golden-timings.json
-                  key: golden-timings-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+                  key: golden-timings-${{ runner.os }}-${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
 
-            - name: Retain Golden timing report
+            - name: Retain Golden timings and per-test results
               if: always()
               uses: actions/upload-artifact@v5
               with:
-                  name: golden-timings-${{ github.run_attempt }}
-                  path: .ci-cache/golden-timings.json
+                  name: golden-results-${{ matrix.shard }}-${{ github.run_attempt }}
+                  include-hidden-files: true
+                  path: .ci-cache/
                   if-no-files-found: ignore
 
             - name: Print Golden failure logs
@@ -111,8 +128,16 @@ jobs:
               if: failure()
               uses: actions/upload-artifact@v5
               with:
-                  name: golden-failure-${{ github.run_attempt }}
+                  name: golden-failure-${{ matrix.shard }}-${{ github.run_attempt }}
                   include-hidden-files: true
                   path: |
                       /tmp/tests-failure-*.log
                       /tmp/runwield-test-sandboxes-*-evidence/**
+
+    golden:
+        if: always()
+        needs: golden-shards
+        runs-on: ubuntu-latest
+        steps:
+            - name: Require every Golden shard
+              run: test '${{ needs.golden-shards.result }}' = 'success'

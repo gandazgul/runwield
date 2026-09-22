@@ -36,3 +36,6 @@ src/shared/version.js
 .wld/controller/
 .wld/plan-locks/
 # END RunWield owned runtime state
+
+# Local timing histories and test reports
+.ci-cache/

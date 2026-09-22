@@ -7,6 +7,7 @@ export interface SnipCommandOptions {
     env?: Record<string, string>;
     failureLabel: string;
     stdin?: "inherit" | "null";
+    quietOnSuccess?: boolean;
 }
 
 export interface SnipCommandResult {
@@ -75,7 +76,11 @@ export async function runWithSnip(
     const stdout = decoder.decode(result.stdout);
     const stderr = decoder.decode(result.stderr);
 
-    if (result.success) return { code: 0, stdout, stderr: withoutSnipNoise(stderr) };
+    if (result.success) {
+        return options.quietOnSuccess
+            ? { code: 0, stdout: "", stderr: "" }
+            : { code: 0, stdout, stderr: withoutSnipNoise(stderr) };
+    }
 
     const filtered = extractDenoFailureOutput(command, args, `${stdout}${stderr}`) ||
         `${options.failureLabel} failed with exit code ${result.code}.`;
