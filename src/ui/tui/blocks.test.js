@@ -917,3 +917,79 @@ Deno.test("ValidationHandoffBlock rebuilds report lines after invalidate", () =>
     assertEquals(after, before);
     assertEquals(stripAnsi(after.join("\n")).includes("keep me"), true);
 });
+
+// ─── Settled-block line caches (typing must not re-render history) ───────────
+
+Deno.test("ToolExecutionBlock reuses cached lines across idle frames", () => {
+    const block = new ToolExecutionBlock("bash", "run tests");
+    block.setOutput("ok line one\nok line two");
+    block.endExecution(false, 120);
+
+    const first = block.render(80);
+    assert(first === block.render(80), "idle frames should reuse the cached lines array");
+
+    block.setOutput("ok line one\nok line two\nok line three");
+    assert(block.render(80) !== first, "new output must rebuild lines");
+});
+
+Deno.test("ToolExecutionBlock rebuilds lines after invalidate", () => {
+    const block = new ToolExecutionBlock("bash", "run tests");
+    block.setOutput("ok");
+    block.endExecution(false, 10);
+
+    const before = block.render(80);
+    block.invalidate();
+    const after = block.render(80);
+    assert(after !== before, "invalidate must drop the cache for the next frame");
+    assertEquals(after, before);
+});
+
+Deno.test("ToolExecutionBlock clock keeps rebuilding while running", () => {
+    const originalNow = Date.now;
+    let now = 1000;
+    Date.now = () => now;
+    try {
+        const block = new ToolExecutionBlock("bash", "$ sleep 1");
+        block.enableElapsedTime();
+        const first = block.render(100);
+        now = 1500;
+        block.enableElapsedTime();
+        const second = block.render(100);
+        assert(first !== second, "the elapsed footer must move with the 100ms timer");
+        assert(stripAnsi(second.join("\n")).includes("Elapsed time: 0.5s"));
+    } finally {
+        Date.now = originalNow;
+    }
+});
+
+Deno.test("ThinkingBlock caches idle frames and clears on new deltas", () => {
+    const block = new ThinkingBlock({});
+    block.appendText("considering the plan");
+    block.end();
+
+    const first = block.render(80);
+    assert(first === block.render(80), "settled thinking should reuse lines");
+
+    block.appendText(" more");
+    const second = block.render(80);
+    assert(second !== first, "new deltas must rebuild lines");
+
+    block.invalidate();
+    const third = block.render(80);
+    assert(third !== second, "invalidate must drop the thinking cache");
+    assertEquals(third, second);
+});
+
+Deno.test("ToolExecutionGroupBlock forwards invalidate to child tool blocks", () => {
+    const group = new ToolExecutionGroupBlock();
+    const child = new ToolExecutionBlock("bash", "run tests");
+    child.setOutput("ok");
+    child.endExecution(false, 10);
+    group.addBlock(child);
+
+    const before = child.render(80);
+    group.invalidate();
+    const after = child.render(80);
+    assert(after !== before, "theme swaps must reach tool caches inside groups");
+    assertEquals(after, before);
+});

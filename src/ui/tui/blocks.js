@@ -296,6 +296,8 @@ export class ThinkingBlock {
         this.currentText = "";
         this.frameIndex = 0;
         this.ended = false;
+        /** @type {{ width: number, lines: string[] } | null} */
+        this.renderCache = null;
     }
 
     /** @param {string} delta */
@@ -310,10 +312,20 @@ export class ThinkingBlock {
         this.invalidate();
     }
 
-    invalidate() {}
+    invalidate() {
+        this.renderCache = null;
+    }
 
     /** @param {number} w */
     render(w) {
+        if (this.renderCache !== null && this.renderCache.width === w) return this.renderCache.lines;
+        const lines = this.renderLines(w);
+        this.renderCache = { width: w, lines };
+        return lines;
+    }
+
+    /** @param {number} w */
+    renderLines(w) {
         const rawBody = this.hidden ? "hidden" : normalizeThinkingText(this.currentText).trim();
         const bodyLines = rawBody ? rawBody.split(/\r?\n/).flatMap((line) => wrapPlainLine(line, w)) : [];
         const renderedLines = bodyLines.map((line) => theme.fg("thinkingText", line));
@@ -709,6 +721,10 @@ export class ToolExecutionBlock {
 
         // Body text component (rendered inside the block)
         this.bodyTextComponent = new Text("", 0, 0);
+        /** @type {number} */
+        this.outputLineCount = 0;
+        /** @type {{ width: number, lines: string[] } | null} */
+        this.renderCache = null;
     }
 
     /**
@@ -721,7 +737,11 @@ export class ToolExecutionBlock {
 
     /** @private */
     updateBodyText() {
+        // Every way of changing the output funnels through here, so this one
+        // clear keeps the cache honest.
+        this.renderCache = null;
         const lines = this.getOutputLines();
+        this.outputLineCount = lines.length;
         let shown = lines;
         if (!this.expanded && lines.length > this.previewLineLimit) {
             shown = lines.slice(0, this.previewLineLimit);
@@ -774,6 +794,7 @@ export class ToolExecutionBlock {
      */
     appendDisplayImage(base64, mimeType) {
         this.displayImages.push({ base64, mimeType });
+        this.renderCache = null;
     }
 
     enableElapsedTime() {
@@ -804,10 +825,23 @@ export class ToolExecutionBlock {
         this.updateBodyText();
     }
 
-    invalidate() {}
+    invalidate() {
+        this.renderCache = null;
+    }
 
     /** @param {number} w */
     render(w) {
+        // While a tool is running, its elapsed clock ticks in real time, so
+        // those lines can never come from the cache.
+        const live = this.showElapsedTime && !this.ended;
+        if (!live && this.renderCache !== null && this.renderCache.width === w) return this.renderCache.lines;
+        const lines = this.renderLines(w);
+        if (!live) this.renderCache = { width: w, lines };
+        return lines;
+    }
+
+    /** @param {number} w */
+    renderLines(w) {
         const bg = this.bgToken;
         const paddingX = 2;
         const innerW = Math.max(0, w - paddingX * 2);
@@ -867,7 +901,9 @@ export class ToolExecutionBlock {
      * @private
      */
     renderFooterContent(innerW) {
-        const canExpand = this.getOutputLines().length > this.previewLineLimit;
+        // The count is cached because splitting the whole output on every
+        // keystroke was the slow part.
+        const canExpand = this.outputLineCount > this.previewLineLimit;
         const leftText = this.durationStr || (this.showElapsedTime && !this.ended ? this.formatElapsedTime() : "");
         const left = leftText ? theme.fg("dim", leftText) : "";
         const right = canExpand
@@ -994,7 +1030,11 @@ export class ToolExecutionGroupBlock {
         return lines;
     }
 
-    invalidate() {}
+    invalidate() {
+        // This isn't a pi-tui Container, so invalidation has to be forwarded
+        // to the blocks it holds.
+        for (const child of this.children) child.invalidate();
+    }
 }
 
 // ─── Prompt Blocks ───────────────────────────────────────────────────────────
