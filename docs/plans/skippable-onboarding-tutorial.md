@@ -18,7 +18,13 @@ createdAt: "2026-09-11"
 origin: "internal"
 userVerifiedAt: null
 targetBranch: "main"
-status: "validated_reviewer"
+status: "validated"
+validatedCommit: "e2d54df174a30d05ec7c8695447eb26d82c16c9c"
+workRecord:
+    status: "generated"
+    recordId: "05d1aa33-187b-4577-9be9-932a559522ea"
+    path: "docs/work-records/2026-09-22-delivered-skippable-onboarding-tutorial.md"
+    lastAttemptAt: "2026-09-22T16:17:42.129Z"
 ---
 
 # Skippable Onboarding Tutorial
