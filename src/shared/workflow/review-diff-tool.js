@@ -297,8 +297,9 @@ export function listDiffFiles(entries, maxInlineBytes = 64 * 1024) {
  * The tool provides bounded, read-only access to the workflow diff.
  *
  * Two scopes exist because a verification round asks two different questions.
- * `full` is the whole target-relative worktree diff and answers "does anything
- * diverge from the Plan". `repair` is only what the last repair
+ * `full` is the whole proposed branch patch from the target/HEAD common
+ * ancestor to current files and answers "does anything diverge from the Plan".
+ * `repair` is only what the last repair
  * changed and answers "did the repair fix the open findings without breaking
  * something". Round one has no repair scope.
  *
@@ -319,7 +320,7 @@ export function createReviewDiffTool(diffs, options = {}) {
     const MAX_READ_BYTES = 64 * 1024;
 
     const scopeDescription = hasRepairScope
-        ? " Scope 'full' is the entire target-relative worktree diff; scope 'repair' is only what the most recent repair changed."
+        ? " Scope 'full' is the entire proposed branch patch, including uncommitted work; scope 'repair' is only what the most recent repair changed."
         : "";
 
     const tool = defineTool({
@@ -334,7 +335,7 @@ export function createReviewDiffTool(diffs, options = {}) {
             command: StringEnum(["list", "show"]),
             scope: Type.Optional(StringEnum(["full", "repair"], {
                 description:
-                    "Which diff to inspect. 'full' (default) compares the recorded target branch with the current worktree files. 'repair' is only what the most recent repair changed, and is available from the second review round onward.",
+                    "Which diff to inspect. 'full' (default) shows the proposed branch patch from its common ancestor with the recorded target through current worktree files. 'repair' is only what the most recent repair changed, and is available from the second review round onward.",
             })),
             path: Type.Optional(Type.String({
                 description:
@@ -549,7 +550,7 @@ export function buildDiffInspectionSection(diffText, options = {}) {
     if (options.hasRepairScope) {
         lines.push(
             '4. Add `scope: "repair"` to either command to see only what the most recent repair changed. The default' +
-                ' scope, `"full"`, is the entire target-relative worktree diff.',
+                ' scope, `"full"`, is the entire proposed branch patch, including uncommitted work.',
         );
     }
 

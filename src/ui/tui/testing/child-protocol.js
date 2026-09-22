@@ -103,6 +103,9 @@ export async function runGoldenScenarioChildProcess(request) {
         "run",
         "-A",
         "--no-check",
+        // The sandboxed test runner prepares dependencies before any test runs.
+        // Keep a fresh process, but reuse that installation for every journey.
+        "--node-modules-dir=manual",
         fromFileUrl(import.meta.url),
         CHILD_FLAG,
         payload,

@@ -316,7 +316,7 @@ reviewLauncherTest(
     },
 );
 
-reviewLauncherTest("reloading Code Review recomputes the target-relative worktree diff", async (projectRoot) => {
+reviewLauncherTest("reloading Code Review recomputes the proposed branch patch", async (projectRoot) => {
     await runGit(projectRoot, ["init", "-b", "main"]);
     await runGit(projectRoot, ["config", "user.email", "runwield@example.com"]);
     await runGit(projectRoot, ["config", "user.name", "RunWield Test"]);
@@ -352,7 +352,42 @@ reviewLauncherTest("reloading Code Review recomputes the target-relative worktre
     assertEquals(html.includes("stale patch"), false);
     assertEquals(html.includes("targetBranch"), false);
     assertEquals(html.includes(projectRoot), false);
-    await server.stop();
+
+    const indexPath = `${projectRoot}/.git/index`;
+    const savedIndexPath = `${projectRoot}/.git/index.saved`;
+    await Deno.rename(indexPath, savedIndexPath);
+    await Deno.mkdir(indexPath);
+    try {
+        const fallbackResponse = await fetch(server.url);
+        const fallbackHtml = await fallbackResponse.text();
+        const fallbackEmbedded = fallbackHtml.match(
+            /<script[^>]*data-code-review-payload[^>]*>([\s\S]*?)<\/script>/,
+        )?.[1] || "{}";
+        assertEquals(fallbackResponse.status, 200);
+        assertEquals(JSON.parse(fallbackEmbedded).rawPatch, "stale patch");
+    } finally {
+        await Deno.remove(indexPath);
+        await Deno.rename(savedIndexPath, indexPath);
+    }
+
+    const unrelatedRoot = await Deno.makeTempDir({ prefix: "runwield-unrelated-review-target-" });
+    try {
+        await runGit(unrelatedRoot, ["init", "-b", "target"]);
+        await runGit(unrelatedRoot, ["config", "user.email", "runwield@example.com"]);
+        await runGit(unrelatedRoot, ["config", "user.name", "RunWield Test"]);
+        await Deno.writeTextFile(`${unrelatedRoot}/unrelated.ts`, "export const unrelated = true;\n");
+        await runGit(unrelatedRoot, ["add", "unrelated.ts"]);
+        await runGit(unrelatedRoot, ["commit", "-m", "unrelated target"]);
+        await runGit(projectRoot, ["fetch", unrelatedRoot, "+target:refs/heads/target"]);
+
+        const invalidResponse = await fetch(server.url);
+        const invalidHtml = await invalidResponse.text();
+        assertEquals(invalidResponse.status, 500);
+        assertEquals(invalidHtml.includes("stale patch"), false);
+    } finally {
+        await Deno.remove(unrelatedRoot, { recursive: true });
+        await server.stop();
+    }
 });
 
 reviewLauncherTest(

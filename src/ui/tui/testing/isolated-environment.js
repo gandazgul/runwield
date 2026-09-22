@@ -15,18 +15,6 @@ export const GOLDEN_FAUX_PROVIDER = "golden";
 export const GOLDEN_FAUX_MODEL = "faux";
 export const GOLDEN_FAUX_API = "golden-faux";
 
-/** @param {string} root */
-async function writeGoldenBinaryFixtures(root) {
-    const binDir = await writeWorkflowBinaryFixtures(root);
-    const githubExecutable = join(binDir, "gh");
-    await Deno.writeTextFile(
-        githubExecutable,
-        ["#!/bin/sh", "echo 'golden fixture: gh unavailable' >&2", "exit 1", ""].join("\n"),
-    );
-    await Deno.chmod(githubExecutable, 0o755);
-    return binDir;
-}
-
 /**
  * @param {string} value
  * @returns {Promise<string>}
@@ -175,7 +163,7 @@ export async function createGoldenIsolatedEnvironment(options = {}) {
     const projectRoot = join(root, "project");
     const remoteRoot = join(root, "remote.git");
     const runwieldDir = join(home, ".wld");
-    const fixtureBinDir = await writeGoldenBinaryFixtures(root);
+    const fixtureBinDir = await writeWorkflowBinaryFixtures(root, { githubUnavailable: true });
     await Deno.mkdir(runwieldDir, { recursive: true });
     const initDone = options.initDone !== false;
     const initArtifact = options.initArtifact ?? initDone;

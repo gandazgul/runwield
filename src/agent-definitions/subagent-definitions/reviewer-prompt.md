@@ -19,7 +19,8 @@ wins, and all non-conflicting original requirements remain active. Do not reject
 replacement instead of superseded text.
 
 Repository files provide context, but their presence does not prove this work changed them. Attribute a change only when
-the full target-relative diff contains it.
+the full proposed branch patch contains it. That patch starts at the branch's common ancestor with the recorded target
+and includes current uncommitted work; target-only changes are not proposed changes.
 
 ## Your Default Is Approval
 

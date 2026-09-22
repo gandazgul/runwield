@@ -461,3 +461,145 @@ or re-baselined by this work. Full CI is therefore **not green**, despite all mi
 
 Additional evidence under `/private/tmp/runwield-migration-speed/`: `profile-comparison.json`, per-profile JUnit,
 `sequence-first/`, `sequence-second/`, `golden-project/`, and `cleanup/` command traces and CPU profiles.
+
+## External fixture startup follow-up
+
+The next retained optimization keeps Deno and shares only the executable contents of external command fixtures.
+Previously every fixture wrote fresh Mnemoteca, Cymbal, Ketch, clipboard, and Golden GitHub shell executables. Each
+script embedded a unique log directory. On this macOS host, alternating 12 launches per variant measured a **165.9ms
+median** for fresh scripts, **143.2ms** for copies of identical contents, and **6.5ms** for links to one executable. The
+first linked launch was still cold. These measurements establish the benefit of executable reuse here; they do not
+identify the operating-system service responsible for the initial execution cost.
+
+`src/testing/workflow-binary-fixture.sh` now holds the existing external command contracts. Each POSIX fixture gets its
+own command links, calls log, and unexpected-call log. The script resolves its command name and evidence directory from
+the per-test invocation path. Git, Deno, Snip, RunWield internals, Session persistence, and every assertion still run
+normally. PATH remains unique per fixture, so availability checks still execute. Windows retains independently written
+scripts with explicit command names and evidence paths; the optimization does not require symlink privileges there.
+Windows execution was not measured on this host.
+
+The Golden-only GitHub-unavailable behavior is opt-in. Two new tests verify independent logs and unexpected-call
+failures, continued operation after another fixture is deleted, and the opt-in GitHub behavior. Existing contract,
+clipboard, real-Git, and Golden environment tests remain unchanged.
+
+### Re-evaluation
+
+| Configuration Golden profile (15 unchanged journeys)   |   Wall | Startup | External helper calls | Helper time |
+| ------------------------------------------------------ | -----: | ------: | --------------------: | ----------: |
+| Before executable reuse                                | 52.37s |  32.48s |                   125 |      10.30s |
+| After executable reuse                                 | 46.87s |  26.44s |                   124 |       0.87s |
+| Experimental Deno manual dependency mode, not retained | 59.17s |  28.15s |                   133 |       1.77s |
+
+The retained change improves this measured file by **10.5%** and startup by **18.6%**. All 15 journeys passed and their
+JUnit names match exactly. Mnemoteca/Cymbal/Ketch call inventories are identical; one timing-dependent clipboard probe
+accounts for the 125/124 difference. Required checks were not cached away.
+
+Process timestamps confirm that the baseline (12:13:35–12:14:27 local) and retained-change profile (12:15:02–12:15:49)
+completed before another CI began at 12:16:03. The subsequent manual dependency-loading and storage profiles did overlap
+that CI. The manual-mode experiment passed all journeys but provides no evidence of an improvement and was not retained.
+Deno documents
+[manual versus automatic dependency directories](https://docs.deno.com/runtime/fundamentals/node/#control-node_modules);
+this experiment changed only child-process loader flags, not the application machinery or test assertions.
+
+### Durable writes: inspect before changing
+
+An observational preload forwarded the real filesystem operations while tracing the 44-case load-plan integration file.
+All cases passed. It saw **1,610 rewrites of existing manifests/recovery descriptors, 86 new or unreadable prior files,
+and 3,474 file/directory sync calls**. **Zero rewrites were unchanged after ignoring `updatedAt`.** Changed fields
+included activation state, writer fencing, generation evidence, Plan associations, segment rollover, and artifacts. This
+does not prove every higher-level operation is necessary, but it rules out blindly skipping identical writes as the next
+optimization in this workload. Persistence and flush behavior were therefore left unchanged. Its 22.6s sync time was
+measured under contention and is not a clean before/after comparison.
+
+Raw evidence is under `/private/tmp/runwield-startup-speed/`: `fixture-bench.json`, `comparison.json`, the three
+configuration JUnit/profile sets, `storage.xml`, `storage-analysis.json`, and `storage/*.storage.json`. Diagnostic
+preloads and experiment scripts are retained there, outside the production/test implementation.
+
+The first full-CI attempt stopped at the pre-test skill-sync gate. Unlike the earlier in-progress edits, the missing
+Ideator updates are now committed source guidance. The published skill has been brought into parity: domain-file layout
+no longer implies model boundaries, and the product-level presentation/acceptance-scenario guidance is carried across
+without RunWield-specific tool dependencies. Only that reviewed source/skill pair's hashes were updated. The check
+itself and its failure conditions remain intact.
+
+### Final validation
+
+`deno task ci` passed all ten pre-test gates and the complete **460-file, 3,834-case** suite: **3,832 passed, two
+unchanged Windows-only skips, zero failures**. Comparing the saved previous full-run JUnit inventory finds no removed
+cases and exactly the two new fixture-isolation cases. The 46-file, 172-case Golden portfolio is unchanged and passes.
+Successful output remains the task invocation followed by one `CI passed` summary.
+
+The full run took **771.53s (12m52s)** while other validation work overlapped it. This is correctness evidence, not an
+uncontended end-to-end speed comparison. The clean paired configuration profile above is the demonstrated timing gain.
+Saved evidence: `/private/tmp/runwield-startup-speed/ci-report/`, `ci-tasks.json`, and `ci-summary.json`.
+
+Generic cross-run CI-result reuse was not added: `runLocalCI` executes arbitrary configured project commands, whose
+inputs and outputs extend beyond the commit ID. A safe reuse contract would need to account for uncommitted inputs,
+settings, dependencies, and generated artifacts. The observed overlapping runs alone do not establish that they are
+identical validations or that a global worker cap would improve total throughput. No exit-code cache or new skipped
+validation path was introduced.
+
+## Reuse Deno's prepared dependency installation
+
+The next ranked target is repeated dependency setup: every isolated test file, Golden journey, and publication crash
+restart launched Deno with automatic `node_modules` management, although the runner already prepares dependencies with
+`deno test --no-run`. Deno's documented
+[manual dependency mode](https://docs.deno.com/runtime/fundamentals/node/#control-node_modules) uses an existing
+installation. Automatic preparation remains the runner's first step; execution workers and Golden children now reuse it
+with `--node-modules-dir=manual`. Explicit dependency-mode arguments in the runner's passthrough form remain available
+for diagnostics.
+
+This shares dependency files only. Tests still run in fresh Deno processes, with separate homes, temporary directories,
+Mnemoteca databases, real Git repositories, and durable Session storage. The publication driver still really exits at
+each crash boundary and reopens the persisted state. No scenario, assertion, application path, or failure condition was
+removed. Production CLI dependency loading is unchanged.
+
+Ten alternating launches per mode of the real Golden child entrypoint measured **1,727ms median automatic setup versus
+108ms manual reuse**. Trials alternated ordering and shared one sandboxed dependency cache. Another CI was active, so
+these are comparative startup measurements under load, not an end-to-end CI speed claim. Raw trials are in
+`/private/tmp/runwield-startup-speed/loader-bench.json`.
+
+A new runner regression executes real static and dynamic npm imports, verifies fresh processes/home/temp/database paths
+even when a single worker handles consecutive files, then edits an imported TypeScript source and verifies that both
+tests fail with the new error. Successful output remains one summary line. The initial nine-file runner/Golden-support
+check passed.
+
+### Paired journey measurements
+
+Repeated CI activity prevented an idle-host comparison. Instead, an observational preload ran each unchanged test in
+both modes back-to-back, alternating which mode ran first. Every command, crash, filesystem operation, scenario action,
+and original assertion still executed. These totals sum the per-case execution times; shared parent startup and prewarm
+are excluded. They are comparisons under load, not clean-host absolute timings.
+
+| Same cases, both modes                | Automatic setup | Manual reuse |                        Change |
+| ------------------------------------- | --------------: | -----------: | ----------------------------: |
+| 15 configuration Golden journeys      |          81.94s |       53.38s |              **34.8% faster** |
+| Golden startup within those journeys  |          50.83s |       20.74s |              **59.2% faster** |
+| 34 publication cleanup/recovery cases |         151.59s |      153.43s | 1.2% slower; **not retained** |
+
+Every Golden pair improved. All 98 paired executions passed, with exactly one execution per original case in each mode.
+The publication driver experiment did not reproduce the startup gain, so its launch flags were restored. Keeping Deno
+manual loading is justified for the isolated workers and Golden child launcher; this measurement does not justify
+changing every subprocess indiscriminately. The separate 51-case publication check also passed.
+
+Evidence: `/private/tmp/runwield-loader-speed/comparison.json`, `configuration-paired.xml`, `cleanup-paired.xml`, and
+their profile directories. The diagnostic loader/observer lives outside the repository and is not part of normal test
+runs.
+
+### Retained change validation and remaining costs
+
+Full `deno task ci` passed all ten pre-test gates and **460 files / 3,835 cases**: **3,833 passed, two unchanged
+Windows-only skips, zero failures**. The saved JUnit comparison against the previous full run finds no removed cases,
+exactly one added runner regression, and the identical **172-case Golden portfolio**. The publication driver rollback
+restores its previously passing mode, which also passed all 34 cases in the paired trial.
+
+Total CI time was **593.38s (9m53s)**, including **566.24s** in the eight-worker runner. Other validation overlapped
+this run, so comparing it with the previous contended 771.53s run would not isolate this change's effect. Success output
+was still only the task invocation and one `CI passed` line. Full evidence is saved in
+`/private/tmp/runwield-loader-speed/ci-report/`, `ci-tasks.json`, and `ci-summary.json`.
+
+After re-evaluation, publication cleanup/recovery remains the largest measured file (223.5s under this load), followed
+by publication end-to-end tests (178.3s) and load-plan integration (178.1s). The retained optimization removes repeated
+loader work; it does not make their real Git and durable-write work disappear. Further work should profile those
+operations before changing persistence or adding caches. The earlier trace found no identical manifest rewrites to skip
+safely. Raising concurrency should also be remeasured on an idle host now that loader overhead is lower; an unmeasured
+increase would not establish a gain.
