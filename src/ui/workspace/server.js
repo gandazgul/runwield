@@ -12,7 +12,7 @@ import { sessionArtifactKindLabel } from "../../shared/session/session-sidebar.t
 import { extname, join, toFileUrl } from "@std/path";
 import { RUNWIELD_ROOT, RUNWIELD_SOURCE_ROOT } from "../../../runtime-root.js";
 import { PLAN_UI_TOKEN_HEADER, PLAN_UI_TOKEN_QUERY } from "../../constants.js";
-import { getWorktreeReviewDiff, WorktreeReviewTargetError } from "../../shared/workflow/git-snapshot.js";
+import { getWorktreeReviewDiff, WorktreeReviewComparisonError } from "../../shared/workflow/git-snapshot.js";
 import {
     boardApi,
     lifecycleActionApi,
@@ -547,7 +547,7 @@ async function currentReviewPagePayload({ cwd, reviewPayload, reviewType, token 
         try {
             payload.rawPatch = await getWorktreeReviewDiff(cwd, reviewPayload.targetBranch);
         } catch (error) {
-            if (error instanceof WorktreeReviewTargetError) throw error;
+            if (error instanceof WorktreeReviewComparisonError) throw error;
             // Keep the last complete patch if the checkout is temporarily unreadable.
         }
     }

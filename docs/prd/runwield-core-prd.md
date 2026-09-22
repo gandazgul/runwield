@@ -535,28 +535,29 @@ findings and inspect repair changes for regressions. Each finding remains identi
 open items visible. Repair reports address every finding; an independent Reviewer verifies fixes rather than accepting
 self-approval.
 
-**Requirement: Use one target-relative review diff.**
+**Requirement: Use one proposed branch patch.**
 
-For Git worktree execution, the full review patch is the direct difference from the recorded target branch's current
-commit to all current worktree files. It includes committed, staged, unstaged, and non-ignored untracked changes. It
-does not use the execution recovery baseline or a shared ancestor. The same comparison supplies Semantic Code Review,
-repair context, and Local Human Code Review, including reload and continuation. One shared comparison owner produces the
+For Git worktree execution, the full review patch is the difference from the common ancestor of the recorded target
+branch and execution HEAD to all current worktree files. It includes committed, staged, unstaged, and non-ignored
+untracked changes. Target-only changes do not appear as proposed reversals. The same comparison supplies Semantic
+Review, repair context, and Code Review, including reload and continuation. One shared comparison owner produces the
 patch; review tools page it and review interfaces present it without creating another Git comparison.
 
-The recorded target branch remains authoritative when it is not `main`. A missing target is a recoverable comparison
-failure, not an empty diff or permission to use another branch. Each computation resolves one target commit. A later
-review refresh can use a newer target tip. The execution baseline remains authoritative only for recovery and explicit
-before-and-after repair comparisons.
+The recorded target branch remains authoritative when it is not `main`. A missing target, missing execution HEAD, or
+absent common ancestor is a recoverable comparison failure, not an empty diff or permission to use another branch. Each
+computation resolves one target commit and one execution commit. A later review refresh can use newer commits and
+current files. The execution baseline remains authoritative only for recovery and explicit before-and-after repair
+comparisons.
 
 **Acceptance scenarios:**
 
 - Given target work imported after execution starts, when review runs, unchanged imported files are absent from the full
   patch and separate worktree changes remain present.
-- Given a target that advances without the worktree importing it, when review refreshes, target-only content appears as
-  removed or changed because the comparison is direct, not shared-ancestor based.
+- Given a target that advances without the execution branch importing it, when review refreshes, target-only additions,
+  changes, and deletions remain absent while execution changes remain present.
 - Given identical target and worktree state, AI review, repair context, and human review receive the same full patch.
-- Given a missing recorded target, review stops with a recoverable comparison failure and does not use `main`, `HEAD`,
-  the recovery baseline, or an empty patch.
+- Given a missing recorded target, missing execution HEAD, or unrelated histories, review stops with a recoverable
+  comparison failure and does not use `main`, an alternate HEAD-only diff, the recovery baseline, or an empty patch.
 
 **Requirement: Complete inspection before a review decision.**
 
