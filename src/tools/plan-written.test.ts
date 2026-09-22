@@ -26,6 +26,7 @@ Deno.test("plan_written recovers old controller files and opens review after mig
             const legacyDirectory = join(projectRoot, ".wld", "controller", "plans");
             await Deno.mkdir(legacyDirectory, { recursive: true });
             await Deno.writeTextFile(join(legacyDirectory, "demo.json"), current);
+            await Deno.writeTextFile(join(projectRoot, ".wld", "worktrees.json"), '{"version":2,"entries":[]}');
             await Deno.mkdir(join(projectRoot, ".wld", "plan-locks"), { recursive: true });
             let reviews = 0;
             hostedSession.setInteractionAdapter({

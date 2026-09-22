@@ -1,12 +1,39 @@
 /** Recover writes made through the old layout after ownership moved to internal/. */
 import { dirname, join } from "@std/path";
 import type { ControllerRecord } from "./workflow/controller-registry.ts";
+import type { WorktreeRegistryEntry } from "./worktree-registry.js";
 
 export interface RuntimeRecoveryPaths {
     source: string;
     destination: string;
     archiveRoot: string;
     controller: boolean;
+    registry?: boolean;
+}
+
+/** The adopted registry owns known attempts; only distinct old attempts may be imported. */
+export async function inspectReturningRegistry(source: string, destination: string) {
+    const { inspectWorktreeRegistryAtPath } = await import("./worktree-registry.js");
+    const legacy = await inspectWorktreeRegistryAtPath(source);
+    const current = await inspectWorktreeRegistryAtPath(destination);
+    for (const inspected of [legacy, current]) {
+        if (inspected.readError) throw inspected.readError;
+        if (inspected.integrityIssues.length) throw new Error(inspected.integrityIssues[0].message);
+    }
+    const additions: WorktreeRegistryEntry[] = [];
+    for (const entry of legacy.entries) {
+        if (current.entries.some((saved) => saved.id === entry.id)) continue;
+        const collision = current.entries.find((saved) =>
+            saved.path === entry.path || saved.branch === entry.branch ||
+            (saved.status !== "abandoned" && entry.status !== "abandoned" &&
+                ((saved.planId && saved.planId === entry.planId) || saved.planName === entry.planName))
+        );
+        if (collision) {
+            throw new Error(`Two saved attempts refer to Plan ${entry.planName}. Both copies have been kept.`);
+        }
+        additions.push(entry);
+    }
+    return { entries: [...current.entries, ...additions], additions };
 }
 
 async function info(path: string): Promise<Deno.FileInfo | null> {
@@ -150,7 +177,20 @@ export async function recoverLegacyRuntimeFiles(paths: RuntimeRecoveryPaths): Pr
         // The original is durable before either authority is touched. Replaying
         // after a crash uses the same content-addressed backup, not another copy.
         await preserve(paths.source, legacy, paths.archiveRoot);
-        if (!(await info(paths.destination))) {
+        if (paths.registry) {
+            const recovered = await inspectReturningRegistry(paths.source, paths.destination);
+            if (recovered.additions.length || !(await info(paths.destination))) {
+                if (await info(paths.destination)) {
+                    await preserve(paths.destination, await Deno.readFile(paths.destination), paths.archiveRoot);
+                }
+                await writeAtomic(
+                    paths.destination,
+                    new TextEncoder().encode(
+                        `${JSON.stringify({ version: 2, entries: recovered.entries }, null, 2)}\n`,
+                    ),
+                );
+            }
+        } else if (!(await info(paths.destination))) {
             await writeAtomic(paths.destination, legacy, true);
         } else if (paths.controller) {
             const current = await Deno.readFile(paths.destination);

@@ -136,6 +136,7 @@ for (
                     const oldDirectory = join(root, ".wld", "controller", "plans");
                     await Deno.mkdir(oldDirectory, { recursive: true });
                     await Deno.writeTextFile(join(oldDirectory, "migration-demo.json"), JSON.stringify(controller));
+                    await Deno.writeTextFile(join(root, ".wld", "worktrees.json"), '{"version":2,"entries":[]}');
                     await Deno.mkdir(join(tree, ".wld", "plan-locks"), { recursive: true });
                 }
                 // Act: select and reload through the actual command, with no migration

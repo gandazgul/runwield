@@ -4,10 +4,12 @@ import { getRunWieldRuntimeDir, PROJECT_INTERNAL_RUNTIME_DIR_NAME, RUNWIELD_DIR_
 import { withProcessGlobalTestLock } from "../testing/process-global-lock.js";
 import { defineCommittedGitFixture, git } from "./git-test-fixture.ts";
 import {
+    enterProjectRuntime,
     migrateLegacyProjectRuntimeState,
     type ProjectRuntimeMigrationResult,
     resolveProjectRuntimeLayout,
 } from "./project-runtime-layout.ts";
+import { withWorktreeRegistryLock } from "./worktree-registry.js";
 import {
     advancePublicationAttempt,
     createPublicationAttempt,
@@ -1478,6 +1480,135 @@ Deno.test("legacy migration resumes after a subprocess stops at each effect boun
         } finally {
             await project.cleanup();
         }
+    }
+});
+
+Deno.test("registry operation does not reenter recovery while holding its current lock", async () => {
+    const project = await makeMigrationProject();
+    try {
+        const legacy = join(getRunWieldRuntimeDir(project.primaryRoot), "worktrees.json");
+        await withWorktreeRegistryLock(project.primaryRoot, async () => {
+            // An old writer flushes after the current operation has entered and locked.
+            await writeText(legacy, '{"version":2,"entries":[]}');
+            await enterProjectRuntime(project.primaryRoot);
+            assertEquals(await Deno.readTextFile(legacy), '{"version":2,"entries":[]}');
+        });
+        await enterProjectRuntime(project.primaryRoot);
+        await assertMissing(legacy);
+    } finally {
+        await project.cleanup();
+    }
+});
+
+for (const stale of ["empty", "older attempt"] as const) {
+    Deno.test(`adopted runtime recovers a returning ${stale} registry without reverting attempts`, async () => {
+        const project = await makeMigrationProject();
+        try {
+            const legacy = join(getRunWieldRuntimeDir(project.primaryRoot), "worktrees.json");
+            const current = { version: 2, entries: [{ ...project.registryEntry, status: "completed" }] };
+            await writeText(legacy, JSON.stringify(current));
+            assertEquals((await migrateLegacyProjectRuntimeState(project.selectedRoot)).kind, "ready");
+            const layout = resolveProjectRuntimeLayout(project.selectedRoot);
+            const before = await Deno.readTextFile(layout.primary.worktreeRegistryPath);
+            const returned = JSON.stringify({ version: 2, entries: stale === "empty" ? [] : [project.registryEntry] });
+            await writeText(legacy, returned);
+            const result = await migrateLegacyProjectRuntimeState(project.selectedRoot);
+            assertEquals(result.kind, "ready", JSON.stringify(result));
+            assertEquals(await Deno.readTextFile(layout.primary.worktreeRegistryPath), before);
+            await assertMissing(legacy);
+            assert((await snapshotTree(join(layout.primary.internalRoot, "legacy-recovery"))).includes(returned));
+            const repeated = await migrateLegacyProjectRuntimeState(project.selectedRoot);
+            assert(repeated.kind === "ready");
+            assertEquals(repeated.migrated, false);
+        } finally {
+            await project.cleanup();
+        }
+    });
+}
+
+for (const interruption of [null, "recovery-backup", "recovery-registry", "recovery-registry-retirement"] as const) {
+    Deno.test(`adopted runtime imports a distinct returning attempt with interruption ${interruption}`, async () => {
+        const project = await makeMigrationProject();
+        try {
+            assertEquals((await migrateLegacyProjectRuntimeState(project.selectedRoot)).kind, "ready");
+            const layout = resolveProjectRuntimeLayout(project.selectedRoot);
+            const legacy = join(getRunWieldRuntimeDir(project.primaryRoot), "worktrees.json");
+            const attempt = { ...project.registryEntry, planId: "returning-plan", status: "active" };
+            const returning = JSON.stringify({ version: 2, entries: [attempt] });
+            await writeText(legacy, returning);
+            if (interruption) {
+                const child = spawnDriver("migrate-exit-after-effect", project.selectedRoot, interruption);
+                const [status, output, errors] = await Promise.all([
+                    child.status,
+                    new Response(child.stdout).text(),
+                    new Response(child.stderr).text(),
+                ]);
+                assertEquals(status.code, 86, `${output}${errors}`);
+            }
+            const result = await migrateLegacyProjectRuntimeState(project.selectedRoot);
+            assertEquals(result.kind, "ready", JSON.stringify(result));
+            assertEquals(JSON.parse(await Deno.readTextFile(layout.primary.worktreeRegistryPath)), {
+                version: 2,
+                entries: [attempt],
+            });
+            await assertMissing(legacy);
+            await assertMissing(layout.primary.layoutMigrationJournalPath);
+            assert((await snapshotTree(join(layout.primary.internalRoot, "legacy-recovery"))).includes(returning));
+        } finally {
+            await project.cleanup();
+        }
+    });
+}
+
+Deno.test("adopted runtime reconciles every returning non-secret data location", async () => {
+    const project = await makeMigrationProject();
+    try {
+        assertEquals((await migrateLegacyProjectRuntimeState(project.selectedRoot)).kind, "ready");
+        const locations = [
+            [project.primaryRoot, "controller/plans/returning.json"],
+            [project.primaryRoot, "debug/returning.log"],
+            [project.primaryRoot, "worktree-registry-migration-issues.json"],
+            [project.primaryRoot, "plan-backups/returning.md"],
+            [project.primaryRoot, "plan-transitions/returning.json"],
+            [project.selectedRoot, "plan-backups/returning.md"],
+            [project.selectedRoot, "plan-transitions/returning.json"],
+        ];
+        for (const [root, relative] of locations) {
+            await writeText(join(getRunWieldRuntimeDir(root), relative), `preserved ${relative}\n`);
+            await Deno.mkdir(join(getRunWieldRuntimeDir(root), "plan-locks"), { recursive: true });
+        }
+        const result = await migrateLegacyProjectRuntimeState(project.selectedRoot);
+        assertEquals(result.kind, "ready", JSON.stringify(result));
+        for (const [root, relative] of locations) {
+            assertEquals(
+                await Deno.readTextFile(join(getRunWieldRuntimeDir(root), "internal", relative)),
+                `preserved ${relative}\n`,
+            );
+            await assertMissing(join(getRunWieldRuntimeDir(root), relative));
+        }
+    } finally {
+        await project.cleanup();
+    }
+});
+
+Deno.test("adopted runtime keeps both registries when distinct attempts collide", async () => {
+    const project = await makeMigrationProject();
+    try {
+        const legacy = join(getRunWieldRuntimeDir(project.primaryRoot), "worktrees.json");
+        const current = JSON.stringify({ version: 2, entries: [project.registryEntry] });
+        await writeText(legacy, current);
+        assertEquals((await migrateLegacyProjectRuntimeState(project.selectedRoot)).kind, "ready");
+        const returning = JSON.stringify({ version: 2, entries: [{ ...project.registryEntry, id: "other-attempt" }] });
+        await writeText(legacy, returning);
+        const result = await migrateLegacyProjectRuntimeState(project.selectedRoot);
+        assertEquals(result.kind, "blocked");
+        assertEquals(await Deno.readTextFile(legacy), returning);
+        assertEquals(
+            await Deno.readTextFile(resolveProjectRuntimeLayout(project.selectedRoot).primary.worktreeRegistryPath),
+            current,
+        );
+    } finally {
+        await project.cleanup();
     }
 });
 

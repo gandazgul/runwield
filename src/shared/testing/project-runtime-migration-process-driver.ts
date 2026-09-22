@@ -27,6 +27,8 @@ type MigrationExitEffect =
     | "journal-cleanup"
     | "recovery-backup"
     | "recovery-controller"
+    | "recovery-registry"
+    | "recovery-registry-retirement"
     | "recovery-retirement";
 
 const [command, checkoutRoot, extra] = Deno.args;
@@ -148,7 +150,8 @@ function parseMigrationExitEffect(value: string | undefined): MigrationExitEffec
         value === "journal-commit" || value === "primary-rename" || value === "secret-rename" ||
         value === "selected-rename" ||
         value === "stale-lock-retirement" || value === "marker-replacement" || value === "journal-cleanup" ||
-        value === "recovery-backup" || value === "recovery-controller" || value === "recovery-retirement"
+        value === "recovery-backup" || value === "recovery-controller" || value === "recovery-retirement" ||
+        value === "recovery-registry" || value === "recovery-registry-retirement"
     ) return value;
     console.error(`Unknown migration exit effect: ${value || ""}`);
     Deno.exit(2);
@@ -187,6 +190,7 @@ function shouldExitAfterRename(
 ): boolean {
     if (effect === "recovery-backup") return to.includes("/legacy-recovery/") && to.endsWith("/contents");
     if (effect === "recovery-controller") return to === join(layout.primary.controllerPlansDir, "plan.json");
+    if (effect === "recovery-registry") return to === layout.primary.worktreeRegistryPath;
     if (effect === "journal-commit") return to === layout.primary.layoutMigrationJournalPath;
     if (effect === "primary-rename") {
         return from === join(getRunWieldRuntimeDir(layout.primary.checkoutRoot), "controller");
@@ -206,6 +210,9 @@ function shouldExitAfterRemove(
     layout: ReturnType<typeof resolveProjectRuntimeLayout>,
     legacyBase: string,
 ): boolean {
+    if (effect === "recovery-registry-retirement") {
+        return path === join(getRunWieldRuntimeDir(layout.primary.checkoutRoot), "worktrees.json");
+    }
     if (effect === "recovery-retirement") {
         return path === join(getRunWieldRuntimeDir(layout.primary.checkoutRoot), "controller", "plans", "plan.json");
     }
