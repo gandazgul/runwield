@@ -31,12 +31,14 @@ export interface RuntimeCommandFixtureOptions {
      * - "provider-no-model": configured provider + model, no selected default (model selector opens).
      */
     providerState?: RuntimeCommandFixtureProviderState;
+    reasoning?: boolean;
     additionalModels?: RuntimeCommandFixtureModel[];
 }
 
 export interface RuntimeCommandFixtureModel {
     id: string;
     name: string;
+    reasoning?: boolean;
 }
 
 const TEST_PROVIDER = "runtime-command-fixture";
@@ -198,7 +200,7 @@ export async function withRuntimeCommandFixture<T>(
 ): Promise<T> {
     const providerState = options.providerState || "default";
     const configuredModels = [
-        { id: TEST_MODEL, name: "Runtime Command Fixture Model" },
+        { id: TEST_MODEL, name: "Runtime Command Fixture Model", reasoning: options.reasoning === true },
         ...(options.additionalModels || []),
     ];
     return await withProcessGlobalTestLock(async () => {
@@ -235,6 +237,7 @@ export async function withRuntimeCommandFixture<T>(
                                 id: model.id,
                                 name: model.name,
                                 api: TEST_API,
+                                reasoning: model.reasoning === true,
                                 input: ["text", "image"],
                                 contextWindow: 128000,
                                 maxTokens: 4096,

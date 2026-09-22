@@ -54,12 +54,68 @@ import {
  * @property {Record<string, RuntimeFixtureProviderConfig>} providers
  */
 
+/** @typedef {Extract<import('@agentclientprotocol/sdk').SessionConfigOption, { type: "select" }>} AcpSelectConfigOption */
+
+/** @param {import('@agentclientprotocol/sdk').SessionConfigOption[]} options */
+function configOptionIds(options) {
+    return options.map((option) => option.id);
+}
+
+/** @param {import('@agentclientprotocol/sdk').SessionConfigOption[]} options */
+function configOptionCurrentValues(options) {
+    return options.map((option) => option.currentValue);
+}
+
+/**
+ * @param {import('@agentclientprotocol/sdk').SessionConfigOption[]} options
+ * @param {string} id
+ * @returns {AcpSelectConfigOption}
+ */
+function requireSelectConfigOption(options, id) {
+    const option = options.find((candidate) => candidate.id === id);
+    assert(option?.type === "select", `Expected select config option: ${id}`);
+    return option;
+}
+
+/** @param {AcpSelectConfigOption} option */
+function configSelectValues(option) {
+    return option.options.flatMap((entry) => "options" in entry ? entry.options : [entry]).map((entry) => entry.value);
+}
+
 /**
  * @param {string} text
  * @returns {RuntimeFixtureModelConfiguration}
  */
 function parseRuntimeFixtureModelConfiguration(text) {
     return JSON.parse(text);
+}
+
+/** @param {import('@earendil-works/pi-ai').Message['content']} content */
+function fauxContentToText(content) {
+    if (typeof content === "string") return content;
+    return content.map((block) => {
+        if (block.type === "text") return block.text;
+        if (block.type === "thinking") return block.thinking;
+        if ("arguments" in block) return `${block.name}:${JSON.stringify(block.arguments)}`;
+        return `[image:${block.mimeType}:${block.data.length}]`;
+    }).join("\n");
+}
+
+/** @param {import('@earendil-works/pi-ai').Message} message */
+function fauxMessageToText(message) {
+    if (message.role === "toolResult") {
+        return [message.toolName, ...message.content.map((block) => fauxContentToText([block]))].join("\n");
+    }
+    return fauxContentToText(message.content);
+}
+
+/** @param {import('@earendil-works/pi-ai').Context} context */
+function estimateFauxPromptTokens(context) {
+    const parts = [];
+    if (context.systemPrompt) parts.push(`system:${context.systemPrompt}`);
+    for (const message of context.messages) parts.push(`${message.role}:${fauxMessageToText(message)}`);
+    if (context.tools?.length) parts.push(`tools:${JSON.stringify(context.tools)}`);
+    return Math.ceil(parts.join("\n\n").length / 4);
 }
 
 const REPO_ROOT = resolve(dirname(fromFileUrl(import.meta.url)), "../..");
@@ -785,6 +841,128 @@ Deno.test("ACP model config switches the next turn and survives session/load", a
     }, { additionalModels: [{ id: "alternate-model", name: "Alternate Model" }] });
 });
 
+Deno.test("ACP reasoning config controls the next turn, rejects unsupported values, and survives reload", async () => {
+    await withRuntimeCommandFixture("runwield-acp-reasoning-config-", async (fixture) => {
+        /** @type {string[]} */
+        const reasoningLevels = [];
+        fixture.setModelResponseFactory((_context, options) => {
+            reasoningLevels.push(String(options?.reasoning || ""));
+            return fauxAssistantMessage(fauxText("Reasoning selected."));
+        });
+        let handle = startTestServer();
+        try {
+            const created = await createSession(handle, fixture.projectRoot);
+            const newResponse = JSON.parse(framesMatching(handle, (message) => message.id === "new")[0]);
+            const configOptions = newResponse.result.configOptions || [];
+            assertEquals(configOptionIds(configOptions), ["model", "thought_level"]);
+            const reasoning = requireSelectConfigOption(configOptions, "thought_level");
+            assertEquals(reasoning.category, "thought_level");
+            assertEquals(reasoning.currentValue, "medium");
+            assertEquals(configSelectValues(reasoning), [
+                "off",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max",
+            ]);
+
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "select-reasoning",
+                method: "session/set_config_option",
+                params: { sessionId: created.sessionId, configId: "thought_level", value: "high" },
+            });
+            const selected = await readThroughResponse(handle, "select-reasoning");
+            assertEquals(configOptionCurrentValues(selected.response.result?.configOptions || []), [
+                "runtime-command-fixture/fixture-model",
+                "high",
+            ]);
+            assertEquals(reasoningLevels, [], "changing reasoning must not invoke a model");
+            assert(
+                selected.messages.some((message) =>
+                    message.params?.update?.sessionUpdate === "config_option_update" &&
+                    message.params.update.configOptions[1]?.currentValue === "high"
+                ),
+            );
+
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "invalid-reasoning",
+                method: "session/set_config_option",
+                params: { sessionId: created.sessionId, configId: "thought_level", value: "extreme" },
+            });
+            assertEquals((await readThroughResponse(handle, "invalid-reasoning")).response.error?.code, -32602);
+            assertEquals(reasoningLevels, []);
+
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "reasoning-prompt",
+                method: "session/prompt",
+                params: { sessionId: created.sessionId, prompt: [{ type: "text", text: "Use high reasoning." }] },
+            });
+            assertEquals((await readThroughResponse(handle, "reasoning-prompt")).response.result, {
+                stopReason: "end_turn",
+            });
+            assertEquals(reasoningLevels, ["high"]);
+
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "select-nonreasoning-model",
+                method: "session/set_config_option",
+                params: {
+                    sessionId: created.sessionId,
+                    configId: "model",
+                    value: "runtime-command-fixture/plain-model",
+                },
+            });
+            const plainModel = await readThroughResponse(handle, "select-nonreasoning-model");
+            assertEquals(configOptionIds(plainModel.response.result?.configOptions || []), ["model"]);
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "unsupported-reasoning",
+                method: "session/set_config_option",
+                params: { sessionId: created.sessionId, configId: "thought_level", value: "low" },
+            });
+            assertEquals((await readThroughResponse(handle, "unsupported-reasoning")).response.error?.code, -32602);
+            assertEquals(reasoningLevels, ["high"]);
+
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "restore-reasoning-model",
+                method: "session/set_config_option",
+                params: {
+                    sessionId: created.sessionId,
+                    configId: "model",
+                    value: "runtime-command-fixture/fixture-model",
+                },
+            });
+            const restored = await readThroughResponse(handle, "restore-reasoning-model");
+            assertEquals(restored.response.result?.configOptions[1]?.currentValue, "high");
+
+            await closeTestServer(handle);
+            handle = startTestServer();
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "load-reasoning",
+                method: "session/load",
+                params: { sessionId: created.sessionId, cwd: fixture.projectRoot, mcpServers: [] },
+            });
+            const loaded = await readThroughResponse(handle, "load-reasoning");
+            assertEquals(configOptionCurrentValues(loaded.response.result?.configOptions || []), [
+                "runtime-command-fixture/fixture-model",
+                "high",
+            ]);
+        } finally {
+            await closeTestServer(handle);
+        }
+    }, {
+        reasoning: true,
+        additionalModels: [{ id: "plain-model", name: "Plain Model", reasoning: false }],
+    });
+});
+
 Deno.test("ACP model config can recover after a failed turn and rejects invalid selections", async () => {
     await withRuntimeCommandFixture("runwield-acp-model-recovery-", async (fixture) => {
         fixture.setModelResponseFactory(() => {
@@ -966,6 +1144,10 @@ Deno.test("ACP /agent opens selection without a model turn and affects the next 
                     .length,
                 1,
             );
+            assert(result.messages.some((message) =>
+                message.params?.update?.sessionUpdate === "config_option_update" &&
+                configOptionIds(message.params.update.configOptions).join(",") === "model,thought_level"
+            ));
             for (const command of ["/version", "/session", "/agent guide"]) {
                 await sendMessage(handle, {
                     jsonrpc: "2.0",
@@ -992,7 +1174,7 @@ Deno.test("ACP /agent opens selection without a model turn and affects the next 
         } finally {
             await closeTestServer(handle);
         }
-    });
+    }, { reasoning: true });
 });
 
 for (const ending of ["cancel", "decline", "expired", "other", "choice", "empty-other"]) {
@@ -1549,8 +1731,8 @@ function usageEvent(costUsd) {
         usage: {
             inputTokens: 10,
             outputTokens: 5,
-            cacheReadTokens: 0,
-            cacheWriteTokens: 0,
+            cacheReadTokens: 7,
+            cacheWriteTokens: 3,
             contextWindow: 100,
             costUsd,
         },
@@ -1563,7 +1745,12 @@ Deno.test("ACP usage_update reports the Session's cumulative cost, not the last 
 
     // The Runtime prices each message on its own; ACP wants the running Session total.
     const notifications = [0.25, 0.25, 0.5].map((costUsd) =>
-        mapEventWithSessionCost(sessionMap, "acp-1", usageEvent(costUsd))
+        mapEventWithSessionCost(
+            sessionMap,
+            "acp-1",
+            usageEvent(costUsd),
+            { tokens: 48_000, contextWindow: 128_000 },
+        )
     );
 
     assertEquals(notifications.map((notification) => /** @type {any} */ (notification).update.cost), [
@@ -1583,9 +1770,21 @@ Deno.test("ACP replayed usage events keep adding to the same Session total", () 
     sessionMap.createRecord(/** @type {any} */ ({ sessionId: "runtime-1", cwd: "/repo" }), { acpSessionId: "acp-1" });
 
     // session/load replays the transcript's priced turns before the next prompt runs.
-    for (const costUsd of [0.25, 0.25]) mapEventWithSessionCost(sessionMap, "acp-1", usageEvent(costUsd));
+    for (const costUsd of [0.25, 0.25]) {
+        mapEventWithSessionCost(
+            sessionMap,
+            "acp-1",
+            usageEvent(costUsd),
+            { tokens: 48_000, contextWindow: 128_000 },
+        );
+    }
     sessionMap.replaceRuntimeSession("acp-1", { sessionId: "runtime-2", cwd: "/repo" });
-    const afterLoad = mapEventWithSessionCost(sessionMap, "acp-1", usageEvent(0.25));
+    const afterLoad = mapEventWithSessionCost(
+        sessionMap,
+        "acp-1",
+        usageEvent(0.25),
+        { tokens: 48_000, contextWindow: 128_000 },
+    );
 
     assertEquals(/** @type {any} */ (afterLoad).update.cost, { amount: 0.75, currency: "USD" });
 });
@@ -1594,7 +1793,12 @@ Deno.test("ACP non-usage events do not disturb the Session cost total", () => {
     const sessionMap = new AcpSessionMap();
     sessionMap.createRecord(/** @type {any} */ ({ sessionId: "runtime-1", cwd: "/repo" }), { acpSessionId: "acp-1" });
 
-    mapEventWithSessionCost(sessionMap, "acp-1", usageEvent(0.25));
+    mapEventWithSessionCost(
+        sessionMap,
+        "acp-1",
+        usageEvent(0.25),
+        { tokens: 48_000, contextWindow: 128_000 },
+    );
     mapEventWithSessionCost(
         sessionMap,
         "acp-1",
@@ -1610,9 +1814,15 @@ Deno.test("ACP non-usage events do not disturb the Session cost total", () => {
     assertEquals(sessionMap.getRecord("acp-1")?.usageCostUsd, 0.25);
 });
 
-Deno.test("ACP streams schema-valid usage updates from a real Runtime turn", async () => {
+Deno.test("ACP streams exact current context usage from a real Runtime turn", async () => {
     await withRuntimeCommandFixture("runwield-acp-usage-", async (fixture) => {
-        fixture.setModelResponse("a free fixture turn");
+        let latestInputTokens = 0;
+        fixture.setModelResponseFactory((context) => {
+            latestInputTokens = estimateFauxPromptTokens(context);
+            const outputTokens = 48_000 - (latestInputTokens * 2);
+            assert(outputTokens > 0, "fixture prompt must leave room for a 48k exact context total");
+            return fauxAssistantMessage(fauxText("x".repeat(outputTokens * 4)));
+        });
         const handle = startTestServer();
         try {
             const created = await createSession(handle, fixture.projectRoot);
@@ -1620,7 +1830,10 @@ Deno.test("ACP streams schema-valid usage updates from a real Runtime turn", asy
                 jsonrpc: "2.0",
                 id: "usage-prompt",
                 method: "session/prompt",
-                params: { sessionId: created.sessionId, prompt: [{ type: "text", text: "hi" }] },
+                params: {
+                    sessionId: created.sessionId,
+                    prompt: [{ type: "text", text: "x".repeat(65_000) }],
+                },
             });
             await readThroughResponse(handle, "usage-prompt");
 
@@ -1629,6 +1842,12 @@ Deno.test("ACP streams schema-valid usage updates from a real Runtime turn", asy
             for (const frame of frames) {
                 const update = JSON.parse(frame).params.update;
                 assertAcpFrameSchema("SessionNotification", frame, (message) => message.params);
+                assertEquals(update.used, 48_000);
+                assertEquals(update.size, 128_000);
+                assert(
+                    update.used !== latestInputTokens,
+                    "current context must not use the latest message input count",
+                );
                 // The fixture model is free, so the Session total stays 0 and cost stays off the wire.
                 assertEquals(Object.hasOwn(update, "cost"), false);
             }
@@ -1638,22 +1857,21 @@ Deno.test("ACP streams schema-valid usage updates from a real Runtime turn", asy
     });
 });
 
-Deno.test("ACP usage_update omits cost while the Session has no priced turn", () => {
-    const usageEvent = /** @type {any} */ ({
-        type: "usage",
-        sessionId: "session-1",
-        timestamp: "now",
-        usage: { inputTokens: 10, contextWindow: 100, costUsd: 0 },
-    });
+Deno.test("ACP usage_update uses exact Runtime context and suppresses unknown capacity", () => {
+    const event = usageEvent(0);
+    const exact = mapRuntimeEventToAcpUpdate(event, 0, { tokens: 48_000, contextWindow: 128_000 });
+    assertEquals(exact, { sessionUpdate: "usage_update", used: 48_000, size: 128_000 });
+    assertEquals(Object.hasOwn(/** @type {any} */ (exact), "cost"), false);
+    assertEquals(mapRuntimeEventToAcpUpdate(event, 0, { tokens: null, contextWindow: 128_000 }), null);
+    assertEquals(mapRuntimeEventToAcpUpdate(event, 0, { tokens: 48_000, contextWindow: 0 }), null);
+    assertEquals(mapRuntimeEventToAcpUpdate(event, 0), null);
 
-    const withoutCost = mapRuntimeEventToAcpUpdate(usageEvent, 0);
-    assertEquals(withoutCost, { sessionUpdate: "usage_update", used: 10, size: 100 });
-    assertEquals(Object.hasOwn(/** @type {any} */ (withoutCost), "cost"), false);
-
-    assertEquals(/** @type {any} */ (mapRuntimeEventToAcpUpdate(usageEvent, 0.25)).cost, {
-        amount: 0.25,
-        currency: "USD",
-    });
+    assertEquals(
+        /** @type {any} */ (
+            mapRuntimeEventToAcpUpdate(event, 0.25, { tokens: 48_000, contextWindow: 128_000 })
+        ).cost,
+        { amount: 0.25, currency: "USD" },
+    );
 });
 
 Deno.test("ACP session/close disposes a real Runtime session and rejects later prompts", async () => {

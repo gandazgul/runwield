@@ -41,9 +41,10 @@ function mapToolContent(content) {
 /**
  * @param {import('../shared/session/session-runtime-events.js').SessionRuntimeEvent} event
  * @param {number} [sessionCostUsd] cumulative USD cost of the ACP Session so far
+ * @param {{ tokens: number | null, contextWindow: number } | null} [contextUsage] exact current Runtime context usage
  * @returns {Record<string, any> | null}
  */
-export function mapRuntimeEventToAcpUpdate(event, sessionCostUsd = 0) {
+export function mapRuntimeEventToAcpUpdate(event, sessionCostUsd = 0, contextUsage = null) {
     switch (event.type) {
         case RuntimeEventTypes.USER_MESSAGE:
             return {
@@ -104,8 +105,10 @@ export function mapRuntimeEventToAcpUpdate(event, sessionCostUsd = 0) {
                 _meta: runtimeMeta(event, { toolName: event.toolName, durationMs: event.durationMs }),
             };
         case RuntimeEventTypes.USAGE: {
-            const used = event.usage.inputTokens;
-            const size = event.usage.contextWindow || used;
+            const used = contextUsage?.tokens;
+            const size = contextUsage?.contextWindow;
+            if (typeof used !== "number" || !Number.isFinite(used) || used < 0) return null;
+            if (typeof size !== "number" || !Number.isFinite(size) || size <= 0) return null;
             // ACP defines cost.amount as the cumulative Session cost. A total of 0 means
             // no message has a known price yet, so cost stays off the wire.
             return {
@@ -230,10 +233,11 @@ export function mapRuntimeEventToAcpUpdate(event, sessionCostUsd = 0) {
  * @param {string} acpSessionId
  * @param {import('../shared/session/session-runtime-events.js').SessionRuntimeEvent} event
  * @param {number} [sessionCostUsd] cumulative USD cost of the ACP Session so far
+ * @param {{ tokens: number | null, contextWindow: number } | null} [contextUsage] exact current Runtime context usage
  * @returns {Record<string, any> | null}
  */
-export function mapRuntimeEventToAcpSessionNotification(acpSessionId, event, sessionCostUsd = 0) {
-    const update = mapRuntimeEventToAcpUpdate(event, sessionCostUsd);
+export function mapRuntimeEventToAcpSessionNotification(acpSessionId, event, sessionCostUsd = 0, contextUsage = null) {
+    const update = mapRuntimeEventToAcpUpdate(event, sessionCostUsd, contextUsage);
     if (!update) return null;
     return { sessionId: acpSessionId, update };
 }

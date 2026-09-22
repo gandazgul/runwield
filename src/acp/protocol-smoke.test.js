@@ -42,6 +42,23 @@ Deno.test("ACP Cost requires an amount and a currency", () => {
     }
 });
 
+Deno.test("ACP thought_level selector is a standard schema-valid config option", () => {
+    assertEquals(
+        findAcpSchemaViolations("SessionConfigOption", {
+            id: "thought_level",
+            name: "Reasoning",
+            category: "thought_level",
+            type: "select",
+            currentValue: "high",
+            options: [
+                { value: "off", name: "Off" },
+                { value: "high", name: "High" },
+            ],
+        }),
+        [],
+    );
+});
+
 Deno.test("ACP usage_update carries cost as an object, never a bare number", () => {
     const usageUpdate = { sessionUpdate: "usage_update", used: 12, size: 200 };
 
