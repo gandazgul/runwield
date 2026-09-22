@@ -249,6 +249,8 @@ does not reset its lifecycle or decisions.
 - Given any runtime layout, opening `/load-plan` without a Plan argument only lists local Plan documents. It does not
   migrate storage, import controller metadata, fetch branches, repair worktrees, or change files or Sessions. Only
   selecting a Plan enters that Plan's load and recovery flow.
+- Given a fully typed `/load-plan <plan>` command, Enter submits it regardless of when autocomplete finishes. Partial
+  Plan names still offer suggestions; an exact name does not require accepting an identical suggestion first.
 - Given completed runtime migration and files recreated by an older RunWield process, selecting a Plan automatically
   preserves and reconciles them. Current decisions, counters, execution identity, and publication progress remain
   authoritative. Empty or stale registries cannot replace current attempts; distinct valid attempts remain available.
