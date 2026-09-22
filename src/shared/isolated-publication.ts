@@ -282,8 +282,16 @@ export async function isCommitPublishedToTarget(
     }
     const inspectionRoot = await Deno.makeTempDir({ prefix: `runwield-inspect-${basename(args.projectRoot)}-` });
     try {
-        await runGit(args.projectRoot, ["clone", "--no-hardlinks", args.projectRoot, inspectionRoot]);
-        await runGit(inspectionRoot, ["remote", "rename", "origin", "runwield-source"]);
+        // Reachability uses Git objects only; an inspection never needs checked-out files.
+        await runGit(args.projectRoot, [
+            "clone",
+            "--no-hardlinks",
+            "--no-checkout",
+            "--origin",
+            "runwield-source",
+            args.projectRoot,
+            inspectionRoot,
+        ]);
         await runGit(inspectionRoot, ["remote", "add", "publication", upstream.url]);
         const targetHead = await remoteHead(inspectionRoot, "publication", upstream.branch);
         if (!targetHead) return false;
@@ -485,8 +493,16 @@ export async function publishExecutionWorktreeIsolated(
             };
         }
         await Deno.mkdir(dirname(publicationRoot), { recursive: true });
-        await runGit(args.projectRoot, ["clone", "--no-hardlinks", args.projectRoot, publicationRoot]);
-        await runGit(publicationRoot, ["remote", "rename", "origin", "runwield-source"]);
+        // Keep a usable checkout if the upstream fails before preparation finishes:
+        // a saved publication directory can be resumed through the repair path.
+        await runGit(args.projectRoot, [
+            "clone",
+            "--no-hardlinks",
+            "--origin",
+            "runwield-source",
+            args.projectRoot,
+            publicationRoot,
+        ]);
         await runGit(publicationRoot, ["remote", "add", "publication", upstream.url]);
         for (const key of ["user.name", "user.email"]) {
             const value = await runGitResult(args.projectRoot, ["config", "--get", key]);

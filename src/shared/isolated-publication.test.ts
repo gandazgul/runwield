@@ -618,6 +618,56 @@ Deno.test("unreachable upstream is typed as transient without changing the prima
     }
 });
 
+Deno.test("saved publication clone remains usable after an upstream outage during preparation", async () => {
+    const projectRoot = await makeRepo();
+    const remoteRoot = await Deno.makeTempDir({ prefix: "runwield-publication-retry-remote-" });
+    const worktreeRoot = await Deno.makeTempDir({ prefix: "runwield-publication-retry-worktree-" });
+    const publicationRoot = `${worktreeRoot}/publication`;
+    const offlineRemote = `${remoteRoot}-offline`;
+    try {
+        await git(remoteRoot, ["init", "--bare"]);
+        await git(projectRoot, ["remote", "add", "origin", remoteRoot]);
+        await git(projectRoot, ["push", "-u", "origin", "main"]);
+        const worktree = await createTestWorktreeAttempt({ projectRoot, planName: "retry-outage", worktreeRoot });
+        await Deno.writeTextFile(`${worktree.path}/implementation.txt`, "safe candidate\n");
+        await git(worktree.path, ["add", "implementation.txt"]);
+        await git(worktree.path, ["commit", "-m", "Validated candidate"]);
+        const sealedCommit = await git(worktree.path, ["rev-parse", "HEAD"]);
+        const primaryHead = await git(projectRoot, ["rev-parse", "HEAD"]);
+        const primaryReadme = await Deno.readTextFile(`${projectRoot}/README.md`);
+        const publish = () =>
+            publishExecutionWorktreeIsolated({
+                projectRoot,
+                executionCwd: worktree.path,
+                executionBranch: worktree.branch,
+                targetBranch: "main",
+                planName: "retry-outage",
+                sealedExecutionCommit: sealedCommit,
+                allowedPlanPaths: [],
+                publicationRoot,
+            });
+
+        await Deno.rename(remoteRoot, offlineRemote);
+        const failure = await assertRejects(publish, IsolatedPublicationError);
+        assertEquals(failure.mergeFailureKind, "remote_unavailable");
+        assertEquals(await git(publicationRoot, ["status", "--porcelain"]), "");
+        assertEquals(await Deno.readTextFile(`${publicationRoot}/README.md`), primaryReadme);
+        await Deno.rename(offlineRemote, remoteRoot);
+
+        const published = await publish();
+        assertEquals(await git(remoteRoot, ["rev-parse", "main"]), published.publicationCommit);
+        await git(remoteRoot, ["merge-base", "--is-ancestor", sealedCommit, "main"]);
+        assertEquals(await git(remoteRoot, ["show", "main:implementation.txt"]), "safe candidate");
+        assertEquals(await git(projectRoot, ["rev-parse", "HEAD"]), primaryHead);
+        assertEquals(await Deno.readTextFile(`${projectRoot}/README.md`), primaryReadme);
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+        await Deno.remove(remoteRoot, { recursive: true }).catch(() => {});
+        await Deno.remove(offlineRemote, { recursive: true }).catch(() => {});
+        await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
+    }
+});
+
 Deno.test("completed publication repair imports a newer execution commit before retrying", async () => {
     const projectRoot = await makeRepo();
     const remoteRoot = await Deno.makeTempDir({ prefix: "runwield-repaired-publication-remote-" });

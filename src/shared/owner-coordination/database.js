@@ -258,7 +258,11 @@ function backupPathFor(dbPath, sourceVersion, now) {
  */
 function backupOwnerDatabase(db, dbPath, sourceVersion, now) {
     if (!dbPath || dbPath === ":memory:" || !fileExists(dbPath)) return;
-    const backupPath = backupPathFor(dbPath, sourceVersion, now);
+    // Use SQLite's opened location. Deno resolves macOS /var and /tmp aliases
+    // when opening a database, but VACUUM INTO does not pass through that resolver.
+    const openedPath = db.prepare("SELECT file FROM pragma_database_list WHERE name = 'main'").get()?.file;
+    if (typeof openedPath !== "string" || !openedPath) throw new Error("Cannot locate the owner database for backup.");
+    const backupPath = backupPathFor(openedPath, sourceVersion, now);
     Deno.mkdirSync(dirname(backupPath), { recursive: true, mode: 0o700 });
     // node:sqlite cannot open a VACUUM INTO destination in this runtime. Checkpoint
     // WAL content before copying so the backup includes all committed data.
