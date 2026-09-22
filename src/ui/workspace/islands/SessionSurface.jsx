@@ -6,6 +6,7 @@ import { animateSidebarUpdate } from "../../design-system/components/react/sideb
 // OpenChamber is MIT licensed: Copyright (c) 2025 Bohdan Triapitsyn.
 import {
     RunWieldButton,
+    RunWieldLink,
     RunWieldPanelToggle,
     RunWieldThinkingDots,
 } from "../../design-system/components/react/RunWieldPrimitives.jsx";
@@ -732,8 +733,8 @@ export function SessionComposer({
     );
 }
 
-/** @param {{ projectId: string, mode?: "list" | "detail" | "new", runwieldSessionId?: string, planId?: string }} props */
-export function SessionSurface({ projectId, mode = "detail", runwieldSessionId = "", planId = "" }) {
+/** @param {{ projectId: string, mode?: "list" | "detail" | "new", runwieldSessionId?: string, planId?: string, returnHref?: string }} props */
+export function SessionSurface({ projectId, mode = "detail", runwieldSessionId = "", planId = "", returnHref = "" }) {
     const [listData, setListData] = useState(/** @type {any} */ (null));
     const [listPage, setListPage] = useState(0);
     const [listError, setListError] = useState("");
@@ -2146,6 +2147,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         <section className="session-surface session-surface-detail" aria-label="RunWield Session chat">
             {timeline && (
                 <WorkspaceHeaderActionsPortal>
+                    {returnHref && <RunWieldLink href={returnHref}>Back to Search</RunWieldLink>}
                     <div className="session-context-header" data-expanded={!contextCollapsed}>
                         <RunWieldPanelToggle
                             side="right"

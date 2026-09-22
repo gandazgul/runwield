@@ -5,9 +5,24 @@ import SessionSurface from "../../../../islands/SessionSurface.jsx";
 
 const projectId = Astro.params.projectId ?? "";
 const runwieldSessionId = Astro.params.runwieldSessionId ?? "";
+let searchReturnHref = "";
+try {
+    const candidate = new URL(Astro.url.searchParams.get("return") || "", Astro.url.origin);
+    if (candidate.origin === Astro.url.origin && candidate.pathname === "/search") {
+        searchReturnHref = `${candidate.pathname}${candidate.search}`;
+    }
+} catch {
+    searchReturnHref = "";
+}
 ---
 <WorkspaceLayout title="Project Session" selectedTab="projects" url={Astro.url.href}>
-    <SessionSurface projectId={projectId} runwieldSessionId={runwieldSessionId} mode="detail" client:only="react">
-        <div slot="fallback"><LoadingSurface label="Loading Session" /></div>
+    <SessionSurface
+        projectId={projectId}
+        runwieldSessionId={runwieldSessionId}
+        returnHref={searchReturnHref}
+        mode="detail"
+        client:only="react"
+    >
+        <LoadingSurface slot="fallback" label="Loading Session" />
     </SessionSurface>
 </WorkspaceLayout>

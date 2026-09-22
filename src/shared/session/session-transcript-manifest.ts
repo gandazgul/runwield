@@ -11,6 +11,7 @@ import {
     createReplayEvents,
     selectProjectedEventsAfterCursor,
     summarizeProjectedEntries,
+    summarizeResumableTranscript,
     toProjectionFailure,
 } from "./session-transcript-projection.js";
 
@@ -218,6 +219,7 @@ export async function projectAggregateTranscript(
         });
         const snapshot = {
             ...summarizeProjectedEntries(aggregateEntries),
+            ...summarizeResumableTranscript(aggregateEntries),
             sessionStats: {
                 userMessages: info.userMessages,
                 assistantMessages: info.assistantMessages,

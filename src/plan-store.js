@@ -32,6 +32,7 @@ import { renameRestoredPlanEntry } from "./shared/worktree-registry.js";
 import { resolvePrimaryCheckoutRoot } from "./shared/primary-checkout.ts";
 import { writePlanDocumentAndController } from "./shared/workflow/state-transition.ts";
 import { escapeYamlDoubleQuoted } from "./shared/yaml-scalar.ts";
+import { requestWorkspaceSearchRefresh } from "./shared/workspace-search-refresh.ts";
 import { pickControllerState, PLAN_RUNTIME_FIELDS, stripRuntimeFields } from "./shared/workflow/controller-state.ts";
 import { enterProjectRuntime, ProjectRuntimeEntryRefusedError } from "./shared/project-runtime-layout.ts";
 import {
@@ -1854,6 +1855,15 @@ export async function inspectPlanStrict(cwd, planName) {
     return await inspectPlanFileStrict(filePath);
 }
 
+/** @param {string} filePath */
+function workspaceSearchRootForPlanPath(filePath) {
+    const normalizedPath = resolve(filePath).replaceAll("\\", "/");
+    const marker = `/${PLANS_DIR_NAME}/`;
+    const markerIndex = normalizedPath.lastIndexOf(marker);
+    if (markerIndex < 0) return null;
+    return resolvePrimaryCheckoutRoot(normalizedPath.slice(0, markerIndex));
+}
+
 /**
  * Atomically replace an existing Plan after verifying its byte revision.
  * @param {string} filePath
@@ -1882,6 +1892,8 @@ export async function writePlanMarkdownWithRevision(filePath, nextMarkdown, expe
     const frontMatterRevision = await getPlanFrontMatterRevisionForText(nextMarkdown);
     recordPlanWriteRevision(filePath, revision, frontMatterRevision);
     rememberFrontMatterRevision(revision, frontMatterRevision);
+    const searchRoot = workspaceSearchRootForPlanPath(filePath);
+    if (searchRoot) await requestWorkspaceSearchRefresh(searchRoot);
     return revision;
 }
 
@@ -2279,6 +2291,7 @@ export async function savePlan(cwd, planName, content, fmOverrides = {}, options
             await loadControllerView(cwd, { planName, planId: documentAttrs.planId }, documentAttrs);
             if (existing.kind === "not_found") {
                 await atomicWriteTextFileIfAbsent(filePath, planDocumentMarkdown(withFm));
+                await requestWorkspaceSearchRefresh(resolvePrimaryCheckoutRoot(cwd));
             } else {
                 await writePlanMarkdownWithRevision(filePath, withFm, options.expectedRevision);
             }
