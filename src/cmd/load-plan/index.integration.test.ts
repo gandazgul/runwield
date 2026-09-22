@@ -28,6 +28,8 @@ import { resolveProjectRuntimeLayout } from "../../shared/project-runtime-layout
 import { createTestWorktreeAttempt } from "../../shared/worktree-test-helpers.js";
 import { withRuntimeCommandFixture } from "../testing/runtime-command-fixture.ts";
 import { runLoadPlanCommand } from "./index.ts";
+import { getLoadPlanCompletions } from "./getArgumentCompletions.js";
+import { getRunWieldRuntimeDir } from "../../constants.js";
 import type { PlanFrontMatterInput } from "../../plan-store.js";
 import type { EditorAPI, SelectOption, UiAPI } from "../../ui/tui/types.js";
 
@@ -403,6 +405,136 @@ Deno.test("load-plan reports an empty real Plan catalogue without touching the c
             assertEquals(ui.editor.disableSubmit, false);
         } finally {
             runtime.closeAllSessions();
+        }
+    });
+});
+
+async function snapshotPickerFiles(root: string): Promise<Record<string, string>> {
+    const result: Record<string, string> = {};
+    async function visit(path: string, relativePath: string) {
+        for await (const entry of Deno.readDir(path)) {
+            const child = join(path, entry.name);
+            const key = `${relativePath}/${entry.name}`;
+            if (entry.isDirectory) {
+                result[key] = "directory";
+                await visit(child, key);
+            } else if (entry.isSymlink) {
+                result[key] = `symlink:${await Deno.readLink(child)}`;
+            } else {
+                result[key] = Array.from(await Deno.readFile(child)).join(",");
+            }
+        }
+    }
+    await visit(root, "");
+    return result;
+}
+
+for (const runtimeState of ["absent", "legacy", "mixed"] as const) {
+    Deno.test(`load-plan picker is read-only with ${runtimeState} runtime state`, async () => {
+        await withRuntimeCommandFixture("runwield-picker-read-only-", async ({ projectRoot, homeDir }) => {
+            // Seed documents as a user would. No store call may pre-migrate this fixture.
+            await Deno.mkdir(join(projectRoot, "docs/plans/epic"), { recursive: true });
+            await Deno.writeTextFile(
+                join(projectRoot, "docs/plans/epic.md"),
+                "---\nclassification: PROJECT\nstatus: ready_for_work\n---\n# Epic\n",
+            );
+            await Deno.writeTextFile(
+                join(projectRoot, "docs/plans/epic/child.md"),
+                "---\nparentPlan: epic\nstatus: in_progress\n---\n# Child\n",
+            );
+            await Deno.writeTextFile(join(projectRoot, "docs/plans/external.md"), "# External draft\n");
+            const { runtime, sessionId } = await createRuntime(projectRoot);
+            const runtimeRoot = getRunWieldRuntimeDir(projectRoot);
+            if (runtimeState !== "absent") {
+                await Deno.mkdir(join(runtimeRoot, "controller/plans"), { recursive: true });
+                await Deno.writeTextFile(join(runtimeRoot, "controller/plans/old.json"), "legacy controller\n");
+                await Deno.mkdir(join(runtimeRoot, "plan-transitions"), { recursive: true });
+                await Deno.writeTextFile(join(runtimeRoot, "plan-transitions/unfinished.json"), "unfinished\n");
+            }
+            if (runtimeState === "mixed") {
+                await Deno.mkdir(join(runtimeRoot, "internal/controller/plans"), { recursive: true });
+                await Deno.writeTextFile(
+                    join(runtimeRoot, "internal/controller/plans/new.json"),
+                    "current controller\n",
+                );
+            }
+            const beforeProject = await snapshotPickerFiles(projectRoot);
+            const beforeHome = await snapshotPickerFiles(homeDir);
+            const beforeSession = runtime.getSessionSnapshot(sessionId);
+            const ui = makeUi([null]);
+            try {
+                // Completion is also browsing, before any Plan is selected.
+                Deno.chdir(projectRoot);
+                assertEquals((await getLoadPlanCompletions("ext")).map((item) => item.value), ["external"]);
+                await runLoadPlanCommand([], {
+                    sessionRuntime: runtime,
+                    sessionId,
+                    uiAPI: ui.uiAPI,
+                    editor: ui.editor,
+                });
+                assertEquals(ui.prompts, ["Load plan:"]);
+                assertEquals(ui.promptOptions[0].map((option) => option.value).sort(), ["epic", "external"]);
+                assertEquals(ui.messages, []);
+                assertEquals(await snapshotPickerFiles(projectRoot), beforeProject);
+                assertEquals(await snapshotPickerFiles(homeDir), beforeHome);
+                assertEquals(runtime.getSessionSnapshot(sessionId), beforeSession);
+            } finally {
+                runtime.closeAllSessions();
+            }
+        });
+    });
+}
+
+Deno.test("load-plan picker leaves a registered Git worktree and recreated legacy records untouched", async () => {
+    await withRuntimeCommandFixture("runwield-picker-worktree-", async ({ homeDir }) => {
+        const projectRoot = await recoverableArchiveFixture.checkout({ prefix: "runwield-picker-git-" });
+        let worktreePath = "";
+        try {
+            await writePlan(projectRoot, "unfinished", { status: "in_progress", planId: "unfinished-plan" });
+            await git(projectRoot, ["add", "docs/plans"]);
+            await git(projectRoot, ["commit", "-m", "Plan fixture"]);
+            const attempt = await createTestWorktreeAttempt({
+                projectRoot,
+                planName: "unfinished",
+                planId: "unfinished-plan",
+                attemptId: "picker-attempt",
+            });
+            worktreePath = attempt.path;
+            const { runtime, sessionId } = await createRuntime(projectRoot);
+            // An old writer recreates records after the project was migrated.
+            const primaryLegacy = getRunWieldRuntimeDir(projectRoot);
+            const selectedLegacy = getRunWieldRuntimeDir(worktreePath);
+            await Deno.mkdir(join(primaryLegacy, "controller/plans"), { recursive: true });
+            await Deno.writeTextFile(join(primaryLegacy, "controller/plans/unfinished.json"), "old writer\n");
+            await Deno.mkdir(join(selectedLegacy, "plan-locks"), { recursive: true });
+            await Deno.mkdir(join(selectedLegacy, "plan-transitions"), { recursive: true });
+            await Deno.writeTextFile(
+                join(selectedLegacy, "plan-transitions/unfinished.json"),
+                "unfinished transition\n",
+            );
+            const beforeProject = await snapshotPickerFiles(projectRoot);
+            const beforeWorktree = await snapshotPickerFiles(worktreePath);
+            const beforeHome = await snapshotPickerFiles(homeDir);
+            const ui = makeUi([null]);
+            try {
+                await runLoadPlanCommand([], {
+                    sessionRuntime: runtime,
+                    sessionId,
+                    uiAPI: ui.uiAPI,
+                    editor: ui.editor,
+                });
+                assertEquals(ui.prompts, ["Load plan:"]);
+                assertEquals(ui.promptOptions[0].map((option) => option.value), ["unfinished"]);
+                assertEquals(ui.messages, []);
+                assertEquals(await snapshotPickerFiles(projectRoot), beforeProject);
+                assertEquals(await snapshotPickerFiles(worktreePath), beforeWorktree);
+                assertEquals(await snapshotPickerFiles(homeDir), beforeHome);
+            } finally {
+                runtime.closeAllSessions();
+            }
+        } finally {
+            if (worktreePath) await git(projectRoot, ["worktree", "remove", "--force", worktreePath]);
+            await Deno.remove(projectRoot, { recursive: true });
         }
     });
 });

@@ -9,6 +9,7 @@ import {
     loadPlanImplementedFollowUpRepaintsScenario,
     loadPlanInterruptedRecoveryScenario,
     loadPlanMalformedFrontMatterScenario,
+    loadPlanReadOnlyPickerScenario,
     loadPlanResetReviewArchiveScenario,
     loadPlanValidateWithoutCustomChecksScenario,
     loadPlanWorkflowScenarios,
@@ -16,6 +17,7 @@ import {
 } from "./load-plan-workflow.ts";
 
 const scenarioExportNames = new Map<object, string>([
+    [loadPlanReadOnlyPickerScenario, "loadPlanReadOnlyPickerScenario"],
     [loadPlanActionsScenario, "loadPlanActionsScenario"],
     [loadPlanDirectReviewScenario, "loadPlanDirectReviewScenario"],
     [loadPlanDirectReviewRunScenario, "loadPlanDirectReviewRunScenario"],

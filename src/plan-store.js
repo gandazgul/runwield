@@ -2602,9 +2602,10 @@ export async function clearPlanCollaborationMetadata(cwd, planName, collaboratio
  * @param {string[]} prefix
  * @param {Array<{ name: string, path: string, attrs: PlanFrontMatter }>} results
  * @param {PlanParseIssue[]} [parseIssues]
+ * @param {boolean} [documentOnly] Read file metadata without entering runtime storage.
  * @returns {Promise<void>}
  */
-async function collectPlans(dir, prefix, results, parseIssues) {
+async function collectPlans(dir, prefix, results, parseIssues, documentOnly = false) {
     for await (const entry of Deno.readDir(dir)) {
         const entryPath = join(dir, entry.name);
         const name = [...prefix, entry.name.replace(/\.md$/, "")].join("/");
@@ -2623,7 +2624,7 @@ async function collectPlans(dir, prefix, results, parseIssues) {
                 continue;
             }
             if (prefix.length === 0 && HIDDEN_PLAN_DIRS.has(entry.name)) continue;
-            await collectPlans(entryPath, [...prefix, entry.name], results, parseIssues);
+            await collectPlans(entryPath, [...prefix, entry.name], results, parseIssues, documentOnly);
             continue;
         }
         if (!entry.name.endsWith(".md")) continue;
@@ -2645,7 +2646,7 @@ async function collectPlans(dir, prefix, results, parseIssues) {
             const markdown = await Deno.readTextFile(entryPath);
             try {
                 const { attrs } = parsePlanFrontMatter(markdown);
-                const current = await withControllerMetadata(entryPath, attrs);
+                const current = documentOnly ? { attrs } : await withControllerMetadata(entryPath, attrs);
                 results.push({ name, path: entryPath, attrs: current.attrs });
             } catch (error) {
                 if (error instanceof ProjectRuntimeEntryRefusedError) throw error;
@@ -2770,6 +2771,30 @@ export async function listPlans(cwd) {
         throw new PlanFileIssueError(issue.path, "malformed", issue.message);
     }
     return results.sort(comparePlansForList);
+}
+
+/**
+ * List local Plan documents for selection. Deliberately does not enter runtime
+ * storage, fetch Git refs, repair worktrees, or adopt external Markdown files.
+ * Loading the selected Plan is a separate command phase.
+ * @param {string} cwd
+ * @returns {Promise<Array<{ name: string, path: string, attrs: PlanFrontMatter }>>}
+ */
+export async function listPlanDocuments(cwd) {
+    /** @type {Array<{ name: string, path: string, attrs: PlanFrontMatter }>} */
+    const plans = [];
+    /** @type {PlanParseIssue[]} */
+    const issues = [];
+    try {
+        await collectPlans(getPlansDir(cwd), [], plans, issues, true);
+    } catch (error) {
+        if (!(error instanceof Deno.errors.NotFound)) throw error;
+    }
+    for (const issue of issues) {
+        if (issue.error instanceof Error) throw issue.error;
+        throw new PlanFileIssueError(issue.path, "malformed", issue.message);
+    }
+    return plans.sort(comparePlansForList);
 }
 
 const ARCHIVED_DIR_NAME = "archived";

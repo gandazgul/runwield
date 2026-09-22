@@ -8,7 +8,11 @@ import { readLockFileSnapshot, removeLockFileIfSnapshotMatches } from "./lock-fi
 import { getLockHostname, isPidAlive } from "./process-liveness.ts";
 import { CLI_BIN } from "../constants.js";
 import { resolvePrimaryCheckoutRoot } from "./primary-checkout.ts";
-import { enterProjectRuntime, resolveProjectRuntimeLayout } from "./project-runtime-layout.ts";
+import {
+    enterProjectRuntime,
+    resolveProjectRuntimeLayout,
+    withProjectRuntimeReadScope,
+} from "./project-runtime-layout.ts";
 import { inspectPlanIdentityDocuments } from "./workflow/plan-diagnostic-evidence.ts";
 import { assertPublicationAttempt } from "./workflow/publication-attempt.ts";
 
@@ -452,8 +456,10 @@ export async function withWorktreeRegistryLockAtPath(lockPath, fn) {
  * @returns {Promise<T>}
  */
 export async function withWorktreeRegistryLock(projectRoot, fn) {
-    const layout = await enterProjectRuntime(projectRoot);
-    return await withWorktreeRegistryLockAtPath(layout.primary.worktreeRegistryLockPath, fn);
+    return await withProjectRuntimeReadScope(async () => {
+        const layout = await enterProjectRuntime(projectRoot);
+        return await withWorktreeRegistryLockAtPath(layout.primary.worktreeRegistryLockPath, fn);
+    });
 }
 
 /**

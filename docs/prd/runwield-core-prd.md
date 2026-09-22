@@ -246,6 +246,14 @@ does not reset its lifecycle or decisions.
 - Given malformed lifecycle metadata, when recovery runs, RunWield repairs its own state rather than rejecting the
   user's prose or requiring the user to edit internal fields.
 - Given an already adopted Plan, when it is loaded again, its age, identity, and lifecycle decisions remain intact.
+- Given any runtime layout, opening `/load-plan` without a Plan argument only lists local Plan documents. It does not
+  migrate storage, import controller metadata, fetch branches, repair worktrees, or change files or Sessions. Only
+  selecting a Plan enters that Plan's load and recovery flow.
+- Given completed runtime migration and files recreated by an older RunWield process, selecting a Plan automatically
+  preserves and reconciles them. Current decisions, counters, execution identity, and publication progress remain
+  authoritative. Empty or stale registries cannot replace current attempts; distinct valid attempts remain available.
+  Missing records and completion reports are recovered without claiming validation passed. Originals remain recoverable,
+  interruption resumes safely, and empty legacy lock directories do not block continuation.
 - Given a change affecting domain rules, architecture and planning identify their owners and necessary consistency and
   recovery behavior, then carry those rules into verification using the project's existing conventions.
 - Given a project without an entity model, or a change needing little domain reasoning, planning proceeds without
