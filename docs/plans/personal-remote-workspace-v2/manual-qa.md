@@ -58,3 +58,22 @@ Manual verification steps for personal-remote-workspace-v2/03-plan-centered-work
       Enter, Escape, Ctrl+C, and Ctrl+] behavior remain unchanged.
 
 <!-- runwield:manual-qa:end child="personal-remote-workspace-v2/03-plan-centered-workspace-home-and-navigation" -->
+
+<!-- runwield:manual-qa:start child="personal-remote-workspace-v2/04-unified-workspace-search-and-artifact-reading" -->
+
+## Unified Workspace Search and Artifact Reading
+
+Manual verification steps for personal-remote-workspace-v2/04-unified-workspace-search-and-artifact-reading
+
+- [ ] At desktop and phone widths, open Search from the button and Cmd+K or Ctrl+K; confirm the query field receives
+      focus, Escape closes the dialog and restores focus, and touch controls work.
+- [ ] Enter a query, use Project and content-type filters, navigate results with the keyboard, and open View all
+      results; confirm the query, filters, order, and result selection remain consistent.
+- [ ] Check loading, no-match, and Project failure states; confirm long names do not cause horizontal overflow and
+      results show Project and content-type labels.
+- [ ] Open each supported document type; confirm the single Workspace header, phone Contents toggle, read-only content,
+      and Back to Search behavior. Confirm existing Session artifacts show Back to Session.
+- [ ] With two registered Projects, change or remove an indexed file externally; refresh and confirm stale content is
+      not shown as a current result and healthy Project results remain available.
+
+<!-- runwield:manual-qa:end child="personal-remote-workspace-v2/04-unified-workspace-search-and-artifact-reading" -->

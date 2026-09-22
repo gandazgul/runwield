@@ -667,7 +667,9 @@ Epic artifacts, and reports from every read-only entry point, including Ideator 
 artifacts, and the Plan/Work Record read commands. It replaces Workspace navigation with its own full-window logo/title
 header and one Contents header. Contents starts collapsed on small screens and uses the same panel control as Plan and
 Code Review. Workspace launches return directly to the originating Session; local launches have Close. Feedback stays in
-the owning Session interaction. TUI users can choose a registered artifact with Alt+] and open this same reader.
+the owning Session interaction. Search opens Work Records and supported documentation through a Project launch of the
+same reader. It returns to the preserved Search URL, does not create a Session or artifact registration, and never uses
+the standalone review exit action. TUI users can choose a registered artifact with Alt+] and open this same reader.
 
 **Acceptance scenarios:**
 
@@ -675,8 +677,8 @@ the owning Session interaction. TUI users can choose a registered artifact with 
   document replaces it.
 - On a phone, an artifact opens with its document visible and Contents closed; the owner can open Contents, select a
   heading, and return to the document, or collapse Contents without selecting anything.
-- In Workspace, the artifact title appears once in the reader header, Workspace navigation is absent, and Back to
-  Session returns to its conversation.
+- In Workspace, the artifact title appears once in the reader header and Workspace navigation is absent. A Session
+  launch uses Back to Session; a Search launch uses Back to Search and preserves its query and filters.
 - An Ideator PRD review, a registered Session artifact, and a Plan/Work Record read command display the same reader;
   only artifact metadata and the return/close action differ.
 - In a TUI Session, Alt+] lists registered artifacts and opens the selected artifact in that reader without changing the
@@ -802,34 +804,30 @@ internal repair procedures.
 
 ### Durable knowledge search
 
-**Scope and maturity:** Personal Remote Workspace v1 target; existing record retrieval is the foundation.
+**Scope and maturity:** Delivered for Personal Remote Workspace v2. Search opt-out, research retrieval, full Session
+Transcript search, and history filters are deferred.
 
 **Requirement: Retrieve eligible artifacts with scope and confidence visible.**
 
-Workspace provides two human-facing durable-artifact scopes:
+Workspace Search gives the owner one quick-search dialog and one full results page across enabled registered Projects.
+Both surfaces use the same query, Project and type filters, flat ranking, pagination, result identity, and canonical
+source checks. Results always identify their Project and content type. Exact document or Session Names rank before title
+and heading matches; body and first-message matches follow. Recency only breaks otherwise similar matches.
 
-1. **Project Knowledge Search:** Plans, PRDs, ADRs, Work Records, and eligible research within one Project.
-2. **Workspace Intelligence Search:** eligible durable artifacts across registered Projects.
+Eligible sources are current Plans in the normal Plan store, PRDs, ADRs, current approved Work Records,
+`docs/design-system.md`, applicable domain-language documents, Session Names, and each Session's first committed user
+message. Source code, Plan-worktree code, arbitrary Markdown, general research, archived Plans, non-current Work
+Records, and later Session messages are excluded. Session entry lookup is owner navigation, not Project Knowledge Search
+or cross-Session Agent retrieval.
 
-Registered Projects contribute durable artifacts to Workspace Intelligence by default, with a per-Project opt-out for
-sensitive repositories. Results always identify their Project and artifact type.
+Search uses a separate rebuildable index. Before display and navigation, Workspace checks the enabled Project and the
+current canonical source. Indexing failure in one Project does not block healthy Projects or other Workspace views.
+RunWield-owned writes request an early refresh after they commit; a bounded background scan catches missed requests and
+external edits. Search filters do not change Project settings.
 
-Session Transcripts remain:
-
-- searchable by their owner for human navigation;
-- unavailable to cross-Session Agent retrieval;
-- excluded from Workspace Intelligence;
-- unavailable to collaborators;
-- non-authoritative when they disagree with durable artifacts.
-
-Source code is also excluded from Workspace Intelligence. Artifact retrieval and source-code search are distinct modes
-with different scope and trust semantics.
-
-Work Record results show the summary, Project, source links, and completion confidence. Users can tell automated
-verification from user attestation, skipped verification, and a done-enough Epic. Default search favors current approved
-records. Explicit history views expose drafts, superseded, pending, and archived records with clear notices. Plan
-surfaces link the relevant outcome record or explain that generation needs retry. Retrieval must not treat a completed
-PRD, old Plan, or Work Record as proof that a current end-to-end journey works.
+Work Record results and readers show the summary, Project, source links, completion confidence, and applicable notices.
+Users can tell automated verification from user attestation, skipped verification, and a done-enough Epic. Retrieval
+must not treat a completed PRD, old Plan, or Work Record as proof that a current end-to-end journey works.
 
 [Core Work records](runwield-core-prd.md#work-records) owns record generation, eligibility, correction, and completion
 confidence. [Core capability-organized requirements](runwield-core-prd.md#capability-organized-product-requirements)
@@ -837,22 +835,25 @@ owns PRD authoring behavior.
 
 **Acceptance scenarios:**
 
-- Given a sensitive Project opted out of Workspace Intelligence, when the owner searches across Projects, its artifacts
-  are absent and returned results identify their Project and type.
-- When an Agent retrieves planning knowledge, owner-private transcripts and source-code search results are not silently
+- Given two enabled Projects with same-named artifacts, when the owner searches and filters, results keep stable Project
+  and type identity and both search surfaces preserve the same order.
+- When an indexed source changes, disappears, escapes its registered root, or becomes ineligible, search and an issued
+  destination refuse stale evidence before the next background scan.
+- When one Project cannot be indexed, healthy Project results and the failed Project's safe status remain visible.
+- When the owner opens a Work Record or supported document, the shared read-only reader shows current canonical content
+  and returns to the preserved Search URL. Session artifact readers still return to their Session.
+- When an Agent retrieves planning knowledge, owner-private Session entry text and source-code results are not silently
   included.
-- When the user opens historical Work Records, their completion and approval distinctions remain visible; a past record
-  does not prove a current journey works.
 
 <a id="69-human-cross-project-code-search"></a>
 
 ### Human cross-Project code search
 
-**Scope and maturity:** Personal Remote Workspace v1 target; cross-Project Agent search remains excluded.
+**Scope and maturity:** Deferred beyond Personal Remote Workspace v2; cross-Project Agent search remains excluded.
 
 **Requirement: Search only deliberately selected Projects.**
 
-Personal Remote Workspace v1 includes RunWield-owned Cymbal federation:
+A future release can provide RunWield-owned Cymbal federation:
 
 - the user explicitly selects one or more registered Projects;
 - searching selected Projects remains responsive while other work continues;
@@ -886,7 +887,8 @@ committed-code search.
 
 ### Main-checkout Code Surface
 
-**Scope and maturity:** Personal Remote Workspace v1 target; code-server remains subordinate and separately secured.
+**Scope and maturity:** Deferred beyond Personal Remote Workspace v2; a future code-server integration remains
+subordinate and separately secured.
 
 **Requirement: Inspect and edit the authorized checkout without owning workflows.**
 
@@ -926,6 +928,9 @@ device pairing:
 
 - bootstrap approval is short-lived and intentional;
 - paired-device sessions persist but are revocable;
+- paired browsers and installed apps retain authorization across launches and Workspace restarts; visiting a saved
+  pairing page returns an authorized device to the Dashboard without another approval. Successful page visits renew the
+  persistent cookie; revocation or clearing browser site data still requires a new pairing;
 - Workspace provides a paired-device and revocation view;
 - all browser activity respects the same device access permissions;
 - another website cannot act on the owner’s Workspace without authorization;
@@ -948,6 +953,9 @@ Workspace.
 
 - Given a new browser device, when it requests access, the owner must deliberately pair it; revoked devices cannot
   continue using Workspace.
+- Given a paired installed app, when it reopens a saved pairing page or Workspace restarts, it opens the Dashboard with
+  its existing authorization rather than generating another code. An external navigation can carry the device cookie,
+  while mutations still require the trusted Origin and matching CSRF proof.
 - Given a Shared Plan link without owner-device authorization, when someone follows it, they receive only the
   shared-review access and cannot operate owner Workspace.
 - When Workspace is reached beyond loopback, access uses the documented secure boundary and exposes only registered

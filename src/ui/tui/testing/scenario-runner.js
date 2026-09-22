@@ -4,7 +4,7 @@
  */
 
 import { dirname, join, relative } from "@std/path";
-import { createSessionRuntime } from "../../../shared/session/session-runtime.js";
+import { createSessionRuntime } from "../../../shared/session/session-runtime.ts";
 import { RuntimeEventTypes } from "../../../shared/session/session-runtime-events.js";
 import { openFileSessionStore } from "../../../shared/session/file-session-store.ts";
 import { assert } from "@std/assert";
@@ -169,6 +169,7 @@ function findFixturePlanLifecycle(directory, expectedStatus) {
  * @property {Array<((result: GoldenScenarioResult) => void | Promise<void>) & { goldenCoverage?: string[] }>} [assertions]
  * @property {string[]} [coverage]
  * @property {number} [timeoutMs]
+ * @property {number} [modelTokensPerSecond] external streaming latency; defaults to unlimited
  * @property {boolean} [composedTui]
  * @property {{ userText: string, agentName?: string, assistantText: string, model?: string, provider?: string, planName?: string, classification?: string, complexity?: string, interrupted?: boolean }} [priorSession]
  * @property {boolean} [corruptSession]
@@ -387,7 +388,14 @@ function inferGoldenTurnIdentity(snapshotAgentName, availableTools, systemPrompt
 }
 
 /**
- * @param {{ runwieldDir?: string, models?: Array<{ id: string, name?: string, reasoning?: boolean }> }} options
+ * @typedef {Object} GoldenProviderOptions
+ * @property {string} [runwieldDir]
+ * @property {GoldenScenario["models"]} [models]
+ * @property {number} [tokensPerSecond]
+ */
+
+/**
+ * @param {GoldenProviderOptions} options
  * @returns {Promise<ReturnType<typeof registerFauxProvider>>}
  */
 async function registerGoldenFauxProviderForEnvironment(options = {}) {
@@ -397,7 +405,7 @@ async function registerGoldenFauxProviderForEnvironment(options = {}) {
     return registerFauxProvider({
         api: GOLDEN_FAUX_API,
         provider: GOLDEN_FAUX_PROVIDER,
-        tokensPerSecond: 80,
+        tokensPerSecond: options.tokensPerSecond ?? 0,
         models: (options.models || [{ id: GOLDEN_FAUX_MODEL, name: "Golden Faux Model" }]).map((model) => ({
             ...model,
             input: ["text", "image"],
@@ -805,6 +813,7 @@ async function runComposedTuiScenario(scenario, options) {
             : await registerGoldenFauxProviderForEnvironment({
                 runwieldDir: runwieldDir || undefined,
                 models: scenario.models,
+                tokensPerSecond: scenario.modelTokensPerSecond,
             });
         const priorSessionState = fauxProvider
             ? await seedGoldenPriorSession(scenario.priorSession, fauxProvider)
@@ -965,12 +974,33 @@ async function runComposedTuiScenario(scenario, options) {
                 /** @type {unknown} */ _providerState,
                 /** @type {{ id?: string, provider?: string }} */ model,
             ) => {
-                const snapshot = composition?.runtime.getSessionSnapshot(composition.sessionId);
+                let snapshot = composition?.runtime.getSessionSnapshot(composition.sessionId);
                 const availableTools = getContextToolNames(context);
                 const systemPrompt = String(
                     /** @type {{ systemPrompt?: unknown }} */ (context && typeof context === "object" ? context : {})
                         .systemPrompt || "",
                 );
+                // Route the external model fixture by the request's real working
+                // directory. Concurrent sessions must never borrow the first TUI's
+                // Plan identity or consume its scripted turns.
+                if (concurrentSessions.size > 0) {
+                    const requestCwd = systemPrompt.match(/^Current working directory: (.+)$/m)?.[1]?.trim();
+                    const snapshots = [
+                        snapshot,
+                        ...[...concurrentSessions.values()].map(({ composition: sessionComposition }) =>
+                            sessionComposition.runtime.getSessionSnapshot(sessionComposition.sessionId)
+                        ),
+                    ].filter((candidate) =>
+                        candidate && requestCwd && Deno.realPathSync(candidate.cwd) === Deno.realPathSync(requestCwd)
+                    );
+                    if (snapshots.length === 1) snapshot = snapshots[0];
+                    else if (availableTools.includes("task_completed") || availableTools.includes("review_complete")) {
+                        const message = `Cannot route concurrent model request for ${requestCwd || "missing cwd"}`;
+                        events.push(`model:fixture-error:${message}`);
+                        void writeHeartbeat().catch(() => {});
+                        throw new Error(message);
+                    }
+                }
                 const { agent, phase } = inferGoldenTurnIdentity(
                     snapshot?.activeAgent || undefined,
                     availableTools,

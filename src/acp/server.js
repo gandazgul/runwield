@@ -8,10 +8,10 @@ import { isAbsolute } from "@std/path";
 import { VERSION } from "../shared/version.js";
 import { openFileSessionStore } from "../shared/session/file-session-store.ts";
 import { getSelectedDefaultModelAvailability } from "../shared/session/model-readiness.ts";
-import { createSessionRuntime, SessionTurnInProgressError } from "../shared/session/session-runtime.js";
+import { createSessionRuntime, SessionTurnInProgressError } from "../shared/session/session-runtime.ts";
 import { RuntimeEventTypes } from "../shared/session/session-runtime-events.js";
 import { AcpSessionMap, normalizeAcpSessionIdForLoad } from "./session-map.js";
-import { mapRuntimeEventToAcpSessionNotification } from "./event-mapper.js";
+import { mapRuntimeContextToAcpUpdate, mapRuntimeEventToAcpSessionNotification } from "./event-mapper.js";
 import { createAcpInteractionAdapter } from "./interaction-mapper.js";
 import { buildAcpModelOptions } from "./model-options.ts";
 import { getCommandDefinition, getSlashCommandDefinition, getSlashCommandDefinitions } from "../cmd/registry.js";
@@ -28,6 +28,14 @@ const ACP_NOT_IMPLEMENTED = -32004;
 const ACP_INVALID_PARAMS = -32602;
 const ACP_NOT_FOUND = -32001;
 const ACP_INVALID_STATE = -32002;
+const ACP_THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
+
+/** @typedef {"off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"} AcpThinkingLevel */
+
+/** @param {string} value @returns {value is AcpThinkingLevel} */
+function isAcpThinkingLevel(value) {
+    return ACP_THINKING_LEVELS.has(value);
+}
 
 /** @param {unknown} value */
 function isRecord(value) {
@@ -65,7 +73,7 @@ function isAuthenticationSetupFailure(message) {
 /** @typedef {import('@agentclientprotocol/sdk').AgentApp} AgentApp */
 /** @typedef {import('@agentclientprotocol/sdk').AgentConnection} AgentConnection */
 /** @typedef {import('@agentclientprotocol/sdk').Stream} AcpStream */
-/** @typedef {import('../shared/session/session-runtime.js').SessionRuntime} SessionRuntime */
+/** @typedef {import('../shared/session/session-runtime.ts').SessionRuntime} SessionRuntime */
 
 /**
  * @typedef {Object} AcpNotificationContext
@@ -419,6 +427,22 @@ async function notifyAcpModelOptions(context, runtime, runtimeSessionId, acpSess
 }
 
 /**
+ * @param {AcpNotificationContext} context
+ * @param {SessionRuntime} runtime
+ * @param {AcpSessionMap} sessionMap
+ * @param {string} runtimeSessionId
+ * @param {string} acpSessionId
+ */
+async function notifyAcpContextUsage(context, runtime, sessionMap, runtimeSessionId, acpSessionId) {
+    const contextUsage = runtime.getSessionSnapshot(runtimeSessionId)?.contextUsage || null;
+    const update = mapRuntimeContextToAcpUpdate(
+        contextUsage,
+        sessionMap.getRecord(acpSessionId)?.usageCostUsd || 0,
+    );
+    if (update) await notifyClient(context, methods.client.session.update, { sessionId: acpSessionId, update });
+}
+
+/**
  * @typedef {{ value: string, label: string, description?: string, [key: string]: unknown }} AcpCommandSelectOption
  */
 
@@ -579,11 +603,27 @@ async function dispatchAcpBuiltinCommand(options) {
                     pendingNotifications.push(pending);
                     return pending;
                 }
-                const notification = mapEventWithSessionCost(options.sessionMap, options.acpSessionId, event);
-                if (event.type === RuntimeEventTypes.MODEL_CHANGED || event.type === RuntimeEventTypes.AGENT_CHANGED) {
-                    pendingNotifications.push(
+                const contextUsage = options.runtime.getSessionSnapshot(runtimeSessionId)?.contextUsage || null;
+                const notification = mapEventWithSessionCost(
+                    options.sessionMap,
+                    options.acpSessionId,
+                    event,
+                    contextUsage,
+                );
+                if (
+                    event.type === RuntimeEventTypes.MODEL_CHANGED || event.type === RuntimeEventTypes.AGENT_CHANGED ||
+                    event.type === RuntimeEventTypes.THINKING_LEVEL_CHANGED
+                ) {
+                    pendingNotifications.push(Promise.all([
                         notifyAcpModelOptions(options.context, options.runtime, runtimeSessionId, options.acpSessionId),
-                    );
+                        notifyAcpContextUsage(
+                            options.context,
+                            options.runtime,
+                            options.sessionMap,
+                            runtimeSessionId,
+                            options.acpSessionId,
+                        ),
+                    ]));
                 }
                 if (!notification) return;
                 const pending = notifyClient(options.context, methods.client.session.update, notification);
@@ -723,12 +763,13 @@ async function closeAllMappedSessions(runtime, sessionMap) {
  * @param {AcpSessionMap} sessionMap
  * @param {string} acpSessionId
  * @param {import('../shared/session/session-runtime-events.js').SessionRuntimeEvent} event
+ * @param {{ tokens: number | null, contextWindow: number } | null} [contextUsage]
  */
-export function mapEventWithSessionCost(sessionMap, acpSessionId, event) {
+export function mapEventWithSessionCost(sessionMap, acpSessionId, event, contextUsage = null) {
     const sessionCostUsd = event.type === RuntimeEventTypes.USAGE
         ? sessionMap.addUsageCost(acpSessionId, event.usage?.costUsd)
         : sessionMap.getRecord(acpSessionId)?.usageCostUsd || 0;
-    return mapRuntimeEventToAcpSessionNotification(acpSessionId, event, sessionCostUsd);
+    return mapRuntimeEventToAcpSessionNotification(acpSessionId, event, sessionCostUsd, contextUsage);
 }
 
 /**
@@ -778,7 +819,8 @@ async function replaySetupEvents(context, runtime, sessionMap, runtimeSessionId,
     /** @type {Promise<unknown>[]} */
     const pendingNotifications = [];
     const unsubscribe = runtime.subscribeSessionEvents(runtimeSessionId, (event) => {
-        const notification = mapEventWithSessionCost(sessionMap, acpSessionId, event);
+        const contextUsage = runtime.getSessionSnapshot(runtimeSessionId)?.contextUsage || null;
+        const notification = mapEventWithSessionCost(sessionMap, acpSessionId, event, contextUsage);
         if (!notification) return;
         const pending = notifyClient(context, methods.client.session.update, notification);
         pendingNotifications.push(pending);
@@ -867,7 +909,14 @@ function createRunWieldAcpServer(context) {
                 sessionPath: result.sessionPath,
             });
             const notifications = result.replayEvents
-                .map((event) => mapEventWithSessionCost(sessionMap, record.acpSessionId, event))
+                .map((event) =>
+                    mapEventWithSessionCost(
+                        sessionMap,
+                        record.acpSessionId,
+                        event,
+                        runtime.getSessionSnapshot(result.sessionId)?.contextUsage || null,
+                    )
+                )
                 .filter(Boolean)
                 .map((notification) => notifyClient(context, methods.client.session.update, notification));
             await Promise.allSettled(notifications);
@@ -908,30 +957,60 @@ function createRunWieldAcpServer(context) {
         }
         const runtimeSessionId = sessionMap.getRuntimeSessionId(sessionId);
         if (!runtimeSessionId) throwUnknownSession(sessionId);
-        if (configId !== "model" || typeof value !== "string") {
-            throwInvalidParams("Expected a model config option with a string value");
+        if (typeof configId !== "string" || typeof value !== "string") {
+            throwInvalidParams("Expected a select config option with a string value");
+        }
+        const exposedOptions = await buildAcpModelOptions(runtime, runtimeSessionId);
+        const option = exposedOptions.find((candidate) => candidate.id === configId);
+        if (!option || option.type !== "select") {
+            throwInvalidParams(`Config option is not available: ${configId}=${value}`, { configId, value });
+        }
+        const optionValues = option.options
+            .flatMap((entry) => "options" in entry ? entry.options : [entry])
+            .map((entry) => entry.value);
+        if (!optionValues.includes(value)) {
+            throwInvalidParams(`Config option is not available: ${configId}=${value}`, { configId, value });
         }
         if (sessionMap.getRecord(sessionId)?.activePrompt) {
-            throw new RequestError(ACP_INVALID_STATE, "Wait for the active turn to finish before switching models", {
-                sessionId,
-            });
+            throw new RequestError(
+                ACP_INVALID_STATE,
+                "Wait for the active turn to finish before changing configuration",
+                {
+                    sessionId,
+                },
+            );
         }
-        const models = await listUserModelOptions();
-        const selected = models.find((model) => `${model.provider}/${model.id}` === value);
-        if (!selected) throwInvalidParams(`Model is not available: ${value}`, { configId, value });
-        const result = await applyUserModelSelection(runtime, runtimeSessionId, selected.id, selected.provider);
-        if (!result.ok) {
-            throw new RequestError(ACP_INVALID_STATE, result.error || "Model switch failed", {
-                sessionId,
-                configId,
-                value,
-            });
+        if (configId === "model") {
+            const models = await listUserModelOptions();
+            const selected = models.find((model) => `${model.provider}/${model.id}` === value);
+            if (!selected) throwInvalidParams(`Model is not available: ${value}`, { configId, value });
+            const result = await applyUserModelSelection(runtime, runtimeSessionId, selected.id, selected.provider);
+            if (!result.ok) {
+                throw new RequestError(ACP_INVALID_STATE, result.error || "Model switch failed", {
+                    sessionId,
+                    configId,
+                    value,
+                });
+            }
+        } else if (configId === "thought_level") {
+            if (!isAcpThinkingLevel(value)) {
+                throwInvalidParams(`Reasoning level is not available: ${value}`, { configId, value });
+            }
+            const result = await runtime.setSessionThinkingLevel(runtimeSessionId, value);
+            if (!result?.ok) {
+                throw new RequestError(ACP_INVALID_STATE, result?.error || "Reasoning level switch failed", {
+                    sessionId,
+                    configId,
+                    value,
+                });
+            }
         }
         const configOptions = await buildAcpModelOptions(runtime, runtimeSessionId);
         await notifyClient(context, methods.client.session.update, {
             sessionId,
             update: { sessionUpdate: "config_option_update", configOptions },
         });
+        await notifyAcpContextUsage(context, runtime, sessionMap, runtimeSessionId, sessionId);
         return { configOptions };
     });
 
@@ -1058,9 +1137,24 @@ function createRunWieldAcpServer(context) {
                     subscribeCurrentRuntimeSession();
                     return;
                 }
-                const notification = mapEventWithSessionCost(sessionMap, acpSessionId, event);
-                if (event.type === RuntimeEventTypes.MODEL_CHANGED || event.type === RuntimeEventTypes.AGENT_CHANGED) {
-                    pendingNotifications.push(notifyAcpModelOptions(context, runtime, runtimeSessionId, acpSessionId));
+                const contextUsage = runtime.getSessionSnapshot(runtimeSessionId)?.contextUsage || null;
+                const notification = mapEventWithSessionCost(sessionMap, acpSessionId, event, contextUsage);
+                if (
+                    event.type === RuntimeEventTypes.MODEL_CHANGED || event.type === RuntimeEventTypes.AGENT_CHANGED ||
+                    event.type === RuntimeEventTypes.THINKING_LEVEL_CHANGED
+                ) {
+                    pendingNotifications.push(
+                        Promise.all([
+                            notifyAcpModelOptions(context, runtime, runtimeSessionId, acpSessionId),
+                            notifyAcpContextUsage(
+                                context,
+                                runtime,
+                                sessionMap,
+                                runtimeSessionId,
+                                acpSessionId,
+                            ),
+                        ]).then(() => undefined),
+                    );
                 }
                 if (!notification) return;
                 const pending = notifyClient(context, methods.client.session.update, notification);

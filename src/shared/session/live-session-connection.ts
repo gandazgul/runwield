@@ -11,7 +11,7 @@ import type {
     RuntimeQueuedMessage,
     SessionRuntimeEvent,
 } from "./session-runtime-events.js";
-import type { SessionRuntime, SteerSessionResult } from "./session-runtime.js";
+import type { SessionRuntime, SteerSessionResult } from "./session-runtime.ts";
 import type { HostedSession } from "./hosted-session.js";
 
 type LiveSessionCommand = {
@@ -70,8 +70,24 @@ function socketPath(sessionId: string, operationId: string) {
     return Deno.build.os === "windows" ? `\\\\.\\pipe\\runwield-${key}` : `/tmp/runwield-${key}.sock`;
 }
 
+export interface LiveSessionRuntime {
+    getSessionSnapshot(sessionId: string): ReturnType<SessionRuntime["getSessionSnapshot"]>;
+    getQueuedMessages(sessionId: string): ReturnType<SessionRuntime["getQueuedMessages"]>;
+    steerSession(
+        sessionId: string,
+        text: string,
+        images: ImageAttachment[],
+        inputSurface?: NotificationSurface,
+    ): Promise<SteerSessionResult>;
+    cancelSession(sessionId: string): ReturnType<SessionRuntime["cancelSession"]>;
+    subscribeSessionEvents(
+        sessionId: string,
+        listener: (event: SessionRuntimeEvent) => void | Promise<void>,
+    ): () => void;
+}
+
 export async function openLiveSessionConnection(
-    runtime: SessionRuntime,
+    runtime: LiveSessionRuntime,
     session: HostedSession,
     operationId: string,
     events: SessionRuntimeEvent[],

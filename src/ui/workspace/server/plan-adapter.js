@@ -596,6 +596,8 @@ export async function loadPlanDetail(cwd, planId) {
  */
 export async function loadWorkspaceDetail(cwd, planId) {
     const baseResource = await findPlanById(cwd, planId);
+    const { assertAuthorizedPlanPath } = await import("./project-artifacts.ts");
+    await assertAuthorizedPlanPath(cwd, baseResource.path, baseResource.planName);
     const resource = isProjectPlan(baseResource.attrs) ? baseResource : await loadPlanBodyById(cwd, planId);
     const summaries = await loadPlanSummaries(cwd);
     return projectWorkspaceDetail({

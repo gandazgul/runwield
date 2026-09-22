@@ -139,6 +139,13 @@ export class VirtualTerminal {
         return normalizeScreenText(this.getViewportLines().join("\n"));
     }
 
+    /** @param {number} row @param {number} column */
+    hasDefaultBackground(row, column) {
+        const buffer = this._xterm.buffer.active;
+        const cell = buffer.getLine(Number(buffer.viewportY || 0) + row)?.getCell(column);
+        return cell?.isBgDefault() ?? true;
+    }
+
     getScrollbackText() {
         return normalizeScreenText(this.writes);
     }

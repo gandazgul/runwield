@@ -1,5 +1,6 @@
 import { defineConfig } from "astro/config";
 import starlight from "@astrojs/starlight";
+import { writeSearchIndex } from "./src/search-index.ts";
 import release from "./release.json" with { type: "json" };
 
 const preview = release.version === "Preview";
@@ -8,7 +9,7 @@ export default defineConfig({
     site: "https://docs.runwield.dev",
     outDir: "../dist/docs",
     integrations: [
-        starlight({
+        withAwaitedSearchWrites(starlight({
             title: "RunWield Docs",
             description: "Install, use, and configure RunWield.",
             logo: { src: "./src/assets/logo.svg" },
@@ -36,7 +37,10 @@ export default defineConfig({
                 {
                     label: "RunWield.dev",
                     link: "https://runwield.dev",
-                    attrs: { class: "external-link", "aria-label": "RunWield.dev (external link)" },
+                    attrs: {
+                        class: "external-link",
+                        "aria-label": "RunWield.dev (external link)",
+                    },
                 },
                 { label: "Start", items: ["quickstart", "workspace"] },
                 {
@@ -67,6 +71,14 @@ export default defineConfig({
                     link: release.releaseUrl,
                 },
             ],
-        }),
+        })),
     ],
 });
+
+/** @param {import("astro").AstroIntegration} integration */
+function withAwaitedSearchWrites(integration) {
+    // Keep Starlight's search UI, replacing only its build hook. Pagefind 1.5.2
+    // returns from writeFiles before Tokio flushes; close() then kills the writer.
+    integration.hooks["astro:build:done"] = writeSearchIndex;
+    return integration;
+}

@@ -20,7 +20,7 @@ import {
     getProjectSecretStoreLocation,
     resolveCompatibleSecretRecord,
 } from "../../shared/collaboration/secrets.js";
-import { normalizePlanServerUrl } from "../../shared/settings.js";
+import { normalizePlanServerUrl } from "../../shared/collaboration/urls.js";
 import { enterProjectRuntime } from "../../shared/project-runtime-layout.ts";
 
 interface PlansUnshareArgs {

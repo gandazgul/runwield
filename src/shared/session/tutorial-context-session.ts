@@ -13,7 +13,7 @@ export type TutorialContextUpdate = Partial<TutorialContext>;
 
 type TutorialContextCandidateValue = string | number | boolean | null | string[];
 
-type TutorialContextCandidate = {
+export type TutorialContextCandidate = {
     version?: TutorialContextCandidateValue;
     guidanceEnabled?: TutorialContextCandidateValue;
     shownExplanationIds?: TutorialContextCandidateValue;

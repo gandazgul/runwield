@@ -8,7 +8,7 @@ import { handleBashCommand } from "./bash-interceptor.js";
 function makeContext(userRequest, concurrent = false) {
     /** @type {any[]} */
     const calls = [];
-    const sessionRuntime = /** @type {import('../../shared/session/session-runtime.js').SessionRuntime} */ (
+    const sessionRuntime = /** @type {import('../../shared/session/session-runtime.ts').SessionRuntime} */ (
         /** @type {unknown} */ ({
             runLocalShellCommand: (/** @type {string} */ sessionId, /** @type {any} */ options) => {
                 calls.push({ sessionId, options });

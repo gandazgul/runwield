@@ -14,6 +14,7 @@ order: 8
 dependencies:
     - "07-core-export-coordination-and-delivery-states"
 targetBranch: "epic/reliable-usage-dashboard-and-langfuse-export"
+planId: "29ed7919-7f2c-4d2a-a629-eb8cab2bff5f"
 ---
 
 # Langfuse Exporter Package

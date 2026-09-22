@@ -19,6 +19,7 @@ order: 6
 dependencies:
     - "05-workspace-usage-page"
 targetBranch: "epic/reliable-usage-dashboard-and-langfuse-export"
+planId: "a8a32d37-78fc-4bf1-afd3-51cc9c3c7e77"
 ---
 
 # Package Executable Approval and Metrics-Exporter Kind

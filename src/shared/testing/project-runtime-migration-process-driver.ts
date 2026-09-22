@@ -46,12 +46,12 @@ if (command === "migrate") {
     const file = await Deno.open(lockPath, { create: true, read: true, write: true });
     await file.lock(true);
     console.log(JSON.stringify({ ready: true, lockPath }));
-    await new Promise(() => {});
+    await holdProcess();
 } else if (command === "hold-registry-lock") {
     const lockPath = join(getRunWieldRuntimeDir(checkoutRoot), "worktrees.lock");
     await withWorktreeRegistryLockAtPath(lockPath, async () => {
         console.log(JSON.stringify({ ready: true, lockPath }));
-        await new Promise(() => {});
+        await holdProcess();
     });
 } else if (command === "hold-initializing-migration-locks") {
     await holdInitializingMigrationLocks(checkoutRoot, extra);
@@ -105,7 +105,8 @@ async function holdLegacyPlanLock(checkoutRoot: string, planName: string): Promi
             () => {},
         );
     }, 1_000);
-    Deno.unrefTimer(heartbeat);
+    // Keep the lock holder alive until the parent terminates it.
+    Deno.refTimer(heartbeat);
     console.log(JSON.stringify({ ready: true, lockPath }));
     return await new Promise<never>(() => {});
 }
@@ -121,7 +122,8 @@ async function holdLegacyWorkRecordLock(checkoutRoot: string, lockName: string):
     const heartbeat = setInterval(() => {
         writeWorkRecordLockFile(file, { token, createdAt: now, updatedAt: Date.now() }).catch(() => {});
     }, 1_000);
-    Deno.unrefTimer(heartbeat);
+    // Keep the lock holder alive until the parent terminates it.
+    Deno.refTimer(heartbeat);
     console.log(JSON.stringify({ ready: true, lockPath }));
     return await new Promise<never>(() => {});
 }
@@ -218,4 +220,10 @@ function shouldExitAfterRemove(
     }
     if (effect === "stale-lock-retirement") return path === join(legacyBase, "plan-locks", "demo.lock");
     return effect === "journal-cleanup" && path === layout.primary.layoutMigrationJournalPath;
+}
+
+async function holdProcess(): Promise<never> {
+    // An unresolved promise alone does not keep a Deno subprocess alive.
+    setInterval(() => {}, 60_000);
+    return await new Promise<never>(() => {});
 }

@@ -129,6 +129,10 @@ export function sessionArtifactKindLabel(kind: string): string {
             return "ADR";
         case "work-record":
             return "Work Record";
+        case "design-system":
+            return "Design System";
+        case "domain-language":
+            return "Domain Language";
         case "epic-artifact":
             return "Epic Artifact";
         case "plan":

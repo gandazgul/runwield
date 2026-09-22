@@ -27,13 +27,15 @@ devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://127.0.0.1:5173"
 devServerHmr: true
 createdAt: "2026-09-03T00:54:21.444Z"
-status: "ready_for_work"
 origin: "internal"
 parentPlan: "personal-remote-workspace-v2"
 order: 4
 dependencies:
     - "03-plan-centered-workspace-home-and-navigation"
 userVerifiedAt: null
+targetBranch: "main"
+status: "validated"
+validatedCommit: "3e0962cf00fb4a687ede869533992fc1b59e8d37"
 ---
 
 # Unified Workspace Search and Artifact Reading

@@ -5,6 +5,21 @@ import { _AGENT_ATTENTION_NUDGES, listAgentDefNames, loadAgentDef } from "./agen
 const BUNDLED_AGENT_DEFS = join("src", "agent-definitions");
 const SHARED_PRACTICE_DIR = join(BUNDLED_AGENT_DEFS, "shared-practice");
 
+Deno.test("managed engineering assigns full validation to RunWield and keeps standalone verification", async () => {
+    for (const name of ["engineer", "plan-engineer", "frontend-engineer"]) {
+        const { systemPrompt } = await loadAgentDef(name);
+        const normalizedPrompt = systemPrompt.replaceAll(/\s+/g, " ");
+        assertStringIncludes(normalizedPrompt, "Who Runs Full Validation");
+        assertStringIncludes(normalizedPrompt, "mandatory Mechanical Validation");
+        assertStringIncludes(
+            normalizedPrompt,
+            "Outside a managed workflow, run the full project validation command yourself",
+        );
+        assertStringIncludes(normalizedPrompt, "full validation is pending");
+        assertEquals(normalizedPrompt.includes("Run the full command, not just a check"), false);
+    }
+});
+
 const QUICK_FIX_FRAGMENTS = [
     "user-authority",
     "working-tree-safety",

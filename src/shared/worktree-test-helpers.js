@@ -1,4 +1,5 @@
 import { createWorktreeGitArtifacts, settleWorktreeAttempt } from "./worktree.js";
+import { defineGitFixture } from "./git-test-fixture.ts";
 /** @type {import('./workflow/plan-lifecycle.js').PlanEventDetails} */
 export const TEST_DELIVERY_DETAILS = {
     executionMode: "worktree",
@@ -24,15 +25,16 @@ export async function git(cwd, args) {
     return new TextDecoder().decode(output.stdout).trim();
 }
 
-export async function makeRepo() {
-    const cwd = await Deno.makeTempDir();
-    await git(cwd, ["init", "-b", "main"]);
+const baseRepository = defineGitFixture(async (cwd) => {
     await git(cwd, ["config", "user.email", "runwield@example.com"]);
     await git(cwd, ["config", "user.name", "RunWield Test"]);
     await Deno.writeTextFile(`${cwd}/README.md`, "base\n");
     await git(cwd, ["add", "."]);
     await git(cwd, ["commit", "-m", "base"]);
-    return cwd;
+});
+
+export function makeRepo() {
+    return baseRepository.checkout();
 }
 
 /**

@@ -1,6 +1,6 @@
 import { assert, assertEquals, assertRejects } from "@std/assert";
 import { join } from "@std/path";
-import { readWorkspaceStyles } from "./workspace-styles.js";
+import { readWorkspaceStyles } from "./workspace-styles.ts";
 
 Deno.test("Workspace stylesheet sections stay small and retain their import order", async () => {
     const entryUrl = new URL("./static/workspace.css", import.meta.url);

@@ -75,7 +75,7 @@ Deno.test("CI repair reruns CI and continues after task completion", async () =>
     assertEquals(run.plan?.attrs.status, "validated");
 });
 
-Deno.test("CI repair prompt tells the Engineer to fix and verify the settings command", async () => {
+Deno.test("CI repair prompt verifies the repair without requiring a duplicate full CI run", async () => {
     let capturedRequest = "";
     const context = {
         executionCwd: "/repair-checkout",
@@ -110,8 +110,14 @@ Deno.test("CI repair prompt tells the Engineer to fix and verify the settings co
     assertStringIncludes(capturedRequest, ".wld/settings.json");
     assertStringIncludes(capturedRequest, "verification_command");
     assertStringIncludes(capturedRequest, "command can be the thing that is broken");
-    assertStringIncludes(capturedRequest, "Run the configured command successfully in this repair checkout");
+    assertStringIncludes(capturedRequest, "Run focused checks for the reported failure");
+    assertStringIncludes(
+        capturedRequest,
+        "only when needed to diagnose the failure or explicitly requested by the user",
+    );
     assertStringIncludes(capturedRequest, "before you call `task_completed`");
     assertStringIncludes(capturedRequest, "RunWield will independently reload `.wld/settings.json`");
+    assertStringIncludes(capturedRequest, "run the complete command after Task Completion");
+    assertStringIncludes(capturedRequest, "report that full validation as pending");
     assertStringIncludes(capturedRequest, "broken command");
 });

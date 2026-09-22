@@ -43,8 +43,19 @@ function methodBody(source: string, methodName: string): string {
     return source.slice(start, nextDoc < 0 ? undefined : nextDoc);
 }
 
+async function runtimeImplementationSource(): Promise<string> {
+    const files: string[] = [];
+    for await (const entry of Deno.readDir(new URL("./runtime/", import.meta.url))) {
+        if (entry.isFile && entry.name.endsWith(".ts")) files.push(entry.name);
+    }
+    return (await Promise.all(
+        files.sort().map((file) => Deno.readTextFile(new URL(`./runtime/${file}`, import.meta.url))),
+    ))
+        .join("\n");
+}
+
 Deno.test("fenced standalone mutation policy entries all have an explicit Runtime driver", async () => {
-    const source = await Deno.readTextFile(new URL("./session-runtime.js", import.meta.url));
+    const source = await runtimeImplementationSource();
     const fencedMethods = Object.entries(SESSION_RUNTIME_METHOD_POLICY)
         .filter((entry) => entry[1] === "fenced_standalone_mutation")
         .map((entry) => entry[0])
@@ -64,10 +75,8 @@ Deno.test("fenced standalone mutation policy entries all have an explicit Runtim
 });
 
 Deno.test("fenced standalone mutations return a typed managed block result instead of managed_unsupported", async () => {
-    const source = await Deno.readTextFile(new URL("./session-runtime.js", import.meta.url));
-    const rejectionStart = source.indexOf(
-        "#rejectManagedPublicMutation(hostedSession, operation, capability = null) {",
-    );
+    const source = await Deno.readTextFile(new URL("./runtime/managed-operations.ts", import.meta.url));
+    const rejectionStart = source.indexOf("rejectManagedPublicMutation(");
     const rejectionEnd = source.indexOf("\n    /**", rejectionStart);
     const rejectionBody = source.slice(rejectionStart, rejectionEnd);
     assertEquals(rejectionBody.includes("managed_operation_in_progress"), true);

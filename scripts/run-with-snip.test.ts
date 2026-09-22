@@ -59,3 +59,22 @@ exit 1
         await Deno.remove(root, { recursive: true }).catch(() => {});
     }
 });
+
+Deno.test("quiet Snip commands preserve failures from real subprocesses", async () => {
+    const success = await runWithSnip("deno", ["eval", 'console.log("verbose success")'], {
+        failureLabel: "quiet success",
+        quietOnSuccess: true,
+    });
+    assertEquals(success, { code: 0, stdout: "", stderr: "" });
+    const failure = await runWithSnip("deno", ["eval", 'console.error("real failure evidence"); Deno.exit(7)'], {
+        failureLabel: "quiet failure",
+        quietOnSuccess: true,
+    });
+    try {
+        assertEquals(failure.code, 7);
+        assertStringIncludes(await Deno.readTextFile(failure.failureLogPath!), "real failure evidence");
+        assertStringIncludes(failure.stderr, failure.failureLogPath!);
+    } finally {
+        if (failure.failureLogPath) await Deno.remove(failure.failureLogPath);
+    }
+});

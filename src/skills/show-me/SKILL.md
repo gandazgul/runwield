@@ -1,6 +1,7 @@
 ---
 name: show-me
-description: Help the user understand the current topic visually with concise diagrams, code-shape sketches, and focused HTML artifacts.
+description: Explain the current topic visually — diagrams, code-shape sketches, or a focused HTML artifact.
+disable-model-invocation: true
 license: LICENSE
 license_details: This complete `src/skills/show-me/` Skill package is licensed under MIT; see `LICENSE`. It is
     directly taken from `https://github.com/humanlayer/skills/blob/main/plugins/show-me/skills/show-me/SKILL.md`.

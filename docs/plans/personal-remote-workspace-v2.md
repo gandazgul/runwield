@@ -17,9 +17,17 @@ devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://127.0.0.1:5173"
 devServerHmr: true
 createdAt: "2026-08-30T21:45:35-04:00"
-status: "ready_for_work"
 origin: "internal"
 userVerifiedAt: null
+status: "validated"
+epicCompletionMode: "done_enough"
+epicDoneEnoughAt: "2026-09-22T04:26:11.513Z"
+epicDoneEnoughSummary: "All 4 child plans are completed after personal-remote-workspace-v2/04-unified-workspace-search-and-artifact-reading."
+workRecord:
+    status: "generated"
+    recordId: "4df30e25-7e37-48fe-9475-8ecd65b3aca4"
+    path: "docs/work-records/2026-09-22-personal-remote-workspace-v2-completed.md"
+    lastAttemptAt: "2026-09-22T04:26:53.943Z"
 ---
 
 # Personal Remote Workspace v2

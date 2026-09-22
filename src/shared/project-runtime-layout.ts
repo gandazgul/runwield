@@ -309,24 +309,45 @@ export async function inspectProjectRuntimeLayout(
     return { kind: "pending", layout, selectedCheckoutRoots: inspected.selectedCheckoutRoots };
 }
 
-const runtimeEntryScope = new AsyncLocalStorage<Map<string, Promise<ProjectRuntimeLayout>>>();
+interface RuntimeReadScope {
+    active: boolean;
+    layouts: Map<string, Promise<ProjectRuntimeLayout>>;
+}
+
+const runtimeEntryScope = new AsyncLocalStorage<RuntimeReadScope>();
 // Retain only diagnostic identities, never runtime validation or migration results.
 const reportedGitignoreWarnings = new Map<string, Set<string>>();
 
 /** Verify each checkout once during a bounded read; retain no result across refreshes. */
-export function withProjectRuntimeReadScope<T>(read: () => Promise<T>): Promise<T> {
-    if (runtimeEntryScope.getStore()) return read();
-    return runtimeEntryScope.run(new Map(), read);
+export async function withProjectRuntimeReadScope<T>(read: () => Promise<T>): Promise<T> {
+    if (runtimeEntryScope.getStore()?.active) return await read();
+    const scope: RuntimeReadScope = { active: true, layouts: new Map() };
+    try {
+        return await runtimeEntryScope.run(scope, read);
+    } finally {
+        // Async descendants can outlive the read that created them. They must
+        // not retain its validation results after that read has settled.
+        scope.active = false;
+        scope.layouts.clear();
+    }
+}
+
+/** Writes inside a grouped read must revalidate and invalidate surrounding reads. */
+export function invalidateProjectRuntimeReadScope(): void {
+    runtimeEntryScope.getStore()?.layouts.clear();
 }
 
 export function enterProjectRuntime(selectedCheckoutRoot: string): Promise<ProjectRuntimeLayout> {
     const scope = runtimeEntryScope.getStore();
-    if (!scope) return enterProjectRuntimeUncached(selectedCheckoutRoot);
+    if (!scope?.active) return enterProjectRuntimeUncached(selectedCheckoutRoot);
     const root = resolve(selectedCheckoutRoot);
-    const pending = scope.get(root);
+    const pending = scope.layouts.get(root);
     if (pending) return pending;
     const result = enterProjectRuntimeUncached(root);
-    scope.set(root, result);
+    scope.layouts.set(root, result);
+    void result.catch(() => {
+        if (scope.layouts.get(root) === result) scope.layouts.delete(root);
+    });
     return result;
 }
 
@@ -369,9 +390,18 @@ export async function migrateLegacyProjectRuntimeState(
     const marker = await readLayoutMarker(layout);
     if (isBlocked(marker)) return marker;
 
+    // An in-flight migration may expose intermediate files between these reads.
+    // Recheck under its lock instead of treating that transient state as corruption.
+    const migrationWasInFlight = await lstatOrNull(layout.primary.layoutMigrationLockPath);
     const beforeLock = await preflight(layout, primaryCheckoutRoot, marker.marker);
-    if (isBlocked(beforeLock)) return beforeLock;
-    const unchanged = await completeMarkerNeedsNoWork(layout, marker.marker, beforeLock);
+    if (
+        isBlocked(beforeLock) && !migrationWasInFlight &&
+        !(await lstatOrNull(layout.primary.layoutMigrationLockPath)) &&
+        !(beforeLock.reason === "active_legacy_writer" &&
+            beforeLock.paths.every((path) => path === legacyWorktreeRegistryLockPath(primaryCheckoutRoot)))
+    ) return beforeLock;
+    const unchanged = !isBlocked(beforeLock) &&
+        await completeMarkerNeedsNoWork(layout, marker.marker, beforeLock);
     if (unchanged && marker.marker) {
         return {
             kind: "ready",

@@ -1,6 +1,7 @@
 /** @module ui/workspace/routes/owner-api */
 
 import {
+    authenticateOwnerRequest,
     clearBootstrapProofCookieHeader,
     clearDeviceCookieHeaders,
     deviceCookieHeaders,
@@ -126,6 +127,8 @@ export async function pairingRequestApi(ctx) {
 
 /** @param {any} ctx */
 export function pairingStatusApi(ctx) {
+    const device = authenticateOwnerRequest(ctx.req, ctx.state);
+    if (device) return ownerJson({ state: "paired" });
     const proof = getCookie(ctx.req, "rw_pairing_proof");
     if (!proof) return ownerJson({ state: "missing" }, 404);
     const request = ctx.state.store.getPairingRequestByProof(proof);
@@ -173,6 +176,32 @@ export async function ownerSidebarApi(ctx) {
 export async function ownerDashboardApi(ctx) {
     try {
         return ownerJson(await loadOwnerDashboard(ctx.state.store, ctx.state.sessionContinuation));
+    } catch (error) {
+        return ownerErrorJson(error);
+    }
+}
+
+/** @param {any} ctx */
+export async function ownerWorkspaceSearchApi(ctx) {
+    try {
+        const input = {
+            query: ctx.url.searchParams.get("q") || "",
+            projectId: ctx.url.searchParams.get("project") || "",
+            contentType: ctx.url.searchParams.get("type") || "",
+            page: ctx.url.searchParams.get("page") || "1",
+            pageSize: ctx.url.searchParams.get("pageSize") || "20",
+        };
+        return ownerJson(await ctx.state.workspaceSearch.search(input));
+    } catch (error) {
+        return ownerErrorJson(error);
+    }
+}
+
+/** @param {any} ctx */
+export async function ownerWorkspaceSearchRefreshApi(ctx) {
+    try {
+        await ctx.state.workspaceSearch.refresh();
+        return ownerJson({ refreshed: true });
     } catch (error) {
         return ownerErrorJson(error);
     }

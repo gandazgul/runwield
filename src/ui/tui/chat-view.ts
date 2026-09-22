@@ -286,7 +286,15 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
     };
     let transcriptScrollView: ScrollView | undefined;
     if (isViewportTUI(tui)) {
-        transcriptScrollView = new ScrollView(container, { follow: "end", primary: true, scrollbar: "auto" });
+        const scrollbarSafeTranscript: Component = {
+            invalidate: () => container.invalidate(),
+            render: (width: number) => container.render(Math.max(1, width - 1)),
+        };
+        transcriptScrollView = new ScrollView(scrollbarSafeTranscript, {
+            follow: "end",
+            primary: true,
+            scrollbar: "auto",
+        });
         const sidebarArea: Component = {
             invalidate: () => sessionSidebar.invalidate(),
             render: (width: number) => {

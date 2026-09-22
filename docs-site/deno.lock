@@ -6,6 +6,7 @@
     "npm:@pagefind/default-ui@1.5.2": "1.5.2",
     "npm:astro@7.3.3": "7.3.3_@emnapi+core@1.11.1_@emnapi+runtime@1.11.3",
     "npm:clsx@2.1.1": "2.1.1",
+    "npm:pagefind@1.5.2": "1.5.2",
     "npm:typescript@5.9.3": "5.9.3"
   },
   "npm": {
@@ -2799,6 +2800,7 @@
         "npm:@pagefind/default-ui@1.5.2",
         "npm:astro@7.3.3",
         "npm:clsx@2.1.1",
+        "npm:pagefind@1.5.2",
         "npm:typescript@5.9.3"
       ]
     }

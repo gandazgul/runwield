@@ -7,8 +7,9 @@ import { WORKSPACE_MANIFEST, workspaceConnectionPage, workspaceWorkerSource } fr
 Deno.test("Workspace installation assets are public without exposing owner data", async () => {
     const dir = await Deno.makeTempDir({ prefix: "workspace-pwa-" });
     const store = openOwnerCoordinationStore({ dbPath: `${dir}/owner.sqlite3` });
+    const ownerApp = createOwnerWorkspaceApp({ mode: "owner", publicOrigin: "http://127.0.0.1:8787", store });
     try {
-        const app = createOwnerWorkspaceApp({ mode: "owner", publicOrigin: "http://127.0.0.1:8787", store }).handler();
+        const app = ownerApp.handler();
         const response = await app(new Request("http://127.0.0.1:8787/workspace.webmanifest"));
         assertEquals(response.status, 200);
         assertStringIncludes(response.headers.get("content-type"), "application/manifest+json");
@@ -38,6 +39,7 @@ Deno.test("Workspace installation assets are public without exposing owner data"
         assertEquals((await app(new Request("http://127.0.0.1:8787/api/owner/dashboard"))).status, 401);
         assertEquals((await app(new Request("http://unexpected.test/workspace-worker.js"))).status, 403);
     } finally {
+        await ownerApp.close();
         store.close();
         await Deno.remove(dir, { recursive: true });
     }

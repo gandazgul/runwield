@@ -1,7 +1,6 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { makeManagedSessionFixture } from "../../testing/managed-session-fixture.ts";
 import { createOwnerWorkspaceApp } from "./server.js";
-import { getAstroOwnerWorkspaceSessionContinuation } from "./server/astro-owner-data.js";
 
 for (const kind of ["plan", "prd", "adr", "work-record", "epic-artifact", "report"] as const) {
     Deno.test(`registered ${kind} artifacts share the reader and reject unrelated Sessions`, async () => {
@@ -63,7 +62,7 @@ for (const kind of ["plan", "prd", "adr", "work-record", "epic-artifact", "repor
             );
             assertEquals(wrongSession.status, 404);
         } finally {
-            getAstroOwnerWorkspaceSessionContinuation()?.close();
+            await app.close();
             store.close();
             await fixture.cleanup();
         }

@@ -681,6 +681,19 @@ long explanatory text. Put detailed explanations in nearby body copy, metadata, 
 Use notices for local outcomes and important contextual messages. A notice may be success, muted, warning, or danger,
 but the message should explain the consequence in plain language.
 
+## Workspace search
+
+The global Search action uses the compact rectangular control language and stays in the Workspace header. `Cmd+K` or
+`Ctrl+K` opens the same centered quick-search dialog. The query receives focus; Up and Down move the active result,
+Enter opens it, and Escape closes the dialog and restores focus. Project and content-type filters, Refresh, and View all
+results remain normal touch-capable controls.
+
+Quick search and the full Search page use the `.rw-workspace-search-*` pattern in `src/ui/design-system/components.css`
+for one result list. Each result has one title, a content-type badge, Project name, and a short current-source excerpt.
+Selected rows use a surface change, not color alone. Loading uses `RunWieldThinkingDots`. Blank input gives a query
+prompt; no-match and Project indexing failures keep the query and filters visible. At phone widths, filters wrap and use
+44px controls without horizontal overflow.
+
 ## Forms and inputs
 
 Inputs should use dark nested backgrounds, the 6px control radius, 32px desktop height, and explicit focus rings derived

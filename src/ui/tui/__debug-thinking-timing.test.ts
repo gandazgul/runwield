@@ -72,7 +72,8 @@ Deno.test("measure shift+tab thinking-level latency before and after activation"
             // --- component timings, still before activation ---
             {
                 const t0 = performance.now();
-                const result = runtime.cycleSessionThinkingLevel(sessionId);
+                const result = await runtime.cycleSessionThinkingLevel(sessionId);
+                if (!result.thinkingLevel) throw new Error(result.error || "Thinking level did not change");
                 const t1 = performance.now();
                 console.log(
                     `[TIMING] runtime.cycleSessionThinkingLevel (pre): ${(t1 - t0).toFixed(2)}ms ok=${result.ok}`,
@@ -105,7 +106,8 @@ Deno.test("measure shift+tab thinking-level latency before and after activation"
             // --- component timings, after activation ---
             {
                 const t0 = performance.now();
-                const result = runtime.cycleSessionThinkingLevel(sessionId);
+                const result = await runtime.cycleSessionThinkingLevel(sessionId);
+                if (!result.thinkingLevel) throw new Error(result.error || "Thinking level did not change");
                 const t1 = performance.now();
                 console.log(
                     `[TIMING] runtime.cycleSessionThinkingLevel (post): ${(t1 - t0).toFixed(2)}ms ok=${result.ok}`,

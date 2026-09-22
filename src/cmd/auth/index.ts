@@ -9,7 +9,7 @@ import {
     isExternalCliProvider,
     type RunWieldModelRegistry,
 } from "../../shared/models/model-registry.ts";
-import type { SessionRuntime } from "../../shared/session/session-runtime.js";
+import type { SessionRuntime } from "../../shared/session/session-runtime.ts";
 import type { UiAPI } from "../../ui/tui/types.js";
 
 export interface AuthUiPort {

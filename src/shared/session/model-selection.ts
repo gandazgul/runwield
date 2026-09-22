@@ -1,6 +1,6 @@
 import { isUnsupportedModelExecutionBackendError } from "../models/model-execution.ts";
 import { getSettingsManager } from "../settings.js";
-import type { SessionRuntime } from "./session-runtime.js";
+import type { SessionRuntime } from "./session-runtime.ts";
 
 export interface ModelActivationResult {
     status: "active" | "deferred";

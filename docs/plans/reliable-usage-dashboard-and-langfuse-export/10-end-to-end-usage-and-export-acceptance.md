@@ -23,6 +23,7 @@ order: 10
 dependencies:
     - "09-workspace-export-settings-and-delivery-status"
 targetBranch: "epic/reliable-usage-dashboard-and-langfuse-export"
+planId: "e52757f4-2a63-41dd-bfcf-5fd2fb8d58f9"
 ---
 
 # End-to-End Usage and Export Acceptance

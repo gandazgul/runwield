@@ -150,9 +150,17 @@ Deno.test("release workflow runs source, Golden, and binary qualification in par
     assertStringIncludes(releaseCheck, '["task", "test:golden-tui:extensive"]');
     assertStringIncludes(workflow, "deno task release:check --binary-only --build-version");
     assertStringIncludes(workflow, "deno task test:golden-tui:extensive --fail-fast --timings-file");
-    assertMatch(workflow, /golden:\n[\s\S]*?needs: metadata/);
+    assertMatch(workflow, /golden-shards:\n[\s\S]*?needs: metadata/);
     assertMatch(workflow, /release-check:\n[\s\S]*?needs: metadata/);
-    assertMatch(workflow, /build:\n[\s\S]*?- ci\n\s+- golden\n\s+- release-check/);
+    const build = workflow.slice(workflow.indexOf("    build:"), workflow.indexOf("    assets:"));
+    assertStringIncludes(build, "needs: metadata");
+    const assets = workflow.slice(workflow.indexOf("    assets:"), workflow.indexOf("    windows-package-check:"));
+    assertStringIncludes(assets, "needs: [metadata, build]");
+    const release = workflow.slice(workflow.indexOf("    release:"), workflow.indexOf("    winget-package:"));
+    for (const gate of ["ci", "golden", "release-check", "assets", "windows-package-check", "homebrew-check"]) {
+        assertStringIncludes(release, `- ${gate}\n`);
+        assertStringIncludes(release, `needs.${gate}.result == 'success'`);
+    }
 });
 
 Deno.test("Golden workflow covers direct main and release branch pushes with measured concurrency", async () => {
@@ -230,4 +238,13 @@ Deno.test("native Homebrew jobs use a bottle-supported runner and a bounded time
         assertStringIncludes(job, "runs-on: macos-15");
         assertStringIncludes(job, "timeout-minutes: 30");
     }
+});
+
+Deno.test("manual recovery preserves workflow source checks and tagged product qualification", async () => {
+    const workflow = await Deno.readTextFile(".github/workflows/release.yml");
+    const ci = workflow.slice(workflow.indexOf("    ci-shards:"), workflow.indexOf("    golden-shards:"));
+    assertStringIncludes(ci, 'git checkout -B main "$GITHUB_SHA"');
+    assertEquals(ci.includes("ref: ${{ needs.metadata.outputs.tag }}"), false);
+    const golden = workflow.slice(workflow.indexOf("    golden-shards:"), workflow.indexOf("    release-check:"));
+    assertStringIncludes(golden, "ref: ${{ needs.metadata.outputs.tag }}");
 });

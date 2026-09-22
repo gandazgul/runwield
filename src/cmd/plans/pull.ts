@@ -32,9 +32,9 @@ import {
     secretRecordKey,
 } from "../../shared/collaboration/secrets.js";
 import { parseCollaborationUrl, redactCollaborationUrl } from "../../shared/collaboration/urls.js";
-import { normalizePlanServerUrl } from "../../shared/settings.js";
+import { normalizePlanServerUrl } from "../../shared/collaboration/urls.js";
 import { enterProjectRuntime } from "../../shared/project-runtime-layout.ts";
-import { SessionRuntime } from "../../shared/session/session-runtime.js";
+import { SessionRuntime } from "../../shared/session/session-runtime.ts";
 import {
     buildPullRevisionRequest,
     selectPullPlanningAgent,

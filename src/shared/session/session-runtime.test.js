@@ -17,7 +17,7 @@ import { captureTranscriptEvidence } from "./session-transcript-projection.js";
 import { switchActiveAgent } from "./agent-switching.js";
 import { RuntimeEventTypes } from "./session-runtime-events.js";
 import { RuntimeInteractionTypes } from "./session-runtime-interactions.js";
-import { createSessionRuntime, SessionRuntime, SessionTurnInProgressError } from "./session-runtime.js";
+import { createSessionRuntime, SessionRuntime, SessionTurnInProgressError } from "./session-runtime.ts";
 import { getRootSessionRebuildOptions } from "./session.js";
 import { createRootSessionManager, getRunWieldSessionDir, resolveCreatedRootSessionPath } from "./root-session.js";
 import { openFileSessionStore } from "./file-session-store.ts";
@@ -25,7 +25,7 @@ import { sessionDirForRoot } from "./file-session-storage.ts";
 import { openOwnerCoordinationStore } from "../owner-coordination/index.js";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import { getPlanRevisionForText, savePlan } from "../../plan-store.js";
-import { rememberNonGitExecutionConsent } from "../git.js";
+import { rememberNonGitExecutionConsent } from "../non-git-execution-consent.ts";
 import { McpToolPool } from "../mcp/pool.ts";
 import { loadPlanActionEvidence } from "../workflow/plan-actions.ts";
 import { buildSemanticRepairSegmentContinuation } from "../workflow/execution-segment-handoff.ts";
@@ -102,7 +102,8 @@ function ensureRuntimeModelFixture() {
     runtimeFauxProvider ??= registerFauxProvider({
         api: RUNTIME_TEST_API,
         provider: RUNTIME_TEST_PROVIDER,
-        tokensPerSecond: 1000,
+        // Preserve every streamed delta without simulating network latency.
+        tokensPerSecond: 0,
         models: [{ id: RUNTIME_TEST_MODEL, name: "SessionRuntime Fixture Model", input: ["text", "image"] }],
     });
     runtimeFauxProvider.setResponses(
@@ -373,7 +374,6 @@ Deno.test("SessionRuntime snapshots keep Session names current with transcript c
     const session = sessionHost.createSession({
         id: crypto.randomUUID(),
         cwd,
-        // @ts-expect-error Real SessionManager is runtime-compatible with HostedSession.
         sessionManager,
     });
 
@@ -542,6 +542,7 @@ Deno.test("SessionRuntime keeps dormant managed image persistence read-only but 
                 base64: btoa("img"),
                 mimeType: "image/png",
             });
+            if (!("base64" in persisted)) throw new Error(persisted.error);
 
             const persistedPath = persisted.path || "";
             assertEquals(persisted.ref?.startsWith("attachment:"), true);
@@ -811,8 +812,8 @@ async function exerciseRepairCompactionFollowUp(disconnect) {
             const actionEvidence = await loadPlanActionEvidence(worktreeRoot, planId);
             if (actionEvidence.kind !== "success") throw new Error(actionEvidence.message);
             const approvedRevision = await getPlanRevisionForText(planBody);
+            /** @type {import('../types.js').ActiveExecutionWorkflow} */
             const activeWorkflow = {
-                routingIntent: "PLANNED_CHANGE",
                 planName: "repair-follow-up",
                 projectRoot: worktreeRoot,
                 executionCwd: worktreeRoot,
@@ -822,9 +823,7 @@ async function exerciseRepairCompactionFollowUp(disconnect) {
                 worktreeBaseBranch: "main",
                 triageMeta: {
                     planId,
-                    planName: "repair-follow-up",
                     status: "validated_ci",
-                    revision: approvedRevision,
                     executionAgent: "engineer",
                 },
             };
@@ -1611,7 +1610,6 @@ Deno.test("SessionRuntime reload preserves the canonical hidden-agent selection"
     const session = sessionHost.createSession({
         id: crypto.randomUUID(),
         cwd,
-        // @ts-expect-error Real SessionManager is runtime-compatible with HostedSession.
         sessionManager,
     });
     const customTool = {
@@ -1900,10 +1898,9 @@ Deno.test("SessionRuntime managed operation prefers persisted active agent over 
 });
 
 Deno.test("SessionRuntime managed prompt acquires activation before writable hydration and publication", async () => {
-    const source = await Deno.readTextFile(new URL("./session-runtime.js", import.meta.url));
-    const promptManagedIndex = source.indexOf("async #runManagedOperation(sessionId, descriptor, body)");
-    const nextMethodIndex = source.indexOf("async promptManagedSession(sessionId, options)", promptManagedIndex);
-    const promptManagedBody = source.slice(promptManagedIndex, nextMethodIndex);
+    const source = await Deno.readTextFile(new URL("./runtime/managed-operations.ts", import.meta.url));
+    const promptManagedIndex = source.indexOf("async runManagedOperation<T>(");
+    const promptManagedBody = source.slice(promptManagedIndex);
     const inspectIndex = promptManagedBody.indexOf("inspectSessionActivation(managed.runwieldSessionId)");
     const acquireIndex = promptManagedBody.indexOf("acquireSessionActivation({", inspectIndex);
     const userMessageIndex = promptManagedBody.indexOf("type: RuntimeEventTypes.USER_MESSAGE", acquireIndex);
@@ -1914,7 +1911,7 @@ Deno.test("SessionRuntime managed prompt acquires activation before writable hyd
     const openIndex = promptManagedBody.indexOf("await openPersistedRootSession({", hydratedIndex);
     const resumeAgentIndex = promptManagedBody.indexOf("await resolveResumeAgentName(sessionManager)", openIndex);
     const activateIndex = promptManagedBody.indexOf(
-        "await this.#activateSessionAgent(hostedSession, {",
+        "await this.settings.activateSessionAgent(hostedSession, {",
         resumeAgentIndex,
     );
     const promptIndex = promptManagedBody.indexOf(
@@ -2919,7 +2916,6 @@ Deno.test("SessionRuntime reconciles consumed steering at turn end when the back
     const hostedSession = sessionHost.createSession({
         id: crypto.randomUUID(),
         cwd,
-        // @ts-expect-error Real SessionManager is runtime-compatible with HostedSession.
         sessionManager,
         managed: {
             runwieldSessionId: "direct-turn",
@@ -3690,4 +3686,42 @@ Deno.test("SessionRuntime rejects image user turns before submission events", as
 
     assertEquals(events.includes(RuntimeEventTypes.USER_MESSAGE), false);
     assertEquals(events.includes(RuntimeEventTypes.TURN_START), false);
+});
+
+Deno.test("notification routing follows accepted input, not the observing surface", async () => {
+    const sessionHost = new SessionHost();
+    const agentSession = makeSteeringAgentSession();
+    const runtime = makeRuntime({ sessionHost });
+    const sessionId = await attachExternalAgentSession(runtime, sessionHost, agentSession);
+    const hosted = sessionHost.getSession(sessionId);
+    assertExists(hosted);
+    assertEquals((await runtime.steerSession(sessionId, "From the phone", [], "workspace")).queued, true);
+    assertEquals(hosted.notificationSurface, "workspace");
+    runtime.getSessionSnapshot(sessionId);
+    assertEquals(hosted.notificationSurface, "workspace");
+    assertEquals((await runtime.steerSession(sessionId, "From the terminal", [], "tui")).queued, true);
+    assertEquals(hosted.notificationSurface, "tui");
+    agentSession.isStreaming = false;
+    assertEquals((await runtime.steerSession(sessionId, "Too late", [], "workspace")).queued, false);
+    assertEquals(hosted.notificationSurface, "tui");
+    runtime.queueNextTurnMessage(sessionId, "Queued in ACP", [], { inputSurface: "acp" });
+    assertEquals(hosted.notificationSurface, "acp");
+    assertEquals(runtime.takeNextTurnMessage(sessionId).message?.inputSurface, "acp");
+});
+
+Deno.test("Workspace gets a stop alert even when the handler suppresses its normal attention event", async () => {
+    const sessionHost = new SessionHost();
+    const runtime = makeRuntime({ sessionHost });
+    const sessionId = await runtime.createPromptReadySession({ cwd: runtimeProjectRoot(), agentName: "guide" });
+    const hosted = sessionHost.getSession(sessionId);
+    assertExists(hosted);
+    hosted.suppressNextAgentStoppedAttention();
+    /** @type {import('./session-runtime-events.js').RuntimeAttentionRequestedEvent[]} */
+    const attention = [];
+    runtime.subscribeSessionEvents(sessionId, (event) => {
+        if (event.type === RuntimeEventTypes.ATTENTION_REQUESTED) attention.push(event);
+    });
+    await runtime.promptUserTurn(sessionId, { initialRequest: "Finish this turn", inputSurface: "workspace" });
+    assertEquals(attention.filter((event) => event.reason === "agentStopped").length, 1);
+    assertEquals(attention[0].notificationSurface, "workspace");
 });

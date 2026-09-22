@@ -47,6 +47,7 @@ export function ArtifactReadSurface(
     const artifactLabel = sessionArtifactKindLabel(artifactKind);
     const title = initialPayload.title || `Untitled ${artifactLabel}`;
     const notices = Array.isArray(initialPayload.notices) ? initialPayload.notices.filter(Boolean) : [];
+    const sourceLinks = Array.isArray(initialPayload.sourceLinks) ? initialPayload.sourceLinks : [];
     const [activeSection, setActiveSection] = useState(null);
     const [scrollViewport, setScrollViewport] = useState(null);
     const [closing, setClosing] = useState(false);
@@ -84,8 +85,8 @@ export function ArtifactReadSurface(
 
     async function closeReadSurface() {
         if (closing || closed) return;
-        if (initialPayload.returnHref) {
-            workspaceNavigate(initialPayload.returnHref);
+        if (initialPayload.returnHref || initialPayload.launch === "project") {
+            workspaceNavigate(initialPayload.returnHref || "/search");
             return;
         }
         setClosing(true);
@@ -127,8 +128,9 @@ export function ArtifactReadSurface(
             onClick={closeReadSurface}
             disabled={closing || closed}
         >
-            {initialPayload.returnHref
-                ? initialPayload.returnLabel || "Back to Session"
+            {initialPayload.returnHref || initialPayload.launch === "project"
+                ? initialPayload.returnLabel ||
+                    (initialPayload.launch === "project" ? "Back to Search" : "Back to Session")
                 : closing
                 ? <RunWieldThinkingDots label="Closing" />
                 : closed
@@ -264,9 +266,20 @@ export function ArtifactReadSurface(
                                 </div>
                             )}
                             <main className="rw-plannotator-main-pane">
-                                {notices.length > 0 && (
+                                {(notices.length > 0 || sourceLinks.length > 0) && (
                                     <section className="rw-artifact-notices" aria-label={`${artifactLabel} notices`}>
                                         {notices.map((notice) => <p key={notice}>{notice}</p>)}
+                                        {sourceLinks.length > 0 && (
+                                            <p>
+                                                Source Plans:{" "}
+                                                {sourceLinks.map((source, index) => (
+                                                    <span key={source.href}>
+                                                        {index > 0 && ", "}
+                                                        <a href={source.href}>{source.label}</a>
+                                                    </span>
+                                                ))}
+                                            </p>
+                                        )}
                                     </section>
                                 )}
                                 <div className="rw-plan-content-area">

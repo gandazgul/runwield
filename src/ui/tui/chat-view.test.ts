@@ -108,6 +108,46 @@ Deno.test("chat view keeps sidebar tabs on the first row above a queued steering
     }
 });
 
+Deno.test("chat view keeps block backgrounds out of the sidebar when the scrollbar is visible", async () => {
+    const terminal = new VirtualTerminal({ columns: 150, rows: 20 });
+    const tui = new TuiAltScreen(terminal);
+    const view = await createChatView({
+        tui,
+        suppressStartupHeader: true,
+        getSessionId: () => "sidebar-scrollbar-session",
+        sessionRuntime: {
+            getSessionSnapshot: () => ({
+                cwd: "/tmp/runwield-sidebar-scrollbar-fixture",
+                activeModel: { model: "fixture", provider: "test" },
+                managed: { generation: 0 },
+                sessionStats: { userMessages: 20, assistantMessages: 0, toolCalls: 1, compactionCount: 0 },
+            }),
+        },
+        setActiveModel: () => Promise.resolve({ status: "active" }),
+    });
+
+    try {
+        tui.start();
+        for (let index = 1; index <= 20; index++) {
+            view.uiAPI.appendUserMessage?.(`message ${index}`);
+        }
+        view.uiAPI.startToolExecution?.("tool-1", "bash", "$ echo boundary");
+        tui.renderNow(true);
+        tui.scrollBy(-2);
+        tui.renderNow(true);
+        await terminal.flush();
+
+        const lines = terminal.getViewportLines();
+        const toolRow = lines.findIndex((line) => line.includes("$ echo boundary"));
+        assertEquals(toolRow >= 0, true);
+        assertEquals(lines[toolRow].includes("┃"), true);
+        assertEquals(terminal.hasDefaultBackground(toolRow, 116), true);
+    } finally {
+        view.dispose();
+        tui.stop();
+    }
+});
+
 Deno.test("chat view keeps scrollback position during live thinking updates", async () => {
     const terminal = new VirtualTerminal({ columns: 80, rows: 10 });
     const tui = new TuiAltScreen(terminal);

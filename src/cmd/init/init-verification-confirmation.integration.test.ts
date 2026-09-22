@@ -2,7 +2,7 @@ import { assert, assertEquals, assertRejects, assertStringIncludes } from "@std/
 import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
 import { join } from "@std/path";
 import { withRuntimeCommandFixture } from "../testing/runtime-command-fixture.ts";
-import { createSessionRuntime } from "../../shared/session/session-runtime.js";
+import { createSessionRuntime } from "../../shared/session/session-runtime.ts";
 import { getCwdInitState } from "./init-state.ts";
 import { runInitCommand } from "./index.ts";
 import type { InteractiveSessionPort } from "../../ui/tui/interactive-session-port.ts";

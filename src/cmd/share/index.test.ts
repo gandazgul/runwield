@@ -1,6 +1,6 @@
 import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { withRuntimeCommandFixture } from "../testing/runtime-command-fixture.ts";
-import { createSessionRuntime } from "../../shared/session/session-runtime.js";
+import { createSessionRuntime } from "../../shared/session/session-runtime.ts";
 import { type GitHubCliPort, runShareCommand } from "./index.ts";
 
 interface GitHubInvocation {

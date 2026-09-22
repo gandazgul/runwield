@@ -24,6 +24,8 @@ Deno.test("user Snip filter install and cleanup only manage RunWield-owned files
         await Deno.writeTextFile(join(bundledDir, "deno-lint.yaml"), "name: deno-lint\n");
         await Deno.writeTextFile(join(bundledDir, "deno-test.yaml"), "name: deno-test\n");
 
+        await Deno.writeTextFile(join(bundledDir, "deno-task.yaml"), "name: deno-task\n");
+
         const paths = getRunWieldSnipPaths({ homeDir });
         await Deno.mkdir(paths.userFiltersDir, { recursive: true });
         await Deno.writeTextFile(join(paths.userFiltersDir, "deno-lint.yaml"), "name: user-deno-lint\n");
@@ -39,7 +41,7 @@ Deno.test("user Snip filter install and cleanup only manage RunWield-owned files
 
         const install = await installRunWieldSnipFiltersForUser({ homeDir, bundledDir });
         assertEquals(install.filtersDir, paths.userFiltersDir);
-        assertEquals(install.installed.length, 3);
+        assertEquals(install.installed.length, 4);
         assertEquals(install.removedLegacy.length, 3);
         assertEquals(install.skipped, [{
             path: join(paths.userFiltersDir, "deno-lint.yaml"),
@@ -56,12 +58,12 @@ Deno.test("user Snip filter install and cleanup only manage RunWield-owned files
         await assertRejects(() => Deno.stat(legacyFiltersDir), Deno.errors.NotFound);
 
         const status = await getRunWieldSnipFilterInstallStatus({ homeDir });
-        assertEquals(status.installed.length, 3);
+        assertEquals(status.installed.length, 4);
         assertEquals(status.conflicts, [join(paths.userFiltersDir, "deno-lint.yaml")]);
         assertEquals(status.missing, []);
 
         const cleanup = await cleanupRunWieldSnipFiltersForUser({ homeDir });
-        assertEquals(cleanup.removed.length, 3);
+        assertEquals(cleanup.removed.length, 4);
         assertEquals(cleanup.removedLegacy, []);
         assertEquals(cleanup.skipped, [{
             path: join(paths.userFiltersDir, "deno-lint.yaml"),

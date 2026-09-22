@@ -7,7 +7,7 @@
  */
 
 import { basename, dirname, join } from "@std/path";
-import { readWorkspaceStyles } from "../src/ui/workspace/workspace-styles.js";
+import { readWorkspaceStyles } from "../src/ui/workspace/workspace-styles.ts";
 
 const DEFAULT_REMOTE_ENTRY = "src/ui/workspace/remote-server.ts";
 const DEFAULT_WORKSPACE_RUNTIME_DIR = "dist/workspace-runtime";

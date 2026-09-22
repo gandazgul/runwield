@@ -3,7 +3,7 @@ import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi
 import { dirname, fromFileUrl, join } from "@std/path";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { SessionHost } from "../session/session-host.js";
-import { createSessionRuntime } from "../session/session-runtime.js";
+import { createSessionRuntime } from "../session/session-runtime.ts";
 import { McpToolPool, startMcpToolPool } from "./pool.ts";
 
 const fixtureServer = join(dirname(fromFileUrl(import.meta.url)), "fixture-server.ts");

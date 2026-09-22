@@ -16,7 +16,7 @@ affectedPaths:
 devServerCommand: null
 devServerUrl: null
 devServerHmr: null
-# Optional: target execution branch when explicitly requested by the user.
+# Optional: target an execution branch when explicitly requested by the user.
 # targetBranch: "feature/base-branch"
 createdAt: "<ISO-8601 date or timestamp>"
 status: "draft"
@@ -40,8 +40,9 @@ What will be built/changed and why.
 Recommended implementation approach (focused, practical, no long alternatives section).
 
 Show it where showing reads faster than describing: the call path the change travels, a few lines of pseudo code for a
-new interface or a tricky branch, a small `mermaid` diagram for a flow or a state change, or a before/after pair. Add
-one line for the main option you set aside and what it would have cost. Skip all of it when a sentence is clearer.
+new interface or a tricky branch, a small `mermaid` diagram for a flow or a state change, or a diff when the shape
+already exists and only part of it moves. Add one line for the main option you set aside and what it would have cost.
+Skip all of it when a sentence is clearer.
 
 ## Expected Change Surface
 
@@ -70,6 +71,10 @@ State each step as an outcome that is either true or false when the step is done
 by attempting it. An empty file, a placeholder module, an alias, or a pass-through wrapper must not be able to satisfy
 any step.
 
+These are the Engineer's instructions, so they stay exact prose naming real files, symbols, and behavior. Do not
+compress a step into a tree, a diagram, or a diff, and do not leave a detail out because a sketch in Approach implied
+it.
+
 - `src/parser/tokens.ts` owns and exports `tokenize` and `TokenKind`; those declarations no longer exist in
   `src/parser/index.ts`, which imports them from `tokens.ts`.
 - `src/parser/index.ts` is under 400 lines and contains no `@ts-nocheck`.
@@ -91,7 +96,8 @@ confirms it. An existing declared value is already confirmed; preserve it unless
 
 ## Verification Plan
 
-- Automated: exact command(s) to run
+- Automated: exact command (s) to run. Only add focused tests or validation steps here, not the project's full CI;
+  RunWield will run the full CI always after plan implementation.
 - Manual: precise user flows / checks
 - Expected results for key scenarios
 - For browser UI work: the exact headed-browser checks a Frontend Engineer must perform, and the dev-server command and
@@ -105,6 +111,6 @@ confirms it. An existing declared value is already confirmed; preserve it unless
 
 ## Edge Cases & Considerations
 
-- Risk 1 + mitigation
+- One per line, Risk plus mitigation
 - Compatibility or migration concerns
 - Open assumptions (if any)

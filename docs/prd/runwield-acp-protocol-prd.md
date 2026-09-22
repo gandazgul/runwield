@@ -9,7 +9,7 @@ implementation steps belong in Plans, architectural choices in ADRs, and deliver
 **Status:** Living roadmap — Session Host and ACP stdio MVP implemented; OpenAB/Telegram follows Personal Remote
 Workspace\
 **Author:** Gandazgul + RunWield Ideator\
-**Last Updated:** 2026-09-11
+**Last Updated:** 2026-09-21
 
 ---
 
@@ -98,12 +98,14 @@ links, advertised slash commands, and structured questions. ACP executes all sha
 `/theme`, `/quit`, `/exit`, `/new`, `/resume`, and `/login`. A bare `/agent` opens Agent selection and is never routed
 as a model request. Compatibility documentation must clearly state the capabilities actually available.
 
-**Requirement: Select models through the client's native controls.**
+**Requirement: Select models and reasoning levels through the client's native controls.**
 
 New and loaded ACP Sessions expose the available models and active selection through standard `configOptions`.
-`session/set_config_option` applies a model choice to the same Session without making a model request or changing
-defaults for future Sessions. Model changes from shared commands or Agent changes keep the client selection current.
-After a provider failure settles, the user can select an available alternative and continue the conversation.
+Reasoning-capable models also expose the current reasoning level through the standard `thought_level` category.
+`session/set_config_option` applies either choice to the same Session without making a model request or changing
+defaults for future Sessions. Model, Agent, and reasoning changes keep the complete client selection current. Models
+without reasoning support do not expose a reasoning selector. After a provider failure settles, the user can select an
+available alternative and continue the conversation.
 
 Shared requirements: [Core Session continuity](runwield-core-prd.md#session-continuity),
 [Plan review](runwield-core-prd.md#plan-review), and
@@ -120,8 +122,12 @@ defining another lifecycle.
   usable.
 - Given a new or reloaded Session in Discord through OpenAB, `/models` presents model choices and the current model.
   Selecting a model makes the next message use it in that same conversation, including after a provider limit error.
-- An invalid model choice or a choice submitted during an active turn fails visibly without changing the model.
-- When `/model` or an Agent switch changes the active model, the client receives the updated selection.
+- An invalid model or reasoning choice, an unsupported reasoning choice, or a choice submitted during an active turn
+  fails visibly without changing the Session configuration.
+- Given a reasoning-capable model, when the user selects a reasoning level, the next message uses it in the same
+  conversation and the choice remains current after reload.
+- When `/model`, an Agent switch, or a reasoning change updates the active Session, the client receives the complete
+  current selection.
 
 <a id="63-acp-compatibility-requirements"></a>
 
@@ -136,8 +142,9 @@ Stage 1 proves the reference journey through the shared Session experience. Prot
 - The standard `sessionId` returned by `session/new` remains loadable after the `wld acp` process exits and maps to the
   same saved RunWield Session.
 - `initialize` negotiates the supported protocol version instead of echoing unsupported versions.
-- `usage_update.cost` uses the ACP cost object shape with cumulative USD Session cost. Exact context-capacity reporting
-  remains separate work.
+- `usage_update.cost` uses the ACP cost object shape with cumulative USD Session cost. `usage_update.used` and `size`
+  come from the Runtime's exact current context usage and effective capacity. If either value is unknown, RunWield does
+  not send a context update or substitute a local estimate.
 - ACP supports continuing the same saved Session used in TUI or Workspace. An idle open client does not prevent another
   client from continuing it. If work is currently running, the client reports that state without losing the user's
   input. Session storage and writer coordination follow ADR-015.
@@ -176,8 +183,10 @@ requirement.
 - When an interview asks a multiple-choice or yes/no question, the form presents the supplied choices, Other, and an
   optional Other-answer field. Submitting Other with text returns that answer without a second form; submitting a listed
   choice ignores stray Other text. Blank Other submissions record no answer.
-- When the client displays cost, the advertised ACP shape and cumulative USD Session cost are accurate; missing
-  context-capacity support is not fabricated.
+- When the client displays usage, `used` includes the Runtime's current context tokens, including cache counts, and
+  `size` is the effective context window. After compaction or another unknown state, no estimated or false full-window
+  update appears; a later exact Runtime value restores the update.
+- When the client displays cost, the advertised ACP shape and cumulative USD Session cost are accurate.
 - Given Pair Execution through ACP, the increment report returns `end_turn`. Later prompt requests can discuss it and
   then resolve it without a Pair form; final completion still requires a later accepted user turn.
 

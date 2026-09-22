@@ -130,14 +130,11 @@ async function copyTree(source: string, destination: string): Promise<void> {
     }
 }
 
-async function readGeneratedJson(path: string) {
-    for (let attempt = 0; attempt < 20; attempt++) {
-        try {
-            return JSON.parse(await Deno.readTextFile(path));
-        } catch (error) {
-            if (!(error instanceof SyntaxError) || attempt === 19) throw error;
-            await new Promise((resolve) => setTimeout(resolve, 25));
-        }
+async function assertNonEmptyTree(directory: string): Promise<void> {
+    for await (const entry of Deno.readDir(directory)) {
+        const path = join(directory, entry.name);
+        if (entry.isDirectory) await assertNonEmptyTree(path);
+        else assert((await Deno.stat(path)).size > 0, `Empty search output: ${path}`);
     }
 }
 
@@ -185,6 +182,7 @@ Deno.test("production docs build publishes and indexes only fixture manual pages
         const index = await Deno.readTextFile(join(output, "index.html"));
         const quickstart = await Deno.readTextFile(join(output, "quickstart", "index.html"));
         assertStringIncludes(index, "FIXTURE-PUBLIC-PHRASE");
+        assertStringIncludes(index, "<site-search");
         assertStringIncludes(quickstart, "FIXTURE-GUIDE-CODE");
         assertStringIncludes(
             quickstart,
@@ -198,8 +196,9 @@ Deno.test("production docs build publishes and indexes only fixture manual pages
         const sitemap = await Deno.readTextFile(join(output, "sitemap-0.xml"));
         assertEquals(sitemap.includes("/prd/"), false);
         assertEquals(sitemap.includes("/plans/"), false);
-        const pagefind = await readGeneratedJson(join(output, "pagefind", "pagefind-entry.json"));
+        const pagefind = JSON.parse(await Deno.readTextFile(join(output, "pagefind", "pagefind-entry.json")));
         assertEquals(pagefind.languages.en.page_count, PUBLIC_DOCS.length);
+        await assertNonEmptyTree(join(output, "pagefind"));
         assertEquals(index.includes("EXCLUDED-SEARCH-MARKER"), false);
         await assertRejects(() => Deno.stat(join(output, "prd", "secret", "index.html")), Deno.errors.NotFound);
 

@@ -1,6 +1,6 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
-import { createSessionRuntime } from "../../shared/session/session-runtime.js";
+import { createSessionRuntime } from "../../shared/session/session-runtime.ts";
 import { savePlan } from "../../plan-store.js";
 import { writeControllerState } from "../../shared/workflow/controller-registry.ts";
 import { RuntimeEventTypes } from "../../shared/session/session-runtime-events.js";

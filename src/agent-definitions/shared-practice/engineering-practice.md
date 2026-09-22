@@ -55,6 +55,19 @@ explicitly asks for explanation or confirmation only and says not to change anyt
 
 For these bugs, load the `diagnose` skill and follow its protocol. Do not guess at a fix from reading code.
 
+## Who Runs Full Validation
+
+During RunWield-managed implementation and validation repair, `task_completed` hands the work to RunWield's mandatory
+Mechanical Validation. Run focused tests and acceptance checks while implementing or repairing, then let RunWield run
+the complete configured command once. Do not run that same full command immediately before handing it back merely to
+satisfy a completion checklist. If the only way to reproduce a failure is the full command, run it; diagnosis and
+explicit user instructions take precedence. Browser checks and other acceptance checks outside the configured command
+remain your responsibility.
+
+Outside a managed workflow, run the full project validation command yourself. Never report RunWield's pending check as
+passed: list the checks you actually ran and say full validation is pending. RunWield's gate still runs against the
+current checkout after completion and after every repair; an Agent's report cannot replace it.
+
 ## When Verification Fails, Act
 
 You must attempt to verify your work, and when errors appear you must act, not narrate.

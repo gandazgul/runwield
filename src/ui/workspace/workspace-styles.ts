@@ -1,5 +1,7 @@
+// @ts-nocheck: this Deno-only stylesheet bundler is imported by the server, not the Astro browser program.
 /** @module ui/workspace/workspace-styles */
-import { dirname, fromFileUrl, join } from "@std/path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 /**
  * Keep the editable CSS sections ordered while serving one production stylesheet.
@@ -7,8 +9,8 @@ import { dirname, fromFileUrl, join } from "@std/path";
  * @param {string | URL} path
  * @returns {Promise<string>}
  */
-export async function readWorkspaceStyles(path) {
-    const sourcePath = path instanceof URL ? fromFileUrl(path) : path;
+export async function readWorkspaceStyles(path: string | URL) {
+    const sourcePath = path instanceof URL ? fileURLToPath(path) : path;
     const css = await Deno.readTextFile(sourcePath);
     const imports = /@import "(\.\/workspace-styles\/[a-z-]+\.css)";\n?/g;
     const matches = [...css.matchAll(imports)];

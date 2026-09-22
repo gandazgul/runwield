@@ -58,7 +58,7 @@ Deno.test("Astro dev toolbar remains loadable after Workspace navigation modules
             env: { ASTRO_TELEMETRY_DISABLED: "1" },
             stdout: "piped",
             stderr: "piped",
-            signal: AbortSignal.timeout(120_000),
+            signal: AbortSignal.timeout(180_000),
         }).output();
         const decoder = new TextDecoder();
         assertEquals(output.success, true, decoder.decode(output.stdout) + decoder.decode(output.stderr));

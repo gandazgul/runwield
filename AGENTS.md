@@ -1,5 +1,4 @@
-Stop using jargon and speak coherently. State things simply and concisely, like one human talking to another. Be
-extremely concise. Sacrifice grammar for the sake of concision.
+Stop using jargon and speak coherently, limit the use of analogies and metaphors. State things simply and concisely.
 
 ## Local Type Style
 

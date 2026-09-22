@@ -100,7 +100,7 @@ export async function runEngineerWithPlan(
 export function buildEngineerPausedMessage(reason, projectRoot, executionAgent = AGENTS.ENGINEER) {
     const base = `${
         getAgentDisplayName(executionAgent, projectRoot)
-    } stopped before reporting the task complete, so the work is unfinished and the Plan stays In Progress. Send a new message to continue with the execution owner.`;
+    } stopped before reporting the task complete, so the work is unfinished and the Plan stays In Progress. Say "continue" to resume with the execution owner.`;
     return reason ? `${base}\nReason: ${reason}` : base;
 }
 
@@ -111,8 +111,8 @@ export function buildEngineerPausedMessage(reason, projectRoot, executionAgent =
 export function buildPairPausedMessage(pauseReason, projectRoot, executionAgent = AGENTS.ENGINEER) {
     const owner = getAgentDisplayName(resolvePlanExecutionRuntimeAgent(executionAgent), projectRoot);
     return pauseReason === PairPauseReasons.STOP
-        ? `${owner} stopped Pair Execution at your checkpoint direction. The Plan remains In Progress; send a new message when you want to discuss or resume it.`
-        : `${owner} paused Pair Execution. No approval or Task Completion was recorded; send a new message when you want to discuss or resume it.`;
+        ? `${owner} stopped Pair Execution at your checkpoint direction. The Plan remains In Progress; say "continue" to resume Pair Execution.`
+        : `${owner} paused Pair Execution because the checkpoint interaction was canceled. No approval or Task Completion was recorded; say "continue" to resume.`;
 }
 
 export async function runEngineerWithSegmentHandoff({ continuation, sessionManager, hostedSession }) {

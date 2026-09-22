@@ -12,7 +12,7 @@ import {
     resolveInstalledWldExecutable,
 } from "./backends/agy-cli/mcp-setup.ts";
 import { SessionHost } from "./session-host.js";
-import { createSessionRuntime, SessionRuntime } from "./session-runtime.js";
+import { createSessionRuntime, SessionRuntime } from "./session-runtime.ts";
 
 const FIXTURE_MODEL = "runtime-command-fixture/fixture-model";
 const AGY_FLASH = "agy-cli/gemini-3.8-flash";

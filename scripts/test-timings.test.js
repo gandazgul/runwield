@@ -1,6 +1,6 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertThrows } from "@std/assert";
 import { join } from "@std/path";
-import { parseRunnerArguments } from "./run-tests.js";
+import { parseRunnerArguments, selectTestShard } from "./run-tests.js";
 import { mergeTestTimings, orderTestsByTiming, readTestTimings, writeTestTimings } from "./test-timings.js";
 
 Deno.test("test runner parses scheduling controls without passing them to Deno", () => {
@@ -34,16 +34,16 @@ Deno.test("historical timings schedule slow files first and place new files near
     ]);
 });
 
-Deno.test("timing history keeps stable order until files have three observations", () => {
+Deno.test("the first observation schedules slow files first without changing membership", () => {
     const root = "/repo";
     const files = ["a.test.ts", "b.test.ts"].map((file) => join(root, file));
 
     assertEquals(
         orderTestsByTiming(files, root, {
-            "a.test.ts": { durationMs: 10, runs: 2 },
-            "b.test.ts": { durationMs: 100, runs: 2 },
+            "a.test.ts": { durationMs: 10, runs: 1 },
+            "b.test.ts": { durationMs: 100, runs: 1 },
         }),
-        files,
+        [...files].reverse(),
     );
 });
 
@@ -93,5 +93,17 @@ Deno.test("release fail-fast stops scheduling new isolated test files", async ()
         assertEquals(await Deno.stat(marker).then(() => true).catch(() => false), false);
     } finally {
         await Deno.remove(root, { recursive: true });
+    }
+});
+
+Deno.test("shards cover every file once regardless of discovery order or timing history", () => {
+    const files = Array.from({ length: 37 }, (_, index) => `test-${index}.test.ts`);
+    const shards = [1, 2, 3, 4].map((index) => selectTestShard([...files].reverse(), `${index}/4`));
+    assertEquals(shards.flat().sort(), [...files].sort());
+    assertEquals(new Set(shards.flat()).size, files.length);
+    assertEquals(selectTestShard(files, "2/4"), shards[1]);
+    assertEquals(selectTestShard([], "1/4"), []);
+    for (const invalid of ["0/4", "5/4", "1/0", "1", "-1/2", "1/2.5"]) {
+        assertThrows(() => selectTestShard(files, invalid), Error, "Invalid test shard");
     }
 });

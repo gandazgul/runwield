@@ -3,7 +3,7 @@ import { join } from "@std/path";
 import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
 import type { Context } from "@earendil-works/pi-ai";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
-import { SessionRuntime } from "./session-runtime.js";
+import { SessionRuntime } from "./session-runtime.ts";
 import { SessionHost } from "./session-host.js";
 import { openFileSessionStore } from "./file-session-store.ts";
 import type { RuntimeInteractionRequest } from "./session-runtime-interactions.js";

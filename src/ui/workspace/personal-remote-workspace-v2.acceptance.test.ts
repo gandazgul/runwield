@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { savePlan } from "../../plan-store.js";
 import { openOwnerCoordinationStore } from "../../shared/owner-coordination/index.js";
 import { resolveProjectRuntimeLayout } from "../../shared/project-runtime-layout.ts";
+import { writeWorkRecord } from "../../shared/work-records/store.js";
 import { buildWorkflowPresentation } from "../../shared/workflow/workflow-presentation.ts";
 import { createOwnerWorkspaceApp } from "./server.js";
 import { ownerProjectSessionsApi, ownerSessionPlanWorkflowApi } from "./routes/owner-session-api.js";
@@ -29,18 +30,197 @@ function pairedApp(dir: string) {
         credentialFactory: () => "credential-secret",
         csrfFactory: () => "csrf-secret",
     });
+    const ownerApp = createOwnerWorkspaceApp({ mode: "owner", publicOrigin: "http://127.0.0.1:8787", store });
     return {
         store,
-        app: createOwnerWorkspaceApp({ mode: "owner", publicOrigin: "http://127.0.0.1:8787", store }).handler(),
+        ownerApp,
+        app: ownerApp.handler(),
     };
 }
+
+Deno.test("unified Workspace search ranks canonical sources and opens Project artifacts", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-workspace-search-" });
+    const root = `${dir}/project`;
+    await Deno.mkdir(`${root}/docs/prd`, { recursive: true });
+    await Deno.mkdir(`${root}/docs/adr`, { recursive: true });
+    await Deno.writeTextFile(`${root}/docs/prd/exact.md`, "# Searchable Compass\n\nProduct body needle.\n");
+    await Deno.writeTextFile(
+        `${root}/docs/adr/heading.md`,
+        "# Architecture note\n\n## Searchable Compass\n\nDecision body.\n",
+    );
+    await Deno.writeTextFile(
+        `${root}/docs/design-system.md`,
+        "# Design System\n\nSearchable Compass appears in the body.\n",
+    );
+    await Deno.writeTextFile(
+        `${root}/docs/domain-language.md`,
+        "# Domain Language\n\nWorkspace Search is owner retrieval.\n",
+    );
+    await Deno.writeTextFile(`${root}/source.ts`, "export const forbidden = 'Searchable Compass';\n");
+    await savePlan(root, "compass-plan", "# Plan heading\n\nSearchable Compass in the body.\n", {
+        planId: "compass-plan-id",
+        title: "Compass Plan",
+        classification: "FEATURE",
+        status: "on_hold",
+    });
+    const { store, ownerApp, app } = pairedApp(dir);
+    try {
+        const project = store.registerProject({ root, displayName: "Search Project" });
+        await ownerApp.workspaceSearch.refresh();
+        const headers = { cookie: cookiePair("credential-secret") };
+        const response = await app(
+            new Request("http://127.0.0.1:8787/api/owner/search?q=Searchable%20Compass", { headers }),
+        );
+        assertEquals(response.status, 200);
+        const payload = await response.json();
+        assertEquals(payload.results.map((result: { contentType: string }) => result.contentType), [
+            "prd",
+            "adr",
+            "plan",
+            "design-system",
+        ]);
+        assertEquals(payload.results.some((result: { sourceId: string }) => result.sourceId === "source.ts"), false);
+        assertEquals(
+            payload.results.every((result: { projectId: string }) => result.projectId === project.projectId),
+            true,
+        );
+        const prd = payload.results[0];
+        const opened = await app(
+            new Request(`http://127.0.0.1:8787${prd.destination}?return=%2Fsearch%3Fq%3DSearchable`, { headers }),
+        );
+        const html = await opened.text();
+        assertEquals(opened.status, 200, html);
+        assertStringIncludes(html, "Searchable Compass");
+        assertStringIncludes(html, "Back to Search");
+        assertEquals(html.includes(root), false);
+        assertEquals(html.includes("imageBaseDir"), false);
+
+        await Deno.writeTextFile(`${root}/docs/prd/exact.md`, "# Replaced content\n\nThe old query is gone.\n");
+        const changedResponse = await app(
+            new Request("http://127.0.0.1:8787/api/owner/search?q=Searchable%20Compass", { headers }),
+        );
+        const changed = await changedResponse.json();
+        assertEquals(changed.results.some((result: { contentType: string }) => result.contentType === "prd"), false);
+        const staleDestination = await app(new Request(`http://127.0.0.1:8787${prd.destination}`, { headers }));
+        assertEquals(staleDestination.status, 200);
+        assertStringIncludes(await staleDestination.text(), "Replaced content");
+
+        store.setProjectEnabled(project.projectId, false);
+        const disabledResponse = await app(
+            new Request("http://127.0.0.1:8787/api/owner/search?q=Searchable%20Compass", { headers }),
+        );
+        assertEquals((await disabledResponse.json()).results, []);
+    } finally {
+        await ownerApp.close();
+        store.close();
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
+Deno.test("every Workspace search result type opens its built destination", async () => {
+    const fixture = await makeManagedSessionFixture();
+    const root = fixture.projectRoot;
+    await Deno.mkdir(`${root}/docs/prd`, { recursive: true });
+    await Deno.mkdir(`${root}/docs/adr`, { recursive: true });
+    await Deno.writeTextFile(`${root}/docs/prd/destination.md`, "# PRD destination\n\nUniversal destination token.\n");
+    await Deno.writeTextFile(`${root}/docs/adr/destination.md`, "# ADR destination\n\nUniversal destination token.\n");
+    await Deno.writeTextFile(
+        `${root}/docs/design-system.md`,
+        "# Design System destination\n\nUniversal destination token.\n",
+    );
+    await Deno.writeTextFile(
+        `${root}/docs/domain-language.md`,
+        "# Domain Language destination\n\nUniversal destination token.\n",
+    );
+    await savePlan(root, "destination-plan", "# Plan destination\n\nUniversal destination token.\n", {
+        planId: "destination-plan-id",
+        classification: "PLANNED_CHANGE",
+        status: "draft",
+    });
+    await writeWorkRecord(
+        root,
+        {
+            kind: "work_record",
+            recordId: "77777777-7777-4777-8777-777777777777",
+            status: "approved",
+            scope: "planned_change",
+            origin: "internal",
+            completionMode: "done_enough",
+            createdAt: "2026-09-01T00:00:00.000Z",
+            provenance: { sourcePlans: ["destination-plan-id"] },
+        },
+        "# Work Record destination\n\n## Summary\n\nUniversal destination token.\n\n## Deferred Work\n\nOne follow-up.\n",
+        { fileName: "destination.md" },
+    );
+    const pairing = fixture.store.createPairingRequest({ codeFactory: () => "DEST01", proofFactory: () => "proof" });
+    fixture.store.approvePairingRequest(pairing.code);
+    fixture.store.claimPairingRequest(pairing.proof, {
+        credentialFactory: () => "credential-secret",
+        csrfFactory: () => "csrf-secret",
+    });
+    const ownerApp = createOwnerWorkspaceApp({
+        mode: "owner",
+        publicOrigin: "http://127.0.0.1:8787",
+        store: fixture.store,
+    });
+    try {
+        await ownerApp.workspaceSearch.refresh();
+        const headers = { cookie: cookiePair("credential-secret") };
+        const expectations = [
+            ["plan", "Universal destination token", "Plan destination"],
+            ["work-record", "Universal destination token", "Work Record destination"],
+            ["prd", "Universal destination token", "PRD destination"],
+            ["adr", "Universal destination token", "ADR destination"],
+            ["design-system", "Universal destination token", "Design System destination"],
+            ["domain-language", "Universal destination token", "Domain Language destination"],
+            ["session", "Managed fixture", "Project Session"],
+        ];
+        for (const [contentType, query, visibleText] of expectations) {
+            const response = await ownerApp.handler()(
+                new Request(
+                    `http://127.0.0.1:8787/api/owner/search?q=${encodeURIComponent(query)}&type=${contentType}`,
+                    { headers },
+                ),
+            );
+            const payload = await response.json();
+            assertEquals(payload.results.length, 1, `${contentType} search result`);
+            const opened = await ownerApp.handler()(
+                new Request(
+                    `http://127.0.0.1:8787${payload.results[0].destination}?return=%2Fsearch%3Fq%3Ddestination`,
+                    { headers },
+                ),
+            );
+            const html = await opened.text();
+            assertEquals(opened.status, 200, `${contentType}: ${html}`);
+            assertStringIncludes(html, visibleText);
+        }
+        const recordResponse = await ownerApp.handler()(
+            new Request(
+                "http://127.0.0.1:8787/api/owner/search?q=Universal%20destination%20token&type=work-record",
+                { headers },
+            ),
+        );
+        const record = (await recordResponse.json()).results[0];
+        const recordHtml = await (await ownerApp.handler()(
+            new Request(
+                `http://127.0.0.1:8787${record.destination}`,
+                { headers },
+            ),
+        )).text();
+        assertStringIncludes(recordHtml, "/plans/destination-plan-id");
+        assertStringIncludes(recordHtml, "Completion confidence: done enough.");
+    } finally {
+        await ownerApp.close();
+        await fixture.cleanup();
+    }
+});
 
 Deno.test("Project settings stays accessible when its root disappears or its registration is disabled", async () => {
     const dir = await Deno.makeTempDir({ prefix: "runwield-project-settings-recovery-" });
     const root = `${dir}/original`;
     const movedRoot = `${dir}/moved`;
     await Deno.mkdir(root);
-    const { store, app } = pairedApp(dir);
+    const { store, ownerApp, app } = pairedApp(dir);
     try {
         const project = store.registerProject({ root, displayName: "Moved Project" });
         await Deno.rename(root, movedRoot);
@@ -89,6 +269,7 @@ Deno.test("Project settings stays accessible when its root disappears or its reg
         assertEquals(unknown.status, 404);
         assertStringIncludes(await unknown.text(), "Project settings not found");
     } finally {
+        await ownerApp.close();
         store.close();
         await Deno.remove(dir, { recursive: true });
     }
@@ -115,7 +296,7 @@ Deno.test("Removing and re-adding a Project preserves file-authoritative Session
 
 Deno.test("Dashboard uses the persistent Workspace shell", async () => {
     const dir = await Deno.makeTempDir({ prefix: "runwield-dashboard-shell-" });
-    const { store, app } = pairedApp(dir);
+    const { store, ownerApp, app } = pairedApp(dir);
     try {
         const response = await app(
             new Request("http://127.0.0.1:8787/", { headers: { cookie: cookiePair("credential-secret") } }),
@@ -127,6 +308,7 @@ Deno.test("Dashboard uses the persistent Workspace shell", async () => {
         assertStringIncludes(html, "astro-view-transitions-enabled");
         assertStringIncludes(html, "Attention Dashboard");
     } finally {
+        await ownerApp.close();
         store.close();
         await Deno.remove(dir, { recursive: true });
     }
@@ -134,7 +316,7 @@ Deno.test("Dashboard uses the persistent Workspace shell", async () => {
 
 Deno.test("unassociated live Plan reviews use Plan names and ordinary questions use Session names", async () => {
     const dir = await Deno.makeTempDir({ prefix: "runwield-dashboard-review-names-" });
-    const { store } = pairedApp(dir);
+    const { store, ownerApp } = pairedApp(dir);
     try {
         const project = store.registerProject({ root: dir });
         await savePlan(dir, "review-me", "# Review the searchable artifacts\n", {
@@ -188,6 +370,7 @@ Deno.test("unassociated live Plan reviews use Plan names and ordinary questions 
         assertEquals(items.some((item) => item.title === "Choose Terraform folder name"), true);
         assertEquals(items.some((item) => item.title === "Session is waiting for you"), false);
     } finally {
+        await ownerApp.close();
         store.close();
         await Deno.remove(dir, { recursive: true });
     }
@@ -257,7 +440,7 @@ Deno.test("personal remote Workspace v2 Dashboard returns eligible completions f
         type: "sequence",
         status: "ready_for_decomposition",
     });
-    const { store, app } = pairedApp(dir);
+    const { store, ownerApp, app } = pairedApp(dir);
     try {
         const registeredOne = store.registerProject({ root: projectOne, displayName: "One" });
         store.registerProject({ root: projectTwo, displayName: "Two" });
@@ -279,6 +462,7 @@ Deno.test("personal remote Workspace v2 Dashboard returns eligible completions f
         assertEquals(JSON.stringify(payload.dashboard).includes("held-plan"), false);
         assertEquals(JSON.stringify(payload.dashboard).includes("sequence-plan"), false);
     } finally {
+        await ownerApp.close();
         store.close();
         await Deno.remove(dir, { recursive: true });
     }
@@ -324,7 +508,7 @@ Deno.test("Dashboard ignores historical attention flags and sorts all ready Plan
     const dir = await Deno.makeTempDir({ prefix: "runwield-dashboard-attention-" });
     const root = `${dir}/project`;
     await Deno.mkdir(root);
-    const { store, app } = pairedApp(dir);
+    const { store, ownerApp, app } = pairedApp(dir);
     try {
         store.registerProject({ root, displayName: "Project" });
         for (
@@ -376,6 +560,7 @@ Deno.test("Dashboard ignores historical attention flags and sorts all ready Plan
             ["ready-6", "ready-5", "ready-4", "ready-3", "ready-2", "ready-1", "ready-0"],
         );
     } finally {
+        await ownerApp.close();
         store.close();
         await Deno.remove(dir, { recursive: true });
     }
@@ -445,7 +630,7 @@ Deno.test("Dashboard distinguishes stopped execution from an active Agent and an
 
 Deno.test("personal remote Workspace v2 owner home has bounded refresh and visible failure handling", async () => {
     const dir = await Deno.makeTempDir({ prefix: "runwield-owner-refresh-acceptance-" });
-    const { store, app } = pairedApp(dir);
+    const { store, ownerApp, app } = pairedApp(dir);
     try {
         const response = await app(
             new Request("http://127.0.0.1:8787/", {
@@ -456,6 +641,7 @@ Deno.test("personal remote Workspace v2 owner home has bounded refresh and visib
         assertStringIncludes(html, "dashboardRefreshInFlight");
         assertStringIncludes(html, "status.hidden = false");
     } finally {
+        await ownerApp.close();
         store.close();
         await Deno.remove(dir, { recursive: true });
     }

@@ -340,7 +340,7 @@ alone emits that event, and the Claude trust path can bypass it. See audit A5.
 Sources: [semantic phase and round runner](../src/shared/workflow/validation-semantic.ts),
 [review_complete](../src/tools/review-complete.ts), [diff tool](../src/shared/workflow/review-diff-tool.js),
 [Review Issue ledger](../src/shared/workflow/review-ledger.ts),
-[managed repair continuation](../src/shared/session/session-runtime.js),
+[managed repair continuation](../src/shared/session/runtime/workflows.ts),
 [repair receipt](../src/shared/workflow/validation-supervisor.ts).
 
 ## H — Human code review and human-feedback repair
@@ -528,7 +528,7 @@ status through a lifecycle event; it is not a merge of an Epic implementation br
 Sources: [Slicer tool and runner](../src/shared/workflow/workflow-slicer.ts),
 [child selection](../src/cmd/load-plan/plan-epic-flow.ts),
 [continuation resolver/runner](../src/shared/workflow/epic-continuation.ts),
-[Session continuation](../src/shared/session/session-runtime.js),
+[Session continuation](../src/shared/session/runtime/workflows.ts),
 [parent lifecycle handling](../src/shared/workflow/plan-lifecycle.js),
 [auto-generation selection](../src/shared/work-records/auto-generation.ts).
 

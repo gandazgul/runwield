@@ -4,52 +4,20 @@
  */
 
 import { join } from "@std/path";
+import { git } from "../../../shared/git-test-fixture.ts";
+import {
+    assertWorkflowBinaryCallsSupported,
+    writeWorkflowBinaryFixtures,
+} from "../../../testing/workflow-binary-fixtures.ts";
 import { RUNWIELD_GITIGNORE_BLOCK } from "../../../shared/runwield-owned-paths.ts";
 
 export const GOLDEN_FAUX_PROVIDER = "golden";
 export const GOLDEN_FAUX_MODEL = "faux";
 export const GOLDEN_FAUX_API = "golden-faux";
 
-/**
- * Install the stable external Mnemoteca boundary used by composed scenarios.
- * The scenarios exercise RunWield's real Work Record machinery, but must not
- * contend for or mutate the developer's Mnemoteca database when Golden files run
- * concurrently.
- *
- * @param {string} root
- * @returns {Promise<string>}
- */
-async function writeGoldenMnemotecaFixture(root) {
-    const binDir = join(root, "bin");
-    const executable = join(binDir, "mnemoteca");
-    await Deno.mkdir(binDir, { recursive: true });
-    await Deno.writeTextFile(
-        executable,
-        [
-            "#!/bin/sh",
-            'if [ "$1" = "update" ] && [ "$2" = "--help" ]; then',
-            "  echo 'Usage: mnemoteca update <id> --replace-tags'",
-            'elif [ "$1" = "list" ]; then',
-            "  echo 'No documents'",
-            'elif [ "$1" = "search" ]; then',
-            "  echo '{\"results\":[]}'",
-            'elif [ "$1" = "export" ]; then',
-            "  shift",
-            '  while [ "$#" -gt 0 ]; do',
-            '    if [ "$1" = "--output" ]; then',
-            "      shift",
-            '      mkdir -p "$(dirname "$1")"',
-            '      printf \'%s\\n\' \'{"type":"mnemoteca-export"}\' > "$1"',
-            "      break",
-            "    fi",
-            "    shift",
-            "  done",
-            "fi",
-            "exit 0",
-            "",
-        ].join("\n"),
-    );
-    await Deno.chmod(executable, 0o755);
+/** @param {string} root */
+async function writeGoldenBinaryFixtures(root) {
+    const binDir = await writeWorkflowBinaryFixtures(root);
     const githubExecutable = join(binDir, "gh");
     await Deno.writeTextFile(
         githubExecutable,
@@ -136,8 +104,69 @@ async function removeTempDir(path) {
  * @property {() => Promise<void>} cleanup
  */
 
+/** @param {string} root @param {boolean} initArtifact */
+async function createGoldenRepository(root, initArtifact) {
+    const projectRoot = join(root, "project");
+    const remoteRoot = join(root, "remote.git");
+    await Deno.mkdir(projectRoot, { recursive: true });
+    await Deno.writeTextFile(
+        join(projectRoot, "README.md"),
+        "# Golden TUI Fixture\n\nRouting uses the Router to select Guide.\n",
+    );
+    await Deno.writeTextFile(join(projectRoot, ".gitignore"), RUNWIELD_GITIGNORE_BLOCK);
+    if (initArtifact) {
+        await Deno.mkdir(join(projectRoot, "docs"), { recursive: true });
+        await Deno.writeTextFile(
+            join(projectRoot, "docs", "domain-language.md"),
+            "# Domain Language\n\n## Golden Fixture\n\nCurrent Golden project terminology.\n",
+        );
+    }
+    await git(projectRoot, ["init", "-b", "main"]);
+    await git(projectRoot, ["config", "user.email", "golden@example.test"]);
+    await git(projectRoot, ["config", "user.name", "Golden TUI"]);
+    await git(projectRoot, ["config", "commit.gpgsign", "false"]);
+    await git(projectRoot, ["add", "-A"]);
+    await git(projectRoot, ["commit", "-m", "Initial fixture"]);
+    await git(root, ["init", "--bare", remoteRoot]);
+    await git(projectRoot, ["remote", "add", "origin", remoteRoot]);
+    await git(projectRoot, ["push", "-u", "origin", "main"]);
+}
+
+/** @param {string} source @param {string} destination */
+async function copyFixtureTree(source, destination) {
+    await Deno.mkdir(destination, { recursive: true });
+    for await (const entry of Deno.readDir(source)) {
+        const from = join(source, entry.name);
+        const to = join(destination, entry.name);
+        if (entry.isDirectory) await copyFixtureTree(from, to);
+        else if (entry.isSymlink) await Deno.symlink(await Deno.readLink(from), to);
+        else await Deno.copyFile(from, to);
+    }
+}
+
 /**
- * @param {{ keep?: boolean, initDone?: boolean, initArtifact?: boolean }} [options]
+ * Build immutable Git baselines once per suite. Workers copy both repositories;
+ * they never share mutable refs, index files, worktrees, or the remote.
+ * @param {string} root
+ */
+export async function prepareGoldenRepositoryTemplates(root) {
+    await Promise.all([true, false].map(async (initialized) => {
+        const path = join(root, initialized ? "initialized" : "uninitialized");
+        await Deno.mkdir(path, { recursive: true });
+        await createGoldenRepository(path, initialized);
+    }));
+}
+
+/**
+ * @typedef {Object} GoldenEnvironmentOptions
+ * @property {boolean} [keep]
+ * @property {boolean} [initDone]
+ * @property {boolean} [initArtifact]
+ * @property {string} [repositoryTemplateRoot]
+ */
+
+/**
+ * @param {GoldenEnvironmentOptions} [options]
  * @returns {Promise<GoldenIsolatedEnvironment>}
  */
 export async function createGoldenIsolatedEnvironment(options = {}) {
@@ -146,46 +175,21 @@ export async function createGoldenIsolatedEnvironment(options = {}) {
     const projectRoot = join(root, "project");
     const remoteRoot = join(root, "remote.git");
     const runwieldDir = join(home, ".wld");
-    const fixtureBinDir = await writeGoldenMnemotecaFixture(root);
-    await Deno.mkdir(projectRoot, { recursive: true });
+    const fixtureBinDir = await writeGoldenBinaryFixtures(root);
     await Deno.mkdir(runwieldDir, { recursive: true });
-    await Deno.writeTextFile(
-        join(projectRoot, "README.md"),
-        "# Golden TUI Fixture\n\nRouting uses the Router to select Guide.\n",
-    );
-    await Deno.writeTextFile(join(projectRoot, ".gitignore"), RUNWIELD_GITIGNORE_BLOCK);
     const initDone = options.initDone !== false;
     const initArtifact = options.initArtifact ?? initDone;
-    if (initArtifact) {
-        await Deno.mkdir(join(projectRoot, "docs"), { recursive: true });
-        await Deno.writeTextFile(
-            join(projectRoot, "docs", "domain-language.md"),
-            "# Domain Language\n\n## Golden Fixture\n\nCurrent Golden project terminology.\n",
-        );
+    const templateRoot = options.repositoryTemplateRoot || Deno.env.get("WLD_GOLDEN_FIXTURE_ROOT");
+    if (templateRoot) {
+        const template = join(templateRoot, initArtifact ? "initialized" : "uninitialized");
+        await Promise.all([
+            copyFixtureTree(join(template, "project"), projectRoot),
+            copyFixtureTree(join(template, "remote.git"), remoteRoot),
+        ]);
+        await git(projectRoot, ["remote", "set-url", "origin", remoteRoot]);
+    } else {
+        await createGoldenRepository(root, initArtifact);
     }
-    await new Deno.Command("git", { args: ["init", "-b", "main"], cwd: projectRoot, stdout: "null", stderr: "null" })
-        .output();
-    await new Deno.Command("git", { args: ["config", "user.email", "golden@example.test"], cwd: projectRoot }).output();
-    await new Deno.Command("git", { args: ["config", "user.name", "Golden TUI"], cwd: projectRoot }).output();
-    await new Deno.Command("git", { args: ["add", "-A"], cwd: projectRoot }).output();
-    await new Deno.Command("git", {
-        args: ["commit", "-m", "Initial fixture"],
-        cwd: projectRoot,
-        stdout: "null",
-        stderr: "null",
-    }).output();
-    await new Deno.Command("git", {
-        args: ["init", "--bare", remoteRoot],
-        stdout: "null",
-        stderr: "null",
-    }).output();
-    await new Deno.Command("git", { args: ["remote", "add", "origin", remoteRoot], cwd: projectRoot }).output();
-    await new Deno.Command("git", {
-        args: ["push", "-u", "origin", "main"],
-        cwd: projectRoot,
-        stdout: "null",
-        stderr: "null",
-    }).output();
     await writeGoldenModelConfig(runwieldDir);
     const canonicalProjectRoot = await Deno.realPath(projectRoot);
     const projectHash = await sha256(canonicalProjectRoot);
@@ -237,8 +241,11 @@ export async function createGoldenIsolatedEnvironment(options = {}) {
         runwieldDir,
         env,
         async cleanup() {
-            if (options.keep) return;
-            await removeTempDir(root);
+            try {
+                await assertWorkflowBinaryCallsSupported(root);
+            } finally {
+                if (!options.keep) await removeTempDir(root);
+            }
         },
     };
 }

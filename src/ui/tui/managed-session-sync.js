@@ -13,7 +13,7 @@ export const SYSTEM_MANAGED_SESSION_TIMER = Object.freeze({
 
 /**
  * @typedef {Object} ManagedSessionSyncControllerOptions
- * @property {import('../../shared/session/session-runtime.js').SessionRuntime} runtime
+ * @property {import('../../shared/session/session-runtime.ts').SessionRuntime} runtime
  * @property {() => string | null} getSessionId
  * @property {{ set: (callback: () => void, delayMs: number) => unknown, clear: (timer: unknown) => void }} timer
  * @property {number} [pollIntervalMs]

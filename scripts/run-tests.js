@@ -12,13 +12,9 @@
  * One process per file removes the sharing instead of policing it, and no child
  * can reach the real HOME or the real mnemoteca database.
  *
- * Sandboxes are per worker slot rather than per file. A sandbox HOME shared by
- * concurrent processes is not safe — extractBundledAgentDefs() deletes and
- * rewrites ~/.wld/bundled-agent-definitions unconditionally, so one process
- * would wipe the cache while another read it. Per-slot sandboxes keep every
- * concurrently-running file on its own HOME while rebuilding that cache once
- * per slot instead of once per file, which is where the wall-clock cost was.
- * Files sharing a slot run sequentially and clean up after themselves.
+ * Every file gets a fresh HOME and temporary directory, including files sharing
+ * a worker slot. Only dependency caches and immutable fixture templates may be
+ * shared; mutable settings, stores, registry entries, and locks stay isolated.
  *
  * DENO_DIR is shared across all slot sandboxes for one run, but it is still a
  * temp directory owned by this runner rather than the developer's real cache.
@@ -33,7 +29,7 @@
  *
  * `--exclude <path>` drops a file or directory from the discovered set. It is how
  * `deno task test` leaves the Golden TUI portfolio to `deno task test:golden-tui`,
- * so the everyday gate does not pay for the composed scenario runs. It applies to
+ * while `deno task ci` includes both in one worker pool. It applies to
  * discovery only, so it has no effect on the passthrough `deno test` form.
  *
  * The passthrough form injects `-A` unless the caller passed their own
@@ -64,7 +60,13 @@ const SKIP_DIRS = new Set([
     ".history",
     ".wld",
 ]);
-const DENO_SNIP_FILTER_FILES = ["deno-check.yaml", "deno-fmt.yaml", "deno-lint.yaml", "deno-test.yaml"];
+const DENO_SNIP_FILTER_FILES = [
+    "deno-check.yaml",
+    "deno-fmt.yaml",
+    "deno-lint.yaml",
+    "deno-test.yaml",
+    "deno-task.yaml",
+];
 
 /** @param {string} dir @returns {AsyncGenerator<string>} */
 async function* findTestFiles(dir) {
@@ -141,34 +143,12 @@ async function prewarmDenoDir(env, testArgs) {
 }
 
 /**
- * @param {string[]} args
- * @returns {Promise<void>}
- */
-async function printSingleRunTestNames(args) {
-    const names = [];
-    for (const arg of args) {
-        if (arg.startsWith("-")) continue;
-        const path = resolve(REPO_ROOT, arg);
-        let stat;
-        try {
-            stat = await Deno.stat(path);
-        } catch {
-            continue;
-        }
-        if (!stat.isFile || !TEST_FILE_PATTERN.test(path)) continue;
-        const text = await Deno.readTextFile(path);
-        for (const match of text.matchAll(/Deno\.test\(\s*["'`]([^"'`]+)["'`]/g)) {
-            names.push(match[1]);
-        }
-    }
-    for (const name of names) console.log(`passed test: ${name}`);
-}
-
-/**
  * @typedef {Object} RunnerArguments
  * @property {string[]} excludedPaths absolute file or directory paths to drop from discovery
  * @property {boolean} failFast stop scheduling files after the first failure
  * @property {string | undefined} timingsFile timing history input and output path
+ * @property {string | undefined} shard one-based shard index/count
+ * @property {string | undefined} reportDir directory for per-test JUnit reports
  * @property {string[]} rest every remaining argument, in the order it was given
  */
 
@@ -183,10 +163,23 @@ export function parseRunnerArguments(args) {
     const rest = [];
     let failFast = false;
     let timingsFile;
+    let reportDir;
+    let shard = Deno.env.get("WLD_TEST_SHARD");
     for (let index = 0; index < args.length; index += 1) {
         const arg = args[index];
         if (arg === "--fail-fast") {
             failFast = true;
+            continue;
+        }
+        if (arg === "--shard") {
+            shard = args[++index];
+            if (!shard) throw new Error("--shard requires index/count.");
+            continue;
+        }
+        if (arg === "--report-dir") {
+            const value = args[++index];
+            if (!value) throw new Error("--report-dir requires a path.");
+            reportDir = resolve(REPO_ROOT, value);
             continue;
         }
         if (arg === "--timings-file") {
@@ -203,7 +196,25 @@ export function parseRunnerArguments(args) {
         if (!value) throw new Error("--exclude requires a test file or directory.");
         excludedPaths.push(resolve(REPO_ROOT, value));
     }
-    return { excludedPaths, failFast, timingsFile, rest };
+    return { excludedPaths, failFast, timingsFile, reportDir, shard, rest };
+}
+
+/**
+ * Assign every file exactly once, independent of each runner's timing cache.
+ * Sorting before round-robin assignment makes filesystem traversal irrelevant.
+ * @param {string[]} files
+ * @param {string | undefined} shard
+ * @returns {string[]}
+ */
+export function selectTestShard(files, shard) {
+    if (!shard) return files;
+    const match = /^(\d+)\/(\d+)$/.exec(shard);
+    const index = Number(match?.[1]);
+    const count = Number(match?.[2]);
+    if (!Number.isSafeInteger(index) || !Number.isSafeInteger(count) || index < 1 || count < index) {
+        throw new Error(`Invalid test shard ${shard}; expected index/count with 1 <= index <= count.`);
+    }
+    return [...files].sort().filter((_file, position) => position % count === index - 1);
 }
 
 /**
@@ -228,16 +239,24 @@ function isExcluded(file, excludedPaths) {
 }
 
 /**
- * Runs every discovered test file in its own process.
- *
+ * @typedef {Object} SuiteOptions
+ * @property {boolean} [failFast]
+ * @property {string} [timingsFile]
+ * @property {string} [reportDir]
+ * @property {string} [shard]
+ */
+
+/**
  * @param {string} sandboxRoot
  * @param {string} denoDir
  * @param {string[]} [roots]
  * @param {string[]} [excludedPaths]
- * @param {{ failFast?: boolean, timingsFile?: string }} [options]
+ * @param {SuiteOptions} [options]
  * @returns {Promise<number>} process exit code
  */
 async function runIsolatedSuite(sandboxRoot, denoDir, roots = [REPO_ROOT], excludedPaths = [], options = {}) {
+    const suiteStart = performance.now();
+    if (options.reportDir) await Deno.mkdir(options.reportDir, { recursive: true });
     const discovered = new Set();
     const repositoryFiles = (await listCiFiles(REPO_ROOT)).map((file) => resolve(REPO_ROOT, file));
     for (const root of roots) {
@@ -261,19 +280,28 @@ async function runIsolatedSuite(sandboxRoot, denoDir, roots = [REPO_ROOT], exclu
     }
     const discoveredFiles = [...discovered].filter((file) => !isExcluded(file, excludedPaths)).sort();
     const previousTimings = options.timingsFile ? await readTestTimings(options.timingsFile) : {};
-    const files = orderTestsByTiming(discoveredFiles, REPO_ROOT, previousTimings);
+    const files = orderTestsByTiming(selectTestShard(discoveredFiles, options.shard), REPO_ROOT, previousTimings);
 
+    let goldenFixtureRoot = "";
+    if (files.some((file) => file.includes("/src/ui/tui/golden-scenarios/"))) {
+        const { prepareGoldenRepositoryTemplates } = await import("../src/ui/tui/testing/isolated-environment.js");
+        goldenFixtureRoot = join(sandboxRoot, "golden-fixtures");
+        await prepareGoldenRepositoryTemplates(goldenFixtureRoot);
+    }
+
+    const prewarmStart = performance.now();
     const prewarmEnv = await createSandboxEnv(sandboxRoot, "prewarm", denoDir);
-    await prewarmDenoDir(prewarmEnv, ["-A", "--no-check", "--quiet", ...files]);
+    if (files.length) await prewarmDenoDir(prewarmEnv, ["-A", "--no-check", "--quiet", ...files]);
 
-    // Golden TUI files create nested child processes. Running one worker per CPU
-    // can starve those children long enough to trigger false workflow timeouts,
-    // so the safe default is deliberately bounded. WLD_TEST_CONCURRENCY remains
-    // available for machines whose process budget has been measured separately.
+    const prewarmMs = performance.now() - prewarmStart;
+
+    // Most integration work waits on Git and other subprocesses. Keep enough
+    // independent files in flight to use the machine, with an explicit override
+    // for smaller CI runners and concurrent local workloads.
     const configured = Number(Deno.env.get("WLD_TEST_CONCURRENCY") || "");
     const concurrency = Number.isFinite(configured) && configured > 0
-        ? Math.floor(configured)
-        : Math.max(1, Math.min(navigator.hardwareConcurrency || 4, 4));
+        ? Math.max(1, Math.floor(configured))
+        : Math.max(1, Math.min(navigator.hardwareConcurrency || 4, 8));
     const queue = [...files];
     /** @type {Array<{ file: string, failureLogPath: string }>} */
     const failures = [];
@@ -291,17 +319,23 @@ async function runIsolatedSuite(sandboxRoot, denoDir, roots = [REPO_ROOT], exclu
             if (!file) return;
             const name = relative(REPO_ROOT, file);
             const fileStartedAt = Date.now();
-            console.error(`[tests] start ${name}`);
+
             const env = await createSandboxEnv(sandboxRoot, `slot-${slot}-file-${slotRuns}`, denoDir);
+            // Nested runner tests must exercise their entire fixture suite.
+            env.WLD_TEST_SHARD = "";
+            if (goldenFixtureRoot) env.WLD_GOLDEN_FIXTURE_ROOT = goldenFixtureRoot;
             slotRuns += 1;
-            const result = await runWithSnip("deno", ["test", "-A", "--no-check", "--quiet", file], {
+            const reportArgs = options.reportDir
+                ? ["--junit-path", join(options.reportDir, `${name.replace(/[^a-zA-Z0-9.-]/g, "_")}.xml`)]
+                : [];
+            const result = await runWithSnip("deno", ["test", "-A", "--no-check", "--quiet", ...reportArgs, file], {
                 cwd: REPO_ROOT,
                 env,
                 failureLabel: "tests",
             });
             const durationMs = Date.now() - fileStartedAt;
             observedTimings.push({ file: name, durationMs });
-            console.error(`[tests] done ${name}: exit ${result.code} (${(durationMs / 1000).toFixed(1)}s)`);
+
             completed += 1;
             if (result.code !== 0) {
                 failures.push({
@@ -317,14 +351,27 @@ async function runIsolatedSuite(sandboxRoot, denoDir, roots = [REPO_ROOT], exclu
 
     failures.sort((left, right) => left.file.localeCompare(right.file));
     for (const failure of failures) console.log(`FAIL ${failure.file} — failure log: ${failure.failureLogPath}`);
-    const slowest = [...observedTimings].sort((left, right) => right.durationMs - left.durationMs).slice(0, 10);
-    if (slowest.length) {
-        console.log("\nSlowest test files:");
-        for (const timing of slowest) console.log(`  ${(timing.durationMs / 1000).toFixed(1)}s  ${timing.file}`);
-    }
     if (options.timingsFile) {
         await writeTestTimings(options.timingsFile, mergeTestTimings(previousTimings, observedTimings));
-        console.log(`Test timings: ${relative(REPO_ROOT, options.timingsFile)}`);
+    }
+    if (options.reportDir) {
+        await Deno.writeTextFile(
+            join(options.reportDir, "run.json"),
+            JSON.stringify(
+                {
+                    elapsedMs: performance.now() - suiteStart,
+                    prewarmMs,
+                    concurrency,
+                    shard: options.shard || null,
+                    completed,
+                    failed: failures.length,
+                    skipped: files.length - completed,
+                    files: observedTimings,
+                },
+                null,
+                2,
+            ) + "\n",
+        );
     }
     const seconds = ((Date.now() - startedAt) / 1000).toFixed(1);
     console.log(
@@ -335,6 +382,15 @@ async function runIsolatedSuite(sandboxRoot, denoDir, roots = [REPO_ROOT], exclu
 }
 
 export async function main(args = Deno.args) {
+    const {
+        excludedPaths,
+        failFast,
+        shard,
+        timingsFile: requestedTimingsFile,
+        reportDir: requestedReportDir,
+        rest: runnerArgs,
+    } = parseRunnerArguments(args);
+    selectTestShard([], shard);
     const sandboxRoot = await Deno.makeTempDir({ prefix: "runwield-test-sandboxes-" });
     const denoDir = Deno.env.get("WLD_TEST_DENO_DIR") || join(sandboxRoot, "deno-dir");
     await Deno.mkdir(denoDir, { recursive: true });
@@ -342,14 +398,27 @@ export async function main(args = Deno.args) {
     // Deliberately do not call Deno.exit() inside try/finally: it terminates without
     // running finally blocks, which left ~600MB of sandboxes behind per run.
     let exitCode = 0;
-    const { excludedPaths, failFast, timingsFile, rest: runnerArgs } = parseRunnerArguments(args);
+    const suite = runnerArgs.some((arg) => arg.includes("src/ui/tui/golden-scenarios")) &&
+            !excludedPaths.some((path) => path.endsWith("src/ui/tui/golden-scenarios"))
+        ? "golden"
+        : "tests";
+    const reportsRoot = Deno.env.get("WLD_TEST_SANDBOX_HOME") ? sandboxRoot : join(REPO_ROOT, ".ci-cache");
+    const suffix = shard ? `-${shard.replace("/", "-of-")}` : "";
+    const reportDir = requestedReportDir || join(reportsRoot, `${suite}${suffix}-report`);
+    const timingsFile = requestedTimingsFile || join(reportsRoot, `${suite}${suffix}-timings.json`);
     try {
         if (runnerArgs[0] === "--isolated") {
             const roots = runnerArgs.slice(1);
             if (roots.length === 0) throw new Error("--isolated requires at least one test file or directory.");
-            exitCode = await runIsolatedSuite(sandboxRoot, denoDir, roots, excludedPaths, { failFast, timingsFile });
+            exitCode = await runIsolatedSuite(sandboxRoot, denoDir, roots, excludedPaths, {
+                failFast,
+                timingsFile,
+                reportDir,
+                shard,
+            });
         } else if (runnerArgs.length > 0) {
             // Explicit paths or flags: one sandboxed process, arguments passed through.
+            if (shard) throw new Error("--shard requires isolated discovery; use --isolated <paths>.");
             const env = await createSandboxEnv(sandboxRoot, "single", denoDir);
             // Grant full permissions unless the caller passed their own permission
             // flags — `-A` conflicts with explicit `--allow-*` grants, so it cannot
@@ -375,12 +444,14 @@ export async function main(args = Deno.args) {
                 failureLabel: "tests",
             });
             await writeSnipCommandResult(result);
-            if (result.code === 0) await printSingleRunTestNames(runnerArgs);
+
             exitCode = result.code;
         } else {
             exitCode = await runIsolatedSuite(sandboxRoot, denoDir, [REPO_ROOT], excludedPaths, {
                 failFast,
                 timingsFile,
+                reportDir,
+                shard,
             });
         }
     } finally {

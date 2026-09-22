@@ -6,6 +6,7 @@
 import { basename, dirname, join, relative, resolve } from "@std/path";
 import { WORK_RECORDS_DIR_NAME } from "../../constants.js";
 import { formatWorkRecordMarkdown, parseWorkRecordMarkdown } from "./markdown.js";
+import { requestWorkspaceSearchRefresh } from "../workspace-search-refresh.ts";
 
 export class WorkRecordReadError extends Error {
     /** @param {string} filePath @param {string} reason */
@@ -184,7 +185,12 @@ export async function writeWorkRecord(cwd, attrs, body, options = {}) {
             throw alternateError;
         }
     }
-    return parseWorkRecordMarkdown(markdown, { path: filePath, relativePath: relativeWorkRecordPath(cwd, filePath) });
+    const record = parseWorkRecordMarkdown(markdown, {
+        path: filePath,
+        relativePath: relativeWorkRecordPath(cwd, filePath),
+    });
+    await requestWorkspaceSearchRefresh(cwd);
+    return record;
 }
 
 /** @param {string} directory */
@@ -225,6 +231,7 @@ export async function deleteWorkRecord(cwd, currentRecord) {
     }
     await Deno.remove(currentPath);
     await syncDirectory(expectedDir);
+    await requestWorkspaceSearchRefresh(cwd);
 }
 
 /**
@@ -270,5 +277,6 @@ export async function replaceWorkRecord(cwd, currentRecord, markdown) {
         await Deno.remove(tempPath).catch(() => {});
         throw error;
     }
+    await requestWorkspaceSearchRefresh(cwd);
     return parsed;
 }

@@ -2,13 +2,17 @@
 
 bin/
 dist/
+.deno_compile*
 node_modules/
 docs-site/src/content/docs/
 docs-site/public/docs-assets/
 docs-site/.astro/
 /artifacts/
+demo-media/
 
 .history/
+.learning/
+.humanlayer/tasks/
 .pi/
 .astro/
 .agents/
@@ -18,20 +22,19 @@ STYLESEED.md
 skills-lock.json
 
 debug.log
+.runwield-workspace-search-refresh/
 
 # Local throwaway prototypes. Executable prototype files must stay under
 # prototypes/<kebab-case-slug>/ and must not be tracked or placed beside src/ code.
 prototypes/
-.learning/
 
 src/shared/version.js
 
-.deno_compile*
-
-.humanlayer/tasks/
-
-demo-media/
-
 # BEGIN RunWield owned runtime state
 .wld/internal/
+.wld/plan-staging/
+.wld/controller/
 # END RunWield owned runtime state
+
+# Local timing histories and test reports
+.ci-cache/

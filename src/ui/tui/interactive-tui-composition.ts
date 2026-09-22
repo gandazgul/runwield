@@ -99,7 +99,10 @@ export async function createInteractiveTuiComposition(
                 const terminalStarted = terminal && "started" in terminal
                     ? (terminal as StartedTerminal).started
                     : true;
-                if (terminalStarted && !snapshot?.busy && screen === previousScreen) {
+                if (
+                    terminalStarted && !snapshot?.busy && !lifecycleHandle?.isProcessingSubmission() &&
+                    screen === previousScreen
+                ) {
                     stableSamples += 1;
                     if (stableSamples >= 3) return;
                 } else {

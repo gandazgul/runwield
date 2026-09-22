@@ -1,0 +1,43 @@
+name: "deno-task"
+version: 1
+description: "Remove task command echoes and runner progress while preserving diagnostics"
+
+match:
+    command: "deno"
+    subcommand: "task"
+
+streams:
+    - stdout
+    - stderr
+
+pipeline:
+    - action: "strip_ansi"
+    - action: "remove_lines"
+      pattern: "^Task [^ ]+ .+$"
+    - action: "remove_lines"
+      pattern: '^\[(ci|tests)\] (start .+|done .+: exit 0 \(.+\))$'
+    - action: "remove_lines"
+      pattern: '^\s*$'
+
+on_error: "fail"
+
+tests:
+    - name: "successful task keeps its summary"
+      input: |
+          Task ci deno run -A runner.ts
+          [ci] start check
+          [ci] done check: exit 0 (1.2s)
+          CI passed (2.1s)
+      expected: |
+          CI passed (2.1s)
+    - name: "failure preserves diagnostics and nonzero completion"
+      input: |
+          Task test deno run -A runner.ts
+          [tests] start example.test.ts
+          [tests] done example.test.ts: exit 1 (0.1s)
+          AssertionError: missing output
+          FAIL example.test.ts — failure log: /tmp/failure.log
+      expected: |
+          [tests] done example.test.ts: exit 1 (0.1s)
+          AssertionError: missing output
+          FAIL example.test.ts — failure log: /tmp/failure.log

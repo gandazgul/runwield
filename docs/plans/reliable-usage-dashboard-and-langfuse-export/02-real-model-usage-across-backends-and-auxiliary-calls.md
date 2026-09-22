@@ -18,6 +18,7 @@ order: 2
 dependencies:
     - "01-core-measurement-history-and-default-on-recording"
 targetBranch: "epic/reliable-usage-dashboard-and-langfuse-export"
+planId: "e09a1c9e-4131-46a6-9807-c34681df5523"
 ---
 
 # Real Model Usage Across Backends and Auxiliary Calls

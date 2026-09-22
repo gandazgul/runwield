@@ -55,7 +55,7 @@ Deno.test("Owner shell retains its shared navigation and header outside reviews"
     const workspaceMenu = await Deno.readTextFile("src/ui/workspace/react/WorkspaceMenu.tsx");
     assertStringIncludes(layout, 'class="workspace-main-session-name" data-workspace-surface-title');
     assertStringIncludes(shell, 'header.querySelector("[data-workspace-main-session-name]")?.remove()');
-    assertStringIncludes(layout, "<WorkspaceMenu client:load />");
+    assertStringIncludes(layout, '<WorkspaceMenu client:only="react" />');
     assertStringIncludes(workspaceMenu, 'href="https://docs.runwield.dev"');
     assertStringIncludes(workspaceMenu, "Documentation");
     assertStringIncludes(layout, "data-workspace-header-actions");

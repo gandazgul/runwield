@@ -1,7 +1,9 @@
 import { dirname, relative } from "@std/path";
 
 const TIMING_FILE_VERSION = 1;
-const MINIMUM_SCHEDULING_RUNS = 3;
+// A timing changes order, never membership or assertions. Use the first real
+// observation instead of leaving long files at the end for two further runs.
+const MINIMUM_SCHEDULING_RUNS = 1;
 
 /**
  * @typedef {Object} TestTiming

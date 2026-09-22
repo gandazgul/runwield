@@ -25,7 +25,7 @@ function hostedSessionManager(sessionManager: SessionManager): HostedSessionMana
 
 const PRODUCTION_ENTRY_FILES = [
     "../session/agent-handler.ts",
-    "../session/session-runtime.js",
+    "../session/runtime/workflows.ts",
     "./orchestrator.ts",
     "./epic-continuation.ts",
     "../../cmd/load-plan/plan-execution.ts",

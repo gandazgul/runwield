@@ -5,7 +5,7 @@ import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fix
 import { loadPlan, savePlan } from "../../plan-store.js";
 import { defineCommittedGitFixture, git } from "../git-test-fixture.ts";
 import { createTestWorktreeAttempt } from "../worktree-test-helpers.js";
-import { createSessionRuntime } from "./session-runtime.js";
+import { createSessionRuntime } from "./session-runtime.ts";
 import { openFileSessionStore } from "./file-session-store.ts";
 
 const repository = defineCommittedGitFixture({
@@ -113,6 +113,7 @@ for (const interruption of ["disconnect", "stop", "cancel", "disconnect_compacti
                     triageMeta: { ...ready.attrs, revision: ready.revision },
                 });
                 assertEquals(repairs, 1, JSON.stringify(result));
+                assertExists(result);
                 assertEquals(result.kind, "paused");
                 assertEquals(canceled, interruption === "cancel");
                 const managed = runtime.getSessionSnapshot(id)?.managed;

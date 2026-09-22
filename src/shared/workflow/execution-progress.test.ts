@@ -74,7 +74,6 @@ function makeHostedSession(id: string, cwd: string, events: RuntimeStatusEvent[]
         },
     });
     const sessionManager = SessionManager.inMemory(cwd);
-    // @ts-expect-error SessionManager is runtime-compatible with HostedSession.
     hostedSession.setRootSessionManager(sessionManager);
     return hostedSession;
 }
