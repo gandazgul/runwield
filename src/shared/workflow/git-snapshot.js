@@ -6,7 +6,29 @@
 import { dirname, isAbsolute, join } from "@std/path";
 import { assertGitRepository, GitRepositoryRequiredError } from "../git.js";
 
-export class WorktreeReviewTargetError extends Error {
+class GitCommandError extends Error {
+    /**
+     * @param {string[]} args
+     * @param {number} code
+     * @param {string} output
+     */
+    constructor(args, code, output) {
+        super(`git ${args.join(" ")} failed: ${output}`.trim());
+        this.name = "GitCommandError";
+        this.code = code;
+        this.output = output;
+    }
+}
+
+export class WorktreeReviewComparisonError extends Error {
+    /** @param {string} message */
+    constructor(message) {
+        super(message);
+        this.name = "WorktreeReviewComparisonError";
+    }
+}
+
+export class WorktreeReviewTargetError extends WorktreeReviewComparisonError {
     /** @param {string} targetBranch */
     constructor(targetBranch) {
         const branch = targetBranch || "(missing)";
@@ -53,10 +75,15 @@ async function runGit(cwd, args, env = {}) {
                 { cwd, operation: `git ${args.join(" ")}`, state: "not_git" },
             );
         }
-        throw new Error(`git ${args.join(" ")} failed: ${text}`.trim());
+        throw new GitCommandError(args, output.code, text);
     }
 
     return stdoutText;
+}
+
+/** @param {Error} error */
+function isMissingRevisionError(error) {
+    return error instanceof GitCommandError && error.output.includes("Needed a single revision");
 }
 
 /**
@@ -153,9 +180,10 @@ export async function getWorkflowDiff(cwd, baselineTree) {
 }
 
 /**
- * Return the complete net patch from a local target branch's current commit to
- * the current worktree files. This is the shared comparison for AI review,
- * repair context, human review, and future full-review consumers.
+ * Return the complete proposed patch from the recorded target branch's common
+ * ancestor with execution HEAD to the current worktree files. This is the
+ * shared comparison for AI review, repair context, human review, and future
+ * full-review consumers.
  *
  * @param {string} cwd
  * @param {string} targetBranch
@@ -169,12 +197,39 @@ export async function getWorktreeReviewDiff(cwd, targetBranch) {
     let targetCommit;
     try {
         targetCommit = (await runGit(cwd, ["rev-parse", "--verify", `refs/heads/${branch}^{commit}`])).trim();
-    } catch {
-        throw new WorktreeReviewTargetError(branch);
+    } catch (error) {
+        if (error instanceof Error && isMissingRevisionError(error)) {
+            throw new WorktreeReviewTargetError(branch);
+        }
+        throw error;
     }
-    const targetTree = (await runGit(cwd, ["rev-parse", "--verify", `${targetCommit}^{tree}`])).trim();
+
+    let executionCommit;
+    try {
+        executionCommit = (await runGit(cwd, ["rev-parse", "--verify", "HEAD^{commit}"])).trim();
+    } catch (error) {
+        if (error instanceof Error && isMissingRevisionError(error)) {
+            throw new WorktreeReviewComparisonError(
+                "Cannot compute the worktree review diff because execution HEAD is unavailable.",
+            );
+        }
+        throw error;
+    }
+
+    let commonAncestor;
+    try {
+        commonAncestor = (await runGit(cwd, ["merge-base", targetCommit, executionCommit])).trim();
+    } catch (error) {
+        if (error instanceof GitCommandError && error.code === 1) {
+            throw new WorktreeReviewComparisonError(
+                `Cannot compute the worktree review diff because refs/heads/${branch} and execution HEAD have no common ancestor.`,
+            );
+        }
+        throw error;
+    }
+    const baseTree = (await runGit(cwd, ["rev-parse", "--verify", `${commonAncestor}^{tree}`])).trim();
     const currentTree = await captureWorktreeTree(cwd);
-    return await diffTrees(cwd, targetTree, currentTree);
+    return await diffTrees(cwd, baseTree, currentTree);
 }
 
 /**

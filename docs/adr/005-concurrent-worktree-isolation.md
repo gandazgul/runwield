@@ -93,11 +93,13 @@ Loading a Plan locates its document through the controller's attempt, then reads
 Hold, resume, review, validation, and approval use that same document selection. A healthy execution Plan must remain
 usable even if the primary copy cannot be parsed.
 
-Full code review uses one shared direct comparison from the attempt's recorded target branch tip to the execution
-worktree's current files. Semantic review, repair context, and human review use that same patch source. Review does not
-use the execution baseline or a shared ancestor. The target is resolved once per computation, so a reload can reflect a
-new target tip. Missing target evidence fails closed without substituting `main`, `HEAD`, or an old snapshot. The
-execution baseline remains separate and immutable for recovery; pre-repair snapshots remain separate for repair checks.
+Full code review uses one shared proposed branch patch from the common ancestor of the attempt's recorded target and
+execution HEAD to the execution worktree's current files. Semantic review, repair context, and human review use that
+same patch source. This matches a pull request or merge request while still including uncommitted work. Target-only
+changes do not appear as proposed reversals. The target and execution commits are resolved once per computation, so a
+reload can reflect newer commits. Missing target, missing HEAD, or absent ancestry fails closed without substituting
+`main`, an alternate diff, or an old snapshot. The execution baseline remains separate and immutable for recovery;
+pre-repair snapshots remain separate for repair checks.
 
 Reopening for review preserves the execution attempt, its branch, commits, and uncommitted changes. It invalidates prior
 approval and validation evidence, not the implementation. Approve & Run discovers the existing live attempt by Plan

@@ -5,6 +5,7 @@ import {
     getWorktreeReviewDiff,
     listCommitsTouchingPathsSince,
     restoreWorktreeTree,
+    WorktreeReviewComparisonError,
     WorktreeReviewTargetError,
 } from "./git-snapshot.js";
 import { GitRepositoryRequiredError } from "../git.js";
@@ -63,6 +64,9 @@ Deno.test("getWorktreeReviewDiff excludes target work imported after the executi
         await git(dir, ["commit", "-m", "base"]);
         await git(dir, ["switch", "-c", "execution"]);
         const executionBaseline = await captureWorktreeTree(dir);
+        await Deno.writeTextFile(`${dir}/execution.js`, "execution commit\n");
+        await git(dir, ["add", "execution.js"]);
+        await git(dir, ["commit", "-m", "execution behavior"]);
 
         await git(dir, ["switch", "target"]);
         await Deno.writeTextFile(`${dir}/inherited.js`, "target behavior\n");
@@ -77,6 +81,7 @@ Deno.test("getWorktreeReviewDiff excludes target work imported after the executi
 
         assertStringIncludes(oldDiff, "inherited.js");
         assertEquals(reviewDiff.includes("inherited.js"), false);
+        assertStringIncludes(reviewDiff, "execution.js");
         assertStringIncludes(reviewDiff, "plan-change.js");
         assertStringIncludes(reviewDiff, "plan behavior");
     } finally {
@@ -205,7 +210,55 @@ Deno.test("getWorktreeReviewDiff does not delete a restored ignored file tracked
     }
 });
 
-Deno.test("getWorktreeReviewDiff compares directly with the latest target tip", async () => {
+Deno.test("getWorktreeReviewDiff shows proposed branch work without reversing target-only changes", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-review-diff-test-" });
+    try {
+        await git(dir, ["init", "-b", "target"]);
+        await git(dir, ["config", "user.email", "test@example.com"]);
+        await git(dir, ["config", "user.name", "Test User"]);
+        await Deno.writeTextFile(`${dir}/target-modified.js`, "base target bytes\n");
+        await Deno.writeTextFile(`${dir}/target-deleted.js`, "base target deletion\n");
+        await Deno.writeTextFile(`${dir}/both.js`, "base shared bytes\n");
+        await Deno.writeTextFile(`${dir}/execution-deleted.js`, "base execution deletion\n");
+        await git(dir, ["add", "."]);
+        await git(dir, ["commit", "-m", "base"]);
+        const commonAncestor = (await git(dir, ["rev-parse", "HEAD"])).trim();
+        await git(dir, ["switch", "-c", "execution"]);
+
+        await git(dir, ["switch", "target"]);
+        await Deno.writeTextFile(`${dir}/target-only.js`, "target addition\n");
+        await Deno.writeTextFile(`${dir}/target-modified.js`, "target modification\n");
+        await Deno.writeTextFile(`${dir}/both.js`, "target shared bytes\n");
+        await Deno.remove(`${dir}/target-deleted.js`);
+        await git(dir, ["add", "-A"]);
+        await git(dir, ["commit", "-m", "target work"]);
+
+        await git(dir, ["switch", "execution"]);
+        await Deno.writeTextFile(`${dir}/execution-committed.js`, "execution commit\n");
+        await git(dir, ["add", "execution-committed.js"]);
+        await git(dir, ["commit", "-m", "execution work"]);
+        await Deno.writeTextFile(`${dir}/both.js`, "execution shared bytes\n");
+        await Deno.writeTextFile(`${dir}/execution-untracked.js`, "execution untracked\n");
+        await Deno.remove(`${dir}/execution-deleted.js`);
+
+        const currentTree = await captureWorktreeTree(dir);
+        const expected = await git(dir, ["diff", `${commonAncestor}..${currentTree}`]);
+        const actual = await getWorktreeReviewDiff(dir, "target");
+
+        assertEquals(actual, expected);
+        assertStringIncludes(actual, "+execution commit");
+        assertStringIncludes(actual, "+execution shared bytes");
+        assertStringIncludes(actual, "+execution untracked");
+        assertStringIncludes(actual, "-base execution deletion");
+        assertEquals(actual.includes("target-only.js"), false);
+        assertEquals(actual.includes("target modification"), false);
+        assertEquals(actual.includes("target deletion"), false);
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
+Deno.test("getWorktreeReviewDiff is empty when only the target advances", async () => {
     const dir = await Deno.makeTempDir({ prefix: "runwield-review-diff-test-" });
     try {
         await git(dir, ["init", "-b", "target"]);
@@ -216,28 +269,76 @@ Deno.test("getWorktreeReviewDiff compares directly with the latest target tip", 
         await git(dir, ["commit", "-m", "base"]);
         await git(dir, ["switch", "-c", "execution"]);
         await git(dir, ["switch", "target"]);
-        await Deno.writeTextFile(`${dir}/target-only.js`, "target one\n");
+        await Deno.writeTextFile(`${dir}/target-only.js`, "target addition\n");
         await git(dir, ["add", "."]);
-        await git(dir, ["commit", "-m", "target one"]);
+        await git(dir, ["commit", "-m", "target work"]);
         await git(dir, ["switch", "execution"]);
 
-        const first = await getWorktreeReviewDiff(dir, "target");
-        assertStringIncludes(first, "deleted file mode");
-        assertStringIncludes(first, "-target one");
+        assertEquals(await getWorktreeReviewDiff(dir, "target"), "");
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
+});
 
-        await git(dir, ["switch", "target"]);
-        await Deno.writeTextFile(`${dir}/target-only.js`, "target two\n");
+Deno.test("getWorktreeReviewDiff rejects a missing target", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-review-diff-test-" });
+    try {
+        await git(dir, ["init", "-b", "execution"]);
+        await git(dir, ["config", "user.email", "test@example.com"]);
+        await git(dir, ["config", "user.name", "Test User"]);
+        await Deno.writeTextFile(`${dir}/base.js`, "base\n");
         await git(dir, ["add", "."]);
-        await git(dir, ["commit", "-m", "target two"]);
-        await git(dir, ["switch", "execution"]);
+        await git(dir, ["commit", "-m", "base"]);
 
-        const second = await getWorktreeReviewDiff(dir, "target");
-        assertStringIncludes(second, "-target two");
-        assertEquals(second.includes("-target one"), false);
         await assertRejects(
             () => getWorktreeReviewDiff(dir, "missing-target"),
             WorktreeReviewTargetError,
             "refs/heads/missing-target",
+        );
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
+Deno.test("getWorktreeReviewDiff rejects an unavailable execution HEAD", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-review-diff-test-" });
+    try {
+        await git(dir, ["init", "-b", "target"]);
+        await git(dir, ["config", "user.email", "test@example.com"]);
+        await git(dir, ["config", "user.name", "Test User"]);
+        await Deno.writeTextFile(`${dir}/target.js`, "target\n");
+        await git(dir, ["add", "."]);
+        await git(dir, ["commit", "-m", "target"]);
+        await git(dir, ["symbolic-ref", "HEAD", "refs/heads/execution"]);
+
+        await assertRejects(
+            () => getWorktreeReviewDiff(dir, "target"),
+            WorktreeReviewComparisonError,
+            "execution HEAD is unavailable",
+        );
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
+Deno.test("getWorktreeReviewDiff rejects unrelated target and execution histories", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-review-diff-test-" });
+    try {
+        await git(dir, ["init", "-b", "target"]);
+        await git(dir, ["config", "user.email", "test@example.com"]);
+        await git(dir, ["config", "user.name", "Test User"]);
+        await Deno.writeTextFile(`${dir}/target.js`, "target\n");
+        await git(dir, ["add", "."]);
+        await git(dir, ["commit", "-m", "target"]);
+        await git(dir, ["switch", "--orphan", "execution"]);
+        await Deno.writeTextFile(`${dir}/execution.js`, "execution\n");
+        await git(dir, ["add", "."]);
+        await git(dir, ["commit", "-m", "execution"]);
+
+        await assertRejects(
+            () => getWorktreeReviewDiff(dir, "target"),
+            WorktreeReviewComparisonError,
+            "no common ancestor",
         );
     } finally {
         await Deno.remove(dir, { recursive: true });
