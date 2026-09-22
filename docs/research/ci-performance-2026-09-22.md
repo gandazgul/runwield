@@ -265,3 +265,199 @@ the new real-input idle regression. The zero-internal-seam check still passes.
 Final evidence: `ci-repaired-eight-report/`, `ci-repaired-twelve-report/`, their `*-tasks.json` and `*-summary.json`
 files, and `repaired-worker-comparison-input.json` under `/private/tmp/runwield-ci-speed/`. The intermediate failed
 collect-all run is retained as `ci-collect-all-failure-report/`; it is not counted as a successful timing result.
+
+## Separate suite measurements and subprocess profiles
+
+Fresh measurements after the owner stopped the other CI run and automatic compilation:
+
+| Command                      |          Wall time | Result                                                           |
+| ---------------------------- | -----------------: | ---------------------------------------------------------------- |
+| `deno task ci --source-only` | **310.5s (5m10s)** | 414 files; 3,652 passing cases, two unchanged Windows-only skips |
+| `deno task test:golden-tui`  | **229.5s (3m50s)** | 46 files; all 172 cases passed                                   |
+
+These ran sequentially with the default eight workers. The first source attempt overlapped another CI run and was
+stopped; it is excluded. The earlier combined CI measurement remains 505.4s. Adding two separately scheduled runs is not
+a measurement of the combined worker pool.
+
+Source test execution accounted for 291.4s; static checks, Workspace build, and surrounding task work accounted for
+19.1s. Prewarming took 0.67s for source and 0.86s for Golden. Source file durations total 2,325 worker-seconds: their
+ideal eight-worker scheduling floor is 290.6s, almost the observed 291.4s. Golden totals 1,708 worker-seconds: its floor
+is 213.6s versus 229.2s inside the runner. These floors hold observed file durations constant; they do not predict
+behavior under a different concurrency. Further scheduling alone has little source-suite opportunity.
+
+### Longest files and cases
+
+File wall times below include process/import overhead and reflect contention in the eight-worker suite:
+
+| File                                                                  |                            Cases | File wall time |
+| --------------------------------------------------------------------- | -------------------------------: | -------------: |
+| `src/cmd/load-plan/publication-cleanup.integration.test.ts`           |                               34 |         160.7s |
+| `src/cmd/load-plan/index.integration.test.ts`                         |                               44 |         119.6s |
+| `src/ui/tui/golden-scenarios/validation-workflow-publication.test.ts` |                                9 |         118.2s |
+| `src/shared/workflow/publication-machine.e2e.test.ts`                 | 35, including nested crash cases |         114.0s |
+| `src/ui/tui/golden-scenarios/slash-command-configuration.test.ts`     |                               15 |          86.5s |
+| `src/ui/tui/golden-scenarios/validation-workflow-lifecycle.test.ts`   |                                9 |          83.6s |
+| `src/ui/tui/golden-scenarios/project-workflow.test.js`                |                                3 |          80.1s |
+| `src/shared/workflow/sequence-review.test.ts`                         |                               15 |          77.8s |
+
+The longest source parent case was the complete remote/local process-death matrix, 76.6s, followed by the separate
+failure/recovery matrix, 50.9s. The longest Golden case was `project-two-child-continuation-epic-evidence`, 48.1s;
+concurrent Plan execution took 32.4s. Parent-case durations overlap their nested steps and must not be added together.
+
+### What the slow tests actually do
+
+Seven files were rerun sequentially with a diagnostic preload that records real command start/end times, timer
+callbacks, test boundaries, and Golden startup markers. Every command and test delegates to its original implementation.
+[V8 CPU profiles](https://docs.deno.com/runtime/fundamentals/cpu_profiling/) were captured for test processes and real
+Deno children, including the deliberately crashing publication drivers. The final Golden profiles use the suite's
+reusable real repository templates. An earlier diagnostic pass without shared templates is retained separately.
+
+All **155 profiled JUnit cases passed**, with exact name inventories matching the uninstrumented suite. No product code,
+test assertions, test membership, or golden expectations changed for this profiling pass. Sampling and tracing add
+overhead; the single-file durations below diagnose costs and are not speedup comparisons with the concurrent suite.
+
+| Profiled file         | Main process wall | Real Git calls across its processes | `worktree list` calls | Tracked-path scans | Time in those two Git queries |
+| --------------------- | ----------------: | ----------------------------------: | --------------------: | -----------------: | ----------------------------: |
+| Cleanup recovery      |             87.5s |                               7,962 |                 1,680 |              1,660 |                         15.1s |
+| Crash/restart matrix  |             64.1s |                               7,623 |                 1,541 |              1,579 |                         14.1s |
+| Load-plan integration |             76.0s |                               6,001 |                 2,612 |              2,771 |                         21.9s |
+| Sequence review       |             58.8s |                               7,827 |                 3,909 |              3,906 |                         33.1s |
+| Golden publication    |             69.1s |                               7,395 |                 1,931 |              2,769 |                         21.4s |
+| Golden PROJECT        |             53.2s |                               7,970 |                 2,974 |              3,981 |                         31.6s |
+| Golden configuration  |             50.7s |                                 314 |                    47 |                 47 |                          0.4s |
+
+Counts are commands launched through Deno, including instrumented Deno children; Git's own subprocesses are not counted
+separately. Query times are accumulated observed intervals, not CPU time. Parent waits include child work, so neither
+process durations nor parent/child command durations should be added into one wall-time total.
+
+**Repeated migration checks are the largest shared finding.** `enterProjectRuntime()` calls
+`migrateLegacyProjectRuntimeState()`, which calls `preflight()` before `completeMarkerNeedsNoWork()`. Even an already
+migrated Project is enumerated and scanned before that quick return. Plan locks, registry reads/writes, controller
+reads, and publication phases all enter this path. `withProjectRuntimeReadScope()` shares checks in some bounded reads,
+but does not currently cover the nested controller/read chains responsible for these profiles.
+
+In Sequence review, 1,287 worktree listings came through `inspectControllerWorktree()` and another 1,287 through
+`readControllerRecord()` inside `loadControllerView()`. Another 249 came through `listControllerDocumentWorktrees()`.
+The 15 tests made 3,909 listings overall. This is repeated production work, not a special expensive Golden assertion. In
+cleanup recovery, 1,456 listings came directly through the ordinary migration preflight call site.
+
+**Durable Session writes also matter.** Load-plan's sampled main-thread stacks spent about 15.4s inside synchronous
+file/directory flushes; cleanup spent 6.3s. The callers are `writeTextAtomically()` and `syncParent()` in
+`src/shared/session/file-session-storage.ts`. These samples include blocking native I/O, not just CPU computation.
+Removing flushes would change durability and is not an acceptable test optimization.
+
+**External helper startup is still measurable with fixtures.** Mnemoteca/Cymbal calls cost 13.4s in load-plan and 10.7s
+in cleanup, mainly their first `--help` checks. Each fixture changes PATH, invalidating `runtime-preflight.ts`'s
+PATH-keyed availability cache. These are real executions of the external fixture scripts. Their exact OS startup cost
+has not been isolated from filesystem/security-service overhead; the profile does not establish that cause.
+
+**Golden has two distinct costs.** Publication children spent 19.8s before readiness, 48.5s in the journeys, and about
+0.15s in final cleanup. PROJECT children spent 7.0s starting and 45.4s in journeys. Configuration children spent 30.9s
+starting and 18.2s in journeys. Startup includes process/module loading, fixture setup, helper checks, and real TUI
+composition. It is 63% of the configuration cohort but only 13% of the PROJECT cohort. Replacing the test registration
+runner cannot by itself remove this application startup work.
+
+Sampled JavaScript self time in TUI files and Pi TUI totaled approximately 0.5s for publication, 0.4s for PROJECT, and
+0.8s for configuration. That is not an exhaustive accounting of everything called by rendering, but rendering did not
+appear as the dominant sampled cost. The four source parent profiles recorded no fired timer callbacks: shortening
+sleeps is not the explanation for their long durations. Golden polling timers overlap actual workflow/Git work and must
+not be counted as entirely removable delay.
+
+### Revised optimization order
+
+1. **Remove repeated migration inspections within bounded operations.** Reuse real validation results across nested
+   controller/registry reads, with revalidation at write/external-change boundaries. Never install a process-lifetime
+   “already migrated” cache that misses later legacy files, worktrees, or conflicts. The two Git queries alone consume
+   33.1s in Sequence review and 31.6s in the PROJECT cohort, before their associated filesystem traversal.
+2. **Reduce repeated Golden startup and external fixture startup.** Configuration spends 30.9s before readiness. Measure
+   reusable immutable helper executables with separate per-test logs/state and a prebuilt child/import path; preserve
+   fresh HOME, Runtime, Git, terminal, and application state for every scenario. The existing real repository templates
+   already remain enabled. Startup and helper figures overlap and are not additive savings.
+3. **Find redundant durable writes.** Investigate unnecessary repeated manifest/recovery-descriptor writes. Keep
+   required flushes and all process-death/restart assertions; do not replace storage with a fake or skip persistence.
+4. **Only then revisit scheduling or a runner conversion.** Source scheduling is already close to its measured floor;
+   the earlier Vite+ experiment was slower. Keep composed Golden coverage because it catches real input/lifecycle
+   integration defects.
+
+These numbers rank observed costs, not guaranteed removable seconds. The profiling pass makes no claim of an additional
+optimization or measured release-run improvement.
+
+Raw evidence is under `/private/tmp/runwield-ci-profile/`: `source-ci-tasks.json`, `source-report/`, `golden-wall.json`,
+`golden-report/`, `final-profile-summary.json`, per-file JUnit, command/timer traces, and `.cpuprofile` files.
+`observe.js`, `run-profiles.py`, `run-golden-profiles.py`, and `final-analysis.py` preserve the diagnostic method. The
+`*-shared` Golden results are the authoritative profiles matching normal fixture reuse. All successful suite/profile
+commands remained concise.
+
+## Migration and repeated Git checks: implementation follow-up
+
+Runtime verification now spans the nested reads in Plan listings, controller views, Plan evidence lookup, action
+identity resolution, and Sequence review snapshots. Each grouped read verifies each selected checkout once. Actual Plan,
+controller, registry, and publication contents are still read from disk. There is no process-lifetime migration cache.
+Results expire when the initiating read settles, including failures and detached asynchronous continuations; failed
+validation can be retried after repair. Controller writes force fresh validation before writing and invalidate
+surrounding read results afterward. Migration locks and write-boundary checks remain in place.
+
+The runtime-safety guard also no longer runs a redundant `git diff --cached --name-only`: its existing HEAD tree and
+index scans already cover staged deletions, additions, and rename destinations. Real Git remains in every fixture.
+Session persistence and required disk flushes remain enabled, including Golden tests. Disabling them would remove
+reload, recovery, and write-order coverage and would measure different behavior from production.
+
+### Re-evaluation after each change
+
+| Isolated Sequence review profile                            | Wall time | Worktree listings | Tracked-path scans | Git commands |
+| ----------------------------------------------------------- | --------: | ----------------: | -----------------: | -----------: |
+| Before                                                      |    58.78s |             3,909 |              3,906 |        7,827 |
+| Controller and Plan-list read scopes, with bounded lifetime |    30.14s |             1,763 |              1,760 |        3,535 |
+| Add grouped Plan-evidence and Sequence reads                |    25.01s |             1,210 |              1,207 |        2,429 |
+
+All 15 Sequence cases passed in every profile. The final measurement is **57.4% faster**, with **69.0% fewer worktree
+listings**. These use the same observational profiler and run one test file at a time. Remaining repeated inspections
+mostly occur at separate write/lock boundaries; broadening reuse across those boundaries would need additional
+correctness evidence. The redundant staged-diff removal is separate from this Sequence result.
+
+Six new regression tests exercise real Git command counts, fresh controller contents, newly staged runtime files, write
+invalidation, scope expiration after success and failure, and repair/retry. Both pre-existing read-scope tests remain.
+The four migration/controller/isolation test files pass together; no assertions or test cases were removed.
+
+### Full-suite correctness check
+
+The complete CI run executed all **460 files and 3,832 cases**: **3,829 passed, two existing Windows-only cases skipped,
+and one skill-sync test failed**. The six added cases account for the entire increase from the previous 3,826-case
+inventory; no previous case disappeared. All Golden, migration, controller, Git-safety, and crash/recovery cases passed.
+All ten initial CI checks passed, including typechecking, lint, and the zero-seam check.
+
+The skill-sync failure reported an Agent Definition changed without its corresponding published skill. Agent Definitions
+were being edited by another task during the test run; they are outside this optimization. The failure remains visible
+rather than being filtered or accepted as success.
+
+CI wall time was **761.33s (12m41s)**, but another CI began in a separate Plan checkout about five minutes into this run
+and overlapped the rest. This is a correctness run under contention, **not an uncontended end-to-end performance
+comparison**. No total CI speedup is claimed from it. Saved evidence: `ci-tasks.json`, `ci-report/`, `ci-summary.json`,
+and `inventory-comparison.json` under `/private/tmp/runwield-migration-speed/`.
+
+### Follow-up profiles and next priorities
+
+After waiting for the competing CI, several of its Golden cases were still running for minutes. The following two
+profiles therefore ran with that CI still active. Their **Git call counts are directly comparable**, but their wall
+times are confounded by the overlap and cannot establish a speedup or regression.
+
+| Profile             | Before / after wall | Before / after worktree listings | Before / after tracked-path scans |     Cases |
+| ------------------- | ------------------: | -------------------------------: | --------------------------------: | --------: |
+| Golden PROJECT      |     53.22s / 45.61s |                    2,974 / 1,936 |                     3,981 / 2,506 |  3 passed |
+| Publication cleanup |    87.49s / 105.14s |                    1,680 / 1,578 |                     1,660 / 1,524 | 34 passed |
+
+Golden PROJECT eliminates **34.9% of worktree listings** and **37.1% of tracked-path scans**. Cleanup eliminates only
+**6.1%** and **8.2%**, respectively, so these bounded read changes help it much less. Both profiles have exactly the
+same test-name inventory as their earlier runs. All real Git operations, persisted Sessions, restart/recovery paths, and
+assertions remain enabled. The final full suite also retains every previous case.
+
+The next optimization target is Golden/module/external-fixture startup, followed by genuinely redundant durable writes.
+Do not broaden the migration cache across separate writes, locks, or external work merely to remove the remaining
+inspections. Concurrent CI runs also need separate measurement before deciding whether a shared machine worker limit or
+reuse of an identical completed validation would help release time without skipping required checks.
+
+A final skill-sync recheck still reports the unrelated `ideator.md`/published-skill mismatch. It has not been suppressed
+or re-baselined by this work. Full CI is therefore **not green**, despite all migration and Golden cases passing.
+
+Additional evidence under `/private/tmp/runwield-migration-speed/`: `profile-comparison.json`, per-profile JUnit,
+`sequence-first/`, `sequence-second/`, `golden-project/`, and `cleanup/` command traces and CPU profiles.

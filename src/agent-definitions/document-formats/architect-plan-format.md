@@ -39,7 +39,8 @@ justify reconsidering the decision. Scale this detail to the choice's consequenc
 ## Vertical Slice Findings
 
 Brief summary of what you traced deeply and how it informs the plan. Show the paths you walked — a call path, a small
-`mermaid` flow or state diagram, a before/after of a boundary — wherever that reads faster than prose.
+`mermaid` flow or state diagram, a shallow file tree of what owns what, a diff of a boundary that moves — wherever that
+reads faster than prose.
 
 ## Expected Change Surface
 
@@ -71,7 +72,7 @@ thing only the Epic knows: **what must be observably true when this architecture
 
 For each Epic outcome, state the evidence that proves it — concrete enough that a child Plan can turn it into a command
 that is red before the work and green after. "The migration is complete" is not evidence; "no module outside `storage/`
-constructs a database handle" is.
+constructs a database handle" is. Outcomes stay exact prose; a diagram earlier in the Epic does not stand in for one.
 
 - `<Outcome>` — observable evidence a child Plan can assert against.
 
