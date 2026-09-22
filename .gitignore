@@ -37,5 +37,4 @@ demo-media/
 
 # BEGIN RunWield owned runtime state
 .wld/internal/
-.wld/plan-staging/
 # END RunWield owned runtime state
