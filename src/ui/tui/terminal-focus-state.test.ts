@@ -99,6 +99,39 @@ Deno.test("installTerminalFocusState filters terminal start input before the TUI
     assertEquals(getCurrentTerminalFocusState(), "unknown");
 });
 
+Deno.test("installTerminalFocusState preserves a delayed CSI keyboard sequence", async () => {
+    const terminal = new FocusTestTerminal();
+    const owner = installTerminalFocusState(terminal);
+    const inputs: string[] = [];
+    try {
+        terminal.start((data) => inputs.push(data));
+        terminal.input("\x1b");
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        terminal.input("[1;5C");
+
+        assertEquals(inputs, ["\x1b[1;5C"]);
+    } finally {
+        owner.dispose();
+    }
+});
+
+Deno.test("installTerminalFocusState drops an incomplete delayed mouse report", async () => {
+    const terminal = new FocusTestTerminal();
+    const owner = installTerminalFocusState(terminal);
+    const inputs: string[] = [];
+    try {
+        terminal.start((data) => inputs.push(data));
+        terminal.input("\x1b");
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        terminal.input("[<64;1;1");
+        await new Promise((resolve) => setTimeout(resolve, 70));
+
+        assertEquals(inputs, []);
+    } finally {
+        owner.dispose();
+    }
+});
+
 Deno.test("installTerminalFocusState suppresses empty focus-only reports", () => {
     const terminal = new FocusTestTerminal();
     installTerminalFocusState(terminal);

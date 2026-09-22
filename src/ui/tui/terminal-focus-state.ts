@@ -30,6 +30,17 @@ type FocusFilterResult = {
     nextState: TerminalFocusState;
 };
 
+interface MouseSequenceRecovery {
+    process(data: string): void;
+    dispose(): void;
+}
+
+const ESC = "\x1b";
+const SGR_MOUSE_PREFIX = "\x1b[<";
+// deno-lint-ignore no-control-regex
+const SGR_MOUSE_SEQUENCE = /^\x1b\[<\d+;\d+;\d+[Mm]$/;
+const MOUSE_SEQUENCE_TIMEOUT_MS = 60;
+
 let currentTerminalFocusState: TerminalFocusStateOwner | null = null;
 
 export function getCurrentTerminalFocusState(): TerminalFocusState {
@@ -77,16 +88,106 @@ export function installTerminalFocusState(
 ): TerminalFocusStateOwner {
     const originalStart = terminal.start.bind(terminal);
     const owner = createTerminalFocusStateOwner(terminal);
+    let mouseSequenceRecovery: MouseSequenceRecovery | undefined;
     terminal.start = (onInput: TerminalInputHandler, onResize?: TerminalResizeHandler): void => {
+        mouseSequenceRecovery = createMouseSequenceRecovery(onInput);
         originalStart((data: string) => {
             const previousState = owner.getState();
             const filtered = owner.filterInput(data);
             if (previousState !== "focused" && owner.getState() === "focused") onFocus?.();
-            if (filtered.length > 0) onInput(filtered);
+            if (filtered.length > 0) mouseSequenceRecovery?.process(filtered);
         }, onResize);
     };
-    setCurrentTerminalFocusState(owner);
-    return owner;
+    const disposeOwner = owner.dispose.bind(owner);
+    const installedOwner: TerminalFocusStateOwner = {
+        getState: () => owner.getState(),
+        filterInput: (data) => owner.filterInput(data),
+        dispose: () => {
+            mouseSequenceRecovery?.dispose();
+            if (currentTerminalFocusState === installedOwner) {
+                currentTerminalFocusState = null;
+            }
+            disposeOwner();
+        },
+    };
+    setCurrentTerminalFocusState(installedOwner);
+    return installedOwner;
+}
+
+function createMouseSequenceRecovery(forwardInput: TerminalInputHandler): MouseSequenceRecovery {
+    let pending = "";
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const clearTimer = (): void => {
+        if (!timer) return;
+        clearTimeout(timer);
+        timer = undefined;
+    };
+    const flushPendingInput = (): void => {
+        const input = pending;
+        pending = "";
+        clearTimer();
+        if (input.startsWith(SGR_MOUSE_PREFIX)) return;
+        if (input) forwardInput(input);
+    };
+    const scheduleFlush = (): void => {
+        clearTimer();
+        timer = setTimeout(flushPendingInput, MOUSE_SEQUENCE_TIMEOUT_MS);
+        if (typeof timer.unref === "function") timer.unref();
+    };
+
+    return {
+        process(data: string): void {
+            if (SGR_MOUSE_SEQUENCE.test(data)) {
+                flushPendingInput();
+                forwardInput(data);
+                return;
+            }
+            if (!pending && data !== ESC && data !== `${ESC}[` && !data.startsWith(SGR_MOUSE_PREFIX)) {
+                forwardInput(data);
+                return;
+            }
+            for (const character of data) {
+                if (!pending) {
+                    if (character === ESC) {
+                        pending = ESC;
+                        scheduleFlush();
+                    } else {
+                        forwardInput(character);
+                    }
+                    continue;
+                }
+                if (pending === ESC) {
+                    if (character === "[") {
+                        pending += character;
+                        scheduleFlush();
+                    } else {
+                        const input = pending + character;
+                        pending = "";
+                        clearTimer();
+                        forwardInput(input);
+                    }
+                    continue;
+                }
+                pending += character;
+                const code = character.charCodeAt(0);
+                if (code >= 0x40 && code <= 0x7e) {
+                    const input = pending;
+                    pending = "";
+                    clearTimer();
+                    if (!input.startsWith(SGR_MOUSE_PREFIX) || SGR_MOUSE_SEQUENCE.test(input)) {
+                        forwardInput(input);
+                    }
+                } else {
+                    scheduleFlush();
+                }
+            }
+        },
+        dispose(): void {
+            pending = "";
+            clearTimer();
+        },
+    };
 }
 
 function filterFocusReportInput(
