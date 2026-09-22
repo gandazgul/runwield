@@ -62,6 +62,17 @@ export function workspaceWorkerSource(connectionPage: string) {
     return `const CONNECTION_PAGE = ${JSON.stringify(connectionPage)};
 self.addEventListener('install', (event) => event.waitUntil(self.skipWaiting()));
 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
+self.addEventListener('notificationclick', (event) => {
+    event.notification.close();
+    event.waitUntil((async () => {
+        const url = new URL(event.notification.data?.url || '/', self.location.origin);
+        if (url.origin !== self.location.origin) return;
+        const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+        const existing = windows.find((client) => client.url === url.href);
+        if (existing) await existing.focus();
+        else await self.clients.openWindow(url.href);
+    })());
+});
 async function tellPage(event, connected) {
     const client = await self.clients.get(event.clientId);
     client?.postMessage({ type: 'runwield:connection', connected });

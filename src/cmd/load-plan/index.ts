@@ -12,7 +12,7 @@ import {
     archivePlan,
     ensurePlanIdentity,
     isRecoverableWorktreeStatus,
-    listPlans,
+    listPlanDocuments,
     loadPlan,
     onboardExternalPlan,
     resolvePlan,
@@ -55,10 +55,7 @@ import { printCommandHelp } from "../help/index.js";
 import { startInteractiveSession } from "../../ui/tui/chat-session.ts";
 import { SYSTEM_BROWSER_PORT } from "../../shared/browser-port.ts";
 import { resolvePlanWithPrimaryRecovery, resumePlanPublicationCleanup } from "./primary-plan-recovery.ts";
-import {
-    recoverMissingExecutionWorktreesForPlanLoading,
-    resolveWorkflowPlanLocation,
-} from "../../shared/workflow/plan-location.ts";
+import { resolveWorkflowPlanLocation } from "../../shared/workflow/plan-location.ts";
 import type { CommandContext } from "../registry.js";
 import type { UiAPI } from "../../ui/tui/types.js";
 import {
@@ -121,19 +118,7 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
             }
             const activeSnapshot = sessionRuntime.getSessionSnapshot(runtimeSessionId);
             if (!activeSnapshot) throw new Error("runLoadPlanCommand runtime session is missing");
-            const recoveredWorktrees = await recoverMissingExecutionWorktreesForPlanLoading(activeSnapshot.cwd);
-            for (const recovered of recoveredWorktrees) {
-                options.uiAPI.appendSystemMessage(
-                    buildValidationRecoveryNotice({
-                        kind: "worktree_restored",
-                        planName: recovered.planName,
-                        branch: recovered.branch,
-                    }),
-                    false,
-                    "RunWield",
-                );
-            }
-            const plans = await listPlans(activeSnapshot.cwd);
+            const plans = await listPlanDocuments(activeSnapshot.cwd);
             if (plans.length === 0) {
                 options.uiAPI.appendSystemMessage(
                     "No plans available, start one by entering a new request",

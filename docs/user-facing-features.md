@@ -227,7 +227,9 @@
   - Override agent definitions with `.wld/agents/` or `~/.wld/agents/`.
   - Add project or home prompt templates with `.wld/prompts/` or `~/.wld/prompts/`.
   - Use prompt templates as slash commands when they do not collide with built-ins.
-  - Load project, home, bundled, and external ecosystem skills.
+  - Load Skills from project `.wld`, project `.agents`, home `.wld`, home `.agents`, then bundled defaults.
+  - Protect bundled Skill names from external `.agents` conflicts, while allowing intentional `.wld` overrides.
+  - Disable both external Skill folders with `enableExternalSkills: false`.
   - Invoke bundled skills with `/skill:<name>`.
   - Use bundled skills for documentation, web lookup, diagnosis, prototyping, research, test writing, skill writing,
     codebase design tasks, and terminal setup wizards.

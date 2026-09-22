@@ -12,7 +12,7 @@ Resolution lists:
 - Agents: `.wld/agents/`, `~/.wld/agents/`, bundled `src/agent-definitions/`.
 - Prompt templates: `.wld/prompts/`, `~/.wld/prompts/`, bundled `src/prompt-templates/`, installed Pi package
   `pi.prompts`.
-- Skills: `.wld/skills/`, `~/.wld/skills/`, bundled `src/skills/`, external `~/.agents/skills/`.
+- Skills: `.wld/skills/`, `.agents/skills/`, `~/.wld/skills/`, `~/.agents/skills/`, bundled `src/skills/`.
 
 ## Agent overrides
 
@@ -38,8 +38,11 @@ Copy bundled templates for examples: `code-optimizer`, `code-review`, `commit`, 
 
 A skill is a directory with `SKILL.md`. A user invokes it with `/skill:<name>`. The Skill expands into the current
 Agent's normal turn and keeps that Agent, model, thinking level, workflow tools, and active workflow working directory.
-If the user wants to write one, point them to the bundled `write-a-skill` skill instead of improvising authoring advice.
-That skill explains invocation, descriptions, progressive disclosure, and pruning.
+Project external Skills precede home `.wld` Skills only for names that do not conflict with bundled names or aliases.
+Use `.wld/skills` for intentional bundled overrides. `enableExternalSkills: false` disables both `.agents` folders.
+RunWield ignores Pi-configured, package, and extension Skill catalogs. If the user wants to write a Skill, point them to
+the bundled `write-a-skill` skill instead of improvising authoring advice. That skill explains invocation, descriptions,
+progressive disclosure, and pruning.
 
 Bundled skills:
 

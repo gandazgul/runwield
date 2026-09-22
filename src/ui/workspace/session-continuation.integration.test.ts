@@ -1,5 +1,8 @@
 // @ts-nocheck: Workspace service is JavaScript and returns projected event records.
 import { assert, assertEquals, assertRejects } from "@std/assert";
+import { createSessionRuntime } from "../../shared/session/session-runtime.js";
+import { ownerNotificationsStreamApi } from "./routes/owner-session-api.js";
+import { createOwnerConnectionRegistry } from "./server/owner-connections.js";
 import { AGENTS } from "../../constants.js";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { setCustomSetting } from "../../shared/settings.js";
@@ -925,6 +928,8 @@ Deno.test("a new Workspace Session is discoverable before its first response fin
                     await held;
                     return fixture.recordedModelResponse("Your new Session is ready.")(context);
                 });
+                const notifications = [];
+                service.subscribeNotifications((event) => notifications.push(event));
                 const started = await service.createSession({
                     projectId: fixture.project.projectId,
                     requestId: "first-message",
@@ -970,6 +975,12 @@ Deno.test("a new Workspace Session is discoverable before its first response fin
                 assert(timeline.events.some((event) => event.type === "user_message" && event.text === "Start here."));
                 assertEquals(timeline.snapshot.thinkingLevel, "low");
                 assertEquals(requestedThinking, ["low"]);
+                assertEquals(notifications.filter((item) => item.event.reason === "agentStopped").length, 1);
+                assertEquals(notifications[0].event.notificationSurface, "workspace");
+                assertEquals(
+                    notifications[0].url,
+                    `/projects/${fixture.project.projectId}/sessions/${operation.runwieldSessionId}`,
+                );
             } finally {
                 release();
                 await service.runtime.closeAllSessionsWhenIdle();
@@ -1095,4 +1106,129 @@ Deno.test("Workspace new image Session deduplicates concurrent prepared requests
     assertEquals(firstResult.operationId, secondResult.operationId);
     assertEquals(shellCount, 1);
     assertEquals(submittedModels, ["runtime-command-fixture/fixture-model"]);
+});
+
+Deno.test("Workspace receives the final stop from TUI and ACP turns after steering, without polling", async () => {
+    for (const ownerProcessKind of ["tui", "acp"]) {
+        await withRuntimeCommandFixture(
+            `workspace-alert-${ownerProcessKind}-`,
+            async ({ homeDir, projectRoot, setModelResponseFactories }) => {
+                const fixture = await makeManagedSessionFixture({ home: homeDir, projectRoot });
+                const runtimeStore = fixture.openStore();
+                const runtime = createSessionRuntime({ sessionStore: runtimeStore, ownerProcessKind });
+                const service = new WorkspaceSessionContinuationService({ store: fixture.openStore() });
+                const notifications = [];
+                service.subscribeNotifications((event) => notifications.push(event));
+                let release = () => {};
+                const held = new Promise((resolve) => release = resolve);
+                let modelStarted = false;
+                let turn;
+                try {
+                    setModelResponseFactories([async (context) => {
+                        modelStarted = true;
+                        await held;
+                        return fixture.recordedModelResponse("First answer.")(context);
+                    }, fixture.recordedModelResponse("Steering accepted.")]);
+                    const adopted = runtime.adoptManagedSession({ session: fixture.session, generation: 0 });
+                    turn = runtime.promptUserTurn(adopted.sessionId, {
+                        initialRequest: "Start from the original surface.",
+                    });
+                    for (let index = 0; index < 400 && !modelStarted; index++) {
+                        await new Promise((resolve) => setTimeout(resolve, 10));
+                    }
+                    assert(modelStarted);
+                    const live = await service.liveSession(
+                        fixture.project.projectId,
+                        fixture.session.runwieldSessionId,
+                    );
+                    assert(live.operation?.remote);
+                    const steered = await service.steerOperation({
+                        projectId: fixture.project.projectId,
+                        operationId: live.operation.operationId,
+                        requestId: "phone-direction",
+                        text: "Continue from Workspace.",
+                        images: [],
+                    });
+                    assertEquals(steered.queued, true);
+                    release();
+                    await turn;
+                    // No Session page or operation polling is involved in alert delivery.
+                    for (let index = 0; index < 100 && notifications.length === 0; index++) {
+                        await new Promise((resolve) => setTimeout(resolve, 10));
+                    }
+                    assertEquals(notifications.filter((item) => item.event.reason === "agentStopped").length, 1);
+                    assertEquals(notifications[0].event.notificationSurface, "workspace");
+                    assertEquals(
+                        notifications[0].url,
+                        `/projects/${fixture.project.projectId}/sessions/${fixture.session.runwieldSessionId}`,
+                    );
+                } finally {
+                    release();
+                    await turn?.catch(() => {});
+                    service.close();
+                    await runtime.closeAllSessionsWhenIdle();
+                    runtimeStore.close();
+                    service.store.close();
+                    await fixture.cleanup();
+                }
+            },
+        );
+    }
+});
+
+Deno.test("Workspace notification stream routes live events and closes when its device is revoked", async () => {
+    const fixture = await makeManagedSessionFixture();
+    const service = new WorkspaceSessionContinuationService({ store: fixture.openStore() });
+    const connections = createOwnerConnectionRegistry();
+    try {
+        service.setOperation("notification-operation", {
+            status: "running",
+            projectId: fixture.project.projectId,
+            runwieldSessionId: fixture.session.runwieldSessionId,
+            events: [],
+        });
+        const response = ownerNotificationsStreamApi({
+            state: {
+                sessionContinuation: service,
+                ownerDevice: { deviceId: "paired-browser" },
+                ownerConnections: connections,
+            },
+        });
+        const reader = response.body.getReader();
+        assertEquals(new TextDecoder().decode((await reader.read()).value), ": connected\n\n");
+        service.appendOperationEvent("notification-operation", {
+            type: "attention_requested",
+            reason: "agentStopped",
+            notificationSurface: "tui",
+            sessionName: "Terminal only",
+        });
+        service.appendOperationEvent("notification-operation", {
+            type: "attention_requested",
+            reason: "agentStopped",
+            notificationSurface: "workspace",
+            sessionName: "History",
+            eventId: "saved:1",
+        });
+        service.appendOperationEvent("notification-operation", {
+            type: "attention_requested",
+            reason: "agentStopped",
+            notificationSurface: "workspace",
+            sessionName: "Live Workspace stop",
+        });
+        const frame = new TextDecoder().decode((await reader.read()).value);
+        const notification = JSON.parse(frame.slice(6));
+        assertEquals(notification.event.sessionName, "Live Workspace stop");
+        assertEquals(
+            notification.url,
+            `/projects/${fixture.project.projectId}/sessions/${fixture.session.runwieldSessionId}`,
+        );
+        assertEquals(connections.closeDevice("paired-browser"), 1);
+        assertEquals((await reader.read()).done, true);
+        assertEquals(service.notificationListeners.size, 0);
+    } finally {
+        connections.closeAll();
+        service.close();
+        service.store.close();
+        await fixture.cleanup();
+    }
 });

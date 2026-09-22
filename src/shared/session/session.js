@@ -27,7 +27,7 @@ import { createRunWieldGrepToolDefinition } from "../../tools/grep.js";
 import { createRunWieldReadToolDefinition } from "../../tools/read.js";
 import { extractYaml, test as hasFrontMatter } from "@std/front-matter";
 import { dirname, join } from "@std/path";
-import { AGENTS, getHomeDir, PROMPT_TEMPLATES_DIR, SKILLS_DIR } from "../../constants.js";
+import { AGENTS, getHomeDir, PROMPT_TEMPLATES_DIR } from "../../constants.js";
 import {
     emitHostedSessionRuntimeEvent,
     emitSystemStatus,
@@ -107,7 +107,8 @@ import {
 } from "../settings.js";
 import { modelSupportsImageInput, prepareImagesForModel, resolveVisionFallbackModel } from "./image-attachments.js";
 import { readPersistedActiveAgentName, readPersistedModelState, recordActiveAgent } from "./active-agent-session.js";
-import { extractBundledSkills, getBundledAgentDefsPath } from "./agent-assets.js";
+import { getBundledAgentDefsPath } from "./agent-assets.js";
+import { expandSkill, listSkills } from "./skill-catalog.ts";
 import { getPackagePromptTemplatePaths, resolveInstalledPackagePromptResources } from "../package-resources.js";
 import { getWldExtensionPaths, resolveInstalledWldExtensionResources } from "../extensions/wld-extension-manifest.js";
 import { recordToolCallFinished, recordToolCallStarted, recordWorkflowMetric } from "../workflow/metrics.js";
@@ -489,107 +490,8 @@ export async function listPromptTemplates(options = {}) {
     return templates;
 }
 
-/**
- * @typedef {Object} SkillMeta
- * @property {string} name
- * @property {string} description
- * @property {string} path
- * @property {"local" | "home" | "bundled" | "external"} source
- * @property {boolean} [disableModelInvocation]
- */
-
-/**
- * List all known skills across bundled + home + local layers.
- * First name wins, based on priority local > home > bundled.
- *
- * @param {{ cwd?: string }} [options]
- * @returns {Promise<SkillMeta[]>}
- */
-export async function listSkills(options = {}) {
-    const skills = [];
-    const seen = new Set();
-
-    const extractedBundledDir = await extractBundledSkills();
-    const bundledDirs = extractedBundledDir && extractedBundledDir !== SKILLS_DIR
-        ? [extractedBundledDir, SKILLS_DIR]
-        : [SKILLS_DIR];
-
-    const enableExternalSkills = getCustomSetting("enableExternalSkills", "global") ?? true;
-
-    const homeDir = getHomeDir();
-    const layers = [
-        ...(options.cwd
-            ? [{
-                dir: join(options.cwd, ".wld", "skills"),
-                source: /** @type {"local" | "home" | "bundled" | "external"} */ ("local"),
-            }]
-            : []),
-        ...(homeDir
-            ? [{
-                dir: join(homeDir, ".wld", "skills"),
-                source: /** @type {"local" | "home" | "bundled" | "external"} */ ("home"),
-            }]
-            : []),
-        ...bundledDirs.map((dir) => ({
-            dir,
-            source: /** @type {"local" | "home" | "bundled" | "external"} */ ("bundled"),
-        })),
-        // ── External (Pi-compatible / marketplace) skills ──
-        ...(enableExternalSkills && homeDir
-            ? [{
-                dir: join(homeDir, ".agents", "skills"),
-                source: /** @type {"local" | "home" | "bundled" | "external"} */ ("external"),
-            }]
-            : []),
-    ];
-
-    for (const layer of layers) {
-        if (!(await directoryExists(layer.dir))) continue;
-
-        try {
-            for await (const entry of Deno.readDir(layer.dir)) {
-                if (!entry.isDirectory) continue;
-
-                const skillName = entry.name;
-                if (seen.has(skillName)) continue;
-
-                const skillMdPath = join(layer.dir, entry.name, "SKILL.md");
-                if (!(await fileExists(skillMdPath))) continue;
-
-                try {
-                    const raw = await Deno.readTextFile(skillMdPath);
-                    /** @type {{ name?: string, description?: string, [key: string]: unknown }} */
-                    let attrs = {};
-                    if (hasFrontMatter(raw)) {
-                        attrs = extractYaml(raw).attrs;
-                    }
-
-                    const name = typeof attrs.name === "string" ? attrs.name.trim() : skillName;
-                    const description = typeof attrs.description === "string"
-                        ? attrs.description.trim()
-                        : "No description provided";
-                    const rawDisabled = attrs["disable-model-invocation"];
-                    const disableModelInvocation = rawDisabled === true || rawDisabled === "true";
-
-                    skills.push({
-                        name,
-                        description,
-                        path: skillMdPath,
-                        source: layer.source,
-                        disableModelInvocation,
-                    });
-                    seen.add(skillName);
-                } catch {
-                    // Ignore unreadable skills.
-                }
-            }
-        } catch (error) {
-            if (!(error instanceof Deno.errors.NotFound)) throw error;
-        }
-    }
-
-    return skills;
-}
+/** @typedef {import('./skill-catalog.ts').SkillRecord} SkillMeta */
+export { listSkills } from "./skill-catalog.ts";
 
 /**
  * @param {string} homeDir
@@ -2267,6 +2169,8 @@ export async function buildAgentSession({
         noExtensions: true,
         noContextFiles: true,
         noPromptTemplates: true,
+        noSkills: true,
+        skillsOverride: () => ({ skills: [], diagnostics: [] }),
     });
     await loader.reload();
 
@@ -4285,41 +4189,7 @@ export async function runIsolatedAgentSession(opts) {
  * @returns {Promise<string>} Formatted skill block string
  */
 export async function expandSkillCommand(skillName, additionalInstructions, cwd) {
-    const skills = await listSkills({ cwd });
-    const skill = skills.find((s) => s.name === skillName);
-    if (!skill) {
-        throw new Error(`Unknown skill: ${skillName}`);
-    }
-
-    try {
-        const raw = await Deno.readTextFile(skill.path);
-        let body = raw;
-
-        // Strip YAML frontmatter if present
-        if (hasFrontMatter(raw)) {
-            body = extractYaml(raw).body;
-        }
-        body = body.trim();
-
-        // Build the XML block (matches Pi's format exactly)
-        const skillBlock = `<skill name="${skill.name}" location="${skill.path}">\nReferences are relative to ${
-            skill.path.replace(/\/SKILL\.md$/, "")
-        }.\n\n${body}\n</skill>`;
-
-        // Prepend an invocation header so the LLM understands this is an active command,
-        // not just a passive skill reference.
-        const header = `The user has invoked the "${skill.name}" skill. Follow the instructions below:`;
-        const expanded = `${header}\n\n${skillBlock}`;
-
-        // Append user instructions after the skill block
-        if (additionalInstructions) {
-            return `${expanded}\n\n${additionalInstructions}`;
-        }
-        return expanded;
-    } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        throw new Error(`Failed to read skill "${skill.name}": ${message}`);
-    }
+    return await expandSkill(skillName, additionalInstructions, { cwd });
 }
 
 /**

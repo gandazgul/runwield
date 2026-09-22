@@ -480,6 +480,42 @@ Deno.test("automatic onboarding Start submits one real Planner turn after consen
     );
 });
 
+Deno.test("cancelled tutorial Init choice returns to input without discovery", async () => {
+    await withRuntimeCommandFixture(
+        "chat-session-onboarding-init-cancel-",
+        async ({ projectRoot, setModelResponse }) => {
+            await Deno.writeTextFile(`${projectRoot}/README.md`, "project\n");
+            Deno.chdir(projectRoot);
+            setModelResponse("This Planner turn must not run.");
+            const submitted: string[] = [];
+            const composition = await createInteractiveTuiComposition(null, {
+                browser: NO_OPEN_BROWSER_PORT,
+                terminal: new VirtualTerminal({ columns: 100, rows: 30 }),
+                startupIntent: "onboard",
+                onSessionReady: (sessionId, runtime) => {
+                    runtime.subscribeSessionEvents(sessionId, (event) => {
+                        if (event.type === "user_message") submitted.push(event.text);
+                    });
+                },
+                configureUiAPI: (uiAPI) => {
+                    uiAPI.promptSelect = (title) => {
+                        if (title.includes(ONBOARDING_WARNING)) return Promise.resolve("start");
+                        if (title.includes("Run /init before the tutorial")) return Promise.resolve(null);
+                        return Promise.resolve(null);
+                    };
+                },
+            });
+            try {
+                await composition.waitForIdle();
+                assertEquals(submitted, []);
+                assertEquals(composition.runtime.getSessionSnapshot(composition.sessionId)?.tutorialContext, null);
+            } finally {
+                await composition.dispose();
+            }
+        },
+    );
+});
+
 Deno.test("explicit onboarding shows consent before model setup or Init", async () => {
     await withRuntimeCommandFixture(
         "chat-session-explicit-onboarding-consent-",

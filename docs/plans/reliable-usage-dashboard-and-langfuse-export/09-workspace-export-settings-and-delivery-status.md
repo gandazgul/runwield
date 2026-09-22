@@ -38,8 +38,8 @@ authenticated same-origin mutation routes and the response returns only configur
 
 Owning PRD: the Workspace **Personal usage and outcomes** capability created in child 05 gains the export control and
 delivery status requirements.
-[Project access and navigation](../prd/runwield-workspace-prd.md#project-access-and-navigation) keeps its rule that only
-registered, enabled Projects are accessible.
+[Project access and navigation](../../prd/runwield-workspace-prd.md#project-access-and-navigation) keeps its rule that
+only registered, enabled Projects are accessible.
 
 ## Objective
 

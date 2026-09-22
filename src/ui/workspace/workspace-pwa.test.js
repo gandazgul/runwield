@@ -189,3 +189,49 @@ Deno.test("connection fallback is self-contained and retries without changing th
     assertEquals(/<(?:link|script)[^>]+(?:href|src)=/.test(html), false);
     assertEquals(WORKSPACE_MANIFEST.icons.some((icon) => icon.purpose === "maskable"), true);
 });
+
+/**
+ * @typedef {Object} WorkerNotificationEvent
+ * @property {{data: {url: string}, close: () => void}} notification
+ * @property {(task: Promise<void>) => void} waitUntil
+ */
+
+Deno.test("notification clicks focus the originating Session or reopen it, and reject external URLs", async () => {
+    /** @type {Map<string, (event: WorkerNotificationEvent) => void>} */
+    const listeners = new Map();
+    const sessionUrl = "https://workspace.test/projects/project/sessions/session";
+    /** @type {string[]} */
+    const opened = [];
+    let focused = 0;
+    let closed = 0;
+    let hasSessionWindow = true;
+    runInNewContext(workspaceWorkerSource("Connection needed"), {
+        self: {
+            location: { origin: "https://workspace.test" },
+            addEventListener: listeners.set.bind(listeners),
+            clients: {
+                matchAll: () => Promise.resolve(hasSessionWindow ? [{ url: sessionUrl, focus: () => focused++ }] : []),
+                openWindow: (/** @type {string} */ url) => opened.push(url),
+            },
+        },
+        URL,
+    });
+    const click = async (/** @type {string} */ url) => {
+        /** @type {Promise<void>[]} */
+        const pending = [];
+        listeners.get("notificationclick")?.({
+            notification: { data: { url }, close: () => closed++ },
+            waitUntil: (task) => pending.push(task),
+        });
+        await Promise.all(pending);
+    };
+    await click(sessionUrl);
+    assertEquals(focused, 1);
+    assertEquals(opened, []);
+    hasSessionWindow = false;
+    await click(sessionUrl);
+    assertEquals(opened, [sessionUrl]);
+    await click("https://untrusted.test/");
+    assertEquals(opened, [sessionUrl]);
+    assertEquals(closed, 3);
+});

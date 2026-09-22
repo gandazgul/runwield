@@ -32,6 +32,7 @@ export const SESSION_RUNTIME_METHOD_POLICY = {
     getSessionContextReport: "read_only",
     getSessionInfo: "read_only",
     getSessionMemoryBackupDir: "read_only",
+    getSessionProjectRoot: "read_only",
     getSessionSnapshot: "read_only",
     getUserTurnSubmissionBlockMessage: "read_only",
     inspectResumableSession: "read_only",
@@ -79,5 +80,6 @@ export const SESSION_RUNTIME_METHOD_POLICY = {
     switchAgent: "fenced_standalone_mutation",
     synchronizeManagedSession: "read_only",
     takeNextTurnMessage: "projection_adapter_local",
+    updateTutorialContext: "fenced_standalone_mutation",
     verifyPlanAssociatedSession: "read_only",
 } satisfies Record<string, SessionRuntimeMethodPolicy>;

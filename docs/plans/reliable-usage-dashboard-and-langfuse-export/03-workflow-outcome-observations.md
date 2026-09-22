@@ -37,8 +37,8 @@ delivery was confirmed is gone.
 The parent Epic requires measurements that report existing outcomes and never create a third conclusion alongside
 confirmed publication and deliberate abandonment.
 
-Owning PRD: [Execution, validation, and recovery](../prd/runwield-core-prd.md#execution-validation-and-recovery) stays
-authoritative for what concludes delivery. The **Usage measurement and export** capability gains outcome-meaning
+Owning PRD: [Execution, validation, and recovery](../../prd/runwield-core-prd.md#execution-validation-and-recovery)
+stays authoritative for what concludes delivery. The **Usage measurement and export** capability gains outcome-meaning
 requirements that reference it.
 
 ## Objective

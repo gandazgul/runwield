@@ -4,10 +4,12 @@ import { getRunWieldRuntimeDir, PROJECT_INTERNAL_RUNTIME_DIR_NAME, RUNWIELD_DIR_
 import { withProcessGlobalTestLock } from "../testing/process-global-lock.js";
 import { defineCommittedGitFixture, git } from "./git-test-fixture.ts";
 import {
+    enterProjectRuntime,
     migrateLegacyProjectRuntimeState,
     type ProjectRuntimeMigrationResult,
     resolveProjectRuntimeLayout,
 } from "./project-runtime-layout.ts";
+import { withWorktreeRegistryLock } from "./worktree-registry.js";
 import {
     advancePublicationAttempt,
     createPublicationAttempt,
@@ -1475,6 +1477,257 @@ Deno.test("legacy migration resumes after a subprocess stops at each effect boun
             const result = await migrateLegacyProjectRuntimeState(project.selectedRoot);
             if (result.kind !== "ready") throw new Error(`Expected ready after ${effect}: ${JSON.stringify(result)}`);
             await assertCompletedMigrationEffect(project, effect);
+        } finally {
+            await project.cleanup();
+        }
+    }
+});
+
+Deno.test("registry operation does not reenter recovery while holding its current lock", async () => {
+    const project = await makeMigrationProject();
+    try {
+        const legacy = join(getRunWieldRuntimeDir(project.primaryRoot), "worktrees.json");
+        await withWorktreeRegistryLock(project.primaryRoot, async () => {
+            // An old writer flushes after the current operation has entered and locked.
+            await writeText(legacy, '{"version":2,"entries":[]}');
+            await enterProjectRuntime(project.primaryRoot);
+            assertEquals(await Deno.readTextFile(legacy), '{"version":2,"entries":[]}');
+        });
+        await enterProjectRuntime(project.primaryRoot);
+        await assertMissing(legacy);
+    } finally {
+        await project.cleanup();
+    }
+});
+
+for (const stale of ["empty", "older attempt"] as const) {
+    Deno.test(`adopted runtime recovers a returning ${stale} registry without reverting attempts`, async () => {
+        const project = await makeMigrationProject();
+        try {
+            const legacy = join(getRunWieldRuntimeDir(project.primaryRoot), "worktrees.json");
+            const current = { version: 2, entries: [{ ...project.registryEntry, status: "completed" }] };
+            await writeText(legacy, JSON.stringify(current));
+            assertEquals((await migrateLegacyProjectRuntimeState(project.selectedRoot)).kind, "ready");
+            const layout = resolveProjectRuntimeLayout(project.selectedRoot);
+            const before = await Deno.readTextFile(layout.primary.worktreeRegistryPath);
+            const returned = JSON.stringify({ version: 2, entries: stale === "empty" ? [] : [project.registryEntry] });
+            await writeText(legacy, returned);
+            const result = await migrateLegacyProjectRuntimeState(project.selectedRoot);
+            assertEquals(result.kind, "ready", JSON.stringify(result));
+            assertEquals(await Deno.readTextFile(layout.primary.worktreeRegistryPath), before);
+            await assertMissing(legacy);
+            assert((await snapshotTree(join(layout.primary.internalRoot, "legacy-recovery"))).includes(returned));
+            const repeated = await migrateLegacyProjectRuntimeState(project.selectedRoot);
+            assert(repeated.kind === "ready");
+            assertEquals(repeated.migrated, false);
+        } finally {
+            await project.cleanup();
+        }
+    });
+}
+
+for (const interruption of [null, "recovery-backup", "recovery-registry", "recovery-registry-retirement"] as const) {
+    Deno.test(`adopted runtime imports a distinct returning attempt with interruption ${interruption}`, async () => {
+        const project = await makeMigrationProject();
+        try {
+            assertEquals((await migrateLegacyProjectRuntimeState(project.selectedRoot)).kind, "ready");
+            const layout = resolveProjectRuntimeLayout(project.selectedRoot);
+            const legacy = join(getRunWieldRuntimeDir(project.primaryRoot), "worktrees.json");
+            const attempt = { ...project.registryEntry, planId: "returning-plan", status: "active" };
+            const returning = JSON.stringify({ version: 2, entries: [attempt] });
+            await writeText(legacy, returning);
+            if (interruption) {
+                const child = spawnDriver("migrate-exit-after-effect", project.selectedRoot, interruption);
+                const [status, output, errors] = await Promise.all([
+                    child.status,
+                    new Response(child.stdout).text(),
+                    new Response(child.stderr).text(),
+                ]);
+                assertEquals(status.code, 86, `${output}${errors}`);
+            }
+            const result = await migrateLegacyProjectRuntimeState(project.selectedRoot);
+            assertEquals(result.kind, "ready", JSON.stringify(result));
+            assertEquals(JSON.parse(await Deno.readTextFile(layout.primary.worktreeRegistryPath)), {
+                version: 2,
+                entries: [attempt],
+            });
+            await assertMissing(legacy);
+            await assertMissing(layout.primary.layoutMigrationJournalPath);
+            assert((await snapshotTree(join(layout.primary.internalRoot, "legacy-recovery"))).includes(returning));
+        } finally {
+            await project.cleanup();
+        }
+    });
+}
+
+Deno.test("adopted runtime reconciles every returning non-secret data location", async () => {
+    const project = await makeMigrationProject();
+    try {
+        assertEquals((await migrateLegacyProjectRuntimeState(project.selectedRoot)).kind, "ready");
+        const locations = [
+            [project.primaryRoot, "controller/plans/returning.json"],
+            [project.primaryRoot, "debug/returning.log"],
+            [project.primaryRoot, "worktree-registry-migration-issues.json"],
+            [project.primaryRoot, "plan-backups/returning.md"],
+            [project.primaryRoot, "plan-transitions/returning.json"],
+            [project.selectedRoot, "plan-backups/returning.md"],
+            [project.selectedRoot, "plan-transitions/returning.json"],
+        ];
+        for (const [root, relative] of locations) {
+            await writeText(join(getRunWieldRuntimeDir(root), relative), `preserved ${relative}\n`);
+            await Deno.mkdir(join(getRunWieldRuntimeDir(root), "plan-locks"), { recursive: true });
+        }
+        const result = await migrateLegacyProjectRuntimeState(project.selectedRoot);
+        assertEquals(result.kind, "ready", JSON.stringify(result));
+        for (const [root, relative] of locations) {
+            assertEquals(
+                await Deno.readTextFile(join(getRunWieldRuntimeDir(root), "internal", relative)),
+                `preserved ${relative}\n`,
+            );
+            await assertMissing(join(getRunWieldRuntimeDir(root), relative));
+        }
+    } finally {
+        await project.cleanup();
+    }
+});
+
+Deno.test("adopted runtime keeps both registries when distinct attempts collide", async () => {
+    const project = await makeMigrationProject();
+    try {
+        const legacy = join(getRunWieldRuntimeDir(project.primaryRoot), "worktrees.json");
+        const current = JSON.stringify({ version: 2, entries: [project.registryEntry] });
+        await writeText(legacy, current);
+        assertEquals((await migrateLegacyProjectRuntimeState(project.selectedRoot)).kind, "ready");
+        const returning = JSON.stringify({ version: 2, entries: [{ ...project.registryEntry, id: "other-attempt" }] });
+        await writeText(legacy, returning);
+        const result = await migrateLegacyProjectRuntimeState(project.selectedRoot);
+        assertEquals(result.kind, "blocked");
+        assertEquals(await Deno.readTextFile(legacy), returning);
+        assertEquals(
+            await Deno.readTextFile(resolveProjectRuntimeLayout(project.selectedRoot).primary.worktreeRegistryPath),
+            current,
+        );
+    } finally {
+        await project.cleanup();
+    }
+});
+
+Deno.test("adopted runtime recovers returning old writes without reverting current decisions", async () => {
+    const project = await makeMigrationProject();
+    try {
+        const legacyPath = join(getRunWieldRuntimeDir(project.primaryRoot), "controller", "plans", "plan.json");
+        const current = {
+            version: 1,
+            revision: 5,
+            planId: "plan",
+            planName: "demo",
+            state: {
+                documentWorktreeId: "attempt-1",
+                executionMode: "worktree",
+                validationCiAttempts: 2,
+                humanReviewDecision: "approved",
+            },
+        };
+        await writeText(legacyPath, JSON.stringify(current));
+        assertEquals((await migrateLegacyProjectRuntimeState(project.selectedRoot)).kind, "ready");
+        const layout = resolveProjectRuntimeLayout(project.selectedRoot);
+        const old = {
+            ...current,
+            revision: 1,
+            state: { validationCiAttempts: 0, humanReviewDecision: null, executionReport: "Implementation completed." },
+        };
+        await writeText(legacyPath, JSON.stringify(old));
+        await writeText(join(dirname(legacyPath), "other.json"), "new legacy record\n");
+        const legacySelected = getRunWieldRuntimeDir(project.selectedRoot);
+        await Deno.mkdir(join(legacySelected, "plan-locks"), { recursive: true });
+        await writeText(join(legacySelected, "plan-transitions", "receipt.json"), "interrupted completion\n");
+        const result = await migrateLegacyProjectRuntimeState(project.selectedRoot);
+        assertEquals(result.kind, "ready");
+        assertEquals(JSON.parse(await Deno.readTextFile(join(layout.primary.controllerPlansDir, "plan.json"))), {
+            ...current,
+            revision: 6,
+            state: { ...current.state, executionReport: "Implementation completed." },
+        });
+        assertEquals(
+            await Deno.readTextFile(join(layout.primary.controllerPlansDir, "other.json")),
+            "new legacy record\n",
+        );
+        assertEquals(
+            await Deno.readTextFile(join(layout.selected.transitionJournalsDir, "receipt.json")),
+            "interrupted completion\n",
+        );
+        const archive = await snapshotTree(join(layout.primary.internalRoot, "legacy-recovery"));
+        assert(archive.includes(JSON.stringify(old)), "The original old record must remain recoverable");
+        assert(archive.includes(JSON.stringify(current)), "The original current record must remain recoverable");
+        await assertMissing(legacyPath);
+        // A second old flush cannot reset counters, decisions or manufacture a new revision.
+        await writeText(legacyPath, JSON.stringify(old));
+        assertEquals((await migrateLegacyProjectRuntimeState(project.selectedRoot)).kind, "ready");
+        assertEquals(
+            JSON.parse(await Deno.readTextFile(join(layout.primary.controllerPlansDir, "plan.json"))).revision,
+            6,
+        );
+        assertEquals(await snapshotTree(join(layout.primary.internalRoot, "legacy-recovery")), archive);
+        const repeated = await migrateLegacyProjectRuntimeState(project.selectedRoot);
+        assert(repeated.kind === "ready");
+        assertEquals(repeated.migrated, false);
+    } finally {
+        await project.cleanup();
+    }
+});
+
+Deno.test("adopted runtime does not recover directories authorized only by old marker history", async () => {
+    const project = await makeMigrationProject();
+    const other = await Deno.realPath(await Deno.makeTempDir({ prefix: "unregistered-runtime-root-" }));
+    try {
+        assertEquals((await migrateLegacyProjectRuntimeState(project.selectedRoot)).kind, "ready");
+        const layout = resolveProjectRuntimeLayout(project.selectedRoot);
+        const marker = JSON.parse(await Deno.readTextFile(layout.primary.layoutMarkerPath));
+        marker.adoptedSelectedCheckoutRoots.push(other);
+        marker.adoptedSelectedCheckoutRoots.sort();
+        await Deno.writeTextFile(layout.primary.layoutMarkerPath, JSON.stringify(marker));
+        const oldPath = join(getRunWieldRuntimeDir(other), "plan-backups", "keep.md");
+        await writeText(oldPath, "Do not move this unrelated checkout's files.\n");
+        assertEquals((await migrateLegacyProjectRuntimeState(project.selectedRoot)).kind, "ready");
+        assertEquals(await Deno.readTextFile(oldPath), "Do not move this unrelated checkout's files.\n");
+    } finally {
+        await project.cleanup();
+        await Deno.remove(other, { recursive: true });
+    }
+});
+
+Deno.test("adopted runtime resumes recovery after process death at each durable boundary", async () => {
+    for (const effect of ["recovery-backup", "recovery-controller", "recovery-retirement"]) {
+        const project = await makeMigrationProject();
+        try {
+            const path = join(getRunWieldRuntimeDir(project.primaryRoot), "controller", "plans", "plan.json");
+            const current = { version: 1, revision: 5, planName: "demo", state: { documentWorktreeId: "attempt-1" } };
+            await writeText(path, JSON.stringify(current));
+            assertEquals((await migrateLegacyProjectRuntimeState(project.selectedRoot)).kind, "ready");
+            const old = { ...current, revision: 1, state: { executionReport: "Completed before disconnect." } };
+            await writeText(path, JSON.stringify(old));
+            const child = spawnDriver("migrate-exit-after-effect", project.selectedRoot, effect);
+            const [status, output, errors] = await Promise.all([
+                child.status,
+                new Response(child.stdout).text(),
+                new Response(child.stderr).text(),
+            ]);
+            assertEquals(status.code, 86, `${effect}: ${output}${errors}`);
+            assertEquals((await migrateLegacyProjectRuntimeState(project.selectedRoot)).kind, "ready");
+            const layout = resolveProjectRuntimeLayout(project.selectedRoot);
+            assertEquals(JSON.parse(await Deno.readTextFile(join(layout.primary.controllerPlansDir, "plan.json"))), {
+                ...current,
+                revision: 6,
+                state: { ...current.state, ...old.state },
+            });
+            assert(
+                (await snapshotTree(join(layout.primary.internalRoot, "legacy-recovery"))).includes(
+                    JSON.stringify(old),
+                ),
+            );
+            await assertMissing(path);
+            await assertMissing(layout.primary.layoutMigrationJournalPath);
+            assertEquals((await migrateLegacyProjectRuntimeState(project.selectedRoot)).kind, "ready");
         } finally {
             await project.cleanup();
         }

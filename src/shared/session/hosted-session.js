@@ -87,7 +87,7 @@ import { clearPairCheckpoint } from "./pair-checkpoint-session.ts";
  * @typedef {Object} ActiveInteractionRecord
  * @property {import('./session-runtime-interactions.js').RuntimeInteractionRequest} [request]
  * @property {AbortController} [abortController]
- * @property {(response: import('./session-runtime-interactions.js').RuntimeInteractionResponse) => void} [answer]
+ * @property {(response: import('./session-runtime-interactions.js').RuntimeInteractionResponse, source?: import('./session-runtime-events.js').NotificationSurface) => void} [answer]
  */
 
 /**
@@ -253,6 +253,12 @@ export class HostedSession {
         /** @type {PendingTaskCompletion | null} */
         this.pendingTaskCompletion = null;
         this.suppressAgentStoppedAttention = false;
+        /** @type {import('./session-runtime-events.js').NotificationSurface | null} */
+        this.notificationSurface = null;
+        /** @type {import('./session-runtime-events.js').NotificationSurface | null} */
+        this.localInputSurface = null;
+        /** @type {string | null} */
+        this.agentStoppedAttentionTurnId = null;
         /** @type {string | null} */
         this.activeTurnId = null;
         /** @type {ManagedSessionMetadata | null} */

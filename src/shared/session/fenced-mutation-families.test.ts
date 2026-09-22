@@ -31,6 +31,7 @@ const FENCED_METHOD_DRIVERS: Record<string, string> = {
     setSessionThinkingLevel: "setSessionThinkingLevel(",
     steerSession: "steerSession(",
     switchAgent: "switchAgent(",
+    updateTutorialContext: "runManagedStandaloneMutation(",
 };
 
 function methodBody(source: string, methodName: string): string {

@@ -390,6 +390,10 @@ share their in-progress read. Navigation reads only the recent Session page it n
 archive, and reads each Session's Plan associations once per refresh. Completed reads are not retained as a stale cache;
 the next refresh reads current workflow evidence.
 
+Each dashboard read verifies runtime layout and migration evidence once per checkout, rather than repeating those checks
+for every Plan and worktree lookup. The next read verifies that evidence again; Plan and Session state remain fresh
+within the read.
+
 Each section defaults to most recently updated first, has a header button to reverse its sort, and initially shows five
 items. **Read more** expands that section, and **Show less** collapses it. Sort and expansion choices survive automatic
 refreshes. Ready-for-work Plans belong in Ready to Continue unless a current unanswered interaction needs the owner.
@@ -463,6 +467,28 @@ generic connection page is available without the server.
   Session data. Restore connectivity and choose Try again: load that same URL through normal authentication.
 - Lose connectivity with a draft open: show a retry notice without replacing the page or sending the draft. Reconnect:
   clear the notice after a successful request; failed actions are not queued or replayed.
+
+**Requirement: Deliver Session alerts on mobile and desktop.**
+
+Workspace delivers new live Agent-stop events when the latest accepted user input came from Workspace, including
+steering or answering a question in a TUI- or ACP-hosted turn. Navigating to Dashboard, another Session, a Plan, or a
+review does not disconnect alerts. Merely viewing a Session does not change its notification destination.
+
+With permission, delivery uses the active Workspace service worker, with the desktop Notification API as a fallback.
+Shared notification settings and focused-tab suppression still apply. Tapping an alert opens its originating Session.
+Delivery errors are diagnosable without interrupting the Agent turn. Restored history does not trigger alerts.
+
+This is live open-page delivery: a closed or suspended app cannot receive new events without Web Push, which remains
+unimplemented. Plan-ready and interview-specific browser alerts are not yet included.
+
+Acceptance:
+
+- A mobile browser that rejects the Notification constructor can display a permitted Agent-stop alert through its
+  worker.
+- Send a message, navigate to Dashboard, and receive the stop alert with a link back to that Session.
+- Steer a TUI or ACP turn from Workspace: its final stop reaches Workspace without polling, and the TUI does not
+  duplicate the alert. A later accepted TUI input restores the TUI destination; a rejected input does not change it.
+- Denied permission, disabled notification settings, and focused-tab suppression remain respected.
 
 **Requirement: Open Workspace without repeating startup work.**
 

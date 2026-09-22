@@ -10,3 +10,8 @@ const enabled = !import.meta.env.DEV;
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
 </>}
+
+<script>
+    import { startWorkspaceNotifications } from "../browser/workspace-notifications.ts";
+    if (!import.meta.env.DEV) startWorkspaceNotifications();
+</script>

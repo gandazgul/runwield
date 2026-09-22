@@ -76,15 +76,21 @@ built-in command collision. Run `/reload` after editing prompts in an active ses
 
 RunWield loads skills from:
 
-1. project skills: `.wld/skills/`
-2. home skills: `~/.wld/skills/`
-3. bundled skills: `src/skills/`
-4. external ecosystem skills: `~/.agents/skills/`
+1. project RunWield skills: `.wld/skills/`
+2. project external skills: `.agents/skills/`
+3. home RunWield skills: `~/.wld/skills/`
+4. home external skills: `~/.agents/skills/`
+5. bundled skills: `src/skills/`
+
+The first eligible published name or directory alias wins. A project external Skill can therefore replace a home `.wld`
+Skill only when the name does not conflict with a bundled Skill. Skills in either `.agents` folder are excluded when
+their published name or directory alias conflicts with a bundled Skill. Use project or home `.wld/skills` for an
+intentional bundled override. Set `enableExternalSkills` to `false` to omit both `.agents` folders.
 
 Each skill lives in a directory with a `SKILL.md` file. Skills are advertised by name and description, and full
 instructions are loaded when invoked with `/skill:<name>`. A Skill invocation expands into the current Agent's ordinary
 turn. It does not select another Agent, and it keeps the current model, thinking level, workflow tools, and active
-workflow working directory.
+workflow working directory. RunWield ignores Pi-configured, package, and extension Skill catalogs.
 
 Bundled skills include `documentation` (Markdown project docs), `diagnose` (disciplined bug diagnosis), `prototype`
 (throwaway prototypes to validate design), `improve-codebase-architecture` (visual architecture review and deepening),

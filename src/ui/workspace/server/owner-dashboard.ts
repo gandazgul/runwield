@@ -6,6 +6,7 @@ import { loadPlanActionEvidence } from "../../../shared/workflow/plan-actions.ts
 import { loadBoard } from "./plan-adapter.js";
 import { requireOwnerProjectRoot, serializeOwnerProject } from "./owner-projects.js";
 import { readLiveSessionConnection } from "../../../shared/session/live-session-connection.ts";
+import { withProjectRuntimeReadScope } from "../../../shared/project-runtime-layout.ts";
 
 type DashboardCategory = "needs-you" | "ready" | "in-progress" | "recently-finished";
 
@@ -99,6 +100,7 @@ type SidebarProject = ReturnType<typeof serializeOwnerProject> & {
     dashboardPlans?: OwnerPlan[];
     dashboardSessions?: DashboardItem[];
     activeEvidenceByPlan?: Map<string, ClassificationEvidence>;
+    registryByPlan?: Map<string, WorktreeRegistryEntry | null>;
     root?: string;
 };
 
@@ -626,7 +628,7 @@ async function projectPayload(
     );
     const registries = new Map<string, WorktreeRegistryEntry | null>();
     if (root) {
-        for (const plan of plansForSidebar) {
+        for (const plan of plans) {
             registries.set(plan.planId, await registryFor(root, plan, diagnostics, project.projectId));
         }
     }
@@ -657,6 +659,7 @@ async function projectPayload(
         dashboardPlans: plans,
         dashboardSessions,
         activeEvidenceByPlan,
+        registryByPlan: registries,
     };
 }
 
@@ -677,7 +680,8 @@ export function loadOwnerDashboard(
     const existing = pending.get(sessionContinuation);
     if (existing) return existing;
     const reads = pending;
-    const result = readOwnerDashboard(store, sessionContinuation).finally(() => reads.delete(sessionContinuation));
+    const result = withProjectRuntimeReadScope(() => readOwnerDashboard(store, sessionContinuation))
+        .finally(() => reads.delete(sessionContinuation));
     reads.set(sessionContinuation, result);
     return result;
 }
@@ -696,9 +700,7 @@ async function readOwnerDashboard(
             const project = await projectPayload(store, sessionContinuation, record);
             projects.push(project);
             for (const plan of project.dashboardPlans || []) {
-                const registry = project.root
-                    ? await registryFor(project.root, plan, project.diagnostics, project.projectId)
-                    : null;
+                const registry = project.registryByPlan?.get(plan.planId) || null;
                 const evidence = project.activeEvidenceByPlan?.get(plan.planId) || {};
                 const category = classifyPlan(plan, registry, evidence);
                 if (category) sections[category].items.push(dashboardItem(project, plan, category, registry, evidence));
@@ -707,6 +709,7 @@ async function readOwnerDashboard(
             delete project.dashboardPlans;
             delete project.dashboardSessions;
             delete project.activeEvidenceByPlan;
+            delete project.registryByPlan;
             delete project.root;
         } catch (error) {
             const project = {

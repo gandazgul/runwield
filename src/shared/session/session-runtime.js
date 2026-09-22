@@ -245,6 +245,7 @@ function resolvePersistedPairRootConfiguration(hostedSession) {
 
 /**
  * @typedef {Object} PromptSessionOptions
+ * @property {import('./session-runtime-events.js').NotificationSurface} [inputSurface]
  * @property {string} initialRequest
  * @property {import('./types.js').ImageAttachment[]} [initialImages]
  * @property {(context: PromptTurnContext) => void | (() => void)} [onTurnStarted]
@@ -304,6 +305,7 @@ function resolvePersistedPairRootConfiguration(hostedSession) {
 
 /**
  * @typedef {Object} RuntimeQueuedMessageState
+ * @property {import('./session-runtime-events.js').NotificationSurface} [inputSurface]
  * @property {string} id
  * @property {string} text
  * @property {import('./types.js').ImageAttachment[]} images
@@ -416,6 +418,7 @@ function toRuntimeQueuedMessage(message) {
         images: message.images.map((image) => ({ ...image })),
         delivery: message.delivery,
         queuedAt: message.queuedAt,
+        ...(message.inputSurface ? { inputSurface: message.inputSurface } : {}),
     };
 }
 
@@ -816,6 +819,15 @@ export class SessionRuntime {
         };
     }
 
+    /** @param {string} sessionId */
+    getSessionProjectRoot(sessionId) {
+        const session = this.#sessionHost.getSession(sessionId);
+        if (!session) return null;
+        const managed = session.getManagedMetadata?.();
+        if (!managed || !this.#sessionStore) return session.cwd;
+        return this.#sessionStore.requireSessionProjectRoot(managed.projectId);
+    }
+
     /**
      * Return the Runtime-owned active agent, never the dormant managed projection
      * cache. Dormant local intent is allowed because it is a live user command
@@ -938,11 +950,15 @@ export class SessionRuntime {
             }
             try {
                 await this.promptUserTurn(sessionId, {
+                    inputSurface: hostedSession.notificationSurface || claimed.inputSurface,
                     initialRequest: claimed.text,
                     initialImages: claimed.images,
                 });
             } catch {
-                this.queueNextTurnMessage(sessionId, claimed.text, claimed.images, { deliverWhenAvailable: true });
+                this.queueNextTurnMessage(sessionId, claimed.text, claimed.images, {
+                    deliverWhenAvailable: true,
+                    inputSurface: claimed.inputSurface,
+                });
                 await new Promise((resolve) => setTimeout(resolve, 300));
             }
         }
@@ -1127,9 +1143,10 @@ export class SessionRuntime {
      * @param {string} sessionId
      * @param {string} text
      * @param {import('./types.js').ImageAttachment[]} [images]
+     * @param {import('./session-runtime-events.js').NotificationSurface} [inputSurface]
      * @returns {Promise<SteerSessionResult>}
      */
-    async steerSession(sessionId, text, images = []) {
+    async steerSession(sessionId, text, images = [], inputSurface = this.#ownerProcessKind) {
         const hostedSession = this.#sessionHost.getSession(sessionId);
         if (!hostedSession) return { ok: false, queued: false, error: "not_found" };
         const capability = this.#currentManagedOperations.get(sessionId) ||
@@ -1144,7 +1161,10 @@ export class SessionRuntime {
                 activeTarget || hostedSession.getRootAgentSession(),
             );
             if (!imagePreflight.ok) throw new Error(imagePreflight.message);
-            if (hostedSession.queueAgentTransitionSteering(text, images)) return { ok: true, queued: true };
+            if (hostedSession.queueAgentTransitionSteering(text, images)) {
+                hostedSession.notificationSurface = inputSurface;
+                return { ok: true, queued: true };
+            }
         }
         const activeTarget = /** @type {any} */ (hostedSession.getActiveSteeringTargetSession?.());
         const rootSession = /** @type {any} */ (hostedSession.getRootAgentSession());
@@ -1169,6 +1189,7 @@ export class SessionRuntime {
             sourceSession,
         });
         this.#ensureQueueSourceSubscription(hostedSession, sourceSession);
+        hostedSession.notificationSurface = inputSurface;
         const publicMessage = this.#trackQueuedMessage(hostedSession, message);
         const activeSteering = sourceSession.getSteeringMessages?.();
         if (Array.isArray(activeSteering)) {
@@ -1184,7 +1205,7 @@ export class SessionRuntime {
      * @param {string} sessionId
      * @param {string} text
      * @param {import('./types.js').ImageAttachment[]} [images]
-     * @param {{ deliverWhenAvailable?: boolean }} [options]
+     * @param {{ deliverWhenAvailable?: boolean, inputSurface?: import('./session-runtime-events.js').NotificationSurface }} [options]
      * @returns {any}
      */
     queueNextTurnMessage(sessionId, text, images = [], options = {}) {
@@ -1194,10 +1215,12 @@ export class SessionRuntime {
             id: crypto.randomUUID(),
             text,
             images: images.map((image) => ({ ...image })),
+            inputSurface: options.inputSurface || this.#ownerProcessKind,
             delivery: "next_turn",
             queuedAt: new Date().toISOString(),
         });
         const publicMessage = this.#trackQueuedMessage(hostedSession, message);
+        hostedSession.notificationSurface = message.inputSurface || this.#ownerProcessKind;
         if (options.deliverWhenAvailable) this.#scheduleQueuedMessageDrain(sessionId);
         return { ok: true, queued: true, message: publicMessage };
     }
@@ -1640,6 +1663,15 @@ export class SessionRuntime {
         }, { activateAgent: false });
     }
 
+    /** @param {import('./hosted-session.js').HostedSession} session */
+    async #materializeDeferredWorkflowSession(session) {
+        if (!this.#pendingManagedCreationProjects.has(session.id)) return;
+        await this.#materializeDeferredManagedShell(session);
+        // Shell creation has released its writer lock. The workflow will reopen
+        // the transcript under its own managed operation before activating Pi.
+        session.dehydrateManagedSession();
+    }
+
     /**
      * @template T
      * @param {import('./hosted-session.js').HostedSession} session
@@ -1649,6 +1681,10 @@ export class SessionRuntime {
      * @returns {Promise<T>}
      */
     async #runWorkflowOperation(session, _operationName, options, operation) {
+        // A built-in workflow command can be the first submitted request. Bind
+        // its transcript to the originating Project before any Agent moves into
+        // an execution worktree, just as promptUserTurn does for ordinary text.
+        await this.#materializeDeferredWorkflowSession(session);
         const managed = session.getManagedMetadata?.();
         if (!managed) {
             return await this.#runBusyOperation(session.id, operation);
@@ -1764,6 +1800,7 @@ export class SessionRuntime {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) throw new Error("SessionRuntime.executePlan: session not found");
         return await this.#runBusyOperation(sessionId, async () => {
+            await this.#materializeDeferredWorkflowSession(session);
             const managed = session.getManagedMetadata?.();
             if (!managed) {
                 return await this.#runWorkflowOperation(session, "executePlan", options, async () => {
@@ -1964,6 +2001,7 @@ export class SessionRuntime {
             const latestManaged = session.getManagedMetadata?.() || managed;
             await this.rollManagedSessionSegment(sessionId, {
                 kind: "semantic_repair",
+                transcriptCwd: workflow.executionCwd,
                 continuation,
                 expectedGeneration: latestManaged.generation,
             });
@@ -3159,6 +3197,14 @@ export class SessionRuntime {
             ? this.#sessionHost.getSession(sessionId)?.getRootSessionManager()?.getSessionName?.() || undefined
             : undefined;
         const enrichedEvent = /** @type {any} */ (sessionName ? { ...event, sessionName } : event);
+        if (event.type === RuntimeEventTypes.ATTENTION_REQUESTED) {
+            const hosted = this.#sessionHost.getSession(sessionId);
+            if (hosted && "reason" in event && event.reason === "agentStopped") {
+                hosted.agentStoppedAttentionTurnId = hosted.activeTurnId;
+            }
+            enrichedEvent.notificationSurface = this.#sessionHost.getSession(sessionId)?.notificationSurface ||
+                this.#ownerProcessKind;
+        }
         // Agy backend failures already emitted a durable, sanitized system notice.
         // Keep the terminal event for settlement without displaying it twice.
         if (event.type === RuntimeEventTypes.TERMINAL_ERROR && event.error instanceof AgyCliBackendError) {
@@ -3822,20 +3868,21 @@ export class SessionRuntime {
     adoptManagedSession(options) {
         const cataloged = options?.session;
         if (!cataloged) throw new Error("SessionRuntime.adoptManagedSession requires a cataloged Session");
+        // The catalog keeps the originating Project; the active transcript can
+        // belong to an execution worktree. Resume tools in that segment's cwd.
+        const currentSegment = this.#sessionStore?.getCurrentSessionSegment(cataloged.runwieldSessionId);
         const hostedSession = this.#sessionHost.createSession({
             id: typeof options.hostedSessionId === "string" && options.hostedSessionId
                 ? options.hostedSessionId
                 : crypto.randomUUID(),
-            cwd: cataloged.transcriptCwd,
+            cwd: currentSegment?.transcriptCwd || cataloged.transcriptCwd,
             sessionManager: null,
             managed: {
                 runwieldSessionId: cataloged.runwieldSessionId,
                 projectId: cataloged.projectId,
                 piSessionId: cataloged.piSessionId,
                 transcriptPath: cataloged.transcriptPath,
-                currentSegmentId:
-                    this.#sessionStore?.getCurrentSessionSegment(cataloged.runwieldSessionId)?.segmentId ||
-                    "",
+                currentSegmentId: currentSegment?.segmentId || "",
                 generation: options.generation ?? null,
                 acknowledgedGeneration: options.generation ?? null,
                 acknowledgedEventId: options.acknowledgedEventId ?? null,
@@ -4122,6 +4169,7 @@ export class SessionRuntime {
             await this.synchronizeManagedSession(sessionId);
             managed = hostedSession.getManagedMetadata() || managed;
         }
+        options = { ...options, inputSurface: options.inputSurface || this.#ownerProcessKind };
         const requestOptions = deferredFirstTurnId
             ? {
                 ...options,
@@ -4586,7 +4634,7 @@ export class SessionRuntime {
 
     /**
      * @param {string} sessionId
-     * @param {{ kind: 'execution' | 'semantic_repair', continuation: import('./segment-rollover.ts').SegmentRolloverResult['continuation'], expectedGeneration?: number | null, lineageGroupKey?: string | null }} options
+     * @param {{ kind: 'execution' | 'semantic_repair', transcriptCwd?: string, continuation: import('./segment-rollover.ts').SegmentRolloverResult['continuation'], expectedGeneration?: number | null, lineageGroupKey?: string | null }} options
      */
     async rollManagedSessionSegment(sessionId, options) {
         const hostedSession = this.#sessionHost.getSession(sessionId);
@@ -4598,6 +4646,7 @@ export class SessionRuntime {
             ownerInstanceId: this.#ownerInstanceId,
             ownerProcessKind: this.#ownerProcessKind,
             kind: options.kind,
+            transcriptCwd: options.transcriptCwd,
             continuation: options.continuation,
             expectedGeneration: options.expectedGeneration,
             lineageGroupKey: options.lineageGroupKey,
@@ -4759,7 +4808,6 @@ export class SessionRuntime {
                     name: managedSession.displayName,
                     activeAgent: null,
                     workflowContext: null,
-                    tutorialContext: null,
                     syncState: {
                         type: RuntimeEventTypes.MANAGED_SYNC_STATE_CHANGED,
                         status: "syncing",
@@ -5187,6 +5235,7 @@ export class SessionRuntime {
     async requestInteraction(sessionId, request, signal) {
         const session = this.#sessionHost.getSession(sessionId);
         if (!session) return { outcome: "unsupported", message: "Session not found." };
+        session.localInputSurface = this.#ownerProcessKind;
         const capability = this.#currentManagedOperations.get(sessionId) || null;
         if (capability) return await requestHostedSessionInteraction(session, request, signal, capability);
         if (this.#pendingManagedCreationProjects.has(sessionId) && !session.getManagedMetadata?.()) {
@@ -5247,6 +5296,8 @@ export class SessionRuntime {
             const newSession = this.#sessionHost.getSession(newSessionId);
             if (!newSession) throw new Error("Epic continuation replacement session was not retained");
             try {
+                newSession.notificationSurface = currentOldSession.notificationSurface;
+                newSession.localInputSurface = currentOldSession.localInputSurface;
                 newSession.setInteractionAdapter(adapter);
                 await this.#activateSessionAgent(newSession, {
                     agentName: action === "plan" ? AGENTS.PLANNER : AGENTS.ENGINEER,
@@ -5456,6 +5507,9 @@ export class SessionRuntime {
         try {
             const imagePreflight = await this.preflightSessionImages(sessionId, images);
             if (!imagePreflight.ok) throw new Error(imagePreflight.message);
+            hostedSession.localInputSurface = this.#ownerProcessKind;
+            hostedSession.notificationSurface = options.inputSurface || hostedSession.notificationSurface ||
+                this.#ownerProcessKind;
             const cleanup = options.onTurnStarted?.({ turnId });
             if (typeof cleanup === "function") cleanupTurn = cleanup;
             images = await this.#persistPendingPromptImages(hostedSession, images);
@@ -5545,6 +5599,16 @@ export class SessionRuntime {
             throw error;
         } finally {
             this.#reconcileQueuedMessageSources(hostedSession);
+            if (
+                hostedSession.notificationSurface === "workspace" &&
+                hostedSession.agentStoppedAttentionTurnId !== turnId
+            ) {
+                this.#emitSessionEvent(hostedSession.id, {
+                    type: RuntimeEventTypes.ATTENTION_REQUESTED,
+                    reason: "agentStopped",
+                    agentName: hostedSession.getRootAgentName() || undefined,
+                });
+            }
             this.#emitSessionEvent(hostedSession.id, {
                 type: RuntimeEventTypes.TURN_END,
                 turnId,

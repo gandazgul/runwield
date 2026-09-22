@@ -37,8 +37,8 @@ nothing above it: no reporting queries, no dashboard, no exporter.
 
 Owning PRD: this change creates the Core **Usage measurement and export** capability heading in
 `docs/prd/runwield-core-prd.md` and owns its recording, retention, consent, and gap requirements.
-[Execution, validation, and recovery](../prd/runwield-core-prd.md#execution-validation-and-recovery) stays authoritative
-for delivery conclusions; measurement reports outcomes and never creates a third one.
+[Execution, validation, and recovery](../../prd/runwield-core-prd.md#execution-validation-and-recovery) stays
+authoritative for delivery conclusions; measurement reports outcomes and never creates a third one.
 
 ## Objective
 

@@ -37,8 +37,8 @@ The parent Epic requires measurements that report what was actually observed, wi
 writes through the collection contract built in `01-core-measurement-history-and-default-on-recording`; it does not
 reshape the journal.
 
-Owning PRD: [Models and providers](../prd/runwield-core-prd.md#models-and-providers) keeps backend selection and honest
-visibility limits. The new **Usage measurement and export** capability gains coverage requirements for supported
+Owning PRD: [Models and providers](../../prd/runwield-core-prd.md#models-and-providers) keeps backend selection and
+honest visibility limits. The new **Usage measurement and export** capability gains coverage requirements for supported
 backends and auxiliary calls.
 
 ## Objective

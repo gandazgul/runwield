@@ -623,8 +623,17 @@ export async function startInteractiveSession(
                     await commandRegistry[COMMAND_NAMES.INIT].execute([], { uiAPI, sessionId, sessionRuntime });
                     initDone = await isProjectInitComplete(projectRoot);
                     initCommandAvailable = !initDone;
-                } else {
+                    if (initCommandAvailable) {
+                        view.focusEditor();
+                        view.requestRender();
+                        return;
+                    }
+                } else if (initChoice === "no") {
                     await recordInitOfferedFn(projectRoot);
+                } else {
+                    view.focusEditor();
+                    view.requestRender();
+                    return;
                 }
             }
 

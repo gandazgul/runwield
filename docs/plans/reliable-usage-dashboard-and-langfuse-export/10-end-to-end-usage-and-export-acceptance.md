@@ -37,8 +37,8 @@ exposes, and reconciles the documentation the earlier children updated in pieces
 
 Owning PRDs: all three — Core **Usage measurement and export**, Workspace **Personal usage and outcomes**, and the root
 capability ownership map — plus
-[Execution, validation, and recovery](../prd/runwield-core-prd.md#execution-validation-and-recovery) and
-[Models and providers](../prd/runwield-core-prd.md#models-and-providers), which stay authoritative for delivery
+[Execution, validation, and recovery](../../prd/runwield-core-prd.md#execution-validation-and-recovery) and
+[Models and providers](../../prd/runwield-core-prd.md#models-and-providers), which stay authoritative for delivery
 conclusions and backend visibility.
 
 ## Objective

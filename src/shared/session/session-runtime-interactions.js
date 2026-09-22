@@ -223,7 +223,7 @@ export async function requestHostedSessionInteraction(hostedSession, request, si
         hostedSession.addActiveInteraction(id, {
             request: interaction,
             abortController,
-            answer: (response) => {
+            answer: (response, source) => {
                 if (!hostedSession.getActiveInteractions().has(id)) {
                     throw new Error("This question has already been answered.");
                 }
@@ -233,6 +233,7 @@ export async function requestHostedSessionInteraction(hostedSession, request, si
                 ) {
                     throw new Error("An answer is required.");
                 }
+                if (source) hostedSession.notificationSurface = source;
                 hostedSession.removeActiveInteraction(id);
                 resolve(normalized);
             },
@@ -259,7 +260,15 @@ export async function requestHostedSessionInteraction(hostedSession, request, si
         });
         const response = normalizeInteractionResponse(
             /** @type {Partial<RuntimeInteractionResponse>} */ (await Promise.race([
-                adapter.requestInteraction(interaction, abortController.signal),
+                Promise.resolve(adapter.requestInteraction(interaction, abortController.signal)).then((response) => {
+                    if (
+                        response && ["selected", "text", "accepted"].includes(response.outcome || "") &&
+                        hostedSession.getActiveInteractions().has(id) && hostedSession.localInputSurface
+                    ) {
+                        hostedSession.notificationSurface = hostedSession.localInputSurface;
+                    }
+                    return response;
+                }),
                 remoteAnswer,
                 canceled,
             ])),

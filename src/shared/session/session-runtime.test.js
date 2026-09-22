@@ -787,7 +787,8 @@ Deno.test("SessionRuntime persists a newly managed Pi transcript before catalogi
     });
 });
 
-Deno.test("SessionRuntime preserves a blocked semantic repair through compaction and follow-up", async () => {
+/** @param {boolean} disconnect */
+async function exerciseRepairCompactionFollowUp(disconnect) {
     await withProcessGlobalTestLock(async () => {
         const previousHome = getHomeDir();
         const home = await Deno.makeTempDir({ prefix: "runwield-runtime-worktree-header-" });
@@ -901,10 +902,18 @@ Deno.test("SessionRuntime preserves a blocked semantic repair through compaction
                     continuation,
                     expectedGeneration: 0,
                 });
-                setRuntimeModelResponseFactories([(context) => {
-                    repairPromptText = JSON.stringify(context.messages.at(-1));
-                    return fauxAssistantMessage(fauxText(blockerText));
-                }]);
+                setRuntimeModelResponseFactories([
+                    (context) => {
+                        repairPromptText = JSON.stringify(context.messages.at(-1));
+                        return disconnect
+                            ? fauxAssistantMessage(fauxText(blockerText.repeat(3)), {
+                                stopReason: "error",
+                                errorMessage: "Unexpected EOF",
+                            })
+                            : fauxAssistantMessage(fauxText(blockerText));
+                    },
+                    () => fauxAssistantMessage(fauxText(`Compacted repair context keeps: ${blockerNeedle}`)),
+                ]);
                 /** @type {string[]} */
                 const repairUserMessages = [];
                 const unsubscribeRepair = runtime.subscribeSessionEvents(adopted.sessionId, (event) => {
@@ -931,11 +940,19 @@ Deno.test("SessionRuntime preserves a blocked semantic repair through compaction
                     "repair-follow-up",
                 );
 
-                setRuntimeModelResponseFactories([
-                    () => fauxAssistantMessage(fauxText(`Compacted repair context keeps: ${blockerNeedle}`)),
-                ]);
-                const compaction = await runtime.compactSession(adopted.sessionId);
-                assertEquals(compaction.error, undefined);
+                if (disconnect) {
+                    const transcript = await captureTranscriptEvidence({
+                        transcriptPath: blockedSegment.transcriptPath,
+                        transcriptCwd: worktreeRoot,
+                    });
+                    assert(transcript.entries.some((entry) => entry.type === "compaction"));
+                } else {
+                    setRuntimeModelResponseFactories([
+                        () => fauxAssistantMessage(fauxText(`Compacted repair context keeps: ${blockerNeedle}`)),
+                    ]);
+                    const compaction = await runtime.compactSession(adopted.sessionId);
+                    assertEquals(compaction.error, undefined);
+                }
                 setRuntimeModelResponseFactories([(context) => {
                     deliveries += 1;
                     promptText = JSON.stringify(context);
@@ -981,7 +998,10 @@ Deno.test("SessionRuntime preserves a blocked semantic repair through compaction
                 assertEquals(deliveries, 2);
                 assertStringIncludes(promptText, "Continue after disposal.");
                 assertStringIncludes(promptText, blockerNeedle);
-                assertEquals(reloadedRuntime.getSessionSnapshot(loaded.sessionId)?.cwd, worktreeRoot);
+                assertEquals(
+                    reloadedRuntime.getSessionSnapshot(loaded.sessionId)?.cwd,
+                    await Deno.realPath(worktreeRoot),
+                );
             } finally {
                 await reloadedRuntime.closeAllSessionsWhenIdle?.();
             }
@@ -993,6 +1013,14 @@ Deno.test("SessionRuntime preserves a blocked semantic repair through compaction
             await removeTempDir(projectRoot);
         }
     });
+}
+
+Deno.test("SessionRuntime preserves a blocked semantic repair through compaction and follow-up", async () => {
+    await exerciseRepairCompactionFollowUp(false);
+});
+
+Deno.test("SessionRuntime preserves repair follow-up after provider EOF and automatic compaction", async () => {
+    await exerciseRepairCompactionFollowUp(true);
 });
 
 Deno.test("SessionRuntime automatically segments new Sessions in unregistered local projects", async () => {

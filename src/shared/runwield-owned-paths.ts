@@ -134,11 +134,11 @@ function preferredEol(input: string): string {
     return input.includes("\r\n") ? "\r\n" : "\n";
 }
 
-function canonicalBlock(eol: string, retainLegacyStaging = false): string {
+function canonicalBlock(eol: string, retainedLegacyDirectories: string[] = []): string {
     return [
         GITIGNORE_START,
         `${CURRENT_RUNTIME_ROOT}/`,
-        ...(retainLegacyStaging ? [`${underRunWield(PLAN_STAGING_DIR_NAME)}/`] : []),
+        ...retainedLegacyDirectories.map((path) => `${path}/`),
         GITIGNORE_END,
         "",
     ].join(eol);
@@ -171,7 +171,7 @@ export async function inspectRunWieldGitignore(projectRoot: string): Promise<Run
 
 function reconcileGitignore(
     existing: string,
-    retainLegacyStaging = false,
+    retainedLegacyDirectories: string[] = [],
 ): { content: string; warnings: RunWieldGitignoreWarning[] } {
     const eol = preferredEol(existing);
     const lines = splitLines(existing);
@@ -200,7 +200,7 @@ function reconcileGitignore(
                 continue;
             }
             if (!insertedBlock) {
-                kept.push(...splitLines(canonicalBlock(eol, retainLegacyStaging)));
+                kept.push(...splitLines(canonicalBlock(eol, retainedLegacyDirectories)));
                 insertedBlock = true;
             }
             removedManagedBlock = true;
@@ -230,10 +230,12 @@ function reconcileGitignore(
     }
     if (!insertedBlock) {
         if (kept.length > 0 && kept[kept.length - 1].eol === "") kept[kept.length - 1].eol = eol;
-        kept.push(...splitLines(canonicalBlock(eol, retainLegacyStaging)));
+        kept.push(...splitLines(canonicalBlock(eol, retainedLegacyDirectories)));
     }
     const content = kept.map((line) => `${line.text}${line.eol}`).join("");
-    if (!removedManagedBlock && existing === "") return { content: canonicalBlock(eol, retainLegacyStaging), warnings };
+    if (!removedManagedBlock && existing === "") {
+        return { content: canonicalBlock(eol, retainedLegacyDirectories), warnings };
+    }
     return { content, warnings };
 }
 
@@ -247,14 +249,17 @@ export async function ensureRunWieldOwnedGitignoreBlock(
     } catch (error) {
         if (!(error instanceof Deno.errors.NotFound)) throw error;
     }
-    // Existing publication clones keep their absolute paths through an upgrade.
-    // Do not expose them to ordinary `git add` while retiring legacy ignore rules.
-    const stagingPath = join(projectRoot, RUNWIELD_DIR_NAME, PLAN_STAGING_DIR_NAME);
-    const retainLegacyStaging = await Deno.lstat(stagingPath).then(() => true).catch((error) => {
-        if (error instanceof Deno.errors.NotFound) return false;
-        throw error;
-    });
-    const { content, warnings } = reconcileGitignore(existing, retainLegacyStaging);
+    // Publication clones and old-writer lock inodes may survive adoption. They
+    // must never become user changes (or be accidentally committed with git add).
+    const retainedLegacyDirectories: string[] = [];
+    for (const path of LEGACY_RUNTIME_DIRECTORIES) {
+        const exists = await Deno.lstat(join(projectRoot, path)).then(() => true).catch((error) => {
+            if (error instanceof Deno.errors.NotFound) return false;
+            throw error;
+        });
+        if (exists) retainedLegacyDirectories.push(path);
+    }
+    const { content, warnings } = reconcileGitignore(existing, retainedLegacyDirectories);
     const changed = content !== existing;
     if (changed) await Deno.writeTextFile(gitignorePath, content);
     return { warnings, changed };
