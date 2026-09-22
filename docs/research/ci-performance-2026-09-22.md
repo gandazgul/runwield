@@ -674,3 +674,162 @@ runner rearrangement, while preserving real crash/recovery behavior and durable 
 
 Saved validation: `/private/tmp/runwield-publication-speed/validation-summary.json`, `source-report/`,
 `ci-source-tasks.json`, and `golden-report/`. Successful CI output remains its task invocation and one pass summary.
+
+## Clone setup and registry reads
+
+The next pass measured clone setup first, then reevaluated the remaining Git calls. All publication operations still use
+real Git, complete history, independent object copies, durable receipts, and fresh crash/recovery processes.
+
+### Reduce clone preparation without weakening recovery
+
+Read-only inspection clones now use `--no-checkout`: reachability checks use Git objects rather than working files. Both
+inspection and publication clones also use `--origin runwield-source` to avoid a separate remote rename. Complete
+history and `--no-hardlinks` remain. Git documents the
+[checkout and remote-name options](https://git-scm.com/docs/git-clone). Source refresh, remote fetch, target checkout,
+history inspection, push leases, and remote verification still run.
+
+An initial experiment skipped the first checkout in publication clones too. **That part was rejected.** Review found
+that a saved clone must remain usable if an upstream outage interrupts preparation. A new real-Git regression moves the
+bare remote out of reach, checks the retained clone, restores the remote, and retries publication. The experiment failed
+with `README.md` staged for deletion. Restoring the initial publication checkout preserves that recovery path. The
+original ephemeral-outage test remains unchanged; the retained-clone scenario is additional coverage.
+
+Twelve alternating paired trials of the original and new inspection-clone commands used separate 32-file repositories
+and an unrelated checked-out source branch. Median preparation fell from **51.35ms to 34.14ms (33.5%)**; 11 of 12 pairs
+improved. Both variants subsequently verified a real target checkout, exact target commit and files, clean status,
+absent unrelated files, and independent objects without alternates. These operation-level percentages do not describe
+total CI time.
+
+The initial 34-case cleanup profiles retain identical JUnit inventories: Git calls fell from **6,922 to 6,888** by
+eliminating remote renames. That command removal remains in the final implementation. Their whole-file times were 73.04s
+and 80.59s, and their publication checkout optimization was later rejected, so neither timing is evidence of a final
+whole-file speedup. A later paired publication-clone experiment under heavy concurrent validation also did not establish
+a stable wall-clock gain. Publication retains the simpler one-command remote setup without claiming that inspection's
+measured percentage applies to it.
+
+### Share validation across registry identity inspection and locked reads
+
+A default registry listing inspected identity and then revalidated immediately before its locked reread. Those reads now
+share the existing bounded runtime validation scope. The registry is still read again under its lock; migration, Plan
+identity inspection, lock acquisition, writes, and syncs still run. Validation expires when the listing settles. A new
+real-Git trace regression checks one inspection per listing, fresh validation on the next listing, refusal of a newly
+staged runtime file, and successful recovery after unstaging it.
+
+The unchanged registry test file passed all **18 cases** using both implementations. A diagnostic import map selected a
+copy of the original module for the baseline without replacing working-tree source or faking any operations:
+
+| Registry test file     | Before | After |
+| ---------------------- | -----: | ----: |
+| Elapsed time           |  4.67s | 4.00s |
+| Actual Git commands    |    210 |   175 |
+| Migration Git commands |    203 |   168 |
+
+A separate 12-pair alternating comparison of five real registry listings per trial fell from median **288.91ms to
+174.29ms (39.7%)**, with all pairs improving. The cleanup file already scoped these reads, so its command counts did not
+improve further. Its final profiled run took 152.46s while another CI overlapped it; all 34 cases still passed. This
+limits the expected CI gain from the registry change to callers that previously performed duplicate checks.
+
+Reevaluation: remaining history scans and migration inspections still dominate Git query volume. Batched history
+inspection was investigated but not substituted: any replacement must inspect every relevant tree, including runtime
+introduced and subsequently deleted, inherited runtime on divergent branches, and merged side-branch history. This pass
+keeps the existing proven history checks. Neither optimization removes test cases or bypasses persistence.
+
+Evidence: `/private/tmp/runwield-clone-speed/` contains all three cleanup profiles, matching inventories, clone and
+registry paired trials, the original registry module, the diagnostic import map, and the registry file comparison.
+
+### Deno upgrade uncovered a real migration failure
+
+The installed Deno changed from the earlier measured 2.9.4 to **2.9.7** during this work (the binary was updated on
+September 22 at 14:06 local time). Source CI caught the rejected publication experiment and three independent database
+migration failures. Those database failures reproduced immediately in a separate three-file run.
+
+Deno 2.9.7 added `SQLITE_OPEN_NOFOLLOW`, with special handling for macOS `/var` and `/tmp` aliases in its database
+opener. SQL `VACUUM INTO` did not receive that path translation. See the
+[upstream change](https://github.com/denoland/deno/pull/36357). Migration backups now derive their destination from
+SQLite's actual opened `main` filename instead of the caller's aliased path. This retains real SQLite backup, integrity
+checking, restrictive permissions, and durability; it does not weaken symlink refusal or substitute file copying.
+
+All three failing database files passed after this repair. An additional regression keeps a real WAL connection open,
+backs up its committed contents, verifies the backup still has the old schema and passes `quick_check`, and verifies the
+live database reached the current schema. All original tests remain. The corrected publication implementation also
+passed five files / **81 cases**, and the affected Golden publication files passed all **13 unchanged cases**.
+
+The first source CI run completed all 416 files but failed four files: the publication recovery matrix from the rejected
+experiment and the three database migration files. It is retained as failed evidence, not relabeled as passing. Its
+685.34s test-runner time overlapped other CI jobs and cannot establish a performance change. Final validation follows
+both fixes.
+
+### Final validation
+
+After both fixes, `deno task ci --source-only` passed all ten pre-test checks and **416 files / 3,682 reported cases and
+steps**: **3,680 passed, two existing Windows-only skips, zero failures**. The three affected Golden files passed all
+**13 unchanged cases**. The source inventory matches the prior successful source run plus exactly three new regressions:
+bounded registry reads, saved-clone outage recovery, and committed WAL backup. No original case was removed.
+
+Source CI took **827.54s** and its test runner **761.87s**; the Golden subset took **159.17s**. Multiple other CI and
+focused test jobs overlapped this run, with three CI processes observed concurrently. These elapsed times do not
+establish an overall CI speedup. Successful source CI printed only its task banner and one pass summary. Detailed
+results and exact inventory differences are in `/private/tmp/runwield-clone-speed/final/validation-summary.json` and the
+neighboring reports.
+
+The slowest source files in this loaded run remain cleanup/recovery (**375.69s**), publication end-to-end (**269.01s**),
+and load-plan integration (**258.55s**). The next performance experiment should measure a shared worker budget across
+simultaneous local CI runs: each runner currently selects up to eight workers independently. That has not been
+implemented or benchmarked in this pass. Retained improvements are the measured registry and inspection-clone
+operations, plus removal of publication remote-rename commands. Every before/after pair in this pass ran after the Deno
+upgrade, using the same runtime.
+
+## Shared worker budget experiment
+
+The proposed shared limit was measured and **not retained**. Reducing concurrency shortened individual files, but did
+not demonstrate a reliable improvement in the time needed to finish two simultaneous suites. The production runner still
+uses its existing per-run limit. No runtime implementation, test assertion, fixture, or test selection changed in this
+experiment.
+
+Each run executed the same **12 source files / 240 cases**. The selection covered isolated publication, worktree merge
+and registry operations, project runtime layout and read scopes, owner database migration, workflow state transitions,
+Plan lifecycle and location, human review, execution context, and the runner's own CI policy tests. Each trial started
+two real runners together, with separate reports, timing histories, dependency caches, HOME directories, databases, and
+mutable fixtures. All trials began with the same historical file timings. Git and RunWield machinery remained real.
+
+First, two four-worker runners approximated an even split of an eight-worker machine budget. The order was uncapped,
+limited, limited, uncapped, to reduce simple ordering bias:
+
+| Trial         | Workers per runner | Both runs finished | Sum of file execution times |
+| ------------- | -----------------: | -----------------: | --------------------------: |
+| Independent A |                  8 |             94.89s |                   1,133.02s |
+| Limited A     |                  4 |             94.58s |                     710.48s |
+| Limited B     |                  4 |            105.07s |                     785.10s |
+| Independent B |                  8 |            109.98s |                   1,367.86s |
+
+The limited runs averaged 99.83s versus 102.43s independently: a small 2.5% difference amid substantial variation. Their
+lower accumulated file time measures less contention, not CPU time saved. It does not justify claiming a reliable
+wall-time gain or imposing a global eight-worker limit.
+
+A temporary prototype then measured an actual shared **12-worker cap**, while retaining each runner's eight-worker
+queue. A Deno preload acquired an advisory slot lock inside the real test process; nested runner tests inherited their
+parent's allocation instead of waiting for another slot. Slot waiting was recorded separately and excluded from file
+execution timings. There was no extra supervising process per test. This followed Deno's documented
+[process file-lock behavior](https://docs.deno.com/examples/file_locking/). The prototype remained outside the
+repository and was not promoted to production or treated as a validated crash-recovery implementation.
+
+| Trial         | Coordination      | First run finished | Both runs finished | Accumulated slot waiting |
+| ------------- | ----------------- | -----------------: | -----------------: | -----------------------: |
+| Shared A      | 12 workers shared |             87.68s |             97.67s |                  273.93s |
+| Independent C | 8 workers each    |             87.08s |             87.35s |                     none |
+| Shared B      | 12 workers shared |             91.61s |            102.15s |                  251.35s |
+
+The shared trials were 11.8% and 16.9% slower than the intervening independent trial. Other CI jobs and applications
+were active, and older runners did not participate in the prototype. These are contended subset measurements, not
+full-CI predictions or proof of a universal best worker count. They do not establish a shared-cap improvement; adding
+coordination, nesting rules, polling, and crash handling is therefore not warranted by these results.
+
+All **3,360 case executions passed** across **14 runs**. JUnit file/name/class/skip inventories matched exactly, every
+run completed all 12 selected files, and every successful runner log contained exactly one summary line. No full CI
+rerun was needed for the discarded prototype: production code and tests were unchanged by this experiment. The earlier
+full source and Golden validation above still describes the retained code changes.
+
+This moves shared scheduling below reducing the remaining repeated Git/runtime inspection and fixture startup work
+inside the longest source tests. The experiment provides no additional retained CI speedup. Commands, the temporary
+prototype, process snapshots, exact inventories, individual reports, and the checked aggregate `summary.json` are under
+`/private/tmp/runwield-worker-budget/`.

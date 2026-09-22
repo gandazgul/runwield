@@ -10,6 +10,7 @@ import {
     withProjectRuntimeReadScope,
 } from "./project-runtime-layout.ts";
 import { writeControllerState } from "./workflow/controller-registry.ts";
+import { listEntries } from "./worktree-registry.js";
 
 const fixture = defineCommittedGitFixture({ "README.md": "# Runtime read scope\n" });
 
@@ -129,6 +130,22 @@ Deno.test("Plan lists share validation without caching Plan or controller conten
         await Deno.writeTextFile(runtimeFile, "must be detected after the previous read\n");
         await git(root, ["add", "-f", ".wld/debug/tracked.txt"]);
         await assertRejects(() => listPlans(root), ProjectRuntimeEntryRefusedError);
+    });
+});
+
+Deno.test("registry lists share inspection within a read and reject newly staged runtime on the next read", async () => {
+    await withTracedProject(async ({ root, listings }) => {
+        assertEquals(await listEntries(root), []);
+        assertEquals(await listings(), 1);
+        assertEquals(await listEntries(root), []);
+        assertEquals(await listings(), 2);
+        const runtimeFile = join(root, ".wld", "debug", "tracked.txt");
+        await Deno.mkdir(join(root, ".wld", "debug"), { recursive: true });
+        await Deno.writeTextFile(runtimeFile, "newly staged runtime must be detected\n");
+        await git(root, ["add", "-f", ".wld/debug/tracked.txt"]);
+        await assertRejects(() => listEntries(root), ProjectRuntimeEntryRefusedError);
+        await git(root, ["reset", "--", ".wld/debug/tracked.txt"]);
+        assertEquals(await listEntries(root), []);
     });
 });
 
