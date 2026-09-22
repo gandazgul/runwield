@@ -57,7 +57,6 @@ async function activateMechanicalFixture(projectRoot: string): Promise<Mechanica
     );
     // HostedSession's legacy minimal-manager JSDoc widens appendMessage beyond
     // Pi's real SessionManager signature; the concrete manager is the runtime object.
-    // @ts-expect-error Real SessionManager is runtime-compatible with HostedSession.
     hostedSession.setRootSessionManager(sessionManager);
     const rootAgentSession = await ensureRootAgentSession({
         hostedSession,

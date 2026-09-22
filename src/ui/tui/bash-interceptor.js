@@ -7,7 +7,7 @@
 /**
  * @typedef {Object} BashContext
  * @property {string} userRequest
- * @property {import('../../shared/session/session-runtime.js').SessionRuntime} sessionRuntime
+ * @property {import('../../shared/session/session-runtime.ts').SessionRuntime} sessionRuntime
  * @property {string} sessionId
  * @property {boolean} [concurrent]
  */

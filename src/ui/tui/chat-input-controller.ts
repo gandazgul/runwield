@@ -300,7 +300,9 @@ export function createChatInputController(options: ChatInputControllerOptions): 
         const task = (async (): Promise<ImageAttachment | null> => {
             let attachment = image;
             try {
-                attachment = await runtime.persistSessionImage(options.getSessionId(), image);
+                const persisted = await runtime.persistSessionImage(options.getSessionId(), image);
+                if (!("base64" in persisted)) throw new Error(persisted.error);
+                attachment = persisted;
                 Object.assign(image, attachment);
             } catch (error) {
                 const message = error instanceof Error ? error.message : String(error);
@@ -435,10 +437,17 @@ export function createChatInputController(options: ChatInputControllerOptions): 
         await processSubmissions({ text, images, preparedModelOverride });
     };
     function cycleThinkingLevel(): void {
+        const applyResult = (result: Awaited<ReturnType<typeof runtime.cycleSessionThinkingLevel>>) => {
+            if (!result.ok || !result.thinkingLevel) return;
+            view.requestRender();
+            scheduleThinkingLevelPersistence(result.thinkingLevel);
+        };
         const result = runtime.cycleSessionThinkingLevel(options.getSessionId());
-        if (!result.ok || !result.thinkingLevel) return;
-        view.requestRender();
-        scheduleThinkingLevelPersistence(result.thinkingLevel);
+        if (result instanceof Promise) {
+            void result.then(applyResult);
+            return;
+        }
+        applyResult(result);
     }
     originalHandleInput = installKeybindings({
         editor,

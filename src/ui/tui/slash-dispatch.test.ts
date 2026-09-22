@@ -2,7 +2,7 @@ import { assertEquals, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { RuntimeEventTypes } from "../../shared/session/session-runtime-events.js";
-import { createSessionRuntime, type SessionRuntime } from "../../shared/session/session-runtime.js";
+import { createSessionRuntime, type SessionRuntime } from "../../shared/session/session-runtime.ts";
 import { createGenerationGuard } from "./generation-guard.js";
 import {
     handleSlashCommand,

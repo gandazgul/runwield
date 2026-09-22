@@ -1,5 +1,5 @@
 import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
-import { createSessionRuntime } from "../../shared/session/session-runtime.js";
+import { createSessionRuntime } from "../../shared/session/session-runtime.ts";
 import { runResumeCommand } from "../../cmd/resume/index.ts";
 import { openOwnerCoordinationStore } from "../../shared/owner-coordination/index.js";
 import { getRunWieldSessionsBaseDir } from "../../shared/session/root-session.js";

@@ -11,7 +11,7 @@ import {
     listUserModelOptions,
     parseUserModelSelection,
 } from "../../shared/session/user-selection.ts";
-import type { SessionRuntime } from "../../shared/session/session-runtime.js";
+import type { SessionRuntime } from "../../shared/session/session-runtime.ts";
 import { getCwd } from "../../constants.js";
 import { COMMAND_NAMES } from "../registry.js";
 import { formatCommandHelp, printCommandHelp } from "../help/index.js";

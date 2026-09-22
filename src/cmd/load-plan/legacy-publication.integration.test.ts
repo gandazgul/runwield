@@ -3,7 +3,7 @@ import { fromFileUrl, join } from "@std/path";
 import { getRunWieldRuntimeDir } from "../../constants.js";
 import { defineCommittedGitFixture, git } from "../../shared/git-test-fixture.ts";
 import { resolveProjectRuntimeLayout } from "../../shared/project-runtime-layout.ts";
-import { createSessionRuntime } from "../../shared/session/session-runtime.js";
+import { createSessionRuntime } from "../../shared/session/session-runtime.ts";
 import {
     advancePublicationAttempt,
     createPublicationAttempt,

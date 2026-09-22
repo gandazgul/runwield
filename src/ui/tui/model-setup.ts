@@ -4,7 +4,7 @@ import {
     getConfiguredProviderAvailability,
     getSelectedDefaultModelAvailability,
 } from "../../shared/session/model-readiness.ts";
-import type { SessionRuntime } from "../../shared/session/session-runtime.js";
+import type { SessionRuntime } from "../../shared/session/session-runtime.ts";
 import type { UiAPI } from "./types.js";
 
 type SetupChoice = "claude-cli" | "agy-cli" | "subscription" | "api-key";

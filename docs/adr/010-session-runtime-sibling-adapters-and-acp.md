@@ -16,10 +16,12 @@ Takopi/Telegram, IDE integrations, and other transports should attach to the sam
 ## Decision
 
 Introduce a `SessionRuntime` layer above `SessionHost`/`HostedSession` and below all user-interface adapters.
-`SessionRuntime` owns adapter-neutral session operations such as create, load, prompt, cancel, close/dispose, event
-emission, and interaction requests. The TUI and ACP stdio server are sibling adapters over `SessionRuntime`; future
-WebUI, Takopi, Slack/Discord, or other clients should be additional siblings rather than children of the TUI or ACP
-adapter.
+`src/shared/session/session-runtime.ts` is its sole public source surface. Private TypeScript owners under
+`src/shared/session/runtime/` divide events, queues, managed operations, lifecycle, turns, reads, settings, workflow,
+image, and local-shell behavior without exposing those implementations to consumers. `SessionRuntime` owns
+adapter-neutral session operations such as create, load, prompt, cancel, close/dispose, event emission, and interaction
+requests. The TUI and ACP stdio server are sibling adapters over `SessionRuntime`; future WebUI, Takopi, Slack/Discord,
+or other clients should be additional siblings rather than children of the TUI or ACP adapter.
 
 Session-scoped capabilities must attach to a specific `HostedSession`. Shared agent switching and pending root-swap
 application are session-layer behavior, not TUI behavior, so core workflow modules and tools should use a session-layer
