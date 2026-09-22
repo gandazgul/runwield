@@ -1,3 +1,4 @@
+import { withProjectRuntimeReadScope } from "../project-runtime-layout.ts";
 import { loadReviewFeedbackImages, type ReviewImageDecision } from "./review-feedback-images.ts";
 /** A Sequence review is one decision over an ordinary PROJECT and its complete child set. */
 import { join, relative } from "@std/path";
@@ -85,35 +86,45 @@ async function requirePlan(cwd: string, name: string): Promise<StoredPlan> {
 }
 
 async function sequenceMembers(cwd: string, planName: string): Promise<StoredPlan[]> {
-    const parent = await requirePlan(cwd, planName);
-    if (!isSequencePlan(parent.attrs)) throw new Error("Grouped review requires PROJECT type: sequence.");
-    const children = await findPlansByParent(cwd, planName);
-    if (!children.length) throw new Error("Write every child Plan before submitting the Sequence; it has no children.");
-    const members = [parent];
-    let previousOrder = 0;
-    const identities = new Set<string>(parent.attrs.planId ? [parent.attrs.planId] : []);
-    for (const child of children) {
-        const plan = await requirePlan(cwd, child.name);
-        if (!["PLANNED_CHANGE", "FEATURE"].includes(plan.attrs.classification)) {
-            throw new Error(`Sequence child ${child.name} must be a PLANNED_CHANGE, not another PROJECT.`);
+    return await withProjectRuntimeReadScope(async () => {
+        const parent = await requirePlan(cwd, planName);
+        if (!isSequencePlan(parent.attrs)) throw new Error("Grouped review requires PROJECT type: sequence.");
+        const children = await findPlansByParent(cwd, planName);
+        if (!children.length) {
+            throw new Error("Write every child Plan before submitting the Sequence; it has no children.");
         }
-        const order = plan.attrs.order;
-        if (!Number.isInteger(order) || order === undefined || order <= previousOrder) {
-            throw new Error(`Sequence child ${child.name} needs a unique positive order matching execution order.`);
-        }
-        previousOrder = order;
-        if (plan.attrs.planId && identities.has(plan.attrs.planId)) throw new Error("Duplicate Plan ID in Sequence.");
-        if (plan.attrs.planId) identities.add(plan.attrs.planId);
-        const earlier = new Set(members.slice(1).map((member) => member.name));
-        const dependencies = resolveSiblingChildPlanDependencyStates(planName, plan.attrs.dependencies || [], children);
-        if (dependencies.some((dependency) => !dependency.planName || !earlier.has(dependency.planName))) {
-            throw new Error(
-                `Child ${child.name} has a missing, ambiguous or forward dependency. Depend only on earlier children.`,
+        const members = [parent];
+        let previousOrder = 0;
+        const identities = new Set<string>(parent.attrs.planId ? [parent.attrs.planId] : []);
+        for (const child of children) {
+            const plan = await requirePlan(cwd, child.name);
+            if (!["PLANNED_CHANGE", "FEATURE"].includes(plan.attrs.classification)) {
+                throw new Error(`Sequence child ${child.name} must be a PLANNED_CHANGE, not another PROJECT.`);
+            }
+            const order = plan.attrs.order;
+            if (!Number.isInteger(order) || order === undefined || order <= previousOrder) {
+                throw new Error(`Sequence child ${child.name} needs a unique positive order matching execution order.`);
+            }
+            previousOrder = order;
+            if (plan.attrs.planId && identities.has(plan.attrs.planId)) {
+                throw new Error("Duplicate Plan ID in Sequence.");
+            }
+            if (plan.attrs.planId) identities.add(plan.attrs.planId);
+            const earlier = new Set(members.slice(1).map((member) => member.name));
+            const dependencies = resolveSiblingChildPlanDependencyStates(
+                planName,
+                plan.attrs.dependencies || [],
+                children,
             );
+            if (dependencies.some((dependency) => !dependency.planName || !earlier.has(dependency.planName))) {
+                throw new Error(
+                    `Child ${child.name} has a missing, ambiguous or forward dependency. Depend only on earlier children.`,
+                );
+            }
+            members.push(plan);
         }
-        members.push(plan);
-    }
-    return members;
+        return members;
+    });
 }
 
 /** Materialize missing identities and declared policy, then freeze the whole review set. */
@@ -156,32 +167,34 @@ export async function prepareSequenceReview(
 }
 
 export async function snapshotSequenceReview(cwd: string, planName: string): Promise<SequenceReviewDocument[]> {
-    const members = await sequenceMembers(cwd, planName);
-    const documents: SequenceReviewDocument[] = [];
-    for (const member of members) {
-        const evidence = await loadPlanActionEvidence(cwd, member.attrs.planId || member.name);
-        if (evidence.kind !== "success") throw new Error(evidence.message);
-        if (evidence.evidence.worktree.kind !== "none") {
-            throw new Error(`Plan ${member.name} has an execution attempt; use recovery.`);
+    return await withProjectRuntimeReadScope(async () => {
+        const members = await sequenceMembers(cwd, planName);
+        const documents: SequenceReviewDocument[] = [];
+        for (const member of members) {
+            const evidence = await loadPlanActionEvidence(cwd, member.attrs.planId || member.name);
+            if (evidence.kind !== "success") throw new Error(evidence.message);
+            if (evidence.evidence.worktree.kind !== "none") {
+                throw new Error(`Plan ${member.name} has an execution attempt; use recovery.`);
+            }
+            const policy = resolvePlanExecutionPolicy(member.attrs);
+            if (documents.length && !policy.ok) throw new Error(`Invalid child policy: ${policy.error}`);
+            documents.push({
+                planId: evidence.evidence.planId,
+                planName: member.name,
+                planPath: member.path,
+                plan: planDocumentMarkdown(member.markdown),
+                revision: member.revision,
+                frontmatter: member.attrs,
+                ...(policy.ok
+                    ? {
+                        executionAgent: policy.policy.executionAgent,
+                        collaborationRecommendation: policy.policy.collaborationRecommendation,
+                    }
+                    : {}),
+            });
         }
-        const policy = resolvePlanExecutionPolicy(member.attrs);
-        if (documents.length && !policy.ok) throw new Error(`Invalid child policy: ${policy.error}`);
-        documents.push({
-            planId: evidence.evidence.planId,
-            planName: member.name,
-            planPath: member.path,
-            plan: planDocumentMarkdown(member.markdown),
-            revision: member.revision,
-            frontmatter: member.attrs,
-            ...(policy.ok
-                ? {
-                    executionAgent: policy.policy.executionAgent,
-                    collaborationRecommendation: policy.policy.collaborationRecommendation,
-                }
-                : {}),
-        });
-    }
-    return documents;
+        return documents;
+    });
 }
 
 /** Validate trusted snapshots before a transport acknowledges a group decision; commit checks again under locks. */
