@@ -7,7 +7,7 @@ import { join } from "@std/path";
 import { getHomeDir, SNIP_FILTERS_DIR } from "../constants.js";
 
 const BUNDLED_SNIP_FILTERS_DIR = SNIP_FILTERS_DIR;
-const FILTER_FILE_NAMES = ["deno-check.yaml", "deno-fmt.yaml", "deno-lint.yaml", "deno-test.yaml"];
+const FILTER_FILE_NAMES = ["deno-check.yaml", "deno-fmt.yaml", "deno-lint.yaml", "deno-test.yaml", "deno-task.yaml"];
 const RUNWIELD_MANAGED_SNIP_FILTER_MARKER = "# Managed by RunWield. Remove with: wld snip-filters cleanup";
 const HARNS_MANAGED_SNIP_FILTER_MARKER = "# Managed by Harns. Remove with: hns snip-filters cleanup";
 
@@ -66,7 +66,7 @@ async function removeLegacyHarnsFilterDirectory(homeDir) {
             await Deno.remove(path);
         } catch {
             // Leave a non-empty or unavailable legacy directory intact. Only
-            // the four exact filter files above are owned by this cleanup.
+            // the exact filter files above are owned by this cleanup.
         }
     }
     return removed;
