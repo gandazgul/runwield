@@ -21,6 +21,8 @@
  * The shared cache is prewarmed once with `deno test --no-run` before isolated
  * children start, so slot-local HOME does not force every child through a
  * separate cold module cache.
+ * Prewarming also installs npm dependencies. Workers use that node_modules
+ * directory in manual mode, avoiding repeated installation scans in every file.
  *
  * Usage:
  *   deno run -A scripts/run-tests.js                    isolated run of every test file
@@ -328,7 +330,15 @@ async function runIsolatedSuite(sandboxRoot, denoDir, roots = [REPO_ROOT], exclu
             const reportArgs = options.reportDir
                 ? ["--junit-path", join(options.reportDir, `${name.replace(/[^a-zA-Z0-9.-]/g, "_")}.xml`)]
                 : [];
-            const result = await runWithSnip("deno", ["test", "-A", "--no-check", "--quiet", ...reportArgs, file], {
+            const result = await runWithSnip("deno", [
+                "test",
+                "-A",
+                "--no-check",
+                "--node-modules-dir=manual",
+                "--quiet",
+                ...reportArgs,
+                file,
+            ], {
                 cwd: REPO_ROOT,
                 env,
                 failureLabel: "tests",
@@ -438,7 +448,12 @@ export async function main(args = Deno.args) {
             // sandboxed executions, not the type gate.
             if (!testArgs.includes("--no-check")) testArgs.push("--no-check");
             await prewarmDenoDir(env, testArgs);
-            const result = await runWithSnip("deno", ["test", ...testArgs], {
+            // Preserve explicit dependency modes for loader diagnostics. Otherwise
+            // use the installation just prepared by the real no-run invocation.
+            const executionArgs = testArgs.some((arg) => arg.startsWith("--node-modules-dir"))
+                ? testArgs
+                : ["--node-modules-dir=manual", ...testArgs];
+            const result = await runWithSnip("deno", ["test", ...executionArgs], {
                 env,
                 stdin: "inherit",
                 failureLabel: "tests",
