@@ -1,7 +1,7 @@
-import { assertEquals, assertStringIncludes } from "@std/assert";
+import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 import { Container, Spacer, StdinBuffer, Text, TuiAltScreen } from "@earendil-works/pi-tui";
 import { createChatView, findVisibleToolBlocks } from "./chat-view.ts";
-import { ToolExecutionGroupBlock, UserPromptBlock } from "./blocks.js";
+import { ToolExecutionBlock, ToolExecutionGroupBlock, UserPromptBlock } from "./blocks.js";
 import { VirtualTerminal } from "./testing/virtual-terminal.js";
 import { RunWieldTui } from "./tui.ts";
 import { installTerminalFocusState } from "./terminal-focus-state.ts";
@@ -503,6 +503,44 @@ Deno.test("chat view keeps scrollback position during live thinking updates", as
         await terminal.flush();
 
         assertEquals(terminal.getScreenText(), before);
+    } finally {
+        view.dispose();
+        tui.stop();
+    }
+});
+
+Deno.test("chat view keeps settled tool lines cached across a keystroke", async () => {
+    const terminal = new VirtualTerminal({ columns: 100, rows: 20 });
+    const tui = new TuiAltScreen(terminal);
+    const view = await createChatView({
+        tui,
+        suppressStartupHeader: true,
+        getSessionId: () => "keystroke-cache-session",
+        sessionRuntime: {
+            getSessionSnapshot: () => ({ cwd: "/tmp/keystroke-cache-fixture", activeModel: {} }),
+        },
+        setActiveModel: () => Promise.resolve({ status: "active" }),
+    });
+    try {
+        tui.start();
+        for (let index = 1; index <= 6; index++) {
+            view.uiAPI.appendUserMessage?.(`settled message ${index}`);
+        }
+        const tool = view.uiAPI.startToolExecution?.("keystroke-tool", "bash", "run tests");
+        if (!(tool instanceof ToolExecutionBlock)) throw new Error("Expected a tool block.");
+        tool.setOutput("ok line one\nok line two");
+        tool.endExecution(false, 120);
+        tui.renderNow(true);
+        await terminal.flush();
+
+        const before = tool.render(100);
+        terminal.input("x");
+        tui.renderNow();
+        await terminal.flush();
+        const after = tool.render(100);
+        assert(before === after, "a keystroke must not rebuild settled block lines");
+        assertStringIncludes(terminal.getScreenText(), "run tests");
+        assertStringIncludes(terminal.getScreenText(), "x");
     } finally {
         view.dispose();
         tui.stop();
