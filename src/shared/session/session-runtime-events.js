@@ -768,8 +768,9 @@ export function normalizeRuntimeToolResult(value) {
 }
 
 /**
+ * @template {{ type: string }} T
  * @param {string} sessionId
- * @param {Partial<SessionRuntimeEvent> & { type: string }} event
+ * @param {T} event
  * @returns {SessionRuntimeEvent}
  */
 export function createSessionRuntimeEvent(sessionId, event) {
@@ -784,7 +785,9 @@ export function createSessionRuntimeEvent(sessionId, event) {
         ...(level ? { level } : {}),
         ...(images ? { images } : {}),
         sessionId,
-        timestamp: typeof event.timestamp === "string" ? event.timestamp : new Date().toISOString(),
+        timestamp: "timestamp" in event && typeof event.timestamp === "string"
+            ? event.timestamp
+            : new Date().toISOString(),
     });
     return assertSessionRuntimeEvent(runtimeEvent);
 }

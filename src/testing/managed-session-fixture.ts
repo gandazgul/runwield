@@ -4,7 +4,7 @@ import { AGENTS } from "../constants.js";
 import { ACTIVE_AGENT_CUSTOM_TYPE } from "../shared/session/active-agent-session.js";
 import { openOwnerCoordinationStore } from "../shared/owner-coordination/index.js";
 import { encodeCwdForSessionDir } from "../shared/session/root-session.js";
-import { createSessionRuntime } from "../shared/session/session-runtime.js";
+import { createSessionRuntime } from "../shared/session/session-runtime.ts";
 
 export type ManagedSessionFixture = Awaited<ReturnType<typeof makeManagedSessionFixture>>;
 type ManagedSessionFixtureOptions = {

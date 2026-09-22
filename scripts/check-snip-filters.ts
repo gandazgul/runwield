@@ -3,7 +3,7 @@
 import { basename, join } from "@std/path";
 import { SNIP_FILTERS_DIR } from "../src/constants.js";
 
-const FILTERS = ["deno-check.yaml", "deno-fmt.yaml", "deno-lint.yaml", "deno-test.yaml"];
+const FILTERS = ["deno-check.yaml", "deno-fmt.yaml", "deno-lint.yaml", "deno-test.yaml", "deno-task.yaml"];
 
 function assertGenericFilter(fileName: string, content: string): void {
     if (!content.includes('command: "deno"')) throw new Error(`${fileName} does not match Deno directly.`);

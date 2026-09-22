@@ -406,6 +406,7 @@ export const plannedChangeReviewRepairValidationScenario = {
 export const onboardingTutorialDeliveryScenario = {
     ...plannedChangeReviewRepairValidationScenario,
     name: "onboarding-tutorial-real-change-delivery",
+    slashCommands: ["onboard"],
     onboardingOfferHandled: false,
     committedProjectFiles: [
         {

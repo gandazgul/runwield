@@ -38,8 +38,9 @@ Deno.test("startWorkspaceServer enforces owner non-loopback TLS policy at the ex
 Deno.test("owner Workspace redirects unpaired browsers and serves pairing code bootstrap", async () => {
     const dir = await Deno.makeTempDir({ prefix: "runwield-owner-ui-" });
     const store = openOwnerCoordinationStore({ dbPath: `${dir}/owner.sqlite3` });
+    const ownerApp = createOwnerWorkspaceApp({ mode: "owner", publicOrigin: "http://127.0.0.1:8787", store });
     try {
-        const app = createOwnerWorkspaceApp({ mode: "owner", publicOrigin: "http://127.0.0.1:8787", store }).handler();
+        const app = ownerApp.handler();
         const redirect = await app(new Request("http://127.0.0.1:8787/"));
         assertEquals(redirect.status, 302);
         assertEquals(redirect.headers.get("location"), "/pair");
@@ -79,6 +80,7 @@ Deno.test("owner Workspace redirects unpaired browsers and serves pairing code b
         }
         assertEquals(rateLimited.status, 429);
     } finally {
+        await ownerApp.close();
         store.close();
         await Deno.remove(dir, { recursive: true });
     }
@@ -107,6 +109,7 @@ Deno.test("owner Workspace requires CSRF for Project mutation and resolves Proje
         status: "on_hold",
     });
     const store = openOwnerCoordinationStore({ dbPath: `${dir}/owner.sqlite3` });
+    let appObject;
     try {
         const pairing = store.createPairingRequest({
             codeFactory: () => "OWN123",
@@ -120,7 +123,7 @@ Deno.test("owner Workspace requires CSRF for Project mutation and resolves Proje
         const project = store.registerProject({ root: projectRoot, displayName: "Owner Project" });
         const otherProject = store.registerProject({ root: otherProjectRoot, displayName: "Other Project" });
         let closedConnections = 0;
-        const appObject = /** @type {any} */ (createOwnerWorkspaceApp({
+        appObject = /** @type {any} */ (createOwnerWorkspaceApp({
             mode: "owner",
             publicOrigin: "http://127.0.0.1:8787",
             store,
@@ -627,6 +630,7 @@ Deno.test("owner Workspace requires CSRF for Project mutation and resolves Proje
         assertEquals(revoked.status, 200);
         assertEquals(closedConnections, 1);
     } finally {
+        await appObject?.close();
         store.close();
         await Deno.remove(dir, { recursive: true });
     }
@@ -644,9 +648,10 @@ Deno.test("owner Workspace rejects stale live Plan review before answering Runti
         status: "draft",
     });
     const store = openOwnerCoordinationStore({ dbPath: `${dir}/owner.sqlite3` });
+    let appObject;
     try {
         const project = store.registerProject({ root: projectRoot, displayName: "Owner Project" });
-        const appObject = /** @type {any} */ (createOwnerWorkspaceApp({
+        appObject = /** @type {any} */ (createOwnerWorkspaceApp({
             mode: "owner",
             publicOrigin: "http://127.0.0.1:8787",
             store,
@@ -705,6 +710,7 @@ Deno.test("owner Workspace rejects stale live Plan review before answering Runti
         assertStringIncludes(rejectedMessage, "Plan Status changed after review opened");
         assertEquals((await loadPlan(projectRoot, "owner-plan"))?.attrs.status, "feedback");
     } finally {
+        await appObject?.close();
         store.close();
         await Deno.remove(dir, { recursive: true });
     }
@@ -713,8 +719,9 @@ Deno.test("owner Workspace rejects stale live Plan review before answering Runti
 Deno.test("owner Workspace rejects Shared Space bearer capabilities on owner APIs", async () => {
     const dir = await Deno.makeTempDir({ prefix: "runwield-owner-isolation-" });
     const store = openOwnerCoordinationStore({ dbPath: `${dir}/owner.sqlite3` });
+    const ownerApp = createOwnerWorkspaceApp({ mode: "owner", publicOrigin: "http://127.0.0.1:8787", store });
     try {
-        const app = createOwnerWorkspaceApp({ mode: "owner", publicOrigin: "http://127.0.0.1:8787", store }).handler();
+        const app = ownerApp.handler();
         const response = await app(
             new Request("http://127.0.0.1:8787/api/owner/projects", {
                 headers: { authorization: "Bearer shared-space-capability" },
@@ -722,6 +729,7 @@ Deno.test("owner Workspace rejects Shared Space bearer capabilities on owner API
         );
         assertEquals(response.status, 401);
     } finally {
+        await ownerApp.close();
         store.close();
         await Deno.remove(dir, { recursive: true });
     }
@@ -739,6 +747,7 @@ Deno.test("owner Workspace keeps read-only Project Plan progress API and removes
         status: "ready_for_work",
     });
     const store = openOwnerCoordinationStore({ dbPath: `${dir}/owner.sqlite3` });
+    const ownerApp = createOwnerWorkspaceApp({ mode: "owner", publicOrigin: "http://127.0.0.1:8787", store });
     try {
         const pairing = store.createPairingRequest({
             codeFactory: () => "PRG123",
@@ -750,11 +759,7 @@ Deno.test("owner Workspace keeps read-only Project Plan progress API and removes
             csrfFactory: () => "csrf-secret",
         });
         const project = store.registerProject({ root: projectRoot, displayName: "Owner Project" });
-        const app = createOwnerWorkspaceApp({
-            mode: "owner",
-            publicOrigin: "http://127.0.0.1:8787",
-            store,
-        }).handler();
+        const app = ownerApp.handler();
         const api = await app(
             new Request(
                 `http://127.0.0.1:8787/api/owner/projects/${project.projectId}/plans/progress-plan-id/progress`,
@@ -776,6 +781,7 @@ Deno.test("owner Workspace keeps read-only Project Plan progress API and removes
         );
         assertEquals(page.status, 404);
     } finally {
+        await ownerApp.close();
         store.close();
         await Deno.remove(dir, { recursive: true });
     }

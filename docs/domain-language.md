@@ -467,6 +467,12 @@ recall, plan search, Engineer context tool
 **Project Knowledge Search**: Deliberate Agent retrieval over durable artifacts within the active Project. _Avoid_:
 Session Transcript search, automatic context injection, code search
 
+**Workspace Search**: Owner-only browser retrieval across eligible durable artifacts in enabled registered Projects,
+plus Session entry points from the committed Session Name and first user message. It uses a rebuildable index but
+rechecks canonical sources before display and navigation. Session entry text helps the owner resume a Session; it is not
+shared knowledge, full Session Transcript search, or cross-Session Agent retrieval. _Avoid_: Workspace Intelligence
+Search, Project Knowledge Search, global code search, transcript search
+
 **Possible test-seam risks**: The advisory `wld init` result section for evidence-backed candidates where representative
 project tests appear able to replace product-owned behavior. Each candidate stays speculative until the user classifies
 it, and RunWield asks before it writes an issue or Plan for the risk. _Avoid_: seam check, clean test architecture
@@ -807,8 +813,9 @@ continuation, database interaction record
 - A root Agent Session receives model history from only the active Session Transcript Segment.
 - A live Session may have multiple observers, one holder of **Session Control**, and only one active mutation owner
   holding the **Session Writer Lock**.
-- A Session Transcript is private to its owner and excluded from **Project Knowledge Search** and **Workspace
-  Intelligence Search**.
+- A Session Transcript is private to its owner and excluded from **Project Knowledge Search**. **Workspace Search** can
+  use only the committed Session Name and first user message as an owner-only entry point; later messages, tool output,
+  and reasoning remain excluded.
 - A fresh Session receives prior conclusions through explicitly referenced durable artifacts, not another Session's
   transcript.
 - Starting from a PRD, Plan, or Work Record creates a fresh Session; resuming re-enters the existing Session.

@@ -2,7 +2,7 @@ import { SettingsManager } from "@earendil-works/pi-coding-agent";
 import { dirname, join } from "@std/path";
 import { parse as parseJsonc } from "@std/jsonc";
 import lockfile from "proper-lockfile";
-import { normalizeServerUrl } from "./collaboration/urls.js";
+import { normalizePlanServerUrl } from "./collaboration/urls.js";
 import { resolvePrimaryCheckoutRoot } from "./primary-checkout.ts";
 import { getHomeDir } from "../constants.js";
 
@@ -564,22 +564,6 @@ export function getMergedCustomSetting(key, projectRoot = Deno.cwd()) {
     }
 
     return projectVal;
-}
-
-/**
- * @param {unknown} value
- * @returns {string}
- */
-export function normalizePlanServerUrl(value) {
-    if (typeof value !== "string" || value.trim() === "") {
-        throw new Error("Plan Server URL must be a non-empty string.");
-    }
-    const normalized = normalizeServerUrl(value.trim());
-    const url = new URL(normalized);
-    if (/(?:^|\/)p\/[^/]+\/?$/.test(url.pathname)) {
-        throw new Error("Plan Server URL must not be a full collaboration share URL.");
-    }
-    return normalized;
 }
 
 /**

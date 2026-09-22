@@ -5,7 +5,7 @@
 
 import type { SettingsManager } from "@earendil-works/pi-coding-agent";
 import { getCwd } from "../../constants.js";
-import type { SessionRuntime } from "../../shared/session/session-runtime.js";
+import type { SessionRuntime } from "../../shared/session/session-runtime.ts";
 import {
     getMergedCustomSetting,
     getSettingsManager,

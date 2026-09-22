@@ -24,6 +24,7 @@ order: 5
 dependencies:
     - "04-core-usage-reporting-retention-and-clear"
 targetBranch: "epic/reliable-usage-dashboard-and-langfuse-export"
+planId: "37973a15-e366-46b6-81f4-aeadd197c306"
 ---
 
 # Workspace Usage Page

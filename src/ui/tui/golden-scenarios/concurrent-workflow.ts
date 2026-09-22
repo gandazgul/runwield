@@ -92,8 +92,8 @@ export const concurrentPlansIdentityScenario = {
             id: "engineer-starts-concurrent-b",
             agent: "engineer",
             phase: "engineer",
-            planName: "concurrent-a",
-            ordinal: 2,
+            planName: "concurrent-b",
+            ordinal: 1,
             requiredTools: ["bash", "task_completed"],
             thinking: "Implement Plan B in its own execution worktree while Plan A is still running.",
             toolCalls: [
@@ -105,8 +105,8 @@ export const concurrentPlansIdentityScenario = {
             id: "engineer-closes-concurrent-b",
             agent: "engineer",
             phase: "engineer",
-            planName: "concurrent-a",
-            ordinal: 3,
+            planName: "concurrent-b",
+            ordinal: 2,
             text: "Plan B awaits validation.",
         },
         {
@@ -114,7 +114,7 @@ export const concurrentPlansIdentityScenario = {
             agent: "engineer",
             phase: "engineer",
             planName: "concurrent-a",
-            ordinal: 4,
+            ordinal: 2,
             text: "Plan A awaits validation.",
         },
         {
@@ -135,7 +135,7 @@ export const concurrentPlansIdentityScenario = {
             id: "reviewer-approves-concurrent-b-inspects-diff",
             agent: "reviewer",
             phase: "semantic_review",
-            planName: "concurrent-a",
+            planName: "concurrent-b",
             ordinal: 1,
             requiredTools: ["review_diff"],
             toolCalls: [
@@ -152,7 +152,7 @@ export const concurrentPlansIdentityScenario = {
             id: "reviewer-approves-concurrent-b",
             agent: "reviewer",
             phase: "semantic_review",
-            planName: "concurrent-a",
+            planName: "concurrent-b",
             ordinal: 2,
             requiredTools: ["review_complete"],
             toolCalls: [
@@ -164,7 +164,7 @@ export const concurrentPlansIdentityScenario = {
             agent: "reviewer",
             phase: "semantic_review",
             planName: "concurrent-a",
-            ordinal: 3,
+            ordinal: 1,
             requiredTools: ["review_diff"],
             toolCalls: [
                 { name: "review_diff", arguments: { command: "list", scope: "full" } },
@@ -181,7 +181,7 @@ export const concurrentPlansIdentityScenario = {
             agent: "reviewer",
             phase: "semantic_review",
             planName: "concurrent-a",
-            ordinal: 4,
+            ordinal: 2,
             requiredTools: ["review_complete"],
             toolCalls: [
                 { name: "review_complete", arguments: { approved: true, feedback: "Concurrent A approved." } },

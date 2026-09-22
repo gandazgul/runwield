@@ -7,7 +7,6 @@ import { dirname, isAbsolute, join } from "@std/path";
 import { getHomeDir, RUNWIELD_DIR_NAME } from "../../constants.js";
 import { resolvePrimaryCheckoutRoot } from "../primary-checkout.ts";
 import { encodeCwdForSessionDir } from "../session/root-session.js";
-import { getMergedCustomSetting } from "../settings.js";
 
 /**
  * @typedef {"routing"|"planning"|"execution"|"validation"|"recovery"|"model_selection"|"tool_usage"} WorkflowMetricCategory
@@ -278,6 +277,9 @@ export async function recordWorkflowMetric(metric, cwd) {
     try {
         if (!cwd) throw new Error("recordWorkflowMetric: cwd is required");
         const projectRoot = resolvePrimaryCheckoutRoot(cwd);
+        // Git and Plan storage can load without booting the agent package.
+        // Actual metric writes still read the real settings and honor opt-out.
+        const { getMergedCustomSetting } = await import("../settings.js");
         const resolvedSetting = getMergedCustomSetting("workflowMetrics", projectRoot);
         if (!isWorkflowMetricsEnabled(resolvedSetting)) return null;
 

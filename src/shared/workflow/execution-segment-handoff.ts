@@ -12,6 +12,8 @@ export type HandoffImage = { base64: string; mimeType: string };
 
 type JsonScalar = string | number | boolean | null;
 type JsonValue = JsonScalar | JsonValue[] | { [key: string]: JsonValue };
+type SegmentExecutionState = { executionCwd?: string; baselineTree?: string };
+type SegmentReviewLedger = import("./review-ledger.ts").ReviewLedger;
 
 /**
  * Who resumes a handed-off segment. New markers name a runtime Plan executor;
@@ -32,7 +34,7 @@ export type ExecutionSegmentContinuation = {
     plan: { planId: string; planName: string; approvedRevision: string; approvedStatus: string; markdown: string };
     approval: { feedback?: string; images: HandoffImage[] };
     preparedEvidence: PlanActionEvidence;
-    activeWorkflow: Record<string, JsonValue>;
+    activeWorkflow: import("../types.js").ActiveExecutionWorkflow;
     /** Runtime Agent that resumes the segment. `engineer` only appears in markers written before the Plan Engineer split. */
     executionOwner: HandoffExecutionOwner;
     collaboration: { style: "autonomous" | "pair"; recommendation: "autonomous" | "pair" };
@@ -44,16 +46,16 @@ export type SemanticRepairSegmentContinuation = {
     session: { runwieldSessionId: string; stableSessionId?: string };
     plan: { planId: string; planName: string; approvedRevision: string; approvedStatus: string; markdown: string };
     preparedEvidence: PlanActionEvidence;
-    activeWorkflow: Record<string, JsonValue>;
+    activeWorkflow: import("../types.js").ActiveExecutionWorkflow;
     /** Runtime Agent that resumes the segment. `engineer` only appears in markers written before the Plan Engineer split. */
     executionOwner: HandoffExecutionOwner;
     repair: {
         semanticRound: number;
         repairGeneration: string;
-        reviewLedger: JsonValue;
+        reviewLedger: JsonValue | SegmentReviewLedger;
         repairBaselineTree?: string;
         lastRepairReport?: string;
-        executionState: JsonValue;
+        executionState: JsonValue | SegmentExecutionState;
         ciState: JsonValue;
         priorRepairClaims: string[];
         diffText: string;
@@ -63,8 +65,10 @@ export type SemanticRepairSegmentContinuation = {
 
 export type SegmentHandoffContinuation = ExecutionSegmentContinuation | SemanticRepairSegmentContinuation;
 
+export type SegmentHandoffPayload = JsonValue | SegmentHandoffContinuation;
+
 export type PendingSegmentMarker = {
-    payload: JsonValue;
+    payload: SegmentHandoffPayload;
     entryIndex: number;
     entries: Array<{ type?: string; role?: string; customType?: string }>;
 };
@@ -87,7 +91,7 @@ export type BuildExecutionContinuationArgs = {
     approvalFeedback?: string;
     approvalImages?: HandoffImage[];
     preparedEvidence: PlanActionEvidence;
-    activeWorkflow: Record<string, JsonValue>;
+    activeWorkflow: import("../types.js").ActiveExecutionWorkflow;
     executionOwner: "plan-engineer" | "frontend-engineer";
     collaborationStyle: "autonomous" | "pair";
     collaborationRecommendation: "autonomous" | "pair";
@@ -102,11 +106,11 @@ export type BuildSemanticRepairContinuationArgs = {
     approvedStatus: string;
     approvedMarkdown: string;
     preparedEvidence: PlanActionEvidence;
-    activeWorkflow: Record<string, JsonValue>;
+    activeWorkflow: import("../types.js").ActiveExecutionWorkflow;
     executionOwner: "plan-engineer" | "frontend-engineer";
     semanticRound: number;
     repairGeneration: string;
-    reviewLedger: JsonValue;
+    reviewLedger: JsonValue | SegmentReviewLedger;
     repairBaselineTree?: string;
     lastRepairReport?: string;
     executionState?: JsonValue;
@@ -222,7 +226,7 @@ function normalizeImages(images: HandoffImage[]): HandoffImage[] {
     });
 }
 
-function parseContinuation(payload: JsonValue):
+function parseContinuation(payload: SegmentHandoffPayload):
     | { kind: "ok"; continuation: SegmentHandoffContinuation }
     | { kind: "refresh_required" | "recovery_required"; result: HandoffRejection } {
     if (!payload || typeof payload !== "object" || Array.isArray(payload)) {

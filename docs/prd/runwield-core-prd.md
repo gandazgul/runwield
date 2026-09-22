@@ -114,6 +114,9 @@ Users can:
 - use `/resume` for chat-session resume
 - use `/load-plan <plan>` for Plan workflow resume
 
+A fully typed `/load-plan <plan>` submits with one Enter, regardless of autocomplete lookup timing. Partial Plan names
+remain discoverable through completion; an exact Plan name must not select a longer matching name.
+
 A leading slash that resolves to an available command is a command, not a User Request. Disabled or unknown commands
 must fail visibly and must not fall through to Router.
 
@@ -131,6 +134,8 @@ output lines. For longer output, it keeps the start and end and shows how many m
 
 - Given a new conversation, when the user submits a request, Router handles initial triage; after a specialist handoff,
   follow-up messages stay with that specialist.
+- Given a fully typed existing Plan name, pressing Enter once opens that Plan, even if a longer Plan name shares its
+  prefix and completion lookup has finished.
 - After switching to Guide, commands and follow-up messages produce no additional Agent notice unless the active Agent
   changes again.
 - Given an existing topic, when the user chooses `/new`, a fresh routed conversation opens; `/agent router` instead
@@ -255,6 +260,15 @@ does not reset its lifecycle or decisions.
   decisions, retry counters, execution identity, or publication progress. Missing records and completion reports are
   recovered without claiming validation passed. Originals remain recoverable, and interruption during this recovery
   resumes safely on the next attempt. Empty legacy lock directories do not block continuation.
+- Given recreated empty or stale runtime registry files, migration reports, or debug files, selecting a Plan recovers
+  them automatically without replacing current attempts. Distinct valid attempts remain available; originals remain
+  recoverable. Registry recovery and ordinary writers cannot overwrite each other or wait on their own locks.
+- Given a Plan listing or a grouped evidence read, nested reads of the same checkout share runtime-layout verification
+  for that operation. Later reads and writes revalidate changed evidence; background work cannot retain verification
+  after its initiating read ends. Plan contents, controller state, and publication evidence remain freshly read.
+- Given simultaneous runtime migrations, transient files written by the first migration do not cause the second to
+  report corruption. It waits for the migration owner and rechecks the resulting state. If an older process holds the
+  registry lock, migration waits and validates the registry again after that writer releases it.
 - Given a change affecting domain rules, architecture and planning identify their owners and necessary consistency and
   recovery behavior, then carry those rules into verification using the project's existing conventions.
 - Given a project without an entity model, or a change needing little domain reasoning, planning proceeds without
@@ -445,6 +459,13 @@ Workflow Validation requirements:
 
 QUICK_FIX work does not create a Plan and runs Mechanical Validation only.
 
+**One full validation run per handoff:** During managed implementation and repair, Agents run focused tests and
+acceptance checks. RunWield owns the complete configured Mechanical Validation command after Task Completion, including
+after a repair. Agent guidance must not require an identical full run immediately before that handoff. Diagnosis and
+explicit user requests may require earlier full runs. Standalone work still requires the Agent to run full validation.
+Reports distinguish completed focused checks from pending full validation; an Agent's success claim never replaces the
+runtime gate or permits publication before it passes.
+
 Recovery requirements:
 
 - loading `in_progress`, `failed`, or `implemented` Plans should open a recovery path
@@ -453,6 +474,9 @@ Recovery requirements:
 
 **Acceptance scenarios:**
 
+- Given a managed repair, when the Agent completes focused verification, RunWield reloads the current configured command
+  and runs full validation against the repair checkout. A failure still prevents progress; the Agent was not required to
+  run that complete command immediately beforehand.
 - Given a ready approved Plan and existing checkout edits, when execution starts, the approved work is isolated and the
   user’s edits remain preserved.
 - Given a completed Plan without controller records, loading it recognizes delivery when Git proves its validated commit

@@ -39,7 +39,7 @@ import {
     recordInitOffered as recordInitOfferedFn,
 } from "../../cmd/init/init-state.ts";
 import { isProjectInitComplete } from "../../cmd/init/init-completion.ts";
-import { createSessionRuntime } from "../../shared/session/session-runtime.js";
+import { createSessionRuntime } from "../../shared/session/session-runtime.ts";
 import { setActiveSessionModel } from "../../shared/session/model-selection.ts";
 import { RuntimeEventTypes } from "../../shared/session/session-runtime-events.js";
 import { renderBootBanner } from "./boot-banner.ts";
@@ -61,6 +61,7 @@ const CHAT_PROMPT_AGENT_NAME = AGENTS.OPERATOR;
 export type SessionRuntime = ReturnType<typeof createSessionRuntime>;
 
 export interface InteractiveLifecycleHandle {
+    isProcessingSubmission(): boolean;
     dispose(): Promise<void>;
 }
 export interface TerminalPairPort {
@@ -152,7 +153,9 @@ export async function startInteractiveSession(
     const disposables: Array<() => void | Promise<void>> = [];
     let uiAPIForDispose: UiAPI | null = null;
     let lifecycleDisposed = false;
+    let inputControllerForPause: { isProcessingSubmission(): boolean } | null = null;
     const lifecycleHandle: InteractiveLifecycleHandle = {
+        isProcessingSubmission: () => inputControllerForPause?.isProcessingSubmission() || false,
         dispose: async () => {
             if (lifecycleDisposed) return;
             lifecycleDisposed = true;
@@ -285,7 +288,6 @@ export async function startInteractiveSession(
         view.footerContainer.addChild(footer.component);
         const uiAPI = view.uiAPI;
         uiAPIForDispose = uiAPI;
-        let inputControllerForPause: { isProcessingSubmission(): boolean } | null = null;
         let tuiRuntimeAdapter = attachTuiRuntimeAdapter({
             runtime: sessionRuntime,
             sessionId,

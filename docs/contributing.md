@@ -38,17 +38,15 @@ deno task docs:check
 deno task compile
 ```
 
-`deno task ci` starts the nine pre-test gates together: submodule checks, Snip filter checks, Deno checks, Workspace
-checks, lint, language-policy checks, seam checks, repository doc-link checks, and the public documentation build. Tests
-start only after all eight gates pass. The test task still uses `scripts/write-version.js` and the safe
-`scripts/run-tests.js` runner. Always use `deno task test` or `deno run -A scripts/run-tests.js <deno test args>` for
-tests; do not run `deno test` directly, because the test runner sandboxes `HOME` and process-global state per file.
+`deno task ci` runs all ten static gates, then the source tests and Golden TUI portfolio in one isolated worker queue.
+`deno task pr:check` is an alias for that complete local gate. Successful CI prints one summary; failure diagnostics are
+filtered through Snip and retained in the reported log. Use `deno task ci --source-only` when a separate required Golden
+job owns those scenarios, as the PR and release workflows do.
 
-The ordinary test task does not include the Golden TUI Scenario portfolio; it is too slow for the everyday loop.
-`deno task test` excludes `src/ui/tui/golden-scenarios` and `src/ui/tui/testing`, and `deno task test:golden-tui` runs
-exactly those. `deno task pr:check` is the full local gate: `deno task ci` followed by the portfolio. GitHub runs those
-two gates in parallel for pull requests. `deno task test:golden-tui:extensive` is the release-tier alias. The release
-workflow runs it in parallel with source quality and binary smoke checks.
+`deno task test` remains the focused source suite. `deno task test:golden-tui` runs the composed TUI scenarios and their
+harness tests; `test:golden-tui:extensive` runs the same complete portfolio. Always use these tasks or
+`deno run -A scripts/run-tests.js <deno test args>`; never invoke `deno test` directly. Each file gets a separate
+process, HOME, temporary directory, and Mnemoteca database.
 
 Interactive RunWield sessions expect these helper binaries in `PATH`:
 
@@ -104,23 +102,33 @@ deno task test:golden-tui
 deno task test:golden-tui:extensive
 ```
 
-Each test file runs in its own sandboxed process. That is most of the portfolio's wall time and is what keeps the
-scenarios isolated, but it also made the portfolio too expensive for `deno task ci`, which every change waits on. The
-portfolio now runs at slower gates instead:
+Golden tests exercise the real TUI composition, Session Runtime, workflow transitions, storage, and Git repositories.
+Keep these journey tests: passing isolated source tests cannot prove that those pieces work together. Their terminal
+adapter and scripted external model responses make failures reproducible without replacing internal machinery.
 
-- `deno task pr:check` locally and a parallel `golden` job on every pull request.
-- the `golden-tui` workflow after pushes to `main` and `release/**`.
-- a fail-fast `golden` job during release qualification. Local `deno task release:check` still runs the full check.
+Golden setup copies immutable real Git baselines into separate repositories and remotes. Each scenario still gets its
+own mutable filesystem, settings, stores, and locks. Fixture providers preserve streaming deltas without artificial
+network delays; scenarios that test interruption can explicitly request slow streaming with `modelTokensPerSecond`.
 
-CI records each file duration, prints the ten slowest files, and stores `.ci-cache/golden-timings.json`. Later runs use
-that history to start slow files first after three measured runs. New files start near the historical median until they
-have enough data. CI uses three workers by default. Manually dispatch `golden-tui` with four workers to compare capacity
-without changing the default. Set `WLD_TEST_CONCURRENCY` locally to reproduce either setting. The test runner can also
-reuse a safe dependency cache through `WLD_TEST_DENO_DIR`; HOME and mutable RunWield state remain isolated per worker
-slot.
+Local runs use up to eight workers, bounded by available CPUs; override with `WLD_TEST_CONCURRENCY`. PRs and releases
+run four source shards with four workers each and four Golden shards with three workers each. Every shard is required.
+The standalone Golden workflow also covers pushes to `main` and `release/**`. Shard membership depends only on the
+sorted file list, never a runner's timing cache. Reproduce one shard with `--shard 2/4` in isolated discovery mode or
+`WLD_TEST_SHARD=2/4`. Nested runner tests clear the inherited shard selection.
 
-Run `deno task test:golden-tui` yourself whenever you change the TUI or the workflow runtime; `deno task ci` alone will
-not catch a composed scenario regression.
+Timing does not require verbose output. Reports under `.ci-cache/` contain:
+
+- `ci-timings.json`: elapsed time for every CI task.
+- `tests[-N-of-M]-timings.json` and `golden[-N-of-M]-timings.json`: file timing history used for scheduling.
+- `*-report/run.json`: file durations, prewarm time, worker count, and pass/fail/skip totals for the latest run.
+- `*-report/*.xml`: Deno's JUnit results with each test's name, duration, failure, and ignored status.
+
+Use `--report-dir <directory>` for separate benchmark runs and `--timings-file <file>` for an explicit history. CI
+uploads these reports even on failure. Timing history starts slow files first from the first observation. Dependency
+caches can be reused with `WLD_TEST_DENO_DIR`; mutable RunWield state remains isolated per file. `deno task ci` collects
+all failures by default so an Agent can repair them together. Use `deno task ci --fail-fast` for quicker first-failure
+feedback: it stops scheduling new files after a failure and lets active files finish. Passing runs still execute every
+selected test; failures and unexecuted files never produce a green gate.
 
 Author scenarios under `src/ui/tui/golden-scenarios/` and shared harness helpers under `src/ui/tui/testing/`:
 

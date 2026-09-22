@@ -51,6 +51,9 @@ import { clearPairCheckpoint } from "./pair-checkpoint-session.ts";
 /**
  * @typedef {Object} DisposableLike
  * @property {() => void | Promise<void>} [dispose]
+ * @property {() => {tokens?: number | null, contextWindow?: number | null, percent?: number | null} | undefined} [getContextUsage]
+ * @property {{getCompactionSettings?: () => {enabled?: boolean}}} [settingsManager]
+ * @property {{contextWindow?: number}} [model]
  */
 
 /**
@@ -66,7 +69,7 @@ import { clearPairCheckpoint } from "./pair-checkpoint-session.ts";
  */
 
 /**
- * @typedef {Object} MinimalSessionManagerLike
+ * @typedef {Object} MinimalSessionManagerShape
  * @property {() => string} [getSessionId]
  * @property {() => string | null} [getLeafId]
  * @property {() => string | undefined} [getSessionFile]
@@ -77,11 +80,19 @@ import { clearPairCheckpoint } from "./pair-checkpoint-session.ts";
  * @property {(provider: string, modelId: string) => void} [appendModelChange]
  * @property {() => unknown[]} [getBranch]
  * @property {() => unknown[]} [getEntries]
- * @property {(message: unknown) => string} [appendMessage]
+ * @property {import('@earendil-works/pi-coding-agent').SessionManager['appendMessage']} [appendMessage]
  * @property {(message: unknown) => void} [addMessage]
  * @property {(customType: string, data: unknown) => void} [appendCustomEntry]
  * @property {() => void | Promise<void>} [dispose]
  */
+
+/**
+ * @typedef {Object} SessionManagerExtensions
+ * @property {(message: unknown) => void} [addMessage]
+ * @property {() => void | Promise<void>} [dispose]
+ */
+
+/** @typedef {MinimalSessionManagerShape | (import('@earendil-works/pi-coding-agent').SessionManager & SessionManagerExtensions)} MinimalSessionManagerLike */
 
 /**
  * @typedef {Object} ActiveInteractionRecord

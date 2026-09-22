@@ -1,0 +1,71 @@
+---
+import LoadingSurface from "../../../../../components/LoadingSurface.astro";
+import ReviewLayout from "../../../../../layouts/ReviewLayout.astro";
+import { ArtifactReadSurface } from "../../../../../react/ArtifactReadSurface.tsx";
+import { loadOwnerProjectArtifact } from "../../../../../server/astro-owner-data.js";
+
+const projectId = Astro.params.projectId ?? "";
+const artifactType = Astro.params.artifactType ?? "";
+const sourceKey = Astro.params.sourceId ?? "";
+let sourceId = "";
+try {
+    const base64 = sourceKey.replaceAll("-", "+").replaceAll("_", "/").padEnd(Math.ceil(sourceKey.length / 4) * 4, "=");
+    const binary = atob(base64);
+    sourceId = new TextDecoder().decode(Uint8Array.from(binary, (character) => character.charCodeAt(0)));
+} catch {
+    sourceId = "";
+}
+const requestedReturn = Astro.url.searchParams.get("return") || "";
+let returnHref = "/search";
+try {
+    const candidate = new URL(requestedReturn, Astro.url.origin);
+    if (candidate.origin === Astro.url.origin && candidate.pathname === "/search") {
+        returnHref = `${candidate.pathname}${candidate.search}`;
+    }
+} catch {
+    returnHref = "/search";
+}
+let artifact = null;
+let error = "";
+try {
+    artifact = await loadOwnerProjectArtifact(projectId, artifactType, sourceId);
+} catch (caught) {
+    const message = caught instanceof Error ? caught.message : String(caught);
+    error = message.toLocaleLowerCase().includes("not found")
+        ? "Project artifact was not found."
+        : "Project artifact is unavailable.";
+    Astro.response.status = message.toLocaleLowerCase().includes("not found") ? 404 : 409;
+}
+const payload = artifact
+    ? {
+        surface: "artifact-read",
+        markdown: artifact.markdown,
+        artifactKind: artifact.kind,
+        title: artifact.title,
+        artifactPath: artifact.path,
+        notices: artifact.notices,
+        sourceLinks: (artifact.sourceLinks || []).map((planId: string) => ({
+            label: planId,
+            href: `/projects/${encodeURIComponent(projectId)}/plans/${encodeURIComponent(planId)}?return=${encodeURIComponent(returnHref)}`,
+        })),
+        returnHref,
+        returnLabel: "Back to Search",
+        launch: "project",
+        mode: "dev",
+        token: "",
+    }
+    : null;
+---
+<ReviewLayout title={artifact ? `${artifact.title} · RunWield Workspace` : "Project artifact · RunWield Workspace"}>
+    {error ? (
+        <section class="error-panel">
+            <h2>Project artifact could not be opened</h2>
+            <p>{error}</p>
+            <a href={returnHref}>Back to Search</a>
+        </section>
+    ) : (
+        <ArtifactReadSurface payload={payload} client:only="react">
+            <LoadingSurface slot="fallback" label="Loading artifact" />
+        </ArtifactReadSurface>
+    )}
+</ReviewLayout>

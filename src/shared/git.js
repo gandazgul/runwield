@@ -3,14 +3,6 @@
  * Shared Git repository detection and non-Git execution consent helpers.
  */
 
-import { getCustomSetting, setCustomSetting } from "./settings.js";
-
-export const NON_GIT_EXECUTION_CONSENT_KEY = "nonGitExecutionConsent";
-
-/**
- * @typedef {"featurePlan" | "quickFix"} NonGitConsentKind
- */
-
 /**
  * @typedef {Object} GitPromptState
  * @property {string} branch
@@ -189,39 +181,4 @@ export function isGitRepositoryRequiredError(error) {
 export function formatGitRequiredMessage(error) {
     if (isGitRepositoryRequiredError(error)) return error instanceof Error ? error.message : String(error);
     return error instanceof Error ? error.message : String(error);
-}
-
-/**
- * @param {unknown} value
- * @returns {Record<string, boolean>}
- */
-function normalizeConsent(value) {
-    return value && typeof value === "object" && !Array.isArray(value)
-        ? /** @type {Record<string, boolean>} */ (value)
-        : {};
-}
-
-/**
- * @param {NonGitConsentKind} kind
- * @param {string} [projectRoot]
- * @returns {boolean}
- */
-export function hasNonGitExecutionConsent(kind, projectRoot = Deno.cwd()) {
-    const consent = normalizeConsent(getCustomSetting(NON_GIT_EXECUTION_CONSENT_KEY, "project", projectRoot));
-    return consent[kind] === true;
-}
-
-/**
- * @param {NonGitConsentKind} kind
- * @param {string} [projectRoot]
- * @returns {Promise<void>}
- */
-export async function rememberNonGitExecutionConsent(kind, projectRoot = Deno.cwd()) {
-    const consent = normalizeConsent(getCustomSetting(NON_GIT_EXECUTION_CONSENT_KEY, "project", projectRoot));
-    await setCustomSetting(
-        NON_GIT_EXECUTION_CONSENT_KEY,
-        { ...consent, [kind]: true },
-        "project",
-        projectRoot,
-    );
 }

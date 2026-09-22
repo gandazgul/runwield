@@ -97,7 +97,7 @@ function requireInteractiveCommandContext(options) {
  * @property {import('../ui/tui/types.js').UiAPI} [uiAPI]
  * @property {import('../ui/tui/types.js').EditorAPI} [editor]
  * @property {string} [sessionId]
- * @property {import('../shared/session/session-runtime.js').SessionRuntime} [sessionRuntime]
+ * @property {import('../shared/session/session-runtime.ts').SessionRuntime} [sessionRuntime]
  * @property {string} [sessionStartedAt]
  * @property {import('../ui/tui/types.js').TuiAPI} [tui]
  * @property {(data: string) => void | Promise<void>} [originalHandleInput]

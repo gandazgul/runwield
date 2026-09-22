@@ -32,8 +32,13 @@ import { renameRestoredPlanEntry } from "./shared/worktree-registry.js";
 import { resolvePrimaryCheckoutRoot } from "./shared/primary-checkout.ts";
 import { writePlanDocumentAndController } from "./shared/workflow/state-transition.ts";
 import { escapeYamlDoubleQuoted } from "./shared/yaml-scalar.ts";
+import { requestWorkspaceSearchRefresh } from "./shared/workspace-search-refresh.ts";
 import { pickControllerState, PLAN_RUNTIME_FIELDS, stripRuntimeFields } from "./shared/workflow/controller-state.ts";
-import { enterProjectRuntime, ProjectRuntimeEntryRefusedError } from "./shared/project-runtime-layout.ts";
+import {
+    enterProjectRuntime,
+    ProjectRuntimeEntryRefusedError,
+    withProjectRuntimeReadScope,
+} from "./shared/project-runtime-layout.ts";
 import {
     bindControllerPlanIdentity,
     finishControllerPlanIdentity,
@@ -1854,6 +1859,15 @@ export async function inspectPlanStrict(cwd, planName) {
     return await inspectPlanFileStrict(filePath);
 }
 
+/** @param {string} filePath */
+function workspaceSearchRootForPlanPath(filePath) {
+    const normalizedPath = resolve(filePath).replaceAll("\\", "/");
+    const marker = `/${PLANS_DIR_NAME}/`;
+    const markerIndex = normalizedPath.lastIndexOf(marker);
+    if (markerIndex < 0) return null;
+    return resolvePrimaryCheckoutRoot(normalizedPath.slice(0, markerIndex));
+}
+
 /**
  * Atomically replace an existing Plan after verifying its byte revision.
  * @param {string} filePath
@@ -1882,6 +1896,8 @@ export async function writePlanMarkdownWithRevision(filePath, nextMarkdown, expe
     const frontMatterRevision = await getPlanFrontMatterRevisionForText(nextMarkdown);
     recordPlanWriteRevision(filePath, revision, frontMatterRevision);
     rememberFrontMatterRevision(revision, frontMatterRevision);
+    const searchRoot = workspaceSearchRootForPlanPath(filePath);
+    if (searchRoot) await requestWorkspaceSearchRefresh(searchRoot);
     return revision;
 }
 
@@ -2279,6 +2295,7 @@ export async function savePlan(cwd, planName, content, fmOverrides = {}, options
             await loadControllerView(cwd, { planName, planId: documentAttrs.planId }, documentAttrs);
             if (existing.kind === "not_found") {
                 await atomicWriteTextFileIfAbsent(filePath, planDocumentMarkdown(withFm));
+                await requestWorkspaceSearchRefresh(resolvePrimaryCheckoutRoot(cwd));
             } else {
                 await writePlanMarkdownWithRevision(filePath, withFm, options.expectedRevision);
             }
@@ -2689,88 +2706,93 @@ export function comparePlansForList(a, b) {
  * @returns {Promise<Array<{ name: string, path: string, attrs: PlanFrontMatter }>>}
  */
 export async function listPlans(cwd) {
-    const dir = getPlansDir(cwd);
-    /** @type {Array<{ name: string, path: string, attrs: PlanFrontMatter }>} */
-    const results = [];
-    /** @type {PlanParseIssue[]} */
-    const parseIssues = [];
-    try {
-        await collectPlans(dir, [], results, parseIssues);
-    } catch (error) {
-        if (!(error instanceof Deno.errors.NotFound)) throw error;
-    }
-    for (const projectPlan of [...results]) {
-        const targetBranch = typeof projectPlan.attrs.targetBranch === "string"
-            ? projectPlan.attrs.targetBranch.trim()
-            : "";
-        if (!targetBranch || !isProjectPlan(projectPlan.attrs)) continue;
-        let targetChildren;
+    return await withProjectRuntimeReadScope(async () => {
+        const dir = getPlansDir(cwd);
+        /** @type {Array<{ name: string, path: string, attrs: PlanFrontMatter }>} */
+        const results = [];
+        /** @type {PlanParseIssue[]} */
+        const parseIssues = [];
         try {
-            targetChildren = await findTargetBranchPlansByParent(cwd, targetBranch, projectPlan.name);
+            await collectPlans(dir, [], results, parseIssues);
         } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            if (
-                message.includes("Target branch does not exist") ||
-                message.includes("Could not refresh target branch")
-            ) continue;
-            throw error;
+            if (!(error instanceof Deno.errors.NotFound)) throw error;
         }
-        for (const child of targetChildren) {
-            const index = results.findIndex((item) =>
-                item.name === child.name || Boolean(child.attrs.planId && item.attrs.planId === child.attrs.planId)
-            );
-            if (
-                index >= 0 && results[index].name === child.name && results[index].attrs.planId && child.attrs.planId &&
-                results[index].attrs.planId !== child.attrs.planId
-            ) {
-                throw new Error(`Target Plan ${child.name} has a different Plan ID. Your files have not been changed.`);
+        for (const projectPlan of [...results]) {
+            const targetBranch = typeof projectPlan.attrs.targetBranch === "string"
+                ? projectPlan.attrs.targetBranch.trim()
+                : "";
+            if (!targetBranch || !isProjectPlan(projectPlan.attrs)) continue;
+            let targetChildren;
+            try {
+                targetChildren = await findTargetBranchPlansByParent(cwd, targetBranch, projectPlan.name);
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                if (
+                    message.includes("Target branch does not exist") ||
+                    message.includes("Could not refresh target branch")
+                ) continue;
+                throw error;
             }
-            const item = { name: child.name, path: child.path, attrs: child.attrs };
+            for (const child of targetChildren) {
+                const index = results.findIndex((item) =>
+                    item.name === child.name || Boolean(child.attrs.planId && item.attrs.planId === child.attrs.planId)
+                );
+                if (
+                    index >= 0 && results[index].name === child.name && results[index].attrs.planId &&
+                    child.attrs.planId &&
+                    results[index].attrs.planId !== child.attrs.planId
+                ) {
+                    throw new Error(
+                        `Target Plan ${child.name} has a different Plan ID. Your files have not been changed.`,
+                    );
+                }
+                const item = { name: child.name, path: child.path, attrs: child.attrs };
+                if (index < 0) results.push(item);
+                else results[index] = item;
+            }
+        }
+        const attempts = await listControllerDocumentWorktrees(cwd);
+        for (const attempt of attempts) {
+            if (attempts.filter((entry) => entry.planName === attempt.planName).length !== 1) continue;
+            const execution = await loadPlan(attempt.path, attempt.planName);
+            if (!execution) {
+                const archived = await loadArchivedPlanByName(attempt.path, attempt.planName);
+                if (archived && (!attempt.planId || archived.attrs.planId === attempt.planId)) {
+                    const index = results.findIndex((item) =>
+                        item.name === attempt.planName ||
+                        Boolean(attempt.planId && item.attrs.planId === attempt.planId)
+                    );
+                    if (index >= 0) results.splice(index, 1);
+                    const issueIndex = parseIssues.findIndex((issue) => issue.name === attempt.planName);
+                    if (issueIndex >= 0) parseIssues.splice(issueIndex, 1);
+                    continue;
+                }
+                throw new Error(
+                    `The execution Plan is missing at ${attempt.path}/docs/plans/${attempt.planName}.md. Restore that file before editing or continuing this Plan; the primary copy will not be used.`,
+                );
+            }
+            if (attempt.planId && execution.attrs.planId && execution.attrs.planId !== attempt.planId) {
+                throw new Error(
+                    `The execution directory contains a different Plan at ${execution.path}. Your files have not been changed.`,
+                );
+            }
+            const index = results.findIndex((item) =>
+                item.name === attempt.planName ||
+                Boolean(attempt.planId && item.attrs.planId === attempt.planId)
+            );
+            const item = { name: attempt.planName, path: execution.path, attrs: execution.attrs };
             if (index < 0) results.push(item);
             else results[index] = item;
+            const issueIndex = parseIssues.findIndex((issue) => issue.name === attempt.planName);
+            if (issueIndex >= 0) parseIssues.splice(issueIndex, 1);
         }
-    }
-    const attempts = await listControllerDocumentWorktrees(cwd);
-    for (const attempt of attempts) {
-        if (attempts.filter((entry) => entry.planName === attempt.planName).length !== 1) continue;
-        const execution = await loadPlan(attempt.path, attempt.planName);
-        if (!execution) {
-            const archived = await loadArchivedPlanByName(attempt.path, attempt.planName);
-            if (archived && (!attempt.planId || archived.attrs.planId === attempt.planId)) {
-                const index = results.findIndex((item) =>
-                    item.name === attempt.planName ||
-                    Boolean(attempt.planId && item.attrs.planId === attempt.planId)
-                );
-                if (index >= 0) results.splice(index, 1);
-                const issueIndex = parseIssues.findIndex((issue) => issue.name === attempt.planName);
-                if (issueIndex >= 0) parseIssues.splice(issueIndex, 1);
-                continue;
-            }
-            throw new Error(
-                `The execution Plan is missing at ${attempt.path}/docs/plans/${attempt.planName}.md. Restore that file before editing or continuing this Plan; the primary copy will not be used.`,
-            );
+        if (parseIssues.length > 0) {
+            const issue = parseIssues[0];
+            if (issue.error instanceof Error) throw issue.error;
+            throw new PlanFileIssueError(issue.path, "malformed", issue.message);
         }
-        if (attempt.planId && execution.attrs.planId && execution.attrs.planId !== attempt.planId) {
-            throw new Error(
-                `The execution directory contains a different Plan at ${execution.path}. Your files have not been changed.`,
-            );
-        }
-        const index = results.findIndex((item) =>
-            item.name === attempt.planName ||
-            Boolean(attempt.planId && item.attrs.planId === attempt.planId)
-        );
-        const item = { name: attempt.planName, path: execution.path, attrs: execution.attrs };
-        if (index < 0) results.push(item);
-        else results[index] = item;
-        const issueIndex = parseIssues.findIndex((issue) => issue.name === attempt.planName);
-        if (issueIndex >= 0) parseIssues.splice(issueIndex, 1);
-    }
-    if (parseIssues.length > 0) {
-        const issue = parseIssues[0];
-        if (issue.error instanceof Error) throw issue.error;
-        throw new PlanFileIssueError(issue.path, "malformed", issue.message);
-    }
-    return results.sort(comparePlansForList);
+        return results.sort(comparePlansForList);
+    });
 }
 
 /**
@@ -3719,38 +3741,44 @@ export async function findPlanById(cwd, planId) {
  * @returns {Promise<PlanResource>}
  */
 export async function findPlanEvidenceById(cwd, planId) {
-    const normalized = normalizePlanId(planId);
-    if (!normalized) throw new Error("Plan ID cannot be empty");
-    const plans = await listPlans(cwd);
-    const matches = plans.filter((plan) => {
-        if (plan.attrs.planId === normalized) return true;
-        const stripped = stripSequencePrefix(plan.attrs.planId || "");
-        return stripped === normalized;
+    return await withProjectRuntimeReadScope(async () => {
+        const normalized = normalizePlanId(planId);
+        if (!normalized) throw new Error("Plan ID cannot be empty");
+        const plans = await listPlans(cwd);
+        const matches = plans.filter((plan) => {
+            if (plan.attrs.planId === normalized) return true;
+            const stripped = stripSequencePrefix(plan.attrs.planId || "");
+            return stripped === normalized;
+        });
+        if (matches.length > 1) {
+            throw new Error(
+                `Duplicate planId values found for ${normalized}; repair plan front matter before continuing.`,
+            );
+        }
+        if (matches.length === 0) throw new Error(`Plan not found for planId: ${normalized}`);
+        const loaded = await loadPlanFileStrict(matches[0].path);
+        if (loaded.kind !== "loaded") {
+            if (loaded.kind === "malformed") throw loaded.error;
+            throw new Error(`Plan not found for planId: ${normalized}`);
+        }
+        const durableId = loaded.attrs.planId;
+        if (!durableId) {
+            throw new Error(
+                "Plan is missing durable planId metadata; adopt or repair it locally before remote action.",
+            );
+        }
+        return {
+            planName: matches[0].name,
+            name: matches[0].name,
+            relativePath: `${PLANS_DIR_NAME}/${matches[0].name}.md`,
+            path: loaded.path,
+            planId: durableId,
+            attrs: loaded.attrs,
+            body: loaded.body,
+            markdown: loaded.markdown,
+            revision: loaded.revision,
+        };
     });
-    if (matches.length > 1) {
-        throw new Error(`Duplicate planId values found for ${normalized}; repair plan front matter before continuing.`);
-    }
-    if (matches.length === 0) throw new Error(`Plan not found for planId: ${normalized}`);
-    const loaded = await loadPlanFileStrict(matches[0].path);
-    if (loaded.kind !== "loaded") {
-        if (loaded.kind === "malformed") throw loaded.error;
-        throw new Error(`Plan not found for planId: ${normalized}`);
-    }
-    const durableId = loaded.attrs.planId;
-    if (!durableId) {
-        throw new Error("Plan is missing durable planId metadata; adopt or repair it locally before remote action.");
-    }
-    return {
-        planName: matches[0].name,
-        name: matches[0].name,
-        relativePath: `${PLANS_DIR_NAME}/${matches[0].name}.md`,
-        path: loaded.path,
-        planId: durableId,
-        attrs: loaded.attrs,
-        body: loaded.body,
-        markdown: loaded.markdown,
-        revision: loaded.revision,
-    };
 }
 
 /**

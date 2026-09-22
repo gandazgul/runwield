@@ -14,7 +14,7 @@ import { AGENTS, getCwd, SUBAGENTS } from "../../constants.js";
 import { COMMAND_NAMES } from "../registry.js";
 import { EMPTY_PROJECT_DIRECTORY_INIT_NOOP_BODY, isEmptyProjectDirectory } from "../../shared/project-state.js";
 import { extractBundledAgentDefs, extractBundledSkills } from "../../shared/session/agent-assets.js";
-import { createSessionRuntime, SessionRuntime } from "../../shared/session/session-runtime.js";
+import { createSessionRuntime, SessionRuntime } from "../../shared/session/session-runtime.ts";
 import { getModelRegistry } from "../../shared/models/model-registry.ts";
 import { getSettingsManager } from "../../shared/settings.js";
 import { printCommandHelp } from "../help/index.ts";

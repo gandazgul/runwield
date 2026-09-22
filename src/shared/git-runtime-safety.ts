@@ -74,8 +74,10 @@ async function treeRuntimePaths(cwd: string, ref: string): Promise<string[]> {
 
 async function indexRuntimePaths(cwd: string): Promise<string[]> {
     const cached = await runGit(cwd, ["ls-files", "-z", "--cached"]);
-    const staged = await runGit(cwd, ["diff", "--cached", "--name-only", "-z", "--no-renames"]);
-    return [...new Set([...parseNulPaths(cached), ...parseNulPaths(staged)].filter(isRunWieldOwnedRuntimePath))].sort();
+    // The caller also inspects HEAD: staged deletions are present there, while
+    // additions and rename destinations are present in this index listing.
+    // A third `diff --cached` cannot add a path outside that union.
+    return [...new Set(parseNulPaths(cached).filter(isRunWieldOwnedRuntimePath))].sort();
 }
 
 export async function assertNoTrackedOrIndexedRuntimePaths(cwd: string): Promise<void> {

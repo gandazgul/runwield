@@ -33,11 +33,39 @@ export function getCookie(request, name) {
  */
 export function deviceCookieHeaders(options) {
     const secure = parseOwnerOrigin(options.publicOrigin).protocol === "https:";
-    const suffix = `Max-Age=${OWNER_DEVICE_MAX_AGE_SECONDS}; Path=/; SameSite=Strict${secure ? "; Secure" : ""}`;
+    const suffix = `Max-Age=${OWNER_DEVICE_MAX_AGE_SECONDS}; Path=/${secure ? "; Secure" : ""}`;
     return [
-        `${OWNER_DEVICE_COOKIE}=${cookieValue(options.credential)}; ${suffix}; HttpOnly`,
-        `${OWNER_CSRF_COOKIE}=${cookieValue(options.csrf)}; ${suffix}`,
+        `${OWNER_DEVICE_COOKIE}=${cookieValue(options.credential)}; ${suffix}; SameSite=Lax; HttpOnly`,
+        `${OWNER_CSRF_COOKIE}=${cookieValue(options.csrf)}; ${suffix}; SameSite=Strict`,
     ];
+}
+
+/**
+ * @typedef {Object} OwnerCookieState
+ * @property {import('../../../shared/owner-coordination/index.js').OwnerCoordinationStore} store
+ * @property {string} publicOrigin
+ */
+
+/**
+ * Renew existing pairing on document visits, including credentials issued before
+ * app-launch cookies used SameSite=Lax. Keep credentials out of browser storage.
+ * @param {Request} request
+ * @param {Response} response
+ * @param {OwnerCookieState} state
+ * @param {string} deviceId
+ */
+export function renewDeviceCookies(request, response, state, deviceId) {
+    const csrf = getCookie(request, OWNER_CSRF_COOKIE);
+    if (!csrf || !state.store.verifyDeviceCsrf(deviceId, csrf)) return response;
+    const headers = new Headers(response.headers);
+    for (
+        const cookie of deviceCookieHeaders({
+            credential: getCookie(request, OWNER_DEVICE_COOKIE),
+            csrf,
+            publicOrigin: state.publicOrigin,
+        })
+    ) headers.append("set-cookie", cookie);
+    return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
 /** @param {{ publicOrigin: string }} options */

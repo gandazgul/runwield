@@ -6,7 +6,7 @@ import { defineCommittedGitFixture, git } from "../../shared/git-test-fixture.ts
 import { createGitPort } from "../../shared/git-port.ts";
 import { resolveProjectRuntimeLayout } from "../../shared/project-runtime-layout.ts";
 import { HostedSession } from "../../shared/session/hosted-session.js";
-import { createSessionRuntime } from "../../shared/session/session-runtime.js";
+import { createSessionRuntime } from "../../shared/session/session-runtime.ts";
 import { findById } from "../../shared/worktree-registry.js";
 import { type ControllerRecord, readControllerRecord } from "../../shared/workflow/controller-registry.ts";
 import { finalizePlanImplementation } from "../../shared/workflow/implementation-checkpoint.ts";
@@ -136,6 +136,7 @@ for (
                     const oldDirectory = join(root, ".wld", "controller", "plans");
                     await Deno.mkdir(oldDirectory, { recursive: true });
                     await Deno.writeTextFile(join(oldDirectory, "migration-demo.json"), JSON.stringify(controller));
+                    await Deno.writeTextFile(join(root, ".wld", "worktrees.json"), '{"version":2,"entries":[]}');
                     await Deno.mkdir(join(tree, ".wld", "plan-locks"), { recursive: true });
                 }
                 // Act: select and reload through the actual command, with no migration

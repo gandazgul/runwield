@@ -32,7 +32,8 @@ import {
     putSecretRecord,
 } from "../../shared/collaboration/secrets.js";
 import { buildCollaborationUrl, redactCollaborationUrl } from "../../shared/collaboration/urls.js";
-import { getDefaultPlanServerUrl, normalizePlanServerUrl } from "../../shared/settings.js";
+import { getDefaultPlanServerUrl } from "../../shared/settings.js";
+import { normalizePlanServerUrl } from "../../shared/collaboration/urls.js";
 import { enterProjectRuntime } from "../../shared/project-runtime-layout.ts";
 
 interface PlansShareArgs {

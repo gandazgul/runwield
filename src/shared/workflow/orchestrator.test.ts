@@ -40,7 +40,6 @@ function createSessionFixture(projectRoot: string, interaction?: InteractionHand
     });
     // HostedSession's legacy minimal-manager JSDoc is wider than Pi's concrete
     // manager signature; this is the real runtime manager used in production.
-    // @ts-expect-error SessionManager is runtime-compatible with HostedSession.
     hostedSession.setRootSessionManager(sessionManager);
     const events: SessionRuntimeEvent[] = [];
     hostedSession.setEventSink((event: SessionRuntimeEvent) => events.push(event));

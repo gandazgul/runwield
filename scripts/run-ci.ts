@@ -1,5 +1,7 @@
 #!/usr/bin/env -S deno run -A
 
+import { runWithSnip, writeSnipCommandResult } from "./run-with-snip.ts";
+
 export const PRE_TEST_TASKS = [
     "submodules:check",
     "snip:check",
@@ -13,7 +15,7 @@ export const PRE_TEST_TASKS = [
     "skills:sync:check",
 ] as const;
 
-export type CiTaskName = typeof PRE_TEST_TASKS[number] | "test";
+export type CiTaskName = typeof PRE_TEST_TASKS[number] | "test" | "test:all";
 
 export interface CiTaskResult {
     name: CiTaskName;
@@ -52,7 +54,11 @@ function printFailureSummary(failures: CiTaskResult[]): void {
     }
 }
 
-export async function runCi(executeTask: ExecuteCiTask): Promise<CiResult> {
+export interface CiOptions {
+    sourceOnly?: boolean;
+}
+
+export async function runCi(executeTask: ExecuteCiTask, options: CiOptions = {}): Promise<CiResult> {
     const preTestRuns = PRE_TEST_TASKS.map((taskName) => settleTask(taskName, executeTask));
     const preTestResults = await Promise.all(preTestRuns);
     const preTestFailures = failedTasks(preTestResults);
@@ -62,33 +68,23 @@ export async function runCi(executeTask: ExecuteCiTask): Promise<CiResult> {
         return { exitCode: 1, failures: preTestFailures };
     }
 
-    const testResult = await settleTask("test", executeTask);
+    const testResult = await settleTask(options.sourceOnly ? "test" : "test:all", executeTask);
     const testFailures = failedTasks([testResult]);
     printFailureSummary(testFailures);
     return { exitCode: testResult.code, failures: testFailures };
 }
 
-async function executeDenoTask(taskName: CiTaskName): Promise<CiTaskResult> {
+async function executeDenoTask(taskName: CiTaskName, failFast: boolean): Promise<CiTaskResult> {
     const start = performance.now();
-    console.error(`[ci] start ${taskName}`);
-    let child: Deno.ChildProcess;
-    try {
-        child = new Deno.Command(Deno.execPath(), {
-            args: ["task", "-q", taskName],
-            stdin: "inherit",
-            stdout: "inherit",
-            stderr: "inherit",
-        }).spawn();
-    } catch {
-        const elapsedMs = performance.now() - start;
-        console.error(`[ci] failed to start ${taskName} (${formatElapsed(elapsedMs)})`);
-        return { name: taskName, code: 1, elapsedMs };
-    }
-
-    const status = await child.status;
-    const elapsedMs = performance.now() - start;
-    console.error(`[ci] done ${taskName}: exit ${status.code} (${formatElapsed(elapsedMs)})`);
-    return { name: taskName, code: status.code, elapsedMs };
+    const args = ["task", "-q", taskName];
+    if (failFast && (taskName === "test" || taskName === "test:all")) args.push("--fail-fast");
+    const result = await runWithSnip("deno", args, {
+        stdin: "inherit",
+        failureLabel: `ci ${taskName}`,
+        quietOnSuccess: true,
+    });
+    await writeSnipCommandResult(result);
+    return { name: taskName, code: result.code, elapsedMs: performance.now() - start };
 }
 
 function formatElapsed(elapsedMs: number): string {
@@ -97,6 +93,28 @@ function formatElapsed(elapsedMs: number): string {
 }
 
 if (import.meta.main) {
-    const result = await runCi(executeDenoTask);
+    if (Deno.args.some((arg) => arg !== "--source-only" && arg !== "--fail-fast")) {
+        throw new Error("usage: deno task ci [--source-only] [--fail-fast]");
+    }
+    const start = performance.now();
+    const timings: CiTaskResult[] = [];
+    const result = await runCi(async (name) => {
+        const task = await executeDenoTask(name, Deno.args.includes("--fail-fast"));
+        timings.push(task);
+        return task;
+    }, { sourceOnly: Deno.args.includes("--source-only") });
+    await Deno.mkdir(".ci-cache", { recursive: true });
+    await Deno.writeTextFile(
+        ".ci-cache/ci-timings.json",
+        JSON.stringify(
+            {
+                elapsedMs: performance.now() - start,
+                tasks: timings,
+            },
+            null,
+            2,
+        ) + "\n",
+    );
+    if (result.exitCode === 0) console.log(`CI passed (${formatElapsed(performance.now() - start)})`);
     Deno.exit(result.exitCode);
 }

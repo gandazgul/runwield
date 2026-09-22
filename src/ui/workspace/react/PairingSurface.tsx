@@ -2,7 +2,7 @@ import { RunWieldThinkingDots } from "../../design-system/components/react/RunWi
 import { useCallback, useEffect, useRef, useState } from "react";
 import { RunWieldButton } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 
-type PairingState = "idle" | "loading" | "pending" | "approved" | "expired" | "missing" | "error";
+type PairingState = "idle" | "loading" | "pending" | "approved" | "paired" | "expired" | "missing" | "error";
 
 interface PairingResponse {
     code?: string;
@@ -59,6 +59,15 @@ export function PairingSurface() {
         setState("loading");
         setMessage("");
         try {
+            // A restored pairing page may already have a valid device cookie,
+            // even when the initial app navigation omitted a legacy Strict cookie.
+            const status = await fetch("/api/owner/pairing/status", { cache: "no-store" });
+            const existing: PairingResponse = await status.json();
+            if (version !== requestVersion.current) return;
+            if (status.ok && existing.state === "paired") {
+                globalThis.location.replace("/");
+                return;
+            }
             const response = await fetch("/api/owner/pairing/request", {
                 method: "POST",
                 headers: { "content-type": "application/json" },
@@ -107,6 +116,10 @@ export function PairingSurface() {
                 const response = await fetch("/api/owner/pairing/status", { cache: "no-store" });
                 const payload: PairingResponse = await response.json();
                 if (cancelled) return;
+                if (payload.state === "paired") {
+                    globalThis.location.replace("/");
+                    return;
+                }
                 if (payload.state === "approved") {
                     setState("approved");
                     const claim = await fetch("/api/owner/pairing/claim", { method: "POST" });

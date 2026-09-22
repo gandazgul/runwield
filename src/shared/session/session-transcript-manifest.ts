@@ -5,12 +5,14 @@
 
 import { dirname, resolve } from "@std/path";
 import { readCatalogSafeRootSessionLocator } from "./root-session.js";
+import type { TutorialContextCandidate } from "./tutorial-context-session.ts";
 import {
     buildProjectedSessionInfo,
     captureTranscriptEvidence,
     createReplayEvents,
     selectProjectedEventsAfterCursor,
     summarizeProjectedEntries,
+    summarizeResumableTranscript,
     toProjectionFailure,
 } from "./session-transcript-projection.js";
 
@@ -77,6 +79,12 @@ type AggregateProjectionFailure = {
     events: [];
 };
 
+type ProjectedSessionSnapshot = {
+    activeAgent?: string | null;
+    tutorialContext?: TutorialContextCandidate | null;
+    [key: string]: unknown;
+};
+
 type AggregateProjectionResult = {
     ok: true;
     generation: number;
@@ -84,7 +92,7 @@ type AggregateProjectionResult = {
     nextCursor: string | null;
     nextCursorOrdinal: number | null;
     complete: boolean;
-    snapshot: { [key: string]: unknown };
+    snapshot: ProjectedSessionSnapshot;
     segments: VerifiedSegmentMetadata[];
     cursorReset: boolean;
     previousCursor?: string | null;
@@ -218,6 +226,7 @@ export async function projectAggregateTranscript(
         });
         const snapshot = {
             ...summarizeProjectedEntries(aggregateEntries),
+            ...summarizeResumableTranscript(aggregateEntries),
             sessionStats: {
                 userMessages: info.userMessages,
                 assistantMessages: info.assistantMessages,

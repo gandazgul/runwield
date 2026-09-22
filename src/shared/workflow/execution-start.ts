@@ -6,7 +6,8 @@ import {
     getPlanFrontMatterRevisionForText,
     loadPlan,
 } from "../../plan-store.js";
-import { hasNonGitExecutionConsent, probeGitRepository, rememberNonGitExecutionConsent } from "../git.js";
+import { probeGitRepository } from "../git.js";
+import { hasNonGitExecutionConsent, rememberNonGitExecutionConsent } from "../non-git-execution-consent.ts";
 import { requestHostedSessionInteraction, RuntimeInteractionTypes } from "../session/session-runtime-interactions.js";
 import {
     checkpointExecutionPreparation,

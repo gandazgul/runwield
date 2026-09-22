@@ -52,8 +52,9 @@ wld install <source>
 > [!IMPORTANT]
 > **Theme-only constraints**: RunWield only registers `.json` theme files found within these packages. Any other
 > resources (logic extensions, skills, prompts) are ignored; `wld install` reports the count so you know what was
-> skipped. Skills are intentionally handled by the wider skill ecosystem instead: RunWield discovers compatible skills
-> from `~/.agents/skills`, `~/.wld/skills`, local `.wld/skills`, and bundled `src/skills`.
+> skipped. Skills are handled by the wider skill ecosystem instead. RunWield checks project `.wld/skills`, project
+> `.agents/skills`, home `~/.wld/skills`, home `~/.agents/skills`, then bundled `src/skills`. External skills cannot use
+> bundled names or aliases.
 
 ### Removing Themes
 

@@ -28,7 +28,7 @@ import {
     deriveManagedSessionContinuationDecision,
     listPromptTemplates,
     listSkills,
-} from "../../../shared/session/session-runtime.js";
+} from "../../../shared/session/session-runtime.ts";
 import { getRunWieldSessionDir } from "../../../shared/session/root-session.js";
 import { projectAggregateTranscript } from "../../../shared/session/session-transcript-manifest.ts";
 import {

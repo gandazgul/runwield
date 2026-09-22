@@ -1,4 +1,4 @@
-import { readWorkspaceStyles } from "./workspace-styles.js";
+import { readWorkspaceStyles } from "./workspace-styles.ts";
 import { assertEquals, assertStringIncludes } from "@std/assert";
 
 import { savePlan } from "../../plan-store.js";

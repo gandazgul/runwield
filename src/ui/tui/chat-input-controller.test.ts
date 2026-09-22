@@ -1,9 +1,9 @@
-import { assert, assertEquals, assertStringIncludes } from "@std/assert";
+import { assert, assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { fauxAssistantMessage, fauxText } from "@earendil-works/pi-ai";
 import { NO_OPEN_BROWSER_PORT } from "../../shared/browser-port.ts";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { openOwnerCoordinationStore } from "../../shared/owner-coordination/index.js";
-import { createSessionRuntime } from "../../shared/session/session-runtime.js";
+import { createSessionRuntime } from "../../shared/session/session-runtime.ts";
 import { getRunWieldSessionDir } from "../../shared/session/root-session.js";
 import { getSettingsManager } from "../../shared/settings.js";
 import { createInteractiveTuiComposition, type InteractiveTuiComposition } from "./interactive-tui-composition.ts";
@@ -100,6 +100,28 @@ async function startComposition(
     await composition.waitForIdle();
     return { composition, terminal };
 }
+
+Deno.test("composition idle waits for a real slash-command interaction to finish", async () => {
+    await withRuntimeCommandFixture("chat-input-pending-slash-", async () => {
+        const { composition, terminal } = await startComposition();
+        try {
+            await submitText(terminal, "/theme");
+            await waitFor(() => terminal.getScreenText().includes("Select Theme"), "theme selection");
+            assertEquals(composition.runtime.getSessionSnapshot(composition.sessionId)?.busy, false);
+            await assertRejects(
+                () => composition.waitForIdle(200),
+                Error,
+                "Timed out waiting for TUI composition idle",
+            );
+            terminal.pressEscape();
+            await terminal.flush();
+            await composition.waitForIdle(5_000);
+        } finally {
+            terminal.pressEscape();
+            await composition.dispose();
+        }
+    });
+});
 
 async function seedActiveElsewhereManagedSession(
     projectRoot: string,

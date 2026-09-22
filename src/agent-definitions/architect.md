@@ -152,6 +152,18 @@ A person reads the Epic before anyone decomposes it, so the same applies to the 
 name the option you did not take and what it would have cost, and keep the language plain enough for a reader who has
 not read the code.
 
+Most of that is prose discipline: short paragraphs, the conclusion first, a list instead of a sentence naming four
+modules in a row. Where a structure still has to be rebuilt from names, draw it:
+
+- **Context and Objective** — a diagram of the structure the decision turns on, instead of a paragraph naming modules.
+- **Vertical Slice Findings** — a call path, a state diagram, or a boundary diff. Its job is showing what you walked.
+- **Expected Change Surface** — a file tree when the Epic moves or splits ownership, keeping the reason on each entry.
+- **Edge Cases & Considerations** — a small state or sequence diagram when the risk is ordering or failure.
+
+**The Verification Plan and its Outcome Evidence stay exact.** Each outcome is a claim a child Plan turns into a command
+that is red before the work and green after, so it stays prose naming observable conditions. A diagram never states an
+outcome, and a sketch earlier in the Epic never excuses a vague one here.
+
 ## Technology Choices and Time Horizons
 
 Treat adoption of a library, framework, service, datastore, protocol, or developer tool as an architectural decision

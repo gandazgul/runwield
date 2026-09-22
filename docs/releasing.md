@@ -88,7 +88,10 @@ promote current `HEAD` by accident.
 Before confirmation, show the selected source commit, target tag, and Release Branch publication when applicable. The
 release command tags an explicit commit and does not switch branches or alter working files. GitHub Actions is the
 authoritative release qualification environment. It runs source quality, the Golden TUI release gate, and binary smoke
-checks in parallel before builds and publication from the tagged commit.
+checks and binary compilation in parallel from the tagged commit. Asset preparation follows compilation immediately,
+then native Windows and Homebrew checks run alongside source and Golden qualification. Publication explicitly requires
+every source shard, Golden shard, binary smoke check, build, and native package check to succeed. Preparation never
+publishes release bytes.
 
 ## Commands
 
@@ -279,11 +282,12 @@ failure, a failed build, or a rejected non-fast-forward push must leave the curr
 - **Assets published but notes pending**: do not recreate the release. Retry the notes edit and verify the published
   notes.
 
-Golden qualification starts beside source quality and binary smoke checks. It stops scheduling new test files after the
+Golden qualification starts beside source quality, binary smoke checks, and compilation. Source and Golden suites each
+use four required shards; no shard can cancel or substitute for another. It stops scheduling new test files after the
 first failure, but lets active files finish so their evidence remains valid. The workflow retains test logs, Golden
-diagnostic files, and per-file timing data as artifacts. Recovery still uses the tagged test runner: older tags that
-delete their diagnostic files retain only the surviving failure logs. A timeout remains a failed gate; it does not
-trigger an automatic retry or a reduced check.
+diagnostic files, per-file timing data, and per-test JUnit results as artifacts. Recovery still uses the tagged test
+runner: older tags that delete their diagnostic files retain only the surviving failure logs. A timeout remains a failed
+gate; it does not trigger an automatic retry or a reduced check.
 
 ## Verification expectations
 

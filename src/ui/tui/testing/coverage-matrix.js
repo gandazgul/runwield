@@ -70,6 +70,7 @@ export const GOLDEN_TUI_REQUIRED_CAPABILITIES = Object.freeze({
         "context:plan-engineer-identity",
         "context:frontend-engineer-identity",
     ],
+    tutorial: ["tutorial:onboarding"],
     durableOutcomes: [
         "durable:plan-lifecycle",
         "durable:worktree-publication",

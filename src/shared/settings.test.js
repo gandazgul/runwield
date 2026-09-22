@@ -1,3 +1,4 @@
+import { normalizePlanServerUrl } from "./collaboration/urls.js";
 /**
  * @module shared/settings.test
  */
@@ -15,7 +16,6 @@ import {
     getResolvedVisionFallbackModelSetting,
     getSettingsManager,
     migratePiSettingsOnce,
-    normalizePlanServerUrl,
     ONBOARDING_TUTORIAL_OFFER_HANDLED_SETTING_KEY,
     PLAN_SERVER_URL_SETTING_KEY,
     preserveRunWieldCustomSettingsForWrite,

@@ -1,5 +1,5 @@
 import { assertEquals, assertThrows } from "@std/assert";
-import { SessionRuntime } from "./session-runtime.js";
+import { SessionRuntime } from "./session-runtime.ts";
 import { SESSION_RUNTIME_METHOD_POLICY } from "./session-runtime-method-policy.ts";
 
 type RuntimeMethodPolicyMap = Record<string, string>;
