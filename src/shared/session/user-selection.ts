@@ -23,6 +23,7 @@ import { setActiveSessionModel } from "./model-selection.ts";
  * @property {string} providerName
  * @property {string} executionBackend
  * @property {boolean} reasoning
+ * @property {number} contextWindow
  */
 
 /** @param {string | undefined} projectRoot @returns {Promise<UserAgentOption[]>} */
@@ -110,6 +111,7 @@ export async function listUserModelOptions() {
         providerName: registry.getProviderDisplayName(model.provider || ""),
         executionBackend: model.executionBackend || "pi",
         reasoning: model.reasoning === true,
+        contextWindow: model.contextWindow,
     }));
 }
 
