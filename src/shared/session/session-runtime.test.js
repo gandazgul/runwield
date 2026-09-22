@@ -102,7 +102,8 @@ function ensureRuntimeModelFixture() {
     runtimeFauxProvider ??= registerFauxProvider({
         api: RUNTIME_TEST_API,
         provider: RUNTIME_TEST_PROVIDER,
-        tokensPerSecond: 1000,
+        // Preserve every streamed delta without simulating network latency.
+        tokensPerSecond: 0,
         models: [{ id: RUNTIME_TEST_MODEL, name: "SessionRuntime Fixture Model", input: ["text", "image"] }],
     });
     runtimeFauxProvider.setResponses(

@@ -1,12 +1,9 @@
 import { assertEquals } from "@std/assert";
-import {
-    plannedChangeFrontendIdentityScenario,
-    plannedChangeReviewRepairValidationScenario,
-} from "./planned-change-workflow.js";
+import { plannedChangeCiRepairReentryScenario, plannedChangeNonGitInPlaceScenario } from "./planned-change-workflow.js";
 
 const scenarios = {
-    plannedChangeReviewRepairValidationScenario,
-    plannedChangeFrontendIdentityScenario,
+    plannedChangeCiRepairReentryScenario,
+    plannedChangeNonGitInPlaceScenario,
 };
 
 for (const [exportName, scenario] of Object.entries(scenarios)) {

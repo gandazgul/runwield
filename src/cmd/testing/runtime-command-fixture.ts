@@ -7,6 +7,10 @@ import { __resetSettingsForTests } from "../../shared/settings.js";
 import { getModelRegistry } from "../../shared/models/model-registry.ts";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import { initRunWieldTheme } from "../../ui/theme/theme.js";
+import {
+    assertWorkflowBinaryCallsSupported,
+    writeWorkflowBinaryFixtures,
+} from "../../testing/workflow-binary-fixtures.ts";
 
 export interface RuntimeCommandFixture {
     alternateRoot: string;
@@ -164,37 +168,6 @@ async function unregisterScriptedOAuthProviders(): Promise<void> {
     await Promise.all(Array.from(activeScriptedOAuthProviders, (provider) => provider.unregister()));
 }
 
-/**
- * Install the stable external Mnemoteca boundary used by composed TUI tests.
- * The composition runs the real startup preflight, which requires a
- * `mnemoteca` binary on PATH, and must not contend for the developer's
- * Mnemoteca database.
- *
- * @param {string} root
- */
-async function writeFixtureMnemotecaBinary(root: string): Promise<string> {
-    const binDir = join(root, "bin");
-    const executable = join(binDir, "mnemoteca");
-    await Deno.mkdir(binDir, { recursive: true });
-    await Deno.writeTextFile(
-        executable,
-        [
-            "#!/bin/sh",
-            'if [ "$1" = "update" ] && [ "$2" = "--help" ]; then',
-            "  echo 'Usage: mnemoteca update <id> --replace-tags'",
-            'elif [ "$1" = "list" ]; then',
-            "  echo 'No documents'",
-            'elif [ "$1" = "search" ]; then',
-            "  echo '{\"results\":[]}'",
-            "fi",
-            "exit 0",
-            "",
-        ].join("\n"),
-    );
-    await Deno.chmod(executable, 0o755);
-    return binDir;
-}
-
 export async function withRuntimeCommandFixture<T>(
     prefix: string,
     run: (fixture: RuntimeCommandFixture) => Promise<T>,
@@ -224,7 +197,7 @@ export async function withRuntimeCommandFixture<T>(
         const alternateRoot = join(fixtureRoot, "alternate-project");
         const runwieldDir = join(homeDir, ".wld");
         const settingsPath = join(runwieldDir, "settings.json");
-        const fixtureBinDir = await writeFixtureMnemotecaBinary(fixtureRoot);
+        const fixtureBinDir = await writeWorkflowBinaryFixtures(fixtureRoot);
         await Promise.all([
             Deno.mkdir(runwieldDir, { recursive: true }),
             Deno.mkdir(projectRoot, { recursive: true }),
@@ -284,7 +257,8 @@ export async function withRuntimeCommandFixture<T>(
         const fauxProvider = registerFauxProvider({
             api: TEST_API,
             provider: TEST_PROVIDER,
-            tokensPerSecond: 1000,
+            // Preserve every streamed delta without simulating network latency.
+            tokensPerSecond: 0,
             models: configuredModels.map((model) => ({ ...model, input: ["text", "image"] })),
         });
 
@@ -330,7 +304,11 @@ export async function withRuntimeCommandFixture<T>(
             if (previousPath === undefined) Deno.env.delete("PATH");
             else Deno.env.set("PATH", previousPath);
             Deno.exitCode = previousExitCode;
-            await Deno.remove(fixtureRoot, { recursive: true }).catch(() => {});
+            try {
+                await assertWorkflowBinaryCallsSupported(fixtureRoot);
+            } finally {
+                await Deno.remove(fixtureRoot, { recursive: true }).catch(() => {});
+            }
         }
     });
 }

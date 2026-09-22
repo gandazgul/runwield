@@ -165,6 +165,8 @@ export const routerToGuideInquiryScenario = {
 
 export const escapeCancellationScenario = {
     name: "escape-cancellation-restores-editor",
+    // This journey must remain streaming while the terminal delivers Escape.
+    modelTokensPerSecond: 80,
     composedTui: true,
     initialAgentName: "guide",
     terminal: { columns: 100, rows: 30 },

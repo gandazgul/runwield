@@ -815,6 +815,9 @@ Deno.test("legacy migration cleans completed journal and migration lock after ma
             layout.primary.layoutMigrationLockPath,
             JSON.stringify({ pid: -1, createdAtMs: 0, updatedAtMs: 0 }),
         );
+        // Zero timestamps fall back to the real file mtime. This fixture is stale
+        // already; do not wait for a freshly written file to age for 30 seconds.
+        await Deno.utime(layout.primary.layoutMigrationLockPath, 0, 0);
         const result = await migrateLegacyProjectRuntimeState(project.selectedRoot);
         if (result.kind !== "ready") throw new Error(`Expected ready, got ${result.kind}`);
         await assertMissing(layout.primary.layoutMigrationJournalPath);
@@ -1444,6 +1447,7 @@ Deno.test("legacy migration lock serializes concurrent stale-lock recovery", asy
             layout.primary.layoutMigrationLockPath,
             JSON.stringify({ token: "stale", pid: -1, hostname: "", createdAtMs: 0, updatedAtMs: 0 }),
         );
+        await Deno.utime(layout.primary.layoutMigrationLockPath, 0, 0);
         const first = spawnDriver("migrate", project.selectedRoot);
         const second = spawnDriver("migrate", project.selectedRoot);
         const firstResult = JSON.parse(await readChildStdout(first)) as ProjectRuntimeMigrationResult;

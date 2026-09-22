@@ -1,14 +1,14 @@
 import { assertEquals } from "@std/assert";
 import {
-    loadPlanActionsScenario,
-    loadPlanMalformedFrontMatterScenario,
-    loadPlanReadOnlyPickerScenario,
+    loadPlanAbandonProgressScenario,
+    loadPlanInterruptedRecoveryScenario,
+    loadPlanWorktreeInspectResetScenario,
 } from "./load-plan-workflow.ts";
 
 const scenarios = {
-    loadPlanReadOnlyPickerScenario,
-    loadPlanActionsScenario,
-    loadPlanMalformedFrontMatterScenario,
+    loadPlanInterruptedRecoveryScenario,
+    loadPlanWorktreeInspectResetScenario,
+    loadPlanAbandonProgressScenario,
 };
 
 for (const [exportName, scenario] of Object.entries(scenarios)) {
