@@ -1481,6 +1481,128 @@ Deno.test("legacy migration resumes after a subprocess stops at each effect boun
     }
 });
 
+Deno.test("adopted runtime recovers returning old writes without reverting current decisions", async () => {
+    const project = await makeMigrationProject();
+    try {
+        const legacyPath = join(getRunWieldRuntimeDir(project.primaryRoot), "controller", "plans", "plan.json");
+        const current = {
+            version: 1,
+            revision: 5,
+            planId: "plan",
+            planName: "demo",
+            state: {
+                documentWorktreeId: "attempt-1",
+                executionMode: "worktree",
+                validationCiAttempts: 2,
+                humanReviewDecision: "approved",
+            },
+        };
+        await writeText(legacyPath, JSON.stringify(current));
+        assertEquals((await migrateLegacyProjectRuntimeState(project.selectedRoot)).kind, "ready");
+        const layout = resolveProjectRuntimeLayout(project.selectedRoot);
+        const old = {
+            ...current,
+            revision: 1,
+            state: { validationCiAttempts: 0, humanReviewDecision: null, executionReport: "Implementation completed." },
+        };
+        await writeText(legacyPath, JSON.stringify(old));
+        await writeText(join(dirname(legacyPath), "other.json"), "new legacy record\n");
+        const legacySelected = getRunWieldRuntimeDir(project.selectedRoot);
+        await Deno.mkdir(join(legacySelected, "plan-locks"), { recursive: true });
+        await writeText(join(legacySelected, "plan-transitions", "receipt.json"), "interrupted completion\n");
+        const result = await migrateLegacyProjectRuntimeState(project.selectedRoot);
+        assertEquals(result.kind, "ready");
+        assertEquals(JSON.parse(await Deno.readTextFile(join(layout.primary.controllerPlansDir, "plan.json"))), {
+            ...current,
+            revision: 6,
+            state: { ...current.state, executionReport: "Implementation completed." },
+        });
+        assertEquals(
+            await Deno.readTextFile(join(layout.primary.controllerPlansDir, "other.json")),
+            "new legacy record\n",
+        );
+        assertEquals(
+            await Deno.readTextFile(join(layout.selected.transitionJournalsDir, "receipt.json")),
+            "interrupted completion\n",
+        );
+        const archive = await snapshotTree(join(layout.primary.internalRoot, "legacy-recovery"));
+        assert(archive.includes(JSON.stringify(old)), "The original old record must remain recoverable");
+        assert(archive.includes(JSON.stringify(current)), "The original current record must remain recoverable");
+        await assertMissing(legacyPath);
+        // A second old flush cannot reset counters, decisions or manufacture a new revision.
+        await writeText(legacyPath, JSON.stringify(old));
+        assertEquals((await migrateLegacyProjectRuntimeState(project.selectedRoot)).kind, "ready");
+        assertEquals(
+            JSON.parse(await Deno.readTextFile(join(layout.primary.controllerPlansDir, "plan.json"))).revision,
+            6,
+        );
+        assertEquals(await snapshotTree(join(layout.primary.internalRoot, "legacy-recovery")), archive);
+        const repeated = await migrateLegacyProjectRuntimeState(project.selectedRoot);
+        assert(repeated.kind === "ready");
+        assertEquals(repeated.migrated, false);
+    } finally {
+        await project.cleanup();
+    }
+});
+
+Deno.test("adopted runtime does not recover directories authorized only by old marker history", async () => {
+    const project = await makeMigrationProject();
+    const other = await Deno.realPath(await Deno.makeTempDir({ prefix: "unregistered-runtime-root-" }));
+    try {
+        assertEquals((await migrateLegacyProjectRuntimeState(project.selectedRoot)).kind, "ready");
+        const layout = resolveProjectRuntimeLayout(project.selectedRoot);
+        const marker = JSON.parse(await Deno.readTextFile(layout.primary.layoutMarkerPath));
+        marker.adoptedSelectedCheckoutRoots.push(other);
+        marker.adoptedSelectedCheckoutRoots.sort();
+        await Deno.writeTextFile(layout.primary.layoutMarkerPath, JSON.stringify(marker));
+        const oldPath = join(getRunWieldRuntimeDir(other), "plan-backups", "keep.md");
+        await writeText(oldPath, "Do not move this unrelated checkout's files.\n");
+        assertEquals((await migrateLegacyProjectRuntimeState(project.selectedRoot)).kind, "ready");
+        assertEquals(await Deno.readTextFile(oldPath), "Do not move this unrelated checkout's files.\n");
+    } finally {
+        await project.cleanup();
+        await Deno.remove(other, { recursive: true });
+    }
+});
+
+Deno.test("adopted runtime resumes recovery after process death at each durable boundary", async () => {
+    for (const effect of ["recovery-backup", "recovery-controller", "recovery-retirement"]) {
+        const project = await makeMigrationProject();
+        try {
+            const path = join(getRunWieldRuntimeDir(project.primaryRoot), "controller", "plans", "plan.json");
+            const current = { version: 1, revision: 5, planName: "demo", state: { documentWorktreeId: "attempt-1" } };
+            await writeText(path, JSON.stringify(current));
+            assertEquals((await migrateLegacyProjectRuntimeState(project.selectedRoot)).kind, "ready");
+            const old = { ...current, revision: 1, state: { executionReport: "Completed before disconnect." } };
+            await writeText(path, JSON.stringify(old));
+            const child = spawnDriver("migrate-exit-after-effect", project.selectedRoot, effect);
+            const [status, output, errors] = await Promise.all([
+                child.status,
+                new Response(child.stdout).text(),
+                new Response(child.stderr).text(),
+            ]);
+            assertEquals(status.code, 86, `${effect}: ${output}${errors}`);
+            assertEquals((await migrateLegacyProjectRuntimeState(project.selectedRoot)).kind, "ready");
+            const layout = resolveProjectRuntimeLayout(project.selectedRoot);
+            assertEquals(JSON.parse(await Deno.readTextFile(join(layout.primary.controllerPlansDir, "plan.json"))), {
+                ...current,
+                revision: 6,
+                state: { ...current.state, ...old.state },
+            });
+            assert(
+                (await snapshotTree(join(layout.primary.internalRoot, "legacy-recovery"))).includes(
+                    JSON.stringify(old),
+                ),
+            );
+            await assertMissing(path);
+            await assertMissing(layout.primary.layoutMigrationJournalPath);
+            assertEquals((await migrateLegacyProjectRuntimeState(project.selectedRoot)).kind, "ready");
+        } finally {
+            await project.cleanup();
+        }
+    }
+});
+
 Deno.test("legacy migration reports EXDEV without retiring the source authority", async () => {
     const project = await makeMigrationProject();
     const originalRename = Deno.rename;

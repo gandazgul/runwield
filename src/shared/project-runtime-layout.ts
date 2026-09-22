@@ -1,4 +1,5 @@
 import { basename, dirname, join, resolve, SEPARATOR } from "@std/path";
+import { AsyncLocalStorage } from "node:async_hooks";
 import {
     getRunWieldRuntimeDir,
     PLAN_BACKUPS_DIR_NAME,
@@ -21,6 +22,7 @@ import { getLockHostname, isLockHolderGone } from "./process-liveness.ts";
 import { resolvePrimaryCheckoutRoot } from "./primary-checkout.ts";
 import { ensureRunWieldOwnedGitignoreBlock, LEGACY_PROJECT_RUNTIME_HAZARD_PATHS } from "./runwield-owned-paths.ts";
 import { assertPublicationAttempt, type PublicationAttempt } from "./workflow/publication-attempt.ts";
+import { hasRecoverableRuntimeFiles, recoverLegacyRuntimeFiles } from "./project-runtime-recovery.ts";
 
 export interface PrimaryProjectRuntimeLayout {
     checkoutRoot: string;
@@ -147,7 +149,15 @@ type MigrationRetireOperation = {
     completed: boolean;
 };
 
-type MigrationOperation = MigrationRenameOperation | MigrationRetireOperation;
+type MigrationReconcileOperation = {
+    action: "reconcile";
+    source: string;
+    destination: string;
+    kind: "directory";
+    completed: boolean;
+};
+
+type MigrationOperation = MigrationRenameOperation | MigrationRetireOperation | MigrationReconcileOperation;
 
 type MigrationJournal = {
     version: 1;
@@ -300,7 +310,28 @@ export async function inspectProjectRuntimeLayout(
     return { kind: "pending", layout, selectedCheckoutRoots: inspected.selectedCheckoutRoots };
 }
 
-export async function enterProjectRuntime(selectedCheckoutRoot: string): Promise<ProjectRuntimeLayout> {
+const runtimeEntryScope = new AsyncLocalStorage<Map<string, Promise<ProjectRuntimeLayout>>>();
+// Retain only diagnostic identities, never runtime validation or migration results.
+const reportedGitignoreWarnings = new Map<string, Set<string>>();
+
+/** Verify each checkout once during a bounded read; retain no result across refreshes. */
+export function withProjectRuntimeReadScope<T>(read: () => Promise<T>): Promise<T> {
+    if (runtimeEntryScope.getStore()) return read();
+    return runtimeEntryScope.run(new Map(), read);
+}
+
+export function enterProjectRuntime(selectedCheckoutRoot: string): Promise<ProjectRuntimeLayout> {
+    const scope = runtimeEntryScope.getStore();
+    if (!scope) return enterProjectRuntimeUncached(selectedCheckoutRoot);
+    const root = resolve(selectedCheckoutRoot);
+    const pending = scope.get(root);
+    if (pending) return pending;
+    const result = enterProjectRuntimeUncached(root);
+    scope.set(root, result);
+    return result;
+}
+
+async function enterProjectRuntimeUncached(selectedCheckoutRoot: string): Promise<ProjectRuntimeLayout> {
     const rootInfo = await Deno.lstat(selectedCheckoutRoot).catch((error) => {
         if (error instanceof Deno.errors.NotFound) return null;
         throw error;
@@ -309,8 +340,15 @@ export async function enterProjectRuntime(selectedCheckoutRoot: string): Promise
     const result = await migrateLegacyProjectRuntimeState(selectedCheckoutRoot);
     if (result.kind === "blocked") throw new ProjectRuntimeEntryRefusedError(result);
     if (rootInfo) {
-        const reconciliation = await ensureRunWieldOwnedGitignoreBlock(result.layout.primary.checkoutRoot);
-        for (const warning of reconciliation.warnings) console.warn(warning.message);
+        const projectRoot = result.layout.primary.checkoutRoot;
+        const reconciliation = await ensureRunWieldOwnedGitignoreBlock(projectRoot);
+        const previous = reportedGitignoreWarnings.get(projectRoot);
+        const current = new Set(reconciliation.warnings.map((warning) => warning.message));
+        if (current.size) reportedGitignoreWarnings.set(projectRoot, current);
+        else reportedGitignoreWarnings.delete(projectRoot);
+        for (const message of current) {
+            if (!previous?.has(message)) console.warn(`${join(projectRoot, ".gitignore")}: ${message}`);
+        }
     }
     return result.layout;
 }
@@ -1025,12 +1063,12 @@ async function findCurrentAuthorityConflicts(
         conflicts.push(...await currentConflictsInRoot(selectedInternalRoot, allow, allowedJournalPaths));
     }
     if (marker) {
-        const primaryLegacy = await existingLegacyPaths(legacyPrimaryAuthorities(primaryCheckoutRoot));
+        const primaryLegacy = await existingLegacyPaths(
+            legacyPrimaryAuthorities(primaryCheckoutRoot).filter((entry) => entry.kind !== "directory"),
+        );
         conflicts.push(...primaryLegacy.map((entry) => entry.path));
-        for (const selectedRoot of marker.adoptedSelectedCheckoutRoots) {
-            const selectedLegacy = await existingLegacyPaths(legacySelectedAuthorities(selectedRoot));
-            conflicts.push(...selectedLegacy.map((entry) => entry.path));
-        }
+        // A completed marker establishes the current authority. Recreated old
+        // directories are recoverable input, not competing authorities.
     }
     return [...new Set(conflicts)].sort();
 }
@@ -1229,6 +1267,19 @@ async function buildOperations(
     const operations: MigrationOperation[] = [];
     operations.push(...staleLocks);
     const primaryAuthorities = legacyPrimaryAuthorities(primaryCheckoutRoot);
+    if (marker) {
+        for (
+            const authority of [
+                ...primaryAuthorities.filter((entry) => entry.kind === "directory"),
+                ...selectedRoots.filter((root) => marker.adoptedSelectedCheckoutRoots.includes(root))
+                    .flatMap(legacySelectedAuthorities),
+            ]
+        ) {
+            if (await hasRecoverableRuntimeFiles(authority.source)) {
+                operations.push({ ...authority, action: "reconcile", kind: "directory" });
+            }
+        }
+    }
     const secretSources: MigrationRenameOperation[] = [];
     for (const root of selectedRoots) {
         const authority = legacySecretAuthority(root, primaryCheckoutRoot);
@@ -1398,6 +1449,10 @@ async function readJournal(
 
 function isMigrationOperation(value: MigrationOperation): boolean {
     if (!value || typeof value !== "object") return false;
+    if (value.action === "reconcile") {
+        return typeof value.source === "string" && typeof value.destination === "string" &&
+            value.kind === "directory" && typeof value.completed === "boolean";
+    }
     if (value.action === "rename") {
         return typeof value.source === "string" && typeof value.destination === "string" &&
             (value.kind === "file" || value.kind === "directory") && typeof value.completed === "boolean";
@@ -1432,6 +1487,19 @@ async function isAllowedJournalOperation(
     if (operation.action === "retire") {
         return isBoundedLegacyLockPath(preflightResult, operation.source) &&
             (operation.completed || !(await lstatOrNull(operation.source)));
+    }
+    if (operation.action === "reconcile") {
+        const marker = await readLayoutMarker(preflightResult.layout);
+        if (isBlocked(marker) || !marker.marker) return false;
+        return [
+            ...legacyPrimaryAuthorities(preflightResult.primaryCheckoutRoot),
+            ...preflightResult.selectedCheckoutRoots
+                .filter((root) => marker.marker?.adoptedSelectedCheckoutRoots.includes(root))
+                .flatMap(legacySelectedAuthorities),
+        ].some((authority) =>
+            authority.kind === "directory" && authority.source === operation.source &&
+            authority.destination === operation.destination
+        );
     }
     // RC.1 could journal an empty staging directory before interruption. Finish
     // that bounded operation, but never relocate a populated publication clone.
@@ -1486,7 +1554,16 @@ async function replayJournal(
     journal: MigrationJournal,
 ): Promise<undefined | ProjectRuntimeMigrationBlockedResult> {
     for (const operation of journal.operations) {
-        if (operation.action === "rename") {
+        if (operation.action === "reconcile") {
+            await recoverLegacyRuntimeFiles({
+                source: operation.source,
+                destination: operation.destination,
+                archiveRoot: join(layout.primary.internalRoot, "legacy-recovery"),
+                controller: operation.source === join(legacyRuntimeBase(layout.primary.checkoutRoot), "controller"),
+            });
+            operation.completed = true;
+            await writeJournal(layout.primary.layoutMigrationJournalPath, journal);
+        } else if (operation.action === "rename") {
             const result = await applyRenameOperation(layout, journal, operation);
             if (isBlocked(result)) return result;
         } else {

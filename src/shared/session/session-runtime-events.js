@@ -173,6 +173,7 @@ export const RuntimeEventTypes = Object.freeze({
 
 /**
  * @typedef {Object} RuntimeQueuedMessage
+ * @property {NotificationSurface} [inputSurface]
  * @property {string} id
  * @property {string} text
  * @property {import('./types.js').ImageAttachment[]} images
@@ -215,7 +216,11 @@ export const RuntimeEventTypes = Object.freeze({
  */
 
 /**
- * @typedef {RuntimeEventBase & { type: "attention_requested", reason: "agentStopped" | "planWritten" | "userInterview", agentName?: string, sessionName?: string }} RuntimeAttentionRequestedEvent
+ * @typedef {"workspace" | "tui" | "acp" | "test"} NotificationSurface
+ */
+
+/**
+ * @typedef {RuntimeEventBase & { notificationSurface?: NotificationSurface, type: "attention_requested", reason: "agentStopped" | "planWritten" | "userInterview", agentName?: string, sessionName?: string }} RuntimeAttentionRequestedEvent
  */
 
 /**

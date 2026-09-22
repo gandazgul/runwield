@@ -150,3 +150,92 @@ Deno.test("browser notification disposal closes tracked notifications and clears
         browser.cleanup();
     }
 });
+
+function installServiceWorker(
+    registration: {
+        active: boolean;
+        showNotification(title: string, options: NotificationOptions): Promise<void>;
+    } | undefined,
+) {
+    const original = Object.getOwnPropertyDescriptor(navigator, "serviceWorker");
+    Object.defineProperty(navigator, "serviceWorker", {
+        configurable: true,
+        value: { getRegistration: () => Promise.resolve(registration) },
+    });
+    return () => {
+        if (original) Object.defineProperty(navigator, "serviceWorker", original);
+        else Reflect.deleteProperty(navigator, "serviceWorker");
+    };
+}
+
+Deno.test("mobile notifications use the active service worker when the Notification constructor is unsupported", async () => {
+    const browser = installBrowser({ throwOnConstruct: true });
+    const shown: Array<{ title: string; options: NotificationOptions }> = [];
+    const restore = installServiceWorker({
+        active: true,
+        showNotification(title, options) {
+            shown.push({ title, options });
+            return Promise.resolve();
+        },
+    });
+    try {
+        await createSessionTabNotificationController().notifyAgentStopped(stoppedEvent, enabledPolicy);
+        assertEquals(browser.created.length, 0);
+        assertEquals(shown.length, 1);
+        assertEquals(shown[0].title, "Guide: Agent stopped — Demo");
+        assertEquals(shown[0].options.body, "The agent has stopped and is waiting for you.");
+        assertEquals(shown[0].options.icon, "/pwa/icon-192.png");
+    } finally {
+        restore();
+        browser.cleanup();
+    }
+});
+
+Deno.test("notifications fall back to desktop delivery when no service worker is registered", async () => {
+    const browser = installBrowser();
+    const restore = installServiceWorker(undefined);
+    try {
+        await createSessionTabNotificationController().notifyAgentStopped(stoppedEvent, enabledPolicy);
+        assertEquals(browser.created.length, 1);
+    } finally {
+        restore();
+        browser.cleanup();
+    }
+});
+
+Deno.test("leaving a Session cancels pending notification delivery", async () => {
+    const browser = installBrowser();
+    let count = 0;
+    const restore = installServiceWorker({
+        active: true,
+        showNotification() {
+            count++;
+            return Promise.resolve();
+        },
+    });
+    try {
+        const controller = createSessionTabNotificationController();
+        const delivery = controller.notifyAgentStopped(stoppedEvent, enabledPolicy);
+        controller.dispose();
+        await delivery;
+        assertEquals(count, 0);
+        assertEquals(browser.created.length, 0);
+    } finally {
+        restore();
+        browser.cleanup();
+    }
+});
+
+Deno.test("Workspace notifications ignore stops routed to another input surface", async () => {
+    const browser = installBrowser();
+    try {
+        const controller = createSessionTabNotificationController();
+        await controller.notifyAgentStopped({ ...stoppedEvent, notificationSurface: "tui" }, enabledPolicy);
+        await controller.notifyAgentStopped({ ...stoppedEvent, notificationSurface: "acp" }, enabledPolicy);
+        assertEquals(browser.created.length, 0);
+        await controller.notifyAgentStopped({ ...stoppedEvent, notificationSurface: "workspace" }, enabledPolicy);
+        assertEquals(browser.created.length, 1);
+    } finally {
+        browser.cleanup();
+    }
+});
