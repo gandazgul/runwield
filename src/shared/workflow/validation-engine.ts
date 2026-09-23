@@ -24,6 +24,7 @@ import { classifyValidationOperationalError } from "./validation-operational-err
 import { decideValidationRecovery, readValidationRetryPolicy } from "./validation-recovery.ts";
 import type { ValidationLoopArgs, ValidationPhaseResult, WorkflowValidationResult } from "./validation-types.ts";
 import { MAX_PHASES_PER_CALL, PHASE_STATUS, VALIDATION_STATUS_ORDER } from "./validation-types.ts";
+import { preparePublicationRevalidation, PUBLICATION_REVALIDATION_MESSAGE } from "./publication-revalidation.ts";
 
 type PlanStatus = "implemented" | "validated_ci" | "validated_reviewer" | "validated";
 type PlanFrontMatter = import("../../plan-store.js").PlanFrontMatter;
@@ -35,6 +36,7 @@ type PlanFrontMatter = import("../../plan-store.js").PlanFrontMatter;
  * {@link runValidationLoop}, which drives phases until the Plan stops moving.
  */
 export async function runValidationPhase(args: ValidationLoopArgs): Promise<ValidationPhaseResult> {
+    const recoveryPath = await preparePublicationRevalidation(getProjectRoot(args), args.planName);
     const canonicalPlan = await loadCanonicalValidationPlan(args);
     if (canonicalPlan.kind === "blocked") return canonicalPlan.result;
     const canonicalArgs: ValidationLoopArgs = {
@@ -42,8 +44,25 @@ export async function runValidationPhase(args: ValidationLoopArgs): Promise<Vali
         triageMeta: canonicalPlan.attrs as ValidationLoopArgs["triageMeta"],
         planContent: canonicalPlan.markdown,
         validationCheckpoint: canonicalPlan.attrs.validationCheckpoint || undefined,
+        ...(recoveryPath ? { continuationPhase: undefined } : {}),
     };
-    const nextPhase = resolveNextPhase(args, canonicalPlan.status);
+    if (recoveryPath) {
+        const workflow = args.session.getActiveWorkflow();
+        if (workflow) {
+            args.session.setActiveWorkflow({
+                ...workflow,
+                triageMeta: canonicalArgs.triageMeta,
+                semanticRound: undefined,
+                reviewLedger: undefined,
+                repairBaselineTree: undefined,
+                lastRepairReport: undefined,
+                validationRepairGeneration: undefined,
+                humanReviewCycle: undefined,
+            });
+        }
+        emitStatus(args, PUBLICATION_REVALIDATION_MESSAGE);
+    }
+    const nextPhase = resolveNextPhase(canonicalArgs, canonicalPlan.status);
     switch (nextPhase) {
         case "mechanical":
             return await runMechanicalValidationPhase(canonicalArgs);

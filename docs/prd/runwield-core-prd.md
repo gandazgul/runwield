@@ -456,12 +456,21 @@ QUICK_FIX work does not create a Plan and runs Mechanical Validation only.
 
 Recovery requirements:
 
+- Before integration, a source-history rewrite or changes to sealed files automatically restart validation against the
+  current execution checkout. Preserve the prior publication evidence and repair checkout, invalidate old review
+  approvals and the validation stamp, and resume the reset after interruption. An unchanged candidate resumes its
+  existing publication. An integration that may already have been pushed must retain its publication proof instead of
+  being replayed automatically.
 - loading `in_progress`, `failed`, or `implemented` Plans should open a recovery path
 - users can continue, reset to baseline, re-open for review, retry validation, or address merge-back failures
 - failed Plans leave recovery through dedicated recovery actions, not casual board movement
 
 **Acceptance scenarios:**
 
+- Given an unpublished sealed candidate whose branch was rewritten, including a rewrite followed by an additional
+  `.gitignore` commit, validation automatically checks the current files and then creates new publication evidence.
+  Staged edits, untracked files, and saved merge repairs remain intact. A restart during recovery finishes the same
+  reset; a stale Session delivery checkpoint cannot skip the new checks.
 - Given a ready approved Plan and existing checkout edits, when execution starts, the approved work is isolated and the
   user’s edits remain preserved.
 - Given a worktree created from `main`, when the execution Plan is edited to target `release/next` after the Session
