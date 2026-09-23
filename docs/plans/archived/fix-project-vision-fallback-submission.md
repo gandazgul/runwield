@@ -24,26 +24,31 @@ devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://127.0.0.1:5173/dev"
 devServerHmr: true
 createdAt: "2026-09-12T18:33:00-04:00"
-status: "validated"
 origin: "internal"
-userVerifiedAt: null
 targetBranch: "main"
 workRecord:
     status: "generated"
     recordId: "421bead8-a69a-46da-94cb-44d08bf2ecde"
     path: "docs/work-records/2026-09-20-fixed-project-scoped-vision-fallback-and-image-submission.md"
     lastAttemptAt: "2026-09-20T03:13:15.722Z"
+status: "user_verified"
+userVerifiedAt: "2026-09-23T21:04:53.295Z"
+userVerificationNote: "finished with codex"
+archivedAt: "2026-09-23T21:04:54.066Z"
+archiveReason: "finished with codex"
+archivedFromStatus: "user_verified"
+archivedFromPath: "docs/plans/fix-project-vision-fallback-submission.md"
 ---
 
 # Fix Project Vision Fallback and Image Submission
 
 ## Context
 
-The [Core gap audit](../reports/core-prd-gap-audit.md#10-optional-vision-configuration-and-project-isolation) identified
-two errors: optional fallback validation can block text-only Agent creation, and fallback resolution reads the process
-working directory instead of the Session's Project. Later planning found that correcting settings alone does not meet
-existing image-send requirements: TUI skips send-time validation for images checked on paste, and Workspace clears
-drafts when an asynchronous operation is accepted, before image validation fails.
+The [Core gap audit](../../reports/core-prd-gap-audit.md#10-optional-vision-configuration-and-project-isolation)
+identified two errors: optional fallback validation can block text-only Agent creation, and fallback resolution reads
+the process working directory instead of the Session's Project. Later planning found that correcting settings alone does
+not meet existing image-send requirements: TUI skips send-time validation for images checked on paste, and Workspace
+clears drafts when an asynchronous operation is accepted, before image validation fails.
 
 These are source-confirmed paths, not executed reproductions. The startup error is proven for missing configured auth,
 invalid references, or unsuitable fallback models; a provider rejecting expired credentials later is a different
@@ -51,13 +56,13 @@ failure.
 
 Owning requirements:
 
-- Core [Compaction and image context](../prd/runwield-core-prd.md#compaction-and-image-context): **Retain useful
+- Core [Compaction and image context](../../prd/runwield-core-prd.md#compaction-and-image-context): **Retain useful
   conversation and attachment context**, including fallback precedence, clear setup guidance, retained drafts/previews,
   and changes between paste and Send.
-- Core [Models and providers](../prd/runwield-core-prd.md#models-and-providers): **Change models without losing Session
-  or workflow context**. Optional image setup must not prevent ordinary text use.
-- Workspace [Browser Sessions](../prd/runwield-workspace-prd.md#browser-sessions): **Preserve conversation, drafts, and
-  controls in the browser**, including failed image sends.
+- Core [Models and providers](../../prd/runwield-core-prd.md#models-and-providers): **Change models without losing
+  Session or workflow context**. Optional image setup must not prevent ordinary text use.
+- Workspace [Browser Sessions](../../prd/runwield-workspace-prd.md#browser-sessions): **Preserve conversation, drafts,
+  and controls in the browser**, including failed image sends.
 
 **User decision:** Include the complete TUI and Workspace send flow, not only settings/startup. Preserve existing model,
 Agent, preset, authentication, and backend rules. No requirement is removed. The proposed scenario additions make these
@@ -87,10 +92,10 @@ Read-only diagnosis found:
   inspect any surviving copies before cleanup, but do not claim those resolutions still exist.
 
 Recovery also follows Core
-[Execution, validation, and recovery](../prd/runwield-core-prd.md#execution-validation-and-recovery): **Replanning
+[Execution, validation, and recovery](../../prd/runwield-core-prd.md#execution-validation-and-recovery): **Replanning
 preserves the existing implementation**, **RunWield repairs its own machinery automatically**, and **Publish
 successfully or end only by deliberate user abandonment**. No product requirement is removed or broadened. Keep
-[ADR-016](../adr/016-proof-bearing-publication-state-machine.md)'s distinction between validation and publication.
+[ADR-016](../../adr/016-proof-bearing-publication-state-machine.md)'s distinction between validation and publication.
 
 ## Objective
 
@@ -380,3 +385,9 @@ clipboard integration test is macOS-specific, so record platform limits. No new 
   them automatically under the label of preflight or overwrite a newer user draft while restoring older content.
 - Settings storage, Session architecture, and model precedence are not redesigned. If implementation requires a new
   persistent preparation state or a different ownership rule, stop for a scope decision rather than inventing it.
+
+## Completion
+
+User-confirmed completion on 2026-09-23: "finished with codex". The original vision implementation was already published
+to main. Codex corrected the remaining image-rejection classification and test findings directly in the main checkout,
+removed the stale execution worktree and registry entry, and archived this Plan.

@@ -56,9 +56,9 @@ failure. It may also provide a repair-scoped diff tool. Do not reconstruct the o
 5. **Stay in scope.** Repair the supplied problem and whatever is strictly required to make it safe and correct. Do not
    refactor adjacent code, do not fix things nobody asked about, do not improve what already works.
 6. **Verify.** Run focused checks that reproduce the supplied failures and exercise the repairs. RunWield runs the
-   complete configured validation command after `task_completed`; do not duplicate it merely for completion. Run it
-   yourself when needed for diagnosis or explicitly requested by the user. Report full validation as pending until
-   RunWield finishes it. Apply _When Verification Fails, Act_ below to whatever your checks report.
+   complete configured validation command after `task_completed`; do not run it yourself. You may run it yourself when
+   needed for diagnosis or explicitly requested by the user. Report full validation as pending until RunWield finishes
+   it. Apply _When Verification Fails, Act_ below to whatever your checks report.
 7. **Report per item.** See the completion report format below.
 
 ## Your Completion Report

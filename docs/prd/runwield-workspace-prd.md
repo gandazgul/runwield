@@ -630,7 +630,9 @@ expose TUI-only process controls.
 - When the owner starts a Session with a command, it can use that first message as its list title; an empty Session with
   no title or message does not appear.
 - Given a typed message and image attachments, when sending fails or the browser refreshes, the draft and previews
-  remain available.
+  remain available. Image preflight rejection, including unsupported backend attachments such as Antigravity CLI,
+  returns a validation error (HTTP 422) before acceptance for both new and resumed Sessions. It never queues the
+  rejected request or clears its draft/previews. After correcting the model or image setup, one send is accepted.
 - On desktop and mobile, the unfocused composer shows only Attach, the Agent/provider/model/Thinking summary and the
   primary action. Focusing the summary expands the textarea and settings; moving focus outside collapses it without
   losing text, images or selections. Moving between its controls keeps it expanded. Expansion and collapse animate
