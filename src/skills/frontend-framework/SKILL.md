@@ -33,6 +33,8 @@ Discover the design system before visual invention:
   i18n, performance-sensitive frontend code, tests, or browser-side safety.
 - Read [UX-DESIGN.md](UX-DESIGN.md) when the change affects a user's goal, information hierarchy, interface copy, forms,
   accessibility, responsive/content behavior, or loading/empty/error/success flows.
+- Read [DESIGN-CRAFT.md](DESIGN-CRAFT.md) when refining composition, typography, spacing, color roles, or visual quality
+  within an existing system. Its heuristics also support new designs; they do not authorize a restyle.
 - Read [VISUAL-DESIGN.md](VISUAL-DESIGN.md) only for greenfield UI or explicitly authorized visual redesign.
 - Invoke `agent-browser-use` when the work needs real-browser interaction, screenshots, accessibility snapshots,
   console/network diagnostics, or visual comparison. Browser commands and session lifecycle live there.

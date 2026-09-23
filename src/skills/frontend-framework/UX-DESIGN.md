@@ -30,6 +30,21 @@ project's existing interaction language.
 - Surface failures near the action or content that caused them, with retry, undo, edit, or contact paths when the
   product pattern supports them.
 - Make success visible enough to confirm the user's action without interrupting the next task unnecessarily.
+- Distinguish an empty result from content the user cannot access. Explain permission restrictions and an available next
+  step without exposing restricted data or treating unavailable actions as ordinary loading.
+
+## Contrast and target size
+
+Check actual rendered foreground/background pairs, including interactive states and composited colors. WCAG AA calls for
+at least 4.5:1 for ordinary text and 3:1 for qualifying large text; meaningful graphics and control indicators need 3:1
+against adjacent colors where applicable. Decorative separators are not automatically required to meet that ratio. See
+W3C's [text contrast](https://www.w3.org/WAI/WCAG21/Understanding/contrast-minimum) and
+[non-text contrast](https://www.w3.org/WAI/WCAG22/Understanding/non-text-contrast.html) guidance.
+
+Prefer at least 44px targets for touch-critical controls. Do not describe that design preference as the universal AA
+minimum: WCAG 2.2 [Target Size (Minimum)](https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum.html) uses 24
+by 24 CSS pixels with defined spacing and other exceptions. Dense pointer controls still need an operable target and
+separation from adjacent controls; visual icon size need not equal hit-area size.
 
 ## Forms
 
@@ -58,6 +73,9 @@ project's existing interaction language.
 - Provide reduced-motion behavior for animations that move, zoom, parallax, auto-play, or otherwise distract from the
   task.
 - Do not make critical information depend on animation completing.
+- With
+  [reduced motion](https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/At-rules/@media/prefers-reduced-motion),
+  preserve the complete state and feedback; stopping an animation must not leave information hidden or controls blocked.
 
 ## Responsive and container behavior
 
