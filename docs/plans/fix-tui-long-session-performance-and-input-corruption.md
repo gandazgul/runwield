@@ -32,7 +32,7 @@ deliberate Escape input and cancels the active Agent turn. A fresh Session does 
 performance and input failures must be tested together under retained-history load.
 
 This changes the current Core TUI conversation capability in
-[runwield-core-prd.md#31-tui-shell-and-root-agent-behavior](../prd/runwield-core-prd.md#31-tui-shell-and-root-agent-behavior).
+[runwield-core-prd.md#tui-conversation](../prd/runwield-core-prd.md#tui-conversation).
 The existing requirements to preserve the draft, conversation scroll position, and running Agent turn remain. Add the
 long-Session responsiveness and safe-scroll acceptance scenario in the same implementation change. No new domain term is
 needed, and no Session or Agent authority changes.
