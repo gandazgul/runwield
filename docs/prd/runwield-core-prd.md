@@ -102,17 +102,6 @@ New sessions start with the **Router** Agent.
 After Router hands off to Guide, Ideator, Operator, Planner, Architect, Engineer, or another specialist, that specialist
 remains the active root Agent. This keeps follow-up messages in useful context.
 
-**Requirement: Preserve steering through an Agent handoff.**
-
-When an accepted workflow event starts an Agent handoff, Core stops and settles the outgoing Agent turn before the
-replacement Agent starts provider work. Steering Messages submitted from that point belong to the replacement Agent.
-Core transfers each pending message once, in order, with its identity, text, images, and notification destination
-unchanged. A transfer does not report the message as consumed. Core reports consumption and shows the user message only
-when the replacement Agent receives it.
-
-If replacement setup fails, Core keeps the previous Agent active and retains the pending Steering Messages. Canceling a
-Session removes pending Steering Messages and ends the handoff. A prior Triage Report cannot start a second handoff.
-
 **Requirement: Announce real Agent changes once.**
 
 A successful change to a different active Agent produces one conversation notice. Initial activation, reloading the same
@@ -145,9 +134,6 @@ output lines. For longer output, it keeps the start and end and shows how many m
 
 - Given a new conversation, when the user submits a request, Router handles initial triage; after a specialist handoff,
   follow-up messages stay with that specialist.
-- Given Router has emitted an accepted Triage Report, when the user sends text or images before the specialist is ready,
-  Router settles without another provider request and the specialist receives each message once, in order. The queue
-  reports consumption only after delivery.
 - Given a fully typed existing Plan name, pressing Enter once opens that Plan, even if a longer Plan name shares its
   prefix and completion lookup has finished.
 - After switching to Guide, commands and follow-up messages produce no additional Agent notice unless the active Agent
@@ -457,7 +443,12 @@ Workflow Validation requirements:
 - recover unstaged, formatting-only Plan drift from the sealed candidate on publication retry, without overwriting
   changed definitions, body text, staged changes, or committed changes;
 - show interrupted validation as paused, never as still running, while retaining its saved continuation;
+- derive the final progress display from confirmed validation and publication results. Failed or canceled checks from a
+  previous attempt must not turn successful publication and cleanup into a reported merge failure;
 - deliver validated work to its configured target and confirm that outcome before reporting delivery complete;
+- reread the active execution Plan before every validation phase and immediately before publication; its current
+  `targetBranch` takes precedence over the Session snapshot and the branch recorded at worktree creation. If no target
+  is specified, retain the recorded branch. A saved publication with a different target must not silently continue;
 - retain the validated implementation commit and actual target branch in the committed Plan; completed delivery must
   remain recognizable from Git after temporary workflow records are removed. In non-Git projects, the completed Plan
   status is sufficient;
@@ -482,17 +473,33 @@ runtime gate or permits publication before it passes.
 
 Recovery requirements:
 
+- Before integration, a source-history rewrite or changes to sealed files automatically restart validation against the
+  current execution checkout. Preserve the prior publication evidence and repair checkout, invalidate old review
+  approvals and the validation stamp, and resume the reset after interruption. An unchanged candidate resumes its
+  existing publication. An integration that may already have been pushed must retain its publication proof instead of
+  being replayed automatically.
 - loading `in_progress`, `failed`, or `implemented` Plans should open a recovery path
 - users can continue, reset to baseline, re-open for review, retry validation, or address merge-back failures
 - failed Plans leave recovery through dedicated recovery actions, not casual board movement
 
 **Acceptance scenarios:**
 
+- Given an unpublished sealed candidate whose branch was rewritten, including a rewrite followed by an additional
+  `.gitignore` commit, validation automatically checks the current files and then creates new publication evidence.
+  Staged edits, untracked files, and saved merge repairs remain intact. A restart during recovery finishes the same
+  reset; a stale Session delivery checkpoint cannot skip the new checks.
 - Given a managed repair, when the Agent completes focused verification, RunWield reloads the current configured command
   and runs full validation against the repair checkout. A failure still prevents progress; the Agent was not required to
   run that complete command immediately beforehand.
 - Given a ready approved Plan and existing checkout edits, when execution starts, the approved work is isolated and the
   user’s edits remain preserved.
+- Given a worktree created from `main`, when the execution Plan is edited to target `release/next` after the Session
+  loaded it, validation and publication use `release/next`, leave `main` unchanged, and record the actual delivery
+  target. Cleanup proves the source commits are on `release/next` before removing the source branch; it does not require
+  those commits to be on the current checkout's branch.
+- Given a Session that still displays failed or canceled checks from an earlier attempt, when a resumed delivery
+  publishes and cleans up successfully, the Session reports delivery complete with the current check results and does
+  not ask the user to repeat publication.
 - Given a completed Plan without controller records, loading it recognizes delivery when Git proves its validated commit
   belongs to its target branch. A commit on an unrelated branch is not enough. A pending attempt offers continuation of
   publication or cleanup, rather than being treated as finished merely because validation passed.
@@ -713,20 +720,23 @@ own artifacts.
 
 Skip or offer cancellation permanently suppresses automatic Tutorial offers at the user level across restarts and
 projects. `/onboard` and interactive `wld onboard` remain available. Explicit entry shows consent before model setup or
-Init. Non-interactive CLI entry exits without work. Empty projects retain ordinary startup guidance and can use explicit
-entry after meaningful files exist.
+Init. Non-interactive CLI entry exits without work. An Empty Project Directory receives the same automatic offer after
+model setup. Its Tutorial lets the user choose a small starter project instead of an improvement to existing files.
 
-After Start, Planner inspects a bounded area and suggests at most three small changes before Plan authorship. The
-selected change uses normal Plan Review, approved execution, project checks, AI review, optional Code Review, delivery,
-and Work Record generation. Teaching messages follow real workflow events and do not approve, advance, or complete work.
-Only a RunWield Verified and published change receives the successful Tutorial recap. Manual verification, closure
-without verification, pauses, and failures remain distinct.
+After Start, Planner inspects a bounded area and suggests at most three small changes before Plan authorship. In an
+Empty Project Directory, Planner suggests at most three small starter projects instead. The selected change uses normal
+Plan Review, approved execution, project checks, AI review, optional Code Review, delivery, and Work Record generation.
+Teaching messages follow real workflow events and do not approve, advance, or complete work. Only a RunWield Verified
+and published change receives the successful Tutorial recap. Manual verification, closure without verification, pauses,
+and failures remain distinct.
 
 **Acceptance scenarios:**
 
 - Given an eligible new TUI Session, when the offer appears, it shows the real-project warning and project path. Skip or
   cancel returns to ordinary input with no Tutorial model call or repository artifact and suppresses later automatic
   offers in this and other projects.
+- Given an Empty Project Directory, when the user selects a model during first-run setup, the Tutorial offer appears.
+  Given Start, Planner offers up to three small starter projects before it creates a Plan or edits files.
 - Given a permanent Skip, when the user runs `/onboard` or interactive `wld onboard`, the warning still appears before
   setup, Init, discovery, or model work.
 - Given Start, when the user selects an improvement, one ordinary draft Plan enters Plan Review. Feedback, Approve for

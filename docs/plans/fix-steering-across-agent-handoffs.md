@@ -7,8 +7,7 @@ affectedPaths:
     - "src/shared/session/agent-handler.ts"
     - "src/shared/session/agent-switching.js"
     - "src/shared/session/hosted-session.js"
-    - "src/shared/session/session-runtime.ts"
-    - "src/shared/session/runtime/queues.ts"
+    - "src/shared/session/session-runtime.js"
     - "src/shared/session/session.js"
     - "src/shared/workflow/workflow-tool-events.ts"
     - "src/tools/triage-report.ts"
@@ -20,16 +19,9 @@ executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-09-22"
 origin: "internal"
+status: "ready_for_work"
 userVerifiedAt: null
 routingIntent: "PLANNED_CHANGE"
-targetBranch: "main"
-status: "validated"
-validatedCommit: "158273479acf5741b1abffc8d6bffc328e8fcf96"
-workRecord:
-    status: "generated"
-    recordId: "c2c2d43c-223e-425b-954a-89a13157b230"
-    path: "docs/work-records/2026-09-23-deliver-steering-to-replacement-agents.md"
-    lastAttemptAt: "2026-09-23T16:07:59.874Z"
 ---
 
 # Deliver Steering to the New Agent After Handoff

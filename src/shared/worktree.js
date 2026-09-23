@@ -1592,7 +1592,7 @@ export async function removeWorktreeGitArtifacts({ projectRoot, path, force = fa
  *
  * Two proofs are accepted, because there are two ways to know nothing is lost:
  *
- * - The branch is merged into HEAD (`git branch --merged`), so its commits are reachable
+ * - The branch is merged into the publication target (HEAD by default), so its commits are reachable
  *   elsewhere.
  * - The branch never moved off the commit it was created from, so it carries no work at
  *   all. Rollback of a freshly created attempt is exactly this case, and without it a
@@ -1603,10 +1603,24 @@ export async function removeWorktreeGitArtifacts({ projectRoot, path, force = fa
  * deleted, per PR-4. `baseCommit` is optional: callers that cannot prove the origin get
  * the merged check alone.
  *
- * @param {{ projectRoot: string, branch: string, baseCommit?: string, ownedPreparationCommit?: string }} opts
+ * @typedef {Object} MergedWorktreeBranchDeletionOptions
+ * @property {string} projectRoot
+ * @property {string} branch
+ * @property {string} [baseCommit]
+ * @property {string} [ownedPreparationCommit]
+ * @property {string} [targetBranch]
+ */
+
+/**
+ * @param {MergedWorktreeBranchDeletionOptions} opts
  * @returns {Promise<{ deleted: boolean, reason: string }>}
  */
-export async function deleteMergedWorktreeBranch({ projectRoot, branch, baseCommit, ownedPreparationCommit }) {
+export async function deleteMergedWorktreeBranch(
+    { projectRoot, branch, baseCommit, ownedPreparationCommit, targetBranch },
+) {
+    if (targetBranch === branch) {
+        return { deleted: false, reason: `${branch} is the publication target, so it was kept.` };
+    }
     if (baseCommit) {
         const tip = await runGitResult(projectRoot, ["rev-parse", `refs/heads/${branch}`]);
         if (tip.code === 0 && tip.stdout.trim() === baseCommit) {
@@ -1627,17 +1641,20 @@ export async function deleteMergedWorktreeBranch({ projectRoot, branch, baseComm
             }
         }
     }
-    const merged = await runGitResult(projectRoot, ["branch", "--merged", "HEAD"]);
+    const targetRef = targetBranch ? `refs/heads/${targetBranch}` : "HEAD";
+    const merged = await runGitResult(projectRoot, ["branch", "--merged", targetRef]);
     const hasMergedProof = merged.code === 0 &&
         merged.stdout.split("\n").some((line) => line.replace(/^\*\s*/, "").trim() === branch);
     if (!hasMergedProof) {
         return {
             deleted: false,
-            reason: `${branch} is not proven merged into HEAD, so it was kept.`,
+            reason: `${branch} is not proven merged into ${targetRef}, so it was kept.`,
         };
     }
-    await runGit(projectRoot, ["branch", "-d", branch]);
-    return { deleted: true, reason: `${branch} was merged into HEAD and deleted.` };
+    // Git's -d checks HEAD or the source's upstream, which may be unrelated to
+    // this publication. The explicit target's ancestry proof above owns cleanup.
+    await runGit(projectRoot, ["branch", targetBranch ? "-D" : "-d", branch]);
+    return { deleted: true, reason: `${branch} was merged into ${targetRef} and deleted.` };
 }
 
 /**

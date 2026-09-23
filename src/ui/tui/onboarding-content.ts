@@ -11,7 +11,7 @@ export const ONBOARDING_DISCOVERY_EXPLANATION =
 
 export const ONBOARDING_TUTORIAL_REQUEST = `Guide me through one small real change in this project.
 
-First inspect a bounded area and suggest at most three useful changes with observable success criteria. Do not create a Plan or edit files yet. Wait for me to select one suggestion or provide my own.
+First inspect a bounded area and suggest at most three useful changes with observable success criteria. If the project has no meaningful files, suggest at most three small starter projects instead. Do not create a Plan or edit files yet. Wait for me to select one suggestion or provide my own.
 
 After I choose, clarify only what is necessary, then use the ordinary Planned Change workflow. Keep the change small. Do not approve, implement, validate, or publish work on my behalf.`;
 

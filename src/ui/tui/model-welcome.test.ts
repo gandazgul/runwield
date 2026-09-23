@@ -18,6 +18,7 @@ import {
     createInteractiveCompositionHarness,
     type InteractiveCompositionHarness,
 } from "./testing/interactive-composition-fixture.ts";
+import { ONBOARDING_WARNING } from "./onboarding-content.ts";
 
 const WELCOME_TITLE = "Welcome to RunWield";
 const MODEL_SELECTOR_MARKER = "Only showing models from configured providers";
@@ -228,6 +229,32 @@ Deno.test("subscription login through the scripted OAuth fixture runs the real /
             await harness.dispose();
         }
     }, { providerState: "none" });
+});
+
+Deno.test("selecting a model offers the Tutorial in an Empty Project Directory", async () => {
+    await withRuntimeCommandFixture("model-welcome-tutorial-offer-", async () => {
+        const harness = await createInteractiveCompositionHarness({});
+        try {
+            await harness.waitForScreen(WELCOME_TITLE);
+            const provider = await registerScriptedOAuthProvider();
+            provider.setOutcome({ kind: "success" });
+            await chooseSubscriptionLogin(harness);
+            await harness.waitForScreen("Select provider to configure:");
+            await harness.type(`${SCRIPTED_PROVIDER_FILTER}\r`);
+            await harness.waitForScreen("Paste the redirect URL");
+            await harness.type(`${REDIRECT_URL}\r`);
+            await harness.waitForScreen(MODEL_SELECTOR_MARKER);
+            await harness.type(`${SCRIPTED_OAUTH_MODEL}\r`);
+
+            const offer = await harness.waitForScreen("This tutorial makes a real change");
+            assert(offer.replace(/\s+/g, " ").includes(ONBOARDING_WARNING));
+            assert(offer.includes("Project:"));
+            await harness.type("skip\r");
+            await harness.waitForComposition(30_000);
+        } finally {
+            await harness.dispose();
+        }
+    }, { providerState: "none", offerTutorial: true });
 });
 
 Deno.test("login failure renders a user-visible error and activates no root Session", async () => {

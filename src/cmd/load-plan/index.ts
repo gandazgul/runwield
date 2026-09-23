@@ -598,8 +598,8 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                             { value: "cleanup", label: "Remove published worktree and branch" },
                         ]
                         : [
-                            { value: "review", label: "Re-open for review (planner/architect)" },
                             { value: "archive", label: "Archive plan" },
+                            { value: "review", label: "Re-open for review (planner/architect)" },
                             { value: "view", label: "View plan details" },
                         ]),
                     { value: "cancel", label: "Cancel" },

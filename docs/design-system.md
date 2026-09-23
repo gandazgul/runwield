@@ -4,6 +4,9 @@ The RunWield Design System is the shared browser UI language for Workspace, Plan
 RunWield web surfaces. Plan Review and Code Review are the visual blueprint. Their compact, tool-like density should
 carry through the rest of Workspace.
 
+The hierarchy, state meanings, and evidence presentation also guide the TUI. Browser CSS, fonts, and dimensions apply
+only to web surfaces; [terminal adaptation](#terminal-adaptation) describes the corresponding terminal conventions.
+
 ## Principles
 
 ### Use the review surfaces as the blueprint
@@ -23,6 +26,22 @@ Review as the baseline:
 
 Do not copy the old Workspace habit of making every action a pill or every container a large soft card. Rounded corners
 communicate containment; they are not decoration. When unsure, copy the density and shape of the review toolbars.
+
+### Make the current work and its evidence clear
+
+Compose workbenches around the user's current Session, Plan, review, or decision. Keep navigation and scope stable, then
+show the relevant state, evidence, and a route to inspect details. Group evidence by what it helps explain, not by
+equal-sized decorative panels. Object titles and the next action outrank timestamps and other metadata.
+
+Use space and tonal separation before adding borders or elevation. Existing Plan Cards retain their documented border
+and restrained shadow; timelines and evidence rows use their lighter shared patterns. Avoid decorative terminal styling,
+neon telemetry, and animation that competes with changing output. Blue identifies action and selection, mint identifies
+the brand, and status colors keep their established meanings. Do not add violet as a second action color or impose a
+fixed percentage of accent color on every screen.
+
+Live state must be distinguishable from saved evidence. Where a surface supports live, paused, or stale data, make that
+distinction visible in text and keep the time context close to the evidence. Keep relevant commands, identifiers, and
+output inspectable and copyable through existing controls.
 
 ### Prefer semantic UI language
 
@@ -445,6 +464,40 @@ Shared CSS should be split by responsibility rather than kept as one broad `styl
 - surface-specific CSS, such as `workspace.css`, for layouts and patterns that are not yet shared across browser
   surfaces.
 
+### Typography and grouping
+
+Use `--rw-font-sans` for browser UI and explanatory copy, and `--rw-font-mono` for code, commands, identifiers, logs,
+and aligned technical values. Preserve existing compact metadata treatments such as `.eyebrow` and `.card-kicker`; they
+are not a reason to set whole panels in monospace. Use tabular numerals when changing numbers must align, such as
+durations, costs, and comparable metrics.
+
+Keep the compact control sizes above separate from document reading sizes. Aim for a readable 50–75-character measure
+for ordinary prose where the document layout permits; diffs, tables, and the established wide review canvas retain their
+working width. Group related content with smaller internal gaps and larger gaps between groups, using the existing
+spacing tokens. Do not introduce a competing spacing scale from a preset.
+
+Match neighboring SVG icon size, stroke, and fill treatment. Icons explain an action or state; use visible labels or
+accessible names and avoid emoji as new browser navigation or control decoration.
+
+### External palette integration
+
+External palettes are reference material, not an additional runtime theme. Map their roles to the existing tokens before
+considering new CSS:
+
+| External role                                     | RunWield equivalent                                                      |
+| ------------------------------------------------- | ------------------------------------------------------------------------ |
+| Background / surface / chrome                     | `--rw-page-bg`, `--rw-surface`, appropriate existing surface level       |
+| Foreground / muted foreground / chrome foreground | `--rw-text`, `--rw-text-muted`, `--rw-text`                              |
+| Primary / primary foreground                      | `--rw-accent`, `--rw-on-accent`                                          |
+| Focus / border                                    | `--rw-accent`, `--rw-border`                                             |
+| Success / warning / danger and their foregrounds  | `--rw-success`, `--rw-warning`, `--rw-error` and their `--rw-on-*` roles |
+| Secondary accent or raw color ramps               | No automatic mapping; require a real semantic use before adding a token  |
+
+The evaluated StyleSeed palette supplied only role declarations and unused blue/violet ramps, with no component or
+layout CSS to reuse. Its roles are already covered above. Keep the approved values in `themes/dark.ts` and the aliases
+in `theme-bridge.js`; do not copy its generated colors or introduce `--ss-*` variables. Contrast results for an external
+palette do not validate RunWield's actual combinations, mixed backgrounds, or interaction states.
+
 ### Adding tokens
 
 Only add a token when an existing semantic token cannot describe the intended use. New tokens should be:
@@ -760,6 +813,31 @@ or in the same change, then consider whether Workspace should reuse it.
 - Preserve responsive behavior for narrow screens.
 - Avoid hover-only information; keyboard and touch users need the same workflow context.
 
+Use WCAG AA contrast for browser text: at least 4.5:1 for ordinary text and 3:1 for qualifying large text. Meaningful
+control and graphical boundaries need 3:1 against adjacent colors where required; decorative separators do not all need
+that contrast. Check the rendered background and hover/focus states, not just a palette swatch. See W3C's
+[text contrast](https://www.w3.org/WAI/WCAG21/Understanding/contrast-minimum) and
+[non-text contrast](https://www.w3.org/WAI/WCAG22/Understanding/non-text-contrast.html) guidance.
+
+Use the shared control/sidebar duration and easing tokens for functional transitions. An action or important status must
+not wait for animation to finish. Preserve the complete final state with reduced motion, including the shared loader's
+still frame.
+
+### Terminal adaptation
+
+Use `src/ui/theme/theme.js` and its semantic theme helpers for terminal colors and Markdown, selection, and editor
+styling. Preserve the user's selected terminal theme; do not impose browser hex colors or CSS variables on ANSI output.
+See [Themes](themes.md). Shared intent does not require identical color values across renderers.
+
+Terminal fonts and cell sizes belong to the terminal. Express hierarchy through order, spacing, emphasis, labels, and
+selection markers rather than browser font sizes, radii, shadows, or pixel target sizes. Keep status understandable
+without color. Reuse the existing TUI symbols and loaders instead of importing a browser icon family.
+
+Check narrow and wide terminal layouts with real long paths, identifiers, multiline content, and live updates. Preserve
+readable wrapping, keyboard selection, input focus, and scroll position. Browser motion preferences do not configure
+terminal animation; follow the TUI's own rendering and settings behavior. This guidance introduces no new terminal theme
+or motion setting.
+
 ## Extension checklist
 
 Before adding or changing browser UI, check:
@@ -772,6 +850,12 @@ Before adding or changing browser UI, check:
 6. Does the UI preserve the compact review-surface look and feel?
 7. Are statuses and workflow consequences visible in text, not just color?
 8. Would a future agent know which pattern to copy from this document?
+
+For visual changes, run the relevant project checks and inspect the actual changed routes at narrow and wide widths when
+both are supported. Exercise the states the surface owns, including loading, empty, error, success, disabled, permission
+restrictions, keyboard focus, and reduced motion. Palette checks and source review cannot establish font loading, visual
+hierarchy, overflow, or usability. Record the routes, states, viewport sizes, and any unverified cases; a passing
+automated score does not establish visual acceptance.
 
 ## Non-goals for v1
 

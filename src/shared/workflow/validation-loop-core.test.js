@@ -1,11 +1,21 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 
-import { loadPlan, savePlan } from "../../plan-store.js";
+import { loadPlan, parsePlanFrontMatter, savePlan } from "../../plan-store.js";
 import { defineGitFixture, git } from "../git-test-fixture.ts";
+import { createGitPort } from "../git-port.ts";
+import { createWorkRecordMnemotecaFixture } from "../work-records/test-fixtures/mnemoteca-port.ts";
 import { HostedSession } from "../session/hosted-session.js";
 import { removeWorktreeGitArtifacts } from "../worktree.js";
 import { createTestWorktreeAttempt, makeRepo } from "../worktree-test-helpers.js";
-import { shouldContinueParentEpicAfterValidation } from "./validation.ts";
+import { createEngineValidationArgs, shouldContinueParentEpicAfterValidation } from "./validation.ts";
+import { resolvePhaseContext } from "./validation-context.ts";
+import { runPublicationPhase } from "./validation-publication.ts";
+import { loadPublicationAttempt, startPublicationAttempt } from "./publication-machine.ts";
+import {
+    createValidationProgress,
+    getCurrentValidationProgress,
+    setCurrentValidationProgress,
+} from "./validation-progress.ts";
 import { createExecutionStartPorts } from "./execution-start.ts";
 import { startActiveExecutionWorkflow } from "./workflow.js";
 import {
@@ -95,6 +105,7 @@ async function makePlannedReviewWorktree() {
     });
     return {
         projectRoot,
+        worktree,
         executionCwd: worktree.path,
         hostedSession,
         uiAPI,
@@ -104,6 +115,136 @@ async function makePlannedReviewWorktree() {
             await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
         },
     };
+}
+
+for (const sealed of [false, true]) {
+    Deno.test(`publication rereads a target edited after phase resolution (sealed: ${sealed})`, async () => {
+        const fixture = await makePlannedReviewWorktree();
+        try {
+            const { projectRoot, worktree } = fixture;
+            await git(projectRoot, ["branch", "release/next"]);
+            const mainBefore = await git(projectRoot, ["rev-parse", "main"]);
+            const args = createEngineValidationArgs({
+                hostedSession: fixture.hostedSession,
+                planName: "p",
+                planContent: "# stale Plan",
+                triageMeta: { classification: "FEATURE", status: "validated_reviewer", targetBranch: "main" },
+                git: createGitPort(),
+                localCI: { run: () => Promise.reject(new Error("Unexpected CI")) },
+                workRecordMnemotecaPort: createWorkRecordMnemotecaFixture(),
+                semanticReviewPort: NO_ISOLATED_AGENT_PORT,
+            });
+            const phase = await resolvePhaseContext(args);
+            if (phase.kind !== "ok") throw new Error("Missing phase context");
+            assertEquals(phase.context.worktreeBaseBranch, "main");
+            if (sealed) {
+                await startPublicationAttempt({
+                    projectRoot,
+                    attemptId: worktree.id,
+                    planName: "p",
+                    targetBranch: "main",
+                    executionBranch: worktree.branch,
+                    executionCwd: worktree.path,
+                    validatedCommit: mainBefore,
+                    targetHeadAtSeal: mainBefore,
+                });
+            }
+            const plan = await loadPlan(worktree.path, "p");
+            if (!plan) throw new Error("Missing execution Plan");
+            await savePlan(worktree.path, "p", plan.body, {
+                ...plan.attrs,
+                status: "validated_reviewer",
+                targetBranch: "release/next",
+            }, { expectedRevision: plan.revision });
+            await Deno.writeTextFile(`${worktree.path}/delivered.txt`, "late target edit\n");
+            const result = await runPublicationPhase(args, phase.context, {
+                humanReviewMode: "none",
+                humanReviewDecision: "not_required",
+                humanReviewedAt: null,
+            });
+            assertEquals(await git(projectRoot, ["rev-parse", "main"]), mainBefore);
+            if (sealed) {
+                assertEquals(result.result.kind, "paused");
+                assertStringIncludes(result.result.reason || "", "Plan now targets release/next");
+                assertEquals(await git(projectRoot, ["rev-parse", "release/next"]), mainBefore);
+                assertEquals((await loadPublicationAttempt(projectRoot, worktree.id))?.targetBranch, "main");
+                assertEquals(await Deno.readTextFile(`${worktree.path}/delivered.txt`), "late target edit\n");
+            } else {
+                assertEquals(result.result.kind, "verified", JSON.stringify(result));
+                assertEquals(await git(projectRoot, ["show", "release/next:delivered.txt"]), "late target edit");
+            }
+        } finally {
+            await fixture.cleanup();
+        }
+    });
+}
+
+for (const targetBranch of ["release/next", " origin/release/next ", undefined]) {
+    Deno.test(`delivery rereads the execution Plan target: ${targetBranch ?? "recorded default"}`, async () => {
+        const fixture = await makePlannedReviewWorktree();
+        try {
+            await git(fixture.projectRoot, ["branch", "release/next"]);
+            const mainBefore = await git(fixture.projectRoot, ["rev-parse", "main"]);
+            const plan = await loadPlan(fixture.executionCwd, "p");
+            if (!plan) throw new Error("Missing execution Plan");
+            // The Session, registry and primary Plan still describe the old target.
+            // Only the execution document changes after the workflow was loaded.
+            await savePlan(fixture.executionCwd, "p", plan.body, {
+                ...plan.attrs,
+                status: "validated_reviewer",
+                targetBranch,
+                humanReviewMode: "none",
+                humanReviewDecision: "not_required",
+            }, { expectedRevision: plan.revision });
+            await Deno.writeTextFile(`${fixture.executionCwd}/delivered.txt`, "selected target\n");
+            setCurrentValidationProgress(
+                fixture.hostedSession,
+                createValidationProgress({
+                    kind: "workflow",
+                    outcome: "failed",
+                    stage: "terminal",
+                    cycle: 1,
+                    maxCycles: 3,
+                    checks: { ci: "failed", semanticReview: "canceled", humanReview: "canceled", merge: "failed" },
+                }),
+            );
+            const result = await runValidationLoop({
+                hostedSession: fixture.hostedSession,
+                planName: "p",
+                planContent: "# stale Plan",
+                triageMeta: { classification: "FEATURE", status: "validated_ci", targetBranch: "main" },
+                git: createGitPort(),
+                workRecordMnemotecaPort: createWorkRecordMnemotecaFixture(),
+                semanticReviewPort: NO_ISOLATED_AGENT_PORT,
+            });
+            assertEquals(result.kind, "verified", JSON.stringify(result));
+            assertEquals(getCurrentValidationProgress(fixture.hostedSession)?.checks, {
+                ci: "passed",
+                semanticReview: "passed",
+                humanReview: "skipped",
+                merge: "passed",
+            });
+            assertEquals(getCurrentValidationProgress(fixture.hostedSession)?.outcome, "verified");
+            assertEquals(await loadPublicationAttempt(fixture.projectRoot, fixture.worktree.id), null);
+            assertEquals(fixture.uiAPI.messages.join("\n").includes("could not finish adding"), false);
+            const expectedTarget = targetBranch ? "release/next" : "main";
+            assertEquals(
+                await git(fixture.projectRoot, ["show", `${expectedTarget}:delivered.txt`]),
+                "selected target",
+            );
+            const publishedPlan = await git(fixture.projectRoot, ["show", `${expectedTarget}:docs/plans/p.md`]);
+            assertEquals(parsePlanFrontMatter(publishedPlan).attrs.targetBranch, expectedTarget);
+            if (targetBranch) {
+                assertEquals(await git(fixture.projectRoot, ["rev-parse", "main"]), mainBefore);
+                assertEquals(
+                    fixture.uiAPI.messages.join("\n").includes("Merging work into main"),
+                    false,
+                );
+            }
+        } finally {
+            await fixture.cleanup();
+        }
+    });
 }
 
 Deno.test("startActiveExecutionWorkflow seeds footer workflow context from Plan front matter", async () => {

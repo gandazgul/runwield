@@ -53,6 +53,9 @@ coding.
   discipline rather than introducing deeper chains, incidental DOM coupling, or higher specificity.
 - Make hover, focus, active, disabled, selected, loading, empty, error, long-content, narrow-width, and color-mode
   styles explicit where the component supports them.
+- When incorporating external CSS or a generated palette, inventory consumers and map roles to the existing theme first.
+  Preserve the project's namespace and theme bridge; omit unused ramps and duplicate aliases. Add a token only for a
+  real component role the existing system cannot express, and verify its actual foreground/background pairs.
 
 ## Internationalization
 

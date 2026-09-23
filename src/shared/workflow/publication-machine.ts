@@ -274,6 +274,7 @@ export async function advanceStoredPublication(
     phase: PublicationPhase,
     evidence: PublicationPhaseEvidence,
 ): Promise<PublicationAttempt> {
+    if (current.revalidation) throw new Error("Publication is waiting for validation of the current source.");
     const mismatch = Object.entries(evidence).find(([field, expected]) => {
         if (expected === undefined) return false;
         const actual = current[field as keyof PublicationAttempt];
@@ -332,6 +333,7 @@ export async function reconcileStoredPublication(
     initial: PublicationAttempt,
 ): Promise<PublicationAttempt> {
     await enterProjectRuntime(projectRoot);
+    if (initial.revalidation) return initial;
     let current = initial;
     if (current.phase === "candidate_sealed") {
         const evidence = await artifactEvidence(current);
@@ -454,7 +456,11 @@ export async function cleanupStoredPublication(
                         publicationCommit: attempt.publishedCommit || "",
                         artifactCommit: attempt.artifactCommit,
                     })
-                    : await deleteMergedWorktreeBranch({ projectRoot, branch: attempt.executionBranch });
+                    : await deleteMergedWorktreeBranch({
+                        projectRoot,
+                        branch: attempt.executionBranch,
+                        targetBranch: attempt.targetBranch,
+                    });
             if (!branchCleanup.deleted) {
                 branchKept = true;
                 details.push(branchCleanup.reason);

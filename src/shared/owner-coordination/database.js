@@ -258,10 +258,22 @@ function backupPathFor(dbPath, sourceVersion, now) {
  */
 function backupOwnerDatabase(db, dbPath, sourceVersion, now) {
     if (!dbPath || dbPath === ":memory:" || !fileExists(dbPath)) return;
-    const backupPath = backupPathFor(dbPath, sourceVersion, now);
+    // Use SQLite's opened location. Deno resolves macOS /var and /tmp aliases
+    // when opening a database, but VACUUM INTO does not pass through that resolver.
+    const openedPath = db.prepare("SELECT file FROM pragma_database_list WHERE name = 'main'").get()?.file;
+    if (typeof openedPath !== "string" || !openedPath) throw new Error("Cannot locate the owner database for backup.");
+    const backupPath = backupPathFor(openedPath, sourceVersion, now);
     Deno.mkdirSync(dirname(backupPath), { recursive: true, mode: 0o700 });
-    Deno.writeFileSync(backupPath, db.serialize());
-    const backup = new DatabaseSync(backupPath);
+    // node:sqlite cannot open a VACUUM INTO destination in this runtime. Checkpoint
+    // WAL content before copying so the backup includes all committed data.
+    db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+    Deno.copyFileSync(dbPath, backupPath);
+    try {
+        Deno.chmodSync(backupPath, 0o600);
+    } catch {
+        // Some filesystems do not support chmod; creation location is still owner-only best effort.
+    }
+    const backup = new DatabaseSync(backupPath, { readOnly: true });
     try {
         backup.exec("PRAGMA journal_mode = DELETE");
         const quickCheck = /** @type {{ quick_check: string }} */ (backup.prepare("PRAGMA quick_check").get());
@@ -276,6 +288,15 @@ function backupOwnerDatabase(db, dbPath, sourceVersion, now) {
         }
     } finally {
         backup.close();
+        // This node:sqlite build creates empty sidecars while opening the new
+        // backup read-only. They are inspection artifacts, not backup data.
+        for (const suffix of ["-wal", "-shm"]) {
+            try {
+                Deno.removeSync(`${backupPath}${suffix}`);
+            } catch {
+                // The SQLite build did not create this sidecar.
+            }
+        }
     }
     try {
         Deno.chmodSync(backupPath, 0o600);

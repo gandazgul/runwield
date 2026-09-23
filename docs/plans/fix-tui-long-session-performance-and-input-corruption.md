@@ -1,4 +1,5 @@
 ---
+planId: "ac424dd4-8296-41f1-aad1-2684d9d920e9"
 classification: "PLANNED_CHANGE"
 workKind: "BUG_FIX"
 complexity: "HIGH"
@@ -12,13 +13,12 @@ affectedPaths:
     - "src/ui/tui/terminal-focus-state.test.ts"
     - "src/ui/tui/api.test.js"
     - "docs/prd/runwield-core-prd.md"
-devServerCommand: null
-devServerUrl: null
-devServerHmr: null
-createdAt: "2026-09-22"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
-status: "draft"
+createdAt: "2026-09-22"
+origin: "internal"
+status: "ready_for_work"
+userVerifiedAt: null
 ---
 
 # Restore long-Session TUI responsiveness and safe scrolling
@@ -31,10 +31,10 @@ deliberate Escape input and cancels the active Agent turn. A fresh Session does 
 performance and input failures must be tested together under retained-history load.
 
 This changes the current Core TUI conversation capability in
-[runwield-core-prd.md#31-tui-shell-and-root-agent-behavior](../prd/runwield-core-prd.md#31-tui-shell-and-root-agent-behavior).
-The existing requirements to preserve the draft, conversation scroll position, and running Agent turn remain. Add the
-long-Session responsiveness and safe-scroll acceptance scenario in the same implementation change. No new domain term is
-needed, and no Session or Agent authority changes.
+[runwield-core-prd.md#tui-conversation](../prd/runwield-core-prd.md#tui-conversation). The existing requirements to
+preserve the draft, conversation scroll position, and running Agent turn remain. Add the long-Session responsiveness and
+safe-scroll acceptance scenario in the same implementation change. No new domain term is needed, and no Session or Agent
+authority changes.
 
 Current evidence:
 
@@ -142,9 +142,13 @@ expected unless the implementation changes that boundary.
    cancellation behavior.
 3. **The measured repaint hotspot is bounded.** The implementation removes the selected source of repeated work—snapshot
    duplication, full retained-content formatting, timer-driven renders, terminal writes, or another measured hotspot—and
-   records the invariant in a focused test. A counterfeit implementation that merely returns an empty frame, drops old
-   messages, disables scrolling, or suppresses all renders must fail because the test still checks visible retained
-   content, live updates, scroll position, and input readiness.
+   records the invariant in a focused test. The scaling test uses fixed viewports and retained-content samples such as
+   100, 500, 1,000, and 2,000 blocks. During repeated frames where only one active block changes, unchanged off-screen
+   blocks must not be reformatted once per frame; visible old content and the active block must still render. The test
+   records actual child/block render or formatting counts, snapshot calls, timer callbacks, and frame duration, not only
+   top-level `requestRender` calls or `children.length`. A counterfeit implementation that merely returns an empty
+   frame, drops old messages, disables scrolling, or suppresses all renders must fail because the test still checks
+   visible retained content, live updates, scroll position, and input readiness.
 4. **Long-session memory remains intentional.** Retained content uses the existing limits or an explicitly measured
    bounded projection. Completed tool output, images, Session Transcript continuity, current Agent context, and active
    blocks retain their existing semantics. The change does not silently delete user-visible history or mutate the
@@ -186,14 +190,15 @@ directly.
 
 ### Required distinguishing evidence
 
-- **Ghostty-style scroll:** feed complete and split SGR wheel reports through the real parser and TUI. Assert that the
-  viewport moves, the draft is byte-for-byte unchanged, no control-sequence text appears in the editor, and the runtime
+- **Ghostty-style scroll:** feed complete and split SGR wheel reports through the real parser and TUI, using the same
+  input callback that reaches `RunWieldTui`, not only a direct `scrollBy()` call. Assert that the wheel bytes move the
+  viewport, the draft is byte-for-byte unchanged, no control-sequence text appears in the editor, and the runtime
   cancellation method is not called. Feed a deliberate Escape separately and assert that cancellation still occurs.
-- **Slow-session reproduction:** grow retained content in fixed increments and record frame duration, render counts by
-  retained/visible component, snapshot calls, timer callbacks, terminal output, and process memory after settlement. The
-  post-fix observation must show the measured hotspot no longer grows in the same way, while visible old content and
-  live updates remain present. Use repeated samples and report variance instead of a machine-specific absolute
-  threshold.
+- **Slow-session reproduction:** grow retained content in fixed increments and record frame duration, actual
+  per-child/block render or formatting counts, snapshot calls, timer callbacks, terminal output, and process memory
+  after settlement. The post-fix observation must show the measured hotspot no longer grows in the same way, while
+  visible old content and live updates remain present. Use repeated samples and report variance instead of a
+  machine-specific absolute threshold.
 - **Viewport behavior:** while streaming or running a tool, scroll up and verify the visible screen stays at the
   selected position; scroll back to the end and verify follow mode resumes. The test must fail if the implementation
   renders only the composer, clears old content, or forces the viewport to the bottom.

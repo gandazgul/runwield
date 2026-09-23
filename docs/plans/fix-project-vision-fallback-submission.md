@@ -63,13 +63,73 @@ Owning requirements:
 Agent, preset, authentication, and backend rules. No requirement is removed. The proposed scenario additions make these
 existing commitments explicit; this Plan does not claim all other failed-send or long-run context cases are solved.
 
+### Approved publication recovery — 2026-09-22
+
+The user approved moving this Plan's implemented changes onto current `main`, followed by fresh validation and review.
+Do not implement the original feature again from the beginning. The sections below remain the behavior contract; the
+recovery instructions in this section govern how to continue the existing implementation.
+
+Read-only diagnosis found:
+
+- Execution attempt `62d4278b` retains the original validated commit `b87c2c3a125716940fb412e1796c178a39ff84a9` and
+  artifact commit `6be7c1d5ccc0a9adeabc4ccc6ad7f90e88154803` in Git. The rewritten source branch ends at
+  `a0fea453450d24879213d039d7a6f9582d40982e`, with Plan commits based on `535a61dacde96ca985c3b1ea15d4fe5bc37fb24d`.
+- The old and rewritten artifact trees match outside `.wld`. The rewrite removed `.wld/agents/pm.md`,
+  `.wld/settings.json`, and `.wld/skills/runwield-workspace-journey-mapping/SKILL.md`. These are not all disposable
+  runtime files. Do not repeat that deletion or treat an exclusion of all `.wld` files as validation proof.
+- The source and target have divergent rewritten histories. A full merge produces conflicts far outside this Plan. The
+  source-base-to-tip delta has 30 paths; this is an inspection starting point, not authority to overwrite 30 files.
+- Current `main` already contains part of the image submission implementation. Its Runtime now uses
+  `src/shared/session/session-runtime.ts` and `runtime/images.ts`, `runtime/turns.ts`, and `runtime/queues.ts`. Preserve
+  these current owners and newer steering behavior. Do not restore the old monolithic Runtime file.
+- The publication record remains at `artifacts_committed`, revision 7, with old hashes. The referenced staging directory
+  `.wld/plan-staging/62d4278b` was absent on the latest check. Earlier pending merge resolutions were reported there;
+  inspect any surviving copies before cleanup, but do not claim those resolutions still exist.
+
+Recovery also follows Core
+[Execution, validation, and recovery](../prd/runwield-core-prd.md#execution-validation-and-recovery): **Replanning
+preserves the existing implementation**, **RunWield repairs its own machinery automatically**, and **Publish
+successfully or end only by deliberate user abandonment**. No product requirement is removed or broadened. Keep
+[ADR-016](../adr/016-proof-bearing-publication-state-machine.md)'s distinction between validation and publication.
+
 ## Objective
 
 Text-only work remains usable with invalid optional vision setup. Every image submission uses the actual destination
 Agent/model and the correct Project's fallback settings. A setup rejection happens before the message is accepted or
 committed and preserves exact typed text and previews. Correcting setup permits one successful send, not a duplicate.
+Recover the existing implementation onto current `main`, validate the recovered candidate, and confirm publication
+without losing saved source commits or unrelated work.
 
 ## Approach
+
+### Recovery first
+
+Preserve the old and current source tips with durable Git recovery refs before replay. Preserve any dirty files and
+surviving repair checkout separately without resetting them. Leave the primary checkout, index, and unrelated work
+unchanged. Fetch target evidence in isolation and record the exact target used for recovery.
+
+Compare the original and rewritten Plan deltas with current `main`. Classify each change as already present, still
+needed, or obsolete because current code provides the same behavior. Replay only needed changes onto the current target
+in the managed execution worktree after preservation. Resolve conflicts against current code, not by taking an entire
+old file. Exclude unrelated historical changes and obsolete dependency/version edits unless the retained implementation
+still needs them. Keep the same Plan identity and reuse the existing attempt; no reset, abandonment, or full-history
+merge is authorized.
+
+Reopen review and invalidate old validation and Code Review evidence through the existing lifecycle owner. There is a
+known recovery gap: `reopenPlanForReview` clears Plan evidence, but `startPublicationAttempt` returns an existing sealed
+publication unchanged. The executing Engineer must establish a safe owner-controlled invalidation of the unpublished
+record before fresh sealing; a plain retry cannot satisfy this Plan. Preserve the prior evidence for recovery, use the
+registry's locked revision checks, and reject a stale writer. Never overwrite an old `artifactCommit` to make its guard
+pass. If fresh Git evidence proves publication already happened, reconcile that fact instead of invalidating it. Keep
+this correction limited to reopening this existing unpublished attempt; do not redesign publication or weaken
+runtime-path guards. Record any required clarification of review-reopen behavior in ADR-016 and its regression tests.
+
+After recovery, run fresh Mechanical Validation, AI review, and the configured Code Review gate against the recovered
+candidate. Publish through RunWield's isolated publication path and verify the target contains the newly validated
+commit. A full-history merge was rejected because it would require resolving unrelated changes and could undo newer
+work.
+
+### Original implementation contract
 
 Keep settings and model selection with their current owners. Factor only the production preparation needed to share the
 actual invocation's selected Agent/model between validation and submission. Do not build an Agent or call a model merely
@@ -155,6 +215,14 @@ during implementation and change whatever the Implementation Steps need, includi
 only when discovery changes approved intent — the change reaches another subsystem, public behavior or architecture
 shifts, migration or compatibility risk grows, or the Verification Plan no longer proves the objective.
 
+- Recovery: the existing execution worktree and Git refs — preserve and replay only the missing Plan delta.
+- `src/cmd/load-plan/plan-recovery-worktree.ts`, `src/shared/workflow/publication-machine.ts`,
+  `src/shared/worktree-registry.js`, and their lifecycle tests — clear stale evidence through its owners when this
+  unpublished attempt is reopened; do not modify runtime JSON by hand or reuse old review approval.
+- `src/shared/session/runtime/{images,turns,queues}.ts` and `session-runtime.ts` — current destinations for recovered
+  Runtime behavior. The older `.js` references below describe the original implementation, not files to recreate.
+- `docs/adr/016-proof-bearing-publication-state-machine.md` and Core recovery scenarios — clarify and verify
+  unpublished-attempt invalidation during review reopening if the owner correction is required.
 - `src/shared/settings.js`, `session/image-attachments.js`, and tests — explicit root, precedence, and lazy fallback.
 - `src/shared/session/session.js`, `session-runtime.js`, and existing model/invocation preparation — one effective model
   selection for preflight and actual submission, plus early rejection before transcript effects.
@@ -183,6 +251,21 @@ shifts, migration or compatibility risk grows, or the Verification Plan no longe
 
 ## Implementation Steps
 
+Recovery outcomes take priority. Treat the original feature steps below as acceptance checks of existing work, not an
+instruction to rebuild it.
+
+- [ ] Original validated and rewritten commits remain reachable through durable recovery refs. Any surviving dirty or
+      staged repair work is preserved. Primary checkout files and index remain unchanged by recovery.
+- [ ] A change-by-change comparison identifies which original behavior is already on `main`. The recovered candidate
+      contains only missing Plan changes and required compatibility repairs, on current target history, in current
+      modules. No old Runtime monolith or unrelated historical change is restored.
+- [ ] Review reopening preserves implementation but invalidates old validation, Code Review, and unpublished sealing
+      evidence through the existing owners. Regression tests prove resealing uses the newly validated commit, a stale
+      writer cannot restore the old record, and a published attempt is not reset. The old evidence remains recoverable.
+- [ ] Fresh tests, AI review, and configured Code Review cover the recovered candidate. Isolated publication confirms
+      target ancestry before cleanup; failure retains the recovered work. Core recovery scenarios and any ADR-016
+      clarification match the actual behavior, without claiming general recovery cases are solved.
+
 - [ ] Regression cases reproduce invalid optional fallback blocking text startup, wrong-Project resolution, and image
       validation that currently occurs after composer clearing. They exercise real settings and submission boundaries.
 - [ ] Every production fallback read uses an explicit Project root. Text-only construction and model changes do not
@@ -204,10 +287,33 @@ shifts, migration or compatibility risk grows, or the Verification Plan no longe
 ## Approval Confirmation
 
 No Work Record supersession is proposed. The user explicitly chose complete TUI/Workspace submission coverage rather
-than settings-only scope. This is a draft for later approval. Engineer owns this shared-runtime correction; browser
-edits are part of that outcome. Autonomous execution is appropriate with the concrete flows below.
+than settings-only scope, and approved bounded rebase and revalidation on 2026-09-22. This revision preserves that
+behavior contract and adds publication recovery; existing `validated` metadata describes the prior candidate, not new
+approval or validation evidence. Engineer owns recovery and the shared-runtime correction. Autonomous execution is
+appropriate with the concrete checks below.
 
 ## Verification Plan
+
+**Recovery proof:** Record source recovery refs, the isolated target head, and the final recovered commit. Compare the
+final target-to-candidate diff with the classified Plan delta. Explain every retained, omitted, or adapted change.
+Verify current Runtime modules retain newer steering behavior. Compare primary checkout file/index state before and
+after recovery. A clean diff alone does not prove the image behavior: run the original behavioral matrix below against
+the recovered implementation, adapting test paths to current modules without deleting the covered scenarios.
+
+**Stale-evidence regression:** Use a real Git fixture with an existing sealed unpublished attempt. Reopen its Plan,
+retain implementation, change/rebase the candidate, and drive fresh validation/sealing through the production owners.
+Assert that the new candidate is used and the old validation and Code Review approval cannot satisfy the gates. Replay
+an old registry revision and verify rejection, including an old revision-1 writer after resealing; clearing a record
+must not make an old revision valid again. Simulate a successful upstream push interrupted before its registry receipt:
+reopening must discover that publication and reconcile it, not reset it based on a stale local phase. Include an
+interruption between invalidation and resealing, then restart and confirm work is preserved and old evidence is not
+reused. A pass-through reopen or a hash-only rewrite must fail these checks. Use the sandboxed test runner for the
+recovery tests as well as the commands below.
+
+**Publication proof:** Read the actual upstream target after publication and prove the new validated commit is its
+ancestor. Do not substitute local `main`, Plan status, or a Work Record for upstream evidence. Retain the source and
+recovery refs until success is proved. Existing Plan/product scenarios remain authoritative; update only the recovery
+scenario and references needed to describe the delivered correction.
 
 The key regression must fail if the resolver is merely wrapped, if Workspace validates a different model, or if browser
 input is still cleared before setup failure. Run tests only through the sandboxed runner.
