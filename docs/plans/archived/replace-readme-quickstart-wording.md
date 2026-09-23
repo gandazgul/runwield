@@ -19,6 +19,9 @@ workRecord:
     recordId: "2e76b38f-a4a4-4423-a2ee-453072a38bd9"
     path: "docs/work-records/2026-09-20-clarified-readme-quickstart-wording.md"
     lastAttemptAt: "2026-09-20T03:13:44.800Z"
+archivedAt: "2026-09-22T22:34:39.653Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/replace-readme-quickstart-wording.md"
 ---
 
 # Replace README Quickstart Wording

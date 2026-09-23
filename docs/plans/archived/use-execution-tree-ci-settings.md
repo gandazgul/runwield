@@ -24,6 +24,9 @@ workRecord:
     path: "docs/work-records/2026-08-28-plan-ci-now-uses-execution-tree-settings.md"
     lastAttemptAt: "2026-08-28T19:58:18.685Z"
 targetBranch: "main"
+archivedAt: "2026-09-22T22:32:53.405Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/use-execution-tree-ci-settings.md"
 ---
 
 # Use Execution-Tree Settings for Plan CI

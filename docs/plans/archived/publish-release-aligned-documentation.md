@@ -27,6 +27,9 @@ workRecord:
     recordId: "fd8b0c45-5d82-43dd-9714-857a6de311b5"
     path: "docs/work-records/2026-09-20-publish-release-aligned-documentation-system.md"
     lastAttemptAt: "2026-09-20T03:13:31.894Z"
+archivedAt: "2026-09-23T16:08:14.117Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/publish-release-aligned-documentation.md"
 ---
 
 # Publish release-aligned RunWield documentation
