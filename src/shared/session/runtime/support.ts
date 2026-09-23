@@ -175,6 +175,7 @@ function getStreamingAssistantContextTokens(session: RuntimeAgentSession) {
             continue;
         }
         const usage = message.usage;
+        if (!usage) return null;
         const tokens = usage.totalTokens || usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
         return tokens > 0 ? tokens : null;
     }

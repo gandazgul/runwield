@@ -282,6 +282,7 @@ export class RuntimeLifecycle {
             provider?: string | null;
             thinkingLevel?: string | null;
             workflowContext?: import(".././workflow-context-session.js").WorkflowContext | null;
+            tutorialContext?: import("../tutorial-context-session.ts").TutorialContext | null;
         },
     ) {
         const cataloged = options?.session;
@@ -308,6 +309,7 @@ export class RuntimeLifecycle {
                 provider: options.provider ?? null,
                 thinkingLevel: options.thinkingLevel ?? null,
                 workflowContext: options.workflowContext ?? null,
+                tutorialContext: options.tutorialContext ?? null,
                 syncState: {
                     type: RuntimeEventTypes.MANAGED_SYNC_STATE_CHANGED,
                     status: "current",
@@ -482,6 +484,7 @@ export class RuntimeLifecycle {
                     name: managedSession.displayName,
                     activeAgent: null,
                     workflowContext: null,
+                    tutorialContext: null,
                     syncState: {
                         type: RuntimeEventTypes.MANAGED_SYNC_STATE_CHANGED,
                         status: "syncing",

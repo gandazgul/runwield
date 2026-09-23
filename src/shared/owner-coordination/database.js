@@ -237,11 +237,6 @@ function fileExists(path) {
     }
 }
 
-/** @param {string} value */
-function quoteSqlString(value) {
-    return `'${value.replaceAll("'", "''")}'`;
-}
-
 /**
  * @param {string} dbPath
  * @param {number} sourceVersion
@@ -265,14 +260,16 @@ function backupOwnerDatabase(db, dbPath, sourceVersion, now) {
     if (!dbPath || dbPath === ":memory:" || !fileExists(dbPath)) return;
     const backupPath = backupPathFor(dbPath, sourceVersion, now);
     Deno.mkdirSync(dirname(backupPath), { recursive: true, mode: 0o700 });
-    db.exec(`VACUUM INTO ${quoteSqlString(backupPath)}`);
+    db.exec("PRAGMA wal_checkpoint(FULL)");
+    Deno.copyFileSync(dbPath, backupPath);
     try {
         Deno.chmodSync(backupPath, 0o600);
     } catch {
         // Some filesystems do not support chmod; creation location is still owner-only best effort.
     }
-    const backup = new DatabaseSync(backupPath, { readOnly: true });
+    const backup = new DatabaseSync(backupPath);
     try {
+        backup.exec("PRAGMA journal_mode = DELETE");
         const quickCheck = /** @type {{ quick_check: string }} */ (backup.prepare("PRAGMA quick_check").get());
         if (quickCheck.quick_check !== "ok") {
             throw new Error(`Owner coordination backup failed quick_check: ${backupPath}`);

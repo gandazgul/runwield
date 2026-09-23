@@ -240,6 +240,10 @@ Request. _Avoid_: Semantic Review, duplicate review
 
 ### Plans & Review
 
+**Tutorial**: Optional TUI guidance around one small real Planned Change. It explains normal Plan Review, approved
+execution, Workflow Validation, and delivery as their real events occur. It is not Init, a separate Plan lifecycle, a
+sample project, or a substitute for validation. _Avoid_: Onboarding workflow, training Plan, Workspace tutorial
+
 **Plan**: A markdown file in `docs/plans/` describing the implementation strategy for a user request. Its YAML front
 matter records classification, complexity, status, timestamps, and origin. _Avoid_: Blueprint, spec, design doc
 
@@ -349,20 +353,22 @@ Verified plan, archived plan, on-hold plan
 Plannotator. _Avoid_: Feedback loop, approval cycle
 
 **Semantic Review**: The internal state-machine term for the automated Reviewer check during Workflow Validation. It
-compares the approved Plan with the full patch from the recorded target branch tip to the current execution-worktree
-files. TUI and Workspace progress copy calls this **AI review**. _Avoid_: Code Review, Forge review, automated tests
+compares the approved Plan with the full proposed branch patch from the recorded target/execution common ancestor to the
+current execution-worktree files. TUI and Workspace progress copy calls this **AI review**. _Avoid_: Code Review, Forge
+review, automated tests
 
-**Code Review**: The optional RunWield gate where a person reviews the same full target-relative patch used by Semantic
-Review before delivery. Reload recomputes it from the recorded target and current worktree files. The user approves the
-diff or sends feedback. Internal compatibility identifiers can still use `humanReview` or `human_review`, but
-user-facing copy calls this **code review**. _Avoid_: Human Review, Semantic Review, Forge review, Plan Review Loop
+**Code Review**: The optional RunWield gate where a person reviews the same full proposed branch patch used by Semantic
+Review before delivery. Reload recomputes it from the recorded target, execution HEAD, and current worktree files. The
+user approves the diff or sends feedback. Internal compatibility identifiers can still use `humanReview` or
+`human_review`, but user-facing copy calls this **code review**. _Avoid_: Human Review, Semantic Review, Forge review,
+Plan Review Loop
 
 **Review Issue Ledger**: The temporary per-attempt record of requirement coverage, Review Issues, repair claims, and
 Reviewer re-verification. _Avoid_: Review log, durable Plan history, Work Record
 
-**Review Issue**: A blocking Semantic Review finding that shows the target-relative implementation change fails an
-unambiguous approved Plan requirement. It must be repaired, or resolved by a user-confirmed Plan Deviation that replaces
-the requirement, before approval. If later evidence proves the finding was attributed to unchanged target context,
+**Review Issue**: A blocking Semantic Review finding that shows the proposed implementation fails an unambiguous
+approved Plan requirement. It must be repaired, or resolved by a user-confirmed Plan Deviation that replaces the
+requirement, before approval. If later evidence proves the finding was attributed to unchanged target context,
 independent review can confirm it as already satisfied without a file edit; its identity remains stable. _Avoid_: Review
 Advisory, style note, suggestion
 
@@ -729,6 +735,8 @@ continuation, database interaction record
 
 ## Relationships
 
+- A **Tutorial** explains one real **Planned Change** through normal **Plan Review** and **Workflow Validation**. It
+  does not replace **Init** or own Plan lifecycle state.
 - One **Attached Workflow** governs one user request inside one **External Agent Host**.
 - During an **Attached Workflow**, the **External Agent Host** owns model calls while RunWield owns durable workflow
   truth, review, validation, recovery evidence, Work Records, and organizational memory.

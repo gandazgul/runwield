@@ -1,11 +1,13 @@
 import { assertEquals } from "@std/assert";
 import {
+    onboardingTutorialDeliveryScenario,
     plannedChangeFrontendIdentityScenario,
     plannedChangeReviewRepairValidationScenario,
 } from "./planned-change-workflow.js";
 
 const scenarios = {
     plannedChangeReviewRepairValidationScenario,
+    onboardingTutorialDeliveryScenario,
     plannedChangeFrontendIdentityScenario,
 };
 

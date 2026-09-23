@@ -12,13 +12,15 @@ import {
     recordPendingSegmentContinuation,
     recordSegmentLineageEvidence,
 } from "./workflow-context-session.js";
+import { readPersistedTutorialContext } from "./tutorial-context-session.ts";
 
 function idFactory(prefix = "id") {
     let next = 0;
     return () => `${prefix}-${++next}`;
 }
 
-async function createManagedFixture() {
+/** @param {import('./tutorial-context-session.ts').TutorialContext | null} [tutorialContext] */
+async function createManagedFixture(tutorialContext = null) {
     const dir = await Deno.makeTempDir({ prefix: "runwield-segment-rollover-" });
     const root = join(dir, "repo");
     await Deno.mkdir(root);
@@ -74,6 +76,7 @@ async function createManagedFixture() {
             name: null,
             activeAgent: null,
             workflowContext: null,
+            tutorialContext,
         },
     });
     return { dir, root, store, project, session, segment, hosted };
@@ -145,7 +148,14 @@ Deno.test("a successor row without a committed generation degrades the aggregate
 
 Deno.test("segment rollover keeps aggregate projection readable and rolls managed metadata atomically", async () => {
     await withProcessGlobalTestLock(async () => {
-        const fixture = await createManagedFixture();
+        const tutorialContext = {
+            version: 1,
+            guidanceEnabled: true,
+            shownExplanationIds: ["welcome", "plans"],
+            recapShown: false,
+            planId: null,
+        };
+        const fixture = await createManagedFixture(tutorialContext);
         try {
             const before = await readProjection(fixture);
             assert(before.ok);
@@ -173,6 +183,7 @@ Deno.test("segment rollover keeps aggregate projection readable and rolls manage
                 sessionPath: result.transcriptPath,
             });
             assertEquals(readPersistedPendingSegmentContinuation(successorManager), { next: "engineer" });
+            assertEquals(readPersistedTutorialContext(successorManager), tutorialContext);
             await Promise.resolve(
                 (/** @type {{ dispose?: () => void | Promise<void> }} */ (successorManager)).dispose?.(),
             );
@@ -233,7 +244,14 @@ Deno.test("segment rollover does not dehydrate a hosted manager when activation 
 
 Deno.test("segment rollover uses one generic continuation path for execution and semantic repair", async () => {
     await withProcessGlobalTestLock(async () => {
-        const fixture = await createManagedFixture();
+        const tutorialContext = {
+            version: 1,
+            guidanceEnabled: false,
+            shownExplanationIds: ["welcome", "welcome", "plans"],
+            recapShown: true,
+            planId: null,
+        };
+        const fixture = await createManagedFixture(tutorialContext);
         try {
             const execution = await rollSessionTranscriptSegment({
                 hostedSession: fixture.hosted,
@@ -253,6 +271,20 @@ Deno.test("segment rollover uses one generic continuation path for execution and
             });
             assertEquals(execution.continuation, { mode: "execution" });
             assertEquals(repair.continuation, { mode: "repair" });
+            for (const result of [execution, repair]) {
+                const { sessionManager } = await openPersistedRootSession({
+                    cwd: fixture.root,
+                    sessionId: result.piSessionId,
+                    sessionPath: result.transcriptPath,
+                });
+                assertEquals(readPersistedTutorialContext(sessionManager), {
+                    ...tutorialContext,
+                    shownExplanationIds: ["welcome", "plans"],
+                });
+                await Promise.resolve(
+                    (/** @type {{ dispose?: () => void | Promise<void> }} */ (sessionManager)).dispose?.(),
+                );
+            }
             assertEquals(
                 fixture.store.listSessionTranscriptSegments(fixture.session.runwieldSessionId).map((segment) =>
                     segment.kind
