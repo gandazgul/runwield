@@ -47,3 +47,10 @@ demo-media/
 .wld/worktree-registry-migration-issues.json
 .wld/collaboration-secrets.json
 # END RunWield owned runtime state
+
+# Keep only shared RunWield settings, Agents, and Skills in Git.
+!/.wld/
+/.wld/*
+!/.wld/settings.json
+!/.wld/agents/
+!/.wld/skills/
