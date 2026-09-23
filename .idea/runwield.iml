@@ -13,6 +13,7 @@
       <excludeFolder url="file://$MODULE_DIR$/.wld/plan-transitions" />
       <excludeFolder url="file://$MODULE_DIR$/docs/runwield.dev/demo-media" />
       <excludeFolder url="file://$MODULE_DIR$/src/ui/workspace/.astro/collections" />
+      <excludeFolder url="file://$MODULE_DIR$/.wld/internal" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
