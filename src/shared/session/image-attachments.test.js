@@ -1,3 +1,4 @@
+import { getCwd, getHomeDir } from "../../constants.js";
 import { assertEquals, assertRejects } from "@std/assert";
 import { join } from "@std/path";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
@@ -45,7 +46,7 @@ Deno.test("modelSupportsImageInput checks image modality", () => {
 
 Deno.test("persistImageAttachment stores session-scoped file and resolves attachment ref", async () => {
     await withProcessGlobalTestLock(async () => {
-        const originalHome = Deno.env.get("HOME");
+        const originalHome = getHomeDir();
         const tempHome = await Deno.makeTempDir({ prefix: "runwield-images-home-" });
         const cwd = await Deno.makeTempDir({ prefix: "runwield-images-project-" });
         try {
@@ -134,8 +135,8 @@ Deno.test("preflightImageAttachments blocks text-only model without fallback", (
  * @param {(tempHome: string, tempProject: string) => Promise<void>} fn
  */
 async function withVisionSettings(settings, fn) {
-    const originalHome = Deno.env.get("HOME");
-    const originalCwd = Deno.cwd();
+    const originalHome = getHomeDir();
+    const originalCwd = getCwd();
     const tempHome = await Deno.makeTempDir({ prefix: "runwield-vision-settings-home-" });
     const tempProject = await Deno.makeTempDir({ prefix: "runwield-vision-settings-project-" });
     try {
@@ -163,7 +164,7 @@ Deno.test("resolveVisionFallbackModel reports unknown, unauthenticated, and non-
                     resolveVisionFallbackModel(
                         { find: () => undefined, hasConfiguredAuth: () => true },
                         NO_MODEL_DISCOVERY_NETWORK,
-                        Deno.cwd(),
+                        getCwd(),
                     ),
                 Error,
                 "Unknown visionFallback.model",
@@ -177,7 +178,7 @@ Deno.test("resolveVisionFallbackModel reports unknown, unauthenticated, and non-
                     resolveVisionFallbackModel(
                         { find: () => model, hasConfiguredAuth: () => false },
                         NO_MODEL_DISCOVERY_NETWORK,
-                        Deno.cwd(),
+                        getCwd(),
                     ),
                 Error,
                 "No API key configured for visionFallback.model",
@@ -191,7 +192,7 @@ Deno.test("resolveVisionFallbackModel reports unknown, unauthenticated, and non-
                     resolveVisionFallbackModel(
                         { find: () => model, hasConfiguredAuth: () => true },
                         NO_MODEL_DISCOVERY_NETWORK,
-                        Deno.cwd(),
+                        getCwd(),
                     ),
                 Error,
                 "not vision-capable",
@@ -241,7 +242,7 @@ Deno.test("resolveVisionFallbackModel discovers configured provider models", asy
             const resolved = await resolveVisionFallbackModel(/** @type {any} */ (registry), network, tempProject);
             assertEquals(resolved?.modelRef, "local/discovered");
             assertEquals(resolved?.model.input, ["text", "image"]);
-            assertEquals(Deno.cwd().endsWith(tempProject.replace(/^\/private/, "")), true);
+            assertEquals(getCwd().endsWith(tempProject.replace(/^\/private/, "")), true);
         });
     });
 });

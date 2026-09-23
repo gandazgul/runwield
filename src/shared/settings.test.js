@@ -1,3 +1,4 @@
+import { getCwd, getHomeDir } from "../constants.js";
 import { normalizePlanServerUrl } from "./collaboration/urls.js";
 /**
  * @module shared/settings.test
@@ -371,8 +372,8 @@ settingsTest("preserveRunWieldCustomSettingsForWrite preserves codereview across
 });
 
 settingsTest("getResolvedVisionFallbackModelSetting prefers active preset over top-level", async () => {
-    const originalHome = Deno.env.get("HOME");
-    const originalCwd = Deno.cwd();
+    const originalHome = getHomeDir();
+    const originalCwd = getCwd();
     const tempHome = await Deno.makeTempDir({ prefix: "runwield-vision-home-" });
     const tempProject = await Deno.makeTempDir({ prefix: "runwield-vision-project-" });
     try {
@@ -401,8 +402,8 @@ settingsTest("getResolvedVisionFallbackModelSetting prefers active preset over t
 });
 
 settingsTest("getResolvedVisionFallbackModelSetting reads the requested Project root", async () => {
-    const originalHome = Deno.env.get("HOME");
-    const originalCwd = Deno.cwd();
+    const originalHome = getHomeDir();
+    const originalCwd = getCwd();
     const tempHome = await Deno.makeTempDir({ prefix: "runwield-vision-root-home-" });
     const projectA = await Deno.makeTempDir({ prefix: "runwield-vision-root-a-" });
     const projectB = await Deno.makeTempDir({ prefix: "runwield-vision-root-b-" });
@@ -488,8 +489,8 @@ settingsTest("workRecords and plans settings are preserved across SettingsManage
 });
 
 settingsTest("getPlanArchiveRetentionPolicy reads project settings only", async () => {
-    const originalHome = Deno.env.get("HOME");
-    const originalCwd = Deno.cwd();
+    const originalHome = getHomeDir();
+    const originalCwd = getCwd();
     const tempHome = await Deno.makeTempDir({ prefix: "runwield-plan-retention-home-" });
     const tempProject = await Deno.makeTempDir({ prefix: "runwield-plan-retention-project-" });
     try {
@@ -513,8 +514,8 @@ settingsTest("getPlanArchiveRetentionPolicy reads project settings only", async 
 });
 
 settingsTest("getPlanArchiveRetentionPolicy names invalid keys", async () => {
-    const originalHome = Deno.env.get("HOME");
-    const originalCwd = Deno.cwd();
+    const originalHome = getHomeDir();
+    const originalCwd = getCwd();
     const tempHome = await Deno.makeTempDir({ prefix: "runwield-plan-retention-bad-home-" });
     const tempProject = await Deno.makeTempDir({ prefix: "runwield-plan-retention-bad-project-" });
     try {
@@ -540,8 +541,8 @@ settingsTest("getPlanArchiveRetentionPolicy names invalid keys", async () => {
 settingsTest(
     "shouldAutoGenerateWorkRecordsOnPlanCompletion defaults true and only literal nested false disables",
     async () => {
-        const originalHome = Deno.env.get("HOME");
-        const originalCwd = Deno.cwd();
+        const originalHome = getHomeDir();
+        const originalCwd = getCwd();
         const tempHome = await Deno.makeTempDir({ prefix: "runwield-work-record-setting-home-" });
         const tempProject = await Deno.makeTempDir({ prefix: "runwield-work-record-setting-project-" });
         try {
@@ -570,8 +571,8 @@ settingsTest(
 settingsTest(
     "shouldAutoGenerateWorkRecordsOnPlanCompletion merges global and project workRecords settings",
     async () => {
-        const originalHome = Deno.env.get("HOME");
-        const originalCwd = Deno.cwd();
+        const originalHome = getHomeDir();
+        const originalCwd = getCwd();
         const tempHome = await Deno.makeTempDir({ prefix: "runwield-work-record-merge-home-" });
         const tempProject = await Deno.makeTempDir({ prefix: "runwield-work-record-merge-project-" });
         try {
@@ -596,8 +597,8 @@ settingsTest(
 );
 
 settingsTest("shouldCleanupMergedWorktrees defaults true and honors false setting", async () => {
-    const originalHome = Deno.env.get("HOME");
-    const originalCwd = Deno.cwd();
+    const originalHome = getHomeDir();
+    const originalCwd = getCwd();
     const tempHome = await Deno.makeTempDir({ prefix: "runwield-cleanup-setting-home-" });
     const tempProject = await Deno.makeTempDir({ prefix: "runwield-cleanup-setting-project-" });
     try {
@@ -620,8 +621,8 @@ settingsTest("shouldCleanupMergedWorktrees defaults true and honors false settin
 });
 
 settingsTest("compaction token setters persist globally and preserve sibling compaction fields", async () => {
-    const originalHome = Deno.env.get("HOME");
-    const originalCwd = Deno.cwd();
+    const originalHome = getHomeDir();
+    const originalCwd = getCwd();
     const tempHome = await Deno.makeTempDir({ prefix: "runwield-compaction-setting-home-" });
     const tempProject = await Deno.makeTempDir({ prefix: "runwield-compaction-setting-project-" });
     try {
@@ -652,8 +653,8 @@ settingsTest("compaction token setters persist globally and preserve sibling com
 });
 
 settingsTest("compaction token setters reject invalid values before writing", async () => {
-    const originalHome = Deno.env.get("HOME");
-    const originalCwd = Deno.cwd();
+    const originalHome = getHomeDir();
+    const originalCwd = getCwd();
     const tempHome = await Deno.makeTempDir({ prefix: "runwield-compaction-invalid-home-" });
     const tempProject = await Deno.makeTempDir({ prefix: "runwield-compaction-invalid-project-" });
     try {
@@ -680,8 +681,8 @@ settingsTest("compaction token setters reject invalid values before writing", as
 });
 
 settingsTest("getGuidedReviewMode defaults auto, honors overrides, and rejects invalid values", async () => {
-    const originalHome = Deno.env.get("HOME");
-    const originalCwd = Deno.cwd();
+    const originalHome = getHomeDir();
+    const originalCwd = getCwd();
     const tempHome = await Deno.makeTempDir({ prefix: "runwield-guided-review-setting-home-" });
     const tempProject = await Deno.makeTempDir({ prefix: "runwield-guided-review-setting-project-" });
     try {
@@ -713,8 +714,8 @@ settingsTest("getGuidedReviewMode defaults auto, honors overrides, and rejects i
 });
 
 settingsTest("getCodeReviewMode defaults none, honors overrides, and rejects invalid values", async () => {
-    const originalHome = Deno.env.get("HOME");
-    const originalCwd = Deno.cwd();
+    const originalHome = getHomeDir();
+    const originalCwd = getCwd();
     const tempHome = await Deno.makeTempDir({ prefix: "runwield-codereview-setting-home-" });
     const tempProject = await Deno.makeTempDir({ prefix: "runwield-codereview-setting-project-" });
     try {
@@ -743,8 +744,8 @@ settingsTest("getCodeReviewMode defaults none, honors overrides, and rejects inv
 });
 
 settingsTest("Plan Server URL setting uses global value and project override precedence", async () => {
-    const originalHome = Deno.env.get("HOME");
-    const originalCwd = Deno.cwd();
+    const originalHome = getHomeDir();
+    const originalCwd = getCwd();
     const tempHome = await Deno.makeTempDir({ prefix: "runwield-plan-server-home-" });
     const tempProject = await Deno.makeTempDir({ prefix: "runwield-plan-server-project-" });
     try {
@@ -796,8 +797,8 @@ settingsTest("Plan Server URL setting is preserved across SettingsManager-shaped
 });
 
 settingsTest("Plan Server URL setting stores only the normalized server URL", async () => {
-    const originalHome = Deno.env.get("HOME");
-    const originalCwd = Deno.cwd();
+    const originalHome = getHomeDir();
+    const originalCwd = getCwd();
     const tempHome = await Deno.makeTempDir({ prefix: "runwield-plan-server-clean-home-" });
     const tempProject = await Deno.makeTempDir({ prefix: "runwield-plan-server-clean-project-" });
     try {

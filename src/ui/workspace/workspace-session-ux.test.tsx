@@ -1,6 +1,8 @@
+import { Window } from "happy-dom";
+import { readSessionDraft, saveSessionDraft } from "./browser/session-drafts.ts";
 // @ts-nocheck: Deno test imports are checked by scripts/run-tests.js, not Astro check.
 import { readWorkspaceStyles } from "./workspace-styles.ts";
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertStringIncludes } from "@std/assert";
 import {
     activePlanProgressApiUrl,
     draftRecoveryDecision,
@@ -12,6 +14,8 @@ import {
     sessionAttachmentsKey,
     SessionComposer,
     sessionDraftKey,
+    sessionRequestKey,
+    SessionSurface,
     shouldApplyOperationPoll,
     shouldRefreshSessionAvailability,
 } from "./islands/SessionSurface.jsx";
@@ -27,31 +31,6 @@ import {
     sessionInteractionTypedResponse,
     SessionTimeline,
 } from "./components/SessionTimeline.jsx";
-
-function RejectedImageDraftHarness({ createElement, useState, submissions }) {
-    const [draft, setDraft] = useState("describe bad image");
-    const [images, setImages] = useState([
-        { id: "image-1", name: "bad.png", mimeType: "image/png", base64: btoa("bad") },
-    ]);
-    return createElement(SessionComposer, {
-        id: "session-request-text",
-        draft,
-        disabled: false,
-        canSend: draft.trim().length > 0 || images.length > 0,
-        submitting: false,
-        imageAttachments: images,
-        onDraftChange: setDraft,
-        onSubmit() {
-            submissions.push({ text: draft, images: images.map((image) => image.name) });
-            if (submissions.length === 1) return;
-            setDraft("");
-            setImages([]);
-        },
-        onRemoveImage(id) {
-            setImages((current) => current.filter((image) => image.id !== id));
-        },
-    });
-}
 
 Deno.test("Session composer keeps provider/model identities and opens slash choices before the first message", async () => {
     const { createElement } = await import("react");
@@ -115,45 +94,104 @@ Deno.test("Session composer renders restored image draft previews ready for corr
     assertEquals(html.includes('aria-label="Sending"'), false);
 });
 
-Deno.test("Session composer restores a rejected draft and sends the corrected image draft", async () => {
-    const previousDocument = globalThis.document;
+Deno.test("Session surface retains an HTTP-rejected image draft and sends a corrected draft once", async () => {
+    const browser = new Window({ url: "http://localhost" });
+    const globals = [
+        "window",
+        "document",
+        "location",
+        "localStorage",
+        "sessionStorage",
+        "HTMLElement",
+        "CustomEvent",
+        "matchMedia",
+        "EventSource",
+    ];
+    const previous = new Map(globals.map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+    const previousFetch = globalThis.fetch;
     const previousActFlag = globalThis.IS_REACT_ACT_ENVIRONMENT;
-    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-    globalThis.document = { getElementById: () => null };
+    const projectId = crypto.randomUUID();
+    const sessionId = crypto.randomUUID();
+    const draftKey = sessionDraftKey(projectId, sessionId);
+    const attachmentsKey = sessionAttachmentsKey(projectId, sessionId);
+    const requestKey = sessionRequestKey(projectId, sessionId);
+    const images = [{ id: "image-1", name: "draft.png", mimeType: "image/png", base64: btoa("img") }];
+    const submissions = [];
+    let renderer;
+    const { createElement, act } = await import("react");
+    const { create } = await import("react-test-renderer");
     try {
-        const { createElement, useState } = await import("react");
-        const { act, create } = await import("react-test-renderer");
-        const submissions = [];
-        let renderer;
+        for (const key of globals) {
+            const value = key === "window"
+                ? browser
+                : key === "matchMedia"
+                ? browser.matchMedia.bind(browser)
+                : browser[key];
+            Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
+        }
+        globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+        globalThis.fetch = (url, options = {}) =>
+            Promise.resolve().then(() => {
+                const path = String(url);
+                if (options.method === "POST") {
+                    submissions.push(JSON.parse(options.body));
+                    return submissions.length === 1
+                        ? Response.json({ error: "Antigravity CLI sessions do not support image attachments." }, {
+                            status: 422,
+                        })
+                        : Response.json({ operationId: "accepted-image", status: "running" }, { status: 202 });
+                }
+                if (path.includes("session-options")) {
+                    return Response.json({ agents: [], models: [], commands: [], defaults: {} });
+                }
+                if (path.includes("session-operations")) return Response.json({ status: "completed", events: [] });
+                return Response.json({ state: "idle", generation: 0, events: [], complete: true, snapshot: {} });
+            });
+        await saveSessionDraft(draftKey, "  describe image  ");
+        await saveSessionDraft(attachmentsKey, JSON.stringify(images));
         await act(() => {
-            renderer = create(createElement(RejectedImageDraftHarness, { createElement, useState, submissions }));
+            renderer = create(createElement(SessionSurface, { projectId, runwieldSessionId: sessionId }));
         });
-        const form = () => renderer.root.findByType("form");
-        const textarea = () => renderer.root.findByType("textarea");
-        await act(() => {
-            form().props.onSubmit({ preventDefault() {} });
+        const composer = () => renderer.root.findByType(SessionComposer);
+        assertEquals(composer().props.draft, "  describe image  ");
+        await act(async () => {
+            await composer().props.onSubmit();
         });
-        assertEquals(textarea().props.value, "describe bad image");
-        assertEquals(
-            renderer.root.findAllByType("span").some((item) => item.children.join("").includes("bad.png")),
-            true,
+        assertEquals(submissions.length, 1);
+        assertEquals(composer().props.draft, "  describe image  ");
+        assertEquals(composer().props.imageAttachments, images);
+        assertEquals(readSessionDraft(draftKey), "  describe image  ");
+        assertEquals(JSON.parse(readSessionDraft(requestKey)).status, "validation-error");
+        assertStringIncludes(
+            JSON.stringify(renderer.toJSON()),
+            "Antigravity CLI sessions do not support image attachments.",
         );
+        assertEquals(JSON.stringify(renderer.toJSON()).includes("Message queued"), false);
+        // Reload the real screen: persisted text/previews must still be recoverable.
+        await act(() => renderer.unmount());
         await act(() => {
-            textarea().props.onChange({ currentTarget: { value: "describe good image", style: {}, scrollHeight: 32 } });
+            renderer = create(createElement(SessionSurface, { projectId, runwieldSessionId: sessionId }));
         });
-        await act(() => {
-            form().props.onSubmit({ preventDefault() {} });
+        assertEquals(composer().props.draft, "  describe image  ");
+        assertEquals(composer().props.imageAttachments, images);
+        await act(() => composer().props.onDraftChange("  corrected image request  "));
+        await act(async () => {
+            await composer().props.onSubmit();
         });
-        assertEquals(submissions, [
-            { text: "describe bad image", images: ["bad.png"] },
-            { text: "describe good image", images: ["bad.png"] },
-        ]);
-        assertEquals(textarea().props.value, "");
+        assertEquals(submissions.map((item) => item.text), ["  describe image  ", "  corrected image request  "]);
+        assertEquals(submissions[1].images, [{ base64: btoa("img"), mimeType: "image/png" }]);
+        assertEquals(composer().props.draft, "");
+        assertEquals(composer().props.imageAttachments, []);
     } finally {
-        if (previousDocument === undefined) delete globalThis.document;
-        else globalThis.document = previousDocument;
+        if (renderer) await act(() => renderer.unmount());
+        globalThis.fetch = previousFetch;
+        for (const [key, descriptor] of previous) {
+            if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+            else Reflect.deleteProperty(globalThis, key);
+        }
         if (previousActFlag === undefined) delete globalThis.IS_REACT_ACT_ENVIRONMENT;
         else globalThis.IS_REACT_ACT_ENVIRONMENT = previousActFlag;
+        await browser.happyDOM.close();
     }
 });
 

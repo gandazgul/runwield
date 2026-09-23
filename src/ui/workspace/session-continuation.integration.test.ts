@@ -1,7 +1,11 @@
 // @ts-nocheck: Workspace service is JavaScript and returns projected event records.
 import { assert, assertEquals, assertRejects } from "@std/assert";
 import { createSessionRuntime } from "../../shared/session/session-runtime.ts";
-import { ownerNotificationsStreamApi } from "./routes/owner-session-api.js";
+import {
+    ownerNotificationsStreamApi,
+    ownerSessionContinuationStartApi,
+    ownerSessionCreateApi,
+} from "./routes/owner-session-api.js";
 import { createOwnerConnectionRegistry } from "./server/owner-connections.js";
 import { AGENTS } from "../../constants.js";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
@@ -1231,4 +1235,105 @@ Deno.test("Workspace notification stream routes live events and closes when its 
         service.store.close();
         await fixture.cleanup();
     }
+});
+
+Deno.test("Workspace image rejection returns 422 before accepting new or resumed turns", async () => {
+    await withRuntimeCommandFixture(
+        "workspace-image-http-",
+        async ({ homeDir, projectRoot, setModelResponseFactory }) => {
+            const fixture = await makeManagedSessionFixture({ home: homeDir, projectRoot });
+            const service = new WorkspaceSessionContinuationService({ store: fixture.openStore() });
+            const state = { store: service.store, sessionContinuation: service };
+            const params = {
+                projectId: fixture.project.projectId,
+                runwieldSessionId: fixture.session.runwieldSessionId,
+            };
+            const body = {
+                requestId: "image-request",
+                expectedGeneration: 0,
+                text: "  inspect image  ",
+                agentName: AGENTS.IDEATOR,
+                images: [{ base64: btoa("img"), mimeType: "image/png" }],
+            };
+            const request = () =>
+                new Request("http://localhost/image", {
+                    method: "POST",
+                    body: JSON.stringify(body),
+                    headers: { "content-type": "application/json" },
+                });
+            try {
+                setModelResponseFactory(fixture.recordedModelResponse("Ready for images."));
+                const initial = await service.createSession({
+                    projectId: params.projectId,
+                    requestId: "initial-text",
+                    text: "Start a conversation.",
+                    agentName: AGENTS.IDEATOR,
+                });
+                const completed = await waitForOperation(service, initial.operationId);
+                assertEquals(completed.status, "completed");
+                params.runwieldSessionId = completed.runwieldSessionId;
+                body.expectedGeneration = completed.generation;
+                const saved = service.store.getSessionById(params.runwieldSessionId);
+                // Persist the model change through the real service, as the browser does.
+                await service.configureSession({
+                    projectId: params.projectId,
+                    runwieldSessionId: params.runwieldSessionId,
+                    expectedGeneration: body.expectedGeneration,
+                    model: "gemini-3.8-flash",
+                    provider: "agy-cli",
+                });
+                body.expectedGeneration =
+                    service.store.inspectSessionActivation(params.runwieldSessionId).generation.generation;
+                const beforeRejection = await readTranscriptEvidence(saved.transcriptPath);
+                await setCustomSetting(
+                    "agents",
+                    { [AGENTS.IDEATOR]: { model: "agy-cli/gemini-3.8-flash" } },
+                    "project",
+                    projectRoot,
+                );
+                for (const route of [ownerSessionCreateApi, ownerSessionContinuationStartApi]) {
+                    const response = await route({ state, params, req: request() });
+                    assertEquals(response.status, 422, await response.clone().text());
+                    assertEquals(await response.json(), {
+                        error: "Antigravity CLI sessions do not support image attachments.",
+                    });
+                }
+                assertEquals(await readTranscriptEvidence(saved.transcriptPath), beforeRejection);
+                assertEquals(
+                    service.store.inspectSessionActivation(params.runwieldSessionId).generation.generation,
+                    body.expectedGeneration,
+                );
+                assertEquals(service.operations.size, 1);
+                assertEquals(service.createRequests.size, 1);
+                await setCustomSetting(
+                    "agents",
+                    { [AGENTS.IDEATOR]: { model: "runtime-command-fixture/fixture-model" } },
+                    "project",
+                    projectRoot,
+                );
+                await service.configureSession({
+                    projectId: params.projectId,
+                    runwieldSessionId: params.runwieldSessionId,
+                    expectedGeneration: body.expectedGeneration,
+                    model: "fixture-model",
+                    provider: "runtime-command-fixture",
+                });
+                body.expectedGeneration =
+                    service.store.inspectSessionActivation(params.runwieldSessionId).generation.generation;
+                setModelResponseFactory(fixture.recordedModelResponse("Image received."));
+                const accepted = await ownerSessionContinuationStartApi({ state, params, req: request() });
+                assertEquals(accepted.status, 202, await accepted.clone().text());
+                const operation = await accepted.json();
+                const replay = await ownerSessionContinuationStartApi({ state, params, req: request() });
+                assertEquals((await replay.json()).operationId, operation.operationId);
+                assertEquals((await waitForOperation(service, operation.operationId)).status, "completed");
+                assertEquals(fixture.modelRequests.length, 2);
+            } finally {
+                await service.runtime.closeAllSessionsWhenIdle();
+                service.close();
+                service.store.close();
+                await fixture.cleanup();
+            }
+        },
+    );
 });

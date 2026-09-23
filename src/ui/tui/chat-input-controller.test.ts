@@ -7,7 +7,7 @@ import { createSessionRuntime } from "../../shared/session/session-runtime.ts";
 import { getRunWieldSessionDir } from "../../shared/session/root-session.js";
 import { getSettingsManager } from "../../shared/settings.js";
 import { createInteractiveTuiComposition, type InteractiveTuiComposition } from "./interactive-tui-composition.ts";
-import { createChatInputController } from "./chat-input-controller.ts";
+import { type ChatInputRuntime, createChatInputController } from "./chat-input-controller.ts";
 import { createInteractiveCompositionHarness } from "./testing/interactive-composition-fixture.ts";
 import { VirtualTerminal } from "./testing/virtual-terminal.js";
 import { ClaudeCliBackendError } from "../../shared/session/backends/claude-cli/failure.ts";
@@ -686,7 +686,18 @@ Deno.test("chat input controller connects Ctrl+C pending-exit state through real
     });
 });
 
-function createControllerHarness(runtimeOverrides: Record<string, unknown> = {}) {
+type ControllerRuntimeOverrides = Partial<
+    Pick<
+        ChatInputRuntime,
+        "preflightUserTurnImages" | "promptUserTurn" | "steerSession" | "queueNextTurnMessage"
+    >
+>;
+
+interface PreviewChild {
+    id?: string;
+}
+
+function createControllerHarness(runtimeOverrides: ControllerRuntimeOverrides = {}) {
     const editor = {
         disableSubmit: false,
         text: "",
@@ -720,11 +731,11 @@ function createControllerHarness(runtimeOverrides: Record<string, unknown> = {})
     };
     const pastedImages: ImageAttachment[] = [];
     const previewImages = {
-        children: [] as unknown[],
-        addChild(child: unknown) {
+        children: [] as PreviewChild[],
+        addChild(child: PreviewChild) {
             this.children.push(child);
         },
-        removeChild(child: unknown) {
+        removeChild(child: PreviewChild) {
             const index = this.children.indexOf(child);
             if (index >= 0) this.children.splice(index, 1);
         },
@@ -735,7 +746,8 @@ function createControllerHarness(runtimeOverrides: Record<string, unknown> = {})
         persistSessionImage: (_sessionId: string, image: ImageAttachment) => Promise.resolve(image),
         getSessionSnapshot: () => null,
         getUserTurnSubmissionBlockMessage: () => null,
-        promptUserTurn: () => Promise.resolve({ ok: true, turns: 1 }),
+        promptUserTurn: () =>
+            Promise.resolve({ ok: true, turns: 1, managed: false, submittedRequest: "", restoreDraft: false }),
         queueNextTurnMessage: () => ({ queued: true }),
         getQueuedMessages: () => [],
         takeNextTurnMessage: () => ({ message: null }),
@@ -790,11 +802,11 @@ function createControllerHarness(runtimeOverrides: Record<string, unknown> = {})
 }
 
 Deno.test("chat input controller submits tutorial discovery as a normal Planner turn", async () => {
-    let submitted: Record<string, unknown> | null = null;
+    let submitted: Parameters<ChatInputRuntime["promptUserTurn"]>[1] | null = null;
     const { controller } = createControllerHarness({
-        promptUserTurn: (_sessionId: string, options: Record<string, unknown>) => {
+        promptUserTurn: (_sessionId, options) => {
             submitted = options;
-            return Promise.resolve({ ok: true, turns: 1 });
+            return Promise.resolve({ ok: true, turns: 1, managed: false, submittedRequest: "", restoreDraft: false });
         },
     });
     const context = {
@@ -822,7 +834,7 @@ Deno.test("chat input controller restores exact draft and previews after image p
         preflightUserTurnImages: () => Promise.resolve({ ok: false, message: "Cannot attach image." }),
         promptUserTurn: () => {
             promptCalled = true;
-            return Promise.resolve({ ok: true, turns: 1 });
+            return Promise.resolve({ ok: true, turns: 1, managed: false, submittedRequest: "", restoreDraft: false });
         },
     });
     pastedImages.push({ base64: btoa("img"), mimeType: "image/png" });
@@ -887,9 +899,9 @@ Deno.test("chat input controller sends the model prepared by image preflight", a
                 mode: "direct",
                 preparedModelOverride: "runtime-command-fixture/fixture-model",
             }),
-        promptUserTurn: (_sessionId: string, options: { preparedModelOverride?: string }) => {
+        promptUserTurn: (_sessionId, options) => {
             submittedModel = options.preparedModelOverride || "";
-            return Promise.resolve({ ok: true, turns: 1 });
+            return Promise.resolve({ ok: true, turns: 1, managed: false, submittedRequest: "", restoreDraft: false });
         },
     });
     pastedImages.push({ base64: btoa("img"), mimeType: "image/png" });
@@ -911,10 +923,10 @@ Deno.test("chat input controller sends one corrected image draft after a rejecti
                 preflightCalls === 1 ? { ok: false, message: "Cannot attach image." } : { ok: true, mode: "direct" },
             );
         },
-        promptUserTurn: (_sessionId: string, options: { initialImages?: ImageAttachment[] }) => {
+        promptUserTurn: (_sessionId, options) => {
             promptCalls += 1;
             submittedImage = options.initialImages?.[0]?.base64 || "";
-            return Promise.resolve({ ok: true, turns: 1 });
+            return Promise.resolve({ ok: true, turns: 1, managed: false, submittedRequest: "", restoreDraft: false });
         },
     });
     pastedImages.push({ base64: btoa("bad"), mimeType: "image/png" });
@@ -933,11 +945,18 @@ Deno.test("chat input controller does not queue image steering that runtime reje
     const release = deferredSignal();
     let queued = false;
     const { controller, editor, pastedImages, previewImages, messages } = createControllerHarness({
-        promptUserTurn: () => release.promise.then(() => ({ ok: true, turns: 1 })),
+        promptUserTurn: () =>
+            release.promise.then(() => ({
+                ok: true,
+                turns: 1,
+                managed: false,
+                submittedRequest: "",
+                restoreDraft: false,
+            })),
         steerSession: () => Promise.reject(new Error("Cannot attach image.")),
         queueNextTurnMessage: () => {
             queued = true;
-            return { queued: true };
+            return { ok: true, queued: true };
         },
     });
 
