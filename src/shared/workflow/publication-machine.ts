@@ -453,7 +453,11 @@ export async function cleanupStoredPublication(
                         publicationCommit: attempt.publishedCommit || "",
                         artifactCommit: attempt.artifactCommit,
                     })
-                    : await deleteMergedWorktreeBranch({ projectRoot, branch: attempt.executionBranch });
+                    : await deleteMergedWorktreeBranch({
+                        projectRoot,
+                        branch: attempt.executionBranch,
+                        targetBranch: attempt.targetBranch,
+                    });
             if (!branchCleanup.deleted) {
                 branchKept = true;
                 details.push(branchCleanup.reason);

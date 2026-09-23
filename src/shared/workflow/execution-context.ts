@@ -14,6 +14,7 @@ import {
     updateEntry as updateWorktreeRegistryEntry,
 } from "../worktree-registry.js";
 import { prepareExecutionPlanFile } from "./execution-plan-file.js";
+import { resolveTargetBranchName } from "../worktree.js";
 import { getWorkflowDiff } from "./git-snapshot.js";
 import { recordWorkflowMetric } from "./metrics.js";
 import { isInValidation } from "./plan-lifecycle.js";
@@ -355,7 +356,7 @@ export async function resolveValidationExecutionContext({
     const worktreePath = asString(recoveredRegistryEntry?.path) || candidateWorktreePath || recordedWorktreePath;
     const worktreeBranch = asString(recoveredRegistryEntry?.branch) || asString(candidate.worktreeBranch) ||
         asString(attrs.worktreeBranch);
-    const worktreeBaseBranch = asString(recoveredRegistryEntry?.baseBranch) ||
+    let worktreeBaseBranch = asString(recoveredRegistryEntry?.baseBranch) ||
         asString(candidate.worktreeBaseBranch) || asString(attrs.worktreeBaseBranch);
     let baselineTree = asString(recoveredRegistryEntry?.executionBaselineTree) ||
         asString(recoveredRegistryEntry?.baseTree) ||
@@ -551,6 +552,16 @@ export async function resolveValidationExecutionContext({
             "worktree_branch_mismatch",
             `Execution worktree is on ${checkedOutBranch || "detached HEAD"}, not ${worktreeBranch}.`,
         );
+    }
+    // The registry describes where execution started. The freshly loaded Plan
+    // owns where it will be delivered; session snapshots cannot override an edit.
+    const requestedTarget = asString(attrs.targetBranch);
+    if (requestedTarget) {
+        try {
+            worktreeBaseBranch = await resolveTargetBranchName(projectRoot, requestedTarget);
+        } catch (error) {
+            return blocked("invalid_target_branch", error instanceof Error ? error.message : String(error));
+        }
     }
     const targetBranchExists = await runGit(projectRoot, ["rev-parse", `refs/heads/${worktreeBaseBranch}`])
         .then(() => true)
