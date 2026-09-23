@@ -482,6 +482,45 @@ Deno.test("automatic onboarding Start submits one real Planner turn after consen
     );
 });
 
+Deno.test("automatic onboarding Start in an Empty Project Directory submits one real Planner turn", async () => {
+    await withRuntimeCommandFixture(
+        "chat-session-onboarding-empty-start-",
+        async ({ projectRoot, setModelResponse }) => {
+            await recordInitOffered(projectRoot);
+            Deno.chdir(projectRoot);
+            setModelResponse("Choose one of these small starter projects.");
+            const submitted: string[] = [];
+            const composition = await createInteractiveTuiComposition(null, {
+                browser: NO_OPEN_BROWSER_PORT,
+                terminal: new VirtualTerminal({ columns: 100, rows: 30 }),
+                onSessionReady: (sessionId, runtime) => {
+                    runtime.subscribeSessionEvents(sessionId, (event) => {
+                        if (event.type === "user_message") submitted.push(event.text);
+                    });
+                },
+                configureUiAPI: (uiAPI) => {
+                    uiAPI.promptSelect = (title) =>
+                        Promise.resolve(title.includes(ONBOARDING_WARNING) ? "start" : "no");
+                },
+            });
+            try {
+                assertEquals(submitted, [ONBOARDING_TUTORIAL_REQUEST]);
+                assertEquals(composition.runtime.getSessionSnapshot(composition.sessionId)?.activeAgent, "planner");
+                assertEquals(composition.runtime.getSessionSnapshot(composition.sessionId)?.tutorialContext, {
+                    version: 1,
+                    guidanceEnabled: true,
+                    shownExplanationIds: ["choose-improvement"],
+                    recapShown: false,
+                    planId: null,
+                });
+            } finally {
+                await composition.dispose();
+            }
+        },
+        { offerTutorial: true },
+    );
+});
+
 Deno.test("cancelled tutorial Init choice returns to input without discovery", async () => {
     await withRuntimeCommandFixture(
         "chat-session-onboarding-init-cancel-",
