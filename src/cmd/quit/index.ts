@@ -1,4 +1,4 @@
-import type { SessionRuntime } from "../../shared/session/session-runtime.js";
+import type { SessionRuntime } from "../../shared/session/session-runtime.ts";
 import { stopTUI } from "../../ui/tui/tui.ts";
 import { cleanupAgentBrowserSessionSync } from "../../shared/agent-browser-session.ts";
 

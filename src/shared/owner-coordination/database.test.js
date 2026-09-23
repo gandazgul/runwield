@@ -220,3 +220,36 @@ Deno.test("owner database backs up extensionless explicit paths without truncati
         await Deno.remove(dir, { recursive: true });
     }
 });
+
+Deno.test("owner database migration backs up committed WAL contents before changing the schema", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-owner-wal-backup-" });
+    const dbPath = `${dir}/owner.sqlite3`;
+    const fixture = new DatabaseSync(dbPath);
+    try {
+        fixture.exec("PRAGMA journal_mode = WAL; PRAGMA wal_autocheckpoint = 0");
+        fixture.exec(OWNER_COORDINATION_SCHEMA_V1_SQL);
+        fixture.prepare("INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)").run(1, "v1");
+        fixture.exec("CREATE TABLE backup_probe(value TEXT NOT NULL)");
+        fixture.prepare("INSERT INTO backup_probe(value) VALUES (?)").run("committed WAL contents");
+        assertEquals((await Deno.stat(`${dbPath}-wal`)).size > 0, true);
+        const database = openOwnerCoordinationDatabase({ dbPath, now: () => "2026-01-01T00:00:00.000Z" });
+        try {
+            const backup = new DatabaseSync(`${dir}/owner.backup-v1-2026-01-01T00-00-00-000Z.sqlite3`, {
+                readOnly: true,
+            });
+            try {
+                assertEquals(getLatestOwnerCoordinationSchemaVersion(backup), 1);
+                assertEquals(backup.prepare("SELECT value FROM backup_probe").get()?.value, "committed WAL contents");
+                assertEquals(backup.prepare("PRAGMA quick_check").get()?.quick_check, "ok");
+            } finally {
+                backup.close();
+            }
+            assertEquals(getLatestOwnerCoordinationSchemaVersion(database.handle), OWNER_COORDINATION_SCHEMA_VERSION);
+        } finally {
+            database.close();
+        }
+    } finally {
+        fixture.close();
+        await Deno.remove(dir, { recursive: true });
+    }
+});

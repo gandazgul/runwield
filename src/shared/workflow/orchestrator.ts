@@ -160,12 +160,13 @@ async function runRootTurnUntilTaskCompletion(args: {
 }): Promise<AgentMessage[]> {
     const waitController = new AbortController();
     const turnController = new AbortController();
-    const abortForCaller = () => {
-        waitController.abort(args.signal?.reason);
-        turnController.abort(args.signal?.reason);
+    const abortBoth = () => {
+        const reason = args.signal?.reason || new DOMException("Workflow turn canceled.", "AbortError");
+        waitController.abort(reason);
+        turnController.abort(reason);
     };
-    args.signal?.throwIfAborted();
-    args.signal?.addEventListener("abort", abortForCaller, { once: true });
+    if (args.signal?.aborted) abortBoth();
+    args.signal?.addEventListener("abort", abortBoth, { once: true });
     const turnId = args.hostedSession.getActiveTurnId?.() || undefined;
     const eventPromise = waitForWorkflowToolEvent(args.hostedSession, {
         kinds: ["task_completed"],
@@ -194,7 +195,7 @@ async function runRootTurnUntilTaskCompletion(args: {
         waitController.abort(new DOMException("Agent turn finished without workflow event.", "AbortError"));
         return first.messages;
     } finally {
-        args.signal?.removeEventListener("abort", abortForCaller);
+        args.signal?.removeEventListener("abort", abortBoth);
     }
 }
 
@@ -348,13 +349,15 @@ export async function dispatchPostTriage({
     const normalizedTriage = normalizeTriageOutcome(triage);
     if (!normalizedTriage) throw new Error("dispatchPostTriage: routingIntent is required");
 
+    const checkCanceled = () => signal?.throwIfAborted();
     const activateAgent = async (agentName: string): Promise<void> => {
-        signal?.throwIfAborted();
+        checkCanceled();
         await switchActiveAgent(hostedSession, { agentName });
-        signal?.throwIfAborted();
+        checkCanceled();
     };
     applyAutoSessionName(sessionManager, normalizedTriage, hostedSession);
 
+    checkCanceled();
     const dispatchTarget = normalizedTriage.routingIntent === "INQUIRY"
         ? AGENTS.GUIDE
         : normalizedTriage.routingIntent === "IDEATION"
@@ -382,7 +385,7 @@ export async function dispatchPostTriage({
             complexity: normalizedTriage.complexity,
         },
     });
-    signal?.throwIfAborted();
+    checkCanceled();
 
     if (normalizedTriage.routingIntent === "INQUIRY" || normalizedTriage.routingIntent === "IDEATION") {
         const agentName = normalizedTriage.routingIntent === "INQUIRY" ? AGENTS.GUIDE : AGENTS.IDEATOR;
@@ -520,8 +523,8 @@ export async function dispatchPostTriage({
         const isPlannedChange = isPlannedChangeClassification(normalizedTriage.routingIntent);
         const agentName = isPlannedChange ? AGENTS.PLANNER : AGENTS.ARCHITECT;
         await ensurePlansDir(projectRoot);
+        checkCanceled();
 
-        signal?.throwIfAborted();
         const outcome = await runPlanningAgent({
             agentName,
             initialRequest: decoratedRequest,

@@ -7,7 +7,8 @@ affectedPaths:
     - "src/shared/session/agent-handler.ts"
     - "src/shared/session/agent-switching.js"
     - "src/shared/session/hosted-session.js"
-    - "src/shared/session/session-runtime.js"
+    - "src/shared/session/session-runtime.ts"
+    - "src/shared/session/runtime/queues.ts"
     - "src/shared/session/session.js"
     - "src/shared/workflow/workflow-tool-events.ts"
     - "src/tools/triage-report.ts"
@@ -22,7 +23,7 @@ origin: "internal"
 userVerifiedAt: null
 routingIntent: "PLANNED_CHANGE"
 targetBranch: "main"
-status: "implemented"
+status: "validated_reviewer"
 ---
 
 # Deliver Steering to the New Agent After Handoff

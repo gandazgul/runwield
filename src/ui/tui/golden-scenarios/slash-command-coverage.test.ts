@@ -17,6 +17,7 @@ const EXPECTED_SLASH_COMMANDS = [
     "model",
     "name",
     "new",
+    "onboard",
     "quit",
     "reload",
     "resume",

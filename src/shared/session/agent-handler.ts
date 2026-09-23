@@ -133,19 +133,7 @@ async function runRootTurnUntilRootWorkflowEvent(args: {
             eventPromise.then((event) => ({ kind: "event" as const, event })),
             turnPromise.then((messages) => ({ kind: "turn" as const, messages })),
         ]);
-        if (first.kind === "event") {
-            if (
-                first.event.kind === "plan_written" &&
-                (first.event.payload as PlanWrittenEventPayload).outcome === "feedback"
-            ) {
-                const messages = await turnPromise;
-                const latestPlanEvent = claimWorkflowToolEvent(args.hostedSession, claimOptions);
-                if (latestPlanEvent && latestPlanEvent.eventId !== first.event.eventId) {
-                    settleWorkflowToolEvent(args.hostedSession, first.event);
-                    return { messages, event: latestPlanEvent };
-                }
-                return { messages, event: first.event };
-            }
+        const stopForTerminalEvent = async (event: WorkflowToolEvent): Promise<RootTurnWorkflowEventResult> => {
             if (!args.hostedSession.isAgentTransitioning()) args.hostedSession.beginAgentTransition();
             try {
                 clearAgentSessionQueueForTransition(args.rootAgentSession);
@@ -158,7 +146,46 @@ async function runRootTurnUntilRootWorkflowEvent(args: {
             }
             turnController.abort(new WorkflowStepCompleted());
             await turnPromise.catch(() => undefined);
-            return { messages: [], event: first.event };
+            return { messages: [], event };
+        };
+        if (first.kind === "event") {
+            if (
+                first.event.kind === "plan_written" &&
+                (first.event.payload as PlanWrittenEventPayload).outcome === "feedback"
+            ) {
+                let feedbackEvent = first.event;
+                const excludedEventIds = [...claimOptions.excludeEventIds, feedbackEvent.eventId];
+                while (true) {
+                    const feedbackWaitController = new AbortController();
+                    const nextEventPromise = waitForWorkflowToolEvent(args.hostedSession, {
+                        ...claimOptions,
+                        excludeEventIds: excludedEventIds,
+                        signal: feedbackWaitController.signal,
+                    });
+                    try {
+                        const next = await Promise.race([
+                            nextEventPromise.then((event) => ({ kind: "event" as const, event })),
+                            turnPromise.then((messages) => ({ kind: "turn" as const, messages })),
+                        ]);
+                        if (next.kind === "turn") return { messages: next.messages, event: feedbackEvent };
+                        excludedEventIds.push(next.event.eventId);
+                        if (
+                            next.event.kind === "plan_written" &&
+                            (next.event.payload as PlanWrittenEventPayload).outcome === "feedback"
+                        ) {
+                            settleWorkflowToolEvent(args.hostedSession, feedbackEvent);
+                            feedbackEvent = next.event;
+                            continue;
+                        }
+                        settleWorkflowToolEvent(args.hostedSession, feedbackEvent);
+                        return await stopForTerminalEvent(next.event);
+                    } finally {
+                        feedbackWaitController.abort();
+                        await nextEventPromise.catch(() => undefined);
+                    }
+                }
+            }
+            return await stopForTerminalEvent(first.event);
         }
         waitController.abort(new DOMException("Agent turn finished without root workflow event.", "AbortError"));
         const waitedEvent = await eventPromise.catch(() => null);

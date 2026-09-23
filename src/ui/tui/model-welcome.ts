@@ -18,7 +18,7 @@ import {
     type ModelAvailabilitySource,
     type ModelSummary,
 } from "../../shared/session/model-readiness.ts";
-import type { SessionRuntime } from "../../shared/session/session-runtime.js";
+import type { SessionRuntime } from "../../shared/session/session-runtime.ts";
 import type { Editor, TUI } from "@earendil-works/pi-tui";
 import { theme } from "../theme/theme.js";
 import { runSharedModelSetup } from "./model-setup.ts";
@@ -44,6 +44,7 @@ export interface MaybeShowModelWelcomeOptions {
     /** Project root that scopes the settings manager used for defaults. */
     projectRoot: string;
     deferRootActivation?: boolean;
+    cancelBehavior?: "exit" | "return-to-input";
 }
 
 export interface ModelWelcomeResult {
@@ -103,8 +104,19 @@ export async function maybeShowModelWelcome(options: MaybeShowModelWelcomeOption
     });
 
     if (setupResult.status === "canceled" && !setupResult.modelSelectionShown) {
-        options.uiAPI.appendSystemMessage("Model setup cancelled. Exiting RunWield.", false, "RunWield");
-        await commandRegistry[COMMAND_NAMES.QUIT].execute([], runCommandContext(options));
+        if (options.cancelBehavior === "return-to-input") {
+            options.uiAPI.appendSystemMessage(
+                "Model setup cancelled. The tutorial did not start. Run /onboard when you are ready.",
+                false,
+                "Tutorial",
+            );
+            options.editor.disableSubmit = false;
+            options.tui.setFocus(options.editor);
+            options.tui.requestRender();
+        } else {
+            options.uiAPI.appendSystemMessage("Model setup cancelled. Exiting RunWield.", false, "RunWield");
+            await commandRegistry[COMMAND_NAMES.QUIT].execute([], runCommandContext(options));
+        }
         return { shown: true, suppressBootBanner: true, noModel: true, setupCompleted: false };
     }
 

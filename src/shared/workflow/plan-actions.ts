@@ -1,3 +1,4 @@
+import { withProjectRuntimeReadScope } from "../project-runtime-layout.ts";
 /** Shared Plan action evidence and lifecycle executor. */
 
 import { findPlanEvidenceById, getPlanRevisionForText, loadPlan, type PlanFrontMatter } from "../../plan-store.js";
@@ -118,62 +119,64 @@ async function resolvePlanActionAuthority(
     projectRoot: string,
     planId: string,
 ): Promise<PlanActionAuthorityResult> {
-    try {
-        const registry = await readPlanActionWorktreeEvidence(
-            projectRoot,
-            planId,
-        );
-        if (registry.kind !== "ok") {
-            return {
-                kind: "recovery_required",
-                message: sanitizeMessage(registry.message),
-                entryIds: registry.entryIds,
-            };
-        }
-        const primaryPlan = await findPlanEvidenceById(projectRoot, planId).catch((error) => {
-            if (registry.live) return null;
-            throw error;
-        });
-        if (!primaryPlan) {
-            return {
-                kind: "recovery_required",
-                message:
-                    "The execution Plan could not be read. Restore its file from Git history or a backup, then try again. Your files are unchanged.",
-                entryIds: registry.live ? [registry.live.id] : [],
-            };
-        }
-        const executionPlan = registry.live?.path
-            ? await loadPlan(registry.live.path, primaryPlan.planName).catch(() => null)
-            : null;
-        if (registry.live && (!executionPlan || executionPlan.attrs.planId !== primaryPlan.planId)) {
-            return {
-                kind: "recovery_required",
-                message: "RunWield could not confirm the saved implementation. Your work is unchanged.",
-                entryIds: [registry.live.id],
-            };
-        }
-        const plan: PlanActionAuthority = executionPlan
-            ? {
-                cwd: registry.live?.path || projectRoot,
-                planId: primaryPlan.planId,
-                planName: primaryPlan.planName,
-                attrs: executionPlan.attrs,
-                markdown: executionPlan.markdown,
-                revision: executionPlan.revision,
+    return await withProjectRuntimeReadScope<PlanActionAuthorityResult>(async () => {
+        try {
+            const registry = await readPlanActionWorktreeEvidence(
+                projectRoot,
+                planId,
+            );
+            if (registry.kind !== "ok") {
+                return {
+                    kind: "recovery_required",
+                    message: sanitizeMessage(registry.message),
+                    entryIds: registry.entryIds,
+                };
             }
-            : {
-                cwd: projectRoot,
-                planId: primaryPlan.planId,
-                planName: primaryPlan.planName,
-                attrs: primaryPlan.attrs,
-                markdown: primaryPlan.markdown,
-                revision: primaryPlan.revision,
-            };
-        return { kind: "ok", plan, registry };
-    } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        return { kind: "invalid_action", message: sanitizeMessage(message) };
-    }
+            const primaryPlan = await findPlanEvidenceById(projectRoot, planId).catch((error) => {
+                if (registry.live) return null;
+                throw error;
+            });
+            if (!primaryPlan) {
+                return {
+                    kind: "recovery_required",
+                    message:
+                        "The execution Plan could not be read. Restore its file from Git history or a backup, then try again. Your files are unchanged.",
+                    entryIds: registry.live ? [registry.live.id] : [],
+                };
+            }
+            const executionPlan = registry.live?.path
+                ? await loadPlan(registry.live.path, primaryPlan.planName).catch(() => null)
+                : null;
+            if (registry.live && (!executionPlan || executionPlan.attrs.planId !== primaryPlan.planId)) {
+                return {
+                    kind: "recovery_required",
+                    message: "RunWield could not confirm the saved implementation. Your work is unchanged.",
+                    entryIds: [registry.live.id],
+                };
+            }
+            const plan: PlanActionAuthority = executionPlan
+                ? {
+                    cwd: registry.live?.path || projectRoot,
+                    planId: primaryPlan.planId,
+                    planName: primaryPlan.planName,
+                    attrs: executionPlan.attrs,
+                    markdown: executionPlan.markdown,
+                    revision: executionPlan.revision,
+                }
+                : {
+                    cwd: projectRoot,
+                    planId: primaryPlan.planId,
+                    planName: primaryPlan.planName,
+                    attrs: primaryPlan.attrs,
+                    markdown: primaryPlan.markdown,
+                    revision: primaryPlan.revision,
+                };
+            return { kind: "ok", plan, registry };
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            return { kind: "invalid_action", message: sanitizeMessage(message) };
+        }
+    });
 }
 
 export async function loadPlanActionEvidence(projectRoot: string, planId: string): Promise<PlanActionResult> {

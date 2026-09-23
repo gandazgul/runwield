@@ -2,7 +2,7 @@ import { assertEquals, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { RuntimeEventTypes } from "../../shared/session/session-runtime-events.js";
-import { createSessionRuntime, type SessionRuntime } from "../../shared/session/session-runtime.js";
+import { createSessionRuntime, type SessionRuntime } from "../../shared/session/session-runtime.ts";
 import { createGenerationGuard } from "./generation-guard.js";
 import {
     handleSlashCommand,
@@ -152,6 +152,21 @@ Deno.test("handleSlashCommand distinguishes regular input and unknown commands t
         assertEquals(await handleSlashCommand(context("hello")), false);
         assertEquals(await handleSlashCommand(context("/not-a-runwield-command")), true);
         assertEquals(messages, ["Unknown command: /not-a-runwield-command"]);
+    });
+});
+
+Deno.test("handleSlashCommand runs onboarding only through the active TUI flow", async () => {
+    await withSlashFixture({}, async ({ context, submittedRequests }) => {
+        const slashContext = context("/onboard");
+        let calls = 0;
+        slashContext.beginOnboarding = () => {
+            calls += 1;
+            return Promise.resolve();
+        };
+
+        assertEquals(await handleSlashCommand(slashContext), true);
+        assertEquals(calls, 1);
+        assertEquals(submittedRequests, []);
     });
 });
 

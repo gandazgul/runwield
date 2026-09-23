@@ -215,7 +215,8 @@ export async function loadPublicationAttempt(
     projectRoot: string,
     attemptId: string,
 ): Promise<PublicationAttempt | null> {
-    await enterProjectRuntime(projectRoot);
+    // Registry reads validate the runtime layout under their own read scope.
+    // Do not repeat the same preflight immediately before entering that boundary.
     const entry = await findById(projectRoot, attemptId, { migrate: false });
     if (!entry?.publication) return null;
     assertPublicationAttempt(entry.publication);
@@ -232,7 +233,6 @@ export async function startPublicationAttempt(args: {
     validatedCommit: string;
     targetHeadAtSeal: string;
 }): Promise<PublicationAttempt> {
-    await enterProjectRuntime(args.projectRoot);
     const entry = await findById(args.projectRoot, args.attemptId, { migrate: false });
     if (!entry) throw new Error(`Worktree registry entry not found: ${args.attemptId}`);
     if (!entry.planId) throw new Error(`Worktree registry entry ${args.attemptId} has no Plan identity.`);
@@ -274,7 +274,6 @@ export async function advanceStoredPublication(
     phase: PublicationPhase,
     evidence: PublicationPhaseEvidence,
 ): Promise<PublicationAttempt> {
-    await enterProjectRuntime(projectRoot);
     const mismatch = Object.entries(evidence).find(([field, expected]) => {
         if (expected === undefined) return false;
         const actual = current[field as keyof PublicationAttempt];
@@ -284,6 +283,9 @@ export async function advanceStoredPublication(
         return actual !== expected;
     });
     if (publicationPhaseAtLeast(current.phase, phase)) {
+        // This path may return without a registry read or write. It still needs
+        // a fresh safety check; advancing writes validate in updatePublication.
+        await enterProjectRuntime(projectRoot);
         if (!mismatch) return current;
         if (current.phase !== "target_integrated" || phase !== "target_integrated") {
             const [field, expected] = mismatch;
@@ -309,7 +311,6 @@ export async function failStoredPublication(
     current: PublicationAttempt,
     failure: Omit<PublicationFailure, "phase" | "recordedAt"> & { phase?: PublicationPhase },
 ): Promise<PublicationAttempt> {
-    await enterProjectRuntime(projectRoot);
     const next = recordPublicationFailure(current, failure);
     try {
         await updatePublication(projectRoot, current.attemptId, current.revision, next);
@@ -383,7 +384,7 @@ export async function cleanupStoredPublication(
     projectRoot: string,
     initial: PublicationAttempt,
 ): Promise<PublicationCleanupResult> {
-    await enterProjectRuntime(projectRoot);
+    // Reconciliation validates before inspecting Git or changing any receipt.
     let attempt = await reconcileStoredPublication(projectRoot, initial);
     let preservedFiles = await existingPublicationSavedFiles(attempt.executionCwd);
     if (attempt.phase === "cleanup_complete") {

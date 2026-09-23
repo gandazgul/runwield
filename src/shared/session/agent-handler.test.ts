@@ -139,6 +139,69 @@ Deno.test("agent handler settles the accepted plan tool before dispatch without 
     });
 });
 
+Deno.test("agent handler safely stops a terminal Plan outcome after feedback", async () => {
+    await withRuntimeCommandFixture(
+        "agent-handler-feedback-terminal-",
+        async ({ projectRoot, setModelResponseFactories }) => {
+            const events: CapturedRuntimeEvent[] = [];
+            const terminalPublished = deferredVoid();
+            const releaseTerminalTool = deferredVoid();
+            let toolCalls = 0;
+            let providerCalls = 0;
+            const planTool = defineTool({
+                name: "plan_written",
+                label: "Plan Written",
+                description: "Publish Plan feedback followed by a terminal Plan outcome.",
+                parameters: Type.Object({}),
+                async execute(toolCallId) {
+                    toolCalls += 1;
+                    const outcome = toolCalls === 1 ? "feedback" : "saved";
+                    publishWorkflowToolEvent({
+                        hostedSession: fixture.hostedSession,
+                        toolCallId,
+                        kind: "plan_written",
+                        payload: { outcome, planName: "event-plan" },
+                    });
+                    if (outcome === "saved") {
+                        terminalPublished.resolve();
+                        await releaseTerminalTool.promise;
+                    }
+                    return {
+                        content: [{ type: "text" as const, text: `Plan ${outcome}.` }],
+                        details: { outcome, planName: "event-plan" },
+                        terminate: false,
+                    };
+                },
+            });
+            setModelResponseFactories([
+                () => {
+                    providerCalls += 1;
+                    return fauxAssistantMessage(fauxToolCall("plan_written", {}));
+                },
+                () => {
+                    providerCalls += 1;
+                    return fauxAssistantMessage(fauxToolCall("plan_written", {}));
+                },
+                () => {
+                    providerCalls += 1;
+                    return fauxAssistantMessage(fauxToolCall("plan_written", {}));
+                },
+            ]);
+            const fixture: ActiveHandlerFixture = await activateHandler(projectRoot, "guide", events, [planTool]);
+            const handler = fixture.handler("Revise and save the Plan.", [], fixture.sessionManager);
+
+            await terminalPublished.promise;
+            releaseTerminalTool.resolve();
+            const result = await handler;
+
+            assertEquals(result, { kind: "complete" });
+            assertEquals(toolCalls, 2);
+            assertEquals(providerCalls, 2);
+            fixture.hostedSession.dispose();
+        },
+    );
+});
+
 Deno.test("agent handler routes a real triage tool outcome through Operator completion", async () => {
     await withRuntimeCommandFixture("agent-handler-operation-", async ({ projectRoot, setModelMessages }) => {
         const events: CapturedRuntimeEvent[] = [];

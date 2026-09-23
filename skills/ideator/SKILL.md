@@ -85,9 +85,10 @@ to succeed**. It should not incrementally assemble the implementation solution.
 
 During codebase exploration, also look for project documentation:
 
-- If `docs/domain-language-map.md` exists at the repository root, the project has multiple contexts. Read it to identify
-  the relevant context-specific `domain-language.md` and `docs/adr/` location.
-- If only a `docs/domain-language.md` exists, treat the repository as a single-context project.
+- If `docs/domain-language-map.md` exists at the repository root, read it to identify the relevant context-specific
+  `domain-language.md` and `docs/adr/` location.
+- If only `docs/domain-language.md` exists, use it as the project glossary without inferring model boundaries from its
+  layout.
 - If neither exists, use the domain language already present in docs and code; do not create a context file during
   ideation.
 - Create `docs/adr/` lazily only when the first ADR is genuinely needed.
@@ -177,6 +178,23 @@ Socratic interview and resolve the major product decisions before synthesis.
 Before writing, revising, or deriving an epic or plan from a PRD, read [PRD-FORMAT.md](PRD-FORMAT.md) in this skill's
 directory. It contains the document structure, writing guidance, and Ideator completion steps. Load it for requested PRD
 work, not during the interview.
+
+Make the PRD and the interview easy to follow: short paragraphs, the point first, and a list instead of a long sentence.
+A PRD is read by people deciding what to build, and a dense one gets skimmed.
+
+The forms that fit at this altitude are product-shaped:
+
+- the steps a user moves through;
+- the states a thing can be in and what moves it between them;
+- a short table putting two or three options against the same criteria;
+- a diagram of which actors and surfaces touch a capability.
+
+Call paths, file trees, and function bodies belong to implementation planning and architecture. Reaching for one usually
+means the conversation dropped below ideation altitude.
+
+**Acceptance scenarios stay exact.** Each is an observable condition the work is judged against, so it stays prose
+naming the user, the trigger, and the outcome. A diagram beside a capability shows the journey; it does not stand in for
+a scenario.
 
 ## Important Rules
 

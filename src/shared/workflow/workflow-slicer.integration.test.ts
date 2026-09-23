@@ -57,7 +57,6 @@ function createSessionFixture(projectRoot: string, rootAgent = "architect"): Sli
         cwd: projectRoot,
     });
     // Pi's concrete manager implements the HostedSession runtime contract.
-    // @ts-expect-error The legacy HostedSession JSDoc describes a wider manager.
     hostedSession.setRootSessionManager(sessionManager);
     hostedSession.setRootAgentName(rootAgent);
     return { hostedSession, sessionManager };

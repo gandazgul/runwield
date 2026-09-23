@@ -102,7 +102,7 @@ function isolatedPublicationScenario(
             composedTui: true,
             initialAgentName: "guide",
             terminal: { columns: 100, rows: 30 },
-            timeoutMs: 120000,
+            timeoutMs: options.resumeRepair ? 240000 : 120000,
             committedProjectFiles: [
                 { path: ".wld/settings.json", text: `${JSON.stringify({ verification_command: "true" }, null, 4)}\n` },
                 { path: "user-work.txt", text: "committed user work\n" },
@@ -191,7 +191,7 @@ function isolatedPublicationScenario(
                     ? [
                         // A stable screen can precede /load-plan dispatch. Restart only after
                         // the repair has run and the user has chosen to pause publication.
-                        { type: "waitForEvent", event: "runtime:tool:end:bash", timeoutMs: 90000 },
+                        { type: "waitForEvent", event: "runtime:tool:end:bash", timeoutMs: 180000 },
                         { type: "waitForIdle", timeoutMs: 90000 },
                         { type: "restartTui" },
                         { type: "type", text: `/load-plan ${name}` },

@@ -22,13 +22,13 @@ import {
 } from "../../../shared/session/user-selection.ts";
 import { normalizeBrowserNotificationPolicy } from "../../../shared/session/notification-content.ts";
 import { applySharedPlanReviewDecision } from "../../../shared/workflow/plan-review-actions.ts";
-import { getWorktreeReviewDiff, WorktreeReviewTargetError } from "../../../shared/workflow/git-snapshot.js";
+import { getWorktreeReviewDiff, WorktreeReviewComparisonError } from "../../../shared/workflow/git-snapshot.js";
 import {
     createSessionRuntime,
     deriveManagedSessionContinuationDecision,
     listPromptTemplates,
     listSkills,
-} from "../../../shared/session/session-runtime.js";
+} from "../../../shared/session/session-runtime.ts";
 import { getRunWieldSessionDir } from "../../../shared/session/root-session.js";
 import { projectAggregateTranscript } from "../../../shared/session/session-transcript-manifest.ts";
 import {
@@ -1638,7 +1638,7 @@ export class WorkspaceSessionContinuationService {
             try {
                 rawPatch = await getWorktreeReviewDiff(refresh.cwd, refresh.targetBranch);
             } catch (error) {
-                if (error instanceof WorktreeReviewTargetError) throw error;
+                if (error instanceof WorktreeReviewComparisonError) throw error;
                 // Keep the last complete interaction patch while the checkout is temporarily unreadable.
             }
         }

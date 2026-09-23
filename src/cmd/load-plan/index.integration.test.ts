@@ -15,7 +15,7 @@ import {
     savePlan,
     updatePlanFrontMatter,
 } from "../../plan-store.js";
-import { createSessionRuntime, type SessionRuntime } from "../../shared/session/session-runtime.js";
+import { createSessionRuntime, type SessionRuntime } from "../../shared/session/session-runtime.ts";
 import { openFileSessionStore } from "../../shared/session/file-session-store.ts";
 import { createPlanSessionSurface } from "./plan-session-surface.ts";
 import { discardWorktreeGitArtifacts } from "../../shared/worktree.js";

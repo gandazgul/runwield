@@ -7,6 +7,11 @@ import { isAbsolute } from "@std/path";
 import { MAX_DELEGATED_READERS } from "../../constants.js";
 import { normalizePlanAssociation, PLAN_ASSOCIATION_CUSTOM_TYPE } from "./plan-association.ts";
 import {
+    applyTutorialContextUpdate,
+    readPersistedTutorialContext,
+    recordTutorialContext,
+} from "./tutorial-context-session.ts";
+import {
     deriveWorkflowContextFromExecutionWorkflow,
     readPersistedWorkflowContext,
     recordNormalizedWorkflowContext,
@@ -46,6 +51,9 @@ import { clearPairCheckpoint } from "./pair-checkpoint-session.ts";
 /**
  * @typedef {Object} DisposableLike
  * @property {() => void | Promise<void>} [dispose]
+ * @property {() => {tokens?: number | null, contextWindow?: number | null, percent?: number | null} | undefined} [getContextUsage]
+ * @property {{getCompactionSettings?: () => {enabled?: boolean}}} [settingsManager]
+ * @property {{contextWindow?: number}} [model]
  */
 
 /**
@@ -53,6 +61,7 @@ import { clearPairCheckpoint } from "./pair-checkpoint-session.ts";
  * @property {string} text
  * @property {import('./types.js').ImageAttachment[]} images
  * @property {import('./session-runtime-events.js').RuntimeQueuedMessage} [message]
+ * @property {number} [submissionOrder]
  */
 
 /**
@@ -62,7 +71,7 @@ import { clearPairCheckpoint } from "./pair-checkpoint-session.ts";
  */
 
 /**
- * @typedef {Object} MinimalSessionManagerLike
+ * @typedef {Object} MinimalSessionManagerShape
  * @property {() => string} [getSessionId]
  * @property {() => string | null} [getLeafId]
  * @property {() => string | undefined} [getSessionFile]
@@ -73,11 +82,19 @@ import { clearPairCheckpoint } from "./pair-checkpoint-session.ts";
  * @property {(provider: string, modelId: string) => void} [appendModelChange]
  * @property {() => unknown[]} [getBranch]
  * @property {() => unknown[]} [getEntries]
- * @property {(message: unknown) => string} [appendMessage]
+ * @property {import('@earendil-works/pi-coding-agent').SessionManager['appendMessage']} [appendMessage]
  * @property {(message: unknown) => void} [addMessage]
  * @property {(customType: string, data: unknown) => void} [appendCustomEntry]
  * @property {() => void | Promise<void>} [dispose]
  */
+
+/**
+ * @typedef {Object} SessionManagerExtensions
+ * @property {(message: unknown) => void} [addMessage]
+ * @property {() => void | Promise<void>} [dispose]
+ */
+
+/** @typedef {MinimalSessionManagerShape | (import('@earendil-works/pi-coding-agent').SessionManager & SessionManagerExtensions)} MinimalSessionManagerLike */
 
 /**
  * @typedef {Object} ActiveInteractionRecord
@@ -115,6 +132,7 @@ import { clearPairCheckpoint } from "./pair-checkpoint-session.ts";
  * @property {string | null} [provider]
  * @property {string | null} [thinkingLevel]
  * @property {import('./workflow-context-session.js').WorkflowContext | null} workflowContext
+ * @property {import('./tutorial-context-session.ts').TutorialContext | null} [tutorialContext]
  */
 
 /**
@@ -244,6 +262,9 @@ export class HostedSession {
         this.workflowContext = readPersistedWorkflowContext(
             /** @type {import('@earendil-works/pi-coding-agent').SessionManager | null} */ (this.rootSessionManager),
         );
+        /** @type {import('./tutorial-context-session.ts').TutorialContext | null} */
+        this.tutorialContext = readPersistedTutorialContext(this.rootSessionManager) ||
+            options.managed?.tutorialContext || null;
         /** @type {ActiveExecutionWorkflow | null} */
         this.activeExecutionWorkflow = null;
         /** @type {PendingTaskCompletion | null} */
@@ -392,6 +413,7 @@ export class HostedSession {
         this.rootSessionManager = sessionManager;
         if (!sessionManager) return;
 
+        this.tutorialContext = readPersistedTutorialContext(sessionManager);
         const persisted = readPersistedWorkflowContext(
             /** @type {import('@earendil-works/pi-coding-agent').SessionManager} */ (sessionManager),
         );
@@ -434,6 +456,7 @@ export class HostedSession {
             /** @type {import('@earendil-works/pi-coding-agent').SessionManager} */ (segment.sessionManager),
         );
         if (persisted) this.replaceWorkflowContext(persisted, { persist: false });
+        this.tutorialContext = readPersistedTutorialContext(segment.sessionManager);
     }
 
     /** @param {PendingManagedTurnIntent} intent */
@@ -714,11 +737,12 @@ export class HostedSession {
      * @param {string} text
      * @param {import('./types.js').ImageAttachment[]} images
      * @param {import('./session-runtime-events.js').RuntimeQueuedMessage} [message]
+     * @param {number} [submissionOrder]
      * @returns {boolean}
      */
-    queueAgentTransitionSteering(text, images = [], message) {
+    queueAgentTransitionSteering(text, images = [], message, submissionOrder) {
         if (!this.agentTransitionId) return false;
-        this.agentTransitionSteering.push({
+        const entry = {
             text,
             images: images.map((image) => ({ ...image })),
             ...(message
@@ -729,7 +753,15 @@ export class HostedSession {
                     },
                 }
                 : {}),
-        });
+            ...(submissionOrder === undefined ? {} : { submissionOrder }),
+        };
+        const laterEntryIndex = submissionOrder === undefined
+            ? -1
+            : this.agentTransitionSteering.findIndex((current) =>
+                current.submissionOrder !== undefined && current.submissionOrder > submissionOrder
+            );
+        if (laterEntryIndex < 0) this.agentTransitionSteering.push(entry);
+        else this.agentTransitionSteering.splice(laterEntryIndex, 0, entry);
         return true;
     }
 
@@ -899,6 +931,37 @@ export class HostedSession {
 
     getWorkflowContext() {
         return this.workflowContext ? { ...this.workflowContext } : null;
+    }
+
+    getTutorialContext() {
+        return this.tutorialContext
+            ? { ...this.tutorialContext, shownExplanationIds: [...this.tutorialContext.shownExplanationIds] }
+            : null;
+    }
+
+    /**
+     * @param {import('./tutorial-context-session.ts').TutorialContextUpdate} update
+     * @param {import('./plan-association.ts').ManifestPlanAssociation[]} committedPlanAssociations
+     */
+    updateTutorialContext(update, committedPlanAssociations = []) {
+        if (this.disposed) throw new Error("tutorial_context_not_writable");
+        const capability = this.getManagedOperationCapability?.() || null;
+        this.#assertManagedWritableCapability(capability);
+        if (!this.managed || !this.rootSessionManager?.appendCustomEntry) {
+            throw new Error("tutorial_context_not_writable");
+        }
+        const nextContext = applyTutorialContextUpdate(this.tutorialContext, update);
+        if (!nextContext) throw new Error("tutorial_context_invalid");
+        if (nextContext.planId && nextContext.planId !== this.tutorialContext?.planId) {
+            const hasCommittedAssociation = committedPlanAssociations.some((association) =>
+                association.planId === nextContext.planId && Number.isInteger(association.committedGeneration)
+            );
+            if (!hasCommittedAssociation) throw new Error("tutorial_context_plan_association_required");
+        }
+        const recorded = recordTutorialContext(this.rootSessionManager, nextContext);
+        if (!recorded) throw new Error("tutorial_context_invalid");
+        this.tutorialContext = recorded;
+        return this.getTutorialContext();
     }
 
     /**

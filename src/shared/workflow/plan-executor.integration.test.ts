@@ -32,7 +32,6 @@ function createSessionFixture(
         },
     });
     // Pi's concrete manager implements the HostedSession runtime contract.
-    // @ts-expect-error The legacy HostedSession JSDoc describes a wider manager.
     hostedSession.setRootSessionManager(sessionManager);
     return { hostedSession, sessionManager };
 }

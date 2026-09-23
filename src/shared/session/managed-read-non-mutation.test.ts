@@ -2,7 +2,7 @@ import { assertEquals } from "@std/assert";
 import { join } from "@std/path";
 import { openOwnerCoordinationStore } from "../owner-coordination/index.js";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
-import { createSessionRuntime } from "./session-runtime.js";
+import { createSessionRuntime } from "./session-runtime.ts";
 import { SESSION_RUNTIME_METHOD_POLICY } from "./session-runtime-method-policy.ts";
 import { getRunWieldSessionDir } from "./root-session.js";
 
@@ -243,6 +243,9 @@ Deno.test("managed read sweep drives read paths without writable Pi calls or tra
             });
             await run("listSessionContextFiles", async () => {
                 await runtime.listSessionContextFiles(adopted.sessionId);
+            });
+            await run("getSessionProjectRoot", () => {
+                runtime.getSessionProjectRoot(adopted.sessionId);
             });
             await run("listSessionPromptTemplates", async () => {
                 await runtime.listSessionPromptTemplates(adopted.sessionId);

@@ -15,7 +15,7 @@ import {
     RuntimeInteractionOutcomes,
     RuntimeInteractionTypes,
 } from "../../shared/session/session-runtime-interactions.js";
-import type { SessionRuntime } from "../../shared/session/session-runtime.js";
+import type { SessionRuntime } from "../../shared/session/session-runtime.ts";
 import type { UiAPI } from "../../ui/tui/types.js";
 import type { PlanFrontMatter } from "../../plan-store.js";
 import type { PlanApprovalAction } from "../../shared/workflow/plan-approval.js";

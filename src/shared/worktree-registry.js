@@ -640,14 +640,19 @@ export async function inspectWorktreeRegistry(projectRoot) {
 
 /** @param {string} projectRoot @param {{ migrate?: boolean }} [options] */
 export async function listEntries(projectRoot, options = {}) {
-    const inspection = options.migrate === false ? null : await inspectWorktreeRegistry(projectRoot);
-    const needsIdentityMigration = inspection?.entries.some((entry) => !entry.planId);
-    const planResources = inspection && needsIdentityMigration
-        ? await inspectPlanIdentityDocuments(resolvePrimaryCheckoutRoot(projectRoot), inspection.entries).catch(
-            () => [],
-        )
-        : undefined;
-    return await withWorktreeRegistryLock(projectRoot, () => readRegistry(projectRoot, { ...options, planResources }));
+    return await withProjectRuntimeReadScope(async () => {
+        const inspection = options.migrate === false ? null : await inspectWorktreeRegistry(projectRoot);
+        const needsIdentityMigration = inspection?.entries.some((entry) => !entry.planId);
+        const planResources = inspection && needsIdentityMigration
+            ? await inspectPlanIdentityDocuments(resolvePrimaryCheckoutRoot(projectRoot), inspection.entries).catch(
+                () => [],
+            )
+            : undefined;
+        return await withWorktreeRegistryLock(
+            projectRoot,
+            () => readRegistry(projectRoot, { ...options, planResources }),
+        );
+    });
 }
 
 /**

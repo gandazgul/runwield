@@ -11,13 +11,13 @@ import { registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { join } from "@std/path";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
-import { __resetSettingsForTests } from "../settings.js";
+import { __resetSettingsForTests, setCustomSetting } from "../settings.js";
 import { SessionHost } from "./session-host.js";
 import { captureTranscriptEvidence } from "./session-transcript-projection.js";
 import { switchActiveAgent } from "./agent-switching.js";
 import { RuntimeEventTypes } from "./session-runtime-events.js";
 import { RuntimeInteractionTypes } from "./session-runtime-interactions.js";
-import { createSessionRuntime, SessionRuntime, SessionTurnInProgressError } from "./session-runtime.js";
+import { createSessionRuntime, SessionRuntime, SessionTurnInProgressError } from "./session-runtime.ts";
 import { getRootSessionRebuildOptions } from "./session.js";
 import { createRootSessionManager, getRunWieldSessionDir, resolveCreatedRootSessionPath } from "./root-session.js";
 import { openFileSessionStore } from "./file-session-store.ts";
@@ -213,6 +213,16 @@ async function removeTempDir(path) {
 
 /** @typedef {Awaited<ReturnType<SessionRuntime["steerSession"]>>} SteeringResult */
 
+/** @returns {{ promise: Promise<void>, resolve: () => void }} */
+function deferredVoid() {
+    /** @type {() => void} */
+    let resolve = () => {};
+    const promise = new Promise((done) => {
+        resolve = () => done(undefined);
+    });
+    return { promise, resolve };
+}
+
 /**
  * @typedef {Object} RuntimeFixtureOptions
  * @property {SessionHost} [sessionHost]
@@ -384,7 +394,6 @@ Deno.test("SessionRuntime snapshots keep Session names current with transcript c
     const session = sessionHost.createSession({
         id: crypto.randomUUID(),
         cwd,
-        // @ts-expect-error Real SessionManager is runtime-compatible with HostedSession.
         sessionManager,
     });
 
@@ -553,6 +562,8 @@ Deno.test("SessionRuntime keeps dormant managed image persistence read-only but 
                 base64: btoa("img"),
                 mimeType: "image/png",
             });
+
+            if (!("base64" in persisted)) throw new Error(persisted.error);
 
             const persistedPath = persisted.path || "";
             assertEquals(persisted.ref?.startsWith("attachment:"), true);
@@ -822,8 +833,8 @@ async function exerciseRepairCompactionFollowUp(disconnect) {
             const actionEvidence = await loadPlanActionEvidence(worktreeRoot, planId);
             if (actionEvidence.kind !== "success") throw new Error(actionEvidence.message);
             const approvedRevision = await getPlanRevisionForText(planBody);
+            /** @type {import('../types.js').ActiveExecutionWorkflow} */
             const activeWorkflow = {
-                routingIntent: "PLANNED_CHANGE",
                 planName: "repair-follow-up",
                 projectRoot: worktreeRoot,
                 executionCwd: worktreeRoot,
@@ -833,9 +844,7 @@ async function exerciseRepairCompactionFollowUp(disconnect) {
                 worktreeBaseBranch: "main",
                 triageMeta: {
                     planId,
-                    planName: "repair-follow-up",
                     status: "validated_ci",
-                    revision: approvedRevision,
                     executionAgent: "engineer",
                 },
             };
@@ -1622,7 +1631,6 @@ Deno.test("SessionRuntime reload preserves the canonical hidden-agent selection"
     const session = sessionHost.createSession({
         id: crypto.randomUUID(),
         cwd,
-        // @ts-expect-error Real SessionManager is runtime-compatible with HostedSession.
         sessionManager,
     });
     const customTool = {
@@ -1911,10 +1919,9 @@ Deno.test("SessionRuntime managed operation prefers persisted active agent over 
 });
 
 Deno.test("SessionRuntime managed prompt acquires activation before writable hydration and publication", async () => {
-    const source = await Deno.readTextFile(new URL("./session-runtime.js", import.meta.url));
-    const promptManagedIndex = source.indexOf("async #runManagedOperation(sessionId, descriptor, body)");
-    const nextMethodIndex = source.indexOf("async promptManagedSession(sessionId, options)", promptManagedIndex);
-    const promptManagedBody = source.slice(promptManagedIndex, nextMethodIndex);
+    const source = await Deno.readTextFile(new URL("./runtime/managed-operations.ts", import.meta.url));
+    const promptManagedIndex = source.indexOf("async runManagedOperation<T>(");
+    const promptManagedBody = source.slice(promptManagedIndex);
     const inspectIndex = promptManagedBody.indexOf("inspectSessionActivation(managed.runwieldSessionId)");
     const acquireIndex = promptManagedBody.indexOf("acquireSessionActivation({", inspectIndex);
     const userMessageIndex = promptManagedBody.indexOf("type: RuntimeEventTypes.USER_MESSAGE", acquireIndex);
@@ -1925,7 +1932,7 @@ Deno.test("SessionRuntime managed prompt acquires activation before writable hyd
     const openIndex = promptManagedBody.indexOf("await openPersistedRootSession({", hydratedIndex);
     const resumeAgentIndex = promptManagedBody.indexOf("await resolveResumeAgentName(sessionManager)", openIndex);
     const activateIndex = promptManagedBody.indexOf(
-        "await this.#activateSessionAgent(hostedSession, {",
+        "await this.settings.activateSessionAgent(hostedSession, {",
         resumeAgentIndex,
     );
     const promptIndex = promptManagedBody.indexOf(
@@ -2954,6 +2961,192 @@ Deno.test("SessionRuntime delivers steering submitted from the Triage report to 
     await runtime.closeAllSessionsWhenIdle();
 });
 
+Deno.test("SessionRuntime transfers pending Router steering to Planner in submission order", async () => {
+    const sessionHost = new SessionHost();
+    const runtime = makeRuntime({ sessionHost });
+    const routerResponseStarted = deferredVoid();
+    const releaseRouterResponse = deferredVoid();
+    /** @type {HandoffProviderRequest[]} */
+    const providerRequests = [];
+    /** @param {import('@earendil-works/pi-ai').Context} context */
+    const response = async (context) => {
+        const tools = (context.tools || []).map((tool) => tool.name);
+        const messages = JSON.stringify(context.messages);
+        const imageCount = context.messages.reduce(
+            (count, message) =>
+                count +
+                (Array.isArray(message.content) ? message.content.filter((block) => block.type === "image").length : 0),
+            0,
+        );
+        const agentName = tools.includes("triage_report") ? "router" : "planner";
+        providerRequests.push({ agentName, messages, imageCount });
+        if (agentName === "router") {
+            routerResponseStarted.resolve();
+            await releaseRouterResponse.promise;
+            return fauxAssistantMessage(fauxToolCall("triage_report", {
+                routingIntent: "PLANNED_CHANGE",
+                workKind: "BUG_FIX",
+                complexity: "MEDIUM",
+                summary: "Transfer pending steering in order.",
+                sessionName: "Ordered handoff steering",
+            }));
+        }
+        return fauxAssistantMessage(fauxText("Planner received the pending steering."));
+    };
+    setRuntimeModelResponseFactories(Array.from({ length: 4 }, () => response));
+    const sessionId = await runtime.createPromptReadySession({ cwd: runtimeProjectRoot(), agentName: "router" });
+    const prompt = runtime.promptUserTurn(sessionId, {
+        initialRequest: "Fix the handoff ordering.",
+        initialImages: [],
+    });
+
+    await routerResponseStarted.promise;
+    const firstSteering = await runtime.steerSession(sessionId, "First pending instruction.", []);
+    const secondSteering = await runtime.steerSession(
+        sessionId,
+        "Second pending instruction with image.",
+        [{ base64: btoa("pending-image"), mimeType: "image/png" }],
+    );
+    releaseRouterResponse.resolve();
+
+    const result = await prompt;
+    assertEquals(result.ok, true);
+    assertEquals(firstSteering.queued, true);
+    assertEquals(secondSteering.queued, true);
+    assertEquals(providerRequests.filter((request) => request.agentName === "router").length, 1);
+    const plannerRequest = providerRequests.find((request) => request.agentName === "planner");
+    assertExists(plannerRequest);
+    const firstIndex = plannerRequest.messages.indexOf("First pending instruction.");
+    const secondIndex = plannerRequest.messages.indexOf("Second pending instruction with image.");
+    assertEquals(firstIndex >= 0, true);
+    assertEquals(secondIndex > firstIndex, true);
+    assertEquals(plannerRequest.imageCount, 1);
+    assertEquals(runtime.getQueuedMessages(sessionId), []);
+    await runtime.closeAllSessionsWhenIdle();
+});
+
+Deno.test("SessionRuntime waits for steering submitted during replacement prompt preparation", async () => {
+    const sessionHost = new SessionHost();
+    const runtime = makeRuntime({ sessionHost });
+    const plannerActivated = deferredVoid();
+    /** @type {HandoffProviderRequest[]} */
+    const providerRequests = [];
+    /** @param {import('@earendil-works/pi-ai').Context} context */
+    const response = (context) => {
+        const tools = (context.tools || []).map((tool) => tool.name);
+        const agentName = tools.includes("triage_report") ? "router" : "planner";
+        providerRequests.push({
+            agentName,
+            messages: JSON.stringify(context.messages),
+            imageCount: 0,
+        });
+        if (agentName === "router") {
+            return fauxAssistantMessage(fauxToolCall("triage_report", {
+                routingIntent: "PLANNED_CHANGE",
+                workKind: "BUG_FIX",
+                complexity: "MEDIUM",
+                summary: "Hold replacement prompt preparation.",
+                sessionName: "Prepared replacement steering",
+            }));
+        }
+        return fauxAssistantMessage(fauxText("Planner received preparation-time steering."));
+    };
+    setRuntimeModelResponseFactories(Array.from({ length: 4 }, () => response));
+    const sessionId = await runtime.createPromptReadySession({ cwd: runtimeProjectRoot(), agentName: "router" });
+    /** @type {Promise<SteeringResult> | null} */
+    let steeringSubmission = null;
+    runtime.subscribeSessionEvents(sessionId, (event) => {
+        if (event.type !== RuntimeEventTypes.AGENT_CHANGED || event.agentName !== "planner") return;
+        const hostedSession = sessionHost.requireSession(sessionId);
+        hostedSession.beginAgentSteeringPreparation("hold-replacement-prompt");
+        steeringSubmission = runtime.steerSession(sessionId, "Steering during replacement prompt preparation.", []);
+        plannerActivated.resolve();
+    });
+    const prompt = runtime.promptUserTurn(sessionId, {
+        initialRequest: "Fix the prompt preparation race.",
+        initialImages: [],
+    });
+
+    await plannerActivated.promise;
+    await Promise.resolve();
+    assertEquals(providerRequests.map((request) => request.agentName), ["router"]);
+    assertExists(steeringSubmission);
+    const steered = await /** @type {Promise<SteeringResult>} */ (steeringSubmission);
+    assertEquals(steered.queued, true);
+    sessionHost.requireSession(sessionId).completeAgentSteeringPreparation("hold-replacement-prompt");
+
+    const result = await prompt;
+    assertEquals(result.ok, true);
+    const plannerRequest = providerRequests.find((request) => request.agentName === "planner");
+    assertExists(plannerRequest);
+    assertStringIncludes(plannerRequest.messages, "Steering during replacement prompt preparation.");
+    await runtime.closeAllSessionsWhenIdle();
+});
+
+Deno.test("SessionRuntime does not replay handoff steering after a replacement provider error", async () => {
+    const sessionHost = new SessionHost();
+    const runtime = makeRuntime({ sessionHost });
+    /** @type {string[]} */
+    const plannerRequests = [];
+    let plannerAttempts = 0;
+    /** @param {import('@earendil-works/pi-ai').Context} context */
+    const response = (context) => {
+        const tools = (context.tools || []).map((tool) => tool.name);
+        if (tools.includes("triage_report")) {
+            return fauxAssistantMessage(fauxToolCall("triage_report", {
+                routingIntent: "PLANNED_CHANGE",
+                workKind: "BUG_FIX",
+                complexity: "MEDIUM",
+                summary: "Do not replay handoff steering after an error.",
+                sessionName: "No steering replay",
+            }));
+        }
+        plannerRequests.push(JSON.stringify(context.messages));
+        plannerAttempts += 1;
+        if (plannerAttempts === 1) throw new Error("provider disconnected");
+        return fauxAssistantMessage(fauxText("Planner retry completed."));
+    };
+    setRuntimeModelResponseFactories(Array.from({ length: 6 }, () => response));
+    const sessionId = await runtime.createPromptReadySession({ cwd: runtimeProjectRoot(), agentName: "router" });
+    /** @type {Promise<SteeringResult> | null} */
+    let steeringSubmission = null;
+    /** @type {string[]} */
+    const statuses = [];
+    runtime.subscribeSessionEvents(sessionId, (event) => {
+        if (
+            !steeringSubmission && event.type === RuntimeEventTypes.SYSTEM_STATUS &&
+            event.header === "Triage"
+        ) {
+            steeringSubmission = runtime.steerSession(sessionId, "Keep this steering exactly once.", [], "tui");
+        }
+        if (event.type === RuntimeEventTypes.QUEUED_MESSAGE_CHANGED) statuses.push(event.status);
+    });
+
+    const initial = await runtime.promptUserTurn(sessionId, {
+        initialRequest: "Fix the handoff provider error.",
+        initialImages: [],
+    });
+    assertExists(steeringSubmission);
+    const steered = await /** @type {Promise<SteeringResult>} */ (steeringSubmission);
+
+    assertEquals(initial.ok, true);
+    assertEquals(steered.queued, true);
+    assertEquals(runtime.getQueuedMessages(sessionId), []);
+
+    const retried = await runtime.promptUserTurn(sessionId, {
+        initialRequest: "Retry the planner request.",
+        initialImages: [],
+    });
+
+    assertEquals(retried.ok, true);
+    assertEquals(plannerRequests.length, 2);
+    const deliveredSteering = "Keep this steering exactly once.";
+    assertEquals(plannerRequests[1].split(deliveredSteering).length - 1, 1);
+    assertEquals(statuses, ["queued", "consumed"]);
+    assertEquals(runtime.getQueuedMessages(sessionId), []);
+    await runtime.closeAllSessionsWhenIdle();
+});
+
 Deno.test("SessionRuntime cancellation after Triage acceptance does not start the replacement Agent", async () => {
     const sessionHost = new SessionHost();
     const runtime = makeRuntime({ sessionHost });
@@ -2996,6 +3189,48 @@ Deno.test("SessionRuntime cancellation after Triage acceptance does not start th
     await runtime.closeAllSessionsWhenIdle();
 });
 
+Deno.test("SessionRuntime cancellation during Planner activation prevents replacement provider work", async () => {
+    const sessionHost = new SessionHost();
+    const runtime = makeRuntime({ sessionHost });
+    /** @type {string[]} */
+    const providerAgents = [];
+    /** @param {import('@earendil-works/pi-ai').Context} context */
+    const response = (context) => {
+        const tools = (context.tools || []).map((tool) => tool.name);
+        const agentName = tools.includes("triage_report") ? "router" : "planner";
+        providerAgents.push(agentName);
+        if (agentName === "router") {
+            return fauxAssistantMessage(fauxToolCall("triage_report", {
+                routingIntent: "PLANNED_CHANGE",
+                workKind: "BUG_FIX",
+                complexity: "MEDIUM",
+                summary: "Cancel during Planner activation.",
+                sessionName: "Cancel Planner activation",
+            }));
+        }
+        return fauxAssistantMessage(fauxText("Planner must not run."));
+    };
+    setRuntimeModelResponseFactories(Array.from({ length: 4 }, () => response));
+    const sessionId = await runtime.createPromptReadySession({ cwd: runtimeProjectRoot(), agentName: "router" });
+    /** @type {ReturnType<typeof runtime.cancelSession> | undefined} */
+    let cancellation;
+    runtime.subscribeSessionEvents(sessionId, (event) => {
+        if (!cancellation && event.type === RuntimeEventTypes.AGENT_CHANGED && event.agentName === "planner") {
+            cancellation = runtime.cancelSession(sessionId);
+        }
+    });
+
+    await runtime.promptUserTurn(sessionId, {
+        initialRequest: "Cancel when Planner activates.",
+        initialImages: [],
+    }).catch(() => undefined);
+
+    assertEquals(cancellation, { ok: true, aborted: true });
+    assertEquals(providerAgents, ["router"]);
+    assertEquals(sessionHost.requireSession(sessionId).isAgentTransitioning(), false);
+    await runtime.closeAllSessionsWhenIdle();
+});
+
 Deno.test("SessionRuntime owns steering and deferred queue transitions", async () => {
     const sessionHost = new SessionHost();
     const agentSession = makeSteeringAgentSession();
@@ -3027,7 +3262,6 @@ Deno.test("SessionRuntime reconciles consumed steering at turn end when the back
     const hostedSession = sessionHost.createSession({
         id: crypto.randomUUID(),
         cwd,
-        // @ts-expect-error Real SessionManager is runtime-compatible with HostedSession.
         sessionManager,
         managed: {
             runwieldSessionId: "direct-turn",
@@ -3228,7 +3462,9 @@ Deno.test("SessionRuntime transfers old Agent steering without claiming consumpt
     assertEquals(transferred[1].images, [{ base64: btoa("pending-image"), mimeType: "image/png" }]);
     hostedSession.restoreAgentTransitionSteering(transferred);
     hostedSession.completeAgentTransition(transitionId);
-    assertEquals((await runtime.clearQueuedMessages(sessionId, "session_cancel")).cleared, 2);
+    const cleared = await runtime.clearQueuedMessages(sessionId, "session_cancel");
+    if (!("cleared" in cleared)) throw new Error(cleared.error);
+    assertEquals(cleared.cleared, 2);
     assertEquals(statuses, ["queued", "queued", "dequeued", "dequeued"]);
 });
 
@@ -3300,27 +3536,30 @@ Deno.test("SessionRuntime tracks steering before preparation and preserves submi
     assertEquals(agentSession.getSteeringMessages(), ["first steering", "second steering"]);
 });
 
-Deno.test("SessionRuntime keeps pre-handoff steering ahead of later transition steering", async () => {
+Deno.test("SessionRuntime keeps pending steering ahead of newer transition steering", async () => {
     const sessionHost = new SessionHost();
     const agentSession = makeSteeringAgentSession();
     const runtime = makeRuntime({ sessionHost });
     const sessionId = await attachExternalAgentSession(runtime, sessionHost, agentSession);
     const hostedSession = sessionHost.requireSession(sessionId);
 
-    const beforeHandoff = runtime.steerSession(sessionId, "submitted before handoff", []);
+    await runtime.steerSession(sessionId, "first pending before handoff", []);
+    await runtime.steerSession(
+        sessionId,
+        "second pending before handoff",
+        [{ base64: btoa("pending-image"), mimeType: "image/png" }],
+    );
     hostedSession.beginAgentTransition();
-    const duringHandoff = runtime.steerSession(sessionId, "submitted during handoff", []);
-    let preparationsFinished = false;
-    const preparations = hostedSession.waitForAgentSteeringPreparations().then(() => {
-        preparationsFinished = true;
-    });
+    const duringHandoff = runtime.steerSession(sessionId, "newer transition steering", []);
+    await Promise.resolve();
+    agentSession.clearQueue();
 
-    assertEquals(preparationsFinished, false);
-    await Promise.all([beforeHandoff, duringHandoff, preparations]);
+    await duringHandoff;
     assertEquals(
         hostedSession.listAgentTransitionSteering().map((entry) => entry.text),
-        ["submitted before handoff", "submitted during handoff"],
+        ["first pending before handoff", "second pending before handoff", "newer transition steering"],
     );
+    assertEquals(hostedSession.listAgentTransitionSteering()[1].images.length, 1);
 });
 
 Deno.test("SessionRuntime recalls steering while asynchronous preparation is pending", async () => {
@@ -3356,6 +3595,101 @@ Deno.test("SessionRuntime cancellation removes steering still preparing", async 
     assertEquals(await steering, { ok: true, queued: false, reason: "dequeued" });
     assertEquals(agentSession.getSteeringMessages(), []);
     assertEquals(runtime.getQueuedMessages(sessionId), []);
+});
+
+Deno.test("SessionRuntime moves image steering into the handoff after asynchronous preparation", async () => {
+    const sessionHost = new SessionHost();
+    const agentSession = makeSteeringAgentSession();
+    agentSession.model = { input: ["text"] };
+    const runtime = makeRuntime({ sessionHost });
+    const projectRoot = runtimeProjectRoot();
+    const modelProvider = `session-runtime-steering-${crypto.randomUUID()}`;
+    const modelId = "discovered-vision";
+    const discoveryRequestStarted = deferredVoid();
+    const releaseDiscoveryRequest = deferredVoid();
+    let discoveryRequests = 0;
+    const server = Deno.serve({ hostname: "127.0.0.1", port: 0, onListen() {} }, async (request) => {
+        assertEquals(new URL(request.url).pathname, "/v1/models");
+        discoveryRequests += 1;
+        discoveryRequestStarted.resolve();
+        await releaseDiscoveryRequest.promise;
+        return new Response(JSON.stringify({ data: [{ id: modelId }] }), {
+            headers: { "content-type": "application/json" },
+        });
+    });
+    const address = server.addr;
+    if (address.transport !== "tcp") {
+        await server.shutdown();
+        throw new Error("Image discovery test server did not bind a TCP address.");
+    }
+    const modelsPath = join(getHomeDir(), ".wld", "models.json");
+    const projectSettingsPath = join(projectRoot, ".wld", "settings.json");
+    const originalModels = await Deno.readTextFile(modelsPath);
+    const originalProjectSettings = await Deno.readTextFile(projectSettingsPath).catch((error) => {
+        if (error instanceof Deno.errors.NotFound) return null;
+        throw error;
+    });
+    const modelConfiguration = JSON.parse(originalModels);
+    modelConfiguration.providers[modelProvider] = {
+        baseUrl: `http://${address.hostname}:${address.port}/v1`,
+        api: "openai-completions",
+        apiKey: "test-key",
+    };
+
+    try {
+        await Deno.writeTextFile(modelsPath, JSON.stringify(modelConfiguration));
+        await setCustomSetting(
+            "visionFallback",
+            {
+                model: `${modelProvider}/${modelId}`,
+            },
+            "project",
+            projectRoot,
+        );
+        const sessionId = await attachExternalAgentSession(runtime, sessionHost, agentSession);
+        const hostedSession = sessionHost.requireSession(sessionId);
+        const steering = runtime.steerSession(
+            sessionId,
+            "Image instruction prepared while handoff starts.",
+            [{ base64: btoa("async-image"), mimeType: "image/png" }],
+        );
+        void steering.catch(() => undefined);
+
+        await Promise.race([
+            discoveryRequestStarted.promise,
+            delay(1_000).then(() => {
+                throw new Error("Image preparation did not reach the configured provider.");
+            }),
+        ]);
+        const transitionId = hostedSession.beginAgentTransition();
+        releaseDiscoveryRequest.resolve();
+
+        const result = await steering;
+        assertEquals(discoveryRequests, 1);
+        assertEquals(result.queued, true);
+        assertEquals(agentSession.getSteeringMessages(), []);
+        assertEquals(
+            hostedSession.listAgentTransitionSteering().map((entry) => entry.text),
+            ["Image instruction prepared while handoff starts."],
+        );
+        assertEquals(hostedSession.listAgentTransitionSteering()[0].images.length, 1);
+        hostedSession.completeAgentTransition(transitionId);
+        const cleared = await runtime.clearQueuedMessages(sessionId, "session_cancel");
+        if (!("cleared" in cleared)) throw new Error(cleared.error);
+        assertEquals(cleared.cleared, 1);
+    } finally {
+        releaseDiscoveryRequest.resolve();
+        await server.shutdown();
+        await Deno.writeTextFile(modelsPath, originalModels);
+        if (originalProjectSettings === null) {
+            await Deno.remove(projectSettingsPath).catch((error) => {
+                if (!(error instanceof Deno.errors.NotFound)) throw error;
+            });
+        } else {
+            await Deno.writeTextFile(projectSettingsPath, originalProjectSettings);
+        }
+        __resetSettingsForTests();
+    }
 });
 
 Deno.test("SessionRuntime rechecks the foreground target after asynchronous steering preparation", async () => {

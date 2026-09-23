@@ -326,12 +326,12 @@ For worktree-backed plans:
 3. Workflow Validation reads `validationCiAttempts` and `validationSemanticRounds` from the current controller record,
    runs exactly one lifecycle phase for the current Plan Status, records at most one Plan Event for that phase, and
    returns. Repeated calls resume from durable status instead of an in-memory validation loop.
-4. The `validated_ci` phase computes one full review patch directly from the recorded target branch's current commit to
-   all current execution-worktree files and starts Semantic Review rounds. One shared function supplies that patch to AI
-   review, repair context, and Code Review, including reload and continuation. It does not compare with the execution
-   recovery baseline or a shared ancestor. The separate repair patch still compares the pre-repair tree with current
-   files. A missing target fails the comparison without falling back to `main`, `HEAD`, the recovery baseline, or an
-   empty patch.
+4. The `validated_ci` phase computes one full proposed branch patch from the common ancestor of the recorded target and
+   execution HEAD to all current execution-worktree files, then starts Semantic Review rounds. One shared function
+   supplies that patch to AI review, repair context, and Code Review, including reload and continuation. Target-only
+   changes are absent; current committed and uncommitted execution changes are present. The separate repair patch still
+   compares the pre-repair tree with current files. A missing target, missing HEAD, or absent ancestry fails the
+   comparison without falling back to `main`, an alternate diff, the recovery baseline, or an empty patch.
 
    Review narrows as rounds progress: rounds one and two review the implementation against the whole Plan, and rounds
    three and above only verify the open findings and check the latest repair for regressions. Two full sweeps give a
@@ -353,10 +353,10 @@ For worktree-backed plans:
    and before merge-back. The optional `guidedReview` setting can generate a Guided Review Explainer inside that
    already-open Code Review, but it does not create a Plan Status, Plan Event, or Front Matter field. User feedback goes
    to the Reviewer-Feedback Engineer in the same fresh-session way, along with the annotations and images, and Code
-   Review then reopens. Code Review always sees the same full target-relative patch as AI review, never a repair-scoped
-   one. Reload resolves the recorded target again and includes current committed and uncommitted files. User approval
-   reached through the round-limit escape hatch is authoritative and permits merge-back even though Semantic Review
-   never approved; the record distinguishes that case.
+   Review then reopens. Code Review always sees the same full proposed branch patch as AI review, never a repair-scoped
+   one. Reload resolves the recorded target and execution HEAD again and includes current committed and uncommitted
+   files. User approval reached through the round-limit escape hatch is authoritative and permits merge-back even though
+   Semantic Review never approved; the record distinguishes that case.
 
    Once the change is in a human's hands the loop belongs to them: CI reruns and code review reopens after every
    feedback round, for as many rounds as they give, and automatic Semantic Review rounds do not resume. **The only exits

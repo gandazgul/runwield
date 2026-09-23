@@ -5,7 +5,7 @@
 
 import type { EditorAPI, TuiAPI, UiAPI } from "./types.js";
 import type { ImageAttachment } from "../../shared/session/types.js";
-import type { SessionRuntime } from "../../shared/session/session-runtime.js";
+import type { SessionRuntime } from "../../shared/session/session-runtime.ts";
 import type { GenerationGuard } from "./generation-guard.js";
 import { setTerminalTitleForName } from "./terminal-title.ts";
 import { notifyRunWieldEventQuietly } from "./system-notifications.ts";
@@ -75,6 +75,7 @@ export interface SlashContext {
     replaceRuntimeSession?(nextSessionId: string): void;
     notifyRunWieldEvent?(eventName: string, options?: NotificationOptions): Promise<void> | void;
     dispatchExpandedUserRequest?(text: string, images: ImageAttachment[]): Promise<void>;
+    beginOnboarding?(): Promise<void>;
     generationGuard: GenerationGuard;
 }
 
@@ -167,6 +168,7 @@ async function dispatchBuiltin(
             originalHandleInput: ctx.originalHandleInput,
             replaceRuntimeSession: ctx.replaceRuntimeSession,
             notifyRunWieldEvent,
+            beginOnboarding: ctx.beginOnboarding,
             slashSurface: "tui",
         });
     } catch (error) {

@@ -98,7 +98,7 @@ structured agent outcomes, calls Plan and execution services, and decides which 
 
 | Area                        | Responsibilities                                                                                                     | Primary implementation                                                                                                                                   |
 | --------------------------- | -------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Session application runtime | Create/load/close sessions, serialize turns, switch agents, cancel work, emit semantic events, broker interactions   | `src/shared/session/session-runtime.js`                                                                                                                  |
+| Session application runtime | Create/load/close sessions, serialize turns, switch agents, cancel work, emit semantic events, broker interactions   | `src/shared/session/session-runtime.ts`                                                                                                                  |
 | Per-session ownership       | Project root, root and sub-agent sessions, active agent/model/thinking state, workflow state, active interactions    | `src/shared/session/hosted-session.js`                                                                                                                   |
 | Multi-session registry      | Adopt, find, list, and dispose hosted sessions                                                                       | `src/shared/session/session-host.js`                                                                                                                     |
 | Pi integration              | Build configured `AgentSession` objects, assemble prompts, wire tools, translate Pi events, run prompts, reuse roots | `src/shared/session/session.js`                                                                                                                          |
@@ -163,7 +163,7 @@ Forbidden edges are as important as the shown edges:
 
 ## Public Runtime boundary
 
-The public boundary lives in `src/shared/session/session-runtime.js`, `src/shared/session/session-runtime-events.js`,
+The public boundary lives in `src/shared/session/session-runtime.ts`, `src/shared/session/session-runtime-events.js`,
 and `src/shared/session/session-runtime-interactions.js`.
 
 | Surface                 | Consumer-visible contract                                                                      |
@@ -1064,7 +1064,7 @@ The highest-value cross-boundary paths for later confidence analysis are visible
 
 | Concern                                   | Start here                                                                    |
 | ----------------------------------------- | ----------------------------------------------------------------------------- |
-| Runtime API and turn loop                 | `src/shared/session/session-runtime.js`                                       |
+| Runtime API and turn loop                 | `src/shared/session/session-runtime.ts`                                       |
 | Per-session state                         | `src/shared/session/hosted-session.js`                                        |
 | Session registry                          | `src/shared/session/session-host.js`                                          |
 | Runtime event contract                    | `src/shared/session/session-runtime-events.js`                                |

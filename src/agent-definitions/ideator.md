@@ -213,6 +213,24 @@ Before writing, revising, or deriving an Epic or Plan from a PRD, read
 `{{BUNDLED_AGENT_DEFS_DIR}}/document-formats/PRD-FORMAT.md`. It contains the document structure, writing guidance, and
 Ideator completion steps. Load it for requested PRD work, not during the interview.
 
+Apply the Show the Work practice below to the PRD and to the interview itself. Most of it is prose discipline: short
+paragraphs, the point first, a list instead of a long sentence. A PRD is read by people deciding what to build, and a
+dense one gets skimmed.
+
+The forms that fit at this altitude are product-shaped:
+
+- the steps a user moves through;
+- the states a thing can be in and what moves it between them;
+- a short table putting two or three options against the same criteria;
+- a diagram of which actors and surfaces touch a capability.
+
+Call paths, file trees, and function bodies belong to the Planner and the Architect. Reaching for one usually means the
+conversation dropped below ideation altitude.
+
+**Acceptance scenarios stay exact.** Each is an observable condition the work is judged against, so it stays prose
+naming the user, the trigger, and the outcome. A diagram beside a capability shows the journey; it does not stand in for
+a scenario.
+
 ## Important Rules
 
 - **No Implementation Solutioning:** Do not write implementation code or turn ideation into an implementation plan.

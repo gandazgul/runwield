@@ -7,21 +7,23 @@ import type { ManagedSessionMetadata } from "./hosted-session.js";
 import { createRootSessionManager, resolveCreatedRootSessionPath } from "./root-session.js";
 import { captureTranscriptEvidence, syncTranscriptFileAndParent } from "./session-transcript-projection.js";
 import { recordPendingSegmentContinuation, recordSegmentLineageEvidence } from "./workflow-context-session.js";
-
-type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
+import { recordTutorialContext } from "./tutorial-context-session.ts";
+import type { SegmentHandoffPayload } from "../workflow/execution-segment-handoff.ts";
 
 type RolloverKind = "execution" | "semantic_repair";
 
+type RuntimeSessionManager = import("./hosted-session.js").MinimalSessionManagerLike;
 type HostedManagedSession = {
     cwd: string;
     getManagedMetadata: () => ManagedSessionMetadata | null;
-    getRootSessionManager: () => { dispose?: () => void | Promise<void> } | null;
+    getTutorialContext: () => import("./tutorial-context-session.ts").TutorialContext | null;
+    getRootSessionManager: () => RuntimeSessionManager | null;
     dehydrateManagedSession: () => void;
     replaceManagedTranscriptSegment: (segment: {
         piSessionId: string;
         transcriptPath: string;
         currentSegmentId: string;
-        sessionManager: { dispose?: () => void | Promise<void> };
+        sessionManager: RuntimeSessionManager;
     }) => void;
     setManagedMetadata: (metadata: ManagedSessionMetadata) => void;
 };
@@ -33,7 +35,7 @@ type RollSessionTranscriptSegmentOptions = {
     ownerProcessKind: "workspace" | "tui" | "acp" | "test";
     kind: RolloverKind;
     transcriptCwd?: string;
-    continuation: JsonValue;
+    continuation: SegmentHandoffPayload;
     expectedGeneration?: number | null;
     lineageGroupKey?: string | null;
     operationId?: string;
@@ -48,7 +50,7 @@ export type SegmentRolloverResult = {
     piSessionId: string;
     transcriptPath: string;
     generation: number;
-    continuation: JsonValue;
+    continuation: SegmentHandoffPayload;
 };
 
 export type OrphanRolloverCandidate = {
@@ -74,7 +76,9 @@ export async function rollSessionTranscriptSegment(
     const predecessor = options.ownerCoordinationStore.listSessionTranscriptSegments(managed.runwieldSessionId)
         .find((segment) => segment.segmentId === managed.currentSegmentId);
     if (!predecessor) throw new Error("The current Session transcript segment is unavailable");
+
     const transcriptCwd = options.transcriptCwd || options.hostedSession.cwd;
+    const tutorialContext = options.hostedSession.getTutorialContext();
 
     let proof = options.ownerCoordinationStore.acquireSessionActivation({
         runwieldSessionId: managed.runwieldSessionId,
@@ -113,6 +117,7 @@ export async function rollSessionTranscriptSegment(
             kind: options.kind,
         });
         recordPendingSegmentContinuation(successorManager, options.continuation);
+        recordTutorialContext(successorManager, tutorialContext);
         await disposeManager(successorManager as { dispose?: () => void | Promise<void> });
         await syncTranscriptFileAndParent(successorTranscriptPath);
         const successorEvidence = await captureTranscriptEvidence({

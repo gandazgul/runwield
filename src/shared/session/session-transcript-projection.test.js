@@ -422,6 +422,7 @@ Deno.test("committed transcript authority facts are explicit projection extracts
         provider: "openai",
         thinkingLevel: "high",
         workflowContext: { routingIntent: "FEATURE", complexity: "LOW" },
+        tutorialContext: null,
         planAssociations: [],
     });
     assertEquals(getCommittedTranscriptAuthorityFacts(null), {
@@ -430,6 +431,7 @@ Deno.test("committed transcript authority facts are explicit projection extracts
         provider: null,
         thinkingLevel: null,
         workflowContext: null,
+        tutorialContext: null,
         planAssociations: [],
     });
 });
@@ -499,6 +501,7 @@ Deno.test("^projection replays Claude backend failure entries as display-only st
         model: null,
         provider: null,
         thinkingLevel: null,
+        tutorialContext: null,
         planAssociations: [],
     });
 });
@@ -524,6 +527,30 @@ Deno.test("summarizeProjectedEntries exposes Plan Associations and ignores legac
             { type: "custom", customType: "runwield.workflow_context", data: { planName: "example-plan" } },
         ]).planAssociations,
         [],
+    );
+});
+
+Deno.test("projection summary and authority expose only the latest valid tutorial context", () => {
+    const first = {
+        version: 1,
+        guidanceEnabled: true,
+        shownExplanationIds: ["welcome", "welcome"],
+        recapShown: false,
+        planId: null,
+    };
+    const disabled = { ...first, guidanceEnabled: false, shownExplanationIds: ["welcome", "plans"] };
+    const summary = summarizeProjectedEntries([
+        { type: "custom", customType: "runwield.tutorial_context", data: first },
+        { type: "custom", customType: "runwield.tutorial_context", data: disabled },
+    ]);
+    assertEquals(summary.tutorialContext, disabled);
+    assertEquals(getCommittedTranscriptAuthorityFacts({ snapshot: summary }).tutorialContext, disabled);
+    assertEquals(
+        summarizeProjectedEntries([
+            { type: "custom", customType: "runwield.tutorial_context", data: first },
+            { type: "custom", customType: "runwield.tutorial_context", data: { ...first, version: 2 } },
+        ]).tutorialContext,
+        null,
     );
 });
 

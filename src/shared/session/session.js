@@ -3424,6 +3424,7 @@ function agentTransitionSteeringSignature(steering) {
  * @param {boolean} [opts.disableAutoCompaction]
  * @param {import('./hosted-session.js').HostedSession} [opts.hostedSession]
  * @param {AgentTransitionSteeringEntry[]} [opts.transitionSteering]
+ * @param {() => void} [opts.onTransitionSteeringConsumed]
  *
  * @returns {Promise<import('@earendil-works/pi-agent-core').AgentMessage[]>}
  */
@@ -3443,6 +3444,7 @@ export async function runPrompt({
     disableAutoCompaction = false,
     hostedSession,
     transitionSteering = [],
+    onTransitionSteeringConsumed,
 }) {
     subscriberState.resetTurn();
 
@@ -3561,6 +3563,8 @@ export async function runPrompt({
             ) continue;
             const consumedSteering = hostedSession.consumeAgentTransitionSteering();
             transitionSteering.splice(0, transitionSteering.length, ...consumedSteering);
+            publishTransitionSteeringConsumption(hostedSession, consumedSteering);
+            onTransitionSteeringConsumed?.();
             const transitionId = hostedSession.getAgentTransitionId?.();
             if (transitionId) hostedSession.completeAgentTransition(transitionId);
             break;
@@ -3919,6 +3923,12 @@ function publishTransitionSteeringConsumption(hostedSession, transitionSteering)
             status: "consumed",
             message: entry.message,
         });
+        emitHostedSessionRuntimeEvent(hostedSession, {
+            type: RuntimeEventTypes.USER_MESSAGE,
+            messageId: entry.message.id,
+            text: entry.message.text,
+            images: entry.message.images.map((image) => ({ ...image })),
+        });
     }
 }
 
@@ -4026,6 +4036,7 @@ export async function runRootTurn({
     const transitionPrompt = buildAgentTransitionPrompt(userRequest, images || [], transitionSteering);
     const effectiveUserRequest = backend === "pi" ? userRequest : transitionPrompt.text;
     const effectiveImages = backend === "pi" ? images || [] : transitionPrompt.images;
+    let transitionSteeringConsumed = false;
     let dispatch = null;
     try {
         if (backend === "agy-cli") assertAgyCliImageInputSupported(effectiveImages);
@@ -4040,6 +4051,8 @@ export async function runRootTurn({
             : applyAttentionNudge(agentName, dispatch.userRequest, meta.rootTurnCount);
         let messages;
         if (isExecutionSession(session) && (session.kind === "claude-cli" || session.kind === "agy-cli")) {
+            publishTransitionSteeringConsumption(targetHostedSession, transitionSteering);
+            transitionSteeringConsumed = true;
             const transitionId = targetHostedSession.getAgentTransitionId?.();
             if (transitionId) targetHostedSession.completeAgentTransition(transitionId);
             messages = await session.session.runTurn({
@@ -4062,18 +4075,19 @@ export async function runRootTurn({
                 disableAutoCompaction,
                 hostedSession: targetHostedSession,
                 transitionSteering,
+                onTransitionSteeringConsumed: () => {
+                    transitionSteeringConsumed = true;
+                },
             });
         }
         completeRequestDispatch(sessionManager, dispatch);
-        publishTransitionSteeringConsumption(targetHostedSession, transitionSteering);
         return messages;
     } catch (error) {
         if (signal?.reason instanceof WorkflowStepCompleted) {
             if (dispatch) completeRequestDispatch(sessionManager, dispatch);
-            publishTransitionSteeringConsumption(targetHostedSession, transitionSteering);
             return getRootExecutionMessages(session);
         }
-        if (transitionSteering.length > 0) {
+        if (transitionSteering.length > 0 && !transitionSteeringConsumed) {
             if (signal?.aborted) {
                 publishTransitionSteeringCancellation(targetHostedSession, transitionSteering);
             } else {
