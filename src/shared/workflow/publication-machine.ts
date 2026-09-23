@@ -274,6 +274,7 @@ export async function advanceStoredPublication(
     phase: PublicationPhase,
     evidence: PublicationPhaseEvidence,
 ): Promise<PublicationAttempt> {
+    if (current.revalidation) throw new Error("Publication is waiting for validation of the current source.");
     await enterProjectRuntime(projectRoot);
     const mismatch = Object.entries(evidence).find(([field, expected]) => {
         if (expected === undefined) return false;
@@ -331,6 +332,7 @@ export async function reconcileStoredPublication(
     initial: PublicationAttempt,
 ): Promise<PublicationAttempt> {
     await enterProjectRuntime(projectRoot);
+    if (initial.revalidation) return initial;
     let current = initial;
     if (current.phase === "candidate_sealed") {
         const evidence = await artifactEvidence(current);

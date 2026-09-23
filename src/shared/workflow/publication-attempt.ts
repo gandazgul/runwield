@@ -57,8 +57,15 @@ export type PublicationAttempt = {
     verifiedAt?: string;
     cleanedAt?: string;
     failure?: PublicationFailure;
+    /** Durable intent to retire an unpublished snapshot before checking current files. */
+    revalidation?: PublicationRevalidation;
     createdAt: string;
     updatedAt: string;
+};
+
+export type PublicationRevalidation = {
+    sourceHead: string;
+    archiveRoot: string;
 };
 
 export type PublicationPhaseEvidence = {
@@ -220,4 +227,10 @@ export function assertPublicationAttempt(value: PublicationAttempt): void {
         if (!value[field]) throw new Error(`Publication attempt requires ${field}.`);
     }
     assertPhaseEvidence(value.phase, value);
+    if (value.revalidation) {
+        if (
+            !["candidate_sealed", "artifacts_committed"].includes(value.phase) ||
+            !value.revalidation.sourceHead || !value.revalidation.archiveRoot
+        ) throw new Error("Publication revalidation requires an unpublished snapshot and recovery location.");
+    }
 }
