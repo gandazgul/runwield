@@ -35,3 +35,10 @@ demo-media/
 # BEGIN RunWield owned runtime state
 .wld/internal/
 # END RunWield owned runtime state
+
+# Keep only shared RunWield settings, Agents, and Skills in Git.
+!/.wld/
+/.wld/*
+!/.wld/settings.json
+!/.wld/agents/
+!/.wld/skills/
