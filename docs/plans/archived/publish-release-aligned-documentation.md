@@ -46,14 +46,14 @@ publish without a product release; product hotfixes must remain possible through
 
 Requirements ownership:
 
-- Add **Public documentation** to [the root PRD](../prd/runwield.md#capability-requirements), with stable heading
+- Add **Public documentation** to [the root PRD](../../prd/runwield.md#capability-requirements), with stable heading
   `#public-documentation`, capability navigation, and ownership reference. Proposed named requirements: **Find usable
   instructions**, **Read documentation for the latest Stable release**, and **Correct documentation independently**.
-- Preserve [Core installation and updates](../prd/runwield-core-prd.md#installation-and-updates), including honest
+- Preserve [Core installation and updates](../../prd/runwield-core-prd.md#installation-and-updates), including honest
   package availability. Link that owner rather than duplicate its requirements.
-- Preserve [Core execution, validation, and recovery](../prd/runwield-core-prd.md#execution-validation-and-recovery) and
-  the release rules in [Releasing](../releasing.md). This change does not redesign product publication or make a failed
-  docs deployment invalidate a published product.
+- Preserve [Core execution, validation, and recovery](../../prd/runwield-core-prd.md#execution-validation-and-recovery)
+  and the release rules in [Releasing](../../releasing.md). This change does not redesign product publication or make a
+  failed docs deployment invalidate a published product.
 
 ## Objective
 

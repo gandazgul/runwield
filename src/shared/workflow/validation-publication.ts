@@ -65,6 +65,7 @@ import {
     startPublicationAttempt,
 } from "./publication-machine.ts";
 import type { PublicationAttempt } from "./publication-attempt.ts";
+import { preparePublicationRevalidation, PUBLICATION_REVALIDATION_MESSAGE } from "./publication-revalidation.ts";
 
 type DeliveryEvidence = import("../../plan-store.js").DeliveryEvidence;
 type WorktreeDeliveryEvidence = import("../../plan-store.js").WorktreeDeliveryEvidence;
@@ -514,6 +515,24 @@ async function runLockedPublicationPhase(
         } catch (caught) {
             const error = caught instanceof Error ? caught : new Error(String(caught));
             const failure = normalizePublicationFailure(error);
+            // A source can change after this invocation sealed it. Recover in
+            // the same validation loop, just as a fresh-process resume would.
+            if (await preparePublicationRevalidation(context.projectRoot, args.planName)) {
+                emitStatus(args, PUBLICATION_REVALIDATION_MESSAGE);
+                return {
+                    kind: "published",
+                    outcome: {
+                        recorded: false,
+                        result: {
+                            kind: "paused",
+                            planName: args.planName,
+                            projectRoot: context.projectRoot,
+                            continueValidation: true,
+                            reason: PUBLICATION_REVALIDATION_MESSAGE,
+                        },
+                    },
+                };
+            }
             if (publicationAttempt) {
                 publicationAttempt = await failStoredPublication(context.projectRoot, publicationAttempt, {
                     kind: getMergeFailureKind(failure) || "publication_failed",

@@ -473,12 +473,21 @@ runtime gate or permits publication before it passes.
 
 Recovery requirements:
 
+- Before integration, a source-history rewrite or changes to sealed files automatically restart validation against the
+  current execution checkout. Preserve the prior publication evidence and repair checkout, invalidate old review
+  approvals and the validation stamp, and resume the reset after interruption. An unchanged candidate resumes its
+  existing publication. An integration that may already have been pushed must retain its publication proof instead of
+  being replayed automatically.
 - loading `in_progress`, `failed`, or `implemented` Plans should open a recovery path
 - users can continue, reset to baseline, re-open for review, retry validation, or address merge-back failures
 - failed Plans leave recovery through dedicated recovery actions, not casual board movement
 
 **Acceptance scenarios:**
 
+- Given an unpublished sealed candidate whose branch was rewritten, including a rewrite followed by an additional
+  `.gitignore` commit, validation automatically checks the current files and then creates new publication evidence.
+  Staged edits, untracked files, and saved merge repairs remain intact. A restart during recovery finishes the same
+  reset; a stale Session delivery checkpoint cannot skip the new checks.
 - Given a managed repair, when the Agent completes focused verification, RunWield reloads the current configured command
   and runs full validation against the repair checkout. A failure still prevents progress; the Agent was not required to
   run that complete command immediately beforehand.
