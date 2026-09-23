@@ -23,7 +23,13 @@ origin: "internal"
 userVerifiedAt: null
 routingIntent: "PLANNED_CHANGE"
 targetBranch: "main"
-status: "validated_reviewer"
+status: "validated"
+validatedCommit: "158273479acf5741b1abffc8d6bffc328e8fcf96"
+workRecord:
+    status: "generated"
+    recordId: "c2c2d43c-223e-425b-954a-89a13157b230"
+    path: "docs/work-records/2026-09-23-deliver-steering-to-replacement-agents.md"
+    lastAttemptAt: "2026-09-23T16:07:59.874Z"
 ---
 
 # Deliver Steering to the New Agent After Handoff
