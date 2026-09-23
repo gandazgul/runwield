@@ -1,12 +1,21 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
-import { type Component, Container, Spacer, StdinBuffer, Text, TuiAltScreen } from "@earendil-works/pi-tui";
+import { Container, Spacer, StdinBuffer, Text, TuiAltScreen } from "@earendil-works/pi-tui";
 import { createChatView, findVisibleToolBlocks } from "./chat-view.ts";
-import { ToolExecutionGroupBlock } from "./blocks.js";
+import { ToolExecutionGroupBlock, UserPromptBlock } from "./blocks.js";
 import { VirtualTerminal } from "./testing/virtual-terminal.js";
 import { RunWieldTui } from "./tui.ts";
 import { installTerminalFocusState } from "./terminal-focus-state.ts";
 import { installKeybindings } from "./keybindings.ts";
 import { createGenerationGuard } from "./generation-guard.js";
+
+interface LongSessionFrameObservation {
+    retainedCount: number;
+    retainedBlockRenderCount: number;
+    snapshotCalls: number;
+    timerCallbacks: number;
+    frameDurationsMs: number[];
+    terminalOutputBytes: number;
+}
 
 Deno.test("TUI artifact shortcut opens the shared-reader picker without changing the draft", async () => {
     const terminal = new VirtualTerminal({ columns: 150, rows: 30 });
@@ -137,8 +146,9 @@ Deno.test("chat view reconstructs delayed mouse-wheel input without changing a d
         incompleteInput.on("data", (data: string) => terminal.input(data));
         incompleteInput.process("\x1b");
         await new Promise((resolve) => setTimeout(resolve, 10));
-        incompleteInput.process(mouseSequence.slice(1, -1));
+        incompleteInput.process(mouseSequence.slice(1, 6));
         await new Promise((resolve) => setTimeout(resolve, 70));
+        incompleteInput.process(mouseSequence.slice(6));
         assertEquals(view.editor.getText(), "keep this draft");
         assertEquals(cancellationCount, 0);
         assertEquals(submissions, []);
@@ -183,60 +193,139 @@ Deno.test("chat view shows messages appended after the first frame", async () =>
 });
 
 Deno.test("chat view keeps unchanged retained blocks out of live-update renders", async () => {
-    const retainedCounts = [100, 500, 998];
+    const retainedCounts = [100, 500, 1_000, 2_000];
+    const terminalCaptureLimit = 16_384;
+    const observations: LongSessionFrameObservation[] = [];
+
     for (const retainedCount of retainedCounts) {
-        const terminal = new VirtualTerminal({ columns: 80, rows: 12 });
+        const terminal = new VirtualTerminal({ columns: 150, rows: 12 });
         const tui = new RunWieldTui(terminal);
+        let snapshotCalls = 0;
         const view = await createChatView({
             tui,
             suppressStartupHeader: true,
             getSessionId: () => `retained-render-${retainedCount}`,
             sessionRuntime: {
-                getSessionSnapshot: () => ({ cwd: "/tmp/retained-render-fixture", activeModel: {} }),
+                getSessionSnapshot: () => {
+                    snapshotCalls++;
+                    return { cwd: "/tmp/retained-render-fixture", activeModel: {} };
+                },
             },
             setActiveModel: () => Promise.resolve({ status: "active" }),
         });
-        const renderCounts = Array.from({ length: retainedCount }, () => 0);
-        for (let index = 0; index < retainedCount; index++) {
-            const marker = `retained marker ${index}`;
-            const component: Component = {
-                invalidate: () => {},
-                render: () => {
-                    renderCounts[index]++;
-                    return [marker];
-                },
-            };
-            view.messageList.addChild(component);
-        }
+        const terminalSamples: string[] = [];
+        const captureTerminalOutput = (): void => {
+            terminalSamples.push(terminal.writes.slice(-terminalCaptureLimit));
+            terminal.writes = "";
+        };
+
         try {
             tui.start();
+            view.editor.setText("draft stays ready");
+            const tool = view.uiAPI.startToolExecution?.("live-tool", "bash", "! echo streaming");
             const thinking = view.uiAPI.appendThinkingStart?.();
-            if (!thinking) throw new Error("TUI API is incomplete.");
-            thinking.appendDelta("live update one");
+            if (!thinking || !tool) throw new Error("TUI API is incomplete.");
+            const liveChildren = [...view.messageList.children];
+            for (let index = 0; index < retainedCount; index++) {
+                view.messageList.addChild(new UserPromptBlock(`retained marker ${index}`));
+            }
+            for (const child of liveChildren) {
+                view.messageList.removeChild(child);
+                view.messageList.addChild(child);
+            }
+            const retainedBlocks = view.messageList.children.filter((child) => child instanceof UserPromptBlock);
+            assertEquals(retainedBlocks.length, retainedCount);
+            const renderCounts = new Map<UserPromptBlock, number>();
+            for (const block of retainedBlocks) {
+                const render = block.render.bind(block);
+                block.render = (width: number): string[] => {
+                    renderCounts.set(block, (renderCounts.get(block) ?? 0) + 1);
+                    return render(width);
+                };
+            }
+            thinking.appendDelta("live stream update one");
+            tool.setOutput("live tool output one");
+            view.uiAPI.setBusy?.(true);
             tui.renderNow(true);
             await terminal.flush();
-            const initialRenderCounts = [...renderCounts];
-            assertEquals(initialRenderCounts.every((count) => count > 0), true);
+            captureTerminalOutput();
+            const initialRenderCounts = retainedBlocks.map((block) => renderCounts.get(block) ?? 0);
+            assertEquals(initialRenderCounts.filter((count) => count === 0).length, 0);
+
+            const spinnerFrame = view.runningTasksComponent.frame;
+            await new Promise((resolve) => setTimeout(resolve, 130));
+            await terminal.flush();
+            const timerCallbacks = view.runningTasksComponent.frame - spinnerFrame;
+            captureTerminalOutput();
+            assertEquals(timerCallbacks > 0, true);
 
             tui.scrollToTop();
             tui.renderNow();
             await terminal.flush();
-            assertStringIncludes(terminal.getScreenText(), "retained marker 0");
+            captureTerminalOutput();
+            const selectedViewportTop = tui.viewportTop;
+            const selectedViewport = terminal.getScreenText();
+            assertStringIncludes(selectedViewport, "retained marker 0");
 
-            thinking.appendDelta(" live update two");
+            const streamFrameStart = performance.now();
+            thinking.appendDelta(" live stream update two");
             tui.renderNow();
             await terminal.flush();
-            assertEquals(renderCounts, initialRenderCounts);
+            const streamFrameDurationMs = performance.now() - streamFrameStart;
+            captureTerminalOutput();
+            assertEquals(retainedBlocks.map((block) => renderCounts.get(block) ?? 0), initialRenderCounts);
+            assertEquals(tui.viewportTop, selectedViewportTop);
+            assertEquals(terminal.getScreenText(), selectedViewport);
+
+            terminal.typeText("!");
+            tui.renderNow();
+            await terminal.flush();
+            captureTerminalOutput();
+            assertEquals(view.editor.getText(), "draft stays ready!");
+            assertEquals(retainedBlocks.map((block) => renderCounts.get(block) ?? 0), initialRenderCounts);
 
             tui.scrollToBottom();
             tui.renderNow();
             await terminal.flush();
-            assertStringIncludes(terminal.getScreenText(), "live update two");
+            captureTerminalOutput();
+            assertStringIncludes(terminal.getScreenText(), "live stream update two");
+
+            const toolFrameStart = performance.now();
+            tool.setOutput("live tool output two");
+            tui.renderNow();
+            await terminal.flush();
+            const toolFrameDurationMs = performance.now() - toolFrameStart;
+            captureTerminalOutput();
+            assertEquals(retainedBlocks.map((block) => renderCounts.get(block) ?? 0), initialRenderCounts);
+            assertStringIncludes(terminal.getScreenText(), "live tool output two");
+            assertEquals(terminalSamples.every((sample) => sample.length <= terminalCaptureLimit), true);
+
+            observations.push({
+                retainedCount,
+                retainedBlockRenderCount: initialRenderCounts.reduce((total, count) => total + count, 0),
+                snapshotCalls,
+                timerCallbacks,
+                frameDurationsMs: [streamFrameDurationMs, toolFrameDurationMs],
+                terminalOutputBytes: terminalSamples.reduce((total, sample) => total + sample.length, 0),
+            });
         } finally {
+            view.uiAPI.setBusy?.(false);
             view.dispose();
             tui.stop();
         }
     }
+
+    assertEquals(observations.map((observation) => observation.retainedCount), retainedCounts);
+    assertEquals(observations.every((observation) => observation.retainedBlockRenderCount > 0), true);
+    assertEquals(observations.every((observation) => observation.snapshotCalls > 0), true);
+    assertEquals(observations.every((observation) => observation.timerCallbacks > 0), true);
+    assertEquals(
+        observations.every((observation) =>
+            observation.frameDurationsMs.every((duration) => Number.isFinite(duration))
+        ),
+        true,
+    );
+    assertEquals(observations.every((observation) => observation.terminalOutputBytes > 0), true);
 });
 
 Deno.test("chat view refreshes an active tool without reformatting retained message blocks", async () => {

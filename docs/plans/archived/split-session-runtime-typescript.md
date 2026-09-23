@@ -46,20 +46,20 @@ workflow handoffs. Its private maps and ordering rules make an arbitrary split u
 
 Requirements to preserve, with no product additions or removals:
 
-- [Session continuity](../prd/runwield-core-prd.md#session-continuity): **Continue the same saved work across clients.**
+- [Session continuity](../../prd/runwield-core-prd.md#session-continuity): **Continue the same saved work across clients.**
   Preserve deferred first-message persistence, dormant reads, independent Sessions, saved Agent/model choices, and
   handoffs without duplicate user messages.
-- [Execution, validation, and recovery](../prd/runwield-core-prd.md#execution-validation-and-recovery): **Validate and
+- [Execution, validation, and recovery](../../prd/runwield-core-prd.md#execution-validation-and-recovery): **Validate and
   deliver approved work without losing recoverable changes** and **Publish successfully or end only by deliberate user
   abandonment.** Preserve Runtime workflow dispatch, repair, cancellation and recovery; do not change workflow
   authority.
-- [Models and providers](../prd/runwield-core-prd.md#models-and-providers): **Change models without losing Session or
+- [Models and providers](../../prd/runwield-core-prd.md#models-and-providers): **Change models without losing Session or
   workflow context.** Preserve selection, rollback and Execution Backend compatibility.
-- [Compaction and image context](../prd/runwield-core-prd.md#compaction-and-image-context): **Retain useful conversation
+- [Compaction and image context](../../prd/runwield-core-prd.md#compaction-and-image-context): **Retain useful conversation
   and attachment context.** Preserve image preflight, persistence, and repair context through reload and compaction.
 
-[ADR-010](../adr/010-session-runtime-sibling-adapters-and-acp.md),
-[ADR-015](../adr/015-file-authoritative-session-bundles.md), and [ADR-013](../adr/013-deno-native-typescript-ratchet.md)
+[ADR-010](../../adr/010-session-runtime-sibling-adapters-and-acp.md),
+[ADR-015](../../adr/015-file-authoritative-session-bundles.md), and [ADR-013](../../adr/013-deno-native-typescript-ratchet.md)
 remain authoritative. No storage migration, new public methods, new domain terms, or new test injection points are
 intended. Existing unmet product requirements remain unmet; this refactor must not claim to complete them.
 

@@ -116,6 +116,7 @@ export function installTerminalFocusState(
 
 function createMouseSequenceRecovery(forwardInput: TerminalInputHandler): MouseSequenceRecovery {
     let pending = "";
+    let discardedMouseSequence = "";
     let timer: ReturnType<typeof setTimeout> | undefined;
 
     const clearTimer = (): void => {
@@ -127,7 +128,10 @@ function createMouseSequenceRecovery(forwardInput: TerminalInputHandler): MouseS
         const input = pending;
         pending = "";
         clearTimer();
-        if (input.startsWith(SGR_MOUSE_PREFIX)) return;
+        if (input.startsWith(SGR_MOUSE_PREFIX)) {
+            if (isPartialSgrMouseSequence(input)) discardedMouseSequence = input;
+            return;
+        }
         if (input) forwardInput(input);
     };
     const scheduleFlush = (): void => {
@@ -135,19 +139,32 @@ function createMouseSequenceRecovery(forwardInput: TerminalInputHandler): MouseS
         timer = setTimeout(flushPendingInput, MOUSE_SEQUENCE_TIMEOUT_MS);
         if (typeof timer.unref === "function") timer.unref();
     };
+    const discardMouseSuffix = (character: string): boolean => {
+        if (!discardedMouseSequence) return false;
+        const sequence = discardedMouseSequence + character;
+        if (SGR_MOUSE_SEQUENCE.test(sequence)) {
+            discardedMouseSequence = "";
+            return true;
+        }
+        if (isPartialSgrMouseSequence(sequence)) {
+            discardedMouseSequence = sequence;
+            return true;
+        }
+        discardedMouseSequence = "";
+        return false;
+    };
 
     return {
         process(data: string): void {
-            if (SGR_MOUSE_SEQUENCE.test(data)) {
-                flushPendingInput();
-                forwardInput(data);
-                return;
-            }
-            if (!pending && data !== ESC && data !== `${ESC}[` && !data.startsWith(SGR_MOUSE_PREFIX)) {
+            if (
+                !pending && !discardedMouseSequence && data !== ESC && data !== `${ESC}[` &&
+                !data.startsWith(SGR_MOUSE_PREFIX)
+            ) {
                 forwardInput(data);
                 return;
             }
             for (const character of data) {
+                if (discardMouseSuffix(character)) continue;
                 if (!pending) {
                     if (character === ESC) {
                         pending = ESC;
@@ -185,9 +202,17 @@ function createMouseSequenceRecovery(forwardInput: TerminalInputHandler): MouseS
         },
         dispose(): void {
             pending = "";
+            discardedMouseSequence = "";
             clearTimer();
         },
     };
+}
+
+function isPartialSgrMouseSequence(data: string): boolean {
+    if (!data.startsWith(SGR_MOUSE_PREFIX)) return false;
+    const fields = data.slice(SGR_MOUSE_PREFIX.length).split(";");
+    if (fields.length > 3) return false;
+    return fields.every((field, index) => index === fields.length - 1 ? /^\d*$/.test(field) : /^\d+$/.test(field));
 }
 
 function filterFocusReportInput(
