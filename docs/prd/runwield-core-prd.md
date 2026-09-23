@@ -711,20 +711,23 @@ own artifacts.
 
 Skip or offer cancellation permanently suppresses automatic Tutorial offers at the user level across restarts and
 projects. `/onboard` and interactive `wld onboard` remain available. Explicit entry shows consent before model setup or
-Init. Non-interactive CLI entry exits without work. Empty projects retain ordinary startup guidance and can use explicit
-entry after meaningful files exist.
+Init. Non-interactive CLI entry exits without work. An Empty Project Directory receives the same automatic offer after
+model setup. Its Tutorial lets the user choose a small starter project instead of an improvement to existing files.
 
-After Start, Planner inspects a bounded area and suggests at most three small changes before Plan authorship. The
-selected change uses normal Plan Review, approved execution, project checks, AI review, optional Code Review, delivery,
-and Work Record generation. Teaching messages follow real workflow events and do not approve, advance, or complete work.
-Only a RunWield Verified and published change receives the successful Tutorial recap. Manual verification, closure
-without verification, pauses, and failures remain distinct.
+After Start, Planner inspects a bounded area and suggests at most three small changes before Plan authorship. In an
+Empty Project Directory, Planner suggests at most three small starter projects instead. The selected change uses normal
+Plan Review, approved execution, project checks, AI review, optional Code Review, delivery, and Work Record generation.
+Teaching messages follow real workflow events and do not approve, advance, or complete work. Only a RunWield Verified
+and published change receives the successful Tutorial recap. Manual verification, closure without verification, pauses,
+and failures remain distinct.
 
 **Acceptance scenarios:**
 
 - Given an eligible new TUI Session, when the offer appears, it shows the real-project warning and project path. Skip or
   cancel returns to ordinary input with no Tutorial model call or repository artifact and suppresses later automatic
   offers in this and other projects.
+- Given an Empty Project Directory, when the user selects a model during first-run setup, the Tutorial offer appears.
+  Given Start, Planner offers up to three small starter projects before it creates a Plan or edits files.
 - Given a permanent Skip, when the user runs `/onboard` or interactive `wld onboard`, the warning still appears before
   setup, Init, discovery, or model work.
 - Given Start, when the user selects an improvement, one ordinary draft Plan enters Plan Review. Feedback, Approve for

@@ -118,10 +118,12 @@ You can also run `/init` inside an interactive session.
 
 On the first eligible TUI startup, RunWield offers an optional Tutorial after model setup and the Init decision. It
 shows the current project path and warns that the Tutorial will edit the real project and use the configured model.
-Nothing starts until you select **Start tutorial**.
+Nothing starts until you select **Start tutorial**. This offer also appears when you select your first model in an Empty
+Project Directory.
 
 The Tutorial helps you choose one small improvement, review the real Plan, and follow implementation, project checks, AI
-review, optional Code Review, and delivery. It uses the normal workflow and approvals.
+review, optional Code Review, and delivery. In an Empty Project Directory, it helps you choose a small starter project.
+It uses the normal workflow and approvals.
 
 Select **Skip** or cancel the offer to hide automatic offers permanently across projects. You can still start it at any
 time:
