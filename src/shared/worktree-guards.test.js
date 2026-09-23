@@ -245,6 +245,21 @@ Deno.test("deleteMergedWorktreeBranch deletes a merged branch and keeps an unmer
             baseCommit,
         });
         assertEquals(stillKept.deleted, false, "a branch with commits beyond its base survives");
+
+        await git(projectRoot, ["branch", "release/next", "runwield/worktree/unmerged"]);
+        const released = await deleteMergedWorktreeBranch({
+            projectRoot,
+            branch: "runwield/worktree/unmerged",
+            targetBranch: "release/next",
+        });
+        assertEquals(released.deleted, true, "the actual publication target proves the work is safe");
+        assertEquals(await git(projectRoot, ["rev-parse", "main"]), baseCommit);
+        const targetKept = await deleteMergedWorktreeBranch({
+            projectRoot,
+            branch: "release/next",
+            targetBranch: "release/next",
+        });
+        assertEquals(targetKept.deleted, false, "cleanup never deletes the publication target itself");
     } finally {
         await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
     }

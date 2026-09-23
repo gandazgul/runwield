@@ -3,7 +3,7 @@ import { createProvider } from "@earendil-works/pi-ai";
 import type { AuthInteraction, OAuthCredential } from "@earendil-works/pi-ai";
 import { registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { join } from "@std/path";
-import { __resetSettingsForTests } from "../../shared/settings.js";
+import { __resetSettingsForTests, ONBOARDING_TUTORIAL_OFFER_HANDLED_SETTING_KEY } from "../../shared/settings.js";
 import { getModelRegistry } from "../../shared/models/model-registry.ts";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import { initRunWieldTheme } from "../../ui/theme/theme.js";
@@ -35,6 +35,8 @@ export interface RuntimeCommandFixtureOptions {
      * - "provider-no-model": configured provider + model, no selected default (model selector opens).
      */
     providerState?: RuntimeCommandFixtureProviderState;
+    /** Leave the first-run Tutorial offer pending only in tests that drive it. */
+    offerTutorial?: boolean;
     reasoning?: boolean;
     contextWindow?: number;
     additionalModels?: RuntimeCommandFixtureModel[];
@@ -244,12 +246,16 @@ export async function withRuntimeCommandFixture<T>(
                     defaultProvider: TEST_PROVIDER,
                     defaultModel: TEST_MODEL,
                     notifications: { enabled: false },
+                    [ONBOARDING_TUTORIAL_OFFER_HANDLED_SETTING_KEY]: options.offerTutorial !== true,
                 }),
             );
         } else {
             await Deno.writeTextFile(
                 settingsPath,
-                JSON.stringify({ notifications: { enabled: false } }),
+                JSON.stringify({
+                    notifications: { enabled: false },
+                    [ONBOARDING_TUTORIAL_OFFER_HANDLED_SETTING_KEY]: options.offerTutorial !== true,
+                }),
             );
         }
         const canonicalProjectRoot = await Deno.realPath(projectRoot);

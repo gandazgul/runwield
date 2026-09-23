@@ -123,6 +123,11 @@ export function createInteractiveCompositionHarness(
             harnessRuntime = runtime;
         },
     });
+    // Teardown also needs to see startup finish when the test fails before its
+    // first waitForComposition call. Observe rejection immediately as well.
+    void compositionPromise.then((composition) => {
+        resolvedComposition = composition;
+    }, () => {});
 
     // Feed startup-declared input while the composition is still in flight.
     // Input sent before the TUI attaches its handler to the VirtualTerminal is
@@ -149,8 +154,9 @@ export function createInteractiveCompositionHarness(
     > {
         if (resolvedComposition) return resolvedComposition;
         if (!compositionPromise) throw new Error("Composition was never started.");
+        let timeoutId: ReturnType<typeof setTimeout> | undefined;
         const timeout = new Promise<never>((_resolve, reject) => {
-            setTimeout(
+            timeoutId = setTimeout(
                 () =>
                     reject(
                         new Error(
@@ -161,7 +167,11 @@ export function createInteractiveCompositionHarness(
                 timeoutMs,
             );
         });
-        resolvedComposition = await Promise.race([compositionPromise, timeout]);
+        try {
+            resolvedComposition = await Promise.race([compositionPromise, timeout]);
+        } finally {
+            clearTimeout(timeoutId);
+        }
         compositionPromise = null;
         await startupInputPromise.catch(() => {});
         return resolvedComposition;
@@ -177,7 +187,9 @@ export function createInteractiveCompositionHarness(
                 );
             }
             const screen = terminal.getScreenText();
-            if (screen.includes("Select authentication method:")) {
+            if (screen.includes("This tutorial makes a real change")) {
+                await typeIntoTerminal(terminal, "skip\r");
+            } else if (screen.includes("Select authentication method:")) {
                 await typeIntoTerminal(terminal, "\r");
             } else if (screen.includes("Select provider to configure:")) {
                 // Filter to the scripted provider so a bare Enter can never

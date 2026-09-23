@@ -434,6 +434,7 @@ Deno.test("automatic onboarding Skip persists globally and creates no managed Se
                 await second.dispose();
             }
         },
+        { offerTutorial: true },
     );
 });
 
@@ -477,6 +478,7 @@ Deno.test("automatic onboarding Start submits one real Planner turn after consen
                 await composition.dispose();
             }
         },
+        { offerTutorial: true },
     );
 });
 

@@ -13,7 +13,7 @@ import { logValidationFailure } from "./validation-state-errors.ts";
 import { loadPlan, withPlanLock } from "../../plan-store.js";
 import { createQaChecklistGeneratedTool } from "../../tools/qa-checklist-generated.ts";
 import { findEpicManualQaSection } from "../epic-artifacts.ts";
-import { checkpointExecutionWorktree } from "../worktree.js";
+import { checkpointExecutionWorktree, resolveTargetBranchName } from "../worktree.js";
 import { publishExecutionWorktreeIsolated } from "../isolated-publication.ts";
 import { findById as findWorktreeRegistryEntryById } from "../worktree-registry.js";
 import { ensureRunWieldOwnedGitignoreBlock } from "../runwield-owned-paths.ts";
@@ -42,7 +42,7 @@ import {
     type PublicationStage,
 } from "./validation-merge-repair.ts";
 import { recordLifecycleEvent } from "./validation-context.ts";
-import { completeProgressRecord, emitProgress, emitStatus } from "./validation-emit.ts";
+import { completeProgressRecord, emitProgress, emitStatus, updateProgressRecord } from "./validation-emit.ts";
 import { pauseForUserAction } from "./validation-interactions.ts";
 import { buildValidationUserMessage, validationUserMessage } from "./validation-user-messages.ts";
 import {
@@ -271,7 +271,14 @@ async function runLockedPublicationPhase(
         return { recorded: true, result: buildVerifiedResult(args, context.projectRoot) };
     }
 
-    const worktreeBaseBranch = context.worktreeBaseBranch;
+    // Review and artifact generation can outlive the phase's initial Plan read.
+    // Reload the execution document under the publication lock before selecting
+    // a target or sealing commits.
+    const executionPlan = await loadPlan(context.executionCwd, args.planName);
+    const requestedTarget = executionPlan?.attrs.targetBranch?.trim();
+    const worktreeBaseBranch = requestedTarget
+        ? await resolveTargetBranchName(context.projectRoot, requestedTarget)
+        : context.worktreeBaseBranch;
     if (!worktreeBaseBranch) {
         const reason =
             `Target branch metadata is missing for worktree branch ${context.worktreeBranch}; Workflow Validation cannot publish Delivery Evidence without a concrete target branch.`;
@@ -307,6 +314,18 @@ async function runLockedPublicationPhase(
         : null;
     let publicationAttempt: PublicationAttempt | null = storedAttempt?.publication ||
         await loadPublicationAttempt(context.projectRoot, worktreeId);
+    if (publicationAttempt && publicationAttempt.targetBranch !== targetBranch) {
+        const message = buildValidationUserMessage({
+            kind: "publication_target_changed",
+            targetBranch,
+            savedTargetBranch: publicationAttempt.targetBranch,
+        });
+        emitStatus(args, message, "warning");
+        return {
+            recorded: false,
+            result: { kind: "paused", planName: args.planName, projectRoot: context.projectRoot, reason: message },
+        };
+    }
     let epicResolution: EpicContinuationResolution | undefined;
     let repairMergeWorktreePath = publicationAttempt?.failure?.repairRoot;
     if (repairMergeWorktreePath) {
@@ -753,7 +772,19 @@ export function buildVerifiedResult(
             buildValidationUserMessage({ kind: "verified", planName: args.planName, targetBranch }),
             "success",
             completeProgressRecord(
-                current,
+                // This path is reached only after the durable validation gates
+                // and publication proof succeeded. Session display state can
+                // still describe an earlier failed or canceled attempt.
+                updateProgressRecord(current, {
+                    checks: {
+                        ci: "passed",
+                        semanticReview: isPlannedChangeClassification(args.triageMeta.classification)
+                            ? "passed"
+                            : "skipped",
+                        humanReview: args.triageMeta.humanReviewDecision === "approved" ? "passed" : "skipped",
+                        merge: targetBranch ? "passed" : "skipped",
+                    },
+                }),
                 true,
                 buildValidationUserMessage({ kind: "verified", planName: args.planName, targetBranch }),
             ),

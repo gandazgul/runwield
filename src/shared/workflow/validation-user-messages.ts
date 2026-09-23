@@ -61,6 +61,7 @@ export type ValidationMessageRequest =
         targetBranch: string;
     }
     | { kind: "merge_dispatch" }
+    | { kind: "publication_target_changed"; targetBranch: string; savedTargetBranch: string }
     | { kind: "publication_files_preserved"; path: string }
     | {
         kind: "publication_blocked";
@@ -227,6 +228,8 @@ export function buildValidationUserMessage(request: ValidationMessageRequest): s
                     return exhaustivePhase;
                 }
             }
+        case "publication_target_changed":
+            return `The Plan now targets ${request.targetBranch}. The saved merge targets ${request.savedTargetBranch}. Work is paused. Your commits are safe.`;
         case "merge_dispatch":
             return "The repair Engineer is fixing the file clashes. The fix will be checked next.";
         case "publication_blocked":
