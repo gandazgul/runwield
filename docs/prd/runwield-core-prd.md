@@ -433,7 +433,12 @@ Workflow Validation requirements:
 - recover unstaged, formatting-only Plan drift from the sealed candidate on publication retry, without overwriting
   changed definitions, body text, staged changes, or committed changes;
 - show interrupted validation as paused, never as still running, while retaining its saved continuation;
+- derive the final progress display from confirmed validation and publication results. Failed or canceled checks from a
+  previous attempt must not turn successful publication and cleanup into a reported merge failure;
 - deliver validated work to its configured target and confirm that outcome before reporting delivery complete;
+- reread the active execution Plan before every validation phase and immediately before publication; its current
+  `targetBranch` takes precedence over the Session snapshot and the branch recorded at worktree creation. If no target
+  is specified, retain the recorded branch. A saved publication with a different target must not silently continue;
 - retain the validated implementation commit and actual target branch in the committed Plan; completed delivery must
   remain recognizable from Git after temporary workflow records are removed. In non-Git projects, the completed Plan
   status is sufficient;
@@ -459,6 +464,13 @@ Recovery requirements:
 
 - Given a ready approved Plan and existing checkout edits, when execution starts, the approved work is isolated and the
   user’s edits remain preserved.
+- Given a worktree created from `main`, when the execution Plan is edited to target `release/next` after the Session
+  loaded it, validation and publication use `release/next`, leave `main` unchanged, and record the actual delivery
+  target. Cleanup proves the source commits are on `release/next` before removing the source branch; it does not require
+  those commits to be on the current checkout's branch.
+- Given a Session that still displays failed or canceled checks from an earlier attempt, when a resumed delivery
+  publishes and cleans up successfully, the Session reports delivery complete with the current check results and does
+  not ask the user to repeat publication.
 - Given a completed Plan without controller records, loading it recognizes delivery when Git proves its validated commit
   belongs to its target branch. A commit on an unrelated branch is not enough. A pending attempt offers continuation of
   publication or cleanup, rather than being treated as finished merely because validation passed.

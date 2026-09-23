@@ -277,6 +277,11 @@ Deno.test("all validation recovery and doctor messages stay plain", async () => 
         ...listPlanRecoveryMessages(),
         validationMergeRepairMessage("demo", "target_update"),
         validationMergeRepairMessage("demo", "work_combination"),
+        buildValidationUserMessage({
+            kind: "publication_target_changed",
+            targetBranch: "release/next",
+            savedTargetBranch: "main",
+        }),
         validationPhasePauseMessage("mechanical"),
         validationReviewerPauseMessage("demo"),
         doctorCleanMessage(0),
