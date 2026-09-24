@@ -47,10 +47,10 @@ Runtime already exposes current context tokens and capacity through `getContextU
 
 This changes the owning ACP requirements:
 
-- [ACP Session access — Select models through the client's native controls](../prd/runwield-acp-protocol-prd.md#acp-session-access)
+- [ACP Session access — Select models through the client's native controls](../../prd/runwield-acp-protocol-prd.md#acp-session-access)
   gains native reasoning-level selection while preserving the existing model-selection behavior, same-Session mutation,
   invalid-selection refusal, and selection updates.
-- [Protocol negotiation and interactions](../prd/runwield-acp-protocol-prd.md#protocol-negotiation-and-interactions)
+- [Protocol negotiation and interactions](../../prd/runwield-acp-protocol-prd.md#protocol-negotiation-and-interactions)
   gains accurate standard context-window reporting. The adapter must not fabricate a capacity or substitute a
   per-message token count for current context usage.
 - `docs/acp-implementation-details.md` records these gaps today and must be reconciled with the delivered behavior.
@@ -133,7 +133,7 @@ incidental helpers or fixtures required by the steps below.
   rule, and keep remaining ACP gaps clearly separate.
 
 No domain-language file or ADR needs to change: this uses existing terms and the accepted SessionRuntime sibling-adapter
-boundary in [ADR-010](../adr/010-session-runtime-sibling-adapters-and-acp.md).
+boundary in [ADR-010](../../adr/010-session-runtime-sibling-adapters-and-acp.md).
 
 ## Reuse Opportunities
 

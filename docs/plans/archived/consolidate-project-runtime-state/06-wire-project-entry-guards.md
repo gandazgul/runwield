@@ -55,8 +55,8 @@ engine and new store locations; this child makes normal use reach that engine.
 Discovery confirmed those dependencies on `epic/consolidate-project-runtime-state`. The planning checkout changed during
 inspection and does not contain all dependency code. Execute after child 05 on the existing target branch; do not
 rebuild missing dependencies in this child. The entry behavior supports Core's
-[Session continuity](../../prd/runwield-core-prd.md#session-continuity) and
-[work protection](../../prd/runwield-core-prd.md#work-protection) requirements.
+[Session continuity](../../../prd/runwield-core-prd.md#session-continuity) and
+[work protection](../../../prd/runwield-core-prd.md#work-protection) requirements.
 
 ## Objective
 
@@ -66,7 +66,7 @@ input/output anyway.
 
 ## Approach
 
-Expose async `enterProjectRuntime(cwd)` from `src/shared/project-runtime-layout.ts`. It calls the existing
+Expose async `enterProjectRuntime(cwd)` from `../../../../src/shared/project-runtime-layout.ts`. It calls the existing
 `migrateLegacyProjectRuntimeState()`, returns the ready layout, or throws a distinct migration refusal error carrying
 `reason`, `paths`, `message`, and optional `securityAction`. Do not duplicate preflight or migration rules.
 
@@ -110,27 +110,33 @@ during implementation and change whatever the Implementation Steps need, includi
 only when discovery changes approved intent — the change reaches another subsystem, public behavior or architecture
 shifts, migration or compatibility risk grows, or the Verification Plan no longer proves the objective.
 
-- `src/shared/project-runtime-layout.ts` — own entry and the shared refusal error; retain migration-only exact-path use.
+- `../../../../src/shared/project-runtime-layout.ts` — own entry and the shared refusal error; retain migration-only
+  exact-path use.
 - `src/shared/session/session-runtime.js` — guard deferred materialization, non-deferred creation, and load before
   durable setup. Cover headless and Workspace callers through the same Runtime, not separate migration implementations.
-- `src/acp/server.js` — preserve migration refusal details for new/load instead of the broad load-to-not-found mapping.
-- `src/cmd/init/index.ts` — enter before project initialization writes; retain help and empty-directory no-op behavior.
-- `src/cmd/plans/index.ts` and subcommands — cover dispatch before list logic, including read, UI, archive, prune, and
-  Doctor. Subcommand help remains non-migrating. Doctor only needs safe entry/refusal handling here; broader reports
-  remain child 08 work.
-- `src/cmd/plans/{share,pull,push,unshare}.ts` and `src/shared/collaboration/secrets.js` — guard exported operations and
-  project secret IO, with explicit store ownership and unchanged global preference/fallback rules.
-- `src/shared/worktree-registry.js`, `src/shared/workflow/controller-registry.ts` — guard normal reads, locks, writes,
-  identity changes, and read-triggered schema updates without recursive migration.
-- `src/plan-store.js`, `src/shared/workflow/state-transition.ts`, `src/shared/work-records/supersession.ts` — guard
-  selected checkout locks, journals, and transition effects; preserve refusal through best-effort read/recovery catches.
-- `src/shared/workflow/publication-machine.ts`, `src/shared/isolated-publication.ts`, and `src/shared/worktree.js` —
-  guard direct publication/recovery/cleanup access and project-local fallback creation, even when supplied saved paths.
-- Existing store tests plus entry integration tests, Session/ACP/command tests, `src/ui/tui/chat-session.test.ts`, and
-  initial TUI golden tests — prove refusal, adoption, retry, and write-free startup through real filesystem operations.
-- `docs/domain-language.md` — define proposed **Project Runtime Entry**, its avoided aliases, and its relationship to
-  Project Runtime State and checkout ownership when this behavior lands.
-- `docs/prd/runwield-core-prd.md` — add the delivered entry/adoption and refusal acceptance scenarios under work
+- `../../../../src/acp/server.js` — preserve migration refusal details for new/load instead of the broad
+  load-to-not-found mapping.
+- `../../../../src/cmd/init/index.ts` — enter before project initialization writes; retain help and empty-directory
+  no-op behavior.
+- `../../../../src/cmd/plans/index.ts` and subcommands — cover dispatch before list logic, including read, UI, archive,
+  prune, and Doctor. Subcommand help remains non-migrating. Doctor only needs safe entry/refusal handling here; broader
+  reports remain child 08 work.
+- `src/cmd/plans/{share,pull,push,unshare}.ts` and `../../../../src/shared/collaboration/secrets.js` — guard exported
+  operations and project secret IO, with explicit store ownership and unchanged global preference/fallback rules.
+- `../../../../src/shared/worktree-registry.js`, `../../../../src/shared/workflow/controller-registry.ts` — guard normal
+  reads, locks, writes, identity changes, and read-triggered schema updates without recursive migration.
+- `../../../../src/plan-store.js`, `../../../../src/shared/workflow/state-transition.ts`,
+  `../../../../src/shared/work-records/supersession.ts` — guard selected checkout locks, journals, and transition
+  effects; preserve refusal through best-effort read/recovery catches.
+- `../../../../src/shared/workflow/publication-machine.ts`, `../../../../src/shared/isolated-publication.ts`, and
+  `../../../../src/shared/worktree.js` — guard direct publication/recovery/cleanup access and project-local fallback
+  creation, even when supplied saved paths.
+- Existing store tests plus entry integration tests, Session/ACP/command tests,
+  `../../../../src/ui/tui/chat-session.test.ts`, and initial TUI golden tests — prove refusal, adoption, retry, and
+  write-free startup through real filesystem operations.
+- `../../../domain-language.md` — define proposed **Project Runtime Entry**, its avoided aliases, and its relationship
+  to Project Runtime State and checkout ownership when this behavior lands.
+- `../../../prd/runwield-core-prd.md` — add the delivered entry/adoption and refusal acceptance scenarios under work
   protection, and retain empty-composer behavior under Session continuity. Link ADR-017; do not put API details in the
   PRD.
 
@@ -140,9 +146,10 @@ child does not change Session transcript ownership, workflow conclusions, public
 ## Reuse Opportunities
 
 - `src/shared/session/session-runtime.js` — preserve existing active workflow and first-message behavior.
-- `src/acp/server.js` — reuse existing session new/load boundaries.
+- `../../../../src/acp/server.js` — reuse existing session new/load boundaries.
 - `src/cmd/plans/*` — reuse command parsing and current error presentation.
-- `src/shared/project-runtime-layout.ts` — reuse the migration result and layout context from the migration child Plan.
+- `../../../../src/shared/project-runtime-layout.ts` — reuse the migration result and layout context from the migration
+  child Plan.
 
 ## Implementation Steps
 
@@ -172,10 +179,10 @@ child does not change Session transcript ownership, workflow conclusions, public
 - [ ] Current-store test fixtures enter normally before seeding new stores. Legacy migration/refusal fixtures seed
       literal legacy files without normal writers. Existing coverage stays active; no guard-disable option or new test
       seam exists.
-- [ ] `docs/domain-language.md` defines Project Runtime Entry as the shared migration-or-verification operation before
-      normal Project Runtime State access, not Session activation, path resolution, or Workspace registration. Its
-      stable relationships preserve primary/selected ownership. Core PRD scenarios describe the delivered behavior, not
-      release completion for children 07–08.
+- [ ] `../../../domain-language.md` defines Project Runtime Entry as the shared migration-or-verification operation
+      before normal Project Runtime State access, not Session activation, path resolution, or Workspace registration.
+      Its stable relationships preserve primary/selected ownership. Core PRD scenarios describe the delivered behavior,
+      not release completion for children 07–08.
 
 ## Approval Confirmation
 
@@ -205,8 +212,9 @@ Required evidence:
 - **Refused surfaces:** with a real unsupported marker or malformed legacy registry, exercise first text, first command,
   non-deferred creation, load, ACP new/load, Init, Plan list and dispatched subcommands, and exported collaboration
   operations. Assert the shared reason and safe paths reach the caller, no Agent/network mutation starts, and no Session
-  record, normal runtime file, Plan, secret, or `.gitignore` changes. Existing saved transcripts remain unchanged. Cover
-  both named and URL pull and default-global selection with project fallback. Test help separately from project work.
+  record, normal runtime file, Plan, secret, or `../../../../.gitignore` changes. Existing saved transcripts remain
+  unchanged. Cover both named and URL pull and default-global selection with project fallback. Test help separately from
+  project work.
 - **Direct-store bypass:** without a surface call, attempt normal registry inspect/read/write/lock, controller
   read/write/ identity change, Plan/catalog lock, transition read/write/removal/effects, both supersession locks,
   publication start/ reconciliation/cleanup/direct isolated publication, and project secret read/write/delete/ignore
@@ -220,10 +228,11 @@ Required evidence:
   cached success for one checkout must not authorize another. Concurrent first entries complete without duplicate moves
   or deadlock, and existing migration interruption tests remain active.
 - **No-write startup:** open a fresh empty TUI and its resume picker without submitting work. Snapshot project and
-  sandbox Session directories; no `.wld/internal/`, migration evidence, project identity, or transcript is created.
-  Repeat with eligible legacy state and with a blocker: opening/help/version must neither migrate nor surface a refusal.
-  Invoke top-level and subcommand help plus version through real dispatch. Preserve the missing-cwd creation and
-  retryable first-turn failure tests, and user/busy event ordering before persistence. First submitted work does enter.
+  sandbox Session directories; no `../../../../.wld/internal`, migration evidence, project identity, or transcript is
+  created. Repeat with eligible legacy state and with a blocker: opening/help/version must neither migrate nor surface a
+  refusal. Invoke top-level and subcommand help plus version through real dispatch. Preserve the missing-cwd creation
+  and retryable first-turn failure tests, and user/busy event ordering before persistence. First submitted work does
+  enter.
 - **Error handling:** assert ACP migration failure differs from genuine missing-Session failure and contains safe paths.
   Plan listing must fail, not report no Plans. Transition recovery must stop rather than write an attestation after a
   blocked read. Secret refusal must retain security guidance without exposing keys or capabilities.

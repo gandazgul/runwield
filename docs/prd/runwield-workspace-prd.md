@@ -391,13 +391,21 @@ share their in-progress read. Navigation reads only the recent Session page it n
 archive, and reads each Session's Plan associations once per refresh. Completed reads are not retained as a stale cache;
 the next refresh reads current workflow evidence.
 
+The sidebar's controls are usable before any data request completes, including on mobile. Registered Projects load
+first; each Project's recent Sessions appears independently without waiting for Plans, workflow evidence, another
+Project, or the Dashboard. Loading and failed reads keep New Session and existing navigation available, and never
+present a pending collection as empty. Later detail updates preserve expanded Projects, focus, and sidebar position.
+
 Each dashboard read verifies runtime layout and migration evidence once per checkout, rather than repeating those checks
 for every Plan and worktree lookup. The next read verifies that evidence again; Plan and Session state remain fresh
 within the read.
 
 Each section defaults to most recently updated first, has a header button to reverse its sort, and initially shows five
-items. **Read more** expands that section, and **Show less** collapses it. Sort and expansion choices survive automatic
-refreshes. Ready-for-work Plans belong in Ready to Continue unless a current unanswered interaction needs the owner.
+items. Rows show the relevant update time, and finished rows also show completion time when it differs. Row labels name
+the next review, answer, or navigation step without claiming that opening the destination executes or approves work.
+Needs You has stronger visual priority than finished work. **Read more** expands that section, and **Show less**
+collapses it. Sort and expansion choices survive automatic refreshes. Ready-for-work Plans belong in Ready to Continue
+unless a current unanswered interaction needs the owner.
 
 **Acceptance scenarios:**
 
@@ -414,9 +422,13 @@ refreshes. Ready-for-work Plans belong in Ready to Continue unless a current una
   them in the browser.
 - Given more than five items in any section, only the five newest appear initially. Reversing sort shows the oldest
   first; expanding shows all eligible items, and refresh preserves both choices.
-- Given a Project read fails, the Dashboard says its list may be incomplete and links to Project settings. It does not
-  present the diagnostic as a work item. When a refresh changes a focused row, keyboard focus stays with the row or
-  moves to its section heading if that row is gone.
+- Given a Project read fails, the Dashboard says its list may be incomplete and links to Project settings. Counts show
+  known items rather than a confirmed total, and an empty section does not claim there is no work. It does not present
+  the diagnostic as a work item. When a refresh changes a focused row, keyboard focus stays with the row or moves to its
+  section heading if that row is gone.
+- Given Plans in different sections, their row labels distinguish reviews, questions, progress and completed outcomes.
+  Timestamps explain update ordering and show the completion time for finished work without implying that a link
+  approves or executes a Plan.
 
 <a id="63-project-experience"></a>
 
@@ -644,7 +656,8 @@ expose TUI-only process controls.
   respected. The primary action stops running work when the draft is empty and sends or steers when text or images are
   present.
 - On a phone, opening the Session sidebar fills the available height below the Workspace header. Its tabs and close
-  control remain reachable while scrolling; closing it restores the conversation and composer in place.
+  control remain reachable while scrolling. Keyboard focus cannot enter the covered conversation or composer; closing
+  the sidebar restores both in place and makes them available again. On desktop, the visible conversation stays usable.
 - When Core becomes busy after a message, the live end of the conversation immediately shows the shared dots loader and
   “Thinking...”, including before any assistant text arrives. It clears when Core is idle or the live operation ends,
   and pauses while a human answer is needed. Reopening saved history does not show an old busy indicator.

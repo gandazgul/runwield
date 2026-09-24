@@ -61,15 +61,15 @@ also serves the validation supervisor, so its programmatic result and safe repai
 
 Owning product capabilities:
 
-- [Core: Work protection](../../prd/runwield-core-prd.md#work-protection) — preserve user work and deliberate
+- [Core: Work protection](../../../prd/runwield-core-prd.md#work-protection) — preserve user work and deliberate
   destructive actions. Reconcile the Epic's existing runtime-exclusion scenarios here: runtime files stay out of
   commits, tracked runtime files cause refusal without index changes, and broad user ignore rules remain untouched.
-- [Core: Execution, validation, and recovery](../../prd/runwield-core-prd.md#execution-validation-and-recovery) —
+- [Core: Execution, validation, and recovery](../../../prd/runwield-core-prd.md#execution-validation-and-recovery) —
   preserve repair of RunWield-owned bookkeeping, truthful evidence, and recoverable workflows. Doctor is an optional
   diagnostic tool, not a new mandatory user-operated recovery step.
-- [ADR-017: One-way migration](../../adr/017-project-runtime-state-under-wld-internal.md#one-way-0110-migration) —
+- [ADR-017: One-way migration](../../../adr/017-project-runtime-state-under-wld-internal.md#one-way-0110-migration) —
   accepted upgrade behavior. Add its user-visible safe-adoption and protected-stop scenarios to Core Work protection.
-  Link that guidance from [Core: Installation and updates](../../prd/runwield-core-prd.md#installation-and-updates)
+  Link that guidance from [Core: Installation and updates](../../../prd/runwield-core-prd.md#installation-and-updates)
   without duplicating requirements or changing package-manager behavior.
 
 Add acceptance scenarios for non-mutating Doctor inspection, useful refusal guidance, and secret-safe output within
@@ -147,49 +147,54 @@ during implementation and change whatever the Implementation Steps need, includi
 only when discovery changes approved intent — the change reaches another subsystem, public behavior or architecture
 shifts, migration or compatibility risk grows, or the Verification Plan no longer proves the objective.
 
-- `src/cmd/plans/doctor.ts` and `src/cmd/plans/index.ts` — make diagnostics reachable before mutation; report migration
-  blocks, conflicts, broad `.wld/` ignore rules, tracked files, exposed secrets, stale locks, and old-writer activity.
-- `src/shared/project-runtime-layout.ts` — share migration inspection facts without performing migration or creating a
-  second migration policy. Keep refusal checks and guarded entry authoritative.
-- `src/shared/runwield-owned-paths.ts` — reuse pure ignore-rule analysis for report-only warnings.
-- `src/plan-store.js` and `src/shared/workflow/controller-registry.ts` — support diagnostic Plan/controller reads
-  without catalog locks, metadata import, recovery-hint cleanup, or loss of authoritative document selection.
-- `src/shared/worktree-registry.js` — reuse exact-path inspection after layout checks; retain guarded normal access.
-- `src/shared/workflow/state-transition.ts` and `src/shared/workflow/transition-recovery.ts` — share journal/effect
-  evaluation with diagnostic Plan reads while leaving mutation on the repair path.
-- `src/shared/workflow/planning-worktree.ts` — keep target-branch child discovery without fetching into the inspected
-  repository. Reuse the scratch-inspection pattern in `src/shared/isolated-publication.ts`; preserve publication proof.
-- `src/shared/project-runtime-entry.integration.test.ts` and layout tests — prove real dispatch and direct Doctor
-  callers preserve entry safety and report-only behavior.
-- `docs/prd/runwield-core-prd.md` — align owning capability requirements and scenarios with delivered behavior,
+- `../../../../src/cmd/plans/doctor.ts` and `../../../../src/cmd/plans/index.ts` — make diagnostics reachable before
+  mutation; report migration blocks, conflicts, broad `../../../../.wld` ignore rules, tracked files, exposed secrets,
+  stale locks, and old-writer activity.
+- `../../../../src/shared/project-runtime-layout.ts` — share migration inspection facts without performing migration or
+  creating a second migration policy. Keep refusal checks and guarded entry authoritative.
+- `../../../../src/shared/runwield-owned-paths.ts` — reuse pure ignore-rule analysis for report-only warnings.
+- `../../../../src/plan-store.js` and `../../../../src/shared/workflow/controller-registry.ts` — support diagnostic
+  Plan/controller reads without catalog locks, metadata import, recovery-hint cleanup, or loss of authoritative document
+  selection.
+- `../../../../src/shared/worktree-registry.js` — reuse exact-path inspection after layout checks; retain guarded normal
+  access.
+- `../../../../src/shared/workflow/state-transition.ts` and `../../../../src/shared/workflow/transition-recovery.ts` —
+  share journal/effect evaluation with diagnostic Plan reads while leaving mutation on the repair path.
+- `../../../../src/shared/workflow/planning-worktree.ts` — keep target-branch child discovery without fetching into the
+  inspected repository. Reuse the scratch-inspection pattern in `../../../../src/shared/isolated-publication.ts`;
+  preserve publication proof.
+- `../../../../src/shared/project-runtime-entry.integration.test.ts` and layout tests — prove real dispatch and direct
+  Doctor callers preserve entry safety and report-only behavior.
+- `../../../prd/runwield-core-prd.md` — align owning capability requirements and scenarios with delivered behavior,
   retaining unresolved recovery requirements as targets rather than claiming this diagnostic change fulfills them all.
-- `src/cmd/plans/doctor.test.ts` and `src/cmd/plans/doctor-messages.test.ts` — prove the diagnostic messages are
-  specific and non-destructive.
-- `docs/architecture.md` — describe the new project-runtime boundary and authority split.
-- `docs/plan-lifecycle.md` — describe Plan locks, transition journals, controller records, and registry locations under
-  the new layout.
-- `docs/collaboration.md` — describe project-local and global secret store locations and cleanup/security guidance.
-- `docs/validation-authority.md` — describe validation and publication authority with the new internal paths.
-- `docs/adr/005-concurrent-worktree-isolation.md` and `docs/adr/016-proof-bearing-publication-state-machine.md` — retain
-  decisions but name the new canonical locations.
-- `docs/adr/017-project-runtime-state-under-wld-internal.md` — keep the accepted decision aligned with implementation
-  details if needed.
-- `docs/domain-language.md` — reconcile glossary terms with implemented behavior.
+- `../../../../src/cmd/plans/doctor.test.ts` and `../../../../src/cmd/plans/doctor-messages.test.ts` — prove the
+  diagnostic messages are specific and non-destructive.
+- `../../../architecture.md` — describe the new project-runtime boundary and authority split.
+- `../../../plan-lifecycle.md` — describe Plan locks, transition journals, controller records, and registry locations
+  under the new layout.
+- `../../../collaboration.md` — describe project-local and global secret store locations and cleanup/security guidance.
+- `../../../validation-authority.md` — describe validation and publication authority with the new internal paths.
+- `../../../adr/005-concurrent-worktree-isolation.md` and `../../../adr/016-proof-bearing-publication-state-machine.md`
+  — retain decisions but name the new canonical locations.
+- `../../../adr/017-project-runtime-state-under-wld-internal.md` — keep the accepted decision aligned with
+  implementation details if needed.
+- `../../../domain-language.md` — reconcile glossary terms with implemented behavior.
 - Tests changed during this Epic — remove any temporary skip or ignore markers introduced to keep intermediate slices
   green.
 
 ## Reuse Opportunities
 
-- `src/cmd/plans/doctor.ts` — reuse existing diagnostic structure and recovery-action style.
-- `src/shared/project-runtime-layout.ts` — reuse `ProjectRuntimeMigrationBlockedResult`,
+- `../../../../src/cmd/plans/doctor.ts` — reuse existing diagnostic structure and recovery-action style.
+- `../../../../src/shared/project-runtime-layout.ts` — reuse `ProjectRuntimeMigrationBlockedResult`,
   `ProjectRuntimeEntryRefusedError`, layout resolution, and preflight checks. Its existing `preflight` is private;
   expose a cohesive read-only inspection operation, not individual migration internals.
-- `src/shared/runwield-owned-paths.ts` — share `reconcileGitignore` warning calculation with the writing entry point.
+- `../../../../src/shared/runwield-owned-paths.ts` — share `reconcileGitignore` warning calculation with the writing
+  entry point.
 - `inspectWorktreeRegistryAtPath` and `inspectPlanIdentityDocuments` — existing non-mutating inspection, used only after
   layout safety checks. Share parsing/evidence rules with normal reads rather than duplicating the storage model.
 - `isCommitPublishedToTarget` — existing remote proof through a temporary clone, without modifying project refs.
-- `src/shared/lock-file-snapshot.ts` and `src/shared/process-liveness.ts` — reuse lock identity and holder evidence for
-  safe stale-lock cleanup, respecting each owning lock protocol.
+- `../../../../src/shared/lock-file-snapshot.ts` and `../../../../src/shared/process-liveness.ts` — reuse lock identity
+  and holder evidence for safe stale-lock cleanup, respecting each owning lock protocol.
 - `defineGitFixture`, existing migration fixtures, and `withProcessGlobalTestLock` — real Git and filesystem evidence
   with sandboxed home/cwd. Do not add dependency-injection seams for RunWield-owned behavior.
 - Existing documentation pages and ADRs — update canonical paths without reopening accepted decisions.
@@ -209,8 +214,8 @@ shifts, migration or compatibility risk grows, or the Verification Plan no longe
       paths. Unfinished legacy publication retains pre-0.10.0 finish-or-deliberately-abandon guidance; no recovery state
       is moved or deleted to clear the stop.
 - [ ] Default repair and `--repair` still perform safe adoption and proven repairs. A refusal reports what prevents
-      progress and what retry continues. `--check` still wins when both flags are supplied. Broad `.wld/` rules are
-      reported and retained in both modes.
+      progress and what retry continues. `--check` still wins when both flags are supplied. Broad `../../../../.wld`
+      rules are reported and retained in both modes.
 - [ ] Stale-lock diagnostics distinguish proven stale state from live or uncertain state. Repair rechecks lock identity,
       never deletes a proven live holder's lock because it is old, and counts only completed removals. Proven abandoned
       locks and settled transition records remain automatically repairable; uncertain work stays intact.
@@ -218,13 +223,13 @@ shifts, migration or compatibility risk grows, or the Verification Plan no longe
       capability rotation. Existing short normal repair summaries remain short. No message suggests restoring the
       ignored registry from Git or manually deleting an uncertain lock.
 - [ ] Architecture, lifecycle, validation-authority, collaboration, and troubleshooting or release-facing docs describe
-      `.wld/internal/` as the machine-owned project-runtime boundary.
+      `../../../../.wld/internal` as the machine-owned project-runtime boundary.
 - [ ] ADR-005 and ADR-016 retain their decisions but name the new canonical runtime locations.
 - [ ] ADR-017 remains consistent with the final implementation.
-- [ ] `docs/domain-language.md` keeps the existing Project Runtime State, Project Runtime Entry, Project Internal Root,
-      Primary-Checkout Runtime State, and Selected-Checkout Runtime State definitions. Their avoided aliases and stable
-      relationships match the final implementation; diagnostic inspection is not described as completed adoption. No
-      duplicate or speculative terms are added.
+- [ ] `../../../domain-language.md` keeps the existing Project Runtime State, Project Runtime Entry, Project Internal
+      Root, Primary-Checkout Runtime State, and Selected-Checkout Runtime State definitions. Their avoided aliases and
+      stable relationships match the final implementation; diagnostic inspection is not described as completed adoption.
+      No duplicate or speculative terms are added.
 - [ ] Owning Core PRD capabilities and affected references match verified behavior. Runtime exclusion, report-only
       diagnostics, safe adoption, blocked-upgrade preservation, and secret-safe guidance have acceptance scenarios.
       Automatic recovery requirements remain authoritative; unmet work is still labeled target or deferred.
@@ -241,10 +246,11 @@ shifts, migration or compatibility risk grows, or the Verification Plan no longe
 
 Use real filesystem/Git fixtures through `runPlansCommand(["doctor", ...])` as well as direct `runPlansDoctor` calls.
 Capture stdout and stderr. Seed raw legacy files without first calling a current writer that would migrate them. For
-no-change assertions, compare file sets, bytes, modes and mtimes, `.gitignore`, Git index, refs, and preserved
-publication/repair paths; ignore access times. Include linked checkouts and symlink targets in preservation checks. The
-no-write scope includes inspected repositories and persistent home state; disposable remote-inspection clones are
-allowed only outside those roots and must be cleaned. Snapshot project remote-tracking refs and `FETCH_HEAD` too.
+no-change assertions, compare file sets, bytes, modes and mtimes, `../../../../.gitignore`, Git index, refs, and
+preserved publication/repair paths; ignore access times. Include linked checkouts and symlink targets in preservation
+checks. The no-write scope includes inspected repositories and persistent home state; disposable remote-inspection
+clones are allowed only outside those roots and must be cleaned. Snapshot project remote-tracking refs and `FETCH_HEAD`
+too.
 
 | Starting condition and action                                                                                                                                  | Required evidence                                                                                                                                                                                                                                            |
 | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -257,7 +263,7 @@ allowed only outside those roots and must be cleaned. Snapshot project remote-tr
 | Unfinished publication or saved repair checkout                                                                                                                | Both CLI modes explain the pre-0.10.0 recovery route; registry, controller, clone, refs, and ignore files remain unchanged.                                                                                                                                  |
 | Independently populated old/new authorities, malformed registry, newer marker, or legacy state recreated after adoption                                        | Doctor does not report clean, silently choose an authority, or delete either copy.                                                                                                                                                                           |
 | Tracked current/legacy runtime files and a tracked secret containing a unique sentinel                                                                         | Exact affected paths appear; neither output stream contains the sentinel. File/index/history stay unchanged. Guidance distinguishes untracking from rotation and history remediation.                                                                        |
-| Broad user `.wld/` rule                                                                                                                                        | Warning says it hides settings, Agents, Skills, and prompts. Neither mode removes the rule. A configuration-only control is not reported as runtime exposure.                                                                                                |
+| Broad user `../../../../.wld` rule                                                                                                                             | Warning says it hides settings, Agents, Skills, and prompts. Neither mode removes the rule. A configuration-only control is not reported as runtime exposure.                                                                                                |
 | Dead holder, old live holder, uncertain holder, or replaced lock                                                                                               | Only proven stale, unchanged locks can be removed. Live/uncertain/replaced locks survive. A failed removal is not counted as repaired. Use real holder processes and existing lock snapshot tests, not an injected remover.                                  |
 | Primary and linked selected checkout                                                                                                                           | Messages name the correct primary-shared and checkout-local paths; inspection creates no second registry or secret store and does not move selected locks/journals.                                                                                          |
 | `doctor --help`, and `doctor --check --repair`                                                                                                                 | Help makes no runtime changes. Combined flags remain report-only.                                                                                                                                                                                            |
@@ -307,7 +313,7 @@ Re-express their still-valid outcomes against the new layout rather than deletin
 
 ## Edge Cases & Considerations
 
-- Do not remove a user's broad `.wld/` ignore rule automatically.
+- Do not remove a user's broad `../../../../.wld` ignore rule automatically.
 - Do not claim tracked secrets are made safe by moving them; explain rotation and repository-history remediation can be
   required.
 - Documentation must distinguish project-local runtime state from global `~/.wld` state.

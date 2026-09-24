@@ -205,6 +205,12 @@ Planner or Architect presents a saved Plan for review. Users can approve, save i
 Feedback stays in the planning conversation so the Agent can revise it. Approval leads to a readiness check before
 execution or decomposition; a Plan needing repair explains what prevents it from proceeding.
 
+**Requirement: Open saved Plans directly for review.**
+
+Loading a draft, feedback, approved, or ready-for-work Plan with a valid execution policy offers direct Plan Review,
+including Plans without custom shell checks. Users can inspect and annotate the saved Plan without first asking Planner
+to revise it. Approval, feedback, and cancellation follow the same review flow as a newly presented Plan.
+
 **Requirement: Keep long review waits responsive.**
 
 Users can leave Plan Review open and return later without the waiting Session accumulating background work or becoming
@@ -218,6 +224,8 @@ slower to accept their decision. Terminal progress animations pause during human
   appropriate execution or decomposition proceeds.
 - When the user cancels review or readiness fails, the UI explains the next action without treating Agent prose as
   approval.
+- Given a ready-for-work Plan without custom shell checks, when the user loads it and chooses **Review plan**, the saved
+  Plan opens for review without a planning turn; approving for later keeps it ready for work without starting execution.
 - Given Plan Review remains open in a browser while `wld` waits in the terminal, progress timers remain paused;
   returning to submit a decision continues the same Session without restarting it or losing the pending review.
 
@@ -330,12 +338,18 @@ Users can mark a Plan `user_verified` with an explicit verification note. This s
 completion while remaining visibly distinct from automated verification. It is eligible for archival when no recoverable
 work would be lost.
 
-That attestation does not establish publication or automatically conclude an undelivered workflow. A delivery workflow
-has only two conclusions: successful publication or the user's deliberate choice to abandon it. Failed checks, internal
-inconsistencies, exhausted automatic attempts, waiting for a decision, cancellation of a turn, and hold are recoverable
-intermediate conditions. A technical status or a helpful error message does not turn any of them into a conclusion.
-Marking an Epic done enough is an explicit choice to end the remaining Epic scope; it does not claim its unfinished
-children shipped or authorize deleting their work.
+User Verification records the owner's acceptance and ends the Plan's execution workflow without claiming automated
+validation or publication. Its terminal document, including the verification note, carries from the execution worktree
+to the primary checkout. RunWield confirms before removing the execution worktree and its remaining uncommitted changes,
+then clears its registry and live controller references. Declining removal keeps the checkout available without
+reopening the accepted Plan; cleanup can be confirmed when archiving. Unmerged branch commits remain recoverable. User
+Verified and RunWield Verified Plans have the same terminal menu: Archive, Re-open for review, View, and Cancel.
+
+A delivery workflow has only two conclusions: successful publication or the user's deliberate choice to abandon it.
+Failed checks, internal inconsistencies, exhausted automatic attempts, waiting for a decision, cancellation of a turn,
+and hold are recoverable intermediate conditions. A technical status or a helpful error message does not turn any of
+them into a conclusion. Marking an Epic done enough is an explicit choice to end the remaining Epic scope; it does not
+claim its unfinished children shipped or authorize deleting their work.
 
 **Acceptance scenarios:**
 
@@ -343,9 +357,14 @@ children shipped or authorize deleting their work.
   and a recovery action is available.
 - When the user marks a Plan User Verified with a note, dependency and Epic completion checks accept that outcome while
   every presentation distinguishes it from RunWield verification.
+- Given a Plan whose editable document is in an execution worktree, User Verification saves that document and note in
+  the primary checkout, confirms worktree removal, clears the completed attempt, and generates the Work Record from the
+  accepted document. Reloading offers the same terminal actions as RunWield verification.
+- When worktree removal is declined, the accepted document remains in the primary checkout and the execution files are
+  preserved. Choosing Archive asks for cleanup confirmation again; canceling does not archive or remove those files.
 - When the user closes without verification, the Plan records that outcome without claiming checks passed.
-- Given an unpublished workflow, when the user only records a verification note or cancels a turn, the workflow is not
-  silently abandoned or reported as published.
+- Given an unpublished workflow, User Verification never reports it as published, and canceling a turn does not silently
+  abandon it. Removing remaining worktree files requires the user's explicit confirmation.
 
 ### Epic decomposition and hold
 

@@ -21,9 +21,13 @@ executionAgent: "engineer"
 collaborationRecommendation: "pair"
 createdAt: "2026-09-16T22:58:37-04:00"
 origin: "internal"
-userVerifiedAt: null
 targetBranch: "epic/consolidate-project-runtime-state"
-status: "in_progress"
+status: "user_verified"
+userVerifiedAt: "2026-09-24T13:58:40.293Z"
+userVerificationNote: "this was done as part of the PR for 0.11 and its now out."
+archivedAt: "2026-09-24T15:30:52.585Z"
+archivedFromStatus: "user_verified"
+archivedFromPath: "docs/plans/release-runtime-state-v0-11-0.md"
 ---
 
 # Repair and Release Project Runtime State as 0.11.0

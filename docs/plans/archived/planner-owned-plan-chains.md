@@ -3,7 +3,6 @@ planId: "d5f5e7cb-fcef-4407-b4a4-8b715924f5a9"
 classification: "PLANNED_CHANGE"
 workKind: "FEATURE"
 complexity: "HIGH"
-summary: "Let Planner submit a PROJECT sequence and its complete child Plans for tabbed review, with PROJECT type selecting Slice or Execute."
 affectedPaths:
     - "src/agent-definitions/planner.md"
     - "src/agent-definitions/document-formats/"
@@ -24,9 +23,14 @@ devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://127.0.0.1:5173/dev"
 devServerHmr: true
 createdAt: "2026-08-08T00:51:28-04:00"
-updatedAt: "2026-09-06"
-status: "draft"
 origin: "internal"
+status: "user_verified"
+userVerifiedAt: "2026-09-24T15:54:26.488Z"
+userVerificationNote: "The user confirms Sequences are complete and has been using them. Implementation was merged in PR #76 (Add Planner-authored PROJECT sequences) on 2026-09-08; current Sequence review tests pass. The tracked Plan remained draft despite implementation."
+archivedAt: "2026-09-24T15:54:31.185Z"
+archiveReason: "Completed Sequences confirmed in use by the user; archived as user_verified at their request."
+archivedFromStatus: "user_verified"
+archivedFromPath: "docs/plans/planner-owned-plan-chains.md"
 ---
 
 # Planner-Prepared PROJECT Sequences and Multi-Plan Review

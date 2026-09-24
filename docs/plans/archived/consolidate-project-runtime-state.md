@@ -36,6 +36,9 @@ status: "validated"
 epicCompletionMode: "done_enough"
 epicDoneEnoughAt: "2026-09-16T20:07:59.119Z"
 epicDoneEnoughSummary: "All 8 child plans are completed after consolidate-project-runtime-state/08-update-doctor-documentation-and-final-test-cleanup."
+archivedAt: "2026-09-24T13:41:30.726Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/consolidate-project-runtime-state.md"
 ---
 
 # Consolidate Project Runtime State Under `.wld/internal/`

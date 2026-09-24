@@ -5,9 +5,10 @@ Lifecycle decides the next status and front matter updates.
 
 The [Core completion requirement](prd/runwield-core-prd.md#execution-validation-and-recovery) distinguishes workflow
 conclusions from implementation statuses: delivery ends only after confirmed publication or deliberate user abandonment.
-Failed or blocked states, cancelled turns, and verification attestations alone do not conclude an undelivered workflow.
-RunWield must automatically reconcile its own state while preserving the workflow. The statuses and mechanisms below
-describe implementation; their existence does not prove every recovery path meets this requirement.
+Failed or blocked states and cancelled turns do not conclude an undelivered workflow. User acceptance is terminal but
+does not claim automated validation or publication. RunWield must automatically reconcile its own state while preserving
+the workflow. The statuses and mechanisms below describe implementation; their existence does not prove every recovery
+path meets this requirement.
 
 ## Plan body ownership and external adoption
 
@@ -546,8 +547,14 @@ The parenthesized value is the recorded worktree branch when available, otherwis
 
 `user_verified` is a terminal Plan Status for outcomes the user personally verified outside RunWield Workflow
 Validation. The canonical event is `manual_user_verified`; it requires a trimmed, non-empty `userVerificationNote` and
-records `userVerifiedAt`. It does not set `verifiedAt`, synthesize Delivery Evidence, clean up worktrees, erase prior
+records `userVerifiedAt`. The event itself does not set `verifiedAt`, synthesize Delivery Evidence, erase prior
 `failureReason`, or relabel code review/validation history.
+
+The `/load-plan` User Verification flow carries the accepted document and note into the primary checkout, then confirms
+before removing the execution worktree and clearing its records. Declining removal preserves the checkout for later
+cleanup, while the Plan remains terminal in the primary checkout. Unmerged branch commits are retained. The terminal
+menu is the same as for RunWield Verified Plans: Archive, Re-open for review, View, and Cancel. Archive retries pending
+cleanup with confirmation. Work Record generation uses the accepted document and writes its backlink in the same place.
 
 User Verified Plans satisfy child dependencies and Epic completion accounting, but reports must keep them separate from
 proof-bearing RunWield `verified` Plans. A mixed Epic can advance when every child is either RunWield Verified with

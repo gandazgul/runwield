@@ -49,9 +49,9 @@ runtime requirements during implementation. Snip remains optional for users.
 ## Objective
 
 Deliver a complete Windows x64 ZIP, native installation and runtime proof, validated WinGet manifest generation, and
-`docs/winget-first-release.md`, a disposable owner checklist. The installed command must work from PowerShell and cmd
-without WSL, user-installed Deno, Go, Rust, or a separate helper installation procedure. Git for Windows is a declared
-dependency because project operations and the Agent's Bash tool need it.
+`../../../winget-first-release.md`, a disposable owner checklist. The installed command must work from PowerShell and
+cmd without WSL, user-installed Deno, Go, Rust, or a separate helper installation procedure. Git for Windows is a
+declared dependency because project operations and the Agent's Bash tool need it.
 
 No product release, WinGet PR, public repository, or account credential is created by executing this Plan. Readiness
 means the prepared package passes native checks; public WinGet acceptance remains an external owner step.
@@ -119,25 +119,26 @@ during implementation and change whatever the Implementation Steps need, includi
 only when discovery changes approved intent — the change reaches another subsystem, public behavior or architecture
 shifts, migration or compatibility risk grows, or the Verification Plan no longer proves the objective.
 
-- `packaging/windows/`, `scripts/`, and `deno.json` — pinned helper inventory, license collection, ZIP creation, WinGet
-  manifests, and native package verification.
-- `.github/workflows/release.yml` and preparation-only CI — Windows-native checks before publication, ZIP/checksum
-  assets, and downloadable submission output without automatic external PRs.
-- `src/cli.ts`, the first child's package metadata reader, and `src/shared/runtime-preflight.ts` — early package helper
-  lookup and accurate repair instructions.
-- `src/constants.js` — Windows user directory fallback through the existing `getHomeDir()` owner.
-- `src/shared/foreground-process.ts`, `src/cmd/acp/index.js`, `src/cmd/workspace/serve.ts`, and affected existing
-  Windows process callers — portable termination and shutdown behavior proved with real processes.
-- `scripts/run-tests.js`, `scripts/run-with-snip.ts`, and `src/testing/process-global-lock.js` as needed — portable
-  isolated test homes, filesystem paths and temporary locks; do not weaken isolation or make Snip a new product
-  requirement.
-- `src/cmd/update/`, `src/shared/update-check.js`, update/help messages — Windows package-owned update handling, while
-  retaining Homebrew protection.
+- `../../../../packaging/windows`, `../../../../scripts`, and `../../../../deno.json` — pinned helper inventory, license
+  collection, ZIP creation, WinGet manifests, and native package verification.
+- `../../../../.github/workflows/release.yml` and preparation-only CI — Windows-native checks before publication,
+  ZIP/checksum assets, and downloadable submission output without automatic external PRs.
+- `../../../../src/cli.ts`, the first child's package metadata reader, and `../../../../src/shared/runtime-preflight.ts`
+  — early package helper lookup and accurate repair instructions.
+- `../../../../src/constants.js` — Windows user directory fallback through the existing `getHomeDir()` owner.
+- `../../../../src/shared/foreground-process.ts`, `../../../../src/cmd/acp/index.js`,
+  `../../../../src/cmd/workspace/serve.ts`, and affected existing Windows process callers — portable termination and
+  shutdown behavior proved with real processes.
+- `../../../../scripts/run-tests.js`, `../../../../scripts/run-with-snip.ts`, and
+  `../../../../src/testing/process-global-lock.js` as needed — portable isolated test homes, filesystem paths and
+  temporary locks; do not weaken isolation or make Snip a new product requirement.
+- `../../../../src/cmd/update`, `../../../../src/shared/update-check.js`, update/help messages — Windows package-owned
+  update handling, while retaining Homebrew protection.
 - Existing Session, ACP, Workspace and Git test boundaries — retain behavior coverage on Windows, not only Unix.
-- `docs/winget-first-release.md` — disposable first-submission checklist, with deletion criteria.
-- `docs/releasing.md`, `docs/quickstart.md`, `docs/troubleshooting.md`, and `docs/prd/runwield-core-prd.md` — lasting
-  Windows installation, setup, updates and acceptance requirements. Link the Core requirement from ACP/Workspace docs
-  only where needed; do not duplicate product ownership.
+- `../../../winget-first-release.md` — disposable first-submission checklist, with deletion criteria.
+- `../../../releasing.md`, `../../../quickstart.md`, `../../../troubleshooting.md`, and
+  `../../../prd/runwield-core-prd.md` — lasting Windows installation, setup, updates and acceptance requirements. Link
+  the Core requirement from ACP/Workspace docs only where needed; do not duplicate product ownership.
 
 No new product domain vocabulary or broad UI redesign is in scope. Image clipboard parity and Windows arm64 are not
 required by this packaging Plan; document existing limitations rather than claiming full platform parity.
@@ -145,15 +146,17 @@ required by this packaging Plan; document existing limitations rather than claim
 ## Reuse Opportunities
 
 - Child 1's package metadata reader, Stable classifier, checksum checks and preparation conventions.
-- `scripts/compile.js` and the existing Windows Deno target — retain all embedded Agents, Skills and browser resources.
-- `src/cmd/testing/runtime-command-fixture.ts`, `src/shared/git-test-fixture.ts`, and `makeValidationProjectRoot()` —
-  real runtime and Git fixtures with scripted model/network boundaries where needed.
-- `src/cmd/resume/index.test.ts`, `src/shared/session/session-runtime.test.js`, and `src/acp/server.test.js` — persisted
-  Session resume, cancellation and ACP protocol tests.
-- `src/cmd/workspace/workspace.test.ts` and `src/ui/workspace/session-artifact-route.integration.test.ts` — actual
-  Workspace startup, pairing and authorized artifact retrieval.
-- `src/shared/worktree-creation.test.js` and `src/shared/isolated-publication.test.ts` — local publication, bare-remote
-  publication, commit ancestry and dirty-primary preservation.
+- `../../../../scripts/compile.js` and the existing Windows Deno target — retain all embedded Agents, Skills and browser
+  resources.
+- `../../../../src/cmd/testing/runtime-command-fixture.ts`, `../../../../src/shared/git-test-fixture.ts`, and
+  `makeValidationProjectRoot()` — real runtime and Git fixtures with scripted model/network boundaries where needed.
+- `../../../../src/cmd/resume/index.test.ts`, `../../../../src/shared/session/session-runtime.test.js`, and
+  `../../../../src/acp/server.test.js` — persisted Session resume, cancellation and ACP protocol tests.
+- `../../../../src/cmd/workspace/workspace.test.ts` and
+  `../../../../src/ui/workspace/session-artifact-route.integration.test.ts` — actual Workspace startup, pairing and
+  authorized artifact retrieval.
+- `../../../../src/shared/worktree-creation.test.js` and `../../../../src/shared/isolated-publication.test.ts` — local
+  publication, bare-remote publication, commit ancestry and dirty-primary preservation.
 - Microsoft manifest guidance: https://learn.microsoft.com/en-us/windows/package-manager/package/manifest and
   repository: https://github.com/microsoft/winget-pkgs . These are references, not Tickets.
 
@@ -175,9 +178,9 @@ required by this packaging Plan; document existing limitations rather than claim
    Version, help, provider setup, Session use, ACP and Workspace do not crash because of Unix-only assumptions. Fix
    issues uncovered by the named core-flow tests within this approved native-readiness scope.
 4. Both update aliases, flags, notifications and helper-repair instructions obey WinGet ownership. The package cannot
-   run `install.sh` or overwrite its own managed files through `WLD_INSTALL_DIR`. Missing metadata on a loose Windows
-   executable yields accurate guidance rather than a Bash installer attempt. Source and Unix standalone paths, and the
-   Homebrew behavior from child 1, remain correct.
+   run `../../../../install.sh` or overwrite its own managed files through `WLD_INSTALL_DIR`. Missing metadata on a
+   loose Windows executable yields accurate guidance rather than a Bash installer attempt. Source and Unix standalone
+   paths, and the Homebrew behavior from child 1, remain correct.
 5. A real Windows CI job installs/extracts the built package and exercises the named core flows with real helper
    binaries. Scripted external model responses are allowed for repeatable tests, but Session storage, subprocesses,
    package lookup, Git operations and helper executables are real. Native checks are required before the release
@@ -191,13 +194,13 @@ required by this packaging Plan; document existing limitations rather than claim
    validation and local install accept manifests produced by this generator. Before first publication, exercise the same
    generation logic with a test-only release server serving the exact new package; final output uses the matching
    published Stable bytes and is rechecked by the owner before submission. Generation never submits a PR.
-7. `docs/winget-first-release.md` contains an exact first-publication procedure with prerequisites, expected results,
-   failure/retry steps and checkboxes. It separates completed preparation from owner actions: choose a Stable release
-   containing these changes; use existing release commands; confirm workflow/asset checks; generate manifests from
-   published bytes; validate and test locally on a disposable Windows machine; submit to `microsoft/winget-pkgs`;
+7. `../../../winget-first-release.md` contains an exact first-publication procedure with prerequisites, expected
+   results, failure/retry steps and checkboxes. It separates completed preparation from owner actions: choose a Stable
+   release containing these changes; use existing release commands; confirm workflow/asset checks; generate manifests
+   from published bytes; validate and test locally on a disposable Windows machine; submit to `microsoft/winget-pkgs`;
    respond to review; confirm catalog installation; then delete this disposable guide after lasting instructions are
    retained. It includes the tested commands and output paths, not unresolved research tasks or fake hashes.
-   Candidate-to-Stable promotion follows `docs/releasing.md`; do not hand-write a competing tagging procedure.
+   Candidate-to-Stable promotion follows `../../../releasing.md`; do not hand-write a competing tagging procedure.
 8. Lasting release docs describe new-version manifest preparation, package repair, required Git, first-use downloads,
    supported Windows x64 scope, package-owned upgrades and limitations. The Core installation capability records named
    acceptance scenarios. Public availability stays pending until the owner confirms the WinGet listing. Any failed

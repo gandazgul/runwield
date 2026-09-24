@@ -48,9 +48,10 @@ as part of this implementation.
 
 Owning capabilities:
 
-- Core [Semantic review and repair](../prd/runwield-core-prd.md#semantic-review-and-repair): extend **Resolve concrete
-  findings through independent review** with a named **Target-relative review diff** requirement and scenarios below.
-- Core [Execution, validation, and recovery](../prd/runwield-core-prd.md#execution-validation-and-recovery): preserve
+- Core [Semantic review and repair](../../prd/runwield-core-prd.md#semantic-review-and-repair): extend **Resolve
+  concrete findings through independent review** with a named **Target-relative review diff** requirement and scenarios
+  below.
+- Core [Execution, validation, and recovery](../../prd/runwield-core-prd.md#execution-validation-and-recovery): preserve
   worktree isolation, independent repair verification, continuation, and publication proof.
 
 These are proposed changes. Preserve missing-requirement checks, stable Review Issue identities, repair-round policy,

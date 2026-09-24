@@ -37,8 +37,8 @@ targetBranch: "epic/consolidate-project-runtime-state"
 ## Context
 
 Plan document locks, catalog locks, transition journals, and Work Record supersession locks are selected-checkout state.
-They protect the checkout that owns the document mutation or checkout-local operation. Today they use the old `.wld/`
-runtime location.
+They protect the checkout that owns the document mutation or checkout-local operation. Today they use the old
+`../../../../.wld` runtime location.
 
 Child 03 is validated. The merged execution branch contains its primary-store changes and the shared layout and
 migration code. Selected-store writers still use legacy paths. Preserve child 03's completed changes; do not recreate
@@ -50,14 +50,14 @@ alone is not a safe upgrade for a legacy project.
 
 ## Objective
 
-Move selected-checkout runtime readers and writers below the selected checkout's `.wld/internal/` root. Plan lifecycle
-behavior must remain the same: Plan Markdown remains the human lifecycle authority, and transaction journals continue to
-protect rollback and recovery.
+Move selected-checkout runtime readers and writers below the selected checkout's `../../../../.wld/internal` root. Plan
+lifecycle behavior must remain the same: Plan Markdown remains the human lifecycle authority, and transaction journals
+continue to protect rollback and recovery.
 
 ## Approach
 
-Use `resolveProjectRuntimeLayout(checkoutRoot).selected` from `src/shared/project-runtime-layout.ts`. Keep public
-function signatures, caller-selected roots, lock order, stale-lock rules, and transition journal semantics.
+Use `resolveProjectRuntimeLayout(checkoutRoot).selected` from `../../../../src/shared/project-runtime-layout.ts`. Keep
+public function signatures, caller-selected roots, lock order, stale-lock rules, and transition journal semantics.
 
 | Existing owner                          | Named selected-layout field                          |
 | --------------------------------------- | ---------------------------------------------------- |
@@ -106,22 +106,23 @@ during implementation and change whatever the Implementation Steps need, includi
 only when discovery changes approved intent — the change reaches another subsystem, public behavior or architecture
 shifts, migration or compatibility risk grows, or the Verification Plan no longer proves the objective.
 
-- `src/plan-store.js` — move Plan and catalog locks to the selected internal root.
-- `src/shared/workflow/state-transition.ts` — move transition journals to the selected internal root.
-- `src/shared/work-records/supersession.ts` — move Work Record supersession and recovery locks to the selected internal
-  root.
-- `src/cmd/plans/doctor.ts` — move its direct stale-Plan-lock reader with the writer; preserve existing repair rules.
-  Verify its registered-worktree journal scan uses the updated journal helper.
-- `src/cmd/load-plan/plan-recovery-flow.ts`, `plan-recovery-actions.ts`, and
-  `src/shared/workflow/transition-recovery.ts` — verify existing checkout selection, automatic cleanup of proven-settled
-  records, and owner-specific reconciliation/attestation. Keep `evidenceProjectRoot` separate from journal ownership;
-  change only if a remaining old-path reader requires it.
+- `../../../../src/plan-store.js` — move Plan and catalog locks to the selected internal root.
+- `../../../../src/shared/workflow/state-transition.ts` — move transition journals to the selected internal root.
+- `../../../../src/shared/work-records/supersession.ts` — move Work Record supersession and recovery locks to the
+  selected internal root.
+- `../../../../src/cmd/plans/doctor.ts` — move its direct stale-Plan-lock reader with the writer; preserve existing
+  repair rules. Verify its registered-worktree journal scan uses the updated journal helper.
+- `../../../../src/cmd/load-plan/plan-recovery-flow.ts`, `plan-recovery-actions.ts`, and
+  `../../../../src/shared/workflow/transition-recovery.ts` — verify existing checkout selection, automatic cleanup of
+  proven-settled records, and owner-specific reconciliation/attestation. Keep `evidenceProjectRoot` separate from
+  journal ownership; change only if a remaining old-path reader requires it.
 - Plan-store, `state-transition.test.js`, lifecycle, Doctor, Plan Recovery, and Work Record tests — prove filesystem
   placement, lock exclusion, rollback, and recovery. Update helpers that currently seed or inspect legacy paths.
-- `src/shared/project-runtime-layout.test.ts` and `src/shared/testing/project-runtime-migration-process-driver.ts` —
-  retain explicit legacy migration fixtures. The driver's Plan and both Work Record lock commands currently call normal
-  writers. After the move, they must instead hold explicit legacy lock files with valid ownership and heartbeat data,
-  using the legacy protocols. Do not add production fallback paths or test-only parameters to current store APIs.
+- `../../../../src/shared/project-runtime-layout.test.ts` and
+  `../../../../src/shared/testing/project-runtime-migration-process-driver.ts` — retain explicit legacy migration
+  fixtures. The driver's Plan and both Work Record lock commands currently call normal writers. After the move, they
+  must instead hold explicit legacy lock files with valid ownership and heartbeat data, using the legacy protocols. Do
+  not add production fallback paths or test-only parameters to current store APIs.
 
 Primary stores, project secrets, entry checks, Git exclusions, and release documentation remain with their assigned
 children. The Epic-branch glossary already defines Selected-Checkout Runtime State and its ownership; no definition
@@ -129,10 +130,10 @@ change is needed.
 
 ## Reuse Opportunities
 
-- `src/shared/project-runtime-layout.ts` — use selected-checkout path helpers.
-- `src/plan-store.js` — keep existing lock naming, stale-lock, and revision-checked write behavior.
-- `src/shared/workflow/state-transition.ts` — keep journal recovery and rollback guarantees.
-- `src/shared/work-records/supersession.ts` — keep existing heartbeat and stale-lock rules.
+- `../../../../src/shared/project-runtime-layout.ts` — use selected-checkout path helpers.
+- `../../../../src/plan-store.js` — keep existing lock naming, stale-lock, and revision-checked write behavior.
+- `../../../../src/shared/workflow/state-transition.ts` — keep journal recovery and rollback guarantees.
+- `../../../../src/shared/work-records/supersession.ts` — keep existing heartbeat and stale-lock rules.
 
 ## Implementation Steps
 

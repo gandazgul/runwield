@@ -29,9 +29,9 @@ targetBranch: "epic/consolidate-project-runtime-state"
 
 ## Context
 
-Version 0.10.0 must adopt inactive project-local runtime state from legacy `.wld/` paths into `.wld/internal/`. It must
-stop without changing files when the old state is active, ambiguous, tracked, symlinked, or tied to unfinished
-publication recovery.
+Version 0.10.0 must adopt inactive project-local runtime state from legacy `../../../../.wld` paths into
+`../../../../.wld/internal`. It must stop without changing files when the old state is active, ambiguous, tracked,
+symlinked, or tied to unfinished publication recovery.
 
 The previous child Plan created the layout contract. This child Plan adds the migration engine, but does not need every
 command surface to call it yet.
@@ -102,54 +102,58 @@ during implementation and change whatever the Implementation Steps need, includi
 only when discovery changes approved intent — the change reaches another subsystem, public behavior or architecture
 shifts, migration or compatibility risk grows, or the Verification Plan no longer proves the objective.
 
-- `src/shared/project-runtime-layout.ts` — own the migration result, lock, marker and journal schemas, read-only
-  preflight, leaf mapping, durable rename/retirement effects, and restart reconciliation.
-- `src/shared/runwield-owned-paths.ts` — expose the bounded legacy hazard names and temp-file shapes used by preflight;
-  keep user-derived `.wld` paths outside migration.
-- `src/shared/worktree-registry.js` — factor exact-path, strict, read-only registry inspection and exact-path lock
-  acquisition from the existing project-root wrappers. Existing callers keep their behavior and legacy identity
-  migration remains disabled during layout preflight.
-- `src/shared/workflow/publication-attempt.ts` — remain the schema and phase validator used to reject malformed,
-  non-cleaned, or repair-bearing publication records; change it only if a small named predicate avoids duplicated phase
-  rules.
-- `src/shared/project-runtime-layout.test.ts` — cover inactive primary and linked-checkout adoption, second-entry
-  stability, conflicts, tracked paths and secrets, symlinks, lock evidence, marker versions, and every restart state.
-- `src/shared/worktree-registry.test.js` — prove exact-path inspection and locking do not migrate identities, tolerate
-  no malformed top-level shape, and preserve all current project-root callers.
-- `src/shared/workflow/publication-machine.e2e.test.ts` — seed publication records through the real publication machine
-  and prove every phase except `cleanup_complete`, plus every saved repair root, blocks layout migration.
-- `src/shared/testing/project-runtime-migration-process-driver.ts` or an equivalent test-only driver — run migration in
-  a separate process so process death and lock ownership use real operating-system behavior.
+- `../../../../src/shared/project-runtime-layout.ts` — own the migration result, lock, marker and journal schemas,
+  read-only preflight, leaf mapping, durable rename/retirement effects, and restart reconciliation.
+- `../../../../src/shared/runwield-owned-paths.ts` — expose the bounded legacy hazard names and temp-file shapes used by
+  preflight; keep user-derived `.wld` paths outside migration.
+- `../../../../src/shared/worktree-registry.js` — factor exact-path, strict, read-only registry inspection and
+  exact-path lock acquisition from the existing project-root wrappers. Existing callers keep their behavior and legacy
+  identity migration remains disabled during layout preflight.
+- `../../../../src/shared/workflow/publication-attempt.ts` — remain the schema and phase validator used to reject
+  malformed, non-cleaned, or repair-bearing publication records; change it only if a small named predicate avoids
+  duplicated phase rules.
+- `../../../../src/shared/project-runtime-layout.test.ts` — cover inactive primary and linked-checkout adoption,
+  second-entry stability, conflicts, tracked paths and secrets, symlinks, lock evidence, marker versions, and every
+  restart state.
+- `../../../../src/shared/worktree-registry.test.js` — prove exact-path inspection and locking do not migrate
+  identities, tolerate no malformed top-level shape, and preserve all current project-root callers.
+- `../../../../src/shared/workflow/publication-machine.e2e.test.ts` — seed publication records through the real
+  publication machine and prove every phase except `cleanup_complete`, plus every saved repair root, blocks layout
+  migration.
+- `../../../../src/shared/testing/project-runtime-migration-process-driver.ts` or an equivalent test-only driver — run
+  migration in a separate process so process death and lock ownership use real operating-system behavior.
 
-Normal store cutover, project-entry wiring, `.gitignore` reconciliation, and user-facing recovery text remain in later
-children. No production command calls the migration operation in this child.
+Normal store cutover, project-entry wiring, `../../../../.gitignore` reconciliation, and user-facing recovery text
+remain in later children. No production command calls the migration operation in this child.
 
 ## Reuse Opportunities
 
-- `src/shared/project-runtime-layout.ts` from child 01 — reuse named primary/selected paths and the current versus
-  legacy classifiers; do not recreate checkout ownership with string joins.
-- `src/shared/worktree-registry.js` — reuse atomic write, directory sync, stale-lock recovery, and non-mutating
-  inspection. Add an exact-path layer so child 03 can move normal registry access without losing legacy inspection.
-- `src/shared/process-liveness.ts` — use host and process evidence for the frozen legacy Plan-lock protocol. Use the
-  legacy Work Record heartbeat/age rules and operating-system `tryLockSync` for persistent controller lock inodes; file
-  existence alone is not active-writer evidence.
-- `src/shared/workflow/publication-attempt.ts` — reuse `assertPublicationAttempt()` and `cleanup_complete` as the only
-  publication state safe to migrate. Plan status and directory names are not evidence.
-- `src/shared/git-test-fixture.ts` and existing worktree test helpers — use real repositories and linked worktrees for
-  tracking and root-validation tests. Git checks use checkout-relative `.wld` paths even when runtime storage is routed
-  through `WLD_TEST_SANDBOX_HOME`.
+- `../../../../src/shared/project-runtime-layout.ts` from child 01 — reuse named primary/selected paths and the current
+  versus legacy classifiers; do not recreate checkout ownership with string joins.
+- `../../../../src/shared/worktree-registry.js` — reuse atomic write, directory sync, stale-lock recovery, and
+  non-mutating inspection. Add an exact-path layer so child 03 can move normal registry access without losing legacy
+  inspection.
+- `../../../../src/shared/process-liveness.ts` — use host and process evidence for the frozen legacy Plan-lock protocol.
+  Use the legacy Work Record heartbeat/age rules and operating-system `tryLockSync` for persistent controller lock
+  inodes; file existence alone is not active-writer evidence.
+- `../../../../src/shared/workflow/publication-attempt.ts` — reuse `assertPublicationAttempt()` and `cleanup_complete`
+  as the only publication state safe to migrate. Plan status and directory names are not evidence.
+- `../../../../src/shared/git-test-fixture.ts` and existing worktree test helpers — use real repositories and linked
+  worktrees for tracking and root-validation tests. Git checks use checkout-relative `.wld` paths even when runtime
+  storage is routed through `WLD_TEST_SANDBOX_HOME`.
 
 ## Implementation Steps
 
-- [ ] `src/shared/project-runtime-layout.ts` exports `migrateLegacyProjectRuntimeState(selectedCheckoutRoot)` and named
-      `ready`/`blocked` result types. Known safety refusals include stable reason codes and exact non-secret paths; the
-      tracked-secret result also carries capability-rotation and repository-history guidance for later surfaces.
+- [ ] `../../../../src/shared/project-runtime-layout.ts` exports
+      `migrateLegacyProjectRuntimeState(selectedCheckoutRoot)` and named `ready`/`blocked` result types. Known safety
+      refusals include stable reason codes and exact non-secret paths; the tracked-secret result also carries
+      capability-rotation and repository-history guidance for later surfaces.
 - [ ] The primary internal root reserves `layout.json`, `layout-migration.json`, and `layout-migration.lock`. Atomic
       writes sync file and parent directory. The lock uses holder identity, heartbeat, stale recovery, and
       ownership-safe release; two processes cannot adopt the same project or append a selected root concurrently.
 - [ ] Read-only preflight runs before internal-root creation, then runs again while the migration lock and exact legacy
       registry lock are held. A static blocker leaves no internal root, marker, journal, renamed leaf, retired source,
-      or `.gitignore` edit. Lock acquisition/release is the only permitted transient effect.
+      or `../../../../.gitignore` edit. Lock acquisition/release is the only permitted transient effect.
 - [ ] Exact-path registry inspection validates the top-level object, schema version 1 or 2, entries array, required
       traversal fields, duplicate IDs, ambiguous live attempts, and publication shape without writing registry bytes,
       identity backfills, migration reports, or Plan documents. A valid schema-1 entry without `planId` remains
@@ -162,7 +166,7 @@ children. No production command calls the migration operation in this child.
       Registry bytes, Git refs, publication/repair directories, and the primary worktree remain unchanged.
 - [ ] Git preflight checks both primary and selected checkouts for tracked or staged current/legacy runtime paths,
       including intent-to-add. It returns exact paths. A tracked project secret gets the distinct security result. It
-      never treats `.gitignore` as proof that a path is untracked.
+      never treats `../../../../.gitignore` as proof that a path is untracked.
 - [ ] Filesystem preflight uses `lstat` for `.wld`, the internal root, every legacy authority, and descendants that
       would be inspected or adopted. Any symlink, special file where a regular file/directory is required, or
       canonical-path escape refuses before content is read or moved.
@@ -205,10 +209,10 @@ this child must pass current CI.
   preserves byte content and modes, removes legacy authorities, writes the exact marker roots, and makes a second call
   produce no byte or directory-entry changes. This fails if the implementation is a marker-only stub or moves all state
   to one checkout.
-- Refusal proof: snapshot bytes, modes, directory entries, Git index, refs, and `.gitignore` before each malformed
-  registry/publication, active phase, repair root, non-empty orphan staging, tracked path, tracked secret, symlink,
-  special-file, invalid worktree, live-lock, newer-marker, and old/new conflict case. After `blocked`, the snapshot is
-  unchanged except for transient lock creation/removal. Tests assert the reason code and exact paths.
+- Refusal proof: snapshot bytes, modes, directory entries, Git index, refs, and `../../../../.gitignore` before each
+  malformed registry/publication, active phase, repair root, non-empty orphan staging, tracked path, tracked secret,
+  symlink, special-file, invalid worktree, live-lock, newer-marker, and old/new conflict case. After `blocked`, the
+  snapshot is unchanged except for transient lock creation/removal. Tests assert the reason code and exact paths.
 - Restart proof: use a subprocess and direct fixture construction to cover every journal operation with pending and
   completed receipts and every valid source/destination pair. At least one real subprocess is terminated after each
   effect class (journal commit, primary rename, selected rename, stale-lock retirement, marker replacement, journal
@@ -242,7 +246,7 @@ this child must pass current CI.
   fallback; it would need a separate write-sync-verify-retire protocol.
 - Persistent but unlocked controller lock files do not counterfeit a live writer. Recent malformed Work Record locks
   remain active until their owning stale window expires; use each protocol's rule rather than one generic timeout.
-- Migration does not reconcile `.gitignore`, move normal store callers, or make project entry mandatory. Later children
-  own those outcomes.
+- Migration does not reconcile `../../../../.gitignore`, move normal store callers, or make project entry mandatory.
+  Later children own those outcomes.
 - Downgrade and mixed 0.9/0.10 use remain unsupported. If an old process recreates legacy state after `layout.json`
   commits, the next 0.10 entry refuses instead of selecting or merging an authority.

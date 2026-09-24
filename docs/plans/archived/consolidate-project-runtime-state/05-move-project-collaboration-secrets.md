@@ -41,8 +41,8 @@ Git safety; child 08 owns Doctor and broader documentation. This child does not 
 
 ## Objective
 
-Make project-local collaboration secrets primary-owned runtime state under `.wld/internal/`, while keeping global
-secrets under `~/.wld/`. The project code must not read and write two project secret stores as authorities.
+Make project-local collaboration secrets primary-owned runtime state under `../../../../.wld/internal`, while keeping
+global secrets under `~/.wld/`. The project code must not read and write two project secret stores as authorities.
 
 ## Approach
 
@@ -69,15 +69,15 @@ and atomic temporary files. It still includes legacy entries at this stage; chil
 ignore formatter here.
 
 Avoid an import cycle: layout and owned-path code currently import `PROJECT_SECRET_STORE_RELATIVE_PATH` from secrets.
-Move that constant to `src/constants.js`, retaining its **legacy** value and a compatibility re-export from secrets.
-Layout migration and legacy Git hazard checks import it from constants. They must not treat the new active path as the
-legacy source.
+Move that constant to `../../../../src/constants.js`, retaining its **legacy** value and a compatibility re-export from
+secrets. Layout migration and legacy Git hazard checks import it from constants. They must not treat the new active path
+as the legacy source.
 
 Global/project preference, fallback between those two stores, and legacy Plan-only record keys stay unchanged. Those are
 not fallback to the old project file. Plan documents remain in their selected checkout.
 
-The main option set aside is keeping project collaboration secrets beside `.wld/settings.json`. That would avoid
-migration, but it would keep secrets in the user-trackable configuration area.
+The main option set aside is keeping project collaboration secrets beside `../../../../.wld/settings.json`. That would
+avoid migration, but it would keep secrets in the user-trackable configuration area.
 
 ## Expected Change Surface
 
@@ -86,36 +86,40 @@ during implementation and change whatever the Implementation Steps need, includi
 only when discovery changes approved intent — the change reaches another subsystem, public behavior or architecture
 shifts, migration or compatibility risk grows, or the Verification Plan no longer proves the objective.
 
-- `src/shared/collaboration/secrets.js` — move project path resolution and delegate ignore protection to the shared
-  managed-block writer at the primary checkout.
-- `src/constants.js`, `src/shared/project-runtime-layout.ts`, and `src/shared/runwield-owned-paths.ts` — move the legacy
-  path constant and its imports so the layout does not depend on the secret-store implementation.
-- `src/cmd/plans/share.ts` and `src/cmd/plans/pull.ts` — preserve the pre-write ignore call and existing store
-  selection. Push and unshare also use the path helper; verify them without unnecessary command rewrites.
-- `src/shared/collaboration/secrets.test.js` — replace old path/ignore assertions; add real file and permission checks.
-- `src/cmd/plans/collaboration-commands.integration.test.ts` — prove project share, URL import, named pull, push, and
-  unshare work across linked checkouts with one project store.
-- `src/shared/project-runtime-layout.test.ts` and owned-path tests — retain legacy-secret migration and hazard checks
-  after changing constant imports.
-- `docs/domain-language.md` — clarify the existing Primary-Checkout Runtime State definition with the active project
+- `../../../../src/shared/collaboration/secrets.js` — move project path resolution and delegate ignore protection to the
+  shared managed-block writer at the primary checkout.
+- `../../../../src/constants.js`, `../../../../src/shared/project-runtime-layout.ts`, and
+  `../../../../src/shared/runwield-owned-paths.ts` — move the legacy path constant and its imports so the layout does
+  not depend on the secret-store implementation.
+- `../../../../src/cmd/plans/share.ts` and `../../../../src/cmd/plans/pull.ts` — preserve the pre-write ignore call and
+  existing store selection. Push and unshare also use the path helper; verify them without unnecessary command rewrites.
+- `../../../../src/shared/collaboration/secrets.test.js` — replace old path/ignore assertions; add real file and
+  permission checks.
+- `../../../../src/cmd/plans/collaboration-commands.integration.test.ts` — prove project share, URL import, named pull,
+  push, and unshare work across linked checkouts with one project store.
+- `../../../../src/shared/project-runtime-layout.test.ts` and owned-path tests — retain legacy-secret migration and
+  hazard checks after changing constant imports.
+- `../../../domain-language.md` — clarify the existing Primary-Checkout Runtime State definition with the active project
   secret path and distinguish it from the unchanged home-directory store. Do not claim other children are complete.
 
 ## Reuse Opportunities
 
-- `src/shared/collaboration/secrets.js` — reuse secret normalization, atomic writes, redaction, and mode-setting
-  behavior.
-- `src/shared/project-runtime-layout.ts` — reuse primary ownership and test sandbox routing; do not construct a new
-  primary-path rule.
-- `src/shared/runwield-owned-paths.ts` — reuse `ensureRunWieldOwnedGitignoreBlock()` for pre-write protection.
-- `src/shared/git-test-fixture.ts`, the collaboration HTTP fixture, and `withRuntimeCommandFixture()` — exercise real
-  Git, crypto, Plan, and secret operations without new injection seams.
-- `src/shared/settings.js` — keep project settings primary-checkout behavior separate from project runtime secrets.
+- `../../../../src/shared/collaboration/secrets.js` — reuse secret normalization, atomic writes, redaction, and
+  mode-setting behavior.
+- `../../../../src/shared/project-runtime-layout.ts` — reuse primary ownership and test sandbox routing; do not
+  construct a new primary-path rule.
+- `../../../../src/shared/runwield-owned-paths.ts` — reuse `ensureRunWieldOwnedGitignoreBlock()` for pre-write
+  protection.
+- `../../../../src/shared/git-test-fixture.ts`, the collaboration HTTP fixture, and `withRuntimeCommandFixture()` —
+  exercise real Git, crypto, Plan, and secret operations without new injection seams.
+- `../../../../src/shared/settings.js` — keep project settings primary-checkout behavior separate from project runtime
+  secrets.
 
 ## Implementation Steps
 
-- [ ] The legacy secret path constant is defined in `src/constants.js`; layout and owned-path modules no longer import
-      secrets. Migration and legacy hazard classification still recognize `.wld/collaboration-secrets.json` and its
-      temporary files.
+- [ ] The legacy secret path constant is defined in `../../../../src/constants.js`; layout and owned-path modules no
+      longer import secrets. Migration and legacy hazard classification still recognize
+      `.wld/collaboration-secrets.json` and its temporary files.
 - [ ] `getGlobalSecretStorePath()` is unchanged. `getProjectSecretStorePath()` uses the layout's primary secret path
       synchronously, including sandbox routing, without old-project-file fallback or duplicate writes.
 - [ ] Project share and URL pull establish primary managed ignore protection before secret writes. The helper is
@@ -126,7 +130,7 @@ shifts, migration or compatibility risk grows, or the Verification Plan no longe
 - [ ] Schema version 1, atomic rename and temporary-file cleanup, best-effort `0600`, redaction, record-key preference,
       compatibility refusal, and other-space record preservation remain protected by tests.
 - [ ] Tracked legacy project secrets remain a migration or Doctor concern and are not silently cleaned by this slice.
-- [ ] `docs/domain-language.md` states the implemented project secret location under Primary-Checkout Runtime State,
+- [ ] `../../../domain-language.md` states the implemented project secret location under Primary-Checkout Runtime State,
       retains the existing avoided aliases and ownership relationships, and distinguishes unchanged global storage.
 
 ## Verification Plan
@@ -153,12 +157,12 @@ Required evidence:
 - **URL import:** in a separate fresh linked project, pull a maintainer URL with project secrets enabled. Assert the
   imported Plan remains selected-checkout local and its capability record exists only in the primary internal store. Do
   not pre-seed that record or let a global copy make the test pass.
-- **Git protection:** from a linked checkout, call the ignore helper twice with custom primary and selected `.gitignore`
-  content. Primary output is byte-stable on the second call; unrelated content is retained and selected content is
-  unchanged. `git check-ignore` at primary matches both the secret file and a representative atomic temp path, but not
-  settings, Agents, Skills, or prompts. No standalone legacy secret rule is appended outside the shared block. Make
-  primary `.gitignore` unwritable with a deterministic filesystem obstruction and prove a project share or URL pull
-  fails without writing its local secret record.
+- **Git protection:** from a linked checkout, call the ignore helper twice with custom primary and selected
+  `../../../../.gitignore` content. Primary output is byte-stable on the second call; unrelated content is retained and
+  selected content is unchanged. `git check-ignore` at primary matches both the secret file and a representative atomic
+  temp path, but not settings, Agents, Skills, or prompts. No standalone legacy secret rule is appended outside the
+  shared block. Make primary `../../../../.gitignore` unwritable with a deterministic filesystem obstruction and prove a
+  project share or URL pull fails without writing its local secret record.
 - **Security and compatibility:** preserve missing-file, corrupt-schema, invalid-write, redaction, cross-store conflict,
   pair-key preference, legacy Plan-only key, other-space preservation, and default-global command coverage. Check final
   file mode `0600` on supported platforms after first write and replacement, and no leftover atomic temp files. Exercise

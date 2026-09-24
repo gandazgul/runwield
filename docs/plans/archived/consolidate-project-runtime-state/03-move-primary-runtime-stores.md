@@ -34,8 +34,8 @@ targetBranch: "epic/consolidate-project-runtime-state"
 ## Context
 
 Primary-owned runtime state is shared through the primary checkout. Today, several stores still construct paths under
-`.wld/` directly or inherit the old runtime directory. They must move under the primary checkout's `.wld/internal/`
-root.
+`../../../../.wld` directly or inherit the old runtime directory. They must move under the primary checkout's
+`../../../../.wld/internal` root.
 
 The Epic branch can be unsafe between child Plans, but CI must pass after this slice. Selected-checkout stores can move
 in the next child Plan. Child 02 has implemented the migration engine; normal stores still use the old paths. Shared
@@ -52,8 +52,8 @@ locking rules, revision checks, or publication proof behavior.
 ## Approach
 
 Change primary-owned stores to use `resolveProjectRuntimeLayout(checkoutRoot).primary` from
-`src/shared/project-runtime-layout.ts`. Do not introduce a second registry or controller protocol, legacy fallback
-reads, or duplicate writes.
+`../../../../src/shared/project-runtime-layout.ts`. Do not introduce a second registry or controller protocol, legacy
+fallback reads, or duplicate writes.
 
 | Existing path owner                      | Layout property used after this slice                        |
 | ---------------------------------------- | ------------------------------------------------------------ |
@@ -101,37 +101,43 @@ during implementation and change whatever the Implementation Steps need, includi
 only when discovery changes approved intent — the change reaches another subsystem, public behavior or architecture
 shifts, migration or compatibility risk grows, or the Verification Plan no longer proves the objective.
 
-- `src/shared/worktree-registry.js` — resolve registry, lock, temp write, and migration-report paths through the primary
-  internal root.
-- `src/shared/workflow/controller-registry.ts` — move controller records below the primary internal root while
-  preserving locks, revisions, and atomic writes.
-- `src/shared/workflow/publication-machine.ts` — create new publication staging below the primary internal root.
-- `src/shared/isolated-publication.ts` and `src/shared/workflow/validation-publication.ts` — verify that publication,
-  retry, and cleanup use saved absolute paths. Change these consumers only if needed; do not replace their existing
-  recovery behavior.
-- `src/shared/worktree.js` — keep normal `~/.wld/worktrees/`; move only the no-home project fallback below primary
-  `.wld/internal/`.
+- `../../../../src/shared/worktree-registry.js` — resolve registry, lock, temp write, and migration-report paths through
+  the primary internal root.
+- `../../../../src/shared/workflow/controller-registry.ts` — move controller records below the primary internal root
+  while preserving locks, revisions, and atomic writes.
+- `../../../../src/shared/workflow/publication-machine.ts` — create new publication staging below the primary internal
+  root.
+- `../../../../src/shared/isolated-publication.ts` and `../../../../src/shared/workflow/validation-publication.ts` —
+  verify that publication, retry, and cleanup use saved absolute paths. Change these consumers only if needed; do not
+  replace their existing recovery behavior.
+- `../../../../src/shared/worktree.js` — keep normal `~/.wld/worktrees/`; move only the no-home project fallback below
+  primary `../../../../.wld/internal`.
 - Registry, controller, publication, and worktree tests — update expected paths and prove no second authority is
   created. `controller-registry.integration.test.ts` covers controller ownership and revisions;
   `plan-execution-runtime-boundaries.integration.test.ts` protects dispatch, not file placement.
-- `src/shared/project-runtime-layout.test.ts` — keep legacy migration fixtures at explicit legacy paths. Its publication
-  fixtures currently use normal registry/publication writers, which will no longer seed legacy data after this slice.
-- `src/plan-store.test.js`, `src/shared/workflow/plan-action-evidence.test.ts`, and
-  `src/cmd/load-plan/plan-recovery-flow.test.ts` — update current-store fixtures that construct registry paths directly.
-- `src/ui/tui/testing/scenario-runner.js` and `src/ui/tui/golden-scenarios/planned-change-workflow.js` — make scenario
-  registry reads and expectations use the current store, rather than silently treating a missing old file as empty.
+- `../../../../src/shared/project-runtime-layout.test.ts` — keep legacy migration fixtures at explicit legacy paths. Its
+  publication fixtures currently use normal registry/publication writers, which will no longer seed legacy data after
+  this slice.
+- `../../../../src/plan-store.test.js`, `../../../../src/shared/workflow/plan-action-evidence.test.ts`, and
+  `../../../../src/cmd/load-plan/plan-recovery-flow.test.ts` — update current-store fixtures that construct registry
+  paths directly.
+- `../../../../src/ui/tui/testing/scenario-runner.js` and
+  `../../../../src/ui/tui/golden-scenarios/planned-change-workflow.js` — make scenario registry reads and expectations
+  use the current store, rather than silently treating a missing old file as empty.
 
 Selected-checkout stores, project secrets, entry checks, Git exclusions, and release documentation remain in their
 assigned later child Plans.
 
 ## Reuse Opportunities
 
-- `src/shared/project-runtime-layout.ts` — use the existing `resolveProjectRuntimeLayout()` result; no new path API.
-- `src/shared/git-test-fixture.ts` and existing controller/publication fixtures — use real Git checkouts and filesystem
-  operations, not injected store implementations.
-- `src/shared/worktree-registry.js` — retain existing registry serialization and CAS-like update behavior.
-- `src/shared/workflow/controller-registry.ts` — retain existing OS file locking, revision checks, and atomic writes.
-- `src/shared/workflow/publication-machine.ts` — retain monotonic publication phase behavior.
+- `../../../../src/shared/project-runtime-layout.ts` — use the existing `resolveProjectRuntimeLayout()` result; no new
+  path API.
+- `../../../../src/shared/git-test-fixture.ts` and existing controller/publication fixtures — use real Git checkouts and
+  filesystem operations, not injected store implementations.
+- `../../../../src/shared/worktree-registry.js` — retain existing registry serialization and CAS-like update behavior.
+- `../../../../src/shared/workflow/controller-registry.ts` — retain existing OS file locking, revision checks, and
+  atomic writes.
+- `../../../../src/shared/workflow/publication-machine.ts` — retain monotonic publication phase behavior.
 
 ## Implementation Steps
 
@@ -140,8 +146,8 @@ assigned later child Plans.
       supplied by migration; they do not resolve or redirect it.
 - [ ] Controller records, their locks, and temporary files use `controllerPlansDir` and the existing identity filename.
       Primary and linked checkout callers read the same persisted state and still reject stale revisions.
-- [ ] New publication attempts record staging paths below primary `.wld/internal/plan-staging/`, including when started
-      from a linked checkout. Real publication creates and uses that staging checkout.
+- [ ] New publication attempts record staging paths below primary `../../../../.wld/internal/plan-staging`, including
+      when started from a linked checkout. Real publication creates and uses that staging checkout.
 - [ ] Existing publication attempts retain recorded absolute staging and repair paths. Retry, reconciliation, and
       cleanup still use those paths without moving the checkout or losing commits.
 - [ ] Explicit worktree-root overrides and normal home-based execution worktree placement remain unchanged. With HOME
@@ -173,9 +179,9 @@ Required evidence:
 
 - **One shared store:** in a disposable real primary checkout and linked execution checkout, write a registry entry and
   controller state through one checkout, read and update through the other, then read back through the first. Assert the
-  persisted content and literal primary `.wld/internal/` placement, not only equality between helper results. Assert no
-  corresponding old primary store or duplicate linked store exists after normal operations. Preserve sandbox routing
-  tests as well; for literal placement use the existing locked fixture pattern that temporarily disables only
+  persisted content and literal primary `../../../../.wld/internal` placement, not only equality between helper results.
+  Assert no corresponding old primary store or duplicate linked store exists after normal operations. Preserve sandbox
+  routing tests as well; for literal placement use the existing locked fixture pattern that temporarily disables only
   project-runtime redirection, restores it, and keeps all operations inside disposable roots.
 - **Shared locking and revisions:** hold the primary registry lock, start a linked-checkout mutation, and prove it
   cannot complete until release. Retain controller stale-write rejection, cross-process reads, identity binding, and
@@ -216,5 +222,6 @@ slice; their business behavior does not stop being tested. CI must pass before t
 - The layout module imports exact-path registry inspection and locking for migration. A registry import of the layout
   helper forms a module cycle. Keep calls lazy, avoid top-level cross-module calls, and verify both import entry orders.
   Do not move migration behavior into normal registry access to solve the cycle.
-- Tests that create only `.wld/` before writing a resolved registry path must instead create the resolved parent.
+- Tests that create only `../../../../.wld` before writing a resolved registry path must instead create the resolved
+  parent.
 - Never run an upgrade experiment on the real checkout during this intermediate slice. Use disposable fixtures.
