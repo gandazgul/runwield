@@ -707,6 +707,7 @@ Deno.test("personal remote Workspace v2 Dashboard promotes associated live quest
             const waiting = await loadOwnerDashboard(store, sessionContinuation);
             const item = waiting.dashboard.sections.find((section) => section.key === "needs-you")?.items[0];
             assertEquals(item?.href, "/projects/project-1/sessions/question-session#interaction-ask-1");
+            assertEquals(item?.actionLabel, type === "plan_review" ? "Review Plan" : "Review code");
             assertEquals(
                 item?.statusLabel,
                 type === "plan_review" ? "Plan ready for review" : "Code ready for review",

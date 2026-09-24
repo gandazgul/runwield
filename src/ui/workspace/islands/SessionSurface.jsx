@@ -748,9 +748,11 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     const [sessionSidebarTab, setSessionSidebarTab] = useState("session");
     const sidebarPlanRef = useRef("");
     const [contextCollapsed, setContextCollapsed] = useState(false);
+    const [isNarrowScreen, setIsNarrowScreen] = useState(false);
     useEffect(() => {
         const narrowScreen = globalThis.matchMedia("(max-width: 900px)");
         function syncContextVisibility() {
+            setIsNarrowScreen(narrowScreen.matches);
             let savedCollapsed = false;
             try {
                 savedCollapsed = localStorage.getItem("runwield:owner:session-context-collapsed") === "true";
@@ -2205,7 +2207,11 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                             contextCollapsed ? " session-detail-layout--chat-only" : ""
                         }`}
                     >
-                        <main className="session-stream-panel" aria-label="Session stream">
+                        <main
+                            className="session-stream-panel"
+                            aria-label="Session stream"
+                            inert={!contextCollapsed && isNarrowScreen}
+                        >
                             <div
                                 className="session-timeline-scroll"
                                 ref={timelineScrollRef}

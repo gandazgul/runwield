@@ -667,6 +667,92 @@ Deno.test("Session sidebar keeps one toggle and its tabs in the shared header", 
     assertEquals(sidebar.includes('className="kicker"'), false);
 });
 
+Deno.test("mobile Session context keeps covered chat out of keyboard navigation", async () => {
+    const browser = new Window({ url: "http://localhost" });
+    const globals = [
+        "window",
+        "document",
+        "location",
+        "localStorage",
+        "sessionStorage",
+        "HTMLElement",
+        "CustomEvent",
+        "matchMedia",
+        "ResizeObserver",
+    ];
+    const previous = new Map(globals.map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+    const previousFetch = globalThis.fetch;
+    const previousActFlag = globalThis.IS_REACT_ACT_ENVIRONMENT;
+    const { act } = await import("react");
+    const { createRoot } = await import("react-dom/client");
+    let mobile = true;
+    const listeners = new Set();
+    const media = {
+        get matches() {
+            return mobile;
+        },
+        addEventListener(_event, listener) {
+            listeners.add(listener);
+        },
+        removeEventListener(_event, listener) {
+            listeners.delete(listener);
+        },
+    };
+    const header = browser.document.createElement("div");
+    header.setAttribute("data-workspace-header-actions", "");
+    const container = browser.document.createElement("div");
+    browser.document.body.append(header, container);
+    let root;
+    try {
+        for (const key of globals) {
+            const value = key === "window"
+                ? browser
+                : key === "matchMedia"
+                ? (query) => query === "(max-width: 900px)" ? media : browser.matchMedia(query)
+                : browser[key];
+            Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
+        }
+        globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+        globalThis.fetch = (url) =>
+            Promise.resolve().then(() =>
+                String(url).includes("session-options")
+                    ? Response.json({ agents: [], models: [], commands: [], defaults: {} })
+                    : Response.json({ state: "idle", generation: 0, events: [], complete: true, snapshot: {} })
+            );
+        root = createRoot(container);
+        await act(async () =>
+            root.render(
+                (await import("react")).createElement(SessionSurface, {
+                    projectId: crypto.randomUUID(),
+                    runwieldSessionId: crypto.randomUUID(),
+                }),
+            )
+        );
+        const stream = container.querySelector(".session-stream-panel");
+        assertEquals(stream?.inert, false);
+        await act(() => header.querySelector('[aria-label="Show Session sidebar"]').click());
+        assertEquals(stream?.inert, true);
+        await act(() => header.querySelector('[aria-label="Collapse Session sidebar"]').click());
+        assertEquals(stream?.inert, false);
+        await act(() => header.querySelector('[aria-label="Show Session sidebar"]').click());
+        await act(() => {
+            mobile = false;
+            for (const listener of listeners) listener();
+        });
+        assertEquals(stream?.inert, false);
+    } finally {
+        if (root) await act(() => root.unmount());
+        globalThis.fetch = previousFetch;
+        for (const [key, descriptor] of previous) {
+            if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+            else Reflect.deleteProperty(globalThis, key);
+        }
+        if (previousActFlag === undefined) delete globalThis.IS_REACT_ACT_ENVIRONMENT;
+        else globalThis.IS_REACT_ACT_ENVIRONMENT = previousActFlag;
+        await browser.happyDOM.close();
+    }
+});
+
 Deno.test("Session image attachments use a Session-scoped draft key and request payload", () => {
     assertEquals(
         sessionAttachmentsKey("project-1", "session-1"),

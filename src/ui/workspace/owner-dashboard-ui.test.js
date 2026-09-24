@@ -34,6 +34,48 @@ function sections(items) {
 const first = { href: "/plans/1", title: "First plan", projectName: "A", statusLabel: "Ready" };
 const second = { href: "/plans/2", title: "Second plan", projectName: "A", statusLabel: "Ready" };
 
+Deno.test("Dashboard shows the next step and relevant time beside a Plan", async () => {
+    const { window, refresh } = dashboard();
+    try {
+        await refresh(sections([{
+            ...first,
+            actionLabel: "Review Plan",
+            updatedAt: "2026-09-20T12:00:00.000Z",
+            recentAt: "2026-09-19T12:00:00.000Z",
+        }]));
+        const row = window.document.querySelector(".owner-dashboard-row");
+        assertEquals(row.querySelector(".owner-dashboard-row-action").textContent, "Review Plan");
+        assertEquals(row.querySelectorAll("time").length, 2);
+        assertStringIncludes(row.textContent, "Finished");
+    } finally {
+        await window.happyDOM.abort();
+    }
+});
+
+Deno.test("Dashboard sort icon shows the update order and reverses it", async () => {
+    const { window, refresh } = dashboard();
+    try {
+        await refresh(sections([first, second]));
+        let section = window.document.querySelector('.owner-dashboard-section[aria-label="Needs You"]');
+        let button = section.querySelector("[data-dashboard-sort]");
+        assertEquals(button.textContent, "");
+        assertEquals(button.querySelector("svg").getAttribute("aria-hidden"), "true");
+        assertStringIncludes(button.getAttribute("aria-label"), "Newest update first");
+        assertEquals(section.querySelector(".owner-dashboard-row").getAttribute("href"), first.href);
+        button.click();
+        section = window.document.querySelector('.owner-dashboard-section[aria-label="Needs You"]');
+        button = section.querySelector("[data-dashboard-sort]");
+        assertStringIncludes(button.getAttribute("aria-label"), "Oldest update first");
+        assertEquals(button.getAttribute("aria-pressed"), "true");
+        assertEquals(section.querySelector(".owner-dashboard-row").getAttribute("href"), second.href);
+        button.click();
+        section = window.document.querySelector('.owner-dashboard-section[aria-label="Needs You"]');
+        assertEquals(section.querySelector(".owner-dashboard-row").getAttribute("href"), first.href);
+    } finally {
+        await window.happyDOM.abort();
+    }
+});
+
 Deno.test("Dashboard keeps keyboard focus on a Plan when a refresh adds a row", async () => {
     const { window, refresh } = dashboard();
     try {
@@ -75,6 +117,11 @@ Deno.test("Dashboard warns about incomplete Project reads without adding a false
         assertEquals(warning.querySelector("a").getAttribute("href"), "/projects/1/settings");
         assertEquals(window.document.querySelectorAll(".owner-dashboard-row").length, 0);
         assertEquals(window.document.querySelectorAll("[data-dashboard-sort]").length, 0);
+        assertStringIncludes(
+            window.document.querySelector(".owner-dashboard-section .empty").textContent,
+            "items may be missing",
+        );
+        assertEquals(window.document.querySelector(".owner-dashboard-section-heading span").textContent, "0+");
     } finally {
         await window.happyDOM.abort();
     }

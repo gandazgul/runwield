@@ -78,8 +78,7 @@ let restoreDelegationInstalled = false;
 let refreshGeneration = 0;
 let activeSidebarAbort = null;
 let activeSidebarUrl = null;
-let sidebarHasRendered = false;
-let homeSidebarPayload = null;
+let latestSidebarPayload = null;
 const observedSessionNames = new Map();
 
 export function applySessionName(detail) {
@@ -261,6 +260,12 @@ function setSidebarCollapsed(collapsed) {
     }
 }
 
+function restoreSidebarPreference() {
+    // Filling navigation must not dismiss the mobile drawer the user just opened.
+    const shell = document.querySelector(".workspace-shell-with-sidebar");
+    if (!shell?.classList.contains("workspace-sidebar-overlay-open")) setSidebarCollapsed(isSidebarCollapsed());
+}
+
 function openSidebar() {
     const shell = document.querySelector(".workspace-shell-with-sidebar");
     if (!shell) return;
@@ -393,6 +398,10 @@ function normalizeProject(project) {
         projectId: String(project?.projectId || ""),
         displayName: String(project?.displayName || "Untitled Project"),
         enabled: project?.enabled !== false,
+        plansLoading: project?.plansLoading === true,
+        plansError: project?.plansError === true,
+        sessionsLoading: project?.sessionsLoading === true,
+        sessionsError: project?.sessionsError === true,
         diagnostics: Array.isArray(project?.diagnostics) ? project.diagnostics : [],
         hasMorePlans: Boolean(project?.hasMorePlans),
         plans: Array.isArray(project?.plans) ? project.plans.filter((plan) => plan?.planId) : [],
@@ -486,10 +495,9 @@ function ensureSidebarScaffold(sidebar, payload, current) {
     const enabledProjects = projects.filter((project) => project.enabled);
     const newProjectId = enabledProjects.find((project) => project.projectId === current.projectId)?.projectId ||
         enabledProjects.find((project) => project.projectId === rememberedProject)?.projectId ||
-        enabledProjects[0]?.projectId || "";
+        enabledProjects[0]?.projectId || (payload.loading ? current.projectId || rememberedProject : "") || "";
     newSession.href = newProjectId ? newSessionHref(newProjectId) : "/projects";
-    if (newProjectId) newSession.removeAttribute("aria-disabled");
-    else newSession.setAttribute("aria-disabled", "true");
+    newSession.removeAttribute("aria-disabled");
     return list;
 }
 
@@ -617,7 +625,15 @@ function reconcilePlanRows(container, project, current) {
     });
     if (!project.enabled) return;
     if (!plans.length) {
-        container.append(makeEmpty("No active Plans."));
+        container.append(
+            makeEmpty(
+                project.plansLoading
+                    ? "Loading Plans…"
+                    : project.plansError
+                    ? "Plans unavailable."
+                    : "No active Plans.",
+            ),
+        );
         return;
     }
     for (const plan of visible) {
@@ -717,7 +733,15 @@ function reconcileSessionRows(container, existingProject, project, current) {
         showMore.remove();
     }
 
-    if (!nodes.length) nodes.push(makeEmpty(project.enabled ? "No Sessions yet." : "Sessions unavailable."));
+    if (!nodes.length) {
+        nodes.push(makeEmpty(
+            !project.enabled || project.sessionsError
+                ? "Sessions unavailable."
+                : project.sessionsLoading
+                ? "Loading Sessions…"
+                : "No Sessions yet.",
+        ));
+    }
     for (const node of nodes) container.append(node);
 }
 
@@ -741,7 +765,7 @@ function reconcileProjects(list, payload, current) {
         if (!wantedIds.has(projectId)) node.remove();
     });
     if (!ordered.length) {
-        list.append(makeEmpty("No Projects registered."));
+        list.append(makeEmpty(payload.loading ? "Loading Projects…" : "No Projects registered."));
         return;
     }
     for (const project of ordered) {
@@ -754,12 +778,12 @@ function reconcileProjects(list, payload, current) {
 export function renderSidebar(payload, current) {
     const sidebar = document.querySelector("[data-workspace-sidebar]");
     if (!sidebar) return;
+    latestSidebarPayload = payload;
     const scrollTop = sidebar.scrollTop;
     renderMainHeader(payload, current);
     const list = ensureSidebarScaffold(sidebar, payload, current);
     reconcileProjects(list, payload, current);
-    setSidebarCollapsed(isSidebarCollapsed());
-    sidebarHasRendered = true;
+    restoreSidebarPreference();
     updateWorkspaceHomeLinks();
     sidebar.scrollTop = scrollTop;
 }
@@ -896,6 +920,15 @@ export async function refreshSidebarForPage() {
     installSidebarDelegation();
     installRestoreDelegation();
     const current = rememberCurrentRoute();
+    const sidebar = document.querySelector("[data-workspace-sidebar]");
+    if (!sidebar) return;
+    // Navigation controls never wait for a Project, Session, or Plan read.
+    if (!latestSidebarPayload || !sidebar.querySelector(".workspace-sidebar-project-list")) {
+        renderSidebar({ projects: [], loading: true }, current);
+    } else {
+        renderMainHeader(latestSidebarPayload || { projects: [] }, current);
+        restoreSidebarPreference();
+    }
     applyActiveRoute(current);
     // The initial module and Astro's first page-load can arrive during the same request.
     if (activeSidebarAbort && activeSidebarUrl === location.href) return;
@@ -906,16 +939,68 @@ export async function refreshSidebarForPage() {
     refreshGeneration = requestGeneration;
     const requestUrl = location.href;
     activeSidebarUrl = requestUrl;
+    const isCurrent = () => shouldApplySidebarRefresh(requestGeneration, refreshGeneration, requestUrl, location.href);
     try {
-        const carriedSidebar = homeSidebarPayload;
-        homeSidebarPayload = null;
-        const payload = carriedSidebar || await ownerJson("/api/owner/sidebar", { signal: abort.signal });
-        if (!shouldApplySidebarRefresh(requestGeneration, refreshGeneration, requestUrl, location.href)) return;
+        const catalog = await ownerJson("/api/owner/projects", { signal: abort.signal });
+        if (!isCurrent()) return;
+        const previous = new Map((latestSidebarPayload?.projects || []).map((project) => [project.projectId, project]));
+        const projects = (catalog.projects || []).map((project) => ({
+            ...previous.get(project.projectId),
+            ...project,
+            plansLoading: previous.has(project.projectId)
+                ? previous.get(project.projectId).plansLoading === true
+                : true,
+            sessionsLoading: previous.has(project.projectId)
+                ? previous.get(project.projectId).sessionsLoading === true
+                : true,
+        }));
+        const payload = { projects };
         renderSidebar(payload, current);
+        let complete = false;
+        // Each Project becomes usable independently, before workflow evidence is read.
+        const sessions = projects.filter((project) =>
+            project.enabled && (!previous.has(project.projectId) || project.sessionsLoading || project.sessionsError)
+        ).map(async (project) => {
+            try {
+                const result = await ownerJson(
+                    `/api/owner/projects/${
+                        encodeURIComponent(project.projectId)
+                    }/sessions?pageSize=5&includeTotal=false`,
+                    { signal: abort.signal },
+                );
+                if (!isCurrent() || complete) return;
+                // Already-populated navigation stays stable until its complete refresh.
+                project.sessions = result.sessions || [];
+                project.hasMoreSessions = result.hasNext === true;
+                project.sessionsLoading = false;
+                project.sessionsError = false;
+            } catch (error) {
+                if (!isCurrent() || complete || error?.name === "AbortError") return;
+                project.sessionsLoading = false;
+                project.sessionsError = true;
+            }
+            renderSidebar(payload, current);
+        });
+        const details = (async () => {
+            try {
+                const full = await ownerJson("/api/owner/sidebar", { signal: abort.signal });
+                if (!isCurrent()) return;
+                complete = true;
+                renderSidebar(full, current);
+            } catch (error) {
+                if (!isCurrent() || error?.name === "AbortError") return;
+                for (const project of projects) {
+                    project.plansLoading = false;
+                    project.plansError = true;
+                }
+                renderSidebar(payload, current);
+            }
+        })();
+        await Promise.allSettled([...sessions, details]);
     } catch (error) {
-        if (error?.name === "AbortError") return;
-        const sidebar = document.querySelector("[data-workspace-sidebar]");
-        if (sidebar && !sidebarHasRendered) sidebar.replaceChildren(makeEmpty("Sidebar failed to load."));
+        if (!isCurrent() || error?.name === "AbortError") return;
+        const list = sidebar.querySelector(".workspace-sidebar-project-list");
+        if (!latestSidebarPayload?.projects?.length) list?.replaceChildren(makeEmpty("Projects failed to load."));
     } finally {
         if (activeSidebarAbort === abort) {
             activeSidebarAbort = null;

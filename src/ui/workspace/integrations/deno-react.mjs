@@ -16,7 +16,7 @@ export default function denoReact() {
             "astro:config:setup": ({ addRenderer, updateConfig, injectScript, command }) => {
                 addRenderer({
                     name: "@astrojs/react",
-                    clientEntrypoint: "@astrojs/react/client.js",
+                    clientEntrypoint: new URL("./react-client.ts", import.meta.url).href,
                     serverEntrypoint: new URL("./react-server.mjs", import.meta.url).href,
                 });
                 updateConfig({

@@ -90,6 +90,7 @@ export default defineConfig({
                 "@radix-ui/react-tabs",
                 "@radix-ui/react-tooltip",
                 "@tanstack/react-table",
+                "@base-ui/react",
                 "@base-ui/react/button",
                 "@base-ui/react/dialog",
                 "@base-ui/react/menu",

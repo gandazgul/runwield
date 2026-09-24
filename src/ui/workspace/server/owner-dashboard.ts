@@ -63,6 +63,7 @@ type DashboardItem = {
     planId: string;
     title: string;
     statusLabel: string;
+    actionLabel: string;
     summary: string;
     href: string;
     recentAt: string;
@@ -316,6 +317,13 @@ function dashboardItem(
         statusLabel: category === "needs-you"
             ? evidence.attentionLabel || "Agent stopped before completing the workflow"
             : plan.statusLabel || plan.status || plan.attrs?.status || "unknown",
+        actionLabel: category === "needs-you"
+            ? evidence.liveQuestion ? attentionAction(evidence.attentionLabel) : "Resume Session"
+            : category === "ready"
+            ? "View Plan"
+            : category === "in-progress"
+            ? "View progress"
+            : "View outcome",
         summary: plan.summary || plan.attrs?.summary || "",
         href: category === "needs-you" && evidence.attentionHref
             ? evidence.attentionHref
@@ -348,6 +356,13 @@ function interactionLabel(operation: WorkspaceOperation): string {
     }
 }
 
+function attentionAction(label?: string): string {
+    if (label === "Plan ready for review") return "Review Plan";
+    if (label === "Code ready for review") return "Review code";
+    if (label === "Artifact ready for review") return "Review artifact";
+    return "Answer question";
+}
+
 function interactionPlan(operation: WorkspaceOperation): InteractionPlanReference {
     const request = operation.liveInteraction?.request;
     return request?.planReview || request?.codeReview || request?._meta || {};
@@ -371,6 +386,7 @@ function operationItem(
         title: plan?.title || plan?.name || plan?.planName || safeText(interactionPlan(operation).planName) ||
             session?.displayName || session?.name || "Untitled Session",
         statusLabel: waiting ? interactionLabel(operation) : "active Session",
+        actionLabel: waiting ? attentionAction(interactionLabel(operation)) : "View Session",
         summary: operation.liveInteraction?.request?.prompt || operation.error || operationId,
         href: sessionId
             ? `${sessionHref(project.projectId, sessionId)}#interaction-${

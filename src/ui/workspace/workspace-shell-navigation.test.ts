@@ -33,9 +33,9 @@ Deno.test("Workspace home stays on the Attention Dashboard and reuses its sideba
         value: { getItem: (key) => stored.get(key) || null, setItem: (key, value) => stored.set(key, value) },
     });
     const previousFetch = globalThis.fetch;
-    let requests = 0;
-    globalThis.fetch = () => {
-        requests++;
+    const requests = [];
+    globalThis.fetch = (url) => {
+        requests.push(url);
         return Promise.resolve(Response.json({
             projects: [{
                 projectId: "project-a",
@@ -58,7 +58,8 @@ Deno.test("Workspace home stays on the Attention Dashboard and reuses its sideba
         const row = sidebar.querySelector('[data-sidebar-session="session-a"]');
         await refreshSidebarForPage();
         assertEquals(destinations, []);
-        assertEquals(requests, 2);
+        assertEquals(requests.filter((url) => url === "/api/owner/sidebar").length, 2);
+        assertEquals(requests.filter((url) => url === "/api/owner/projects").length, 2);
         assertStrictEquals(sidebar.querySelector('[data-sidebar-session="session-a"]'), row);
         assertEquals(
             document.querySelector('[aria-label="RunWield Workspace home"]').href,
@@ -576,4 +577,74 @@ Deno.test("artifact and review headers keep one surface title and a reachable Wo
     assertEquals(header.children.length, 2);
     assertStrictEquals(header.children[1], title);
     assertEquals(header.children[0].getAttribute("aria-label"), "Open Workspace sidebar");
+});
+
+Deno.test("Workspace mobile navigation fills each Project before slow workflow details arrive", async () => {
+    const { document, sidebar } = installFakeBrowser("/");
+    const originalFetch = globalThis.fetch;
+    const originalMatchMedia = globalThis.matchMedia;
+    globalThis.matchMedia = () => ({ matches: true });
+    const pending = new Map();
+    globalThis.fetch = (url) => new Promise((resolve) => pending.set(url, resolve));
+    const settle = async (url, value, status = 200) => {
+        assert(pending.has(url), `Missing request: ${url}`);
+        pending.get(url)(Response.json(value, { status }));
+        for (let index = 0; index < 30; index++) await Promise.resolve();
+    };
+    try {
+        const refresh = refreshSidebarForPage();
+        assert(sidebar.querySelector(".workspace-sidebar-new"));
+        assert(document.querySelector("[data-workspace-sidebar-restore]"));
+        assert(sidebar.querySelector("[data-workspace-sidebar-collapse]"));
+        document.querySelector(".workspace-shell-with-sidebar").classList.add("workspace-sidebar-overlay-open");
+        assertStringIncludes(sidebar.textContent, "Loading Projects");
+        assertEquals(sidebar.textContent.includes("No Projects"), false);
+        const projects = ["a", "b"].map((id) => ({ projectId: id, displayName: `Project ${id}`, enabled: true }));
+        await settle("/api/owner/projects", { projects });
+        assertEquals(sidebar.querySelector(".workspace-sidebar-new").href, "/projects/a/sessions/new");
+        assert(sidebar.querySelector('[data-sidebar-project="a"]'));
+        assertStringIncludes(sidebar.textContent, "Loading Sessions");
+        assertEquals(sidebar.textContent.includes("No active Plans"), false);
+        await settle("/api/owner/projects/b/sessions?pageSize=5&includeTotal=false", {
+            sessions: [{ runwieldSessionId: "recent-b", displayName: "Continue this Session" }],
+            hasNext: true,
+        });
+        const row = sidebar.querySelector('[data-sidebar-session="recent-b"]');
+        assert(row);
+        assertEquals(row.href, "/projects/b/sessions/recent-b");
+        const project = sidebar.querySelector('[data-sidebar-project="b"]');
+        project.setAttribute("open", "");
+        sidebar.scrollTop = 312;
+        await settle("/api/owner/sidebar", { error: "Workflow reader unavailable" }, 503);
+        assertStrictEquals(sidebar.querySelector('[data-sidebar-session="recent-b"]'), row);
+        assertStringIncludes(sidebar.textContent, "Plans unavailable.");
+        await settle("/api/owner/projects/a/sessions?pageSize=5&includeTotal=false", { sessions: [], hasNext: false });
+        await refresh;
+        assert(sidebar.querySelector(".workspace-sidebar-new"));
+        assertEquals(project.getAttribute("open"), "");
+        assertEquals(sidebar.scrollTop, 312);
+        assert(
+            document.querySelector(".workspace-shell-with-sidebar").classList.contains(
+                "workspace-sidebar-overlay-open",
+            ),
+        );
+        assertStringIncludes(sidebar.textContent, "No Sessions yet.");
+    } finally {
+        globalThis.fetch = originalFetch;
+        globalThis.matchMedia = originalMatchMedia;
+    }
+});
+
+Deno.test("Workspace sidebar keeps controls when Projects fail to load", async () => {
+    const { document, sidebar } = installFakeBrowser("/projects/project-a/sessions/session-a");
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = () => Promise.resolve(Response.json({ error: "Unavailable" }, { status: 503 }));
+    try {
+        await refreshSidebarForPage();
+        assertEquals(sidebar.querySelector(".workspace-sidebar-new").href, "/projects/project-a/sessions/new");
+        assert(document.querySelector("[data-workspace-sidebar-restore]"));
+        assertStringIncludes(sidebar.textContent, "Projects failed to load.");
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
 });

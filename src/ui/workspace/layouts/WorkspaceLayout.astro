@@ -18,6 +18,7 @@ const {
 } = Astro.props;
 const currentUrl = url instanceof URL ? url : new URL(String(url));
 const localShell = shell === "local";
+const projectPath = currentUrl.pathname.match(/^\/projects\/[^/]+/)?.[0];
 
 function linkWithToken(path: string) {
     const ownerRoute = currentUrl.pathname === "/projects" || currentUrl.pathname.startsWith("/projects/") ||
@@ -92,7 +93,14 @@ function linkWithToken(path: string) {
                             <span>RunWield</span>
                         </a>
                     </div>
-                    <p class="workspace-sidebar-empty"><RunWieldThinkingDots label="Loading Workspace" /></p>
+                    <a class="workspace-sidebar-home" href="/">Dashboard</a>
+                    <a class="workspace-sidebar-new" href={projectPath ? `${projectPath}/sessions/new` : "/projects"}>
+                        <span class="workspace-sidebar-plus" aria-hidden="true">+</span><span>New Session</span>
+                    </a>
+                    <a class="workspace-sidebar-section-title" href="/projects">Projects</a>
+                    <nav class="workspace-sidebar-project-list" aria-label="Projects and Sessions">
+                        <p class="workspace-sidebar-empty"><RunWieldThinkingDots label="Loading Projects" /></p>
+                    </nav>
                 </aside>
                 <div class="workspace-main-shell">
                     <header class:list={["workspace-main-header", surfaceTitle && "workspace-main-surface-header"]} data-board-header={boardHeader || undefined}>

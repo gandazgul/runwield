@@ -3,6 +3,7 @@ import { assert, assertEquals, assertRejects } from "@std/assert";
 import { createSessionRuntime } from "../../shared/session/session-runtime.ts";
 import {
     ownerNotificationsStreamApi,
+    ownerProjectSessionsApi,
     ownerSessionContinuationStartApi,
     ownerSessionCreateApi,
 } from "./routes/owner-session-api.js";
@@ -162,6 +163,18 @@ Deno.test("Workspace hides only unnamed empty Sessions and paginates the visible
             assertEquals(recent.hasNext, true);
             assertEquals(recent.total, null);
             assertEquals(transcriptsRead.length, 2);
+            transcriptsRead.length = 0;
+            const response = await ownerProjectSessionsApi({
+                params: { projectId: fixture.project.projectId },
+                url: new URL("http://workspace.local/sessions?pageSize=1&includeTotal=false"),
+                state: { store, sessionContinuation: service },
+            });
+            assertEquals(response.status, 200);
+            const navigation = await response.json();
+            assertEquals(navigation.total, null);
+            assertEquals(navigation.hasNext, true);
+            assertEquals(navigation.sessions.map((session) => session.displayName), ["Hello"]);
+            assert(transcriptsRead.length <= 2);
         } finally {
             Deno.readTextFile = readTextFile;
         }

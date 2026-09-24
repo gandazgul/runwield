@@ -154,7 +154,12 @@ export async function ownerProjectSessionsApi(ctx) {
         requireOwnerProjectRoot(ctx.state.store, ctx.params.projectId);
         const page = readPageValue(ctx.url.searchParams.get("page"), "page", 0, 10_000);
         const pageSize = readPageValue(ctx.url.searchParams.get("pageSize"), "pageSize", 30, 100);
-        const listOptions = { page, pageSize, includeEmpty: ctx.url.searchParams.get("includeEmpty") === "true" };
+        const listOptions = {
+            page,
+            pageSize,
+            includeEmpty: ctx.url.searchParams.get("includeEmpty") === "true",
+            includeTotal: ctx.url.searchParams.get("includeTotal") !== "false",
+        };
         const planId = ctx.url.searchParams.get("plan") || "";
         const excludeAssociated = ctx.url.searchParams.get("excludeAssociated") === "true";
         const nestedPlanIds = ctx.url.searchParams.getAll("nestedPlan").filter(Boolean);
