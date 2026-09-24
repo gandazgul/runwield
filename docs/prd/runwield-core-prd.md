@@ -378,9 +378,11 @@ the decomposition. Finalization makes child selection available; each child stil
 conversation can pause and resume. Users can deliver one child, defer the rest, and mark the Epic done enough with a
 summary while unfinished children remain available.
 
-`load-plan` offers the appropriate planning, decomposition, child selection, execution, or recovery action. Unfinished
-dependencies are explained before proceeding. `wld plans` shows Epic progress and child status separately from
-standalone Plans. Revising an Epic does not silently authorize changed child scope.
+`load-plan` offers the appropriate planning, decomposition, child selection, execution, or recovery action. When a new
+Epic has no target branch, opening it for child work creates that branch from the repository's default branch before
+Planner starts. An existing target branch keeps its own history. Unfinished dependencies are explained before
+proceeding. `wld plans` shows Epic progress and child status separately from standalone Plans. Revising an Epic does not
+silently authorize changed child scope.
 
 **On hold** means paused and resumable, not completed or archived. Nonterminal Plans can retain their previous stage and
 an optional reason. **Resume from hold** checks whether relevant changes or missing work affect continuation, then
@@ -393,6 +395,8 @@ and siblings active. Listings keep held work distinct from active and finished w
 
 **Acceptance scenarios:**
 
+- Given a new Epic with a missing target branch, when the user opens it to start the first child, the target branch
+  starts from the repository's default branch and Planner can use the child Plan.
 - Given an approved Epic, when the user saves draft children, they remain drafts; finalizing decomposition enables child
   selection without approving each child.
 - Given an independently held child, when the parent Epic is held and resumed, that child stays held and other children
