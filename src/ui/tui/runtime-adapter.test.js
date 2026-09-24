@@ -887,3 +887,17 @@ Deno.test("TUI does not alert for Workspace- or ACP-owned attention", () => {
     assertEquals(notifications, ["agentStopped"]);
     adapter.dispose();
 });
+
+Deno.test("TUI adapter shows shared provider notices without displaying diagnostic bodies", () => {
+    const { runtime, sessionId } = makeRuntimeHarness("provider-friendly-notice");
+    const { transcript, uiAPI } = makeUi();
+    const adapter = attachTuiRuntimeAdapter({ runtime, sessionId, uiAPI });
+    runtime.emitSessionEvent(sessionId, {
+        type: RuntimeEventTypes.TERMINAL_ERROR,
+        message: "The model service stopped responding before the reply was complete.",
+        error: "Network error: Unexpected EOF",
+    });
+    assertEquals(transcript.some((text) => text.includes("The model service stopped responding")), true);
+    assertEquals(transcript.some((text) => text.includes("Network error: Unexpected EOF")), false);
+    adapter.dispose();
+});

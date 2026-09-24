@@ -15,7 +15,11 @@ const repository = defineCommittedGitFixture({
 
 for (const interruption of ["disconnect", "stop", "cancel", "disconnect_compaction"]) {
     Deno.test(`first-command validation survives repair ${interruption} and accepts continue in the worktree`, async () => {
-        await withRuntimeCommandFixture("deferred-validation-repair-", async ({ setModelResponseFactories }) => {
+        await withRuntimeCommandFixture("deferred-validation-repair-", async (fixture) => {
+            const { setModelResponseFactories, settingsPath } = fixture;
+            const settings = JSON.parse(await Deno.readTextFile(settingsPath));
+            settings.retry = { enabled: false };
+            await Deno.writeTextFile(settingsPath, JSON.stringify(settings));
             const root = await repository.checkout();
             const worktreeRoot = await Deno.makeTempDir({ prefix: "deferred-repair-tree-" });
             const store = openFileSessionStore();

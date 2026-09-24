@@ -1042,6 +1042,23 @@ Current requirements:
 - keep Pi automatic prompt-cache warming off so RunWield does not add warming requests or charges; a user-facing warming
   setting remains deferred
 
+**Requirement: Recover from temporary model-service failures.**
+
+For Pi-backed model requests, retry temporary connection, rate-limit, and server failures, including an interrupted
+response reported as `Unexpected EOF`. Use the existing [retry settings](../settings.md#retry): by default, three
+retries after the first request, with waits of 2, 4, and 8 seconds. Keep partial output and diagnostic evidence from a
+failed attempt, but do not repeat completed tools or include failed attempts in the next model request. Show clear
+notices for failures, scheduled retries, and exhausted retries without exposing raw response bodies or stack traces.
+Saved history shows a neutral failure notice, not a live countdown or a claim that the Session still failed. Do not
+automatically retry authentication, quota, invalid-request, or context-overflow failures. Cancellation stops retries
+without an API-failure or exhaustion notice.
+
+When automatic retries run out, state how many retries completed and how the user can try again. This stops the current
+model attempt, not the Session or its saved work. [Session continuity](#session-continuity) owns history and safe
+resumption. [Execution, validation, and recovery](#execution-validation-and-recovery) owns delivery workflow recovery;
+provider retry exhaustion does not change its completion or abandonment policy. Wider automatic recovery gaps remain
+part of that capability's target, not a promise that every path is already repaired.
+
 Claude CLI is a Core Execution Backend: RunWield shells out to Claude Code from inside a RunWield Session, while
 RunWield remains the Session Transcript, workflow, resume, and replay authority. Setup requires installing the Claude
 Code CLI and signing in with Claude Code; it does not require a RunWield API-key or subscription login. Missing
@@ -1071,6 +1088,15 @@ Future/open requirements:
 
 - When the user changes a model, the Session and workflow remain the same and the selected model is visible across
   clients.
+- Given a Pi-backed response interrupted by `Unexpected EOF`, when a later attempt succeeds, RunWield waits and retries
+  under the configured policy. The user sees the interruption and retry progress, then the answer without repeating
+  completed tools.
+- Given a temporary failure persists through all configured retries, the final notice states the completed retry count
+  and that the user can try again. Saved history remains available; replay shows a neutral notice, not a live countdown.
+- Given the user cancels during a failed request or its retry wait, no further request starts and no API-failure or
+  exhaustion notice appears.
+- Given an authentication, quota, invalid-request, or context-overflow failure, RunWield gives a clear, relevant notice
+  without retrying the same request automatically.
 - Given no cache-warming setting or an existing Pi value of `streaming` or `idle`, RunWield sends no automatic warming
   request and does not rewrite the stored value.
 - Given Validation Repair Engineer with no configured model or thinking level, when Engineer has those values

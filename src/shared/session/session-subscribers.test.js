@@ -238,3 +238,71 @@ Deno.test("session subscriber writes debug stream logs without any presentation 
         await Deno.remove(debugLogPath);
     }
 });
+
+Deno.test("provider notices use shared safe language while retaining diagnostic evidence", () => {
+    const { session, emit } = makeSubscribableSession();
+    const { hostedSession, events } = makeRuntimeHarness("provider-notices");
+    const state = attachSessionEventSubscribers(session, agentDef, undefined, hostedSession);
+    emit({ type: "message_end", message: { role: "assistant", stopReason: "error", errorMessage: "Unexpected EOF" } });
+    emit({
+        type: "auto_retry_start",
+        attempt: 1,
+        maxAttempts: 3,
+        delayMs: 2000,
+        errorMessage: "Network error: Unexpected EOF",
+    });
+    emit({ type: "auto_retry_end", success: false, attempt: 3, finalError: "Network error: Unexpected EOF" });
+    emit({
+        type: "summarization_retry_scheduled",
+        attempt: 2,
+        maxAttempts: 3,
+        delayMs: 4000,
+        errorMessage: "Unexpected EOF",
+    });
+    emit({ type: "summarization_retry_finished" });
+    emit({ type: "compaction_end", reason: "overflow", errorMessage: "503 <html>secret</html>" });
+    assertEquals(
+        events.filter((event) => event.type === "terminal_error").map((event) => [event.message, event.error]),
+        [
+            ["The model service stopped responding before the reply was complete.", "Unexpected EOF"],
+        ],
+    );
+    assertEquals(events.filter((event) => event.type === "system_status").map((event) => event.message), [
+        "The model service stopped responding before the reply was complete. Retrying in 2 seconds (1 of 3).",
+        "The model service stopped responding before the reply was complete. 3 retries were completed. You can try again.",
+        "The model service stopped responding before the reply was complete. Retrying summary in 4 seconds (2 of 3).",
+        "Auto-compaction failed: The model service is temporarily unavailable.",
+    ]);
+    state.unsubscribe();
+});
+
+Deno.test("cancelled retry emits no provider failure or exhaustion notice", () => {
+    const { session, emit } = makeSubscribableSession();
+    const { hostedSession, events } = makeRuntimeHarness("cancelled-provider-retry");
+    const controller = new AbortController();
+    const state = attachSessionEventSubscribers(session, agentDef, undefined, hostedSession, controller.signal);
+    controller.abort();
+    emit({ type: "message_end", message: { role: "assistant", stopReason: "error", errorMessage: "Unexpected EOF" } });
+    emit({ type: "auto_retry_start", attempt: 1, maxAttempts: 3, delayMs: 2000, errorMessage: "Unexpected EOF" });
+    emit({ type: "auto_retry_end", success: false, attempt: 1, finalError: "Retry cancelled" });
+    emit({
+        type: "summarization_retry_scheduled",
+        attempt: 1,
+        maxAttempts: 3,
+        delayMs: 2000,
+        errorMessage: "Unexpected EOF",
+    });
+    assertEquals(events.filter((event) => event.type === "terminal_error" || event.type === "system_status"), []);
+    state.unsubscribe();
+});
+
+Deno.test("a permanent final error gives its action instead of suggesting another unchanged retry", () => {
+    const { session, emit } = makeSubscribableSession();
+    const { hostedSession, events } = makeRuntimeHarness("provider-permanent-after-retry");
+    const state = attachSessionEventSubscribers(session, agentDef, undefined, hostedSession);
+    emit({ type: "auto_retry_end", success: false, attempt: 1, finalError: "401 Unauthorized" });
+    assertEquals(events.filter((event) => event.type === "system_status").map((event) => event.message), [
+        "The model service could not verify your access. Check your sign-in or API credentials. 1 retry was completed.",
+    ]);
+    state.unsubscribe();
+});
