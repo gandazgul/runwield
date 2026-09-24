@@ -218,8 +218,8 @@ baseline, lifecycle position, and completion contract.
 
 - `src/shared/workflow/plan-lifecycle.js` and `state-transition.ts` already centralize Plan Events and guarded Plan
   Status transitions. This is the authority the coordinator must call rather than a Claude-specific lifecycle.
-- `src/plan-store.js`, `src/shared/worktree.js`, `worktree-registry.js`, objective checks, review-ledger logic, merge
-  verification, and Work Record generation are largely session-independent and reusable.
+- `src/plan-store.js`, `src/shared/worktree.js`, `worktree-registry.js`, review-ledger logic, merge verification, and
+  Work Record generation are largely session-independent and reusable.
 - `src/shared/workflow/orchestrator.ts`, `workflow.js`, `engineer-runner.ts`, and `planning-agent.ts` drive
   Pi/HostedSession turns directly and interpret protected tool results as orchestration signals. Retrofitting Attached
   state into these modules would create fake Hosted Sessions or contaminate SessionRuntime with a conversation it does
@@ -278,9 +278,8 @@ baseline, lifecycle position, and completion contract.
   resolution.
 - `src/shared/git-port.ts`, `src/shared/worktree.js`, and `src/shared/worktree-registry.js` — reuse real Git operations,
   baseline evidence, execution isolation, merge safeguards, and recovery records.
-- The prerequisite session-independent validation engine plus `validation-local-ci.ts`, `objective-checks.ts`,
-  `review-ledger.ts`, delivery hierarchy, and merge-verification modules — reuse one validation policy and evidence
-  model across runtimes.
+- The prerequisite session-independent validation engine plus `validation-local-ci.ts`, `review-ledger.ts`, delivery
+  hierarchy, and merge-verification modules — reuse one validation policy and evidence model across runtimes.
 - `src/shared/session/agent-assets.js` and layered resource resolution — reuse canonical project/home/bundled precedence
   when materializing Claude-native assets.
 - `src/ui/review/review-launcher.js` and Workspace review endpoints — reuse Plannotator instead of building a

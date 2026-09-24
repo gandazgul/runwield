@@ -1020,9 +1020,6 @@ Deno.test("Approve for Later creates no execution segment", async () => {
                 "complexity: LOW",
                 "summary: Reviewed",
                 "affectedPaths: []",
-                "objectiveChecks:",
-                "  - id: OC1",
-                '    command: "false"',
                 "status: approved",
                 "---",
                 "# reviewed",
@@ -1131,7 +1128,7 @@ Deno.test("direct review from draft approves for later without a planning turn",
     });
 });
 
-for (const status of ["draft", "feedback", "approved", "ready_for_work"]) {
+for (const status of ["draft", "feedback", "approved", "ready_for_work"] as const) {
     Deno.test(`direct review menu is available for ${status} without custom shell checks`, async () => {
         await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot }) => {
             await writePlan(projectRoot, "review-without-checks", { status });
@@ -1167,9 +1164,6 @@ Deno.test("direct review from draft can approve and start execution", async () =
                 "complexity: LOW",
                 "summary: Direct run",
                 "affectedPaths: []",
-                "objectiveChecks:",
-                "  - id: OC1",
-                '    command: "false"',
                 "status: draft",
                 "---",
                 "# direct-run",
@@ -1239,9 +1233,6 @@ Deno.test("direct review from feedback can send feedback back through Planner", 
                 "complexity: LOW",
                 "summary: Direct feedback",
                 "affectedPaths: []",
-                "objectiveChecks:",
-                "  - id: OC1",
-                '    command: "false"',
                 "status: feedback",
                 "---",
                 "# direct-feedback",
@@ -1251,7 +1242,6 @@ Deno.test("direct review from feedback can send feedback back through Planner", 
         setModelMessages([
             fauxAssistantMessage(fauxToolCall("plan_written", {
                 planName: "direct-feedback",
-                objectiveChecks: [{ id: "OC1", command: "true" }],
             })),
         ]);
         const { runtime, sessionId } = await createRuntime(projectRoot);
@@ -1407,9 +1397,6 @@ Deno.test("direct review menu is omitted when a draft has an invalid execution p
                 "complexity: LOW",
                 "summary: Invalid policy draft",
                 "affectedPaths: []",
-                "objectiveChecks:",
-                "  - id: OC1",
-                '    command: "true"',
                 "status: draft",
                 "executionAgent: architect",
                 "collaborationRecommendation: autonomous",

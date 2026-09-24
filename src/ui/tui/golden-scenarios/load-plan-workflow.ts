@@ -869,7 +869,7 @@ export const loadPlanDirectReviewScenario = {
         {
             path: "docs/plans/direct-review.md",
             text:
-                '---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Direct review\naffectedPaths: []\nobjectiveChecks:\n  - id: OC1\n    command: "true"\nstatus: draft\n---\n# Direct review\n',
+                "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Direct review\naffectedPaths: []\nstatus: draft\n---\n# Direct review\n",
         },
     ],
     scriptedInteractions: [
@@ -913,7 +913,7 @@ export const loadPlanDirectReviewRunScenario = {
         {
             path: "docs/plans/direct-review-run.md",
             text:
-                '---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Direct review run\naffectedPaths: []\nobjectiveChecks:\n  - id: OC1\n    command: "false"\nstatus: draft\n---\n# Direct review run\n',
+                "---\nclassification: PLANNED_CHANGE\ncomplexity: LOW\nsummary: Direct review run\naffectedPaths: []\nstatus: draft\n---\n# Direct review run\n",
         },
     ],
     scriptedInteractions: [

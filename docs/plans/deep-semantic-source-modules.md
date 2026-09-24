@@ -171,7 +171,7 @@ src/
       worktrees/              ← src/shared/worktree*.js  (worktree, registry, merge, recovery)
 
     plans/                    ← src/plan-store.js (moved whole), src/plan-front-matter.js,
-                              plan-lifecycle, plan-approval, plan-review-recovery, objective-checks,
+                              plan-lifecycle, plan-approval, plan-review-recovery,
                               ticket-references, execution-plan-file, yaml-scalar.ts
 
     work-records/             ← src/shared/work-records/  (keeps mnemoteca-port.ts — a real port)
@@ -362,8 +362,7 @@ Separate terminal theme-selection policy from terminal chalk styling; browser th
 **The carryover invariant this must preserve.** The persisted theme name controls only terminal appearance. Preserve
 `applyPersistedTheme()`, discovery, and partial-theme merge behavior through the move. Browser surfaces instead use
 `DARK_BROWSER_THEME` and the pure browser renderer, regardless of OS or TUI settings. Keep alternate browser token sets
-swappable without changing component CSS. Objective-Failing Checks must protect both terminal behavior and browser
-independence.
+swappable without changing component CSS. Regression tests must protect both terminal behavior and browser independence.
 
 The browser route no longer uses a `Deno eval` theme lookup, and the design system no longer dynamically imports the
 terminal theme module. Do not restore either dependency.

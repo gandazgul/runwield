@@ -205,13 +205,10 @@ instead of assuming legacy helpers provide the gate.
 
 ### A10 — Direct Plan Review still requires removed objective-check metadata
 
-**Source-confirmed.** [getDirectPlanReviewEligibility](../../src/cmd/load-plan/plan-review-flow.ts#L106) requires an
-`objectiveChecks` item with an ID and command for executable Plans; Epics are exempt.
-[Plan storage](../../src/plan-store.js#L340) lists `objectiveChecks` and `objectiveChecksBaseline` as obsolete fields
-removed during ordinary writes. Active mechanical validation runs `verification_command`, not that old check loop.
-
-A newly written executable Plan can therefore be ineligible for the direct-review entry even though its regular
-`plan_written` path works. This is an entry-path inconsistency, not language-based transition authority.
+**Resolved by removal (2026-09-24).** [getDirectPlanReviewEligibility](../../src/cmd/load-plan/plan-review-flow.ts) now
+checks supported status and execution policy only. Direct review opens Plans without custom shell checks, including
+ready-for-work Plans, through the existing review flow. Integration coverage exercises review, feedback, approval for
+later, and execution without the retired metadata.
 
 ### A11 — `validated` is used as terminal status before publication completes
 

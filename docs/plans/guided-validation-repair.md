@@ -287,12 +287,12 @@ standalone JSONL or an in-memory conversation for user-guided work.
   - Repeat with a Frontend Engineer Plan and confirm no Pair checkpoint appears unless the Plan independently uses Pair
     Execution.
 
-### Objective-Failing Checks
+### Regression coverage
 
-- `OC1` proves `/load-plan` exposes Guided Repair for validation-state Plans without restarting implementation.
-- `OC2` proves prompts reach the correct execution Agent and RunWield-owned checkout.
-- `OC3` proves Task Completion and repeated validation failures form one user-guided repair loop.
-- `OC4` proves Guided Repair remains independent from Pair Execution.
+- Verify that `/load-plan` exposes Guided Repair for validation-state Plans without restarting implementation.
+- Verify that prompts reach the correct execution Agent and RunWield-owned checkout.
+- Verify that Task Completion and repeated validation failures form one user-guided repair loop.
+- Verify that Guided Repair remains independent from Pair Execution.
 
 ## Edge Cases and Constraints
 

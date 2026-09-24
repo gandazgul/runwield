@@ -81,12 +81,12 @@ Deno.test("buildEngineerRequest removes protected Plan Front Matter and preserve
         "# Approved body\n\nUNIQUE BODY SENTINEL\n\n## Router Handoff Message\nThis is ordinary Plan Markdown.";
     const request = buildEngineerRequest(
         "feature-plan",
-        `---\nsummary: SECRET FRONT MATTER\nobjectiveChecks:\n  - id: OC1\n    command: false\n    rationale: secret\n---\n${projectedBody}\n`,
+        `---\nsummary: SECRET FRONT MATTER\nworktreeId: secret-worktree\n---\n${projectedBody}\n`,
     );
 
     assertEquals(request, `## Approved Plan: feature-plan\n\n## Approved Plan Body\n\n${projectedBody}`);
     assertEquals(request.includes("SECRET FRONT MATTER"), false);
-    assertEquals(request.includes("objectiveChecks"), false);
+    assertEquals(request.includes("worktreeId"), false);
 });
 
 Deno.test("buildEngineerRequest includes confirmed Plan Deviations after the body", () => {

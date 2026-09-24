@@ -271,7 +271,7 @@ V1. Reload Plan/controller and resolve execution checkout
 
 The third repair receives a fresh CI run. There is no automatic fourth repair if that run fails. Passing CI resets the
 CI repair counter. Repairing `.wld/settings.json` can change the command the next CI invocation runs: settings are
-reloaded. There is no separate active `objectiveChecks` execution loop in this version.
+reloaded.
 
 In live isolated repairs, `runValidationAgentUntilEvent` registers before dispatch, excludes earlier events, scopes by
 invocation/session, then aborts and waits for the producer after the accepted completion. That is stronger than merely
@@ -591,9 +591,9 @@ Source: [load-plan dispatcher](../src/cmd/load-plan/index.ts),
 [recovery actions](../src/cmd/load-plan/plan-recovery-actions.ts), [reset](../src/cmd/load-plan/plan-recovery-reset.ts),
 [hold](../src/cmd/load-plan/plan-hold.ts), [canonical actions](../src/shared/workflow/plan-actions.ts).
 
-One current entry gap: direct review still demands legacy `objectiveChecks` metadata, although ordinary Plan writes
-strip that metadata and the active validation loop does not run it. This affects direct-review availability, not
-transcript authority. The old automatic Plan Amendment approval gate has been removed from the active validation code.
+Direct review is available for draft, feedback, approved, and ready-for-work Plans with a valid execution policy,
+including Plans without custom shell checks. The old automatic Plan Amendment approval gate has been removed from the
+active validation code.
 
 ## Q — No-plan Quick Fix side branch
 

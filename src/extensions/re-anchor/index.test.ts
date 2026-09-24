@@ -103,7 +103,7 @@ function hostedSession(
         Deno.mkdirSync(dirname(planPath), { recursive: true });
         Deno.writeTextFileSync(
             planPath,
-            `---\nsummary: SECRET FRONT MATTER\nobjectiveChecks:\n  - id: OC1\n    command: false\n    rationale: secret\n---\n# Approved body for ${active.planName}\n\n## Verification Plan\n\nRun tests.`,
+            `---\nsummary: SECRET FRONT MATTER\nworktreeId: secret-worktree\n---\n# Approved body for ${active.planName}\n\n## Verification Plan\n\nRun tests.`,
         );
         session.setActiveExecutionWorkflow({
             planName: active.planName,
@@ -131,7 +131,7 @@ Deno.test("a settled compaction injects the Plan body without Front Matter", () 
     assertStringIncludes(text, "# Approved body for some-plan");
     assertStringIncludes(text, "Verification Plan");
     assert(!text.includes("SECRET FRONT MATTER"));
-    assert(!text.includes("objectiveChecks"));
+    assert(!text.includes("worktreeId"));
 });
 
 Deno.test("the injected message is appended without disturbing existing history", () => {
