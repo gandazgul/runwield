@@ -231,6 +231,7 @@ export async function handleEpicPlan({
                 projectRoot,
                 plan,
                 uiAPI,
+                session,
             });
             return "handled";
         }

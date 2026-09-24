@@ -248,6 +248,7 @@ export async function userVerifyRecoveryPlan(context: RecoveryActionContext): Pr
         projectRoot: context.projectRoot,
         plan: context.plan,
         uiAPI: context.uiAPI,
+        session: context.session,
     });
     await context.recordRecoveryResult("user_verify", "handled");
     return { kind: "handled" };

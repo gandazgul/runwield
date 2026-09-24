@@ -30,6 +30,9 @@ import { confirmWorktreeAction, hasWorktreeContext, resolveRecoveryWorktree } fr
 import { settleDiscardedRecoveryAttempt } from "./plan-recovery-discard.ts";
 import { writeControllerState } from "../../shared/workflow/controller-registry.ts";
 import { loadPlan } from "../../plan-store.js";
+import { resolveWorkflowPlanLocation } from "../../shared/workflow/plan-location.ts";
+import { completeUserVerification } from "./user-verification-completion.ts";
+import { resolvePrimaryCheckoutRoot } from "../../shared/primary-checkout.ts";
 import type { PlanFrontMatter } from "../../plan-store.js";
 import type { UiAPI } from "../../ui/tui/types.js";
 import type { PlanSessionSurface } from "./plan-session-types.ts";
@@ -56,6 +59,7 @@ export interface MarkPlanUserVerifiedOptions {
     projectRoot: string;
     plan: HoldablePlan;
     uiAPI: UiAPI;
+    session: PlanSessionSurface;
 }
 
 export interface RunResumeCheckOptions {
@@ -206,8 +210,9 @@ export async function putPlanOnHold(
  * @returns {Promise<boolean>}
  */
 export async function markPlanUserVerified(
-    { projectRoot, plan, uiAPI }: MarkPlanUserVerifiedOptions,
+    { projectRoot, plan, uiAPI, session }: MarkPlanUserVerifiedOptions,
 ): Promise<boolean> {
+    const primaryRoot = resolvePrimaryCheckoutRoot(projectRoot);
     if (!isUserVerifiableStatus(plan.attrs.status)) {
         uiAPI.appendSystemMessage(
             `Plans with status ${plan.attrs.status} must be re-opened before User Verification.`,
@@ -246,8 +251,10 @@ export async function markPlanUserVerified(
         details: { triageMeta: plan.attrs, userVerificationNote: note },
     });
     plan.attrs = { ...plan.attrs, ...updatedAttrs };
-    const refreshed = await loadPlan(projectRoot, plan.planName);
+    const { plan: refreshed } = await resolveWorkflowPlanLocation(projectRoot, plan.planName);
     if (refreshed) Object.assign(plan, refreshed);
+    await completeUserVerification({ projectRoot, plan, uiAPI, session });
+    projectRoot = primaryRoot;
     let workRecordMessage = "";
     let workRecordResult: Awaited<ReturnType<typeof autoGenerateWorkRecordForCompletedPlan>> | undefined;
     try {

@@ -6,12 +6,13 @@
 import { isPlannedChangeClassification } from "../../constants.js";
 import {
     findPlansByParent,
+    getPlanDocumentRoot,
     isChildFeaturePlan,
     isProjectPlan,
     listArchivedPlans,
     loadArchivedPlan,
-    loadPlan,
 } from "../../plan-store.js";
+import { resolveWorkflowPlanLocation } from "../workflow/plan-location.ts";
 import { shouldAutoGenerateWorkRecordsOnPlanCompletion } from "../settings.js";
 import type { WorkRecordMnemotecaPort } from "./mnemoteca-port.ts";
 import { listWorkRecords } from "./store.js";
@@ -57,16 +58,16 @@ function conciseError(value: Error | string): string {
 }
 
 async function loadActiveSource(cwd: string, name: string): Promise<WorkRecordSource | null> {
-    const loaded = await loadPlan(cwd, name);
-    return loaded ? buildActiveWorkRecordSource(name, loaded) : null;
+    const { plan } = await resolveWorkflowPlanLocation(cwd, name);
+    return plan ? buildActiveWorkRecordSource(name, plan) : null;
 }
 
 async function withEpicChildren(cwd: string, source: WorkRecordSource): Promise<WorkRecordSource> {
     if (!isProjectPlan(source.attrs)) return source;
     const children: WorkRecordSource[] = [];
     for (const child of await findPlansByParent(cwd, source.name)) {
-        const loaded = await loadPlan(cwd, child.name);
-        if (loaded) children.push(buildActiveWorkRecordSource(child.name, loaded));
+        const loaded = await loadActiveSource(cwd, child.name);
+        if (loaded) children.push(loaded);
     }
     for (const child of await listArchivedPlans(cwd)) {
         if (!isPlannedChangeClassification(child.attrs.classification) || child.attrs.parentPlan !== source.name) {
@@ -166,7 +167,8 @@ export async function autoGenerateWorkRecordForCompletedPlan({
             });
         }
 
-        const existingByPlanId = recordsBySourcePlanId(await listWorkRecords(cwd, { createDir: false }));
+        const sourceRoot = getPlanDocumentRoot(resolved.source.path);
+        const existingByPlanId = recordsBySourcePlanId(await listWorkRecords(sourceRoot, { createDir: false }));
         const evaluated = evaluateWorkRecordSource(resolved.source, existingByPlanId);
         if (evaluated.skipReason) {
             return withMessage({
@@ -178,7 +180,7 @@ export async function autoGenerateWorkRecordForCompletedPlan({
             });
         }
 
-        const outcome = await generateWorkRecordForSource(cwd, evaluated, {
+        const outcome = await generateWorkRecordForSource(sourceRoot, evaluated, {
             mnemotecaPort,
         });
         const status = outcome.status === "generated" || outcome.status === "linked" ? outcome.status : "failed";

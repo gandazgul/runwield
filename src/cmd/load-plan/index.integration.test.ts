@@ -19,7 +19,8 @@ import { createSessionRuntime, type SessionRuntime } from "../../shared/session/
 import { openFileSessionStore } from "../../shared/session/file-session-store.ts";
 import { createPlanSessionSurface } from "./plan-session-surface.ts";
 import { discardWorktreeGitArtifacts } from "../../shared/worktree.js";
-import { addEntry, findById, removeEntry } from "../../shared/worktree-registry.js";
+import { addEntry, findById, removeEntry, updateEntry } from "../../shared/worktree-registry.js";
+import { setCustomSetting } from "../../shared/settings.js";
 import { executePlanAction, loadPlanActionEvidence } from "../../shared/workflow/plan-actions.ts";
 import { recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
 import { writeControllerState } from "../../shared/workflow/controller-registry.ts";
@@ -683,7 +684,80 @@ Deno.test("load-plan resumes publication, removes the worktree, and leaves Engin
     );
 });
 
-Deno.test("load-plan abandons unregistered legacy recovery before archiving a User Verified Plan", async () => {
+for (const confirmRemoval of [true, false]) {
+    Deno.test(`User Verification carries the Plan to primary and ${confirmRemoval ? "removes" : "preserves"} the worktree after confirmation`, async () => {
+        await withRuntimeCommandFixture("runwield-user-verification-authority-", async ({ projectRoot }) => {
+            const fixture = await prepareImplementedFollowUpPlan(projectRoot);
+            await updateEntry(projectRoot, "follow-up-worktree", { status: "active" });
+            await setCustomSetting("workRecords", { autoGenerateOnPlanCompletion: false }, "project", projectRoot);
+            const execution = await loadPlan(fixture.worktreePath, fixture.planName);
+            if (!execution) throw new Error("Missing execution Plan");
+            await Deno.writeTextFile(execution.path, execution.markdown + "\nExecution-only completion notes.\n");
+            const { runtime, sessionId } = await createRuntime(projectRoot);
+            await runtime.switchAgent(sessionId, { agentName: "planner" });
+            await runtime.switchAgent(sessionId, { agentName: "engineer", cwd: fixture.worktreePath });
+            await runtime.setActiveExecutionWorkflow(sessionId, {
+                planName: fixture.planName,
+                projectRoot,
+                triageMeta: execution.attrs,
+                executionAgent: "engineer",
+                executionMode: "worktree",
+                executionCwd: fixture.worktreePath,
+            });
+            try {
+                const verify = makeUi(["user_verify", confirmRemoval ? "confirm" : "cancel"], [
+                    "Shipped through the release PR.",
+                ]);
+                await runLoadPlanCommand([fixture.planName], {
+                    sessionRuntime: runtime,
+                    sessionId,
+                    uiAPI: verify.uiAPI,
+                    editor: verify.editor,
+                });
+                const accepted = await loadPlan(projectRoot, fixture.planName);
+                assertEquals(accepted?.attrs.status, "user_verified");
+                assertEquals(accepted?.attrs.userVerificationNote, "Shipped through the release PR.");
+                assertEquals(accepted?.attrs.verifiedAt, undefined);
+                assertEquals(accepted?.attrs.deliveryEvidence, undefined);
+                assertStringIncludes(accepted?.body || "", "Execution-only completion notes.");
+                assertEquals(await pathExists(fixture.worktreePath), !confirmRemoval);
+                assertEquals(
+                    (await findById(projectRoot, "follow-up-worktree"))?.status,
+                    confirmRemoval ? undefined : "abandoned",
+                );
+                assertEquals(runtime.getSessionSnapshot(sessionId)?.cwd, await Deno.realPath(projectRoot));
+                assertEquals(accepted?.attrs.documentWorktreeId, undefined);
+                assertEquals(accepted?.attrs.executionMode, undefined);
+
+                const reload = makeUi(confirmRemoval ? ["archive"] : ["archive", "cancel", "archive", "confirm"]);
+                await runLoadPlanCommand([fixture.planName], {
+                    sessionRuntime: runtime,
+                    sessionId,
+                    uiAPI: reload.uiAPI,
+                    editor: reload.editor,
+                });
+                assertEquals(reload.promptOptions[0].map((option) => option.value), [
+                    "archive",
+                    "review",
+                    "view",
+                    "cancel",
+                ]);
+                assertEquals(reload.prompts.some((prompt) => prompt.startsWith("Plan recovery")), false);
+                assertEquals(
+                    (await loadArchivedPlan(projectRoot, fixture.planName))?.attrs.archivedFromStatus,
+                    "user_verified",
+                );
+                assertEquals(await pathExists(fixture.worktreePath), false);
+                assertEquals(await findById(projectRoot, "follow-up-worktree"), null);
+            } finally {
+                runtime.closeAllSessions();
+                await git(projectRoot, ["worktree", "remove", "--force", fixture.worktreePath]).catch(() => {});
+            }
+        });
+    });
+}
+
+Deno.test("load-plan confirms cleanup of unregistered legacy recovery when archiving a User Verified Plan", async () => {
     await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot }) => {
         await git(projectRoot, ["init", "-b", "main"]);
         await git(projectRoot, ["config", "user.email", "tests@example.com"]);
@@ -716,7 +790,7 @@ Deno.test("load-plan abandons unregistered legacy recovery before archiving a Us
         );
         assertEquals(await findById(projectRoot, "lost-worktree"), null);
         const { runtime, sessionId } = await createRuntime(projectRoot);
-        const ui = makeUi(["abandon", "confirm", "archive"]);
+        const ui = makeUi(["archive", "confirm"]);
         try {
             await runLoadPlanCommand(["finished-with-stale-worktree"], {
                 sessionRuntime: runtime,
@@ -1004,9 +1078,6 @@ Deno.test("direct review from draft approves for later without a planning turn",
                 "complexity: LOW",
                 "summary: Direct draft",
                 "affectedPaths: []",
-                "objectiveChecks:",
-                "  - id: OC1",
-                '    command: "false"',
                 "status: draft",
                 "---",
                 "# direct-draft",
@@ -1060,47 +1131,30 @@ Deno.test("direct review from draft approves for later without a planning turn",
     });
 });
 
-Deno.test("direct review menu is omitted when a draft has no Objective-Failing Check", async () => {
-    await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot }) => {
-        await writePlan(projectRoot, "incomplete-draft", { status: "draft" });
-        const { runtime, sessionId } = await createRuntime(projectRoot);
-        const ui = makeUi(["cancel"]);
-        try {
-            await runLoadPlanCommand(["incomplete-draft"], {
-                sessionRuntime: runtime,
-                sessionId,
-                uiAPI: ui.uiAPI,
-                editor: ui.editor,
-            });
+for (const status of ["draft", "feedback", "approved", "ready_for_work"]) {
+    Deno.test(`direct review menu is available for ${status} without custom shell checks`, async () => {
+        await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot }) => {
+            await writePlan(projectRoot, "review-without-checks", { status });
+            const { runtime, sessionId } = await createRuntime(projectRoot);
+            const ui = makeUi(["cancel"]);
+            try {
+                await runLoadPlanCommand(["review-without-checks"], {
+                    sessionRuntime: runtime,
+                    sessionId,
+                    uiAPI: ui.uiAPI,
+                    editor: ui.editor,
+                });
 
-            assertEquals(ui.promptOptions[0].some((option) => option.value === "review"), false);
-            assertEquals(ui.promptOptions[0].some((option) => option.value === "resume"), true);
-        } finally {
-            runtime.closeAllSessions();
-        }
+                assertEquals(ui.promptOptions[0].some((option) => option.value === "review"), true);
+                const continuation = status === "draft" || status === "feedback" ? "resume" : "proceed";
+                assertEquals(ui.promptOptions[0].some((option) => option.value === continuation), true);
+                assertEquals((await loadPlan(projectRoot, "review-without-checks"))?.attrs.status, status);
+            } finally {
+                runtime.closeAllSessions();
+            }
+        });
     });
-});
-
-Deno.test("direct review menu is omitted when a ready Plan has no Objective-Failing Check", async () => {
-    await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot }) => {
-        await writePlan(projectRoot, "incomplete-ready", { status: "ready_for_work" });
-        const { runtime, sessionId } = await createRuntime(projectRoot);
-        const ui = makeUi(["cancel"]);
-        try {
-            await runLoadPlanCommand(["incomplete-ready"], {
-                sessionRuntime: runtime,
-                sessionId,
-                uiAPI: ui.uiAPI,
-                editor: ui.editor,
-            });
-
-            assertEquals(ui.promptOptions[0].some((option) => option.value === "review"), false);
-            assertEquals(ui.promptOptions[0].some((option) => option.value === "proceed"), true);
-        } finally {
-            runtime.closeAllSessions();
-        }
-    });
-});
+}
 
 Deno.test("direct review from draft can approve and start execution", async () => {
     await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot, setModelMessages }) => {
@@ -1264,7 +1318,7 @@ Deno.test("direct review from feedback can send feedback back through Planner", 
 });
 
 Deno.test("direct review from ready_for_work reopens review and approves for later", async () => {
-    await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot }) => {
+    await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot, setModelResponseFactory }) => {
         await Deno.mkdir(`${projectRoot}/docs/plans`, { recursive: true });
         await Deno.writeTextFile(
             `${projectRoot}/docs/plans/direct-ready.md`,
@@ -1274,15 +1328,17 @@ Deno.test("direct review from ready_for_work reopens review and approves for lat
                 "complexity: LOW",
                 "summary: Direct ready",
                 "affectedPaths: []",
-                "objectiveChecks:",
-                "  - id: OC1",
-                '    command: "false"',
                 "status: ready_for_work",
                 "---",
                 "# direct-ready",
                 "",
             ].join("\n"),
         );
+        let modelTurns = 0;
+        setModelResponseFactory(() => {
+            modelTurns++;
+            return fauxAssistantMessage(fauxText("Unexpected planning turn"));
+        });
         const { runtime, sessionId } = await createRuntime(projectRoot);
         runtime.setInteractionAdapter(sessionId, {
             requestInteraction: async () => {
@@ -1328,6 +1384,8 @@ Deno.test("direct review from ready_for_work reopens review and approves for lat
             });
 
             assertEquals((await loadPlan(projectRoot, "direct-ready"))?.attrs.status, "ready_for_work");
+            assertEquals(modelTurns, 0);
+            assertEquals(runtime.getRuntimeActiveExecutionWorkflow(sessionId), null);
             assertEquals(
                 ui.promptOptions[0].some((option) => option.value === "review" && option.label === "Review plan"),
                 true,

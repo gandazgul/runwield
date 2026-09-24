@@ -1,6 +1,8 @@
 import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
 import { assertEquals, assertStringIncludes } from "@std/assert";
-import { loadPlan, savePlan } from "../../plan-store.js";
+import { loadPlan, savePlan, updatePlanFrontMatter } from "../../plan-store.js";
+import { git } from "../git-test-fixture.ts";
+import { addEntry } from "../worktree-registry.js";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { setCustomSetting } from "../settings.js";
 import { listWorkRecords, writeWorkRecord } from "./store.js";
@@ -82,6 +84,70 @@ Deno.test("automatic Work Record generation writes a canonical record and Plan b
             (await loadPlan(projectRoot, "standalone"))?.attrs.workRecord?.recordId,
             records[0].attrs.recordId,
         );
+    });
+});
+
+Deno.test("automatic Work Record generation reads acceptance from the registered worktree", async () => {
+    await withRuntimeCommandFixture("work-record-accepted-worktree-", async ({ projectRoot, setModelMessages }) => {
+        await git(projectRoot, ["init", "-b", "main"]);
+        await git(projectRoot, ["config", "user.email", "tests@example.com"]);
+        await git(projectRoot, ["config", "user.name", "RunWield Tests"]);
+        await savePlan(projectRoot, "accepted", "# Accepted\n\nDelivered through the release PR.", {
+            planId: "accepted-plan",
+            classification: "PLANNED_CHANGE",
+            status: "in_progress",
+        });
+        await git(projectRoot, ["add", "."]);
+        await git(projectRoot, ["commit", "-m", "Plan"]);
+        const path = `${projectRoot}-execution`;
+        await git(projectRoot, ["worktree", "add", "-b", "worktree/accepted", path]);
+        try {
+            await addEntry(projectRoot, {
+                id: "accepted-attempt",
+                planId: "accepted-plan",
+                planName: "accepted",
+                path,
+                branch: "worktree/accepted",
+                baseBranch: "main",
+                baseRef: "main",
+                baseCommit: await git(projectRoot, ["rev-parse", "HEAD"]),
+                status: "active",
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+            });
+            const plan = await loadPlan(path, "accepted");
+            if (!plan) throw new Error("Missing fixture Plan");
+            await updatePlanFrontMatter(
+                path,
+                "accepted",
+                {
+                    status: "user_verified",
+                    userVerificationNote: "Shipped through the release PR.",
+                    userVerifiedAt: new Date().toISOString(),
+                },
+                {},
+                { expectedRevision: plan.revision },
+            );
+            setModelMessages([fauxAssistantMessage(fauxToolCall("work_record_completed", {
+                title: "Accepted release",
+                summary: "The user confirmed the release shipped.",
+            }))]);
+            const result = await autoGenerateWorkRecordForCompletedPlan({
+                cwd: projectRoot,
+                planName: "accepted",
+                mnemotecaPort: createWorkRecordMnemotecaFixture(),
+            });
+            assertEquals(result.status, "generated", result.message);
+            const records = await listWorkRecords(path);
+            assertEquals(records.length, 1);
+            assertEquals(records[0].attrs.completionMode, "user_verified");
+            assertStringIncludes(records[0].summary, "Shipped through the release PR.");
+            assertEquals((await loadPlan(path, "accepted"))?.attrs.workRecord?.recordId, records[0].attrs.recordId);
+            assertEquals((await loadPlan(projectRoot, "accepted"))?.attrs.status, "in_progress");
+            assertEquals((await loadPlan(projectRoot, "accepted"))?.attrs.workRecord, undefined);
+        } finally {
+            await git(projectRoot, ["worktree", "remove", "--force", path]);
+        }
     });
 });
 

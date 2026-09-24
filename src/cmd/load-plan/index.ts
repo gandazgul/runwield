@@ -45,6 +45,8 @@ import {
     markPlanUserVerified,
     putPlanOnHold,
 } from "./plan-hold.ts";
+import { completeUserVerification } from "./user-verification-completion.ts";
+import { resolvePrimaryCheckoutRoot } from "../../shared/primary-checkout.ts";
 import { confirmChildFeatureDependencies, formatTopLevelPlanOption } from "./plan-epic-children.ts";
 import { reopenPlanForReview, resolveRecoveryWorktree } from "./plan-recovery-worktree.ts";
 import { healSettledTransitionRecords } from "../../shared/workflow/transition-recovery.ts";
@@ -545,10 +547,11 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
         // from Plan Recovery whatever the Plan's status is. Otherwise a draft or
         // verified Plan is told it is blocked and offered nothing.
         if (
-            (!cleanupPending && (["in_progress", "failed"].includes(plan.attrs.status) ||
-                isInValidation(plan.attrs.status) ||
-                isRecoverableWorktreeStatus(plan.attrs.worktreeStatus) ||
-                Boolean(recordedAttempt?.publication))) ||
+            (!cleanupPending && !["verified", "user_verified"].includes(plan.attrs.status) &&
+                (["in_progress", "failed"].includes(plan.attrs.status) ||
+                    isInValidation(plan.attrs.status) ||
+                    isRecoverableWorktreeStatus(plan.attrs.worktreeStatus) ||
+                    Boolean(recordedAttempt?.publication))) ||
             unresolvedLifecycleRecords.length > 0
         ) {
             restoreAgentName = planFlowRestoreAgent;
@@ -616,6 +619,11 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                     continue;
                 }
                 if (answer === "archive") {
+                    if (plan.attrs.status === "user_verified") {
+                        const primaryRoot = resolvePrimaryCheckoutRoot(projectRoot);
+                        if (!await completeUserVerification({ projectRoot, plan, uiAPI, session })) continue;
+                        projectRoot = primaryRoot;
+                    }
                     const archived = await archivePlan(projectRoot, plan.planName, {
                         abandonedWorktree: plan.attrs.worktreeStatus === "abandoned",
                     });
@@ -677,6 +685,7 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                         projectRoot,
                         plan,
                         uiAPI,
+                        session,
                     });
                     return;
                 }
@@ -806,6 +815,7 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                         projectRoot,
                         plan,
                         uiAPI,
+                        session,
                     });
                     return;
                 }
