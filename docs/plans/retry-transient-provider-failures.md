@@ -5,7 +5,7 @@ workKind: "BUG_FIX"
 complexity: "MEDIUM"
 affectedPaths:
     - "src/shared/session/session.js"
-    - "src/shared/session/provider-errors.js"
+    - "src/shared/session/provider-errors.ts"
     - "src/shared/session/session-transcript-projection.js"
     - "src/shared/session/session-subscribers.test.js"
     - "src/shared/session/deferred-validation-repair.integration.test.js"
@@ -17,7 +17,7 @@ createdAt: "2026-09-24"
 origin: "internal"
 userVerifiedAt: null
 targetBranch: "main"
-status: "implemented"
+status: "validated_reviewer"
 ---
 
 # Retry transient provider failures with clear messages
@@ -119,7 +119,7 @@ during implementation and change whatever the Implementation Steps need, includi
 only when discovery changes approved intent — the change reaches another subsystem, public behavior or architecture
 shifts, migration or compatibility risk grows, or the Verification Plan no longer proves the objective.
 
-- `src/shared/session/provider-errors.js` (proposed) and focused tests — EOF normalization and shared safe display text;
+- `src/shared/session/provider-errors.ts` (proposed) and focused tests — EOF normalization and shared safe display text;
   keep stream adaptation nearby or in a focused companion file if needed.
 - `src/shared/session/session.js` — install normalization once in `buildAgentSession`; use the formatter in shared
   subscribers and cancellation-aware retry reporting, including Pi's `summarization_retry_scheduled`,

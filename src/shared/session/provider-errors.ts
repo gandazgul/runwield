@@ -1,23 +1,33 @@
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
+import type {
+    Api,
+    AssistantMessage,
+    AssistantMessageEventStream,
+    Model,
+    SimpleStreamOptions,
+    TranscriptContext,
+} from "@earendil-works/pi-ai";
 
 const EOF_ERROR = /^unexpected eof\.?$/i;
 
-/** @param {string} message */
-function normalizeEof(message) {
+function normalizeEof(message: string) {
     return EOF_ERROR.test(message.trim()) ? `Network error: ${message.trim()}` : message;
 }
 
 /**
  * Public provider-stream adapter. It changes only the diagnostic Pi uses to
  * classify a standalone EOF; Pi still owns every retry and backoff.
- *
- * @param {(model: import('@earendil-works/pi-ai').Model<import('@earendil-works/pi-ai').Api>, context: import('@earendil-works/pi-ai').TranscriptContext, options?: import('@earendil-works/pi-ai').SimpleStreamOptions) => import('@earendil-works/pi-ai').AssistantMessageEventStream | Promise<import('@earendil-works/pi-ai').AssistantMessageEventStream>} source
- * @param {import('@earendil-works/pi-ai').Model<import('@earendil-works/pi-ai').Api>} model
- * @param {import('@earendil-works/pi-ai').TranscriptContext} context
- * @param {import('@earendil-works/pi-ai').SimpleStreamOptions} [options]
- * @returns {import('@earendil-works/pi-ai').AssistantMessageEventStream}
  */
-export function normalizeProviderStream(source, model, context, options) {
+export function normalizeProviderStream(
+    source: (
+        model: Model<Api>,
+        context: TranscriptContext,
+        options?: SimpleStreamOptions,
+    ) => AssistantMessageEventStream | Promise<AssistantMessageEventStream>,
+    model: Model<Api>,
+    context: TranscriptContext,
+    options?: SimpleStreamOptions,
+): AssistantMessageEventStream {
     const output = createAssistantMessageEventStream();
     // Start the provider synchronously: a deferred start can move steering and
     // cancellation across the request boundary.
@@ -28,8 +38,7 @@ export function normalizeProviderStream(source, model, context, options) {
         initial = Promise.reject(error);
     }
     (async () => {
-        /** @type {import('@earendil-works/pi-ai').AssistantMessage | undefined} */
-        let partial;
+        let partial: AssistantMessage | undefined;
         try {
             const input = await initial;
             for await (const event of input) {
@@ -93,20 +102,14 @@ export function normalizeProviderStream(source, model, context, options) {
     return output;
 }
 
-/**
- * @param {string | undefined} diagnostic
- * @param {number} retries
- * @returns {string}
- */
-export function formatProviderRetryExhaustion(diagnostic, retries) {
+export function formatProviderRetryExhaustion(diagnostic: string | undefined, retries: number) {
     const message = formatProviderError(diagnostic);
     const retryCount = `${retries} ${retries === 1 ? "retry was" : "retries were"} completed.`;
     const temporary = /stopped responding|temporarily unavailable|too many requests/.test(message);
     return `${message} ${retryCount}${temporary ? " You can try again." : ""}`;
 }
 
-/** @param {string | undefined} diagnostic @returns {string} */
-export function formatProviderError(diagnostic) {
+export function formatProviderError(diagnostic: string | undefined) {
     const text = diagnostic || "";
     if (/insufficient_quota|quota|billing|out of budget|usage limit|session limit|available balance/i.test(text)) {
         return "The model service reports a usage or billing limit. Check your account.";

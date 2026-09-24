@@ -1,6 +1,6 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { createAssistantMessageEventStream, normalizeContext } from "@earendil-works/pi-ai";
-import { formatProviderError, normalizeProviderStream } from "./provider-errors.js";
+import { formatProviderError, normalizeProviderStream } from "./provider-errors.ts";
 
 /** @type {import('@earendil-works/pi-ai').Model<import('@earendil-works/pi-ai').Api>} */
 const model = {
