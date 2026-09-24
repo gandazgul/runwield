@@ -54,9 +54,9 @@ work. Lasting update instructions belong in `docs/releasing.md`.
 
 ## Ordered Children
 
-1. [Homebrew tap and safe package updates](archived/package-manager-distribution/01-homebrew-tap.md): tested tap source
-   for both formulas, dependency setup, Stable release preparation, and package-owned update protection. Final
-   ready-to-push output is generated and checked after the owner publishes the matching Stable release.
+1. [Homebrew tap and safe package updates](package-manager-distribution/01-homebrew-tap.md): tested tap source for both
+   formulas, dependency setup, Stable release preparation, and package-owned update protection. Final ready-to-push
+   output is generated and checked after the owner publishes the matching Stable release.
 2. [Native Windows package and WinGet release handoff](package-manager-distribution/02-windows-winget-readiness.md):
    complete Windows ZIP, real native verification, WinGet manifest generation, and disposable publication guide. Reuses
    the first child's package identity and release checks.
