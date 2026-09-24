@@ -545,6 +545,7 @@ export async function dispatchPostTriage({
             planName: typeof decision.payload.planName === "string" ? decision.payload.planName : undefined,
             details: summarizeWorkflowDecision(decision),
         });
+        checkCanceled();
 
         if (decision.kind === "start_slicer") {
             const planName = String(decision.payload.planName);
@@ -607,6 +608,7 @@ export async function dispatchPostTriage({
         const planName = String(decision.payload.planName);
         const decisionMeta = decision.payload.triageMeta as TriageOutcomeInput | undefined;
         const decisionTriageMeta = normalizeTriageOutcome(decisionMeta) || normalizedTriage;
+        checkCanceled();
         let executionResult: Awaited<ReturnType<typeof executePlan>>;
         try {
             executionResult = await executePlan({

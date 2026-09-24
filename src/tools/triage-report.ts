@@ -126,8 +126,6 @@ export function createTriageReportTool(
                 `Complexity: ${complexity}`,
                 `Summary: ${summary}`,
             ];
-            emitSystemStatus(hostedSession || undefined, `\n\n${triageLines.join("\n")}`, { header: "Triage" });
-
             if (hostedSession) {
                 await recordWorkflowMetric({
                     category: "routing",

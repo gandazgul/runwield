@@ -102,6 +102,17 @@ New sessions start with the **Router** Agent.
 After Router hands off to Guide, Ideator, Operator, Planner, Architect, Engineer, or another specialist, that specialist
 remains the active root Agent. This keeps follow-up messages in useful context.
 
+**Requirement: Preserve steering through an Agent handoff.**
+
+When an accepted workflow event starts an Agent handoff, Core stops and settles the outgoing Agent turn before the
+replacement Agent starts provider work. Steering Messages submitted from that point belong to the replacement Agent.
+Core transfers each pending message once, in order, with its identity, text, images, and notification destination
+unchanged. A transfer does not report the message as consumed. Core reports consumption and shows the user message only
+when the replacement Agent receives it.
+
+If replacement setup fails, Core keeps the previous Agent active and retains the pending Steering Messages. Canceling a
+Session removes pending Steering Messages and ends the handoff. A prior Triage Report cannot start a second handoff.
+
 **Requirement: Announce real Agent changes once.**
 
 A successful change to a different active Agent produces one conversation notice. Initial activation, reloading the same
@@ -134,6 +145,9 @@ output lines. For longer output, it keeps the start and end and shows how many m
 
 - Given a new conversation, when the user submits a request, Router handles initial triage; after a specialist handoff,
   follow-up messages stay with that specialist.
+- Given Router has emitted an accepted Triage Report, when the user sends text or images before the specialist is ready,
+  Router settles without another provider request and the specialist receives each message once, in order. The queue
+  reports consumption only after delivery.
 - Given a fully typed existing Plan name, pressing Enter once opens that Plan, even if a longer Plan name shares its
   prefix and completion lookup has finished.
 - After switching to Guide, commands and follow-up messages produce no additional Agent notice unless the active Agent

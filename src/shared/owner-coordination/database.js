@@ -275,7 +275,6 @@ function backupOwnerDatabase(db, dbPath, sourceVersion, now) {
     }
     const backup = new DatabaseSync(backupPath, { readOnly: true });
     try {
-        backup.exec("PRAGMA journal_mode = DELETE");
         const quickCheck = /** @type {{ quick_check: string }} */ (backup.prepare("PRAGMA quick_check").get());
         if (quickCheck.quick_check !== "ok") {
             throw new Error(`Owner coordination backup failed quick_check: ${backupPath}`);
@@ -297,10 +296,5 @@ function backupOwnerDatabase(db, dbPath, sourceVersion, now) {
                 // The SQLite build did not create this sidecar.
             }
         }
-    }
-    try {
-        Deno.chmodSync(backupPath, 0o600);
-    } catch {
-        // Some filesystems do not support chmod; creation location is still owner-only best effort.
     }
 }

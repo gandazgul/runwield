@@ -4087,7 +4087,7 @@ export async function runRootTurn({
             if (dispatch) completeRequestDispatch(sessionManager, dispatch);
             return getRootExecutionMessages(session);
         }
-        if (transitionSteering.length > 0 && !transitionSteeringConsumed) {
+        if (backend !== "pi" && transitionSteering.length > 0 && !transitionSteeringConsumed) {
             if (signal?.aborted) {
                 publishTransitionSteeringCancellation(targetHostedSession, transitionSteering);
             } else {

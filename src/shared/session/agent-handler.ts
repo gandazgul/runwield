@@ -4,7 +4,7 @@
  * lets workflow tool outcomes decide whether any follow-up workflow step runs.
  */
 
-import { clearAgentSessionQueueForTransition, runRootTurn } from "./session.js";
+import { runRootTurnUntilRootWorkflowEvent } from "./root-workflow-turn.ts";
 import {
     executePlan,
     finalizePlanImplementation,
@@ -34,20 +34,14 @@ import {
     type PendingTaskCompletionClaim,
 } from "./task-completion-session.ts";
 import {
-    claimWorkflowToolEvent,
-    listPendingWorkflowToolEvents,
     type PlanWrittenEventPayload,
     settleWorkflowToolEvent,
     type TriageReportEventPayload,
-    waitForWorkflowToolEvent,
-    WorkflowStepCompleted,
     type WorkflowToolEvent,
-    type WorkflowToolEventKind,
 } from "../workflow/workflow-tool-events.ts";
 import { getStoredPlanPath, loadPlan } from "../../plan-store.js";
 import { AGENTS } from "../../constants.js";
 import { resolvePlanExecutionRuntimeAgent } from "../workflow/execution-agent.ts";
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 
 type ActiveExecutionWorkflow = import("./hosted-session.js").ActiveExecutionWorkflow;
@@ -57,11 +51,6 @@ type SessionManager = import("@earendil-works/pi-coding-agent").SessionManager;
 type TriageMeta = import("../../tools/plan-written.ts").TriageMeta;
 type PlanExecutionResult = import("../workflow/workflow.js").PlanExecutionResult;
 type WorkflowMetric = Parameters<typeof recordWorkflowMetric>[0];
-
-interface RootAgentSessionState {
-    dispose?: () => void | Promise<void>;
-    agent?: { state?: { messages?: AgentMessage[] } };
-}
 
 interface AgentHandlerCompleteResult {
     kind: "complete";
@@ -81,124 +70,6 @@ export type AgentHandler = (
     sessionManager: SessionManager,
     signal?: AbortSignal,
 ) => Promise<AgentHandlerTurnResult>;
-
-interface RootTurnWorkflowEventResult {
-    messages: AgentMessage[];
-    event: WorkflowToolEvent | null;
-}
-
-async function runRootTurnUntilRootWorkflowEvent(args: {
-    hostedSession: HostedSession;
-    agentName: string;
-    userRequest: string;
-    images?: ImageAttachment[];
-    customTools?: ToolDefinition[];
-    rootAgentSession: RootAgentSessionState | null;
-    signal?: AbortSignal;
-}): Promise<RootTurnWorkflowEventResult> {
-    const waitController = new AbortController();
-    const turnController = new AbortController();
-    const abortBoth = () => {
-        const reason = args.signal?.reason || new DOMException("Root workflow turn canceled.", "AbortError");
-        waitController.abort(reason);
-        turnController.abort(reason);
-    };
-    if (args.signal?.aborted) abortBoth();
-    args.signal?.addEventListener("abort", abortBoth, { once: true });
-
-    const claimOptions: {
-        kinds: WorkflowToolEventKind[];
-        owningSession: RootAgentSessionState | null;
-        excludeEventIds: string[];
-    } = {
-        kinds: ["triage_report", "plan_written"],
-        owningSession: args.rootAgentSession,
-        excludeEventIds: listPendingWorkflowToolEvents(args.hostedSession).map((event) => event.eventId),
-    };
-    const eventPromise = waitForWorkflowToolEvent(args.hostedSession, {
-        ...claimOptions,
-        signal: waitController.signal,
-    });
-    const turnPromise = runRootTurn({
-        hostedSession: args.hostedSession,
-        agentName: args.agentName,
-        userRequest: args.userRequest,
-        images: args.images,
-        customTools: args.customTools,
-        signal: turnController.signal,
-    });
-
-    try {
-        const first = await Promise.race([
-            eventPromise.then((event) => ({ kind: "event" as const, event })),
-            turnPromise.then((messages) => ({ kind: "turn" as const, messages })),
-        ]);
-        const stopForTerminalEvent = async (event: WorkflowToolEvent): Promise<RootTurnWorkflowEventResult> => {
-            if (!args.hostedSession.isAgentTransitioning()) args.hostedSession.beginAgentTransition();
-            try {
-                clearAgentSessionQueueForTransition(args.rootAgentSession);
-            } catch (error) {
-                turnController.abort(new WorkflowStepCompleted());
-                await turnPromise.catch(() => undefined);
-                const transitionId = args.hostedSession.getAgentTransitionId();
-                if (transitionId) args.hostedSession.completeAgentTransition(transitionId);
-                throw error;
-            }
-            turnController.abort(new WorkflowStepCompleted());
-            await turnPromise.catch(() => undefined);
-            return { messages: [], event };
-        };
-        if (first.kind === "event") {
-            if (
-                first.event.kind === "plan_written" &&
-                (first.event.payload as PlanWrittenEventPayload).outcome === "feedback"
-            ) {
-                let feedbackEvent = first.event;
-                const excludedEventIds = [...claimOptions.excludeEventIds, feedbackEvent.eventId];
-                while (true) {
-                    const feedbackWaitController = new AbortController();
-                    const nextEventPromise = waitForWorkflowToolEvent(args.hostedSession, {
-                        ...claimOptions,
-                        excludeEventIds: excludedEventIds,
-                        signal: feedbackWaitController.signal,
-                    });
-                    try {
-                        const next = await Promise.race([
-                            nextEventPromise.then((event) => ({ kind: "event" as const, event })),
-                            turnPromise.then((messages) => ({ kind: "turn" as const, messages })),
-                        ]);
-                        if (next.kind === "turn") return { messages: next.messages, event: feedbackEvent };
-                        excludedEventIds.push(next.event.eventId);
-                        if (
-                            next.event.kind === "plan_written" &&
-                            (next.event.payload as PlanWrittenEventPayload).outcome === "feedback"
-                        ) {
-                            settleWorkflowToolEvent(args.hostedSession, feedbackEvent);
-                            feedbackEvent = next.event;
-                            continue;
-                        }
-                        settleWorkflowToolEvent(args.hostedSession, feedbackEvent);
-                        return await stopForTerminalEvent(next.event);
-                    } finally {
-                        feedbackWaitController.abort();
-                        await nextEventPromise.catch(() => undefined);
-                    }
-                }
-            }
-            return await stopForTerminalEvent(first.event);
-        }
-        waitController.abort(new DOMException("Agent turn finished without root workflow event.", "AbortError"));
-        const waitedEvent = await eventPromise.catch(() => null);
-        return {
-            messages: first.messages,
-            event: waitedEvent || claimWorkflowToolEvent(args.hostedSession, claimOptions),
-        };
-    } finally {
-        waitController.abort();
-        await eventPromise.catch(() => undefined);
-        args.signal?.removeEventListener("abort", abortBoth);
-    }
-}
 
 /**
  * @param {string} agentName
@@ -293,7 +164,7 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
                 `createAgentHandler: active handler "${agentName}" does not match root agent "${rootAgentName}"`,
             );
         }
-        const rootAgentSession = hostedSession.getRootAgentSession() as RootAgentSessionState | null;
+        const rootAgentSession = hostedSession.getRootAgentSession();
         let agentStoppedAttentionRequested = false;
         const requestAgentStoppedAttention = () => {
             if (agentStoppedAttentionRequested) return;
@@ -390,6 +261,10 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
                 throw error;
             }
         }
+        if (signal?.aborted) {
+            completeWorkflowTransition();
+            signal.throwIfAborted();
+        }
         if (planningDecision.kind === "start_slicer") {
             const planName = typeof planningDecision.payload.planName === "string"
                 ? planningDecision.payload.planName
@@ -401,6 +276,7 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
             const reviewImages = (Array.isArray(planningDecision.payload.reviewImages)
                 ? planningDecision.payload.reviewImages
                 : undefined) as ImageAttachment[] | undefined;
+            signal?.throwIfAborted();
             const slicerResult = await runDuringWorkflowTransition(() =>
                 runSlicerAgent({
                     planName,
@@ -451,6 +327,10 @@ export function createAgentHandler(agentName: string, options: AgentHandlerOptio
             const reviewImages = (Array.isArray(planningDecision.payload.reviewImages)
                 ? planningDecision.payload.reviewImages
                 : undefined) as ImageAttachment[] | undefined;
+            if (signal?.aborted) {
+                completeWorkflowTransition();
+                signal.throwIfAborted();
+            }
             let executionResult: PlanExecutionResult;
             try {
                 executionResult = await executePlan({
