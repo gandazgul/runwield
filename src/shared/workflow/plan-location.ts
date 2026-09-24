@@ -1,5 +1,5 @@
 /** Locate the editable document independently from the shared controller files. */
-import { canonicalizeStoredPlanName, loadPlan } from "../../plan-store.js";
+import { canonicalizeStoredPlanName, isCompletedPlanStatus, loadPlan } from "../../plan-store.js";
 import { resolvePrimaryCheckoutRoot } from "../primary-checkout.ts";
 import { findActiveByPlanName } from "../worktree-registry.js";
 import { isGitRepository } from "../git.js";
@@ -100,6 +100,10 @@ export async function resolveWorkflowPlanLocation(
             targetPlan &&
             (!plan?.attrs.planId || !targetPlan.attrs.planId || targetPlan.attrs.planId === plan.attrs.planId)
         ) {
+            // Reading a published child must not start a fresh planning attempt after its worktree was cleaned up.
+            if (isCompletedPlanStatus(targetPlan.attrs.status)) {
+                return { registryRoot, documentRoot: cwd, plan: plan || targetPlan };
+            }
             const planning = await preparePlanningWorktreeForPlan(registryRoot, planName, targetPlan.attrs);
             return { registryRoot, documentRoot: planning.entry.path, plan: planning.plan };
         }

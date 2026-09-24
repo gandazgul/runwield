@@ -253,6 +253,7 @@ Deno.test("Epic branch continuation selects the next child from target state", a
     assertEquals(resolution.parentPlanName, "epic");
     assertEquals(resolution.childPlanName, "epic/02-next");
     assertEquals(resolution.childAttrs?.planId, "plan-child-02");
+    assertEquals(await listEntries(repo), [], "reading the completed child must not create a planning worktree");
 });
 
 Deno.test("Epic branch continuation ignores stale primary completed child status", async () => {

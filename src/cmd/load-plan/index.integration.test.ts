@@ -1131,7 +1131,7 @@ Deno.test("direct review from draft approves for later without a planning turn",
     });
 });
 
-for (const status of ["draft", "feedback", "approved", "ready_for_work"]) {
+for (const status of ["draft", "feedback", "approved", "ready_for_work"] as const) {
     Deno.test(`direct review menu is available for ${status} without custom shell checks`, async () => {
         await withRuntimeCommandFixture("runwield-load-plan-command-", async ({ projectRoot }) => {
             await writePlan(projectRoot, "review-without-checks", { status });

@@ -69,13 +69,13 @@ integrating current `main`, whose guidance still names 0.10.0.
 
 Owning capabilities:
 
-- [Work protection](../prd/runwield-core-prd.md#work-protection): repair **Enter project runtime state before use**,
+- [Work protection](../../prd/runwield-core-prd.md#work-protection): repair **Enter project runtime state before use**,
   **Keep Project Runtime State out of repository changes**, and **Preserve user work and require deliberate destructive
   actions**. Preserve the Epic's scenarios for ordinary repository symlinks, linked-checkout adoption, and tracked
   current secrets. Close the migrated-capability verification gap.
-- [Execution, validation, and recovery](../prd/runwield-core-prd.md#execution-validation-and-recovery): preserve
+- [Execution, validation, and recovery](../../prd/runwield-core-prd.md#execution-validation-and-recovery): preserve
   delivery and retry for repositories containing symlinks; do not turn a migration failure into deletion or abandonment.
-- [Installation and updates](../prd/runwield-core-prd.md#installation-and-updates): preserve the 0.10-to-0.11 upgrade
+- [Installation and updates](../../prd/runwield-core-prd.md#installation-and-updates): preserve the 0.10-to-0.11 upgrade
   boundary, **Isolate Candidate stabilization from ongoing feature work**, and **Qualify release packages before
   publication and preserve published bytes**. Follow current package ownership and release automation; do not restore
   older package-publication restrictions from the Epic branch.
@@ -221,7 +221,7 @@ that completed implementation.
 
 ### Candidate and Stable handoff
 
-Follow [repository release policy](../releasing.md). On 2026-09-19, GitHub reports `v0.10.3` as latest Stable and
+Follow [repository release policy](../../releasing.md). On 2026-09-19, GitHub reports `v0.10.3` as latest Stable and
 `v0.10.4-rc.1` as the newest published Candidate. Recheck releases, tags, and `release/v0.11.0` before publication. Keep
 `v0.11.0-rc.1` as the proposed tag, subject to that preflight.
 
