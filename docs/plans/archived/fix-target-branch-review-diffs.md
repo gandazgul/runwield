@@ -23,6 +23,9 @@ origin: "internal"
 userVerifiedAt: null
 targetBranch: "main"
 status: "validated"
+archivedAt: "2026-09-24T04:16:05.980Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/fix-target-branch-review-diffs.md"
 ---
 
 # Compare Review Diffs Directly Against the Target Branch

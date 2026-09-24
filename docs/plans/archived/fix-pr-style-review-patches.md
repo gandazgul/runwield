@@ -28,6 +28,10 @@ workRecord:
     recordId: "a36d95ab-5c2d-4623-9c55-6b436f266b45"
     path: "docs/work-records/2026-09-22-pr-style-review-patches-across-all-consumers.md"
     lastAttemptAt: "2026-09-22T17:26:48.815Z"
+archivedAt: "2026-09-24T04:21:48.980Z"
+archiveReason: "Merged into main and accepted by user"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/fix-pr-style-review-patches.md"
 ---
 
 # Show PR-Style Patches in Browser and AI Review

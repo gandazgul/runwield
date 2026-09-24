@@ -28,6 +28,9 @@ workRecord:
     recordId: "4df30e25-7e37-48fe-9475-8ecd65b3aca4"
     path: "docs/work-records/2026-09-22-personal-remote-workspace-v2-completed.md"
     lastAttemptAt: "2026-09-22T04:26:53.943Z"
+archivedAt: "2026-09-24T04:49:11.775Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/personal-remote-workspace-v2.md"
 ---
 
 # Personal Remote Workspace v2

@@ -26,6 +26,9 @@ status: "validated"
 origin: "internal"
 userVerifiedAt: null
 targetBranch: "epic/consolidate-project-runtime-state"
+archivedAt: "2026-09-24T04:25:52.023Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/fix-epic-branch-loading-and-child-planning.md"
 ---
 
 # Load Epic Progress and Plan Children from the Epic Branch

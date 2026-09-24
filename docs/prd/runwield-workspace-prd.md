@@ -371,7 +371,8 @@ Default ordering:
    checkpoint. Use current unanswered Session interactions (including `plan_written` Plan reviews and code reviews), or
    an associated Agent that stopped with unfinished execution, including a conversational Pair checkpoint. Draft,
    feedback, validated, configured review modes, and historical repair flags alone do not request attention. Internal
-   diagnostics remain in Project settings/navigation.
+   diagnostics remain in Project settings/navigation. When Project data cannot be read, the Dashboard warns that its
+   list may be incomplete and links to Project settings without adding diagnostics to the attention queue.
 3. **Ready to Continue:** approved Plans ready for work, paused workflows, child Plans ready in a PROJECT sequence, or
    other safe next actions.
 4. **Recently Finished:** successfully published or deliberately abandoned delivery workflows, and completed
@@ -413,6 +414,9 @@ refreshes. Ready-for-work Plans belong in Ready to Continue unless a current una
   them in the browser.
 - Given more than five items in any section, only the five newest appear initially. Reversing sort shows the oldest
   first; expanding shows all eligible items, and refresh preserves both choices.
+- Given a Project read fails, the Dashboard says its list may be incomplete and links to Project settings. It does not
+  present the diagnostic as a work item. When a refresh changes a focused row, keyboard focus stays with the row or
+  moves to its section heading if that row is gone.
 
 <a id="63-project-experience"></a>
 

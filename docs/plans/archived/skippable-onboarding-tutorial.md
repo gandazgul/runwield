@@ -56,19 +56,19 @@ existing planned-work lifecycle.
 
 Owning requirements and proposed changes:
 
-- [Core: Project context and initialization](../prd/runwield-core-prd.md#project-context-and-initialization): add
+- [Core: Project context and initialization](../../prd/runwield-core-prd.md#project-context-and-initialization): add
   **Optional guided first change**, with warning, permanent Skip, explicit entry, and truthful recap scenarios. Preserve
   **Preserve useful project facts and retrieve relevant context**, including separately approved Init work.
-- [Core: Plan review](../prd/runwield-core-prd.md#plan-review): preserve **Apply the user's review decision to the saved
-  Plan**. Tutorial feedback, approval, saving for later, and cancellation use the same controls and consequences.
-- [Core: Execution, validation, and recovery](../prd/runwield-core-prd.md#execution-validation-and-recovery): preserve
-  **Publish successfully or end only by deliberate user abandonment** and **Validate and deliver approved work without
-  losing recoverable changes**. Stopping guidance does not end the delivery workflow or waive checks.
-- [Core: Session continuity](../prd/runwield-core-prd.md#session-continuity): preserve **Continue the same saved work
+- [Core: Plan review](../../prd/runwield-core-prd.md#plan-review): preserve **Apply the user's review decision to the
+  saved Plan**. Tutorial feedback, approval, saving for later, and cancellation use the same controls and consequences.
+- [Core: Execution, validation, and recovery](../../prd/runwield-core-prd.md#execution-validation-and-recovery):
+  preserve **Publish successfully or end only by deliberate user abandonment** and **Validate and deliver approved work
+  without losing recoverable changes**. Stopping guidance does not end the delivery workflow or waive checks.
+- [Core: Session continuity](../../prd/runwield-core-prd.md#session-continuity): preserve **Continue the same saved work
   across clients**. Add acceptance coverage for returning to TUI tutorial guidance without repeating work. Workspace
   tutorial controls are deferred, not ordinary Session continuity.
 
-No existing requirement is removed. Follow [ADR-015](../adr/015-file-authoritative-session-bundles.md); do not change
+No existing requirement is removed. Follow [ADR-015](../../adr/015-file-authoritative-session-bundles.md); do not change
 Session authority, writer ownership, or Plan lifecycle.
 
 ## Objective

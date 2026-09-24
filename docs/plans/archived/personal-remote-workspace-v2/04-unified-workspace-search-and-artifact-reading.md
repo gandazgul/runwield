@@ -55,28 +55,28 @@ the query, but do not change Project settings.
 
 Owning requirements and proposed changes:
 
-- [Workspace: Durable knowledge search](../../prd/runwield-workspace-prd.md#durable-knowledge-search), **Retrieve
+- [Workspace: Durable knowledge search](../../../prd/runwield-workspace-prd.md#durable-knowledge-search), **Retrieve
   eligible artifacts with scope and confidence visible** — add the unified v2 search journey, explicit source list,
   ranking, freshness, and Session entry points. Preserve Work Record confidence and notices. Mark opt-out, general
   research retrieval, full transcript search, and historical search filters as deferred rather than delivered.
-- [Workspace: Browser Sessions](../../prd/runwield-workspace-prd.md#browser-sessions), **Read Session artifacts
+- [Workspace: Browser Sessions](../../../prd/runwield-workspace-prd.md#browser-sessions), **Read Session artifacts
   comfortably on desktop and phone** — preserve loading feedback, one Workspace header, phone Contents controls, and
   Back to Session for existing Session readers. Search opens documents without a Session and returns to Search instead.
-- [Workspace: Human cross-Project code search](../../prd/runwield-workspace-prd.md#human-cross-project-code-search) and
-  [Main-checkout Code Surface](../../prd/runwield-workspace-prd.md#main-checkout-code-surface) — remove them from the
+- [Workspace: Human cross-Project code search](../../../prd/runwield-workspace-prd.md#human-cross-project-code-search) and
+  [Main-checkout Code Surface](../../../prd/runwield-workspace-prd.md#main-checkout-code-surface) — remove them from the
   personal v2 milestone, not from future product intent. Fix contradictory milestone and capability references.
-- [Core: Work records](../../prd/runwield-core-prd.md#work-records) — preserve current approved eligibility, source
+- [Core: Work records](../../../prd/runwield-core-prd.md#work-records) — preserve current approved eligibility, source
   links, approval distinctions, and completion confidence. This slice does not change record lifecycle or Agent
   retrieval.
 
-The file-authority boundary in [ADR-015](../../adr/015-file-authoritative-session-bundles.md) remains unchanged. No
+The file-authority boundary in [ADR-015](../../../adr/015-file-authoritative-session-bundles.md) remains unchanged. No
 Session authority moves to the search store or owner coordination database.
 
 ## Objective
 
 Provide one Spotlight-style quick search and one full search page that call the same service with the same query,
 filters, order, and result model. Search covers Plans, PRDs, ADRs, current approved Work Records, each registered
-Project's `docs/design-system.md` when present, applicable domain-language documents, Session Names, and the first user
+Project's `../../../design-system.md` when present, applicable domain-language documents, Session Names, and the first user
 message when present.
 
 Every result names its Project and content type, rechecks canonical source evidence before display or navigation, and
@@ -116,35 +116,35 @@ during implementation and change whatever the Implementation Steps need, includi
 only when discovery changes approved intent — the change reaches another subsystem, public behavior or architecture
 shifts, migration or compatibility risk grows, or the Verification Plan no longer proves the objective.
 
-- `src/ui/workspace/server/`, `server.js`, and `routes/owner-api.js` — add one owner search API/service used by both
+- `../../../../src/ui/workspace/server`, `server.js`, and `routes/owner-api.js` — add one owner search API/service used by both
   views, manual refresh, per-Project freshness, type-aware readers, and authenticated destination routing. Own scanner
-  startup, shutdown, and database closure here. Include `src/cmd/workspace/serve.ts` where needed so application cleanup
+  startup, shutdown, and database closure here. Include `../../../../src/cmd/workspace/serve.ts` where needed so application cleanup
   completes before the caller closes the owner coordination store.
-- `src/ui/workspace/layouts/WorkspaceLayout.astro` and `static/workspace-shell.ts` — add the global Search action and
+- `../../../../src/ui/workspace/layouts/WorkspaceLayout.astro` and `static/workspace-shell.ts` — add the global Search action and
   shortcut to the shared quick-search view. Child 03 deliberately leaves out Search; this child adds the working action
   within that shared shell, without duplicating navigation.
-- `src/ui/workspace/pages/`, `components/`, and `islands/` — add the centered quick-search surface, `Cmd+K` / `Ctrl+K`,
+- `../../../../src/ui/workspace/pages`, `components/`, and `islands/` — add the centered quick-search surface, `Cmd+K` / `Ctrl+K`,
   visible Search action, filters, and full search page.
-- `src/ui/workspace/react/ArtifactReadSurface.tsx` and `server/astro-owner-data.js` — add Project-level Work Record and
+- `../../../../src/ui/workspace/react/ArtifactReadSurface.tsx` and `server/astro-owner-data.js` — add Project-level Work Record and
   documentation payloads, design-system/domain-language labels, and Search return navigation. Preserve Session artifact
   routes and standalone review behavior.
-- `src/ui/design-system/` — reuse semantic tokens, the theme bridge, React controls, and the shared dots loader; put any
+- `../../../../src/ui/design-system` — reuse semantic tokens, the theme bridge, React controls, and the shared dots loader; put any
   new reusable search interaction pattern here, not in copied page CSS.
-- `src/shared/work-records/` — reuse canonical Work Record hydration and include only current approved Work Records by
+- `../../../../src/shared/work-records` — reuse canonical Work Record hydration and include only current approved Work Records by
   default.
-- `src/shared/owner-coordination/` and a separate rebuildable Workspace search database — get registered Project scope
+- `../../../../src/shared/owner-coordination` and a separate rebuildable Workspace search database — get registered Project scope
   without mixing index schema or state into registration, device, or operation receipt authority.
-- `src/shared/session/` — read cataloged Session Names and available first user messages without full Session Transcript
+- `../../../../src/shared/session` — read cataloged Session Names and available first user messages without full Session Transcript
   search.
-- `src/plan-store.js` — provide canonical Plan identity and authority-aware hydration for searchable current Plans.
+- `../../../../src/plan-store.js` — provide canonical Plan identity and authority-aware hydration for searchable current Plans.
 - Canonical Plan, Work Record, Session, and artifact write completion paths — request refresh only after successful
   writes. Keep refresh failure independent from write success; the scanner also catches changes from other processes.
-- `src/ui/workspace/personal-remote-workspace-v2.acceptance.test.ts` — add search integration coverage to this proposed
+- `../../../../src/ui/workspace/personal-remote-workspace-v2.acceptance.test.ts` — add search integration coverage to this proposed
   Epic suite (it does not exist at planning time). Add focused store, route, and browser tests beside their owners.
-- `docs/prd/runwield-workspace-prd.md` — synchronize the linked requirements and acceptance scenarios with the delivered
+- `../../../prd/runwield-workspace-prd.md` — synchronize the linked requirements and acceptance scenarios with the delivered
   search scope. Keep opted-out Projects and code search as deferred intent, not current v2 behavior.
-- `docs/design-system.md` — document reusable quick-search or result-list patterns only if they are new.
-- `docs/domain-language.md` — define implemented Workspace search language and its relationship to Project Knowledge
+- `../../../design-system.md` — document reusable quick-search or result-list patterns only if they are new.
+- `../../../domain-language.md` — define implemented Workspace search language and its relationship to Project Knowledge
   Search and Session Transcript search.
 
 Owner coordination registration and authentication remain unchanged; no search opt-out setting or schema migration is
@@ -159,14 +159,14 @@ Existing functions, modules, or patterns to reuse:
   records, creates the directory during lookup, and selects the first duplicate ID. Extend or compose these readers so
   both enumeration and hydration are non-creating and reject ambiguous IDs. Preserve explicit historical CLI reads and
   Agent retrieval behavior. Do not turn the Mnemoteca adapter into a generic search service.
-- `src/ui/workspace/react/ArtifactReadSurface.tsx` — extend the read-only document presentation instead of building
+- `../../../../src/ui/workspace/react/ArtifactReadSurface.tsx` — extend the read-only document presentation instead of building
   separate viewers for each document type.
 - `src/ui/workspace/server/owner-projects.js:requireOwnerProjectRoot` and `sessionBelongsToOwnerProject` — registered
   root checks and Session membership. Workspace Project IDs and Session catalog Project IDs are not interchangeable.
 - `src/ui/workspace/server/plan-adapter.js:loadWorkspaceDetail` and
   `src/plan-store.js:listPlanResources/findPlanEvidenceById` — canonical identity and authoritative execution-worktree
   Plan selection. Avoid `loadPlanBodyById` as a generic reader: it is for editing and rejects Epics.
-- `src/shared/session/session-transcript-manifest.ts` and `file-session-store.ts` — verified committed evidence and
+- `../../../../src/shared/session/session-transcript-manifest.ts` and `file-session-store.ts` — verified committed evidence and
   catalog identity. `server/session-continuation.js` supplies display-name conventions, but its raw JSONL reads and
   100-character first-message summary are not sufficient search evidence. Read the first message from verified saved
   evidence without indexing later messages or storing a second transcript. `projectAggregateTranscript` verifies saved
@@ -174,7 +174,7 @@ Existing functions, modules, or patterns to reuse:
   service's `timeline()` as a search reader: it can initialize generations and overlay unverified name data. Session
   enumeration must cover all catalog pages and avoid catalog writes; `listProjectSessions` defaults to writing and
   limits each page to 100 entries.
-- `src/ui/design-system/` — existing dialog, command, list, badge, and empty-state patterns.
+- `../../../../src/ui/design-system` — existing dialog, command, list, badge, and empty-state patterns.
 
 ## Implementation Steps
 
@@ -188,14 +188,14 @@ Existing functions, modules, or patterns to reuse:
   and Project-specific indexing/failure states without clearing the query. Older request responses cannot replace newer
   query results. Blank input shows a query prompt rather than an invented recent-history feature.
 - Search indexes only the scoped sources named in the Epic: current Plans in the normal Plan store, PRDs from
-  `docs/prd/`, ADRs from `docs/adr/`, current approved Work Records, `docs/design-system.md`, applicable domain-language
+  `../../../prd`, ADRs from `../../../adr`, current approved Work Records, `../../../design-system.md`, applicable domain-language
   documents, Session Names, and available first user messages. Include Epics, On-Hold Plans, and terminal Plans still in
   the normal store, with execution-worktree Plan authority where applicable. Session search uses the full available text
   of the first user message, not only its truncated display summary; later messages remain excluded. A named Session
   without a user message can match by name. A Session with neither a name nor a meaningful first user message is hidden.
   Enumeration covers all catalog pages without changing canonical Session evidence or registering new Sessions.
 - Documentation readers follow `docs/domain-language-map.md` to the applicable context glossaries when present, or use
-  `docs/domain-language.md` for a single context. Enumeration is limited to supported Markdown sources, not arbitrary
+  `../../../domain-language.md` for a single context. Enumeration is limited to supported Markdown sources, not arbitrary
   links or files. All paths resolve inside the registered root; symlink escapes and traversal are rejected. General
   research files and the map itself are not added as separate searchable document types.
 - Archived Plans, Markdown files without durable Plan IDs, Draft and Pending Verification Work Records, Superseded Work
@@ -240,12 +240,12 @@ Existing functions, modules, or patterns to reuse:
   Session artifact registration types merely for display.
 - Search and refresh routes use existing owner pairing and request protections; refresh changes only derived search
   data. No search or reader endpoint can send messages, approve Plans, or perform lifecycle actions.
-- `docs/prd/runwield-workspace-prd.md` records the delivered v2 scope and matching acceptance scenarios. Opt-out, full
+- `../../../prd/runwield-workspace-prd.md` records the delivered v2 scope and matching acceptance scenarios. Opt-out, full
   transcript search, research retrieval, history filters, code search, and Code Surface remain explicitly deferred.
   Preserve the original requirement names and stable links; reconcile milestone references rather than deleting future
   capabilities or claiming the rest of v2 has shipped.
-- `docs/design-system.md` records any reusable new quick-search or result-list pattern.
-- `docs/domain-language.md` describes implemented Workspace search language, avoided aliases, and stable relationships
+- `../../../design-system.md` records any reusable new quick-search or result-list pattern.
+- `../../../domain-language.md` describes implemented Workspace search language, avoided aliases, and stable relationships
   to Project Knowledge Search, Work Records, Plans, and Session Transcript search. Describe owner-only Session entry
   lookup as part of Workspace search, not shared knowledge or cross-Session Agent retrieval. Keep the current glossary's
   transcript privacy rule and reconcile the PRD's broader proposed terminology only where this change makes it true.
@@ -258,7 +258,7 @@ No Work Record supersession is proposed.
 
 - Automated: run `deno task workspace:build` before destination integration tests. Search acceptance must assert
   successful rendering through the built Astro app; HTTP 503 or a missing build is a failure, not accepted evidence.
-- Automated: create or extend `src/ui/workspace/personal-remote-workspace-v2.acceptance.test.ts`, then run
+- Automated: create or extend `../../../../src/ui/workspace/personal-remote-workspace-v2.acceptance.test.ts`, then run
   `deno run -A scripts/run-tests.js src/ui/workspace/personal-remote-workspace-v2.acceptance.test.ts`. Use the
   production owner app, registered temporary Git Projects, canonical Plan/Work Record files, committed file-backed
   Sessions, and the real search database. Exercise API requests and returned destinations; mocked result arrays do not
@@ -336,7 +336,7 @@ No Work Record supersession is proposed.
   to deliberate repair.
 - Search candidates are disposable. Path existence alone is never enough to display or navigate a result.
 - One failed Project reports stale or unavailable search while healthy Projects continue.
-- Design-system search means each registered Project's canonical `docs/design-system.md` when present.
+- Design-system search means each registered Project's canonical `../../../design-system.md` when present.
 - This slice must not add Cymbal search, code-server, Web Push, closed-tab notification delivery, collaborator policy,
   persistent per-Project search opt-out, or source-code handoff.
 - Read-only documentation identity follows its accepted relative path. A rename can change that identity; it does not

@@ -45,7 +45,7 @@ The Workspace and `wld load-plan` can load a saved Plan without finding the Sess
 the planning rationale and continue in a new or unrelated Session.
 
 Today the only link from a Session to a Plan is the mutable `planName` inside the `runwield.workflow_context` transcript
-entry. `recordNormalizedWorkflowContext` (`src/shared/session/workflow-context-session.js`) writes it fail-open: it
+entry. `recordNormalizedWorkflowContext` (`../../../../src/shared/session/workflow-context-session.js`) writes it fail-open: it
 swallows errors and does not publish a Session generation. Nothing in Session evidence carries a `planId`. The Plan does
 not point back to a Session. `wld load-plan` always works in the current Session; from the CLI it starts a brand-new
 one. Workspace has no load-plan and no Plan → Sessions lookup; `owner-plan-progress.ts` checks a caller-supplied Session
@@ -77,7 +77,7 @@ operation, and read back from Sessions. It must not become one mutable owner fie
 4. Workspace exposes the same lookup as a browser-safe read
    (`GET /api/owner/projects/:projectId/plans/:planId/sessions`). No Workspace UI changes in this Plan; Plan 03 consumes
    the read (decision).
-5. `docs/domain-language.md` defines Plan Association and Association Purpose and their relationships.
+5. `../../../domain-language.md` defines Plan Association and Association Purpose and their relationships.
 
 ## Approach
 
@@ -161,7 +161,7 @@ graph TD
     I --> J
 ```
 
-Adopting in the TUI uses the same calls `/resume` uses (`src/cmd/resume/index.ts` L199–225):
+Adopting in the TUI uses the same calls `/resume` uses (`../../../../src/cmd/resume/index.ts` L199–225):
 `sessionRuntime.loadSession({
 cwd, sessionId: <piSessionId>, sessionPath: <transcriptPath> })`,
 `options.replaceRuntimeSession(loaded.sessionId)`, `uiAPI.clearMessages()`, `sessionRuntime.replaySession(...)`. In the
@@ -169,7 +169,7 @@ CLI form the TUI is started with `sessionStartMode: "continue", resumeSessionId`
 
 Options set aside for the cache: Plan Front Matter (Plan files are in git, so every association becomes repository diff
 noise, the execution-worktree copy diverges from primary, and a Plan would claim Sessions it does not own; the Epic
-rejected it) and a registry under `.wld/` (per-checkout, mutable across concurrent Sessions, would need its own lock;
+rejected it) and a registry under `../../../../.wld` (per-checkout, mutable across concurrent Sessions, would need its own lock;
 the manifest is already locked and rewritten on every commit). Reading every transcript on each lookup was the first
 draft; it is correct but pays a full digest verification per Session per lookup. Another option set aside: recording the
 association in `load-plan` as a standalone mutation right before the planning turn. It would add one extra published
@@ -183,48 +183,48 @@ during implementation and change whatever the Implementation Steps need, includi
 only when discovery changes approved intent — the change reaches another subsystem, public behavior or architecture
 shifts, migration or compatibility risk grows, or the Verification Plan no longer proves the objective.
 
-- `src/shared/session/plan-association.ts` (new) — owns the `runwield.plan_association` custom type constant, the
+- `../../../../src/shared/session/plan-association.ts` (new) — owns the `runwield.plan_association` custom type constant, the
   `PlanAssociation` type, the `AssociationPurpose` union, `normalizePlanAssociation` (rejects malformed entries), and
   `readPlanAssociations(entries)` (append-only list in transcript order). One owner for the entry shape.
-- `src/shared/session/session-transcript-projection.js` — `summarizeProjectedEntries` gains `planAssociations` (array,
+- `../../../../src/shared/session/session-transcript-projection.js` — `summarizeProjectedEntries` gains `planAssociations` (array,
   never mutated in place) beside `workflowContext`; `getCommittedTranscriptAuthorityFacts` passes it through.
-- `src/shared/session/file-session-store-types.ts`, `file-session-control.ts`, `file-session-storage.ts` — manifest
+- `../../../../src/shared/session/file-session-store-types.ts`, `file-session-control.ts`, `file-session-storage.ts` — manifest
   gains `planAssociations?: ManifestPlanAssociation[]` (entry fields plus `committedGeneration: number | null`);
   `stagePlanAssociation(proof, entry)` writes a pending entry under the held lock like `registerSessionArtifact`;
   `publishGenerationAndRelease` stamps pending entries with the published generation in the same manifest write;
   `releaseUnchangedActivation` and `markSessionUncertain` drop pending entries; lineage-only manifest reconstruction
   derives the list from committed transcript entries. `catalogedSession` (or a sibling read) exposes the committed list.
-- `src/shared/session/hosted-session.js` — `recordPlanAssociation(entry)` appends the entry through the writable root
+- `../../../../src/shared/session/hosted-session.js` — `recordPlanAssociation(entry)` appends the entry through the writable root
   Session manager with the current segment ID and kind, stages it in the manifest through the current
   `ManagedOperationCapability`, and throws when no writable manager exists.
 - `src/shared/session/session-runtime.js` — `recordPlanAssociation(sessionId, entry)` standalone wrapper and
   `listPlanAssociatedSessions(cwd, planId)` read (same shape as `listResumableSessions`). Note: the working tree has an
   unrelated uncommitted sidebar-token change in this file; leave it alone.
-- `src/shared/session/plan-session-lookup.ts` (new) — `findPlanAssociatedSessions` (manifests only) and the
+- `../../../../src/shared/session/plan-session-lookup.ts` (new) — `findPlanAssociatedSessions` (manifests only) and the
   `safePlanningResume` rule, plus `verifyPlanAssociatedSession` (one committed-prefix verification for the Session about
   to be adopted). Shared by TUI and Workspace so both apply one rule.
-- `src/shared/workflow/planning-agent.ts` — `runPlanningAgent` records `planning` or `review` (new `associationPurpose`
+- `../../../../src/shared/workflow/planning-agent.ts` — `runPlanningAgent` records `planning` or `review` (new `associationPurpose`
   option, default `planning`) when `planName` and `triageMeta.planId` are present. This covers load-plan resume,
   re-review, Epic continuation, `plans pull`, and `plan-executor`.
-- `src/cmd/load-plan/plan-review-flow.ts` — passes `associationPurpose: "review"`.
-- `src/tools/plan-written.ts` — records `planning` after the Plan has a durable `planId`; reports the failure in the
+- `../../../../src/cmd/load-plan/plan-review-flow.ts` — passes `associationPurpose: "review"`.
+- `../../../../src/tools/plan-written.ts` — records `planning` after the Plan has a durable `planId`; reports the failure in the
   tool result instead of swallowing it. Keeps `setWorkflowPlanName` for the footer.
-- `src/shared/workflow/execution-start.ts` — records `execution` beside `setWorkflowExecutionContext` (both call sites).
+- `../../../../src/shared/workflow/execution-start.ts` — records `execution` beside `setWorkflowExecutionContext` (both call sites).
 - `src/shared/session/session-runtime.js#replaceSessionForExecutionFollowUp` and the semantic-repair segment handoff —
   record `execution` on the follow-up Session and `recovery` on the repair segment.
-- `src/shared/workflow/workflow-slicer.ts` — records `planning` for the Epic being decomposed (it already knows
+- `../../../../src/shared/workflow/workflow-slicer.ts` — records `planning` for the Epic being decomposed (it already knows
   `planName`; get the `planId` from the Epic attrs).
-- `src/cmd/load-plan/index.ts` — two-stage flow described above; the `PlanSessionSurface` is created after the Session
+- `../../../../src/cmd/load-plan/index.ts` — two-stage flow described above; the `PlanSessionSurface` is created after the Session
   is decided.
-- `src/cmd/load-plan/primary-plan-recovery.ts` — `resolvePlanWithPrimaryRecovery` accepts a durable `planId` argument
+- `../../../../src/cmd/load-plan/primary-plan-recovery.ts` — `resolvePlanWithPrimaryRecovery` accepts a durable `planId` argument
   (use `findPlanEvidenceById` or the private `resolveActivePlanNameOrId` pattern in `plan-store.js`).
-- `src/cmd/registry.js` — usage string already says `<plan-name-or-id>`; make it true; `getArgumentCompletions.js` may
+- `../../../../src/cmd/registry.js` — usage string already says `<plan-name-or-id>`; make it true; `getArgumentCompletions.js` may
   stay name-only.
-- `src/ui/workspace/server/owner-plan-sessions.ts` (new) and `src/ui/workspace/server.js` —
+- `../../../../src/ui/workspace/server/owner-plan-sessions.ts` (new) and `../../../../src/ui/workspace/server.js` —
   `GET
   /api/owner/projects/:projectId/plans/:planId/sessions` composed from `findPlanAssociatedSessions`, browser-safe
   fields only (no transcript paths).
-- `docs/domain-language.md` — adds **Plan Association**, **Association Purpose**, and relationships.
+- `../../../domain-language.md` — adds **Plan Association**, **Association Purpose**, and relationships.
 
 Deliberately left out: `owner-plan-progress.ts`'s name-match Session check and `SessionSurface.jsx`'s
 `workflowContext.planId || planName` link. Plan 03 removes the standalone progress page; changing that check now would
@@ -242,18 +242,18 @@ Existing functions, modules, or patterns to reuse:
   for the Session about to be adopted.
 - `src/shared/session/file-session-store.ts#listProjectSessions`, `#inspectSessionActivation`,
   `#getCurrentSessionSegment` — Session list, dead-writer-aware activation, segment kind.
-- `src/shared/session/session-resume-list.ts` — shape and concurrency pattern (`mapWithConcurrency`) for the lookup.
-- `src/cmd/resume/index.ts` — adoption sequence (`loadSession`, `replaceRuntimeSession`, `clearMessages`,
+- `../../../../src/shared/session/session-resume-list.ts` — shape and concurrency pattern (`mapWithConcurrency`) for the lookup.
+- `../../../../src/cmd/resume/index.ts` — adoption sequence (`loadSession`, `replaceRuntimeSession`, `clearMessages`,
   `replaySession`, active-elsewhere notice via `buildConversationRestoredMessage`).
-- `src/shared/session/workflow-context-session.js` — entry normalization style to follow; do not follow its fail-open
+- `../../../../src/shared/session/workflow-context-session.js` — entry normalization style to follow; do not follow its fail-open
   behavior.
-- `src/cmd/testing/runtime-command-fixture.ts#withRuntimeCommandFixture`, `src/testing/managed-session-fixture.ts`,
-  `src/shared/git-test-fixture.ts` — real Session and repository fixtures. `index.integration.test.ts` shows how to
+- `src/cmd/testing/runtime-command-fixture.ts#withRuntimeCommandFixture`, `../../../../src/testing/managed-session-fixture.ts`,
+  `../../../../src/shared/git-test-fixture.ts` — real Session and repository fixtures. `index.integration.test.ts` shows how to
   script `promptSelect` with `makeUi(selections)`.
 
 ## Implementation Steps
 
-- `src/shared/session/plan-association.ts` exports `PLAN_ASSOCIATION_CUSTOM_TYPE = "runwield.plan_association"`,
+- `../../../../src/shared/session/plan-association.ts` exports `PLAN_ASSOCIATION_CUSTOM_TYPE = "runwield.plan_association"`,
   `AssociationPurpose` (`"planning" | "review" | "execution" | "recovery"`), `PlanAssociation` (`planId`, `planName`,
   `purpose`, `segmentId`, `segmentKind`, `recordedAt`), `normalizePlanAssociation` returning `null` for any entry
   missing `planId`, `purpose`, or `segmentId`, and `readPlanAssociations(entries)` returning every valid entry in
@@ -284,7 +284,7 @@ Existing functions, modules, or patterns to reuse:
   when recording fails. `execution-start.ts` records `execution` at both call sites.
   `replaceSessionForExecutionFollowUp` records `execution` on the new Session; the semantic-repair segment handoff
   records `recovery`. `workflow-slicer.ts` records `planning` for the Epic.
-- `src/shared/session/plan-session-lookup.ts` exports `findPlanAssociatedSessions(sessionStore, { cwd, planId })`
+- `../../../../src/shared/session/plan-session-lookup.ts` exports `findPlanAssociatedSessions(sessionStore, { cwd, planId })`
   returning `PlanAssociatedSession[]` with `runwieldSessionId`, `displayName`, `piSessionId`, `transcriptPath`,
   `associations`, `latestPurpose`, `currentSegmentKind`, `activationState`, `activeSurface`, `safePlanningResume`, and
   `reason`. It reads associations only from manifest `planAssociations` entries whose `committedGeneration` is not
@@ -309,7 +309,7 @@ Existing functions, modules, or patterns to reuse:
 - `GET /api/owner/projects/:projectId/plans/:planId/sessions` returns `{ planId, sessions: [...] }` from
   `findPlanAssociatedSessions` for the registered Project, requires the same owner authentication as the sibling Plan
   routes, omits `transcriptPath`, and returns `404` for an unknown `planId`.
-- `docs/domain-language.md` defines **Plan Association** (append-only Session evidence that one Session worked on one
+- `../../../domain-language.md` defines **Plan Association** (append-only Session evidence that one Session worked on one
   Plan for one purpose; _Avoid_: Plan owner Session, Session owner, planName link) and **Association Purpose**
   (`planning`, `review`, `execution`, `recovery`), and adds relationships: a Plan has zero or more Plan Associations
   across Sessions; a Session may hold Plan Associations for several Plans; a Plan Association is written under the
@@ -403,7 +403,7 @@ Existing functions, modules, or patterns to reuse:
   `GET
   http://127.0.0.1:5173/api/owner/projects/<id>/plans/<planId>/sessions` lists the planning Session with
   `safePlanningResume: true` while idle and `activeSurface: "tui"` while the TUI is open.
-- Glossary: confirm `docs/domain-language.md` describes only the implemented Plan Association behavior and does not
+- Glossary: confirm `../../../domain-language.md` describes only the implemented Plan Association behavior and does not
   promise Workspace UI that Plan 03 owns.
 
 ## Edge Cases & Considerations

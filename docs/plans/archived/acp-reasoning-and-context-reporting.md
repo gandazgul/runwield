@@ -18,12 +18,16 @@ origin: "internal"
 userVerifiedAt: null
 targetBranch: "main"
 status: "validated"
-validatedCommit: "85fae2574828008df76942bd991a0a163661f40f"
 workRecord:
     status: "generated"
     recordId: "943b37ec-5a4d-4a50-a51a-8998620cc916"
     path: "docs/work-records/2026-09-22-delivered-acp-reasoning-and-exact-context-reporting.md"
     lastAttemptAt: "2026-09-22T12:34:44.772Z"
+validatedCommit: "bf124162548e223ba193fcf897bf5bb46d5231f6"
+archivedAt: "2026-09-24T04:49:44.415Z"
+archiveReason: "Publication record reconciled after main history rewrite; archived at user request."
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/acp-reasoning-and-context-reporting.md"
 ---
 
 # ACP reasoning control and accurate context reporting

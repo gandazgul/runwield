@@ -54,8 +54,8 @@ paths.
 The Workspace notification repair supersedes this Plan's loaded-Session-only observation and unconditional TUI-delivery
 assumptions. Notification destination now follows accepted user input; the Workspace shell listens across navigation and
 receives live attention from remotely steered turns. Mobile delivery uses the existing PWA service worker. Current
-requirements live in [Workspace](../../prd/runwield-workspace-prd.md) and
-[Core Session continuity](../../prd/runwield-core-prd.md#session-continuity); no durable attention ledger or Web Push
+requirements live in [Workspace](../../../prd/runwield-workspace-prd.md) and
+[Core Session continuity](../../../prd/runwield-core-prd.md#session-continuity); no durable attention ledger or Web Push
 was added.
 
 ## Objective
@@ -76,7 +76,7 @@ Session Runtime attention_requested
                 shared content and common policy
 ```
 
-`src/shared/session/notification-content.ts` becomes the browser-safe owner of notification event names, labels, base
+`../../../../src/shared/session/notification-content.ts` becomes the browser-safe owner of notification event names, labels, base
 messages, and common setting interpretation. The TUI keeps Deno environment access, terminal detection, terminal-only
 settings, OSC sequences, BEL output, and its `Session: W. - <name>` message line. The Workspace server resolves the same
 project-over-global setting for the operation's registered Project and sends only the browser-applicable policy.
@@ -101,23 +101,23 @@ during implementation and change whatever the Implementation Steps need, includi
 only when discovery changes approved intent — the change reaches another subsystem, public behavior or architecture
 shifts, migration or compatibility risk grows, or the Verification Plan no longer proves the objective.
 
-- `src/shared/session/notification-content.ts` and `notification-content.test.ts` — own the browser-safe event names,
+- `../../../../src/shared/session/notification-content.ts` and `notification-content.test.ts` — own the browser-safe event names,
   labels, base messages, and normalized common notification policy for all existing TUI events.
-- `src/shared/session/session-runtime-events.js` and its tests — reference the shared event vocabulary while preserving
+- `../../../../src/shared/session/session-runtime-events.js` and its tests — reference the shared event vocabulary while preserving
   the Runtime's current `agentStopped`, `planWritten`, and `userInterview` attention-event contract.
-- `src/ui/tui/system-notifications.ts`, `runtime-adapter.js`, and current notification tests — consume shared content
+- `../../../../src/ui/tui/system-notifications.ts`, `runtime-adapter.js`, and current notification tests — consume shared content
   and policy while retaining all terminal-specific behavior and event timing.
-- `src/ui/workspace/server/session-continuation.js`, owner operation routes, and
+- `../../../../src/ui/workspace/server/session-continuation.js`, owner operation routes, and
   `session-continuation.integration.test.ts` — resolve the operation Project's notification policy, expose it in safe
   operation snapshots, and keep a full-buffer Agent-stop event observable with bounded memory.
-- `src/ui/workspace/islands/SessionSurface.jsx` and `workspace-session-ux.test.tsx` — distinguish restored history from
+- `../../../../src/ui/workspace/islands/SessionSurface.jsx` and `workspace-session-ux.test.tsx` — distinguish restored history from
   new live events and pass each newly observed `agentStopped` event to browser delivery before terminal snapshot
   cleanup.
-- `src/ui/workspace/browser/session-tab-notifications.ts` and its tests — own direct browser `Notification`, tab-focus,
+- `../../../../src/ui/workspace/browser/session-tab-notifications.ts` and its tests — own direct browser `Notification`, tab-focus,
   click-focus, failure isolation, and cleanup behavior without a delivery ledger or a RunWield-owned injection seam.
-- `src/ui/workspace/react/BrowserNotificationPermissionControl.tsx`, `WorkspaceLayout.astro`, and `workspace.css` — add
+- `../../../../src/ui/workspace/react/BrowserNotificationPermissionControl.tsx`, `WorkspaceLayout.astro`, and `workspace.css` — add
   the accessible Workspace-wide permission control without displacing review actions or changing the local Plan Board.
-- `docs/settings.md` — describe the common settings used by TUI and Workspace, and identify terminal-only keys.
+- `../../../settings.md` — describe the common settings used by TUI and Workspace, and identify terminal-only keys.
 
 No domain-language update is expected. The change uses the current **Session**, **Workspace**, **TUI**, and **RunWield
 Core** meanings without adding or redefining a product term.
@@ -130,15 +130,15 @@ Core** meanings without adding or redefining a product term.
   `agentStopped` event and cancellation suppression owned by Agent handling.
 - `src/ui/workspace/server/session-continuation.js#subscribeOperation` and `getOperation` — reuse the authenticated SSE
   snapshot and GET fallback path instead of adding polling or cross-process transport.
-- `src/ui/workspace/react/WorkspaceHeaderActionsPortal.tsx` and `WorkspaceLayout.astro#[data-workspace-header-actions]`
+- `../../../../src/ui/workspace/react/WorkspaceHeaderActionsPortal.tsx` and `WorkspaceLayout.astro#[data-workspace-header-actions]`
   — preserve the shared header target and Plan Review action portal; render the global bell as a deterministic sibling,
   not as a replacement portal root.
-- `src/ui/design-system/components.css` and `src/ui/design-system/components/react/RunWieldPrimitives.jsx` — reuse
+- `../../../../src/ui/design-system/components.css` and `../../../../src/ui/design-system/components/react/RunWieldPrimitives.jsx` — reuse
   compact toolbar-button geometry, semantic tokens, focus treatment, and an existing bell icon pattern where available.
 
 ## Implementation Steps
 
-1. `src/shared/session/notification-content.ts` exports the canonical `NotificationEventName`, the four existing event
+1. `../../../../src/shared/session/notification-content.ts` exports the canonical `NotificationEventName`, the four existing event
    labels and base messages, a common policy type, and pure normalization/content functions. Missing or malformed values
    keep today's defaults; only literal `false` disables notifications, an event, or focused-tab suppression. The module
    imports no Deno, filesystem, terminal, React, or browser API.
@@ -178,7 +178,7 @@ Core** meanings without adding or redefining a product term.
    support shows **Alerts unavailable**. Blocked and unavailable states do not prompt again. The control has a stable
    sibling position beside `[data-workspace-header-actions]`, keeps Plan Review approval controls reachable at narrow
    widths, and does not appear in the local Plan Board shell.
-9. `docs/settings.md` states that `enabled`, `events.agentStopped`, and `suppressWhenFocused` also govern Workspace
+9. `../../../settings.md` states that `enabled`, `events.agentStopped`, and `suppressWhenFocused` also govern Workspace
    browser alerts. It keeps `terminalBell`, `activation`, and non-`agentStopped` event delivery documented as TUI-only
    for this slice.
 

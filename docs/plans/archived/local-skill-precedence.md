@@ -20,12 +20,16 @@ origin: "internal"
 userVerifiedAt: null
 targetBranch: "main"
 status: "validated"
-validatedCommit: "e33ab410ab32a1b1a2a2b522d24ab6233e2d96c8"
+validatedCommit: "6798b26fee9e13a3a95e3c3584a40b485d8d93c2"
 workRecord:
     status: "generated"
     recordId: "fcaed561-4d2c-487c-afb2-6f6871f53aee"
     path: "docs/work-records/2026-09-21-unified-local-skill-discovery-and-precedence.md"
     lastAttemptAt: "2026-09-21T20:51:23.715Z"
+archivedAt: "2026-09-24T04:52:38.827Z"
+archiveReason: "Merged into main; publication record reconciled after history migration"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/local-skill-precedence.md"
 ---
 
 # Shared Core Skill Loading and Local External Skills

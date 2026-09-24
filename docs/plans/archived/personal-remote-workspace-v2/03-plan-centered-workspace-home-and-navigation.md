@@ -56,7 +56,7 @@ The standalone Plan Progress page does not help the owner advance work. Session 
 show basic labels, not the workflow, its current step, or a useful next action. Replace that separate page with an
 actionable workflow diagram in the Session's Workflow sidebar and on the Plan's existing home page.
 
-Current-source review found that owner `/` is served by `src/ui/workspace/server.js`; Astro's `pages/index.astro` is
+Current-source review found that owner `/` is served by `../../../../src/ui/workspace/server.js`; Astro's `pages/index.astro` is
 also used by the local Plan Board. Workspace derives partial stages in `islands/SessionSurface.jsx`; the shared Session
 sidebar projection and TUI renderer do not yet carry them. `ArtifactConversationSidebar.tsx` is review chat, not the
 Workflow sidebar. Complexity is High: this connects browser and TUI workflow views, existing actions, and reliable
@@ -98,11 +98,11 @@ registered Projects
 
 Owner `/` renders the Dashboard through the existing owner server and shared Workspace shell. A focused server reader
 composes current evidence for both Dashboard and sidebar. It reuses `loadOwnerPlanProgress` authority selection, but not
-its status-only activity guesses or its rejection of all PROJECT Plans. Use `src/shared/project-plan.ts` to distinguish
+its status-only activity guesses or its rejection of all PROJECT Plans. Use `../../../../src/shared/project-plan.ts` to distinguish
 Epics from Sequences. Resolve associated Sessions through child 01's committed Plan Association reader, never by names
 or a string search in workflow context.
 
-Extend shared workflow presentation under `src/shared/workflow/` and `src/shared/session/session-sidebar.ts`. Combine
+Extend shared workflow presentation under `../../../../src/shared/workflow` and `../../../../src/shared/session/session-sidebar.ts`. Combine
 canonical Plan/controller/worktree evidence with available live validation and interaction facts. This presentation owns
 steps, connections, current step, blocker, and semantic next action. Browser/TUI renderers choose layout and route/focus
 actions; they do not each map statuses to steps. A question blocks its current step rather than becoming a fake
@@ -151,75 +151,75 @@ during implementation and change whatever the Implementation Steps need, includi
 only when discovery changes approved intent — the change reaches another subsystem, public behavior or architecture
 shifts, migration or compatibility risk grows, or the Verification Plan no longer proves the objective.
 
-- `src/ui/workspace/server.js`, `layouts/WorkspaceLayout.astro`, and `static/workspace-shell.ts` under
-  `src/ui/workspace/` — render the owner Dashboard, add its stable navigation action, stop home redirection, and render
+- `../../../../src/ui/workspace/server.js`, `layouts/WorkspaceLayout.astro`, and `static/workspace-shell.ts` under
+  `../../../../src/ui/workspace` — render the owner Dashboard, add its stable navigation action, stop home redirection, and render
   Plan-first Project navigation. Preserve local `pages/index.astro` Plan Board behavior.
-- `src/ui/workspace/routes/owner-api.js` — return per-Project sidebar and Dashboard data without one damaged Project
+- `../../../../src/ui/workspace/routes/owner-api.js` — return per-Project sidebar and Dashboard data without one damaged Project
   failing all healthy Projects.
-- `src/ui/workspace/server/owner-plan-progress.ts` and `src/shared/workflow/` — share workflow interpretation for
+- `../../../../src/ui/workspace/server/owner-plan-progress.ts` and `../../../../src/shared/workflow` — share workflow interpretation for
   Dashboard summaries and the actionable diagram, including planning, live gates, and container-appropriate steps. Reuse
   `validation-progress.ts` and `validation-progress-presentation.ts` without losing human review/repair detail.
-- `src/shared/session/session-sidebar.ts`, `session-runtime.js`, and runtime snapshots/events — expose the shared
+- `../../../../src/shared/session/session-sidebar.ts`, `session-runtime.js`, and runtime snapshots/events — expose the shared
   workflow view with validation progress and existing active interactions. No second interaction store or controller
   mutations during reads.
-- `src/ui/tui/session-sidebar.ts`, `chat-view.ts`, `runtime-adapter.js`, and `runtime-interaction-adapter.js` — render
+- `../../../../src/ui/tui/session-sidebar.ts`, `chat-view.ts`, `runtime-adapter.js`, and `runtime-interaction-adapter.js` — render
   the diagram, connect live progress, and make its next action keyboard-usable through existing prompts/review URLs.
   Expose Code Review URL availability like Plan Review, without starting another interaction.
-- `src/cmd/load-plan/index.ts` and continuation/recovery helpers, where needed — connect explicit actions to the
+- `../../../../src/cmd/load-plan/index.ts` and continuation/recovery helpers, where needed — connect explicit actions to the
   established Plan/Session selection and continuation path, not new raw lifecycle commands.
-- `src/ui/workspace/server/owner-projects.js` and `src/ui/workspace/server/session-continuation.js` — compose Project
+- `../../../../src/ui/workspace/server/owner-projects.js` and `../../../../src/ui/workspace/server/session-continuation.js` — compose Project
   health, Plan summaries, associated Sessions, standalone Sessions, and diagnostics.
-- `src/ui/workspace/pages/`, `components/`, `islands/`, and `react/` — add the responsive Attention Dashboard and
+- `../../../../src/ui/workspace/pages`, `components/`, `islands/`, and `react/` — add the responsive Attention Dashboard and
   Plan-first navigation UI using RunWield design-system patterns.
 - `src/ui/workspace/react/PlanProgressSurface.tsx` and
   `src/ui/workspace/pages/projects/[projectId]/plans/[planId]/progress.astro` — remove the standalone progress surface
   and its routes.
-- `src/ui/workspace/islands/SessionSurface.jsx` and a shared browser workflow component — replace partial local stages
+- `../../../../src/ui/workspace/islands/SessionSurface.jsx` and a shared browser workflow component — replace partial local stages
   and Open progress with the diagram. `islands/SessionTimeline.jsx` — make the existing question a focusable
   destination.
 - `components/PlanDetail.jsx`, `pages/projects/[projectId]/plans/[planId].astro`, and `server/astro-owner-data.js` under
-  `src/ui/workspace/` — add the Plan-home workflow, next action, and working-Session link beside the readable document.
+  `../../../../src/ui/workspace` — add the Plan-home workflow, next action, and working-Session link beside the readable document.
   Preserve local Plan Board capabilities and embedded Plan Review mode.
-- `src/ui/workspace/react/PlanReviewSurface.tsx` and `pages/dev/plan-progress.astro` — replace obsolete progress-page
+- `../../../../src/ui/workspace/react/PlanReviewSurface.tsx` and `pages/dev/plan-progress.astro` — replace obsolete progress-page
   destinations/fixture. Add Plan-home and Session-workflow cases to the Surface Lab. `ArtifactConversationSidebar.tsx`
   is review chat and needs no planned change.
-- `src/shared/workflow/plan-lifecycle.js`, `src/plan-front-matter.js`, `src/plan-store.js`, and
-  `src/shared/workflow/execution-plan-file.js` — persist manual closure time as human lifecycle history; preserve it
+- `../../../../src/shared/workflow/plan-lifecycle.js`, `../../../../src/plan-front-matter.js`, `../../../../src/plan-store.js`, and
+  `../../../../src/shared/workflow/execution-plan-file.js` — persist manual closure time as human lifecycle history; preserve it
   through Plan parsing, writes, and execution-Plan reconciliation. Preserve Epic completion time on repeat completion.
-- `src/shared/workflow/publication-machine.ts`, `validation-publication.ts`, and existing controller records — preserve
+- `../../../../src/shared/workflow/publication-machine.ts`, `validation-publication.ts`, and existing controller records — preserve
   the verified publication date before registry cleanup, including retry/restart paths. No new publication protocol.
 - Workspace navigation, owner-server, progress integration, lifecycle, Plan serialization, and publication tests — prove
   the new home while keeping the existing Session, delivery, and local Plan Board behavior.
-- `docs/design-system.md` — document the shared workflow diagram/action pattern, Plan-home layout, and new Dashboard or
+- `../../../design-system.md` — document the shared workflow diagram/action pattern, Plan-home layout, and new Dashboard or
   nested navigation patterns not already covered.
-- `docs/domain-language.md` — align Dashboard categories and Workflow sidebar/Plan-home relationships with behavior; do
+- `../../../domain-language.md` — align Dashboard categories and Workflow sidebar/Plan-home relationships with behavior; do
   not define a new lifecycle because a diagram was added.
-- `docs/prd/runwield-workspace-prd.md` — record the Plan-home and Session Workflow sidebar outcomes from this feedback.
+- `../../../prd/runwield-workspace-prd.md` — record the Plan-home and Session Workflow sidebar outcomes from this feedback.
   Keep implementation details here and leave child 04's search work there.
 
 When the implementation makes proposed domain language true, include the applicable domain-language file:
-`docs/domain-language.md` for a single-context project, or the context-specific `domain-language.md` identified by
+`../../../domain-language.md` for a single-context project, or the context-specific `domain-language.md` identified by
 `docs/domain-language-map.md` for a multi-context project.
 
 ## Reuse Opportunities
 
 Existing functions, modules, or patterns to reuse:
 
-- `src/ui/workspace/server/owner-projects.js` — registered-root eligibility and browser-safe Project projection.
-- `src/ui/workspace/server/session-continuation.js` — stable Session listing and activation state.
+- `../../../../src/ui/workspace/server/owner-projects.js` — registered-root eligibility and browser-safe Project projection.
+- `../../../../src/ui/workspace/server/session-continuation.js` — stable Session listing and activation state.
 - `src/ui/workspace/server/owner-plan-progress.ts#loadOwnerPlanProgress` — joined Plan, controller, worktree,
   validation, delivery, and Session evidence.
-- `src/shared/session/plan-session-lookup.ts` and `src/ui/workspace/server/owner-plan-sessions.ts` — child 01's proven
+- `../../../../src/shared/session/plan-session-lookup.ts` and `../../../../src/ui/workspace/server/owner-plan-sessions.ts` — child 01's proven
   Plan Association lookup. Check the current exports before wiring the navigation reader.
 - `src/shared/session/session-transcript-projection.js#summarizeProjectedEntries` — workflow and Plan association data
   from committed Session evidence. Do not call `timeline()` to list Dashboard rows: it can initialize a generation.
-- `src/shared/workflow/plan-lifecycle.js` — Plan status and lifecycle vocabulary.
-- `src/shared/workflow/validation-progress.ts` and `validation-progress-presentation.ts` — live checks, human review,
+- `../../../../src/shared/workflow/plan-lifecycle.js` — Plan status and lifecycle vocabulary.
+- `../../../../src/shared/workflow/validation-progress.ts` and `validation-progress-presentation.ts` — live checks, human review,
   repair, and outcome labels. `HostedSession.getActiveInteractions()` owns current waits.
-- `src/ui/workspace/server/session-continuation.js` — live review URLs and checked answers, including its existing
+- `../../../../src/ui/workspace/server/session-continuation.js` — live review URLs and checked answers, including its existing
   forwarding for reachable TUI-owned interactions. This is distinct from Dashboard question scope.
-- `src/ui/tui/runtime-interaction-adapter.js` — existing prompts and review opening, not duplicate interactions.
-- `src/ui/design-system/` — existing Workspace cards, rows, badges, status labels, focus behavior, and responsive shell
+- `../../../../src/ui/tui/runtime-interaction-adapter.js` — existing prompts and review opening, not duplicate interactions.
+- `../../../../src/ui/design-system` — existing Workspace cards, rows, badges, status labels, focus behavior, and responsive shell
   patterns.
 
 ## Implementation Steps
@@ -276,7 +276,7 @@ Existing functions, modules, or patterns to reuse:
   shell events; stop it on navigation and refresh on visibility return. Prevent overlapping/out-of-order responses from
   replacing newer data. Other pages need no new sidebar polling loop. Failed refresh shows an error without silently
   presenting old data as current or discarding healthy Project results.
-- `src/shared/workflow/workflow-presentation.ts` owns the evidence-to-diagram decisions and exports a typed builder used
+- `../../../../src/shared/workflow/workflow-presentation.ts` owns the evidence-to-diagram decisions and exports a typed builder used
   by runtime snapshots and owner reads. Its inputs are workflow facts, not steps/current-node/blocker/action already
   chosen by a host. The full diagram rules no longer live in owner `deriveStages`, Workspace
   `deriveWorkflowSidebarStages`, or a TUI status mapper. Host code loads facts, renders results, and executes semantic
@@ -317,10 +317,10 @@ Existing functions, modules, or patterns to reuse:
 - The Dashboard uses compact shared rows/panels, `--rw-*` tokens, existing theme support, and the Workspace header and
   drawer. Status has text, not color alone. Links, expansion buttons, loading/error states, and long names remain usable
   by keyboard and phone. Child 04's Search control is absent until its real search experience exists.
-- `docs/design-system.md` documents the reusable workflow diagram/actions and Plan-home layout alongside other new
-  patterns. `docs/prd/runwield-workspace-prd.md` records that the owner sees current workflow, blockers and next actions
+- `../../../design-system.md` documents the reusable workflow diagram/actions and Plan-home layout alongside other new
+  patterns. `../../../prd/runwield-workspace-prd.md` records that the owner sees current workflow, blockers and next actions
   on Plan home and in a Session Workflow sidebar.
-- `docs/domain-language.md` describes implemented Dashboard category language, avoided aliases, and Plan/Session/live
+- `../../../domain-language.md` describes implemented Dashboard category language, avoided aliases, and Plan/Session/live
   interaction relationships. Clarify that Plan home and Workflow sidebar display one workflow, not separate authority.
 
 ## Approval Confirmation
@@ -331,7 +331,7 @@ No Work Record supersession is proposed.
 
 ### Automated evidence
 
-Add the Dashboard/navigation portion of `src/ui/workspace/personal-remote-workspace-v2.acceptance.test.ts` (not present
+Add the Dashboard/navigation portion of `../../../../src/ui/workspace/personal-remote-workspace-v2.acceptance.test.ts` (not present
 at planning time). Use real registered Projects, `defineGitFixture`/`makeValidationProjectRoot`, canonical
 Plan/controller/worktree readers, and file-backed Sessions. Fake only external boundaries such as model turns and
 clocks; do not inject replacement lifecycle, Plan-write, registry, or association readers.
