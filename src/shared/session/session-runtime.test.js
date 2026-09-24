@@ -4393,6 +4393,7 @@ Deno.test("Workspace gets a stop alert even when the handler suppresses its norm
     const sessionId = await runtime.createPromptReadySession({ cwd: runtimeProjectRoot(), agentName: "guide" });
     const hosted = sessionHost.getSession(sessionId);
     assertExists(hosted);
+    hosted.setActiveOnMessage(() => Promise.resolve({ kind: "complete" }));
     hosted.suppressNextAgentStoppedAttention();
     /** @type {import('./session-runtime-events.js').RuntimeAttentionRequestedEvent[]} */
     const attention = [];
