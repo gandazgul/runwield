@@ -42,7 +42,7 @@ rules. Pi's resource loader also discovers skills and can append them to the mod
 The owner wants local external skills, while keeping built-in customization explicit through `.wld`. Discovery and
 `/skill:` lookup must use the exact same Core functions. Pi skills must be ignored entirely.
 
-Owning capability: [Agent and skill customization](../prd/runwield-core-prd.md#agent-and-skill-customization). Change
+Owning capability: [Agent and skill customization](../../prd/runwield-core-prd.md#agent-and-skill-customization). Change
 **Skills and integrations** under **Respect user customization while retaining workflow capabilities** to describe the
 new order and bundled-name exclusion. Add acceptance scenarios for project external skills, intentional bundled
 customization, and disabling external skills. Preserve on-demand full instructions, built-in command reservation, and
@@ -94,7 +94,7 @@ extensions, or on-demand Skill invocation. Do not modify Pi source.
 
 The alternative of separate scanners is rejected by the owner: a shared directory list alone cannot keep collision and
 exclusion behavior consistent. This change follows existing Core ownership in
-[ADR-010](../adr/010-session-runtime-sibling-adapters-and-acp.md); no new architectural owner or ADR is needed.
+[ADR-010](../../adr/010-session-runtime-sibling-adapters-and-acp.md); no new architectural owner or ADR is needed.
 
 ## Expected Change Surface
 

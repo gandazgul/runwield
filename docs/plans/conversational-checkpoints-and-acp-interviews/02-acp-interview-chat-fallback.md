@@ -25,7 +25,7 @@ dependencies:
     - "01-conversational-pair-checkpoints"
 userVerifiedAt: null
 targetBranch: "main"
-status: "implemented"
+status: "validated_reviewer"
 ---
 
 # Answer ACP Interviews in Chat Without Native Forms

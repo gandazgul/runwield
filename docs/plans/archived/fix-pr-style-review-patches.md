@@ -50,10 +50,10 @@ rule; it does not undo the shared helper or return to an execution-start snapsho
 
 Owning capabilities:
 
-- Core [Semantic review and repair](../prd/runwield-core-prd.md#semantic-review-and-repair): change **Use one
+- Core [Semantic review and repair](../../prd/runwield-core-prd.md#semantic-review-and-repair): change **Use one
   target-relative review diff** and its target-advancement scenario. Preserve **Complete inspection before a review
   decision**, independent findings verification, and full-versus-repair scope.
-- Core [Execution, validation, and recovery](../prd/runwield-core-prd.md#execution-validation-and-recovery): preserve
+- Core [Execution, validation, and recovery](../../prd/runwield-core-prd.md#execution-validation-and-recovery): preserve
   isolated work, recoverable failures, recovery snapshots, and publication proof.
 
 These are proposed changes, not a claim that the corrected behavior has shipped. The request does not change browser

@@ -36,6 +36,7 @@ import {
 /**
  * @typedef {Object} StartTestServerOptions
  * @property {string | number} [holdResponseId]
+ * @property {string} [holdOutputText]
  */
 
 /**
@@ -153,9 +154,9 @@ function chunkIncludesResponseId(chunk, responseId) {
 }
 
 /**
- * @param {string | number} responseId
+ * @param {(chunk: Uint8Array) => boolean} shouldHold
  */
-function createHeldOutput(responseId) {
+function createHeldOutput(shouldHold) {
     /** @type {PromiseWithResolvers<void>} */
     const heldResponseStarted = Promise.withResolvers();
     /** @type {PromiseWithResolvers<void>} */
@@ -170,7 +171,7 @@ function createHeldOutput(responseId) {
     });
     const writable = new WritableStream({
         write(chunk) {
-            if (!held && chunkIncludesResponseId(chunk, responseId)) {
+            if (!held && shouldHold(chunk)) {
                 held = true;
                 heldResponseStarted.resolve(undefined);
                 return releaseHeldResponse.promise.then(() => outputController?.enqueue(chunk));
@@ -206,8 +207,12 @@ function startTestServer(options = {}) {
     let heldResponseStarted;
     /** @type {(() => void) | undefined} */
     let releaseHeldResponse;
-    if (options.holdResponseId !== undefined) {
-        const output = createHeldOutput(options.holdResponseId);
+    if (options.holdResponseId !== undefined || options.holdOutputText !== undefined) {
+        const output = createHeldOutput((chunk) =>
+            options.holdResponseId !== undefined
+                ? chunkIncludesResponseId(chunk, options.holdResponseId)
+                : decoder.decode(chunk).includes(options.holdOutputText || "")
+        );
         outputReadable = output.readable;
         outputWritable = output.writable;
         heldResponseStarted = output.heldResponseStarted;
@@ -2769,6 +2774,49 @@ Deno.test("ACP chat interview returns two ordered answers to one waiting model t
             ]);
             assertStringIncludes(joinedAgentText(final.messages), "Both received.");
         } finally {
+            await closeTestServer(handle);
+        }
+    });
+});
+
+Deno.test("ACP interview cancellation during a blocked question write precedes its response", async () => {
+    await withRuntimeCommandFixture("runwield-acp-question-cancel-", async (fixture) => {
+        fixture.setModelResponseFactories([
+            () =>
+                fauxAssistantMessage(fauxToolCall("user_interview", {
+                    question: { type: "text", prompt: "Question while writing?" },
+                })),
+        ]);
+        const handle = startTestServer({ holdOutputText: "Question while writing?" });
+        try {
+            const { sessionId } = await createSession(handle, fixture.projectRoot);
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "agent",
+                method: "session/prompt",
+                params: { sessionId, prompt: [{ type: "text", text: "/agent ideator" }] },
+            });
+            await readThroughResponse(handle, "agent");
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "ask",
+                method: "session/prompt",
+                params: { sessionId, prompt: [{ type: "text", text: "Ask" }] },
+            });
+            await handle.heldResponseStarted;
+            await sendMessage(handle, { jsonrpc: "2.0", method: "session/cancel", params: { sessionId } });
+            await new Promise((resolve) => setTimeout(resolve, 50));
+            handle.releaseHeldResponse?.();
+            const { messages, response } = await readThroughResponse(handle, "ask", 1000);
+            assertEquals(response.result.stopReason, "cancelled");
+            assert(
+                messages.some((message) =>
+                    String(message.params?.update?.content?.text || "").includes("Operation canceled.")
+                ),
+                "Runtime cancellation update must precede the response",
+            );
+        } finally {
+            handle.releaseHeldResponse?.();
             await closeTestServer(handle);
         }
     });

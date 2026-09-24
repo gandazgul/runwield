@@ -858,7 +858,7 @@ function createInterviewOperation(options) {
     let tail = Promise.resolve();
     /** @type {PromiseWithResolvers<void>} */
     let wake = Promise.withResolvers();
-    /** @type {{ interaction: import('../shared/session/session-runtime-interactions.js').RuntimeInteractionRequest, delivered: boolean } | null} */
+    /** @type {{ interaction: import('../shared/session/session-runtime-interactions.js').RuntimeInteractionRequest, delivered: boolean, queued: boolean } | null} */
     let question = null;
     let settled = false;
     let cancelled = false;
@@ -871,6 +871,11 @@ function createInterviewOperation(options) {
     /** @type {PromiseWithResolvers<void>} */
     const completed = Promise.withResolvers();
 
+    function signalWake() {
+        wake.resolve();
+        wake = Promise.withResolvers();
+    }
+
     /** @param {(context: AcpNotificationContext) => Promise<void>} send */
     function queue(send) {
         if (!attached) {
@@ -880,21 +885,24 @@ function createInterviewOperation(options) {
         const context = attached;
         tail = tail.then(() => send(context));
         tail.catch(() => runtime.cancelSession(runtimeSessionId));
+        return tail;
     }
     function deliverQuestion() {
-        if (!question || question.delivered || !attached) return;
-        question.delivered = true;
-        const interaction = question.interaction;
-        queue((context) =>
+        if (!question || question.queued || !attached) return;
+        const current = question;
+        current.queued = true;
+        void queue((context) =>
             notifyClient(context, methods.client.session.update, {
                 sessionId: acpSessionId,
                 update: {
                     sessionUpdate: "agent_message_chunk",
-                    content: { type: "text", text: formatInterviewQuestion(interaction) },
+                    content: { type: "text", text: formatInterviewQuestion(current.interaction) },
                 },
             })
-        );
-        wake.resolve();
+        )?.then(() => {
+            current.delivered = true;
+            signalWake();
+        }, () => {});
     }
     /** @param {AcpNotificationContext} context */
     function installAdapter(context) {
@@ -913,7 +921,7 @@ function createInterviewOperation(options) {
                     }
                     /** @type {PromiseWithResolvers<import('../shared/session/session-runtime-interactions.js').RuntimeInteractionResponse>} */
                     const answered = Promise.withResolvers();
-                    const current = { interaction, delivered: false };
+                    const current = { interaction, delivered: false, queued: false };
                     question = current;
                     const abort = () => {
                         if (question === current) question = null;
@@ -973,12 +981,34 @@ function createInterviewOperation(options) {
             }
         }
         try {
-            await tail;
+            // New notifications can be queued while an earlier write is pending.
+            let pending;
+            do {
+                pending = tail;
+                await pending;
+            } while (pending !== tail);
         } catch (error) {
             // A failed write cancels the operation. Do not leave a rejected
             // delivery chain that poisons every later request on this connection.
             tail = Promise.resolve();
             throw error;
+        }
+    }
+    /** @param {AcpNotificationContext} context @param {Promise<void>} settlement */
+    async function finishCancellation(context, settlement) {
+        await settlement;
+        await flush(context);
+        return /** @type {const} */ ({ stopReason: "cancelled" });
+    }
+    /** @param {AcpNotificationContext} context @param {Promise<void>} settlement @param {typeof question} [answeredQuestion] */
+    async function waitForQuestionOrSettlement(context, settlement, answeredQuestion = null) {
+        while (true) {
+            const nextWake = wake.promise;
+            await flush(context);
+            if (cancelled || prompt?.cancelled || settled || (question !== answeredQuestion && question?.delivered)) {
+                return;
+            }
+            await Promise.race([nextWake, settlement]);
         }
     }
     /** @param {AcpNotificationContext & { requestId?: string | number | null }} context */
@@ -992,8 +1022,7 @@ function createInterviewOperation(options) {
         );
         if (!prompt) throwUnknownSession(acpSessionId);
         // The old request has already flushed its response before this can run.
-        // Replay detached events before presenting a newly produced question.
-        void flush(context).then(deliverQuestion).catch(() => runtime.cancelSession(runtimeSessionId));
+        // The caller replays detached events before presenting a new question.
     }
     function finishRequest() {
         const current = prompt;
@@ -1018,10 +1047,12 @@ function createInterviewOperation(options) {
         // onTurnStarted can run after the Runtime's asynchronous setup.
         if (!prompt) await Promise.race([operationSettlement, started.promise]);
         try {
-            if (prompt) await Promise.race([wake.promise, operationSettlement]);
-            await flush(context);
-            if (question?.delivered && !settled && !cancelled) return { stopReason: "end_turn" };
-            if (cancelled || prompt?.cancelled) return { stopReason: "cancelled" };
+            if (prompt) await waitForQuestionOrSettlement(context, operationSettlement);
+            else await flush(context);
+            if (cancelled || prompt?.cancelled) {
+                return await finishCancellation(context, operationSettlement);
+            }
+            if (question?.delivered && !settled) return { stopReason: "end_turn" };
             if (failure) throw failure;
             if (!result?.ok) {
                 if (result?.error === "managed_operation_in_progress" && !prompt) {
@@ -1041,7 +1072,9 @@ function createInterviewOperation(options) {
             }
             return { stopReason: "end_turn" };
         } catch (error) {
-            if (cancelled || prompt?.cancelled) return { stopReason: "cancelled" };
+            if (cancelled || prompt?.cancelled) {
+                return await finishCancellation(context, operationSettlement);
+            }
             if (error instanceof SessionTurnInProgressError) {
                 throw new RequestError(ACP_INVALID_STATE, `ACP session already has an active prompt: ${acpSessionId}`);
             }
@@ -1063,7 +1096,15 @@ function createInterviewOperation(options) {
         get hasUndeliveredUpdates() {
             return undelivered.length > 0;
         },
-        flush,
+        /** @param {AcpNotificationContext & { requestId?: string | number | null }} context */
+        async replay(context) {
+            attachRequest(context);
+            try {
+                await flush(context);
+            } finally {
+                finishRequest();
+            }
+        },
         /** @param {AcpNotificationContext & { requestId?: string | number | null }} context @param {string} turnId */
         start(context, turnId) {
             attached = context;
@@ -1088,21 +1129,27 @@ function createInterviewOperation(options) {
             result = value;
             failure = error instanceof Error ? error : error ? new Error(String(error)) : null;
             question = null;
-            wake.resolve();
+            signalWake();
             completed.resolve();
         },
         cancel() {
             cancelled = true;
         },
-        /** @param {AcpNotificationContext & { requestId?: string | number | null }} context @param {import('../shared/session/session-runtime-interactions.js').RuntimeInteractionResponse | null | undefined} reply @param {string} [feedback]
+        /** @param {AcpNotificationContext & { requestId?: string | number | null }} context @param {string | undefined} expectedInteractionId @param {import('../shared/session/session-runtime-interactions.js').RuntimeInteractionResponse | null | undefined} reply @param {string} [feedback]
          * @returns {Promise<import('@agentclientprotocol/sdk').PromptResponse>} */
-        async attach(context, reply, feedback) {
+        async attach(context, expectedInteractionId, reply, feedback) {
             attachRequest(context);
             try {
                 await flush(context);
+                if (cancelled || prompt?.cancelled) {
+                    return await finishCancellation(context, completed.promise);
+                }
+                let answeredQuestion = null;
                 if (question && !question.delivered) {
                     deliverQuestion();
-                } else if (!reply) {
+                } else if (reply && question?.interaction.id !== expectedInteractionId) {
+                    // Another surface won; never apply the old reply to its successor.
+                } else if (!reply && question) {
                     queue((context) =>
                         notifyClient(context, methods.client.session.update, {
                             sessionId: acpSessionId,
@@ -1113,31 +1160,44 @@ function createInterviewOperation(options) {
                         })
                     );
                     await flush(context);
-                    return { stopReason: "end_turn" };
-                } else if (
-                    question && !runtime.answerInteraction(runtimeSessionId, question.interaction.id || "", reply)
-                ) {
-                    queue((context) =>
-                        notifyClient(context, methods.client.session.update, {
-                            sessionId: acpSessionId,
-                            update: {
-                                sessionUpdate: "agent_message_chunk",
-                                content: { type: "text", text: "This question was answered elsewhere." },
-                            },
-                        })
-                    );
-                    await flush(context);
-                    return { stopReason: "end_turn" };
+                    if (cancelled || prompt?.cancelled) {
+                        return await finishCancellation(context, completed.promise);
+                    }
+                } else if (question && reply) {
+                    const current = question;
+                    if (runtime.answerInteraction(runtimeSessionId, expectedInteractionId || "", reply)) {
+                        answeredQuestion = current;
+                    } else {
+                        queue((context) =>
+                            notifyClient(context, methods.client.session.update, {
+                                sessionId: acpSessionId,
+                                update: {
+                                    sessionUpdate: "agent_message_chunk",
+                                    content: { type: "text", text: "This question was answered elsewhere." },
+                                },
+                            })
+                        );
+                        await flush(context);
+                        if (cancelled || prompt?.cancelled) {
+                            return await finishCancellation(context, completed.promise);
+                        }
+                    }
                 }
-                await Promise.race([wake.promise, completed.promise]);
-                await flush(context);
-                if (question?.delivered && !settled && !cancelled) return { stopReason: "end_turn" };
-                if (cancelled || prompt?.cancelled) return { stopReason: "cancelled" };
+                await waitForQuestionOrSettlement(context, completed.promise, answeredQuestion);
+                if (cancelled || prompt?.cancelled) {
+                    return await finishCancellation(context, completed.promise);
+                }
+                if (question?.delivered && !settled) return { stopReason: "end_turn" };
                 if (failure) throw failure;
                 if (settled && !result?.ok) {
                     throw new RequestError(ACP_INVALID_STATE, result?.error || "ACP prompt failed");
                 }
                 return { stopReason: "end_turn" };
+            } catch (error) {
+                if (cancelled || prompt?.cancelled) {
+                    return await finishCancellation(context, completed.promise);
+                }
+                throw error;
             } finally {
                 finishRequest();
             }
@@ -1356,7 +1416,7 @@ function createRunWieldAcpServer(context) {
         if (operation) {
             const pending = operation.question;
             if (pending && !pending.delivered) {
-                return await operation.attach(context, undefined);
+                return await operation.attach(context, pending.interaction.id, undefined);
             }
             if (!operation.settled) {
                 if (operation.cancelled || !pending) {
@@ -1372,13 +1432,14 @@ function createRunWieldAcpServer(context) {
                     : null;
                 return await operation.attach(
                     context,
+                    pending.interaction.id,
                     reply,
                     textOnly
                         ? "An answer is required. Reply with text."
                         : "This interview needs a text answer. Attachments were not submitted; reply with text.",
                 );
             }
-            await operation.flush(context);
+            await operation.replay(context);
             operations.delete(acpSessionId);
         }
         const builtinCommand = extractAcpBuiltinCommand(request.prompt);
