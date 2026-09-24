@@ -1,5 +1,11 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
-import { fauxAssistantMessage, fauxText, fauxToolCall, type ToolResultMessage } from "@earendil-works/pi-ai";
+import {
+    fauxAssistantMessage,
+    fauxText,
+    fauxToolCall,
+    getCurrentSystemPrompt,
+    type ToolResultMessage,
+} from "@earendil-works/pi-ai";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
@@ -369,7 +375,7 @@ Deno.test("Router-to-Planner dispatch sends Planner system instructions despite 
             let systemPrompt = "";
             let modelMessages = "";
             setModelResponseFactory((context) => {
-                systemPrompt = context.systemPrompt || "";
+                systemPrompt = getCurrentSystemPrompt(context.messages);
                 modelMessages = JSON.stringify(context.messages);
                 return fauxAssistantMessage(fauxText("I need more requirements before writing the Plan."));
             });

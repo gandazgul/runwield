@@ -11,6 +11,7 @@ import { assert } from "@std/assert";
 import { extractYaml } from "@std/front-matter";
 import { PLAN_RUNTIME_FIELDS } from "../../../shared/workflow/controller-state.ts";
 import { readControllerRecord } from "../../../shared/workflow/controller-registry.ts";
+import { getCurrentSystemPrompt, getCurrentTools } from "@earendil-works/pi-ai";
 import { registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { findPlansByParent, loadPlan, parsePlanFrontMatter } from "../../../plan-store.js";
 import { withProcessGlobalTestLock } from "../../../testing/process-global-lock.js";
@@ -298,19 +299,14 @@ function isObject(value) {
     return Boolean(value && typeof value === "object");
 }
 
-/** @param {unknown} value */
-function toolName(value) {
-    if (!value || typeof value !== "object" || !("name" in value)) return null;
-    const name = /** @type {{ name?: unknown }} */ (value).name;
-    return typeof name === "string" ? name : null;
+/** @param {import('@earendil-works/pi-ai').TranscriptContext} context */
+function getContextToolNames(context) {
+    return getCurrentTools(context.messages).map((tool) => tool.name);
 }
 
-/** @param {unknown} context */
-function getContextToolNames(context) {
-    if (!context || typeof context !== "object" || !("tools" in context)) return [];
-    const tools = /** @type {{ tools?: unknown }} */ (context).tools;
-    if (!Array.isArray(tools)) return [];
-    return tools.map(toolName).filter((name) => typeof name === "string");
+/** @param {import('@earendil-works/pi-ai').TranscriptContext} context */
+function getContextSystemPrompt(context) {
+    return getCurrentSystemPrompt(context.messages);
 }
 
 /**
@@ -969,22 +965,20 @@ async function runComposedTuiScenario(scenario, options) {
             // through the same strict actor dispatch as every other model turn.
             const scriptedResponseFactories = Array.from({ length: (scenario.script || []).length + 8 }, () =>
             (
-                /** @type {unknown} */ context,
+                /** @type {import('@earendil-works/pi-ai').TranscriptContext} */ context,
                 /** @type {unknown} */ _options,
                 /** @type {unknown} */ _providerState,
                 /** @type {{ id?: string, provider?: string }} */ model,
             ) => {
                 let snapshot = composition?.runtime.getSessionSnapshot(composition.sessionId);
                 const availableTools = getContextToolNames(context);
-                const systemPrompt = String(
-                    /** @type {{ systemPrompt?: unknown }} */ (context && typeof context === "object" ? context : {})
-                        .systemPrompt || "",
-                );
+                const systemPrompt = getContextSystemPrompt(context);
                 // Route the external model fixture by the request's real working
                 // directory. Concurrent sessions must never borrow the first TUI's
                 // Plan identity or consume its scripted turns.
                 if (concurrentSessions.size > 0) {
-                    const requestCwd = systemPrompt.match(/^Current working directory: (.+)$/m)?.[1]?.trim();
+                    const requestCwd = systemPrompt.match(/^Current working directory: (.+)$/m)?.[1]?.trim() ||
+                        systemPrompt.match(/<cwd>\s*([\s\S]*?)\s*<\/cwd>/)?.[1]?.trim();
                     const snapshots = [
                         snapshot,
                         ...[...concurrentSessions.values()].map(({ composition: sessionComposition }) =>

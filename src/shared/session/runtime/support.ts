@@ -156,6 +156,23 @@ export function toRuntimeQueuedMessage(message: import("./types.ts").RuntimeQueu
     };
 }
 
+function getStreamingAssistantContextTokens(session: RuntimeAgentSession) {
+    if (!session.isStreaming) return null;
+    const messages = session.agent?.state.messages;
+    if (!Array.isArray(messages)) return null;
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+        const message = messages[index];
+        if (message.role !== "assistant" || message.stopReason === "aborted" || message.stopReason === "error") {
+            continue;
+        }
+        const usage = message.usage;
+        if (!usage) return null;
+        const tokens = usage.totalTokens || usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
+        return tokens > 0 ? tokens : null;
+    }
+    return null;
+}
+
 /**
  * Project the context-capacity state of the Agent currently represented by the
  * Runtime. Transient Agents take precedence while they are active, matching the
@@ -176,12 +193,16 @@ export function getRuntimeContextCapacity(session: import(".././hosted-session.j
     }
 
     const rawUsage = activeSession.getContextUsage?.();
+    const streamingTokens = isRuntimeAgentSession(activeSession)
+        ? getStreamingAssistantContextTokens(activeSession)
+        : null;
+    const tokens = typeof streamingTokens === "number" ? streamingTokens : rawUsage?.tokens;
     const contextWindow = Number(rawUsage?.contextWindow ?? activeSession.model?.contextWindow ?? 0) || 0;
     const contextUsage = contextWindow > 0
         ? {
-            tokens: typeof rawUsage?.tokens === "number" ? rawUsage.tokens : null,
+            tokens: typeof tokens === "number" ? tokens : null,
             contextWindow,
-            percent: typeof rawUsage?.percent === "number" ? rawUsage.percent : null,
+            percent: typeof tokens === "number" ? (tokens / contextWindow) * 100 : null,
         }
         : null;
     const compactionSettings = activeSession.settingsManager?.getCompactionSettings?.();

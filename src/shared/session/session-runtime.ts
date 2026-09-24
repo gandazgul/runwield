@@ -320,6 +320,9 @@ export class SessionRuntime {
     setInteractionAdapter(...args: Parameters<RuntimeLifecycleLoading["setInteractionAdapter"]>) {
         return this.#loading.setInteractionAdapter(...args);
     }
+    answerInteraction(...args: Parameters<RuntimeLifecycleLoading["answerInteraction"]>) {
+        return this.#loading.answerInteraction(...args);
+    }
     requestInteraction(...args: Parameters<RuntimeLifecycleLoading["requestInteraction"]>) {
         return this.#loading.requestInteraction(...args);
     }

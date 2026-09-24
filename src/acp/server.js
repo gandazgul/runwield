@@ -13,6 +13,7 @@ import { RuntimeEventTypes } from "../shared/session/session-runtime-events.js";
 import { AcpSessionMap, normalizeAcpSessionIdForLoad } from "./session-map.js";
 import { mapRuntimeContextToAcpUpdate, mapRuntimeEventToAcpSessionNotification } from "./event-mapper.js";
 import { createAcpInteractionAdapter } from "./interaction-mapper.js";
+import { formatInterviewQuestion, parseInterviewReply } from "./interview-chat.ts";
 import { buildAcpModelOptions } from "./model-options.ts";
 import { getCommandDefinition, getSlashCommandDefinition, getSlashCommandDefinitions } from "../cmd/registry.js";
 import { ProjectRuntimeEntryRefusedError } from "../shared/project-runtime-layout.ts";
@@ -524,6 +525,7 @@ function createAcpCommandUiAPI(options) {
 
 /**
  * @param {{ context: any, runtime: SessionRuntime, sessionMap: AcpSessionMap, acpSessionId: string, runtimeSessionId: string, clientCapabilities: unknown, commandName: string, args: string[], requestId?: string, releasePromptAfterResponse?: (requestId: string, release: () => void) => void }} options
+ * @returns {Promise<import('@agentclientprotocol/sdk').PromptResponse>}
  */
 async function dispatchAcpBuiltinCommand(options) {
     let runtimeSessionId = options.runtimeSessionId;
@@ -835,14 +837,385 @@ async function replaySetupEvents(context, runtime, sessionMap, runtimeSessionId,
 }
 
 /**
+ * One live Runtime turn may serve several ACP prompt requests. Only the request's
+ * response owns activePrompt; the operation owns its adapter and event subscription.
+ * @param {{ runtime: SessionRuntime, sessionMap: AcpSessionMap, acpSessionId: string, runtimeSessionId: string, clientCapabilities: unknown, releasePromptAfterResponse?: (id: string, release: () => void) => void }} options
+ */
+function createInterviewOperation(options) {
+    const { runtime, sessionMap, acpSessionId, clientCapabilities, releasePromptAfterResponse } = options;
+    let runtimeSessionId = options.runtimeSessionId;
+    /** @type {AcpNotificationContext | null} */
+    let attached = null;
+    /** @type {AcpNotificationContext | null} */
+    let initialContext = null;
+    /** @type {import('./session-map.js').AcpPromptRecord | null} */
+    let prompt = null;
+    /** @type {(() => void)} */
+    let unsubscribe = () => {};
+    /** @type {Array<(context: AcpNotificationContext) => Promise<void>>} */
+    const undelivered = [];
+    /** @type {Promise<void>} */
+    let tail = Promise.resolve();
+    /** @type {PromiseWithResolvers<void>} */
+    let wake = Promise.withResolvers();
+    /** @type {{ interaction: import('../shared/session/session-runtime-interactions.js').RuntimeInteractionRequest, delivered: boolean, queued: boolean } | null} */
+    let question = null;
+    let settled = false;
+    let cancelled = false;
+    /** @type {Awaited<ReturnType<SessionRuntime['promptUserTurn']>> | null} */
+    let result = null;
+    /** @type {Error | null} */
+    let failure = null;
+    /** @type {PromiseWithResolvers<void>} */
+    const started = Promise.withResolvers();
+    /** @type {PromiseWithResolvers<void>} */
+    const completed = Promise.withResolvers();
+
+    function signalWake() {
+        wake.resolve();
+        wake = Promise.withResolvers();
+    }
+
+    /** @param {(context: AcpNotificationContext) => Promise<void>} send */
+    function queue(send) {
+        if (!attached) {
+            undelivered.push(send);
+            return;
+        }
+        const context = attached;
+        tail = tail.then(() => send(context));
+        tail.catch(() => runtime.cancelSession(runtimeSessionId));
+        return tail;
+    }
+    function deliverQuestion() {
+        if (!question || question.queued || !attached) return;
+        const current = question;
+        current.queued = true;
+        void queue((context) =>
+            notifyClient(context, methods.client.session.update, {
+                sessionId: acpSessionId,
+                update: {
+                    sessionUpdate: "agent_message_chunk",
+                    content: { type: "text", text: formatInterviewQuestion(current.interaction) },
+                },
+            })
+        )?.then(() => {
+            current.delivered = true;
+            signalWake();
+        }, () => {});
+    }
+    /** @param {AcpNotificationContext} context */
+    function installAdapter(context) {
+        runtime.setInteractionAdapter(
+            runtimeSessionId,
+            createAcpInteractionAdapter({
+                context,
+                acpSessionId,
+                clientCapabilities,
+                presentInterview: (interaction, signal) => {
+                    if (cancelled || signal?.aborted) {
+                        return Promise.resolve({
+                            outcome: RuntimeInteractionOutcomes.CANCELED,
+                            message: "Interaction canceled.",
+                        });
+                    }
+                    /** @type {PromiseWithResolvers<import('../shared/session/session-runtime-interactions.js').RuntimeInteractionResponse>} */
+                    const answered = Promise.withResolvers();
+                    const current = { interaction, delivered: false, queued: false };
+                    question = current;
+                    const abort = () => {
+                        if (question === current) question = null;
+                        answered.resolve({
+                            outcome: RuntimeInteractionOutcomes.CANCELED,
+                            message: "Interaction canceled.",
+                        });
+                    };
+                    if (signal?.aborted) abort();
+                    else signal?.addEventListener("abort", abort, { once: true });
+                    deliverQuestion();
+                    return answered.promise.finally(() => signal?.removeEventListener("abort", abort));
+                },
+            }),
+        );
+    }
+    // Answers are sent to the broker's existing callback, not to the adapter's
+    // presentation Promise. Its abort listener dismisses the losing surface.
+    function subscribe() {
+        unsubscribe = runtime.subscribeSessionEvents(runtimeSessionId, (event) => {
+            if (event.type === RuntimeEventTypes.SESSION_REPLACED) {
+                const nextId = event.newSessionId;
+                sessionMap.replaceRuntimeSession(acpSessionId, {
+                    sessionId: nextId,
+                    cwd: runtime.getSessionSnapshot(nextId)?.cwd,
+                });
+                const previous = unsubscribe;
+                runtime.setInteractionAdapter(runtimeSessionId, null);
+                runtimeSessionId = nextId;
+                const presentationContext = attached || initialContext;
+                if (presentationContext) installAdapter(presentationContext);
+                previous();
+                subscribe();
+                return;
+            }
+            const usage = runtime.getSessionSnapshot(runtimeSessionId)?.contextUsage || null;
+            const notification = mapEventWithSessionCost(sessionMap, acpSessionId, event, usage);
+            if (
+                event.type === RuntimeEventTypes.MODEL_CHANGED || event.type === RuntimeEventTypes.AGENT_CHANGED ||
+                event.type === RuntimeEventTypes.THINKING_LEVEL_CHANGED
+            ) {
+                queue(async (context) => {
+                    await notifyAcpModelOptions(context, runtime, runtimeSessionId, acpSessionId);
+                    await notifyAcpContextUsage(context, runtime, sessionMap, runtimeSessionId, acpSessionId);
+                });
+            }
+            if (notification) queue((context) => notifyClient(context, methods.client.session.update, notification));
+        });
+    }
+    /** @param {AcpNotificationContext} context */
+    async function flush(context) {
+        if (undelivered.length) {
+            const updates = undelivered.splice(0);
+            for (const update of updates) {
+                tail = tail.then(() => update(context));
+                tail.catch(() => runtime.cancelSession(runtimeSessionId));
+            }
+        }
+        try {
+            // New notifications can be queued while an earlier write is pending.
+            let pending;
+            do {
+                pending = tail;
+                await pending;
+            } while (pending !== tail);
+        } catch (error) {
+            // A failed write cancels the operation. Do not leave a rejected
+            // delivery chain that poisons every later request on this connection.
+            tail = Promise.resolve();
+            throw error;
+        }
+    }
+    /** @param {AcpNotificationContext} context @param {Promise<void>} settlement */
+    async function finishCancellation(context, settlement) {
+        await settlement;
+        await flush(context);
+        return /** @type {const} */ ({ stopReason: "cancelled" });
+    }
+    /** @param {AcpNotificationContext} context @param {Promise<void>} settlement @param {typeof question} [answeredQuestion] */
+    async function waitForQuestionOrSettlement(context, settlement, answeredQuestion = null) {
+        while (true) {
+            const nextWake = wake.promise;
+            await flush(context);
+            if (cancelled || prompt?.cancelled || settled || (question !== answeredQuestion && question?.delivered)) {
+                return;
+            }
+            await Promise.race([nextWake, settlement]);
+        }
+    }
+    /** @param {AcpNotificationContext & { requestId?: string | number | null }} context */
+    function attachRequest(context) {
+        attached = context;
+        wake = Promise.withResolvers();
+        prompt = sessionMap.beginPrompt(
+            acpSessionId,
+            crypto.randomUUID(),
+            context.requestId === undefined ? undefined : String(context.requestId),
+        );
+        if (!prompt) throwUnknownSession(acpSessionId);
+        // The old request has already flushed its response before this can run.
+        // The caller replays detached events before presenting a new question.
+    }
+    function finishRequest() {
+        const current = prompt;
+        if (!current) return;
+        const release = () => {
+            sessionMap.endPrompt(acpSessionId, current);
+            if (prompt === current) {
+                prompt = null;
+                attached = null;
+            }
+        };
+        // The SDK may still be writing this response. Do not send later updates
+        // to a subscriber that will be removed when that response finishes.
+        attached = null;
+        if (current.requestId !== undefined && releasePromptAfterResponse) {
+            releasePromptAfterResponse(current.requestId, release);
+        } else release();
+    }
+    /** @param {AcpNotificationContext & { requestId?: string | number | null }} context @param {Promise<void>} operationSettlement @param {string} text @param {import('../shared/session/types.js').ImageAttachment[]} images
+     * @returns {Promise<import('@agentclientprotocol/sdk').PromptResponse>} */
+    async function waitForRequest(context, operationSettlement, text, images) {
+        // onTurnStarted can run after the Runtime's asynchronous setup.
+        if (!prompt) await Promise.race([operationSettlement, started.promise]);
+        try {
+            if (prompt) await waitForQuestionOrSettlement(context, operationSettlement);
+            else await flush(context);
+            if (cancelled || prompt?.cancelled) {
+                return await finishCancellation(context, operationSettlement);
+            }
+            if (question?.delivered && !settled) return { stopReason: "end_turn" };
+            if (failure) throw failure;
+            if (!result?.ok) {
+                if (result?.error === "managed_operation_in_progress" && !prompt) {
+                    const queued = runtime.queueNextTurnMessage(runtimeSessionId, text, images, {
+                        deliverWhenAvailable: true,
+                    });
+                    if (queued.ok) {
+                        return {
+                            stopReason: "end_turn",
+                            _meta: { runwield: { queued: queued.queued, queuedMessageId: queued.message?.id || "" } },
+                        };
+                    }
+                }
+                throw new RequestError(ACP_INVALID_STATE, result?.error || "ACP prompt was rejected", {
+                    sessionId: acpSessionId,
+                });
+            }
+            return { stopReason: "end_turn" };
+        } catch (error) {
+            if (cancelled || prompt?.cancelled) {
+                return await finishCancellation(context, operationSettlement);
+            }
+            if (error instanceof SessionTurnInProgressError) {
+                throw new RequestError(ACP_INVALID_STATE, `ACP session already has an active prompt: ${acpSessionId}`);
+            }
+            throw error;
+        } finally {
+            finishRequest();
+        }
+    }
+    return {
+        get question() {
+            return question;
+        },
+        get settled() {
+            return settled;
+        },
+        get cancelled() {
+            return cancelled;
+        },
+        get hasUndeliveredUpdates() {
+            return undelivered.length > 0;
+        },
+        /** @param {AcpNotificationContext & { requestId?: string | number | null }} context */
+        async replay(context) {
+            attachRequest(context);
+            try {
+                await flush(context);
+            } finally {
+                finishRequest();
+            }
+        },
+        /** @param {AcpNotificationContext & { requestId?: string | number | null }} context @param {string} turnId */
+        start(context, turnId) {
+            attached = context;
+            initialContext = context;
+            prompt = sessionMap.beginPrompt(
+                acpSessionId,
+                turnId,
+                context.requestId === undefined ? undefined : String(context.requestId),
+            );
+            if (!prompt) throwUnknownSession(acpSessionId);
+            installAdapter(context);
+            subscribe();
+            started.resolve();
+        },
+        stop() {
+            unsubscribe();
+            runtime.setInteractionAdapter(runtimeSessionId, null);
+        },
+        /** @param {Awaited<ReturnType<SessionRuntime['promptUserTurn']>> | null} value @param {Error | null} [error] */
+        settle(value, error) {
+            settled = true;
+            result = value;
+            failure = error instanceof Error ? error : error ? new Error(String(error)) : null;
+            question = null;
+            signalWake();
+            completed.resolve();
+        },
+        cancel() {
+            cancelled = true;
+        },
+        /** @param {AcpNotificationContext & { requestId?: string | number | null }} context @param {string | undefined} expectedInteractionId @param {import('../shared/session/session-runtime-interactions.js').RuntimeInteractionResponse | null | undefined} reply @param {string} [feedback]
+         * @returns {Promise<import('@agentclientprotocol/sdk').PromptResponse>} */
+        async attach(context, expectedInteractionId, reply, feedback) {
+            attachRequest(context);
+            try {
+                await flush(context);
+                if (cancelled || prompt?.cancelled) {
+                    return await finishCancellation(context, completed.promise);
+                }
+                let answeredQuestion = null;
+                if (question && !question.delivered) {
+                    deliverQuestion();
+                } else if (reply && question?.interaction.id !== expectedInteractionId) {
+                    // Another surface won; never apply the old reply to its successor.
+                } else if (!reply && question) {
+                    queue((context) =>
+                        notifyClient(context, methods.client.session.update, {
+                            sessionId: acpSessionId,
+                            update: {
+                                sessionUpdate: "agent_message_chunk",
+                                content: { type: "text", text: feedback || "An answer is required." },
+                            },
+                        })
+                    );
+                    await flush(context);
+                    if (cancelled || prompt?.cancelled) {
+                        return await finishCancellation(context, completed.promise);
+                    }
+                } else if (question && reply) {
+                    const current = question;
+                    if (runtime.answerInteraction(runtimeSessionId, expectedInteractionId || "", reply)) {
+                        answeredQuestion = current;
+                    } else {
+                        queue((context) =>
+                            notifyClient(context, methods.client.session.update, {
+                                sessionId: acpSessionId,
+                                update: {
+                                    sessionUpdate: "agent_message_chunk",
+                                    content: { type: "text", text: "This question was answered elsewhere." },
+                                },
+                            })
+                        );
+                        await flush(context);
+                        if (cancelled || prompt?.cancelled) {
+                            return await finishCancellation(context, completed.promise);
+                        }
+                    }
+                }
+                await waitForQuestionOrSettlement(context, completed.promise, answeredQuestion);
+                if (cancelled || prompt?.cancelled) {
+                    return await finishCancellation(context, completed.promise);
+                }
+                if (question?.delivered && !settled) return { stopReason: "end_turn" };
+                if (failure) throw failure;
+                if (settled && !result?.ok) {
+                    throw new RequestError(ACP_INVALID_STATE, result?.error || "ACP prompt failed");
+                }
+                return { stopReason: "end_turn" };
+            } catch (error) {
+                if (cancelled || prompt?.cancelled) {
+                    return await finishCancellation(context, completed.promise);
+                }
+                throw error;
+            } finally {
+                finishRequest();
+            }
+        },
+        waitForRequest,
+    };
+}
+
+/**
  * Create the RunWield ACP agent app.
- *
  * @param {AcpServerContext} context
  * @returns {AgentApp}
  */
 function createRunWieldAcpServer(context) {
     const app = agent({ name: "RunWield ACP MVP" });
     const { runtime, sessionMap, releasePromptAfterResponse } = context;
+    /** @type {Map<string, ReturnType<typeof createInterviewOperation>>} */
+    const operations = new Map();
     /** @type {unknown} */
     let clientCapabilities = null;
 
@@ -893,6 +1266,13 @@ function createRunWieldAcpServer(context) {
     app.onRequest(methods.agent.session.load, async (context) => {
         const request = validateLoadSessionParams(context.params);
         const persistedSessionId = normalizeAcpSessionIdForLoad(request.sessionId);
+        if (
+            sessionMap.listRecords().some((record) =>
+                record.acpSessionId === request.sessionId || record.persistedSessionId === persistedSessionId
+            )
+        ) {
+            throw new RequestError(ACP_INVALID_STATE, `ACP session already exists: ${request.sessionId}`);
+        }
         try {
             const result = await runtime.loadSession({
                 cwd: request.cwd,
@@ -971,7 +1351,10 @@ function createRunWieldAcpServer(context) {
         if (!optionValues.includes(value)) {
             throwInvalidParams(`Config option is not available: ${configId}=${value}`, { configId, value });
         }
-        if (sessionMap.getRecord(sessionId)?.activePrompt) {
+        if (
+            sessionMap.getRecord(sessionId)?.activePrompt ||
+            (operations.has(sessionId) && !operations.get(sessionId)?.settled)
+        ) {
             throw new RequestError(
                 ACP_INVALID_STATE,
                 "Wait for the active turn to finish before changing configuration",
@@ -1020,7 +1403,7 @@ function createRunWieldAcpServer(context) {
         if (!acpSessionId || typeof acpSessionId !== "string") {
             throwInvalidParams("session/prompt requires sessionId");
         }
-        let runtimeSessionId = /** @type {string} */ (sessionMap.getRuntimeSessionId(acpSessionId));
+        const runtimeSessionId = /** @type {string} */ (sessionMap.getRuntimeSessionId(acpSessionId));
         if (!runtimeSessionId) throwUnknownSession(acpSessionId);
         if (sessionMap.getRecord(acpSessionId)?.activePrompt) {
             throw new RequestError(
@@ -1028,6 +1411,36 @@ function createRunWieldAcpServer(context) {
                 `ACP session already has an active prompt: ${acpSessionId}`,
                 { sessionId: acpSessionId },
             );
+        }
+        const operation = operations.get(acpSessionId);
+        if (operation) {
+            const pending = operation.question;
+            if (pending && !pending.delivered) {
+                return await operation.attach(context, pending.interaction.id, undefined);
+            }
+            if (!operation.settled) {
+                if (operation.cancelled || !pending) {
+                    throw new RequestError(ACP_INVALID_STATE, "Wait for the interview to settle", {
+                        sessionId: acpSessionId,
+                    });
+                }
+                // Do not turn an attachment or a blank required answer into a tool answer.
+                const blocks = request.prompt;
+                const textOnly = Array.isArray(blocks) && blocks.every((block) => block?.type === "text");
+                const reply = textOnly
+                    ? parseInterviewReply(pending.interaction, blocks.map((block) => block.text || "").join("\n"))
+                    : null;
+                return await operation.attach(
+                    context,
+                    pending.interaction.id,
+                    reply,
+                    textOnly
+                        ? "An answer is required. Reply with text."
+                        : "This interview needs a text answer. Attachments were not submitted; reply with text.",
+                );
+            }
+            await operation.replay(context);
+            operations.delete(acpSessionId);
         }
         const builtinCommand = extractAcpBuiltinCommand(request.prompt);
         if (builtinCommand) {
@@ -1065,174 +1478,37 @@ function createRunWieldAcpServer(context) {
                 });
             }
             return {
-                stopReason: "end_turn",
+                stopReason: /** @type {const} */ ("end_turn"),
                 _meta: { runwield: { queued: queued.queued, queuedMessageId: queued.message?.id || "" } },
             };
         }
 
-        /** @type {Promise<void>[]} */
-        const pendingNotifications = [];
-        /** @type {import('./session-map.js').AcpPromptRecord | null} */
-        let activePrompt = null;
-        /** @returns {import('./session-map.js').AcpPromptRecord | null} */
-        const getActivePrompt = () => activePrompt;
-        /** @type {() => void} */
-        let unsubscribe = () => {};
-        let promptStarted = false;
-        let cleanupStarted = false;
-
-        const cleanupPromptResources = () => {
-            if (!promptStarted || cleanupStarted) return;
-            cleanupStarted = true;
-            try {
-                unsubscribe();
-            } finally {
-                if (activePrompt && sessionMap.isCurrentPrompt(acpSessionId, activePrompt)) {
-                    runtime.setInteractionAdapter?.(runtimeSessionId, null);
-                }
-            }
-        };
-
-        const releasePrompt = () => {
-            const prompt = activePrompt;
-            cleanupPromptResources();
-            if (!prompt) return;
-            sessionMap.endPrompt(acpSessionId, prompt);
-            if (activePrompt === prompt) activePrompt = null;
-        };
-
-        const finishPromptRequest = () => {
-            const prompt = activePrompt;
-            cleanupPromptResources();
-            if (!prompt) return;
-            if (prompt.requestId && releasePromptAfterResponse) {
-                releasePromptAfterResponse(prompt.requestId, () => {
-                    sessionMap.endPrompt(acpSessionId, prompt);
-                    if (activePrompt === prompt) activePrompt = null;
-                });
-                return;
-            }
-            releasePrompt();
-        };
-
-        const subscribeCurrentRuntimeSession = () => {
-            unsubscribe = runtime.subscribeSessionEvents(runtimeSessionId, (event) => {
-                if (event.type === "session_replaced") {
-                    const replacement = /** @type {any} */ (event);
-                    sessionMap.replaceRuntimeSession(acpSessionId, {
-                        sessionId: replacement.newSessionId,
-                        cwd: sessionMap.getRecord(acpSessionId)?.cwd,
-                    });
-                    runtime.setInteractionAdapter?.(
-                        replacement.newSessionId,
-                        createAcpInteractionAdapter({
-                            context,
-                            acpSessionId,
-                            clientCapabilities,
-                        }),
-                    );
-                    const previousUnsubscribe = unsubscribe;
-                    runtimeSessionId = replacement.newSessionId;
-                    previousUnsubscribe();
-                    subscribeCurrentRuntimeSession();
-                    return;
-                }
-                const contextUsage = runtime.getSessionSnapshot(runtimeSessionId)?.contextUsage || null;
-                const notification = mapEventWithSessionCost(sessionMap, acpSessionId, event, contextUsage);
-                if (
-                    event.type === RuntimeEventTypes.MODEL_CHANGED || event.type === RuntimeEventTypes.AGENT_CHANGED ||
-                    event.type === RuntimeEventTypes.THINKING_LEVEL_CHANGED
-                ) {
-                    pendingNotifications.push(
-                        Promise.all([
-                            notifyAcpModelOptions(context, runtime, runtimeSessionId, acpSessionId),
-                            notifyAcpContextUsage(
-                                context,
-                                runtime,
-                                sessionMap,
-                                runtimeSessionId,
-                                acpSessionId,
-                            ),
-                        ]).then(() => undefined),
-                    );
-                }
-                if (!notification) return;
-                const pending = notifyClient(context, methods.client.session.update, notification);
-                pendingNotifications.push(pending);
-                return pending;
-            });
-        };
-
+        const interview = createInterviewOperation({
+            runtime,
+            sessionMap,
+            acpSessionId,
+            runtimeSessionId,
+            clientCapabilities,
+            releasePromptAfterResponse,
+        });
+        const runtimePrompt = runtime.promptUserTurn(runtimeSessionId, {
+            initialRequest: promptText,
+            initialImages: promptImages,
+            onTurnStarted: (/** @type {{ turnId: string }} */ { turnId }) => {
+                interview.start(context, turnId);
+                operations.set(acpSessionId, interview);
+                return () => interview.stop();
+            },
+        });
+        // The operation stays alive after a question's response. The request does not.
+        const settled = Promise.resolve(runtimePrompt).then(
+            (result) => interview.settle(result),
+            (error) => interview.settle(null, error),
+        );
         try {
-            const runtimePrompt = runtime.promptUserTurn(runtimeSessionId, {
-                initialRequest: promptText,
-                initialImages: promptImages,
-                onTurnStarted: (/** @type {{ turnId: string }} */ { turnId }) => {
-                    activePrompt = sessionMap.beginPrompt(
-                        acpSessionId,
-                        turnId,
-                        context.requestId === undefined ? undefined : String(context.requestId),
-                    );
-                    if (!activePrompt) throwUnknownSession(acpSessionId);
-                    promptStarted = true;
-                    try {
-                        runtime.setInteractionAdapter?.(
-                            runtimeSessionId,
-                            createAcpInteractionAdapter({
-                                context,
-                                acpSessionId,
-                                clientCapabilities,
-                            }),
-                        );
-                        subscribeCurrentRuntimeSession();
-                    } catch (error) {
-                        releasePrompt();
-                        throw error;
-                    }
-                    return cleanupPromptResources;
-                },
-            });
-            // The Runtime turn is the only thing that completes this request. session/cancel
-            // marks the prompt and aborts the run, but the response waits for the Runtime to
-            // settle and for every mapped update — including the Runtime's own cancellation
-            // message — to reach the Client first.
-            const result = /** @type {any} */ (await runtimePrompt);
-            await Promise.allSettled(pendingNotifications);
-            if (getActivePrompt()?.cancelled) return { stopReason: "cancelled" };
-            if (result?.stopReason === "cancelled") return result;
-            if (!result.ok) {
-                if (
-                    result.error === "managed_operation_in_progress" &&
-                    !sessionMap.getRecord(acpSessionId)?.activePrompt
-                ) {
-                    const queued = runtime.queueNextTurnMessage(runtimeSessionId, promptText, promptImages, {
-                        deliverWhenAvailable: true,
-                    });
-                    if (queued.ok) {
-                        return {
-                            stopReason: "end_turn",
-                            _meta: { runwield: { queued: queued.queued, queuedMessageId: queued.message?.id || "" } },
-                        };
-                    }
-                }
-                throw new RequestError(ACP_INVALID_STATE, result.error || "ACP prompt was rejected", {
-                    sessionId: acpSessionId,
-                });
-            }
-            return { stopReason: "end_turn" };
-        } catch (error) {
-            await Promise.allSettled(pendingNotifications);
-            if (getActivePrompt()?.cancelled) return { stopReason: "cancelled" };
-            if (error instanceof SessionTurnInProgressError) {
-                throw new RequestError(
-                    ACP_INVALID_STATE,
-                    `ACP session already has an active prompt: ${acpSessionId}`,
-                    { sessionId: acpSessionId },
-                );
-            }
-            throw error;
+            return await interview.waitForRequest(context, settled, promptText, promptImages);
         } finally {
-            finishPromptRequest();
+            if (interview.settled && !interview.hasUndeliveredUpdates) operations.delete(acpSessionId);
         }
     });
 
@@ -1240,7 +1516,9 @@ function createRunWieldAcpServer(context) {
         const request = validateCloseSessionParams(context.params);
         const record = sessionMap.getRecord(request.sessionId);
         if (!record) throwUnknownSession(request.sessionId);
+        operations.get(request.sessionId)?.cancel();
         const result = await closeMappedSession(runtime, sessionMap, request.sessionId);
+        operations.delete(request.sessionId);
         if (!result.ok) throwUnknownSession(request.sessionId);
         return { _meta: { runwield: { sessionId: request.sessionId, closed: result.closed } } };
     });
@@ -1251,6 +1529,7 @@ function createRunWieldAcpServer(context) {
         const runtimeSessionId = sessionMap.getRuntimeSessionId(sessionId);
         if (!runtimeSessionId) return;
         sessionMap.markCancelled(sessionId);
+        operations.get(sessionId)?.cancel();
         runtime.cancelSession(runtimeSessionId);
     });
 

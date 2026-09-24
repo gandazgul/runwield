@@ -1,7 +1,7 @@
 import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
 import { DefaultResourceLoader } from "@earendil-works/pi-coding-agent";
-import { type Context, fauxAssistantMessage, fauxText } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, fauxText, getCurrentSystemPrompt, type TranscriptContext } from "@earendil-works/pi-ai";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { setCustomSetting } from "../settings.js";
 import { createSessionRuntime } from "./session-runtime.ts";
@@ -326,18 +326,18 @@ Deno.test("Agent Session keeps Pi skills empty before and after Runtime reload",
             const prompts: string[] = [];
             const requests: string[] = [];
             setModelResponseFactories([
-                (context: Context) => {
-                    prompts.push(context.systemPrompt || "");
+                (context: TranscriptContext) => {
+                    prompts.push(getCurrentSystemPrompt(context.messages));
                     requests.push(JSON.stringify(context.messages));
                     return fauxAssistantMessage(fauxText("before reload"));
                 },
-                (context: Context) => {
-                    prompts.push(context.systemPrompt || "");
+                (context: TranscriptContext) => {
+                    prompts.push(getCurrentSystemPrompt(context.messages));
                     requests.push(JSON.stringify(context.messages));
                     return fauxAssistantMessage(fauxText("after reload"));
                 },
-                (context: Context) => {
-                    prompts.push(context.systemPrompt || "");
+                (context: TranscriptContext) => {
+                    prompts.push(getCurrentSystemPrompt(context.messages));
                     requests.push(JSON.stringify(context.messages));
                     return fauxAssistantMessage(fauxText("Pi-only request"));
                 },
@@ -399,11 +399,11 @@ Deno.test("disabled external Skill requests cannot reach the model through Pi fa
 
             const requests: string[] = [];
             setModelResponseFactories([
-                (context: Context) => {
+                (context: TranscriptContext) => {
                     requests.push(JSON.stringify(context.messages));
                     return fauxAssistantMessage(fauxText("external request seen"));
                 },
-                (context: Context) => {
+                (context: TranscriptContext) => {
                     requests.push(JSON.stringify(context.messages));
                     return fauxAssistantMessage(fauxText("core request seen"));
                 },

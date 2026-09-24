@@ -60,7 +60,10 @@ runtime actions, and interaction requests only.
   handlers.
 - Rich external workflow UX can evolve incrementally on top of the interaction contract without requiring another
   TUI-to-core refactor. Local browser question pages are adapter presentation for select, text, and approval fallback;
-  they do not create a new Session or a new workflow authority.
+  they do not create a new Session or a new workflow authority. Without native forms, only `user_interview` select/text
+  questions use ordinary ACP chat messages instead of the browser page. The ACP response for a question ends before the
+  Runtime operation does. The next ACP prompt answers through the existing broker. Command menus, approvals, and reviews
+  do not use this path.
 - Same-session turn exclusion and cancellation settlement are runtime invariants. Cancellation does not release the turn
   or permit disposal until the underlying Agent Session prompt settles; different Hosted Sessions remain independently
   promptable.

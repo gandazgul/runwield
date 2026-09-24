@@ -27,7 +27,7 @@ import { WORKFLOW_ADVANCEMENT_TOOL_NAMES } from "../../tools/registry.js";
 import { createRunWieldGrepToolDefinition } from "../../tools/grep.js";
 import { createRunWieldReadToolDefinition } from "../../tools/read.js";
 import { extractYaml, test as hasFrontMatter } from "@std/front-matter";
-import { dirname, join } from "@std/path";
+import { basename, dirname, join } from "@std/path";
 import { AGENTS, getHomeDir, PROMPT_TEMPLATES_DIR } from "../../constants.js";
 import {
     emitHostedSessionRuntimeEvent,
@@ -816,7 +816,7 @@ function isUnsupportedTemperatureError(error) {
 }
 
 /**
- * @param {import('@earendil-works/pi-ai').Model<any>} model
+ * @param {import('@earendil-works/pi-ai').Model<import('@earendil-works/pi-ai').Api>} model
  * @returns {string}
  */
 function getTemperatureCapabilityModelKey(model) {
@@ -824,7 +824,7 @@ function getTemperatureCapabilityModelKey(model) {
 }
 
 /**
- * @param {import('@earendil-works/pi-ai').Model<any>} model
+ * @param {import('@earendil-works/pi-ai').Model<import('@earendil-works/pi-ai').Api>} model
  * @returns {boolean}
  */
 function isKnownNoSamplingModelFamily(model) {
@@ -836,7 +836,7 @@ function isKnownNoSamplingModelFamily(model) {
 }
 
 /**
- * @param {import('@earendil-works/pi-ai').Model<any>} model
+ * @param {import('@earendil-works/pi-ai').Model<import('@earendil-works/pi-ai').Api>} model
  * @returns {boolean}
  */
 function isKimiModelFamily(model) {
@@ -846,8 +846,8 @@ function isKimiModelFamily(model) {
 }
 
 /**
- * @param {import('@earendil-works/pi-ai').Model<any>} model
- * @returns {import('@earendil-works/pi-ai').Model<any>}
+ * @param {import('@earendil-works/pi-ai').Model<import('@earendil-works/pi-ai').Api>} model
+ * @returns {import('@earendil-works/pi-ai').Model<import('@earendil-works/pi-ai').Api>}
  */
 function withModelCompatibility(model) {
     if (!isKimiModelFamily(model)) return model;
@@ -869,7 +869,7 @@ function withModelCompatibility(model) {
  * sampling temperature. Detect known capability signals up front and remember
  * runtime rejections so later calls avoid repeating the failed request.
  *
- * @param {import('@earendil-works/pi-ai').Model<any>} model
+ * @param {import('@earendil-works/pi-ai').Model<import('@earendil-works/pi-ai').Api>} model
  * @returns {boolean}
  */
 function modelSupportsTemperature(model) {
@@ -886,11 +886,39 @@ function modelSupportsTemperature(model) {
  *
  * @param {import('@earendil-works/pi-ai').AssistantMessageEventStream | Promise<import('@earendil-works/pi-ai').AssistantMessageEventStream>} firstSource
  * @param {() => import('@earendil-works/pi-ai').AssistantMessageEventStream | Promise<import('@earendil-works/pi-ai').AssistantMessageEventStream>} retryWithoutTemperature
- * @param {() => void} [onUnsupportedTemperature]
+ * @param {(() => void) | undefined} onUnsupportedTemperature
+ * @param {import('@earendil-works/pi-ai').Model<import('@earendil-works/pi-ai').Api>} model
  * @returns {import('@earendil-works/pi-ai').AssistantMessageEventStream}
  */
-function createTemperatureFallbackStream(firstSource, retryWithoutTemperature, onUnsupportedTemperature) {
+function createTemperatureFallbackStream(firstSource, retryWithoutTemperature, onUnsupportedTemperature, model) {
     const output = createAssistantMessageEventStream();
+
+    /** @param {Error | DOMException} error */
+    function finishWithError(error) {
+        const aborted = error.name === "AbortError";
+        output.push({
+            type: "error",
+            reason: aborted ? "aborted" : "error",
+            error: {
+                role: "assistant",
+                content: [],
+                api: model.api,
+                provider: model.provider,
+                model: model.id,
+                usage: {
+                    input: 0,
+                    output: 0,
+                    cacheRead: 0,
+                    cacheWrite: 0,
+                    totalTokens: 0,
+                    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+                },
+                stopReason: aborted ? "aborted" : "error",
+                errorMessage: error.message,
+                timestamp: Date.now(),
+            },
+        });
+    }
 
     /**
      * @param {import('@earendil-works/pi-ai').AssistantMessageEventStream | Promise<import('@earendil-works/pi-ai').AssistantMessageEventStream>} sourcePromise
@@ -945,11 +973,15 @@ function createTemperatureFallbackStream(firstSource, retryWithoutTemperature, o
     }
 
     (async () => {
-        const result = await forward(firstSource, true);
-        if (result === "retry") {
-            await forward(retryWithoutTemperature(), false);
+        try {
+            const result = await forward(firstSource, true);
+            if (result === "retry") {
+                await forward(retryWithoutTemperature(), false);
+            }
+            output.end();
+        } catch (error) {
+            finishWithError(error instanceof Error ? error : new Error(String(error)));
         }
-        output.end();
     })();
 
     return output;
@@ -1012,8 +1044,8 @@ export function applySessionTemperature(session, temperature) {
     const streamKey = typeof agent.streamFunction === "function" ? "streamFunction" : "streamFn";
     const originalStreamFunction = agent[streamKey];
     agent[streamKey] = (
-        /** @type {import('@earendil-works/pi-ai').Model<any>} */ model,
-        /** @type {import('@earendil-works/pi-ai').Context} */ context,
+        /** @type {import('@earendil-works/pi-ai').Model<import('@earendil-works/pi-ai').Api>} */ model,
+        /** @type {import('@earendil-works/pi-ai').TranscriptContext} */ context,
         /** @type {import('@earendil-works/pi-ai').SimpleStreamOptions | undefined} */ options,
     ) => {
         if (!modelSupportsTemperature(model)) {
@@ -1029,6 +1061,7 @@ export function applySessionTemperature(session, temperature) {
                 firstSource,
                 () => originalStreamFunction(model, context, omitTemperatureOption(options)),
                 () => modelsWithoutTemperature.add(getTemperatureCapabilityModelKey(model)),
+                model,
             );
         } catch (error) {
             if (isUnsupportedTemperatureError(error)) {
@@ -1799,123 +1832,101 @@ export async function assembleFinalSystemPrompt(
 }
 
 /**
- * @param {unknown} entry
- * @returns {{ version: number, compactInvocation: string, expandedRequest: string } | null}
+ * @typedef {Object} NamedInvocationImageReference
+ * @property {string} [ref]
+ * @property {string} [path]
+ * @property {string} mimeType
+ *
+ * @typedef {Object} NamedInvocationContextData
+ * @property {number} version
+ * @property {string} expandedRequest
+ * @property {NamedInvocationImageReference[]} imageReferences
+ *
+ * @typedef {Object} NamedInvocationContextDataInput
+ * @property {number} [version]
+ * @property {string} [expandedRequest]
+ * @property {NamedInvocationImageReference[]} [imageReferences]
+ */
+
+/**
+ * @param {import('@earendil-works/pi-coding-agent').SessionEntry} entry
+ * @returns {NamedInvocationContextData | null}
  */
 function readNamedInvocationContextEntry(entry) {
-    if (!entry || typeof entry !== "object") return null;
-    const value =
-        /** @type {{ type?: string, customType?: string, data?: { version?: number, compactInvocation?: string, expandedRequest?: string } }} */ (entry);
-    if (value.type !== "custom" || value.customType !== "runwield.named_invocation") return null;
-    if (value.data?.version !== 1) return null;
-    if (typeof value.data.compactInvocation !== "string" || typeof value.data.expandedRequest !== "string") return null;
-    return {
-        version: value.data.version,
-        compactInvocation: value.data.compactInvocation,
-        expandedRequest: value.data.expandedRequest,
-    };
+    if (entry.type !== "custom" || entry.customType !== "runwield.named_invocation") return null;
+    if (!entry.data || typeof entry.data !== "object") return null;
+    const data = /** @type {NamedInvocationContextDataInput} */ (entry.data);
+    if (data.version !== 1 || typeof data.expandedRequest !== "string") return null;
+    const imageReferences = Array.isArray(data.imageReferences)
+        ? data.imageReferences.filter((image) =>
+            image !== null && typeof image === "object" && typeof image.mimeType === "string"
+        )
+        : [];
+    return { version: data.version, expandedRequest: data.expandedRequest, imageReferences };
 }
 
 /**
- * @typedef {Object} TextMessageContentBlock
- * @property {string} [type]
- * @property {string} [text]
+ * @param {NamedInvocationImageReference} image
+ * @returns {string}
  */
-
-/**
- * @typedef {Object} MessageWithEditableContent
- * @property {string | TextMessageContentBlock[]} [content]
- */
-
-/** @param {MessageWithEditableContent | undefined} message */
-function messageText(message) {
-    const content = message?.content;
-    if (typeof content === "string") return content;
-    if (!Array.isArray(content)) return "";
-    return content.filter((block) => block?.type === "text").map((block) => block.text || "").join("");
+function namedInvocationImageMarker(image) {
+    const reference = image.ref || (image.path ? basename(image.path) : "unpersisted-image");
+    return `[Image attached: ${reference} ${image.mimeType}]`;
 }
 
 /**
- * @param {MessageWithEditableContent | undefined} message
- * @param {string} text
+ * @param {import('@earendil-works/pi-ai').UserMessage} message
+ * @param {NamedInvocationContextData} namedInvocation
+ * @returns {import('@earendil-works/pi-coding-agent').ContextEditableContent}
  */
-function replaceMessageText(message, text) {
-    if (!message || typeof message !== "object") return;
-    const content = message.content;
-    if (!Array.isArray(content)) {
-        message.content = [{ type: "text", text }];
-        return;
-    }
-    const nonText = content.filter((block) => block?.type !== "text");
-    message.content = [{ type: "text", text }, ...nonText];
+function namedInvocationExpandedContent(message, namedInvocation) {
+    const content = "content" in message && Array.isArray(message.content) ? message.content : [];
+    const nonTextContent = content.filter((block) => block.type !== "text");
+    const imageMarkers = nonTextContent.length === 0
+        ? namedInvocation.imageReferences.map(namedInvocationImageMarker)
+        : [];
+    const expandedText = imageMarkers.length > 0
+        ? `${namedInvocation.expandedRequest}\n\n${imageMarkers.join("\n")}`
+        : namedInvocation.expandedRequest;
+    return [
+        { type: "text", text: expandedText },
+        ...nonTextContent,
+    ];
 }
 
 /**
- * @typedef {Object} NamedInvocationContextEntry
- * @property {string} [id]
- * @property {string} [type]
- * @property {string} [firstKeptEntryId]
- * @property {{ role?: string }} [message]
- */
-
-/**
- * @param {NamedInvocationContextEntry[]} entries
- * @returns {NamedInvocationContextEntry[]}
- */
-function namedInvocationExpansionEntries(entries) {
-    const compactionIndex = entries.findLastIndex((entry) => entry.type === "compaction");
-    if (compactionIndex < 0) return entries;
-
-    const compaction = entries[compactionIndex];
-    const contextEntries = [compaction];
-    let foundFirstKept = false;
-    for (let index = 0; index < compactionIndex; index += 1) {
-        const entry = entries[index];
-        if (entry.id === compaction.firstKeptEntryId) foundFirstKept = true;
-        if (foundFirstKept) contextEntries.push(entry);
-    }
-    contextEntries.push(...entries.slice(compactionIndex + 1));
-    return contextEntries;
-}
-
-/**
- * @param {import('@earendil-works/pi-coding-agent').AgentSession} session
+ * Add canonical context edits for Named Invocations saved before Pi 0.87.
+ * The custom metadata is the direct parent of its compact user message. Existing
+ * branch-local edits, including omissions, always take precedence.
+ *
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} sessionManager
  */
-function applyNamedInvocationExpansionToPiSession(session, sessionManager) {
-    const stateMessages = session?.agent?.state?.messages;
-    if (!Array.isArray(stateMessages)) return;
-    const entries = sessionManager?.getBranch?.() || sessionManager?.getEntries?.() || [];
-    if (!Array.isArray(entries)) return;
-    const activeEntries = namedInvocationExpansionEntries(/** @type {NamedInvocationContextEntry[]} */ (entries));
-    /** @type {{ version: number, compactInvocation: string, expandedRequest: string } | null} */
-    let pending = null;
-    let stateIndex = 0;
-    for (const entry of activeEntries) {
-        const named = readNamedInvocationContextEntry(entry);
-        if (named) {
-            pending = named;
+function repairNamedInvocationContextEdits(sessionManager) {
+    const branch = sessionManager.getBranch();
+    const contextEntries = sessionManager.buildContextEntries();
+    const retainedIds = new Set(contextEntries.map((entry) => entry.id));
+    const editedTargetIds = new Set(
+        contextEntries.filter((entry) => entry.type === "context_edit").map((entry) => entry.targetId),
+    );
+
+    for (let index = 0; index < branch.length - 1; index += 1) {
+        const metadataEntry = branch[index];
+        const namedInvocation = readNamedInvocationContextEntry(metadataEntry);
+        if (!namedInvocation) continue;
+
+        const userEntry = branch[index + 1];
+        if (
+            userEntry.type !== "message" || userEntry.message.role !== "user" ||
+            userEntry.parentId !== metadataEntry.id || !retainedIds.has(userEntry.id) ||
+            editedTargetIds.has(userEntry.id)
+        ) {
             continue;
         }
-        if (entry.type !== "message") continue;
-        if (!pending || entry.message?.role !== "user") {
-            pending = null;
-            continue;
-        }
-        const currentPending = pending;
-        const matchIndex = stateMessages.findIndex((message, index) =>
-            index >= stateIndex && message?.role === "user" &&
-            messageText(/** @type {MessageWithEditableContent | undefined} */ (message)) ===
-                currentPending.compactInvocation
-        );
-        if (matchIndex >= 0) {
-            replaceMessageText(
-                /** @type {MessageWithEditableContent | undefined} */ (stateMessages[matchIndex]),
-                currentPending.expandedRequest,
-            );
-            stateIndex = matchIndex + 1;
-        }
-        pending = null;
+
+        sessionManager.appendContextEdit(userEntry.id, {
+            content: namedInvocationExpandedContent(userEntry.message, namedInvocation),
+        });
+        editedTargetIds.add(userEntry.id);
     }
 }
 
@@ -2008,6 +2019,7 @@ export async function buildAgentSession({
         ? undefined
         : getResolvedVisionFallbackModelSetting(sessionCwd);
     const effectiveSessionManager = sessionManager || SessionManager.inMemory(sessionCwd);
+    repairNamedInvocationContextEdits(effectiveSessionManager);
 
     const customToolNames = (customTools || []).map((t) => t.name);
     const parentDelegableTools = filterWorkflowAdvancementTools(
@@ -2225,7 +2237,6 @@ export async function buildAgentSession({
         sessionManager: effectiveSessionManager,
         ...(resolvedModel ? { model: resolvedModel } : {}),
     });
-    applyNamedInvocationExpansionToPiSession(session, effectiveSessionManager);
     /** @type {any} */ (session).runWieldModelRegistry = modelRegistry;
     /** @type {any} */ (session).runWieldProjectRoot = sessionCwd;
     installEarlySteeringInterruption(/** @type {any} */ (session));

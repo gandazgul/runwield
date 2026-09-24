@@ -258,8 +258,11 @@ export async function withNamedInvocationDisplayMessage<T>(
     sessionManager.appendMessage = ((message: Parameters<SessionManager["appendMessage"]>[0]) => {
         if (!captured && isUserMessage(message)) {
             captured = true;
+            const expandedContent = structuredClone(message.content);
             appendNamedInvocationEntry(sessionManager, payload);
-            return originalAppendMessage(toCompactUserMessage(message, payload.compactInvocation));
+            const userEntryId = originalAppendMessage(toCompactUserMessage(message, payload.compactInvocation));
+            sessionManager.appendContextEdit(userEntryId, { content: expandedContent });
+            return userEntryId;
         }
         return originalAppendMessage(message);
     }) as SessionManager["appendMessage"];

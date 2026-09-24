@@ -626,7 +626,7 @@ export function SessionComposer({
                     type="button"
                     className="session-composer-summary"
                     hidden={expanded}
-                    aria-label={`Write a message · ${selectionSummary}`}
+                    aria-label={`${hasDraft ? "Continue draft" : "Write a message"} · ${selectionSummary}`}
                     title={selectionSummary}
                     disabled={disabled}
                     onPointerDown={(event) => {
@@ -637,7 +637,8 @@ export function SessionComposer({
                     onFocus={expandComposer}
                     onClick={expandComposer}
                 >
-                    <span>{hasDraft ? `Draft · ${selectionSummary}` : selectionSummary}</span>
+                    <span className="session-composer-prompt">{hasDraft ? "Continue draft" : "Write a message"}</span>
+                    <span className="session-composer-selection">{selectionSummary}</span>
                 </button>
                 <select
                     hidden={!expanded}
@@ -685,7 +686,7 @@ export function SessionComposer({
                     ? (
                         <button
                             type="button"
-                            className="rw-toolbar-button session-composer-icon-button"
+                            className="rw-toolbar-button session-composer-icon-button session-queue-button"
                             hidden={!expanded}
                             aria-label="Queue"
                             title="Queue follow-up"
@@ -2169,7 +2170,28 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                                         key={tab}
                                         type="button"
                                         role="tab"
+                                        id={`session-context-tab-${tab}`}
+                                        aria-controls="session-context-panel"
                                         aria-selected={sessionSidebarTab === tab}
+                                        tabIndex={sessionSidebarTab === tab ? 0 : -1}
+                                        onKeyDown={(event) => {
+                                            const index = SESSION_SIDEBAR_TABS.indexOf(tab);
+                                            const next = event.key === "ArrowRight"
+                                                ? (index + 1) % SESSION_SIDEBAR_TABS.length
+                                                : event.key === "ArrowLeft"
+                                                ? (index - 1 + SESSION_SIDEBAR_TABS.length) %
+                                                    SESSION_SIDEBAR_TABS.length
+                                                : event.key === "Home"
+                                                ? 0
+                                                : event.key === "End"
+                                                ? SESSION_SIDEBAR_TABS.length - 1
+                                                : -1;
+                                            if (next < 0) return;
+                                            event.preventDefault();
+                                            const nextTab = SESSION_SIDEBAR_TABS[next];
+                                            setSessionSidebarTab(nextTab);
+                                            document.getElementById(`session-context-tab-${nextTab}`)?.focus();
+                                        }}
                                         onClick={() => setSessionSidebarTab(tab)}
                                     >
                                         {tab[0].toUpperCase() + tab.slice(1)}
@@ -2323,7 +2345,12 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                             <div className="session-context-content">
                                 {sessionSidebarTab === "workflow"
                                     ? (
-                                        <div className="session-context-panel" role="tabpanel">
+                                        <div
+                                            id="session-context-panel"
+                                            className="session-context-panel"
+                                            role="tabpanel"
+                                            aria-labelledby="session-context-tab-workflow"
+                                        >
                                             {hasActivePlan
                                                 ? (
                                                     <WorkflowSidebar
@@ -2352,7 +2379,12 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                                     )
                                     : sessionSidebarTab === "session"
                                     ? (
-                                        <div className="session-context-panel" role="tabpanel">
+                                        <div
+                                            id="session-context-panel"
+                                            className="session-context-panel"
+                                            role="tabpanel"
+                                            aria-labelledby="session-context-tab-session"
+                                        >
                                             <dl>
                                                 {sessionFields.map((field) => (
                                                     <div key={field.label}>
@@ -2364,7 +2396,12 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                                         </div>
                                     )
                                     : (
-                                        <div className="session-context-panel" role="tabpanel">
+                                        <div
+                                            id="session-context-panel"
+                                            className="session-context-panel"
+                                            role="tabpanel"
+                                            aria-labelledby="session-context-tab-artifacts"
+                                        >
                                             {Array.isArray(timeline.artifacts) && timeline.artifacts.length
                                                 ? (
                                                     <ul className="session-artifact-list">

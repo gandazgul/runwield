@@ -9,6 +9,8 @@
 | 9        | Slash-command happy paths       | `/share` only tests missing gh; `/copy` only tests no assistant message.       | Successful sharing and copying, plus their real failure/retry paths.                                                                |
 | 10       | Validation branch precision     | Broad validation and repair coverage is extensive.                             | Independently prove human-review:none versus human-review:ask-skip; they currently share scenarios.                                 |
 
+This and SSH: docs/plans/retry-transient-provider-failures.md
+
 Suggested sequence
 
 I would order the overlapping group like this:

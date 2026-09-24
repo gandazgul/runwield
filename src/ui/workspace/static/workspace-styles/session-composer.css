@@ -44,6 +44,16 @@
     white-space: nowrap;
 }
 
+.session-composer-prompt {
+    flex: 0 0 auto;
+    color: var(--rw-text);
+}
+
+.session-composer-selection {
+    min-width: 0;
+    margin-left: 0.45rem;
+}
+
 .session-composer-summary:hover:not(:disabled) {
     color: var(--rw-text);
     background: var(--rw-surface-muted);
@@ -262,6 +272,47 @@
 }
 
 @media (max-width: 640px) {
+    .session-composer[data-expanded="true"] .session-composer-actions {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .session-composer[data-expanded="true"] .session-composer-actions select:first-of-type {
+        grid-column: 1 / 3;
+        grid-row: 1;
+    }
+
+    .session-composer[data-expanded="true"] .session-composer-actions .session-model-select {
+        grid-column: 1 / -1;
+        grid-row: 2;
+    }
+
+    .session-composer[data-expanded="true"] .session-composer-actions select:last-of-type {
+        grid-column: 3;
+        grid-row: 1;
+    }
+
+    .session-composer[data-expanded="true"] .session-attach-button,
+    .session-composer[data-expanded="true"] .session-queue-button,
+    .session-composer[data-expanded="true"] .session-send-button {
+        grid-row: 3;
+    }
+
+    .session-composer[data-expanded="true"] .session-queue-button {
+        grid-column: 2;
+        justify-self: end;
+    }
+
+    .session-composer[data-expanded="true"] .session-send-button {
+        grid-column: 3;
+        justify-self: end;
+    }
+
+    .session-composer[data-expanded="true"] .session-composer-actions select {
+        width: 100%;
+        max-width: none;
+    }
+
     .session-composer-actions select {
         min-height: 44px;
     }

@@ -189,10 +189,10 @@ function buildSchema(interaction) {
 }
 
 /**
- * @param {{ context: any, acpSessionId: string, clientCapabilities?: unknown }} options
+ * @param {{ context: any, acpSessionId: string, clientCapabilities?: unknown, presentInterview?: (interaction: import('../shared/session/session-runtime-interactions.js').RuntimeInteractionRequest, signal?: AbortSignal) => Promise<import('../shared/session/session-runtime-interactions.js').RuntimeInteractionResponse> }} options
  * @returns {import('../shared/session/session-runtime-interactions.js').RuntimeInteractionAdapter}
  */
-export function createAcpInteractionAdapter({ context, acpSessionId, clientCapabilities }) {
+export function createAcpInteractionAdapter({ context, acpSessionId, clientCapabilities, presentInterview }) {
     return {
         supportsInteraction(type) {
             return type === RuntimeInteractionTypes.SELECT || type === RuntimeInteractionTypes.TEXT ||
@@ -250,6 +250,16 @@ export function createAcpInteractionAdapter({ context, acpSessionId, clientCapab
                 };
             }
             if (!supportsFormElicitation(clientCapabilities)) {
+                if (
+                    interaction._meta?.source === "user_interview" &&
+                    (interaction.type === RuntimeInteractionTypes.SELECT ||
+                        interaction.type === RuntimeInteractionTypes.TEXT)
+                ) {
+                    return presentInterview ? await presentInterview(interaction, signal) : {
+                        outcome: RuntimeInteractionOutcomes.UNSUPPORTED,
+                        message: "Interview chat is unavailable.",
+                    };
+                }
                 return await requestBrowserQuestion({ context, acpSessionId, interaction, signal });
             }
             const response = await requestClient(context, methods.client.elicitation.create, {

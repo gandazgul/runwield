@@ -278,8 +278,13 @@ const projectSettingsManagers = new Map();
 export function initSettings(projectRoot = Deno.cwd()) {
     if (!projectSettingsManagers.has(projectRoot)) {
         const storage = new RunWieldSettingsStorage(projectRoot);
+        const manager = SettingsManager.fromStorage(storage);
+        // Pi 0.87 reads cache warming directly from global settings, so its
+        // ordinary override API cannot enforce RunWield's no-warming policy.
+        // Keep the policy in memory and do not rewrite the user's settings.
+        manager.getCacheWarmingMode = () => "off";
         projectStorageInstances.set(projectRoot, storage);
-        projectSettingsManagers.set(projectRoot, SettingsManager.fromStorage(storage));
+        projectSettingsManagers.set(projectRoot, manager);
     }
     storageInstance = /** @type {RunWieldSettingsStorage} */ (projectStorageInstances.get(projectRoot));
 }

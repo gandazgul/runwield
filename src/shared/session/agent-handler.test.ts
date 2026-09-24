@@ -139,6 +139,29 @@ Deno.test("agent handler settles the accepted plan tool before dispatch without 
     });
 });
 
+Deno.test("agent handler leaves a prior triage event for its original request", async () => {
+    await withRuntimeCommandFixture("agent-handler-stale-triage-", async ({ projectRoot, setModelResponse }) => {
+        const events: CapturedRuntimeEvent[] = [];
+        setModelResponse("Answer the new request without routing the old one.");
+        const fixture = await activateHandler(projectRoot, "router", events);
+        publishWorkflowToolEvent({
+            hostedSession: fixture.hostedSession,
+            toolCallId: "prior-request-triage",
+            kind: "triage_report",
+            payload: {
+                routingIntent: "OPERATION",
+                complexity: "LOW",
+                summary: "Old request",
+                sessionName: "Old request",
+            },
+        });
+        const result = await fixture.handler("A new request.", [], fixture.sessionManager);
+        assertEquals(result, { kind: "complete" });
+        assertEquals(fixture.hostedSession.getRootAgentName(), "router");
+        fixture.hostedSession.dispose();
+    });
+});
+
 Deno.test("agent handler safely stops a terminal Plan outcome after feedback", async () => {
     await withRuntimeCommandFixture(
         "agent-handler-feedback-terminal-",

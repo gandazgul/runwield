@@ -59,6 +59,7 @@ Deno.test("Session composer keeps provider/model identities and opens slash choi
     assertEquals(empty.match(/<select[^>]*disabled/g), null);
     assertEquals(empty.includes('aria-label="Attach image"'), true);
     assertEquals(empty.includes('title="Send"'), true);
+    assertEquals(empty.includes('class="session-composer-prompt">Write a message</span>'), true);
     const commands = renderToStaticMarkup(createElement(SessionComposer, { ...props, draft: "/mo", canSend: true }));
     assertEquals(commands.includes('role="listbox" aria-label="Commands"'), true);
     assertEquals(commands.includes('aria-expanded="false"'), true);
@@ -732,6 +733,24 @@ Deno.test("mobile Session context keeps covered chat out of keyboard navigation"
         assertEquals(stream?.inert, false);
         await act(() => header.querySelector('[aria-label="Show Session sidebar"]').click());
         assertEquals(stream?.inert, true);
+        const tabs = () => [...header.querySelectorAll('[role="tab"]')];
+        assertEquals(tabs().map((tab) => tab.tabIndex), [-1, 0, -1]);
+        assertEquals(tabs()[1].getAttribute("aria-controls"), "session-context-panel");
+        assertEquals(container.querySelector('[role="tabpanel"]')?.getAttribute("aria-labelledby"), tabs()[1].id);
+        await act(() =>
+            tabs()[1].dispatchEvent(new browser.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }))
+        );
+        assertEquals(tabs()[2].getAttribute("aria-selected"), "true");
+        assertEquals(tabs().map((tab) => tab.tabIndex), [-1, -1, 0]);
+        assertEquals(container.querySelector('[role="tabpanel"]')?.getAttribute("aria-labelledby"), tabs()[2].id);
+        await act(() => tabs()[2].dispatchEvent(new browser.KeyboardEvent("keydown", { key: "Home", bubbles: true })));
+        assertEquals(tabs()[0].getAttribute("aria-selected"), "true");
+        await act(() =>
+            tabs()[0].dispatchEvent(new browser.KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }))
+        );
+        assertEquals(tabs()[2].getAttribute("aria-selected"), "true");
+        await act(() => tabs()[2].dispatchEvent(new browser.KeyboardEvent("keydown", { key: "End", bubbles: true })));
+        assertEquals(tabs()[2].getAttribute("aria-selected"), "true");
         await act(() => header.querySelector('[aria-label="Collapse Session sidebar"]').click());
         assertEquals(stream?.inert, false);
         await act(() => header.querySelector('[aria-label="Show Session sidebar"]').click());
@@ -1047,7 +1066,8 @@ Deno.test("Session composer preserves drafts across focus changes and shares one
         await act(() => form().props.onBlurCapture({ currentTarget: { contains: () => false }, relatedTarget: null }));
         assertEquals(form().props["data-expanded"], false);
         assertEquals(textarea().props.value, "Keep this draft");
-        assertEquals(summary().children[0].children[0].startsWith("Draft · Planner"), true);
+        assertEquals(summary().children[0].children[0], "Continue draft");
+        assertEquals(summary().children[1].children[0], "Planner · openai/gpt-model · high");
         assertEquals(renderer.root.findByProps({ "aria-label": "Attached images" }).props.hidden, true);
         await act(() => summary().props.onClick());
         assertEquals(textarea().props.value, "Keep this draft");

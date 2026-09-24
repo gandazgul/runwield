@@ -311,11 +311,24 @@ async function remoteBranchExists(projectRoot, branch) {
  * @param {string} branch
  * @returns {Promise<PreparedTargetBranchRef>}
  */
-async function createLocalBranchFromMain(projectRoot, branch) {
-    if (!await gitRefExists(projectRoot, "refs/heads/main")) {
-        throw new Error(`Cannot create target branch ${branch}: refs/heads/main does not exist.`);
+async function createLocalBranchFromDefault(projectRoot, branch) {
+    let defaultRef = "refs/heads/main";
+    const remote = await runGitResult(projectRoot, ["remote", "get-url", "origin"]);
+    if (remote.code === 0) {
+        const head = await runGit(projectRoot, ["ls-remote", "--symref", "origin", "HEAD"]);
+        const defaultBranch = head.match(/^ref: refs\/heads\/([^\t\n]+)\tHEAD/m)?.[1];
+        if (!defaultBranch) throw new Error(`Cannot determine the default branch on origin for ${branch}.`);
+        await runGit(projectRoot, [
+            "fetch",
+            "origin",
+            `+refs/heads/${defaultBranch}:refs/remotes/origin/${defaultBranch}`,
+        ]);
+        defaultRef = `refs/remotes/origin/${defaultBranch}`;
     }
-    await runGit(projectRoot, ["branch", branch, "refs/heads/main"]);
+    if (!await gitRefExists(projectRoot, defaultRef)) {
+        throw new Error(`Cannot create target branch ${branch}: ${defaultRef} does not exist.`);
+    }
+    await runGit(projectRoot, ["branch", branch, defaultRef]);
     return { baseRef: `refs/heads/${branch}`, baseBranch: branch };
 }
 
@@ -376,7 +389,7 @@ export async function prepareTargetBranchRef(projectRoot, branch) {
         return { baseRef: `refs/heads/${target}`, baseBranch: target };
     }
 
-    return await createLocalBranchFromMain(projectRoot, target);
+    return await createLocalBranchFromDefault(projectRoot, target);
 }
 
 /**

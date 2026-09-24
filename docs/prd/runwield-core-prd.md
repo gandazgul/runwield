@@ -378,9 +378,11 @@ the decomposition. Finalization makes child selection available; each child stil
 conversation can pause and resume. Users can deliver one child, defer the rest, and mark the Epic done enough with a
 summary while unfinished children remain available.
 
-`load-plan` offers the appropriate planning, decomposition, child selection, execution, or recovery action. Unfinished
-dependencies are explained before proceeding. `wld plans` shows Epic progress and child status separately from
-standalone Plans. Revising an Epic does not silently authorize changed child scope.
+`load-plan` offers the appropriate planning, decomposition, child selection, execution, or recovery action. When a new
+Epic has no target branch, opening it for child work creates that branch from the repository's default branch before
+Planner starts. An existing target branch keeps its own history. Unfinished dependencies are explained before
+proceeding. `wld plans` shows Epic progress and child status separately from standalone Plans. Revising an Epic does not
+silently authorize changed child scope.
 
 **On hold** means paused and resumable, not completed or archived. Nonterminal Plans can retain their previous stage and
 an optional reason. **Resume from hold** checks whether relevant changes or missing work affect continuation, then
@@ -393,6 +395,8 @@ and siblings active. Listings keep held work distinct from active and finished w
 
 **Acceptance scenarios:**
 
+- Given a new Epic with a missing target branch, when the user opens it to start the first child, the target branch
+  starts from the repository's default branch and Planner can use the child Plan.
 - Given an approved Epic, when the user saves draft children, they remain drafts; finalizing decomposition enables child
   selection without approving each child.
 - Given an independently held child, when the parent Epic is held and resumed, that child stays held and other children
@@ -514,6 +518,10 @@ Recovery requirements:
 - loading `in_progress`, `failed`, or `implemented` Plans should open a recovery path
 - users can continue, reset to baseline, re-open for review, retry validation, or address merge-back failures
 - failed Plans leave recovery through dedicated recovery actions, not casual board movement
+- before integration, a source-history rewrite or changes to sealed files restart validation against the current
+  execution checkout. Preserve prior publication evidence and the repair checkout, invalidate old review approvals and
+  the validation stamp, and resume the reset after interruption. An unchanged candidate resumes publication. Once an
+  integration may have been pushed, retain its publication proof instead of restarting validation.
 
 **Acceptance scenarios:**
 
@@ -833,8 +841,10 @@ assessing change impact. Indexing technology belongs in architecture and impleme
 `/compact` summarizes a growing conversation, optionally using the user's emphasis instructions. Automatic compaction
 helps with context pressure. Users see progress, completion, failure, and whether input is needed; Escape cancels it.
 Compaction retains the goal, constraints, decisions, progress, relevant file context, and recent activity. Reopening the
-Session retains useful context. Failed or ineffective compaction must not strand work or claim completion. Later
-long-run reliability requirements are in [Session Context Resilience](session-context-resilience-prd.md).
+Session retains useful context. Saved Named Invocation expansions, including image blocks, remain available to
+compaction and later turns even though raw user history keeps the compact invocation. Failed or ineffective compaction
+must not strand work or claim completion. Later long-run reliability requirements are in
+[Session Context Resilience](session-context-resilience-prd.md).
 
 Vision-capable models receive images directly. With a text-only model, users may select a vision fallback globally or
 through a model preset; the preset takes precedence and an unset fallback is disabled. The same provider configuration
@@ -851,8 +861,8 @@ not inherit it. Future Session deletion also removes its images. See
 
 **Acceptance scenarios:**
 
-- When compaction finishes and the Session resumes, its goal, decisions, constraints, and useful progress survive;
-  failure or cancellation never claims successful compaction.
+- When compaction finishes and the Session resumes, its goal, decisions, constraints, saved Named Invocation expansion,
+  and useful progress survive; failure or cancellation never claims successful compaction.
 - Given a text-only destination model and no suitable vision fallback, when the user tries to send an image or changes
   model before Send, setup guidance preserves the typed message and image preview.
 - When the user resumes a Session with saved images, those attachments remain available without exposing images from
@@ -975,8 +985,10 @@ project `.wld`, home `.wld`, then bundled skills. Pi-discovered, configured, ext
 second catalog.
 
 Slash-command skill invocation injects full Skill instructions only when needed and does not change the Agent profile.
-Built-in command names and aliases take precedence over prompt templates and Skills on all surfaces, including built-ins
-unavailable on that surface.
+Prompt Template and Skill expansions reach the active model with the current Agent instructions and tools. The exact
+saved expansion remains available after a follow-up, compaction, or resume without changing the compact user-history
+display. Built-in command names and aliases take precedence over prompt templates and Skills on all surfaces, including
+built-ins unavailable on that surface.
 
 Engineer can ask structured questions with `user_interview` and drives the bundled `/release` prompt. Release choices
 use the current client's structured question interface where supported, including Workspace, before any release
@@ -989,8 +1001,8 @@ Configuration and loading details belong in [customization documentation](../cus
 
 - When a user customizes an Agent at project scope, those choices take precedence over home and bundled settings while
   required workflow capabilities remain available.
-- When a user invokes a Skill, its full instructions are available for that task without requiring every Skill or
-  optional integration in every prompt.
+- When a user invokes a Skill or Prompt Template, its full saved expansion reaches the active model and remains
+  available to follow-up and resume while the visible raw user entry stays compact.
 - Given a non-bundled Skill in project `.agents/skills`, listing, model advertising, and invocation select that project
   file before home customization.
 - Given an `.agents` Skill whose published name or directory alias conflicts with a bundled Skill, listing, model
@@ -1027,6 +1039,8 @@ Current requirements:
 - support OpenAI-compatible provider discovery through `/models`
 - support local/custom providers through `models.json`
 - support vision fallback configuration for pasted images when the active model is text-only
+- keep Pi automatic prompt-cache warming off so RunWield does not add warming requests or charges; a user-facing warming
+  setting remains deferred
 
 Claude CLI is a Core Execution Backend: RunWield shells out to Claude Code from inside a RunWield Session, while
 RunWield remains the Session Transcript, workflow, resume, and replay authority. Setup requires installing the Claude
@@ -1057,6 +1071,8 @@ Future/open requirements:
 
 - When the user changes a model, the Session and workflow remain the same and the selected model is visible across
   clients.
+- Given no cache-warming setting or an existing Pi value of `streaming` or `idle`, RunWield sends no automatic warming
+  request and does not rewrite the stored value.
 - Given Validation Repair Engineer with no configured model or thinking level, when Engineer has those values
   configured, repair uses Engineer's values before default settings without changing the Session or workflow.
 - Given a CLI backend without its required executable or sign-in, when the first turn is attempted, the user receives
@@ -1270,6 +1286,8 @@ Required outcomes:
 - after a process failure, saved history remains available and the user receives a clear next action without silent
   repetition of unfinished work;
 - Plan review and execution use the current Plan and preserve the user's explicit approval choices;
+- saved Named Invocation expansions continue through follow-up, compaction, and resume without replaying earlier tools
+  or actions;
 - rebuilding Workspace registration or pairing does not prevent TUI or ACP from using intact local Sessions;
 - TUI Tutorial guidance state survives execution and semantic-repair transcript rollover without becoming workflow
   lifecycle authority. Workspace-native Tutorial controls remain deferred.
@@ -1298,6 +1316,8 @@ surface.
   updates when the owner returns.
 - When a browser reloads or a completed Plan receives a follow-up, saved history remains usable and unsent drafts
   survive; an open screen is not exclusive ownership.
+- Given a saved Prompt Template or Skill invocation, when the owner resumes and sends a follow-up, the model receives
+  the saved expansion and no earlier tool or workflow action runs again.
 - When a connection retry repeats the same submission, it does not start duplicate work; process loss leaves history and
   an actionable recovery choice.
 - When Workspace registration is rebuilt, intact local Sessions remain available through TUI and ACP.

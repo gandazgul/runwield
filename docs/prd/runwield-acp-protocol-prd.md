@@ -151,11 +151,16 @@ Stage 1 proves the reference journey through the shared Session experience. Prot
 - Cancellation waits for Runtime settlement and final mapped updates before `session/prompt` returns `cancelled`.
 - ACP sends `available_commands_update` for enabled built-ins, prompt templates, and Skills. Built-in names and aliases
   have precedence over prompt resources, including built-ins unavailable on ACP.
-- OpenAB advertises and handles generic ACP form elicitation for RunWield select, text, and approval interactions.
+- Clients that advertise ACP forms receive native forms for select, text, and approval interactions. No OpenAB form
+  contribution is required to answer `user_interview` in chat.
 - Pair Execution uses ordinary ACP prompt turns and messages, not form elicitation. A checkpoint report ends one ACP
   request; questions and a later natural-language decision continue the same saved Session and execution context.
-- If a client has no form support, local select, text, and approval questions expose a loopback browser URL and wait for
-  an explicit answer or cancellation. This does not claim remote browser reachability.
+- Without forms, `user_interview` select and text questions appear in ordinary chat. Each question ends its ACP request
+  while the Runtime tool and Session writer lock stay live. A later prompt answers through the existing broker. A number
+  or unique exact label selects an option; other meaningful text selects Other with its full text. Bare Other gets one
+  text follow-up. Blank required input and unsupported attachments do not answer. A lost process requires retry.
+- Other no-form select, text, and approval questions still use a loopback browser URL. Command menus retain exact
+  selections. Remote browser reachability is not claimed.
 - Form cancellation, decline, and presentation failure settle the pending interaction so the same Session can accept
   another message without a manual cancel or reset. Multiple-choice forms preserve their labeled choices.
 - Choice interviews include an optional Other-answer text field in the same ACP form. Selecting Other uses that text and
@@ -173,9 +178,11 @@ requirement.
 
 - When a client requests an unsupported protocol version, initialization negotiates supported behavior instead of
   pretending that version is supported.
-- Given a required select, text, or approval interaction unsupported by native client forms, when RunWield asks it, a
-  local browser question can collect the same semantic answer; if that page cannot be reached, no default answer is
-  silently chosen.
+- Given a no-form ACP client, when `user_interview` asks three questions, each reaches chat before its ACP response.
+  Later prompts answer them in order without another Agent turn. The same tool returns ordered typed answers, including
+  full Other and text answers. Defaults do not answer for the user.
+- Given a required non-interview select, text, or approval interaction without native forms, a local browser question
+  can collect its answer; if that page cannot be reached, no default is chosen.
 - When the user cancels a live turn, final updates and cancellation settle before the turn is reported available for
   another request.
 - When a user cancels or declines an interview form, or the client reports that it expired, the pending turn settles and
@@ -207,7 +214,8 @@ Stage 1 is complete only when the operator can:
 1. Submit a bounded FEATURE User Request in Telegram.
 2. Start a new RunWield Session or reload the durable Session associated with the chat.
 3. Receive streamed Agent messages, tool progress, relevant status, and actionable failure information.
-4. Answer select, text, and approval interactions through generic ACP form elicitation rendered by OpenAB.
+4. Answer `user_interview` questions in chat without forms. Answer other select, text, and approval interactions through
+   native forms or the local browser fallback; remote access to those pages is not proven.
 5. Receive the public Shared Plan URL in Telegram.
 6. Submit Feedback or approve the Plan in Plannotator.
 7. Resume the same Session after approval and execute the Plan in a RunWield-owned worktree.
@@ -263,8 +271,9 @@ be retried. Exact continuation of an interrupted token, tool call, or command is
 
 **Requirement: Prove compatibility without permanent client-specific dependence.**
 
-Required OpenAB changes should be proposed upstream and designed generically where possible. Stage 1 does not depend on
-maintainer merge timing. Completion requires:
+The `user_interview` chat path needs no OpenAB contribution branch or merge. Other Stage 1 gaps may still need generic
+upstream changes. Stage 1 does not depend on maintainer merge timing. Completion of the broader reference journey
+requires:
 
 - an upstream PR for the required generic compatibility work;
 - a passing integration pinned to a reviewed OpenAB contribution branch or commit;

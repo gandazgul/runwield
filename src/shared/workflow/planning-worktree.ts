@@ -12,7 +12,12 @@ import {
     updateEntry as updateWorktreeRegistryEntry,
     type WorktreeRegistryEntry,
 } from "../worktree-registry.js";
-import { checkpointExecutionPreparation, createWorktreeGitArtifacts, removeWorktreeGitArtifacts } from "../worktree.js";
+import {
+    checkpointExecutionPreparation,
+    createWorktreeGitArtifacts,
+    prepareTargetBranchRef,
+    removeWorktreeGitArtifacts,
+} from "../worktree.js";
 import { runExecutionPreparationTransition } from "./state-transition.ts";
 import { resolvePrimaryCheckoutRoot } from "../primary-checkout.ts";
 import { ensureExecutionPlanFile } from "./execution-plan-file.js";
@@ -95,6 +100,7 @@ async function resolveExistingTargetSnapshot(projectRoot: string, targetBranch: 
         stdout: "null",
         stderr: "null",
     }).output();
+    let remoteTargetExists = false;
     if (remote.success) {
         const fetched = await new Deno.Command("git", {
             cwd: projectRoot,
@@ -103,12 +109,15 @@ async function resolveExistingTargetSnapshot(projectRoot: string, targetBranch: 
             stderr: "piped",
         }).output();
         if (!fetched.success) {
-            throw new Error(
-                `Could not refresh target branch origin/${branch}. Planning was stopped before Planner starts.`,
-            );
-        }
+            const error = new TextDecoder().decode(fetched.stderr);
+            if (!error.includes("couldn't find remote ref")) {
+                throw new Error(
+                    `Could not refresh target branch origin/${branch}. Planning was stopped before Planner starts.`,
+                );
+            }
+        } else remoteTargetExists = true;
     }
-    const baseRef = await gitRefExists(projectRoot, `refs/remotes/origin/${branch}`)
+    const baseRef = remoteTargetExists && await gitRefExists(projectRoot, `refs/remotes/origin/${branch}`)
         ? `refs/remotes/origin/${branch}`
         : await gitRefExists(projectRoot, `refs/heads/${branch}`)
         ? `refs/heads/${branch}`
@@ -265,6 +274,10 @@ export async function preparePlanningWorktreeForPlan(
     }
 
     const targetBranch = targetBranchForPlan(planAttrs);
+    const branch = targetBranch.replace(/^origin\//, "");
+    if (!await gitRefExists(projectRoot, `refs/heads/${branch}`)) {
+        await prepareTargetBranchRef(projectRoot, targetBranch);
+    }
     const target = await resolveExistingTargetSnapshot(projectRoot, targetBranch);
     const targetPlan = await loadTargetPlan(projectRoot, planName, target.baseRef);
     if (!targetPlan) throw new Error(`Plan ${planName} does not exist on target ${target.baseBranch}.`);

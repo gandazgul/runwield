@@ -201,6 +201,9 @@ Deno.test("managed read sweep drives read paths without writable Pi calls or tra
             await run("getSessionMemoryBackupDir", () => {
                 runtime.getSessionMemoryBackupDir(adopted.sessionId);
             });
+            await run("getSessionProjectRoot", () => {
+                assertEquals(runtime.getSessionProjectRoot(adopted.sessionId), cwd);
+            });
             await run("getSessionSnapshot", () => {
                 runtime.getSessionSnapshot(adopted.sessionId);
             });

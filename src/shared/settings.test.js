@@ -620,6 +620,43 @@ settingsTest("shouldCleanupMergedWorktrees defaults true and honors false settin
     }
 });
 
+settingsTest("RunWield keeps Pi cache warming off without changing stored settings", async () => {
+    const originalHome = Deno.env.get("HOME");
+    const originalCwd = Deno.cwd();
+    const tempHome = await Deno.makeTempDir({ prefix: "runwield-cache-warming-home-" });
+    const tempProject = await Deno.makeTempDir({ prefix: "runwield-cache-warming-project-" });
+    const settingsPath = join(tempHome, ".wld", "settings.json");
+    try {
+        Deno.env.set("HOME", tempHome);
+        Deno.chdir(tempProject);
+        await Deno.mkdir(join(tempHome, ".wld"), { recursive: true });
+
+        for (const storedMode of [undefined, "streaming", "idle"]) {
+            const stored = storedMode === undefined ? { theme: "dark" } : { theme: "dark", cacheWarming: storedMode };
+            await Deno.writeTextFile(settingsPath, JSON.stringify(stored));
+            __resetSettingsForTests();
+
+            const manager = getSettingsManager(tempProject);
+            assertEquals(manager.getCacheWarmingMode(), "off");
+            manager.setCompactionEnabled(false);
+            await manager.flush();
+
+            const afterWrite = JSON.parse(await Deno.readTextFile(settingsPath));
+            assertEquals(afterWrite.cacheWarming, storedMode);
+            __resetSettingsForTests();
+            assertEquals(getSettingsManager(tempProject).getCacheWarmingMode(), "off");
+            assertEquals(JSON.parse(await Deno.readTextFile(settingsPath)).cacheWarming, storedMode);
+        }
+    } finally {
+        Deno.chdir(originalCwd);
+        if (originalHome === undefined) Deno.env.delete("HOME");
+        else Deno.env.set("HOME", originalHome);
+        __resetSettingsForTests();
+        await removeTempDir(tempHome);
+        await removeTempDir(tempProject);
+    }
+});
+
 settingsTest("compaction token setters persist globally and preserve sibling compaction fields", async () => {
     const originalHome = getHomeDir();
     const originalCwd = getCwd();

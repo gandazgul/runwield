@@ -793,14 +793,21 @@ async function validateMarkerRoots(
 async function listGitWorktrees(
     primaryCheckoutRoot: string,
 ): Promise<{ worktrees: GitWorktree[] } | ProjectRuntimeMigrationBlockedResult> {
-    let output: Deno.CommandOutput;
-    try {
-        output = await new Deno.Command("git", {
+    const runWorktreeList = () =>
+        new Deno.Command("git", {
             cwd: primaryCheckoutRoot,
             args: ["worktree", "list", "--porcelain"],
             stdout: "piped",
             stderr: "piped",
         }).output();
+    let output: Deno.CommandOutput;
+    try {
+        output = await runWorktreeList();
+        // Git can report a transient failure while another process changes a linked worktree.
+        if (output.code !== 0 && await lstatOrNull(join(primaryCheckoutRoot, ".git"))) {
+            await new Promise((resolve) => setTimeout(resolve, 50));
+            output = await runWorktreeList();
+        }
     } catch (error) {
         if (!(await lstatOrNull(join(primaryCheckoutRoot, ".git")))) {
             return { worktrees: [{ path: primaryCheckoutRoot, realPath: primaryCheckoutRoot, branch: "" }] };

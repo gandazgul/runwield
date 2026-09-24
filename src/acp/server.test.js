@@ -4,7 +4,7 @@
  */
 
 import { assert, assertEquals, assertStringIncludes, assertThrows } from "@std/assert";
-import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, fauxText, fauxToolCall, getSystemMessageText } from "@earendil-works/pi-ai";
 import { dirname, fromFileUrl, join, resolve } from "@std/path";
 import { withRuntimeCommandFixture } from "../cmd/testing/runtime-command-fixture.ts";
 import { openFileSessionStore } from "../shared/session/file-session-store.ts";
@@ -36,6 +36,7 @@ import {
 /**
  * @typedef {Object} StartTestServerOptions
  * @property {string | number} [holdResponseId]
+ * @property {string} [holdOutputText]
  */
 
 /**
@@ -103,18 +104,22 @@ function fauxContentToText(content) {
 
 /** @param {import('@earendil-works/pi-ai').Message} message */
 function fauxMessageToText(message) {
+    if (message.role === "system") {
+        return [
+            getSystemMessageText(message),
+            ...(message.toolsRemoved?.map((tool) => `tool-:${JSON.stringify(tool)}`) ?? []),
+            ...(message.toolsAdded?.map((tool) => `tool+:${JSON.stringify(tool)}`) ?? []),
+        ].filter((part) => part.length > 0).join("\n");
+    }
     if (message.role === "toolResult") {
         return [message.toolName, ...message.content.map((block) => fauxContentToText([block]))].join("\n");
     }
     return fauxContentToText(message.content);
 }
 
-/** @param {import('@earendil-works/pi-ai').Context} context */
+/** @param {import('@earendil-works/pi-ai').TranscriptContext} context */
 function estimateFauxPromptTokens(context) {
-    const parts = [];
-    if (context.systemPrompt) parts.push(`system:${context.systemPrompt}`);
-    for (const message of context.messages) parts.push(`${message.role}:${fauxMessageToText(message)}`);
-    if (context.tools?.length) parts.push(`tools:${JSON.stringify(context.tools)}`);
+    const parts = context.messages.map((message) => `${message.role}:${fauxMessageToText(message)}`);
     return Math.ceil(parts.join("\n\n").length / 4);
 }
 
@@ -153,9 +158,9 @@ function chunkIncludesResponseId(chunk, responseId) {
 }
 
 /**
- * @param {string | number} responseId
+ * @param {(chunk: Uint8Array) => boolean} shouldHold
  */
-function createHeldOutput(responseId) {
+function createHeldOutput(shouldHold) {
     /** @type {PromiseWithResolvers<void>} */
     const heldResponseStarted = Promise.withResolvers();
     /** @type {PromiseWithResolvers<void>} */
@@ -170,7 +175,7 @@ function createHeldOutput(responseId) {
     });
     const writable = new WritableStream({
         write(chunk) {
-            if (!held && chunkIncludesResponseId(chunk, responseId)) {
+            if (!held && shouldHold(chunk)) {
                 held = true;
                 heldResponseStarted.resolve(undefined);
                 return releaseHeldResponse.promise.then(() => outputController?.enqueue(chunk));
@@ -206,8 +211,12 @@ function startTestServer(options = {}) {
     let heldResponseStarted;
     /** @type {(() => void) | undefined} */
     let releaseHeldResponse;
-    if (options.holdResponseId !== undefined) {
-        const output = createHeldOutput(options.holdResponseId);
+    if (options.holdResponseId !== undefined || options.holdOutputText !== undefined) {
+        const output = createHeldOutput((chunk) =>
+            options.holdResponseId !== undefined
+                ? chunkIncludesResponseId(chunk, options.holdResponseId)
+                : decoder.decode(chunk).includes(options.holdOutputText || "")
+        );
         outputReadable = output.readable;
         outputWritable = output.writable;
         heldResponseStarted = output.heldResponseStarted;
@@ -663,7 +672,8 @@ Deno.test("ACP image prompts reach vision models", async () => {
         const handle = startTestServer();
         try {
             const created = await createSession(handle, fixture.projectRoot);
-            const imageData = btoa("discord-image");
+            const imageData =
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
             await sendMessage(handle, {
                 jsonrpc: "2.0",
                 id: "image-prompt",
@@ -1740,7 +1750,7 @@ Deno.test("ACP rejects a prompt sent before the Client receives the cancelled re
                 method: "session/prompt",
                 params: { sessionId: created.sessionId, prompt: [{ type: "text", text: "too soon" }] },
             });
-            handle.releaseHeldResponse();
+            handle.releaseHeldResponse?.();
 
             const overlap = await readThroughResponse(handle, "prompt-2", 10_000);
             const cancelled = overlap.messages.find((message) => message.id === 0);
@@ -2329,4 +2339,490 @@ Deno.test("ACP event mapper maps Plan review links without maintainer secrets", 
     assertEquals(update?.sessionUpdate, "agent_message_chunk");
     assertStringIncludes(JSON.stringify(update), "reviewer");
     assertEquals(JSON.stringify(update).includes("maintainer"), false);
+});
+
+for (
+    const [reply, expectedValue, expectedOther] of [
+        ["1", "blue", undefined],
+        [" green ", "green", undefined],
+        ["1, but include tests\nand preserve the notes.", "other", "1, but include tests\nand preserve the notes."],
+    ]
+) {
+    Deno.test(`ACP no-form interview returns the original tool result for ${JSON.stringify(reply)}`, async () => {
+        await withRuntimeCommandFixture("runwield-acp-interview-chat-", async (fixture) => {
+            fixture.setModelResponseFactories([
+                () =>
+                    fauxAssistantMessage(fauxToolCall("user_interview", {
+                        question: {
+                            type: "multiple_choice",
+                            prompt: "Pick a color",
+                            choices: [
+                                { value: "blue", label: "Blue" },
+                                { value: "green", label: "Green" },
+                            ],
+                        },
+                    })),
+                () => fauxAssistantMessage(fauxText("Interview complete.")),
+            ]);
+            const handle = startTestServer();
+            try {
+                await request(handle, {
+                    jsonrpc: "2.0",
+                    id: "init-chat",
+                    method: "initialize",
+                    params: {
+                        protocolVersion: 1,
+                        clientCapabilities: {},
+                    },
+                });
+                const { sessionId } = await createSession(handle, fixture.projectRoot);
+                await sendMessage(handle, {
+                    jsonrpc: "2.0",
+                    id: "select-agent",
+                    method: "session/prompt",
+                    params: {
+                        sessionId,
+                        prompt: [{ type: "text", text: "/agent ideator" }],
+                    },
+                });
+                await readThroughResponse(handle, "select-agent");
+                await sendMessage(handle, {
+                    jsonrpc: "2.0",
+                    id: 0,
+                    method: "session/prompt",
+                    params: {
+                        sessionId,
+                        prompt: [{ type: "text", text: "Interview me" }],
+                    },
+                });
+                const question = await readThroughResponse(handle, 0);
+                assertEquals(question.response.result.stopReason, "end_turn");
+                assertStringIncludes(joinedAgentText(question.messages), "Pick a color");
+                assertStringIncludes(joinedAgentText(question.messages), "1. Blue");
+                assert(!JSON.stringify(question.messages).includes("questionUrl"));
+                assert(!question.messages.some((message) => message.method === "elicitation/create"));
+                await sendMessage(handle, {
+                    jsonrpc: "2.0",
+                    id: "answer",
+                    method: "session/prompt",
+                    params: {
+                        sessionId,
+                        prompt: [{ type: "text", text: reply }],
+                    },
+                });
+                const completion = await readThroughResponse(handle, "answer");
+                assertEquals(completion.response.result.stopReason, "end_turn");
+                const result = completion.messages.find((message) =>
+                    message.params?.update?._meta?.runwield?.toolName ===
+                        "user_interview" && message.params?.update?.rawOutput?.details
+                )?.params.update.rawOutput.details;
+                assertEquals(result?.status, "completed");
+                assertEquals(result.answers[0].value, expectedValue);
+                assertEquals(result.answers[0].otherText, expectedOther);
+                assertStringIncludes(joinedAgentText(completion.messages), "Interview complete.");
+            } finally {
+                await closeTestServer(handle);
+            }
+        });
+    });
+}
+
+Deno.test("ACP chat interview keeps one tool open across three answer requests and an Other follow-up", async () => {
+    await withRuntimeCommandFixture("runwield-acp-batch-chat-", async (fixture) => {
+        fixture.setModelResponseFactories([
+            () =>
+                fauxAssistantMessage(fauxToolCall("user_interview", {
+                    questions: [
+                        { type: "yes_no", prompt: "Include tests?", default: true },
+                        {
+                            type: "multiple_choice",
+                            prompt: "Choose scope",
+                            choices: [
+                                { value: "small", label: "Small" },
+                                { value: "large", label: "Large" },
+                            ],
+                        },
+                        { type: "text", prompt: "Any notes?" },
+                    ],
+                })),
+            () => fauxAssistantMessage(fauxText("Finished three questions.")),
+        ]);
+        const handle = startTestServer();
+        try {
+            await request(handle, {
+                jsonrpc: "2.0",
+                id: "init",
+                method: "initialize",
+                params: {
+                    protocolVersion: 1,
+                    clientCapabilities: {},
+                },
+            });
+            const { sessionId } = await createSession(handle, fixture.projectRoot);
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "agent",
+                method: "session/prompt",
+                params: {
+                    sessionId,
+                    prompt: [{ type: "text", text: "/agent ideator" }],
+                },
+            });
+            await readThroughResponse(handle, "agent");
+            /** @param {string} id @param {string} text */
+            const turn = async (id, text) => {
+                await sendMessage(handle, {
+                    jsonrpc: "2.0",
+                    id,
+                    method: "session/prompt",
+                    params: {
+                        sessionId,
+                        prompt: [{ type: "text", text }],
+                    },
+                });
+                return await readThroughResponse(handle, id);
+            };
+            const first = await turn("start", "Ask three questions");
+            assertStringIncludes(joinedAgentText(first.messages), "Include tests?");
+            const blank = await turn("blank", "  ");
+            assertStringIncludes(joinedAgentText(blank.messages), "An answer is required");
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "attachment",
+                method: "session/prompt",
+                params: {
+                    sessionId,
+                    prompt: [{ type: "image", data: "AQ==", mimeType: "image/png" }],
+                },
+            });
+            const attachment = await readThroughResponse(handle, "attachment");
+            assertStringIncludes(joinedAgentText(attachment.messages), "Attachments were not submitted");
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "model-during-interview",
+                method: "session/set_config_option",
+                params: { sessionId, configId: "model", value: "runtime-command-fixture/fixture-model" },
+            });
+            const model = await readThroughResponse(handle, "model-during-interview");
+            assertEquals(model.response.error.code, -32002);
+            const second = await turn("yes", "1");
+            assertStringIncludes(joinedAgentText(second.messages), "Choose scope");
+            const followUp = await turn("other", "Other");
+            assertStringIncludes(joinedAgentText(followUp.messages), "Please specify your answer");
+            const third = await turn("other-text", "  Only APIs\nwith compatibility tests.  ");
+            assertStringIncludes(joinedAgentText(third.messages), "Any notes?");
+            const final = await turn("notes", "  Keep the order.\nAnd preserve punctuation!  ");
+            const details = final.messages.find((message) =>
+                message.params?.update?._meta?.runwield?.toolName ===
+                    "user_interview" && message.params?.update?.rawOutput?.details
+            )?.params.update.rawOutput.details;
+            assertEquals(details?.status, "completed");
+            assertEquals(details.answers.map((/** @type {{ value: string | boolean }} */ answer) => answer.value), [
+                true,
+                "other",
+                "Keep the order.\nAnd preserve punctuation!",
+            ]);
+            assertEquals(details.answers[1].otherText, "Only APIs\nwith compatibility tests.");
+            assertStringIncludes(joinedAgentText(final.messages), "Finished three questions.");
+        } finally {
+            await closeTestServer(handle);
+        }
+    });
+});
+
+Deno.test("ACP interview reply cannot overtake a held question response", async () => {
+    await withRuntimeCommandFixture("runwield-acp-held-chat-", async (fixture) => {
+        fixture.setModelResponseFactories([
+            () =>
+                fauxAssistantMessage(fauxToolCall("user_interview", {
+                    question: { type: "yes_no", prompt: "Proceed?" },
+                })),
+            () => fauxAssistantMessage(fauxText("Completed after the reply.")),
+        ]);
+        const handle = startTestServer({ holdResponseId: 0 });
+        try {
+            await request(handle, {
+                jsonrpc: "2.0",
+                id: "init",
+                method: "initialize",
+                params: {
+                    protocolVersion: 1,
+                    clientCapabilities: {},
+                },
+            });
+            const { sessionId } = await createSession(handle, fixture.projectRoot);
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "agent",
+                method: "session/prompt",
+                params: {
+                    sessionId,
+                    prompt: [{ type: "text", text: "/agent ideator" }],
+                },
+            });
+            await readThroughResponse(handle, "agent");
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: 0,
+                method: "session/prompt",
+                params: {
+                    sessionId,
+                    prompt: [{ type: "text", text: "Ask now" }],
+                },
+            });
+            await handle.heldResponseStarted;
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "too-early",
+                method: "session/prompt",
+                params: {
+                    sessionId,
+                    prompt: [{ type: "text", text: "1" }],
+                },
+            });
+            handle.releaseHeldResponse?.();
+            const response = await readThroughResponse(handle, 0);
+            assertStringIncludes(joinedAgentText(response.messages), "Proceed?");
+            const rejected = await readThroughResponse(handle, "too-early");
+            assertEquals(rejected.response.error.code, -32002);
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "answer",
+                method: "session/prompt",
+                params: {
+                    sessionId,
+                    prompt: [{ type: "text", text: "1" }],
+                },
+            });
+            const final = await readThroughResponse(handle, "answer");
+            assertStringIncludes(joinedAgentText(final.messages), "Completed after the reply.");
+        } finally {
+            handle.releaseHeldResponse?.();
+            await closeTestServer(handle);
+        }
+    });
+});
+
+Deno.test("ACP cancellation between interview requests settles the original turn", async () => {
+    await withRuntimeCommandFixture("runwield-acp-cancel-chat-", async (fixture) => {
+        fixture.setModelResponseFactories([
+            () =>
+                fauxAssistantMessage(fauxToolCall("user_interview", {
+                    question: { type: "text", prompt: "What changed?" },
+                })),
+            () => fauxAssistantMessage(fauxText("Next turn is usable.")),
+        ]);
+        const handle = startTestServer();
+        try {
+            await request(handle, {
+                jsonrpc: "2.0",
+                id: "init",
+                method: "initialize",
+                params: {
+                    protocolVersion: 1,
+                    clientCapabilities: {},
+                },
+            });
+            const { sessionId } = await createSession(handle, fixture.projectRoot);
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "agent",
+                method: "session/prompt",
+                params: {
+                    sessionId,
+                    prompt: [{ type: "text", text: "/agent ideator" }],
+                },
+            });
+            await readThroughResponse(handle, "agent");
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "question",
+                method: "session/prompt",
+                params: {
+                    sessionId,
+                    prompt: [{ type: "text", text: "Ask" }],
+                },
+            });
+            const asked = await readThroughResponse(handle, "question");
+            assertStringIncludes(joinedAgentText(asked.messages), "What changed?");
+            await sendMessage(handle, { jsonrpc: "2.0", method: "session/cancel", params: { sessionId } });
+            // The next prompt can follow once the Runtime has settled; it must not answer the canceled tool.
+            let next;
+            for (let index = 0; index < 20; index++) {
+                await sendMessage(handle, {
+                    jsonrpc: "2.0",
+                    id: `next-${index}`,
+                    method: "session/prompt",
+                    params: {
+                        sessionId,
+                        prompt: [{ type: "text", text: "Continue" }],
+                    },
+                });
+                next = await readThroughResponse(handle, `next-${index}`);
+                if (next.response.result) break;
+                await new Promise((resolve) => setTimeout(resolve, 20));
+            }
+            assertEquals(next?.response.result?.stopReason, "end_turn");
+            assert(next);
+            assertStringIncludes(joinedAgentText(next.messages), "Next turn is usable.");
+        } finally {
+            await closeTestServer(handle);
+        }
+    });
+});
+
+Deno.test("ACP duplicate load rejects an already mapped Session before it opens another Runtime Session", async () => {
+    await withRuntimeCommandFixture("runwield-acp-duplicate-load-", async (fixture) => {
+        fixture.setModelResponse("Original Session remains usable.");
+        const handle = startTestServer();
+        try {
+            const { sessionId, persistedSessionId } = await createSession(handle, fixture.projectRoot);
+            const duplicate = await request(handle, {
+                jsonrpc: "2.0",
+                id: "duplicate",
+                method: "session/load",
+                params: {
+                    sessionId: persistedSessionId,
+                    cwd: fixture.projectRoot,
+                    mcpServers: [],
+                },
+            });
+            assertEquals(duplicate.error.code, -32002);
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "original",
+                method: "session/prompt",
+                params: {
+                    sessionId,
+                    prompt: [{ type: "text", text: "Continue" }],
+                },
+            });
+            const original = await readThroughResponse(handle, "original");
+            assertStringIncludes(joinedAgentText(original.messages), "Original Session remains usable.");
+        } finally {
+            await closeTestServer(handle);
+        }
+    });
+});
+
+Deno.test("ACP chat interview returns two ordered answers to one waiting model turn", async () => {
+    await withRuntimeCommandFixture("runwield-acp-two-chat-", async (fixture) => {
+        fixture.setModelResponseFactories([
+            () =>
+                fauxAssistantMessage(fauxToolCall("user_interview", {
+                    questions: [
+                        { type: "yes_no", prompt: "Proceed?" },
+                        { type: "text", prompt: "Reason?" },
+                    ],
+                })),
+            () => fauxAssistantMessage(fauxText("Both received.")),
+        ]);
+        const handle = startTestServer();
+        try {
+            await request(handle, {
+                jsonrpc: "2.0",
+                id: "init",
+                method: "initialize",
+                params: {
+                    protocolVersion: 1,
+                    clientCapabilities: {},
+                },
+            });
+            const { sessionId } = await createSession(handle, fixture.projectRoot);
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "agent",
+                method: "session/prompt",
+                params: {
+                    sessionId,
+                    prompt: [{ type: "text", text: "/agent ideator" }],
+                },
+            });
+            await readThroughResponse(handle, "agent");
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "ask",
+                method: "session/prompt",
+                params: {
+                    sessionId,
+                    prompt: [{ type: "text", text: "Ask two" }],
+                },
+            });
+            assertStringIncludes(joinedAgentText((await readThroughResponse(handle, "ask")).messages), "Proceed?");
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "first",
+                method: "session/prompt",
+                params: {
+                    sessionId,
+                    prompt: [{ type: "text", text: "No" }],
+                },
+            });
+            assertStringIncludes(joinedAgentText((await readThroughResponse(handle, "first")).messages), "Reason?");
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "second",
+                method: "session/prompt",
+                params: {
+                    sessionId,
+                    prompt: [{ type: "text", text: "  Needs more time.  " }],
+                },
+            });
+            const final = await readThroughResponse(handle, "second");
+            const details = final.messages.find((message) =>
+                message.params?.update?._meta?.runwield?.toolName ===
+                    "user_interview" && message.params?.update?.rawOutput?.details
+            )?.params.update.rawOutput.details;
+            assertEquals(details?.answers.map((/** @type {{ value: string | boolean }} */ answer) => answer.value), [
+                false,
+                "Needs more time.",
+            ]);
+            assertStringIncludes(joinedAgentText(final.messages), "Both received.");
+        } finally {
+            await closeTestServer(handle);
+        }
+    });
+});
+
+Deno.test("ACP interview cancellation during a blocked question write precedes its response", async () => {
+    await withRuntimeCommandFixture("runwield-acp-question-cancel-", async (fixture) => {
+        fixture.setModelResponseFactories([
+            () =>
+                fauxAssistantMessage(fauxToolCall("user_interview", {
+                    question: { type: "text", prompt: "Question while writing?" },
+                })),
+        ]);
+        const handle = startTestServer({ holdOutputText: "Question while writing?" });
+        try {
+            const { sessionId } = await createSession(handle, fixture.projectRoot);
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "agent",
+                method: "session/prompt",
+                params: { sessionId, prompt: [{ type: "text", text: "/agent ideator" }] },
+            });
+            await readThroughResponse(handle, "agent");
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "ask",
+                method: "session/prompt",
+                params: { sessionId, prompt: [{ type: "text", text: "Ask" }] },
+            });
+            await handle.heldResponseStarted;
+            await sendMessage(handle, { jsonrpc: "2.0", method: "session/cancel", params: { sessionId } });
+            await new Promise((resolve) => setTimeout(resolve, 50));
+            handle.releaseHeldResponse?.();
+            const { messages, response } = await readThroughResponse(handle, "ask", 1000);
+            assertEquals(response.result.stopReason, "cancelled");
+            assert(
+                messages.some((message) =>
+                    String(message.params?.update?.content?.text || "").includes("Operation canceled.")
+                ),
+                "Runtime cancellation update must precede the response",
+            );
+        } finally {
+            handle.releaseHeldResponse?.();
+            await closeTestServer(handle);
+        }
+    });
 });

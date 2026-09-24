@@ -187,7 +187,7 @@ async function installFakeClipboardCommands(projectRoot: string): Promise<Clipbo
         base64Path,
         [
             "#!/bin/sh",
-            "echo Zml4dHVyZS1wbmc=",
+            "echo iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
             `touch "${imageReadMarkerPath}"`,
             // Reading bytes is not paste completion: the process must exit and
             // RunWield must attach/render the image before the user can submit it.

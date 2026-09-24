@@ -101,7 +101,7 @@ export class RuntimeImages {
             (modelProvider && modelId ? modelRegistry.find(modelProvider, modelId) : undefined);
         const modelProviderName = activeModel?.provider;
         const executionBackend = activeModel?.executionBackend;
-        if (modelProviderName === "agy-cli" || executionBackend === "agy-cli") {
+        if (images.length > 0 && (modelProviderName === "agy-cli" || executionBackend === "agy-cli")) {
             return { ok: false as const, message: "Antigravity CLI sessions do not support image attachments." };
         }
         let fallbackModelRef: string | undefined;
