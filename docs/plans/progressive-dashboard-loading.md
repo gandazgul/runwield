@@ -1,4 +1,5 @@
 ---
+planId: "5131a0bd-1133-45ac-8c49-fd305a27f3df"
 classification: "PLANNED_CHANGE"
 workKind: "FEATURE"
 complexity: "MEDIUM"
@@ -10,14 +11,16 @@ affectedPaths:
     - "src/ui/workspace/static/workspace-styles/owner-pages.css"
     - "src/ui/workspace/personal-remote-workspace-v2.acceptance.test.ts"
     - "docs/prd/runwield-workspace-prd.md"
+executionAgent: "frontend-engineer"
+collaborationRecommendation: "autonomous"
 devServerCommand: "deno task workspace:build && deno run -A src/cli.ts workspace serve --bind 127.0.0.1 --port 8789 --no-open"
 devServerUrl: "http://127.0.0.1:8789"
 devServerHmr: false
 createdAt: "2026-09-24"
-status: "draft"
-executionAgent: "frontend-engineer"
-collaborationRecommendation: "autonomous"
-planId: "5131a0bd-1133-45ac-8c49-fd305a27f3df"
+origin: "internal"
+userVerifiedAt: null
+status: "in_progress"
+targetBranch: "main"
 ---
 
 # Progressive Dashboard Loading
