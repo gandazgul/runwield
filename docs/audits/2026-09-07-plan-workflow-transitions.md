@@ -203,7 +203,7 @@ Amendment approval loop and does not silently adopt Plan body or definition edit
 Before adding a new broad amendment gate, define its owner, staleness rules, affected evidence, and resume behavior
 instead of assuming legacy helpers provide the gate.
 
-### A10 — Direct Plan Review still requires removed objective-check metadata
+### A10 — Direct Plan Review no longer requires retired check metadata
 
 **Resolved by removal (2026-09-24).** [getDirectPlanReviewEligibility](../../src/cmd/load-plan/plan-review-flow.ts) now
 checks supported status and execution policy only. Direct review opens Plans without custom shell checks, including

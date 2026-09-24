@@ -723,8 +723,7 @@ Deno.test("Work Record generation distills the task completion report into the s
 Deno.test("Work Record generation includes deterministic Plan record requirements", async () => {
     const cwd = await Deno.makeTempDir();
     try {
-        const required =
-            "Objective-Failing Checks were removed from RunWield, and obsolete Objective Check metadata was cleaned from active Plans; sealed completed Plans and Work Records were not changed.";
+        const required = "The generated Work Record must include the approved delivery decision.";
         await savePlan(cwd, "required-note", `# Required note\n\n## Work Record Requirements\n\n${required}\n`, {
             planId: "plan-required-note",
             classification: "FEATURE",
