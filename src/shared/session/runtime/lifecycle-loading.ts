@@ -365,6 +365,21 @@ export class RuntimeLifecycleLoading {
         return { ok: true };
     }
 
+    answerInteraction(
+        sessionId: string,
+        interactionId: string,
+        response: import("../session-runtime-interactions.js").RuntimeInteractionResponse,
+    ) {
+        const record = this.services.sessionHost.getSession(sessionId)?.getActiveInteractions().get(interactionId);
+        if (!record?.answer || record.request?._meta?.source !== "user_interview") return false;
+        try {
+            record.answer(response, "acp");
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
     async requestInteraction(
         sessionId: string,
         request: import(".././session-runtime-interactions.js").RuntimeInteractionRequest,

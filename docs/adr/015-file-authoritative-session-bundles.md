@@ -105,9 +105,11 @@ A later accepted user turn can resolve it. Same-turn output, generated continuat
 cannot.
 
 Pi persists completed tool calls and interaction answers. A pending interaction remains an in-memory wait in its live
-process. An answer must reach that process to continue the wait; it does not require a separate durable interaction
-state machine. Browser disconnection does not cancel the wait. If the process is lost, the user can ask the Agent to
-retry from saved history. Runtime stacks and unfinished external effects are not reconstructed automatically.
+process. An ACP interview can end a question's protocol request while keeping that Runtime operation and writer lock
+active for a later answer request. The connection retains undelivered updates between requests, not a durable tool wait.
+An answer must reach that process to continue the wait; it does not require a separate durable interaction state
+machine. Browser disconnection does not cancel the wait. If the process is lost, the user can ask the Agent to retry
+from saved history. Runtime stacks and unfinished external effects are not reconstructed automatically.
 
 ### Plan actions and notification delivery
 
