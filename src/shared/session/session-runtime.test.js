@@ -3326,9 +3326,10 @@ Deno.test("SessionRuntime owns steering and deferred queue transitions", async (
     assertEquals(runtime.getQueuedMessages(sessionId), []);
 });
 
-Deno.test("SessionRuntime reconciles consumed steering at turn end when the backend emits no queue update", async () => {
-    const sessionHost = new SessionHost();
-    const runtime = makeRuntime({ sessionHost });
+/** Create a managed turn with a real Session manager and a scripted Agent boundary.
+ * @param {SessionHost} sessionHost
+ */
+function createScriptedManagedTurn(sessionHost) {
     const cwd = runtimeProjectRoot();
     const sessionManager = SessionManager.create(cwd, getRunWieldSessionDir(cwd));
     const agentSession = makeSteeringAgentSession();
@@ -3383,6 +3384,13 @@ Deno.test("SessionRuntime reconciles consumed steering at turn end when the back
     hostedSession.setManagedOperationCapability(capability);
     hostedSession.setRootAgentName("router", capability);
     hostedSession.setRootAgentSession(agentSession, capability);
+    return { hostedSession, agentSession, capability };
+}
+
+Deno.test("SessionRuntime reconciles consumed steering at turn end when the backend emits no queue update", async () => {
+    const sessionHost = new SessionHost();
+    const runtime = makeRuntime({ sessionHost });
+    const { hostedSession, agentSession, capability } = createScriptedManagedTurn(sessionHost);
     /** @type {Array<{ ok: boolean, queued: boolean, error?: string, reason?: string }>} */
     const steeredResults = [];
     hostedSession.setActiveOnMessage(async () => {
@@ -4390,17 +4398,20 @@ Deno.test("notification routing follows accepted input, not the observing surfac
 Deno.test("Workspace gets a stop alert even when the handler suppresses its normal attention event", async () => {
     const sessionHost = new SessionHost();
     const runtime = makeRuntime({ sessionHost });
-    const sessionId = await runtime.createPromptReadySession({ cwd: runtimeProjectRoot(), agentName: "guide" });
-    const hosted = sessionHost.getSession(sessionId);
-    assertExists(hosted);
-    hosted.setActiveOnMessage(() => Promise.resolve({ kind: "complete" }));
-    hosted.suppressNextAgentStoppedAttention();
+    const { hostedSession, capability } = createScriptedManagedTurn(sessionHost);
+    hostedSession.setActiveOnMessage(() => Promise.resolve({ kind: "complete" }));
+    hostedSession.suppressNextAgentStoppedAttention();
     /** @type {import('./session-runtime-events.js').RuntimeAttentionRequestedEvent[]} */
     const attention = [];
-    runtime.subscribeSessionEvents(sessionId, (event) => {
+    runtime.subscribeSessionEvents(hostedSession.id, (event) => {
         if (event.type === RuntimeEventTypes.ATTENTION_REQUESTED) attention.push(event);
     });
-    await runtime.promptUserTurn(sessionId, { initialRequest: "Finish this turn", inputSurface: "workspace" });
+    const result = await runtime.promptSession(
+        hostedSession.id,
+        { initialRequest: "Finish this turn", initialImages: [], inputSurface: "workspace" },
+        capability,
+    );
+    assertEquals(result.ok, true);
     assertEquals(attention.filter((event) => event.reason === "agentStopped").length, 1);
     assertEquals(attention[0].notificationSurface, "workspace");
 });
