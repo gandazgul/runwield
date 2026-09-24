@@ -39,6 +39,12 @@ import { WORKFLOW_TOOL_EVENT_CUSTOM_TYPE } from "../workflow/workflow-tool-event
 import { getHomeDir, SUBAGENTS } from "../../constants.js";
 import { defineCommittedGitFixture, git } from "../git-test-fixture.ts";
 
+/** Use a real PNG: Pi checks and normalizes image bytes before each model request. */
+async function testPngBase64() {
+    const bytes = await Deno.readFile(new URL("../../../brand/logo.png", import.meta.url));
+    return btoa(String.fromCharCode(...bytes));
+}
+
 const RUNTIME_TEST_PROVIDER = "session-runtime-test";
 const RUNTIME_TEST_MODEL = "fixture-model";
 const RUNTIME_TEST_API = "session-runtime-faux";
@@ -2934,6 +2940,7 @@ Deno.test("SessionRuntime ignores synthetic switch-requesting tool results", asy
 Deno.test("SessionRuntime delivers steering submitted from the Triage report to Planner once", async () => {
     const sessionHost = new SessionHost();
     const runtime = makeRuntime({ sessionHost });
+    const pngBase64 = await testPngBase64();
     /** @type {HandoffProviderRequest[]} */
     const providerRequests = [];
     /** @param {import('@earendil-works/pi-ai').Context} context */
@@ -2980,7 +2987,7 @@ Deno.test("SessionRuntime delivers steering submitted from the Triage report to 
             steeringSubmission = runtime.steerSession(
                 sessionId,
                 "Keep the reproduction deterministic.",
-                [{ base64: btoa("handoff-image"), mimeType: "image/png" }],
+                [{ base64: pngBase64, mimeType: "image/png" }],
                 "tui",
             );
         }
@@ -3063,6 +3070,7 @@ Deno.test("SessionRuntime delivers steering submitted from the Triage report to 
 Deno.test("SessionRuntime transfers pending Router steering to Planner in submission order", async () => {
     const sessionHost = new SessionHost();
     const runtime = makeRuntime({ sessionHost });
+    const pngBase64 = await testPngBase64();
     const routerResponseStarted = deferredVoid();
     const releaseRouterResponse = deferredVoid();
     /** @type {HandoffProviderRequest[]} */
@@ -3104,7 +3112,7 @@ Deno.test("SessionRuntime transfers pending Router steering to Planner in submis
     const secondSteering = await runtime.steerSession(
         sessionId,
         "Second pending instruction with image.",
-        [{ base64: btoa("pending-image"), mimeType: "image/png" }],
+        [{ base64: pngBase64, mimeType: "image/png" }],
     );
     releaseRouterResponse.resolve();
 
