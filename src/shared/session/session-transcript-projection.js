@@ -10,6 +10,7 @@ import { readPersistedTutorialContext } from "./tutorial-context-session.ts";
 import { readPlanAssociations } from "./plan-association.ts";
 import { normalizeRuntimeToolResult, normalizeRuntimeUsage, RuntimeEventTypes } from "./session-runtime-events.js";
 import { describeRuntimeTool } from "./tool-event-title.js";
+import { formatProviderError } from "./provider-errors.ts";
 import { formatTaskCompletedMarkdown, readManualQaChecklistMessage } from "./workflow-messages.js";
 import { isPathInside, readCatalogSafeRootSessionLocator } from "./root-session.js";
 import {
@@ -300,6 +301,9 @@ export function createReplayEvents(sessionId, entries, options = {}) {
                     continue;
                 }
                 if (typed.type === "tool_use" || typed.type === "toolCall") {
+                    // A failed response never dispatches its proposed tools. Do not
+                    // replay an unfinished call as a tool that is still running.
+                    if (role === "assistant" && ["error", "aborted"].includes(value.message?.stopReason)) continue;
                     const toolName = typed.name || "tool";
                     const args = typed.arguments || typed.input;
                     const toolCallId = typed.id || messageId;
@@ -355,6 +359,19 @@ export function createReplayEvents(sessionId, entries, options = {}) {
                         level: "info",
                     });
                 }
+            }
+            if (
+                role === "assistant" && value.message?.stopReason === "error" &&
+                !/^(?:the signal has been aborted|aborted)$/i.test(value.message.errorMessage || "")
+            ) {
+                events.push({
+                    ...common,
+                    type: RuntimeEventTypes.TERMINAL_ERROR,
+                    eventId: makeEventId(value, RuntimeEventTypes.TERMINAL_ERROR, 0, segmentId),
+                    messageId: `${entryMessageId(value, `${sessionId}:replay`, segmentId)}:error`,
+                    message: formatProviderError(value.message.errorMessage),
+                    error: value.message.errorMessage,
+                });
             }
             if (value.message?.usage) {
                 events.push({

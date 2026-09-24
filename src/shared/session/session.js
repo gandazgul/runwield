@@ -18,6 +18,7 @@ import {
     shouldCompact,
 } from "@earendil-works/pi-coding-agent";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
+import { formatProviderError, formatProviderRetryExhaustion, normalizeProviderStream } from "./provider-errors.ts";
 import { completeSimple } from "@earendil-works/pi-ai/compat";
 import { WorkflowStepCompleted } from "../workflow/workflow-tool-events.ts";
 import { createSingleEditToolDefinition } from "../../tools/edit.js";
@@ -126,8 +127,6 @@ function homePromptsDir() {
     return homeDir ? join(homeDir, ".wld", "prompts") : null;
 }
 
-/** Regex to detect an HTML body in an error message (e.g. from a 404 page). */
-const HTML_ERROR_RE = /^(.*?\b404\b.*?)(?:<!DOCTYPE|<html|<body)/i;
 const UNSUPPORTED_TEMPERATURE_RE =
     /\bunsupported (?:parameter|field|argument)\b[^.:\n]*(?::|\b)\s*["']?temperature["']?|\btemperature\b[^.:\n]*\b(?:unsupported|not supported|not allowed|not accepted|invalid temperature)\b|\binvalid temperature\b.*\bonly\b.*\ballowed\b/i;
 
@@ -156,24 +155,6 @@ function requireHostedSession(hostedSession, caller) {
         throw new Error(`${caller}: hostedSession must be a HostedSession`);
     }
     return candidate;
-}
-
-/**
- * Replace 404 error messages that contain an HTML body with a clean generic
- * message so the user does not see a raw HTML dump.
- *
- * @param {string} msg
- * @returns {string}
- */
-function sanitizeApiErrorMessage(msg) {
-    const match = HTML_ERROR_RE.exec(msg);
-    if (match) {
-        const prefix = match[1].trim();
-        return prefix.endsWith(" -") || prefix.endsWith(".")
-            ? `${prefix.slice(0, -1)} — Model not found or endpoint unavailable`
-            : `${prefix} — Model not found or endpoint unavailable`;
-    }
-    return msg;
 }
 
 /**
@@ -2244,6 +2225,11 @@ export async function buildAgentSession({
     installTaskCompletedAutoCompactionExclusion(session);
     installPairCheckpointAutoCompactionPreservation(session, targetHostedSession);
 
+    const agent = session.agent;
+    const providerStream = agent.streamFunction;
+    agent.streamFunction = (model, context, options) =>
+        normalizeProviderStream(providerStream, model, context, options);
+
     const configuredTemperature = agentName ? getConfiguredAgentTemperature(agentName, sessionCwd) : undefined;
     const temperatureSource = configuredTemperature !== undefined ? "settings agent temperature" : (
         agentDef.temperature !== undefined ? "agent definition temperature" : undefined
@@ -3163,7 +3149,7 @@ export function attachSessionEventSubscribers(
                     event.message.role === "assistant" && event.message.stopReason === "error" &&
                     !cancellationSignal?.aborted && !isAbortSignalMessage(event.message.errorMessage)
                 ) {
-                    const message = sanitizeApiErrorMessage(event.message.errorMessage || "Unknown LLM error");
+                    const message = formatProviderError(event.message.errorMessage);
                     emitRuntimeEvent({
                         type: RuntimeEventTypes.TERMINAL_ERROR,
                         message,
@@ -3174,9 +3160,11 @@ export function attachSessionEventSubscribers(
                 break;
             }
             case "auto_retry_start": {
-                const message = `[Retry ${event.attempt}/${event.maxAttempts}] ${
-                    sanitizeApiErrorMessage(event.errorMessage)
-                } — waiting ${event.delayMs}ms...`;
+                if (cancellationSignal?.aborted) break;
+                const seconds = event.delayMs / 1000;
+                const message = `${formatProviderError(event.errorMessage)} Retrying in ${seconds} ${
+                    seconds === 1 ? "second" : "seconds"
+                } (${event.attempt} of ${event.maxAttempts}).`;
                 emitRuntimeEvent({
                     type: RuntimeEventTypes.SYSTEM_STATUS,
                     level: "warning",
@@ -3185,10 +3173,8 @@ export function attachSessionEventSubscribers(
                 break;
             }
             case "auto_retry_end": {
-                if (!event.success) {
-                    const message = `Auto-retry failed after ${event.attempt} attempts: ${
-                        event.finalError || "Unknown error"
-                    }`;
+                if (!event.success && !cancellationSignal?.aborted && event.finalError !== "Retry cancelled") {
+                    const message = formatProviderRetryExhaustion(event.finalError, event.attempt);
                     emitRuntimeEvent({
                         type: RuntimeEventTypes.SYSTEM_STATUS,
                         level: "error",
@@ -3197,6 +3183,22 @@ export function attachSessionEventSubscribers(
                 }
                 break;
             }
+            case "summarization_retry_scheduled": {
+                if (cancellationSignal?.aborted) break;
+                const seconds = event.delayMs / 1000;
+                emitRuntimeEvent({
+                    type: RuntimeEventTypes.SYSTEM_STATUS,
+                    level: "warning",
+                    message: `${formatProviderError(event.errorMessage)} Retrying summary in ${seconds} ${
+                        seconds === 1 ? "second" : "seconds"
+                    } (${event.attempt} of ${event.maxAttempts}).`,
+                });
+                break;
+            }
+            case "summarization_retry_attempt_start":
+            case "summarization_retry_finished":
+                // Pi reports summary progress without a success/failure outcome here.
+                break;
             case "tool_execution_start": {
                 invokedToolNames.push(event.toolName);
                 toolStartedAt.set(event.toolCallId, Date.now());
@@ -3357,7 +3359,7 @@ export function attachSessionEventSubscribers(
                             message,
                         });
                     } else if (event.errorMessage) {
-                        const message = `Auto-compaction failed: ${sanitizeApiErrorMessage(event.errorMessage)}`;
+                        const message = `Auto-compaction failed: ${formatProviderError(event.errorMessage)}`;
                         emitRuntimeEvent({
                             type: RuntimeEventTypes.SYSTEM_STATUS,
                             level: "error",

@@ -981,6 +981,22 @@ Deno.test("Workspace displays a reported backend denial once", () => {
     ]);
 });
 
+Deno.test("Workspace shows a saved provider interruption as history, not a running retry", () => {
+    const items = reduceSessionEvents([
+        {
+            type: "terminal_error",
+            eventId: "saved-eof",
+            message: "The model service stopped responding before the reply was complete.",
+            _meta: { replay: true },
+        },
+        { type: "assistant_text_delta", eventId: "answer", messageId: "answer", delta: "Recovered answer" },
+    ]);
+    const text = JSON.stringify(items);
+    assertEquals(text.includes("The model service stopped responding before the reply was complete."), true);
+    assertEquals(text.includes("Recovered answer"), true);
+    assertEquals(text.includes("Retrying in"), false);
+});
+
 Deno.test("Session composer preserves drafts across focus changes and shares one Stop or Send action", async () => {
     const previousDocument = globalThis.document;
     const previousActFlag = globalThis.IS_REACT_ACT_ENVIRONMENT;

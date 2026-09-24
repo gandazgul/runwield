@@ -591,17 +591,25 @@ Nested Pi-backed objects such as `compaction`, `branchSummary`, `retry`, `termin
 
 | Key                              | Type    | Values / default | Description                                                                                           |
 | -------------------------------- | ------- | ---------------- | ----------------------------------------------------------------------------------------------------- |
-| `retry.enabled`                  | boolean | default `true`   | Enable high-level retry behavior.                                                                     |
-| `retry.maxRetries`               | number  | default `3`      | Maximum high-level retry attempts.                                                                    |
+| `retry.enabled`                  | boolean | default `true`   | Enable Pi-backed model-request and Workflow Validation operational retries.                           |
+| `retry.maxRetries`               | number  | default `3`      | Maximum retry attempts after the initial attempt.                                                     |
 | `retry.baseDelayMs`              | number  | default `2000`   | Base exponential backoff delay in milliseconds.                                                       |
 | `retry.validation.maxDelayMs`    | number  | default `60000`  | Maximum Workflow Validation operational retry delay in milliseconds. Must be greater than `0`.        |
 | `retry.provider.timeoutMs`       | number  | unset            | Provider SDK/request timeout in milliseconds when supported.                                          |
 | `retry.provider.maxRetries`      | number  | unset            | Provider SDK/client retry attempts when supported.                                                    |
 | `retry.provider.maxRetryDelayMs` | number  | default `60000`  | Provider SDK maximum server-requested retry delay before failing; `0` disables the provider cap only. |
 
-Workflow Validation uses `retry.enabled`, `retry.maxRetries`, `retry.baseDelayMs`, and `retry.validation.maxDelayMs` for
-operational retries. These retries do not spend CI repair rounds or Semantic Code Review rounds. The `retry.provider.*`
-settings stay provider-only.
+For temporary Pi-backed model-service failures, the defaults allow one initial request and three retries. The waits
+before those retries are 2, 4, and 8 seconds. Set `retry.enabled` to `false` to disable these high-level retries, or
+adjust `retry.maxRetries` and `retry.baseDelayMs` to change the attempt count and waits. Cancellation stops retries.
+After retries run out, the current model attempt stops and the user can try again; this does not abandon a delivery
+workflow. See [Models and providers](prd/runwield-core-prd.md#models-and-providers) for the failure and notice
+requirements.
+
+Workflow Validation also uses `retry.enabled`, `retry.maxRetries`, `retry.baseDelayMs`, and
+`retry.validation.maxDelayMs` for operational retries. These retries do not spend CI repair rounds or Semantic Code
+Review rounds. The `retry.provider.*` settings stay provider-only: they control supported provider SDK requests, not the
+Pi-backed model-request retry count above.
 
 ### `terminal`
 

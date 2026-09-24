@@ -1022,7 +1022,11 @@ Deno.test("ACP model config can recover after a failed turn and rejects invalid 
                 params: { sessionId: created.sessionId, prompt: [{ type: "text", text: "Try the exhausted model." }] },
             });
             const failed = await readThroughResponse(handle, "failed-turn");
-            assertStringIncludes(JSON.stringify(failed), "You have hit your session limit");
+            assertStringIncludes(
+                JSON.stringify(failed),
+                "The model service reports a usage or billing limit. Check your account.",
+            );
+            assertEquals(JSON.stringify(failed).includes("You have hit your session limit"), false);
             for (
                 const { id, params, code } of [
                     {

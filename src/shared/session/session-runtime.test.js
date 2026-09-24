@@ -42,6 +42,7 @@ import { defineCommittedGitFixture, git } from "../git-test-fixture.ts";
 const RUNTIME_TEST_PROVIDER = "session-runtime-test";
 const RUNTIME_TEST_MODEL = "fixture-model";
 const RUNTIME_TEST_API = "session-runtime-faux";
+const RUNTIME_TEST_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
 const RUNTIME_REPAIR_GIT_FIXTURE = defineCommittedGitFixture({ "README.md": "# Runtime repair fixture\n" });
 
 /** @type {ReturnType<typeof registerFauxProvider> | null} */
@@ -947,6 +948,7 @@ async function exerciseRepairCompactionFollowUp(disconnect) {
                     continuation,
                     expectedGeneration: 0,
                 });
+                if (disconnect) await setCustomSetting("retry", { enabled: false }, "project", worktreeRoot);
                 setRuntimeModelResponseFactories([
                     (context) => {
                         repairPromptText = JSON.stringify(context.messages.at(-1));
@@ -2980,7 +2982,7 @@ Deno.test("SessionRuntime delivers steering submitted from the Triage report to 
             steeringSubmission = runtime.steerSession(
                 sessionId,
                 "Keep the reproduction deterministic.",
-                [{ base64: btoa("handoff-image"), mimeType: "image/png" }],
+                [{ base64: RUNTIME_TEST_PNG, mimeType: "image/png" }],
                 "tui",
             );
         }
@@ -3104,7 +3106,7 @@ Deno.test("SessionRuntime transfers pending Router steering to Planner in submis
     const secondSteering = await runtime.steerSession(
         sessionId,
         "Second pending instruction with image.",
-        [{ base64: btoa("pending-image"), mimeType: "image/png" }],
+        [{ base64: RUNTIME_TEST_PNG, mimeType: "image/png" }],
     );
     releaseRouterResponse.resolve();
 
