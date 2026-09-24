@@ -27,6 +27,7 @@ import {
     preparePlanningWorktreeForPlan,
 } from "../../shared/workflow/planning-worktree.ts";
 import { isGitRepository } from "../../shared/git.js";
+import { prepareTargetBranchRef } from "../../shared/worktree.js";
 import { archiveEpicWithChildren } from "./plan-epic-archive.ts";
 import { buildPlanSummary } from "../../shared/plan-presentation.ts";
 import { readControllerWorktree } from "../../shared/workflow/controller-registry.ts";
@@ -88,6 +89,9 @@ export async function handleEpicPlan({
     const sequence = isSequencePlan(plan.attrs);
 
     const targetBranch = typeof plan.attrs.targetBranch === "string" ? plan.attrs.targetBranch.trim() : "";
+    if (targetBranch && await isGitRepository(projectRoot)) {
+        await prepareTargetBranchRef(projectRoot, targetBranch);
+    }
     const familyChildren = targetBranch && await isGitRepository(projectRoot)
         ? await findTargetBranchPlansByParent(projectRoot, targetBranch, plan.planName)
         : await findPlansByParent(projectRoot, plan.planName);

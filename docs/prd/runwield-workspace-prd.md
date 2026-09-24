@@ -578,9 +578,11 @@ facts describe the confirmed phase and any recorded failure.
   Activity groups contain only consecutive completed tools and Thinking between messages or special blocks.
 - Opening Activity keeps it open as new events arrive. Its toggle opens/closes Thinking blocks, including new Thinking
   rows while open, without changing individual tool blocks. Thinking can also be toggled independently.
-- On desktop and mobile, an unfocused composer is one compact row containing attachment, Agent/model/Thinking summary,
-  and the primary action. Focusing it reveals the full input and dropdowns; moving focus between its controls keeps it
-  open. Leaving it collapses without losing text, attachments, or queued messages.
+- On desktop and mobile, an unfocused composer is one compact row containing attachment, a writing or draft cue,
+  Agent/model/Thinking summary, and the primary action. Focusing it reveals the full input and dropdowns; moving focus
+  between its controls keeps it open. On phones, expanded settings show the selected Agent, model, and Thinking values
+  without clipping the common selections. Leaving the composer collapses it without losing text, attachments, or queued
+  messages.
 - While a stoppable Session is running, an empty composer shows Stop in the primary action slot. Typing text or
   attaching an image changes it back to Send/Steer; clearing the draft returns Stop. Queue remains a separate action.
 - Plan and Code Review use shared underline tabs for their left sidebar views. Their right sidebar header contains
@@ -649,15 +651,17 @@ expose TUI-only process controls.
   remain available. Image preflight rejection, including unsupported backend attachments such as Antigravity CLI,
   returns a validation error (HTTP 422) before acceptance for both new and resumed Sessions. It never queues the
   rejected request or clears its draft/previews. After correcting the model or image setup, one send is accepted.
-- On desktop and mobile, the unfocused composer shows only Attach, the Agent/provider/model/Thinking summary and the
-  primary action. Focusing the summary expands the textarea and settings; moving focus outside collapses it without
-  losing text, images or selections. Moving between its controls keeps it expanded. Expansion and collapse animate
-  without losing the visible history position or requiring live followers to scroll down again; reduced motion is
-  respected. The primary action stops running work when the draft is empty and sends or steers when text or images are
-  present.
+- On desktop and mobile, the unfocused composer shows only Attach, a writing or draft cue, the
+  Agent/provider/model/Thinking summary, and the primary action. On a phone, expanded settings keep common selected
+  values readable without sideways scrolling. Focusing the summary expands the textarea and settings; moving focus
+  outside collapses it without losing text, images or selections. Moving between its controls keeps it expanded.
+  Expansion and collapse animate without losing the visible history position or requiring live followers to scroll down
+  again; reduced motion is respected. The primary action stops running work when the draft is empty and sends or steers
+  when text or images are present.
 - On a phone, opening the Session sidebar fills the available height below the Workspace header. Its tabs and close
-  control remain reachable while scrolling. Keyboard focus cannot enter the covered conversation or composer; closing
-  the sidebar restores both in place and makes them available again. On desktop, the visible conversation stays usable.
+  control remain reachable while scrolling. Arrow keys and Home/End move between context tabs, and each tab names its
+  panel. Keyboard focus cannot enter the covered conversation or composer; closing the sidebar restores both in place
+  and makes them available again. On desktop, the visible conversation stays usable.
 - When Core becomes busy after a message, the live end of the conversation immediately shows the shared dots loader and
   “Thinking...”, including before any assistant text arrives. It clears when Core is idle or the live operation ends,
   and pauses while a human answer is needed. Reopening saved history does not show an old busy indicator.

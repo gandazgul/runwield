@@ -1,7 +1,12 @@
 import { assert, assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
-import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
-import type { Context } from "@earendil-works/pi-ai";
+import {
+    fauxAssistantMessage,
+    fauxText,
+    fauxToolCall,
+    getCurrentTools,
+    type TranscriptContext,
+} from "@earendil-works/pi-ai";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { SessionRuntime } from "./session-runtime.ts";
 import { SessionHost } from "./session-host.js";
@@ -31,9 +36,16 @@ interface PersistedNamedInvocationPayload {
 }
 
 interface PersistedTranscriptEntry {
+    id?: string;
+    parentId?: string;
     type?: string;
     customType?: string;
     data?: PersistedNamedInvocationPayload;
+    message?: { role?: string; content?: Array<{ type?: string; text?: string; data?: string; mimeType?: string }> };
+    targetId?: string;
+    replacement?: {
+        content?: Array<{ type?: string; text?: string; data?: string; mimeType?: string }>;
+    } | null;
 }
 
 function makeRuntime(sessionStore = openFileSessionStore()) {
@@ -53,8 +65,8 @@ Deno.test("bundled release from Router exposes an interactive interview before r
             let availableTools: string[] = [];
             let canceledResult = false;
             setModelResponseFactories([
-                (context: Context) => {
-                    availableTools = (context.tools || []).map((tool) => tool.name);
+                (context: TranscriptContext) => {
+                    availableTools = getCurrentTools(context.messages).map((tool) => tool.name);
                     return fauxAssistantMessage(fauxToolCall("user_interview", {
                         question: {
                             type: "multiple_choice",
@@ -67,7 +79,7 @@ Deno.test("bundled release from Router exposes an interactive interview before r
                         },
                     }));
                 },
-                (context: Context) => {
+                (context: TranscriptContext) => {
                     canceledResult = context.messages.some((message) =>
                         message.role === "toolResult" && message.toolName === "user_interview" &&
                         message.content.some((content) =>
@@ -148,14 +160,14 @@ Deno.test("Prompt Template invocation sends active Segment history plus the exac
             );
 
             const modelRequests: string[] = [];
-            const recordToolRequest = (context: Context) => {
+            const recordToolRequest = (context: TranscriptContext) => {
                 modelRequests.push(JSON.stringify(context.messages));
                 return fauxAssistantMessage(fauxToolCall("write", {
                     path: "tool-proof.txt",
                     content: "ACTIVE-TOOL-EXCHANGE\n",
                 }));
             };
-            const recordTextRequest = (context: Context) => {
+            const recordTextRequest = (context: TranscriptContext) => {
                 modelRequests.push(JSON.stringify(context.messages));
                 return fauxAssistantMessage(fauxText(`fixture response ${modelRequests.length}`));
             };
@@ -254,14 +266,14 @@ Deno.test("Prompt Template invocation sends active Segment history plus the exac
             Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_LOG", logPath);
 
             const modelRequests: string[] = [];
-            const recordToolRequest = (context: Context) => {
+            const recordToolRequest = (context: TranscriptContext) => {
                 modelRequests.push(JSON.stringify(context.messages));
                 return fauxAssistantMessage(fauxToolCall("write", {
                     path: "claude-tool-proof.txt",
                     content: "ACTIVE-CLI-TOOL-EXCHANGE\n",
                 }));
             };
-            const recordTextRequest = (context: Context) => {
+            const recordTextRequest = (context: TranscriptContext) => {
                 modelRequests.push(JSON.stringify(context.messages));
                 return fauxAssistantMessage(fauxText(`claude fixture response ${modelRequests.length}`));
             };
@@ -470,6 +482,90 @@ Deno.test("Prompt Template invocation fails oversized Claude CLI requests before
     );
 });
 
+Deno.test("Prompt Template expansion survives a file-backed resume and follow-up", async () => {
+    await withRuntimeCommandFixture(
+        "named-invocation-file-resume-",
+        async ({ projectRoot, setModelResponseFactories }) => {
+            const promptDir = join(projectRoot, ".wld", "prompts");
+            await Deno.mkdir(promptDir, { recursive: true });
+            await Deno.writeTextFile(
+                join(promptDir, "resume-template.md"),
+                ["---", "agent: operator", "---", "Persisted expansion for {{input}}"].join("\n"),
+            );
+            const requests: string[] = [];
+            setModelResponseFactories([
+                (context) => {
+                    requests.push(JSON.stringify(context.messages));
+                    return fauxAssistantMessage(fauxText("first response"));
+                },
+                (context) => {
+                    requests.push(JSON.stringify(context.messages));
+                    return fauxAssistantMessage(fauxText("follow-up response"));
+                },
+                (context) => {
+                    requests.push(JSON.stringify(context.messages));
+                    return fauxAssistantMessage(fauxText("repeated invocation response"));
+                },
+            ]);
+
+            const store = openFileSessionStore();
+            const firstRuntime = makeRuntime(store);
+            let runwieldSessionId = "";
+            let transcriptPath = "";
+            try {
+                const created = await firstRuntime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
+                const result = await firstRuntime.promptUserTurn(created.sessionId, {
+                    initialRequest: "/resume-template saved work",
+                    initialImages: [],
+                });
+                assertEquals(result.ok, true);
+                const managed = firstRuntime.getSessionSnapshot(created.sessionId)?.managed;
+                if (!managed) throw new Error("expected managed Session metadata");
+                runwieldSessionId = managed.runwieldSessionId;
+                const segment = store.getCurrentSessionSegment(runwieldSessionId);
+                if (!segment) throw new Error("expected active segment");
+                transcriptPath = segment.transcriptPath;
+            } finally {
+                await firstRuntime.closeAllSessionsWhenIdle?.();
+            }
+
+            const resumedRuntime = makeRuntime(store);
+            try {
+                const resumed = await resumedRuntime.createInteractiveSession({
+                    cwd: projectRoot,
+                    mode: "continue",
+                    resumeSessionId: runwieldSessionId,
+                });
+                const result = await resumedRuntime.promptUserTurn(resumed.sessionId, {
+                    initialRequest: "Continue without repeating the earlier action.",
+                    initialImages: [],
+                });
+                assertEquals(result.ok, true);
+                const repeated = await resumedRuntime.promptUserTurn(resumed.sessionId, {
+                    initialRequest: "/resume-template saved work",
+                    initialImages: [],
+                });
+                assertEquals(repeated.ok, true);
+            } finally {
+                await resumedRuntime.closeAllSessionsWhenIdle?.();
+                store.close();
+            }
+
+            assertEquals(requests.length, 3);
+            for (const request of requests) {
+                assertStringIncludes(request, "Persisted expansion for {{input}}\\n\\nsaved work");
+                assertEquals(request.includes("/resume-template saved work"), false);
+            }
+            const transcriptEntries = (await Deno.readTextFile(transcriptPath)).trim().split("\n")
+                .filter(Boolean)
+                .map((line) => JSON.parse(line) as PersistedTranscriptEntry);
+            const edits = transcriptEntries.filter((entry) => entry.type === "context_edit");
+            assertEquals(edits.length, 2);
+            assertEquals(new Set(edits.map((entry) => entry.targetId)).size, 2);
+        },
+    );
+});
+
 Deno.test("Prompt Template invocation stores persisted image references", async () => {
     await withRuntimeCommandFixture(
         "named-invocation-image-reference-",
@@ -480,14 +576,20 @@ Deno.test("Prompt Template invocation stores persisted image references", async 
                 join(promptDir, "inspect-image.md"),
                 ["---", "agent: operator", "---", "Inspect the attached image."].join("\n"),
             );
-            setModelResponseFactory(() => fauxAssistantMessage(fauxText("image inspected")));
+            let modelRequest = "";
+            setModelResponseFactory((context) => {
+                modelRequest = JSON.stringify(context.messages);
+                return fauxAssistantMessage(fauxText("image inspected"));
+            });
+            const imageData =
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
             const store = openFileSessionStore();
             const runtime = makeRuntime(store);
             try {
                 const created = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
                 const result = await runtime.promptUserTurn(created.sessionId, {
                     initialRequest: "/inspect-image",
-                    initialImages: [{ base64: btoa("fresh-image"), mimeType: "image/png" }],
+                    initialImages: [{ base64: imageData, mimeType: "image/png" }],
                 });
                 assertEquals(result.ok, true);
                 const managed = runtime.getSessionSnapshot(created.sessionId)?.managed;
@@ -500,6 +602,36 @@ Deno.test("Prompt Template invocation stores persisted image references", async 
                 assertEquals(reference?.mimeType, "image/png");
                 assertStringIncludes(reference?.ref || "", "attachment:");
                 assertStringIncludes(reference?.path || "", ".wld");
+                assertStringIncludes(modelRequest, "Inspect the attached image.");
+                assertStringIncludes(modelRequest, imageData);
+
+                const transcriptEntries = (await Deno.readTextFile(segment.transcriptPath)).trim().split("\n")
+                    .filter(Boolean)
+                    .map((line) => JSON.parse(line) as PersistedTranscriptEntry);
+                const metadata = transcriptEntries.find((entry) =>
+                    entry.type === "custom" && entry.customType === "runwield.named_invocation"
+                );
+                const userEntry = transcriptEntries.find((entry) =>
+                    entry.type === "message" && entry.parentId === metadata?.id && entry.message?.role === "user"
+                );
+                assertEquals(userEntry?.message?.content?.[0], { type: "text", text: "/inspect-image" });
+                assertEquals(userEntry?.message?.content?.[1], {
+                    type: "image",
+                    data: imageData,
+                    mimeType: "image/png",
+                });
+                const contextEdit = transcriptEntries.find((entry) =>
+                    entry.type === "context_edit" && entry.targetId === userEntry?.id
+                );
+                assertEquals(contextEdit?.replacement?.content?.[0], {
+                    type: "text",
+                    text: "Inspect the attached image.",
+                });
+                assertEquals(contextEdit?.replacement?.content?.[1], {
+                    type: "image",
+                    data: imageData,
+                    mimeType: "image/png",
+                });
             } finally {
                 await runtime.closeAllSessionsWhenIdle?.();
                 store.close();
@@ -519,7 +651,7 @@ Deno.test("Prompt Template invocation rejects unsupported thinking before a mode
                 ["---", "agent: operator", "thinkingLevel: high", "---", "Think deeply about {{input}}"].join("\n"),
             );
             let modelCalls = 0;
-            setModelResponseFactory((context: Context) => {
+            setModelResponseFactory((context: TranscriptContext) => {
                 modelCalls += 1;
                 return fauxAssistantMessage(fauxText(JSON.stringify(context.messages)));
             });

@@ -17,10 +17,17 @@ affectedPaths:
 tickets:
     - url: "https://github.com/openabdev/openab/pull/1533"
 createdAt: "2026-09-20"
-status: "ready_for_work"
 origin: "internal"
 userVerifiedAt: null
-userVerificationNote: null
+status: "validated"
+epicCompletionMode: "done_enough"
+epicDoneEnoughAt: "2026-09-24T17:54:00.206Z"
+epicDoneEnoughSummary: "All 2 child plans are completed after conversational-checkpoints-and-acp-interviews/02-acp-interview-chat-fallback."
+workRecord:
+    status: "generated"
+    recordId: "d140df78-c3cc-43d8-a0c8-8f588a67a5e7"
+    path: "docs/work-records/2026-09-24-conversational-pair-checkpoints-and-acp-interview-chat-fallback.md"
+    lastAttemptAt: "2026-09-24T17:55:02.869Z"
 ---
 
 # Conversational Pair Checkpoints and ACP Interview Fallback

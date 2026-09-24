@@ -20,3 +20,17 @@ Manual verification steps for conversational-checkpoints-and-acp-interviews/01-c
       the Plan.
 
 <!-- runwield:manual-qa:end child="conversational-checkpoints-and-acp-interviews/01-conversational-pair-checkpoints" -->
+
+<!-- runwield:manual-qa:start child="conversational-checkpoints-and-acp-interviews/02-acp-interview-chat-fallback" -->
+
+## Answer ACP Interviews in Chat Without Native Forms
+
+Manual verification steps for conversational-checkpoints-and-acp-interviews/02-acp-interview-chat-fallback
+
+- [ ] With a no-form ACP client, complete a multi-question interview by replying first with a number and then with
+      conversational text. Confirm each next question appears in chat and the answers retain their order and meaning.
+- [ ] Start another interview, cancel it, then send a normal follow-up. Confirm the interview stops and the follow-up
+      works.
+- [ ] Run Pair discussion and confirm it still completes through its existing flow.
+
+<!-- runwield:manual-qa:end child="conversational-checkpoints-and-acp-interviews/02-acp-interview-chat-fallback" -->

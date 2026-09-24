@@ -80,6 +80,18 @@ RunWield groups lineage-bearing transcripts by stable Session ID and orders them
 Session IDs. Older planning roots that predate embedded lineage can be recovered from their successor's parent IDs.
 Malformed or branching lineage fails closed instead of guessing.
 
+### Named Invocation context uses append-only edits
+
+A Named Invocation keeps its compact user message in raw history. RunWield appends the invocation metadata, the compact
+user entry, and a Pi context edit that targets that user entry and contains the exact expanded text and image blocks.
+Provider requests and compaction use Pi's canonical context projection, so they receive the expansion without rewriting
+the raw message.
+
+When writable activation opens an older transcript that has invocation metadata but no applicable edit, RunWield appends
+one repair edit under the existing Session Writer Lock. The repair follows only the active branch, changes only retained
+user entries, respects later replacements or omissions, and is idempotent. Read-only listing and history rendering do
+not repair or otherwise mutate transcripts.
+
 An older database-only stable ID may be replaced during file migration when the transcript contains no copy of that ID.
 This is an internal identity migration: the visible conversation and transcript are preserved without prompting the
 user.
@@ -105,9 +117,11 @@ A later accepted user turn can resolve it. Same-turn output, generated continuat
 cannot.
 
 Pi persists completed tool calls and interaction answers. A pending interaction remains an in-memory wait in its live
-process. An answer must reach that process to continue the wait; it does not require a separate durable interaction
-state machine. Browser disconnection does not cancel the wait. If the process is lost, the user can ask the Agent to
-retry from saved history. Runtime stacks and unfinished external effects are not reconstructed automatically.
+process. An ACP interview can end a question's protocol request while keeping that Runtime operation and writer lock
+active for a later answer request. The connection retains undelivered updates between requests, not a durable tool wait.
+An answer must reach that process to continue the wait; it does not require a separate durable interaction state
+machine. Browser disconnection does not cancel the wait. If the process is lost, the user can ask the Agent to retry
+from saved history. Runtime stacks and unfinished external effects are not reconstructed automatically.
 
 ### Plan actions and notification delivery
 

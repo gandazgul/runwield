@@ -18,8 +18,15 @@ executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-09-22"
 origin: "internal"
-status: "ready_for_work"
 userVerifiedAt: null
+targetBranch: "main"
+status: "validated"
+validatedCommit: "441519de997038c5227aeb9842cfc3e060a93d2d"
+workRecord:
+    status: "generated"
+    recordId: "eadeaf2f-0c2e-409f-8233-724d929d8e04"
+    path: "docs/work-records/2026-09-24-pi-0-87-compatibility-upgrade.md"
+    lastAttemptAt: "2026-09-24T17:08:32.253Z"
 ---
 
 # Upgrade Pi to 0.87 with API compatibility

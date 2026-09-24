@@ -374,14 +374,22 @@ Native forms are part of the current
 [v1 elicitation documentation](https://agentclientprotocol.com/protocol/v1/elicitation). RunWield does not use URL-mode
 elicitation or `elicitation/complete`; its browser links are normal text plus metadata.
 
-The adapter sends form elicitations when the client advertises `clientCapabilities.elicitation.form`. Without that
-capability, select/text/approval interactions use a loopback browser question page. The page needs its token and rejects
-answers that do not carry the same local Origin. If the browser page is not available, ACP gets an actionable
-unsupported response instead of an unusable link.
+The adapter sends form elicitations when the client advertises `clientCapabilities.elicitation.form`. Without forms,
+only `user_interview` select/text questions use ordinary ACP chat messages and later prompt replies. The question update
+precedes an `end_turn` response, but the Runtime operation and Session lock remain live. The next request attaches
+before the broker gets its answer. Each new question gets another ACP response. A number or unique exact label selects a
+choice; other meaningful text selects Other with its complete text. Bare Other gets one text follow-up. Blank required
+input and attachments do not consume the question. Cancellation, close, and process exit settle or discard this
+process-local wait, not a durable suspended tool. Undelivered updates from remote answers stay on the connection for the
+next request. Pair checkpoints instead end their Runtime operation.
 
-The browser fallback is not yet equivalent to native forms for Other answers. Its question payload omits
-`otherOptionValue`, and its answer handler does not return `otherText`. That is a RunWield interaction gap, not a
-missing ACP feature. Native form decline/cancel responses settle as cancellation; invalid answers return unsupported.
+Other no-form select/text/approval interactions use a loopback browser question page. The page needs its token and
+rejects answers that do not carry the same local Origin. If the page is not available, ACP gets an actionable
+unsupported response.
+
+The non-interview browser fallback is not equivalent to native forms for Other answers. Its question payload omits
+`otherOptionValue`, and its answer handler does not return `otherText`. That is a RunWield browser interaction gap, not
+a missing ACP feature. Native form decline/cancel responses settle as cancellation; invalid answers return unsupported.
 
 RunWield emits no `session/request_permission` calls. Workflow approval forms and Plan review are not substitutes for
 client-controlled tool authorization. Pair checkpoints use ordinary ACP prompt turns and do not use permission requests.
@@ -416,7 +424,7 @@ audit's recommendation.
 | Priority | Remaining gap                                                                                                   | Why it matters                                                                                                                                                                             | Evidence                                                                                                                                                                                    |
 | -------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | High     | Queued prompts return `end_turn` before execution; no normal ACP stream/question setup on the early queue path. | Clients can see a completed turn while work is still waiting. This differs from the standard prompt lifecycle.                                                                             | `src/acp/server.js`, prompt queue branches; `managed-session.integration.test.ts`.                                                                                                          |
-| High     | Browser questions lose Other-answer text.                                                                       | Clients without forms cannot collect the same interview answer. This falls short of the ACP PRD's fallback requirement.                                                                    | `src/acp/interaction-mapper.js`; `src/shared/session/browser-question.ts`; [Protocol negotiation and interactions](prd/runwield-acp-protocol-prd.md#protocol-negotiation-and-interactions). |
+| High     | Non-interview browser questions lose Other-answer text.                                                         | The chat fallback fixes `user_interview`, not the browser question page used by other interactions. Remote browser access remains unproven.                                                | `src/acp/interaction-mapper.js`; `src/shared/session/browser-question.ts`; [Protocol negotiation and interactions](prd/runwield-acp-protocol-prd.md#protocol-negotiation-and-interactions). |
 | Medium   | Model config changes reject active turns.                                                                       | Current upstream config docs allow changes while generating. RunWield deliberately requires idle state; resolve or document this compatibility difference before a full-conformance claim. | `src/acp/server.js`, `session/set_config_option`; [ACP config options](https://agentclientprotocol.com/protocol/v1/session-config-options#setting-a-config-option).                         |
 | Medium   | No explicit token-limit, request-limit, or refusal stop mapping.                                                | Clients cannot reliably explain all reasons a turn stopped.                                                                                                                                | `src/acp/server.js`, prompt response mapping.                                                                                                                                               |
 | Verify   | Multi-client and cross-surface journeys remain unproven by this review.                                         | Source and fixture tests do not establish successful IDE/remote workflow use.                                                                                                              | [ACP PRD: Advertised ACP conformance](prd/runwield-acp-protocol-prd.md#advertised-acp-conformance).                                                                                         |
@@ -500,7 +508,8 @@ Important limits:
   complete cross-surface cost accounting.
 - Queue tests do not establish ACP delivery of later output or questions.
 - The stable-ID unit test supplies its own ID; the real new/load test is the evidence for client-returned IDs.
-- Browser fallback tests can take an unavailable-page path. They are not proof of a completed browser interview.
+- Browser fallback tests can take an unavailable-page path. They do not prove remote access to non-interview browser
+  questions. The chat interview wire tests exercise the real tool and ACP requests, not an OpenAB deployment.
 - The ACP import check tests direct imports, not every transitive dependency.
 - This audit did not perform live tests with multiple clients, packaged installations, or remote review links. The
   [ACP PRD](prd/runwield-acp-protocol-prd.md#advertised-acp-conformance) requires multi-client evidence before claiming

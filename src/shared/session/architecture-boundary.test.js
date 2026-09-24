@@ -401,6 +401,7 @@ Deno.test("TUI submission flow does not branch on managed SessionSnapshot projec
 Deno.test("SessionRuntime public surface remains adapter-neutral and explicit", () => {
     const methods = Object.getOwnPropertyNames(SessionRuntime.prototype).sort();
     const allowedMethods = [
+        "answerInteraction",
         "cancelSession",
         "clearActiveExecutionWorkflow",
         "clearQueuedMessages",

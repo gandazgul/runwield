@@ -18,14 +18,15 @@ tickets:
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-09-20"
-status: "ready_for_work"
 origin: "internal"
 parentPlan: "conversational-checkpoints-and-acp-interviews"
 order: 2
 dependencies:
     - "01-conversational-pair-checkpoints"
 userVerifiedAt: null
-userVerificationNote: null
+targetBranch: "main"
+status: "validated"
+validatedCommit: "43bfd8b503357a8a648dd04ffa276367a8ce1a76"
 ---
 
 # Answer ACP Interviews in Chat Without Native Forms

@@ -6,7 +6,13 @@ import {
     assertStrictEquals,
     assertStringIncludes,
 } from "@std/assert";
-import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
+import {
+    fauxAssistantMessage,
+    fauxText,
+    fauxToolCall,
+    getCurrentSystemPrompt,
+    getCurrentTools,
+} from "@earendil-works/pi-ai";
 import { registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { join } from "@std/path";
@@ -452,6 +458,26 @@ Deno.test("SessionRuntime snapshot exposes active context capacity without expos
 
     const snapshot = runtime.getSessionSnapshot(sessionId);
     assertEquals("agentSession" in /** @type {Record<string, unknown>} */ (snapshot || {}), false);
+});
+
+Deno.test("SessionRuntime snapshots tolerate a streaming assistant message without usage", () => {
+    const sessionHost = new SessionHost();
+    const agentSession = makeSteeringAgentSession();
+    agentSession.agent = { state: { messages: [{ role: "assistant" }] } };
+    agentSession.getContextUsage = () => ({ tokens: 4_000, contextWindow: 64_000, percent: 6.25 });
+    const runtime = makeRuntime({ sessionHost });
+    const hostedSession = sessionHost.createSession({
+        id: crypto.randomUUID(),
+        cwd: runtimeProjectRoot(),
+        sessionManager: null,
+    });
+    hostedSession.setRootAgentSession(agentSession);
+
+    assertEquals(runtime.getSessionSnapshot(hostedSession.id)?.contextUsage, {
+        tokens: 4_000,
+        contextWindow: 64_000,
+        percent: 6.25,
+    });
 });
 
 Deno.test("SessionRuntime rejects non-absolute session roots", async () => {
@@ -1898,7 +1924,7 @@ Deno.test("SessionRuntime managed operation prefers persisted active agent over 
                 setModelResponseFactory((context, _options, _state, model) => {
                     turns.push({
                         agent: runtime.getSessionSnapshot(sessionId)?.activeAgent,
-                        prompt: context.systemPrompt || "",
+                        prompt: getCurrentSystemPrompt(context.messages),
                         model: model.id,
                     });
                     return fauxAssistantMessage(fauxText("The saved Guide handled this turn."));
@@ -2153,8 +2179,8 @@ Deno.test("SessionRuntime keeps the next Epic decomposition reply with Slicer", 
     setRuntimeModelResponseFactories([
         () => fauxAssistantMessage(fauxText("I recommend two child Plans. Should I finalize them?")),
         (context) => {
-            resumedSystemPrompt = context.systemPrompt || "";
-            for (const tool of context.tools || []) resumedToolNames.add(tool.name);
+            resumedSystemPrompt = getCurrentSystemPrompt(context.messages);
+            for (const tool of getCurrentTools(context.messages)) resumedToolNames.add(tool.name);
             return fauxAssistantMessage(fauxText("I will keep refining this Epic decomposition."));
         },
     ]);
@@ -2912,7 +2938,7 @@ Deno.test("SessionRuntime delivers steering submitted from the Triage report to 
     const providerRequests = [];
     /** @param {import('@earendil-works/pi-ai').Context} context */
     const response = (context) => {
-        const tools = (context.tools || []).map((tool) => tool.name);
+        const tools = getCurrentTools(context.messages).map((tool) => tool.name);
         const messages = JSON.stringify(context.messages);
         const imageCount = context.messages.reduce(
             (count, message) =>
@@ -3043,7 +3069,7 @@ Deno.test("SessionRuntime transfers pending Router steering to Planner in submis
     const providerRequests = [];
     /** @param {import('@earendil-works/pi-ai').Context} context */
     const response = async (context) => {
-        const tools = (context.tools || []).map((tool) => tool.name);
+        const tools = getCurrentTools(context.messages).map((tool) => tool.name);
         const messages = JSON.stringify(context.messages);
         const imageCount = context.messages.reduce(
             (count, message) =>
@@ -3106,7 +3132,7 @@ Deno.test("SessionRuntime waits for steering submitted during replacement prompt
     const providerRequests = [];
     /** @param {import('@earendil-works/pi-ai').Context} context */
     const response = (context) => {
-        const tools = (context.tools || []).map((tool) => tool.name);
+        const tools = getCurrentTools(context.messages).map((tool) => tool.name);
         const agentName = tools.includes("triage_report") ? "router" : "planner";
         providerRequests.push({
             agentName,
@@ -3164,7 +3190,7 @@ Deno.test("SessionRuntime does not replay handoff steering after a replacement p
     let plannerAttempts = 0;
     /** @param {import('@earendil-works/pi-ai').Context} context */
     const response = (context) => {
-        const tools = (context.tools || []).map((tool) => tool.name);
+        const tools = getCurrentTools(context.messages).map((tool) => tool.name);
         if (tools.includes("triage_report")) {
             return fauxAssistantMessage(fauxToolCall("triage_report", {
                 routingIntent: "PLANNED_CHANGE",
@@ -3227,7 +3253,7 @@ Deno.test("SessionRuntime cancellation after Triage acceptance does not start th
     const providerAgents = [];
     /** @param {import('@earendil-works/pi-ai').Context} context */
     const response = (context) => {
-        const tools = (context.tools || []).map((tool) => tool.name);
+        const tools = getCurrentTools(context.messages).map((tool) => tool.name);
         const agentName = tools.includes("triage_report") ? "router" : "replacement";
         providerAgents.push(agentName);
         if (agentName === "router") {
@@ -3269,7 +3295,7 @@ Deno.test("SessionRuntime cancellation during Planner activation prevents replac
     const providerAgents = [];
     /** @param {import('@earendil-works/pi-ai').Context} context */
     const response = (context) => {
-        const tools = (context.tools || []).map((tool) => tool.name);
+        const tools = getCurrentTools(context.messages).map((tool) => tool.name);
         const agentName = tools.includes("triage_report") ? "router" : "planner";
         providerAgents.push(agentName);
         if (agentName === "router") {
@@ -3468,6 +3494,23 @@ Deno.test("SessionRuntime steers active foreground sub-agent before streaming ro
 
     hostedSession.popSteeringTargetSession(targetId);
     hostedSession.removeSubAgentSession(foregroundSession);
+});
+
+Deno.test("SessionRuntime accepts text steering for Antigravity CLI but rejects image steering", async () => {
+    const sessionHost = new SessionHost();
+    const agentSession = makeSteeringAgentSession();
+    agentSession.model = { provider: "agy-cli", executionBackend: "agy-cli", input: ["text"] };
+    const runtime = makeRuntime({ sessionHost });
+    const sessionId = await attachExternalAgentSession(runtime, sessionHost, agentSession);
+
+    const steered = await runtime.steerSession(sessionId, "change direction", []);
+    assertEquals(steered.queued, true);
+    assertEquals(agentSession.getSteeringMessages(), ["change direction"]);
+    await assertRejects(
+        () => runtime.steerSession(sessionId, "look at this", [{ base64: btoa("img"), mimeType: "image/png" }]),
+        Error,
+        "Antigravity CLI sessions do not support image attachments.",
+    );
 });
 
 Deno.test("SessionRuntime buffers identifiable steering for the replacement Agent and supports recall", async () => {

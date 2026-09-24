@@ -95,6 +95,30 @@ export function extractAssistantOutput(messages) {
 }
 
 /**
+ * @typedef {Object} WorkflowResultDetails
+ * @property {unknown} [outcome]
+ * @property {unknown} [approved]
+ * @property {unknown} [feedback]
+ * @property {unknown} [findings]
+ * @property {unknown} [advisories]
+ * @property {unknown} [planName]
+ * @property {unknown} [triageMeta]
+ * @property {unknown} [message]
+ */
+
+/**
+ * Pi tool-result details are JSON values. Only plain records can contain the
+ * compatibility fields read by this module.
+ *
+ * @param {import('@earendil-works/pi-ai').JsonValue | undefined} details
+ * @returns {WorkflowResultDetails | null}
+ */
+function readWorkflowResultDetails(details) {
+    if (!details || typeof details !== "object" || Array.isArray(details)) return null;
+    return /** @type {WorkflowResultDetails} */ (details);
+}
+
+/**
  * @typedef {"approved" | "feedback"} ReviewOutcome
  */
 
@@ -128,16 +152,19 @@ export function readLatestReviewOutcome(messages, fromIndex) {
             msg && "role" in msg && msg.role === "toolResult" &&
             "toolName" in msg && msg.toolName === "review_complete"
         ) {
-            // @ts-ignore details set by tool implementation
-            const details = msg.details || {};
-            const outcome = details.outcome;
-            if (outcome === "approved" || outcome === "feedback") {
+            const details = readWorkflowResultDetails(msg.details);
+            const outcome = details?.outcome;
+            if (details && (outcome === "approved" || outcome === "feedback")) {
                 return {
                     outcome: /** @type {ReviewOutcome} */ (outcome),
                     approved: details.approved === true,
                     feedback: typeof details.feedback === "string" ? details.feedback : "",
-                    findings: Array.isArray(details.findings) ? details.findings : [],
-                    advisories: Array.isArray(details.advisories) ? details.advisories : [],
+                    findings: Array.isArray(details.findings)
+                        ? /** @type {import('../../tools/review-complete.ts').ReviewFinding[]} */ (details.findings)
+                        : [],
+                    advisories: Array.isArray(details.advisories)
+                        ? /** @type {import('../../tools/review-complete.ts').ReviewAdvisory[]} */ (details.advisories)
+                        : [],
                 };
             }
         }
@@ -176,15 +203,16 @@ export function readLatestPlanOutcome(messages, fromIndex) {
             msg && "role" in msg && msg.role === "toolResult" &&
             "toolName" in msg && msg.toolName === "plan_written"
         ) {
-            // @ts-ignore details set by tool implementation
-            const details = msg.details || {};
-            const outcome = details.outcome;
+            const details = readWorkflowResultDetails(msg.details);
+            const outcome = details?.outcome;
             if (outcome) {
                 const images = readToolResultImages(/** @type {{ content?: unknown }} */ (msg).content);
                 return {
-                    outcome,
-                    planName: details.planName,
-                    triageMeta: details.triageMeta,
+                    outcome: /** @type {PlanOutcome} */ (outcome),
+                    planName: /** @type {string | undefined} */ (details.planName),
+                    triageMeta: /** @type {import('../../tools/plan-written.ts').TriageMeta | undefined} */ (
+                        details.triageMeta
+                    ),
                     feedback: typeof details.feedback === "string" ? details.feedback : undefined,
                     ...(images.length > 0 && { images }),
                 };
@@ -245,9 +273,8 @@ export function readLatestTaskCompletedReport(messages, fromIndex) {
             msg && "role" in msg && msg.role === "toolResult" &&
             "toolName" in msg && msg.toolName === "task_completed"
         ) {
-            // @ts-ignore details set by tool implementation
-            const details = msg.details || {};
-            if (details.outcome === "task_completed") {
+            const details = readWorkflowResultDetails(msg.details);
+            if (details?.outcome === "task_completed") {
                 return {
                     completed: true,
                     message: typeof details.message === "string" ? details.message : "",
