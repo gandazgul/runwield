@@ -49,6 +49,13 @@ may replace the `target_integrated` evidence with a newly assembled commit whose
 head. This is another revision of the same phase, not a backward transition. Once publication succeeds, the integration
 identity is immutable.
 
+Before integration, rewritten source ancestry or changed sealed files invalidate the candidate's validation evidence.
+RunWield durably records a revalidation request in that publication record, preserves the record and any publication
+checkout, resets the execution Plan to `implemented`, clears its validation stamp and review approval, and retires the
+old record with a revision check. Validation then creates a fresh publication record from the current files. The request
+survives interruption between these operations, including after moving the checkout or resetting the Plan. This retires
+stale evidence without discarding changed work. An integrated attempt that may have been published retains its proof.
+
 On restart, RunWield reads the record and current Git facts. It may advance a missing receipt only when Git proves the
 external effect already happened—for example, an integration commit exists in the saved publication clone or the remote
 target contains the recorded integration commit. Otherwise it retries the current phase. It never reruns validation or

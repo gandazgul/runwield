@@ -579,15 +579,6 @@ export async function startInteractiveSession(
                 snapshot = runtimeSnapshot();
             }
 
-            if (sessionStartedEmptyProjectDirectory) {
-                uiAPI.appendSystemMessage(
-                    "This project does not contain files to improve yet. Add meaningful project files, then run /onboard.",
-                    false,
-                    "Tutorial",
-                );
-                return;
-            }
-
             if (shouldBlockForModelSetup()) {
                 const setup = await maybeShowModelWelcome({
                     uiAPI,
@@ -705,7 +696,7 @@ export async function startInteractiveSession(
             }
         }
         const automaticOnboardingEligible = !explicitOnboardingStartup && sessionStartMode === "new" &&
-            !initialUserRequest && !sessionStartedEmptyProjectDirectory &&
+            !initialUserRequest &&
             getCustomSetting(
                     ONBOARDING_TUTORIAL_OFFER_HANDLED_SETTING_KEY,
                     "global",

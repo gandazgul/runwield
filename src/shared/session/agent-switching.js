@@ -8,6 +8,7 @@ import { readPersistedActiveAgentName, readPersistedManualModelState } from "./a
 import { normalizeAgentInternalName } from "./agents.js";
 import {
     appendDebugLog,
+    clearAgentSessionQueueForTransition,
     ensureRootAgentSession,
     getConfiguredAgentModel,
     getRootSessionSwitchState,
@@ -16,6 +17,13 @@ import {
     shouldReuseExistingRootSession,
 } from "./session.js";
 import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runtime-events.js";
+import {
+    claimWorkflowToolEvent,
+    listPendingWorkflowToolEvents,
+    settleWorkflowToolEvent,
+    waitForWorkflowToolEvent,
+    WorkflowStepCompleted,
+} from "../workflow/workflow-tool-events.ts";
 
 /** @type {WeakMap<import('./hosted-session.js').HostedSession, { agentName: string, model?: string, cwd?: string }>} */
 const switchMetadata = new WeakMap();
@@ -82,7 +90,12 @@ export async function switchActiveAgent(hostedSession, options) {
         hostedSession.getManagedOperationCapability?.() || undefined;
     const agentName = String(options?.agentName || "").trim();
     if (!agentName) throw new Error("switchActiveAgent requires an agentName");
-    const transitionId = hostedSession.beginAgentTransition();
+    const activeTransitionId = hostedSession.getAgentTransitionId?.() || null;
+    const ownsTransition = !activeTransitionId;
+    const transitionId = activeTransitionId || hostedSession.beginAgentTransition();
+    const completeOwnedTransition = () => {
+        if (ownsTransition) hostedSession.completeAgentTransition(transitionId);
+    };
 
     const previousAgentName = hostedSession.getRootAgentName();
     const previousHandler = hostedSession.getActiveOnMessage();
@@ -156,7 +169,7 @@ export async function switchActiveAgent(hostedSession, options) {
     );
 
     if (!shouldRebuildRoot && canReuseHandler) {
-        hostedSession.completeAgentTransition(transitionId);
+        completeOwnedTransition();
         if (options.releaseActiveWorkflow) releaseActiveWorkflowAfterUserSwitch(hostedSession, agentName);
         return { ok: true, agentName, model: options.model, changed: false };
     }
@@ -171,7 +184,7 @@ export async function switchActiveAgent(hostedSession, options) {
             customTools: options.customTools,
         });
     } catch (error) {
-        hostedSession.completeAgentTransition(transitionId);
+        completeOwnedTransition();
         throw error;
     }
     handlerMetadata.set(handler, {
@@ -186,17 +199,17 @@ export async function switchActiveAgent(hostedSession, options) {
                 activeHandler: handler,
             });
         } catch (error) {
-            hostedSession.completeAgentTransition(transitionId);
+            completeOwnedTransition();
             throw error;
         }
         if (hostedSession.getActiveOnMessage() !== handler) {
-            hostedSession.completeAgentTransition(transitionId);
+            completeOwnedTransition();
             throw new Error("switchActiveAgent: root builder did not atomically commit the staged Agent handler");
         }
     } else {
         hostedSession.setActiveOnMessage(handler);
     }
-    hostedSession.completeAgentTransition(transitionId);
+    completeOwnedTransition();
     hostedSession.assertActive();
     if (requestedCwd) hostedSession.rebindProjectRoot(requestedCwd);
     // Clear only after a successful switch; a failed build must preserve the
@@ -268,6 +281,7 @@ export async function switchActiveAgent(hostedSession, options) {
  * @property {boolean} [includeEditFallback]
  * @property {string} [debugLogPath]
  * @property {import('./request-dispatch.ts').RequestDispatchKind} [dispatchKind]
+ * @property {AbortSignal} [signal]
  */
 
 /**
@@ -295,6 +309,7 @@ export async function runActiveAgentTurn(options) {
         includeEditFallback,
         debugLogPath,
         dispatchKind,
+        signal,
     } = options;
 
     const switchOptions = {
@@ -312,12 +327,139 @@ export async function runActiveAgentTurn(options) {
         ...(includeEditFallback !== undefined ? { includeEditFallback } : {}),
         ...(debugLogPath ? { debugLogPath } : {}),
     };
+    signal?.throwIfAborted();
     await switchActiveAgent(hostedSession, switchOptions);
+    signal?.throwIfAborted();
     return await runRootTurn({
         hostedSession,
         agentName,
         userRequest,
         images,
         dispatchKind,
+        signal,
     });
+}
+
+/**
+ * @typedef {{ dispose?: () => void | Promise<void>, agent?: { state?: { messages?: import('@earendil-works/pi-agent-core').AgentMessage[] } } }} RootAgentSessionState
+ */
+
+/**
+ * @typedef {Object} RootWorkflowTurnOptions
+ * @property {import('./hosted-session.js').HostedSession} hostedSession
+ * @property {string} agentName
+ * @property {string} userRequest
+ * @property {import('./types.js').ImageAttachment[]} [images]
+ * @property {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [customTools]
+ * @property {RootAgentSessionState | null} rootAgentSession
+ * @property {AbortSignal} [signal]
+ */
+
+/**
+ * @param {RootWorkflowTurnOptions} args
+ * @returns {Promise<{ messages: import('@earendil-works/pi-agent-core').AgentMessage[], event: import('../workflow/workflow-tool-events.ts').WorkflowToolEvent | null }>}
+ */
+export async function runRootTurnUntilRootWorkflowEvent(args) {
+    const waitController = new AbortController();
+    const turnController = new AbortController();
+    const abortBoth = () => {
+        const reason = args.signal?.reason || new DOMException("Root workflow turn canceled.", "AbortError");
+        waitController.abort(reason);
+        turnController.abort(reason);
+    };
+    if (args.signal?.aborted) abortBoth();
+    args.signal?.addEventListener("abort", abortBoth, { once: true });
+
+    /** @type {{ kinds: import("../workflow/workflow-tool-events.ts").WorkflowToolEventKind[], owningSession: RootAgentSessionState | null, excludeEventIds: string[] }} */
+    const claimOptions = {
+        kinds: ["triage_report", "plan_written"],
+        owningSession: args.rootAgentSession,
+        excludeEventIds: listPendingWorkflowToolEvents(args.hostedSession).map((event) => event.eventId),
+    };
+    const eventPromise = waitForWorkflowToolEvent(args.hostedSession, {
+        ...claimOptions,
+        signal: waitController.signal,
+    });
+    const turnPromise = runRootTurn({
+        hostedSession: args.hostedSession,
+        agentName: args.agentName,
+        userRequest: args.userRequest,
+        images: args.images,
+        customTools: args.customTools,
+        signal: turnController.signal,
+    });
+
+    try {
+        const first = await Promise.race([
+            eventPromise.then((event) => ({ kind: /** @type {const} */ ("event"), event })),
+            turnPromise.then((messages) => ({ kind: /** @type {const} */ ("turn"), messages })),
+        ]);
+        /** @param {import('../workflow/workflow-tool-events.ts').WorkflowToolEvent} event */
+        const stopForTerminalEvent = async (event) => {
+            if (!args.hostedSession.isAgentTransitioning()) args.hostedSession.beginAgentTransition();
+            try {
+                clearAgentSessionQueueForTransition(args.rootAgentSession);
+            } catch (error) {
+                turnController.abort(new WorkflowStepCompleted());
+                await turnPromise.catch(() => undefined);
+                const transitionId = args.hostedSession.getAgentTransitionId();
+                if (transitionId) args.hostedSession.completeAgentTransition(transitionId);
+                throw error;
+            }
+            turnController.abort(new WorkflowStepCompleted());
+            await turnPromise.catch(() => undefined);
+            return { messages: [], event };
+        };
+        if (first.kind === "event") {
+            if (
+                first.event.kind === "plan_written" &&
+                (/** @type {import("../workflow/workflow-tool-events.ts").PlanWrittenEventPayload} */ (first.event
+                        .payload)).outcome === "feedback"
+            ) {
+                let feedbackEvent = first.event;
+                const excludedEventIds = [...claimOptions.excludeEventIds, feedbackEvent.eventId];
+                while (true) {
+                    const feedbackWaitController = new AbortController();
+                    const nextEventPromise = waitForWorkflowToolEvent(args.hostedSession, {
+                        ...claimOptions,
+                        excludeEventIds: excludedEventIds,
+                        signal: feedbackWaitController.signal,
+                    });
+                    try {
+                        const next = await Promise.race([
+                            nextEventPromise.then((event) => ({ kind: /** @type {const} */ ("event"), event })),
+                            turnPromise.then((messages) => ({ kind: /** @type {const} */ ("turn"), messages })),
+                        ]);
+                        if (next.kind === "turn") return { messages: next.messages, event: feedbackEvent };
+                        excludedEventIds.push(next.event.eventId);
+                        if (
+                            next.event.kind === "plan_written" &&
+                            (/** @type {import("../workflow/workflow-tool-events.ts").PlanWrittenEventPayload} */ (next
+                                    .event.payload)).outcome === "feedback"
+                        ) {
+                            settleWorkflowToolEvent(args.hostedSession, feedbackEvent);
+                            feedbackEvent = next.event;
+                            continue;
+                        }
+                        settleWorkflowToolEvent(args.hostedSession, feedbackEvent);
+                        return await stopForTerminalEvent(next.event);
+                    } finally {
+                        feedbackWaitController.abort();
+                        await nextEventPromise.catch(() => undefined);
+                    }
+                }
+            }
+            return await stopForTerminalEvent(first.event);
+        }
+        waitController.abort(new DOMException("Agent turn finished without root workflow event.", "AbortError"));
+        const waitedEvent = await eventPromise.catch(() => null);
+        return {
+            messages: first.messages,
+            event: waitedEvent || claimWorkflowToolEvent(args.hostedSession, claimOptions),
+        };
+    } finally {
+        waitController.abort();
+        await eventPromise.catch(() => undefined);
+        args.signal?.removeEventListener("abort", abortBoth);
+    }
 }

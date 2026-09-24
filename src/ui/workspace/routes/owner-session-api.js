@@ -1,5 +1,6 @@
 /* @module ui/workspace/routes/owner-session-api */
 
+import { ImageSubmissionValidationError } from "../server/session-continuation.js";
 import { ownerErrorJson, ownerJson, sanitizeOwnerError } from "./owner-api.js";
 import { ownerSecurityHeaders } from "../server/owner-origin.js";
 import { findPlanEvidenceById } from "../../../plan-store.js";
@@ -285,7 +286,7 @@ export async function ownerSessionCreateApi(ctx) {
         return ownerJson(result, 202);
     } catch (error) {
         const message = sanitizeOwnerError(error);
-        const status = /visionFallback|Cannot attach image/.test(message)
+        const status = error instanceof ImageSubmissionValidationError
             ? 422
             : (/not enabled|epoch|uncertain|reconcile/.test(message) ? 503 : 409);
         return ownerJson({ error: message }, status);
@@ -311,7 +312,7 @@ export async function ownerSessionContinuationStartApi(ctx) {
         return ownerJson(result, 202);
     } catch (error) {
         const message = sanitizeOwnerError(error);
-        const status = /visionFallback|Cannot attach image/.test(message)
+        const status = error instanceof ImageSubmissionValidationError
             ? 422
             : (/not enabled|epoch|uncertain|reconcile/.test(message) ? 503 : 409);
         return ownerJson({ error: message }, status);

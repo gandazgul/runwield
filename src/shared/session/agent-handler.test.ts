@@ -91,7 +91,7 @@ Deno.test("agent handler completes a real root turn and requests user attention"
     });
 });
 
-Deno.test("agent handler dispatches plan_written before the root turn finishes", async () => {
+Deno.test("agent handler waits for the outgoing root turn before dispatching plan_written", async () => {
     await withRuntimeCommandFixture("agent-handler-live-plan-", async ({ projectRoot, setModelMessages }) => {
         const events: CapturedRuntimeEvent[] = [];
         const releaseTool = deferredVoid();
@@ -120,11 +120,39 @@ Deno.test("agent handler dispatches plan_written before the root turn finishes",
         setModelMessages([fauxAssistantMessage(fauxToolCall("plan_written", {}))]);
         const fixture: ActiveHandlerFixture = await activateHandler(projectRoot, "guide", events, [planTool]);
 
-        const result = await fixture.handler("Save the Plan.", [], fixture.sessionManager);
-
+        const pending = fixture.handler("Save the Plan.", [], fixture.sessionManager);
+        try {
+            await new Promise((resolve) => setTimeout(resolve, 50));
+            assertEquals(toolReturned, false);
+        } finally {
+            releaseTool.resolve();
+        }
+        const result = await pending;
         assertEquals(result, { kind: "complete" });
-        assertEquals(toolReturned, false);
-        releaseTool.resolve();
+        assertEquals(toolReturned, true);
+        fixture.hostedSession.dispose();
+    });
+});
+
+Deno.test("agent handler leaves a prior triage event for its original request", async () => {
+    await withRuntimeCommandFixture("agent-handler-stale-triage-", async ({ projectRoot, setModelResponse }) => {
+        const events: CapturedRuntimeEvent[] = [];
+        setModelResponse("Answer the new request without routing the old one.");
+        const fixture = await activateHandler(projectRoot, "router", events);
+        publishWorkflowToolEvent({
+            hostedSession: fixture.hostedSession,
+            toolCallId: "prior-request-triage",
+            kind: "triage_report",
+            payload: {
+                routingIntent: "OPERATION",
+                complexity: "LOW",
+                summary: "Old request",
+                sessionName: "Old request",
+            },
+        });
+        const result = await fixture.handler("A new request.", [], fixture.sessionManager);
+        assertEquals(result, { kind: "complete" });
+        assertEquals(fixture.hostedSession.getRootAgentName(), "router");
         fixture.hostedSession.dispose();
     });
 });

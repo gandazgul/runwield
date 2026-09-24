@@ -114,6 +114,8 @@ export interface RuntimeQueuedMessageState {
     images: ImageAttachment[];
     delivery: "steer" | "next_turn";
     queuedAt: string;
+    submissionOrder?: number;
+    preparing?: boolean;
     sourceSession?: import("./support.ts").RuntimeAgentSession;
 }
 

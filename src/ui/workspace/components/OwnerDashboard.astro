@@ -6,12 +6,14 @@
         <div class="owner-dashboard-status" role="status" aria-busy="true" data-dashboard-status>
             <span class="rw-thinking-dots" aria-label="Loading"><span aria-hidden="true">Loading</span><span class="rw-thinking-dot" aria-hidden="true"></span><span class="rw-thinking-dot" aria-hidden="true"></span><span class="rw-thinking-dot" aria-hidden="true"></span></span>
         </div>
+        <div class="owner-dashboard-status" role="status" data-dashboard-warning hidden></div>
         <div class="owner-dashboard-grid" data-dashboard-sections></div>
     </section>
     <script is:inline data-astro-rerun>
 (() => {
         const root = document.querySelector('[data-owner-dashboard]');
         const status = root?.querySelector('[data-dashboard-status]');
+        const warning = root?.querySelector('[data-dashboard-warning]');
         const sectionsRoot = root?.querySelector('[data-dashboard-sections]');
         const labels = ['Needs You', 'Ready to Continue', 'In Progress', 'Recently Finished'];
         const sectionPreferences = new Map();
@@ -23,7 +25,7 @@
             return String(value || '').replace(/[&<>"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[char]));
         }
         function itemHtml(item) {
-            return '<a class="owner-dashboard-row" href="' + escapeText(item.href) + '">' +
+            return '<a class="owner-dashboard-row" href="' + escapeText(item.href) + '" title="' + escapeText(item.title) + '">' +
                 '<span><strong>' + escapeText(item.title) + '</strong><small>' + escapeText(item.projectName) + ' · ' + escapeText(item.statusLabel) + '</small></span>' +
                 '<span class="owner-dashboard-row-action">Open</span>' +
             '</a>';
@@ -37,7 +39,7 @@
             const sortLabel = preferences.oldestFirst ? 'Oldest first' : 'Newest first';
             return '<section class="owner-dashboard-section" aria-label="' + escapeText(section.label) + '">' +
                 '<div class="owner-dashboard-section-heading"><h2>' + escapeText(section.label) + '</h2>' +
-                '<span>' + items.length + '</span><button class="rw-toolbar-button" type="button" data-dashboard-sort="' + escapeText(section.label) + '" aria-label="' + escapeText(section.label) + ': ' + sortLabel + '. Reverse sort" aria-pressed="' + preferences.oldestFirst + '">' + sortLabel + '</button></div>' +
+                '<span>' + items.length + '</span>' + (items.length > 1 ? '<button class="rw-toolbar-button" type="button" data-dashboard-sort="' + escapeText(section.label) + '" aria-label="' + escapeText(section.label) + ': ' + sortLabel + '. Reverse sort" aria-pressed="' + preferences.oldestFirst + '">' + sortLabel + '</button>' : '') + '</div>' +
                 '<div id="' + id + '">' + (items.length ? visibleItems.map(itemHtml).join('') : '<p class="empty">Nothing here.</p>') + '</div>' +
                 (items.length > 5 ? '<button class="rw-toolbar-button" type="button" data-dashboard-expand="' + escapeText(section.label) + '" aria-controls="' + id + '" aria-expanded="' + preferences.expanded + '">' + (preferences.expanded ? 'Show less' : 'Read more (' + (items.length - 5) + ')') + '</button>' : '') +
             '</section>';
@@ -47,13 +49,24 @@
             const html = labels.map((label) => sectionHtml(byLabel.get(label) || { label, items: [] })).join('');
             if (sectionsRoot.innerHTML === html) return;
             const focused = document.activeElement;
-            const sort = focused?.getAttribute('data-dashboard-sort');
-            const expand = focused?.getAttribute('data-dashboard-expand');
-            sectionsRoot.innerHTML = html;
-            if (sort || expand) {
-                const attribute = sort ? 'data-dashboard-sort' : 'data-dashboard-expand';
-                [...sectionsRoot.querySelectorAll('button')].find((button) => button.getAttribute(attribute) === (sort || expand))?.focus();
+            if (!sectionsRoot.contains(focused)) {
+                sectionsRoot.innerHTML = html;
+                return;
             }
+            const sort = focused.getAttribute('data-dashboard-sort');
+            const expand = focused.getAttribute('data-dashboard-expand');
+            const row = focused.closest('.owner-dashboard-row');
+            const sectionLabel = focused.closest('.owner-dashboard-section')?.getAttribute('aria-label');
+            sectionsRoot.innerHTML = html;
+            const attribute = sort ? 'data-dashboard-sort' : 'data-dashboard-expand';
+            const control = (sort || expand) && [...sectionsRoot.querySelectorAll('button')].find((button) => button.getAttribute(attribute) === (sort || expand));
+            const matchingRow = row && [...sectionsRoot.querySelectorAll('.owner-dashboard-row')].find((link) =>
+                link.getAttribute('href') === row.getAttribute('href') && link.getAttribute('title') === row.getAttribute('title')
+            );
+            const section = [...sectionsRoot.querySelectorAll('.owner-dashboard-section')].find((node) => node.getAttribute('aria-label') === sectionLabel);
+            const target = control || matchingRow || section?.querySelector('h2');
+            if (target?.tagName === 'H2') target.tabIndex = -1;
+            target?.focus({ preventScroll: true });
         }
         sectionsRoot.addEventListener('click', (event) => {
             const button = event.target.closest('button');
@@ -77,6 +90,16 @@
                     if (!response.ok) throw new Error(payload.error || 'Dashboard failed to load.');
                     latestSections = Array.isArray(payload.dashboard?.sections) ? payload.dashboard.sections : [];
                     renderSections();
+                    const unavailable = (payload.projects || []).filter((project) => project.lifecycle === 'enabled' && project.diagnostics?.length);
+                    warning.hidden = unavailable.length === 0;
+                    if (unavailable.length === 1) {
+                        const project = unavailable[0];
+                        warning.innerHTML = escapeText(project.displayName) + ' could not be fully checked. Dashboard items may be missing. <a href="' + escapeText(project.diagnostics[0].repairHref) + '">Open Project settings</a>.';
+                    } else if (unavailable.length > 1) {
+                        warning.innerHTML = unavailable.length + ' Projects could not be fully checked. Dashboard items may be missing. <a href="/projects">Open Projects</a>.';
+                    } else {
+                        warning.textContent = '';
+                    }
                     status.hidden = true;
                     status.removeAttribute('aria-busy');
                 } catch (error) {

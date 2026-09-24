@@ -3069,6 +3069,23 @@ Deno.test("SessionRuntime steers active foreground sub-agent before streaming ro
     hostedSession.removeSubAgentSession(foregroundSession);
 });
 
+Deno.test("SessionRuntime accepts text steering for Antigravity CLI but rejects image steering", async () => {
+    const sessionHost = new SessionHost();
+    const agentSession = makeSteeringAgentSession();
+    agentSession.model = { provider: "agy-cli", executionBackend: "agy-cli", input: ["text"] };
+    const runtime = makeRuntime({ sessionHost });
+    const sessionId = await attachExternalAgentSession(runtime, sessionHost, agentSession);
+
+    const steered = await runtime.steerSession(sessionId, "change direction", []);
+    assertEquals(steered.queued, true);
+    assertEquals(agentSession.getSteeringMessages(), ["change direction"]);
+    await assertRejects(
+        () => runtime.steerSession(sessionId, "look at this", [{ base64: btoa("img"), mimeType: "image/png" }]),
+        Error,
+        "Antigravity CLI sessions do not support image attachments.",
+    );
+});
+
 Deno.test("SessionRuntime buffers steering for the replacement Agent during a transition", async () => {
     const sessionHost = new SessionHost();
     const rootSession = makeSteeringAgentSession();
@@ -3079,12 +3096,15 @@ Deno.test("SessionRuntime buffers steering for the replacement Agent during a tr
 
     const steered = await runtime.steerSession(sessionId, "send this to the new Agent", []);
 
-    assertEquals(steered, { ok: true, queued: true });
+    assertEquals(steered.ok, true);
+    assertEquals(steered.queued, true);
+    assertEquals(runtime.getQueuedMessages(sessionId)[0].id, steered.message?.id);
     assertEquals(rootSession.getSteeringMessages(), []);
+    const recalled = await runtime.dequeueLastQueuedMessage(sessionId);
+    assertEquals(recalled.message?.id, steered.message?.id);
+    assertEquals(runtime.getQueuedMessages(sessionId), []);
     hostedSession.completeAgentTransition(transitionId);
-    assertEquals(hostedSession.consumeAgentTransitionSteering().map((entry) => entry.text), [
-        "send this to the new Agent",
-    ]);
+    assertEquals(hostedSession.consumeAgentTransitionSteering(), []);
 });
 
 Deno.test("SessionRuntime keeps queue subscriptions for multiple steering source sessions", async () => {

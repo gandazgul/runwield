@@ -19,6 +19,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import { completeSimple } from "@earendil-works/pi-ai/compat";
+import { WorkflowStepCompleted } from "../workflow/workflow-tool-events.ts";
 import { createSingleEditToolDefinition } from "../../tools/edit.js";
 import { createEditDocsToolDefinition, createWriteDocsToolDefinition } from "../../tools/docs-file-tools.js";
 import { wrapPlanSafeFileTool } from "../../tools/plan-safe-file-tools.ts";
@@ -335,6 +336,13 @@ function resolveExecutionThinkingLevel(options) {
 
 /** @typedef {"local" | "home" | "bundled" | "package"} PromptTemplateSource */
 
+/**
+ * @typedef {Object} PreparedSteeringImage
+ * @property {"image"} type
+ * @property {string} data
+ * @property {string} mimeType
+ */
+
 /** @type {Map<string, string | undefined>} */
 const promptTemplateModelByName = new Map();
 
@@ -597,6 +605,19 @@ export function abortActiveSession(hostedSession) {
 }
 
 /**
+ * Clear pending input from the captured outgoing root. SessionRuntime moves its
+ * tracked messages into the active Agent transition before this queue clears.
+ *
+ * @param {unknown} rootAgentSession
+ */
+export function clearAgentSessionQueueForTransition(rootAgentSession) {
+    const root = /** @type {any} */ (rootAgentSession);
+    const target = root && isExecutionSession(root) ? getExecutionSteeringTarget(root) : root;
+    if (!target || typeof target.clearQueue !== "function") return;
+    target.clearQueue();
+}
+
+/**
  * Steer a concrete AgentSession and return the session that accepted the message.
  *
  * @param {any} session
@@ -625,7 +646,20 @@ export async function steerAgentSessionWithTarget(session, text, images) {
         fallbackModelRef: fallback?.modelRef,
     });
     if (!prepared.ok) throw new Error(prepared.message);
-    await session.steer(prepared.text, prepared.images && prepared.images.length > 0 ? prepared.images : undefined);
+    return await steerAgentSessionWithPreparedInput(session, prepared.text, prepared.images);
+}
+
+/**
+ * Steer a concrete AgentSession after image preparation is complete.
+ *
+ * @param {any} session
+ * @param {string} text
+ * @param {PreparedSteeringImage[]} [images]
+ * @returns {Promise<import('@earendil-works/pi-coding-agent').AgentSession | null>}
+ */
+export async function steerAgentSessionWithPreparedInput(session, text, images) {
+    if (!session?.isStreaming || typeof session.steer !== "function") return null;
+    await session.steer(text, images && images.length > 0 ? images : undefined);
     return session;
 }
 
@@ -2436,15 +2470,6 @@ function assertAgyCliImageInputSupported(images) {
     }
 }
 
-/** @param {unknown} error */
-function isImageDispatchRejection(error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return message.includes("Cannot attach image") ||
-        message.includes("visionFallback.model") ||
-        message.includes("image attachments") ||
-        message.includes("Image input");
-}
-
 /**
  * Build the model-selected execution session for root and HostedSession-backed isolated turns.
  * Pi models continue through buildAgentSession(); Claude CLI models bypass Pi entirely.
@@ -3360,6 +3385,37 @@ export function attachSessionEventSubscribers(
 }
 
 /**
+ * @typedef {Object} AgentTransitionSteeringEntry
+ * @property {string} text
+ * @property {import('./types.js').ImageAttachment[]} images
+ * @property {import('./session-runtime-events.js').RuntimeQueuedMessage} [message]
+ */
+
+/**
+ * @param {string} userRequest
+ * @param {import('./types.js').ImageAttachment[]} images
+ * @param {AgentTransitionSteeringEntry[]} steering
+ */
+function buildAgentTransitionPrompt(userRequest, images, steering) {
+    const steeringText = steering.map((entry) => entry.text.trim()).filter(Boolean).join("\n\n");
+    return {
+        text: steeringText
+            ? `${userRequest}\n\nUser steering received during Agent handoff:\n${steeringText}`
+            : userRequest,
+        images: [...images, ...steering.flatMap((entry) => entry.images || [])],
+    };
+}
+
+/** @param {AgentTransitionSteeringEntry[]} steering */
+function agentTransitionSteeringSignature(steering) {
+    return JSON.stringify(steering.map((entry) => ({
+        id: entry.message?.id,
+        text: entry.text,
+        images: entry.images,
+    })));
+}
+
+/**
  * Run a single prompt() on an already-constructed AgentSession with attached subscribers.
  * Handles debug logging, defensive stream cleanup, and per-turn state reset.
  *
@@ -3377,6 +3433,9 @@ export function attachSessionEventSubscribers(
  * @param {string} [opts.debugLogPath]
  * @param {AbortSignal} [opts.signal]
  * @param {boolean} [opts.disableAutoCompaction]
+ * @param {import('./hosted-session.js').HostedSession} [opts.hostedSession]
+ * @param {AgentTransitionSteeringEntry[]} [opts.transitionSteering]
+ * @param {() => void} [opts.onTransitionSteeringConsumed]
  *
  * @returns {Promise<import('@earendil-works/pi-agent-core').AgentMessage[]>}
  */
@@ -3394,11 +3453,18 @@ export async function runPrompt({
     debugLogPath,
     signal,
     disableAutoCompaction = false,
+    hostedSession,
+    transitionSteering = [],
+    onTransitionSteeringConsumed,
 }) {
     subscriberState.resetTurn();
 
     const projectRoot = cwd || /** @type {any} */ (session).runWieldProjectRoot;
-    const fallback = images && images.length > 0 && !modelSupportsImageInput(session.model)
+    const baseImages = images || [];
+    let transitionPrompt = buildAgentTransitionPrompt(userRequest, baseImages, transitionSteering);
+    let rawText = transitionPrompt.text;
+    let rawImages = transitionPrompt.images;
+    let fallback = rawImages.length > 0 && !modelSupportsImageInput(session.model)
         ? await resolveVisionFallbackModel(
             /** @type {any} */ (session).runWieldModelRegistry || /** @type {any} */ (session).modelRegistry ||
                 getModelRegistry(),
@@ -3406,9 +3472,9 @@ export async function runPrompt({
             projectRoot,
         )
         : undefined;
-    const preparedImages = prepareImagesForModel({
-        text: userRequest,
-        images,
+    let preparedImages = prepareImagesForModel({
+        text: rawText,
+        images: rawImages,
         activeModel: session.model,
         fallbackModelRef: fallback?.modelRef,
     });
@@ -3455,18 +3521,65 @@ export async function runPrompt({
     try {
         signal?.throwIfAborted();
         signal?.addEventListener("abort", abortPrompt, { once: true });
-        if (!disableAutoCompaction) {
-            await compactBeforePromptIfNeeded(session, {
-                text: preparedImages.text,
-                images: preparedImages.images,
-            }, agentName);
-        } else {
-            assertPreparedPromptFitsContext(session, {
-                text: preparedImages.text,
-                images: preparedImages.images,
-            }, resolvedModel);
+        while (true) {
+            if (hostedSession) {
+                await hostedSession.waitForAgentSteeringPreparations();
+                signal?.throwIfAborted();
+                const availableSteering = hostedSession.listAgentTransitionSteering();
+                transitionSteering.splice(0, transitionSteering.length, ...availableSteering);
+                transitionPrompt = buildAgentTransitionPrompt(userRequest, baseImages, transitionSteering);
+                rawText = transitionPrompt.text;
+                rawImages = transitionPrompt.images;
+                if (rawImages.length > 0 && !modelSupportsImageInput(session.model) && !fallback) {
+                    fallback = await resolveVisionFallbackModel(
+                        /** @type {any} */ (session).runWieldModelRegistry ||
+                            /** @type {any} */ (session).modelRegistry || getModelRegistry(),
+                        SYSTEM_MODEL_DISCOVERY_NETWORK,
+                        projectRoot,
+                    );
+                }
+                preparedImages = prepareImagesForModel({
+                    text: rawText,
+                    images: rawImages,
+                    activeModel: session.model,
+                    fallbackModelRef: fallback?.modelRef,
+                });
+                if (!preparedImages.ok) throw new Error(preparedImages.message);
+                requestOptions.images = preparedImages.images && preparedImages.images.length > 0
+                    ? preparedImages.images
+                    : undefined;
+            }
+
+            if (!disableAutoCompaction) {
+                await compactBeforePromptIfNeeded(session, {
+                    text: preparedImages.text,
+                    images: preparedImages.images,
+                }, agentName);
+            } else {
+                assertPreparedPromptFitsContext(session, {
+                    text: preparedImages.text,
+                    images: preparedImages.images,
+                }, resolvedModel);
+            }
+            signal?.throwIfAborted();
+            if (!hostedSession) break;
+
+            await hostedSession.waitForAgentSteeringPreparations();
+            signal?.throwIfAborted();
+            if (hostedSession.hasAgentSteeringPreparations()) continue;
+            const latestSteering = hostedSession.listAgentTransitionSteering();
+            if (
+                agentTransitionSteeringSignature(latestSteering) !==
+                    agentTransitionSteeringSignature(transitionSteering)
+            ) continue;
+            const consumedSteering = hostedSession.consumeAgentTransitionSteering();
+            transitionSteering.splice(0, transitionSteering.length, ...consumedSteering);
+            publishTransitionSteeringConsumption(hostedSession, consumedSteering);
+            onTransitionSteeringConsumed?.();
+            const transitionId = hostedSession.getAgentTransitionId?.();
+            if (transitionId) hostedSession.completeAgentTransition(transitionId);
+            break;
         }
-        signal?.throwIfAborted();
         await session.prompt(preparedImages.text, requestOptions);
         signal?.throwIfAborted();
         await session.agent.waitForIdle();
@@ -3810,6 +3923,43 @@ export async function ensureRootAgentSession(opts) {
 }
 
 /**
+ * @param {import('./hosted-session.js').HostedSession} hostedSession
+ * @param {AgentTransitionSteeringEntry[]} transitionSteering
+ */
+function publishTransitionSteeringConsumption(hostedSession, transitionSteering) {
+    for (const entry of transitionSteering) {
+        if (!entry.message) continue;
+        emitHostedSessionRuntimeEvent(hostedSession, {
+            type: RuntimeEventTypes.QUEUED_MESSAGE_CHANGED,
+            status: "consumed",
+            message: entry.message,
+        });
+        emitHostedSessionRuntimeEvent(hostedSession, {
+            type: RuntimeEventTypes.USER_MESSAGE,
+            messageId: entry.message.id,
+            text: entry.message.text,
+            images: entry.message.images.map((image) => ({ ...image })),
+        });
+    }
+}
+
+/**
+ * @param {import('./hosted-session.js').HostedSession} hostedSession
+ * @param {AgentTransitionSteeringEntry[]} transitionSteering
+ */
+function publishTransitionSteeringCancellation(hostedSession, transitionSteering) {
+    for (const entry of transitionSteering) {
+        if (!entry.message) continue;
+        emitHostedSessionRuntimeEvent(hostedSession, {
+            type: RuntimeEventTypes.QUEUED_MESSAGE_CHANGED,
+            status: "dequeued",
+            reason: "session_cancel",
+            message: entry.message,
+        });
+    }
+}
+
+/**
  * Run a turn on the existing root AgentSession. The root must already be built
  * (via ensureRootAgentSession) and must match the requested agentName.
  *
@@ -3886,15 +4036,18 @@ export async function runRootTurn({
     }
     const sessionManager = isExecutionSession(session) ? session.session.sessionManager : session.sessionManager;
     const backend = isExecutionSession(session) ? session.kind : "pi";
-    const transitionSteering = targetHostedSession.consumeAgentTransitionSteering?.() || [];
-    const transitionText = transitionSteering.map((entry) => entry.text.trim()).filter(Boolean).join("\n\n");
-    const effectiveUserRequest = transitionText
-        ? `${userRequest}\n\nUser steering received during Agent handoff:\n${transitionText}`
-        : userRequest;
-    const effectiveImages = [
-        ...(images || []),
-        ...transitionSteering.flatMap((entry) => entry.images || []),
-    ];
+    let transitionSteering;
+    if (backend === "pi") {
+        transitionSteering = targetHostedSession.listAgentTransitionSteering();
+    } else {
+        await targetHostedSession.waitForAgentSteeringPreparations();
+        signal?.throwIfAborted();
+        transitionSteering = targetHostedSession.consumeAgentTransitionSteering();
+    }
+    const transitionPrompt = buildAgentTransitionPrompt(userRequest, images || [], transitionSteering);
+    const effectiveUserRequest = backend === "pi" ? userRequest : transitionPrompt.text;
+    const effectiveImages = backend === "pi" ? images || [] : transitionPrompt.images;
+    let transitionSteeringConsumed = false;
     let dispatch = null;
     try {
         if (backend === "agy-cli") assertAgyCliImageInputSupported(effectiveImages);
@@ -3909,6 +4062,10 @@ export async function runRootTurn({
             : applyAttentionNudge(agentName, dispatch.userRequest, meta.rootTurnCount);
         let messages;
         if (isExecutionSession(session) && (session.kind === "claude-cli" || session.kind === "agy-cli")) {
+            publishTransitionSteeringConsumption(targetHostedSession, transitionSteering);
+            transitionSteeringConsumed = true;
+            const transitionId = targetHostedSession.getAgentTransitionId?.();
+            if (transitionId) targetHostedSession.completeAgentTransition(transitionId);
             messages = await session.session.runTurn({
                 userRequest: finalRequest,
                 images: effectiveImages,
@@ -3927,13 +4084,26 @@ export async function runRootTurn({
                 subscriberState: meta.subscriberState,
                 signal,
                 disableAutoCompaction,
+                hostedSession: targetHostedSession,
+                transitionSteering,
+                onTransitionSteeringConsumed: () => {
+                    transitionSteeringConsumed = true;
+                },
             });
         }
         completeRequestDispatch(sessionManager, dispatch);
         return messages;
     } catch (error) {
-        if (transitionSteering.length > 0 && isImageDispatchRejection(error)) {
-            targetHostedSession.restoreAgentTransitionSteering?.(transitionSteering);
+        if (signal?.reason instanceof WorkflowStepCompleted) {
+            if (dispatch) completeRequestDispatch(sessionManager, dispatch);
+            return getRootExecutionMessages(session);
+        }
+        if (backend !== "pi" && transitionSteering.length > 0 && !transitionSteeringConsumed) {
+            if (signal?.aborted) {
+                publishTransitionSteeringCancellation(targetHostedSession, transitionSteering);
+            } else {
+                targetHostedSession.restoreAgentTransitionSteering(transitionSteering);
+            }
         }
         if (dispatch) {
             failRequestDispatch(

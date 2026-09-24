@@ -60,6 +60,8 @@ import { clearPairCheckpoint } from "./pair-checkpoint-session.ts";
  * @typedef {Object} AgentTransitionSteering
  * @property {string} text
  * @property {import('./types.js').ImageAttachment[]} images
+ * @property {import('./session-runtime-events.js').RuntimeQueuedMessage} [message]
+ * @property {number} [submissionOrder]
  */
 
 /**
@@ -249,6 +251,10 @@ export class HostedSession {
         this.agentTransitionId = null;
         /** @type {AgentTransitionSteering[]} */
         this.agentTransitionSteering = [];
+        /** @type {Set<string>} */
+        this.agentSteeringPreparations = new Set();
+        /** @type {Set<() => void>} */
+        this.agentSteeringPreparationWaiters = new Set();
         this.delegatedReaderCount = 0;
         this.delegatedWriterActive = false;
         this.projectStateContext = "";
@@ -722,14 +728,40 @@ export class HostedSession {
         return Boolean(this.agentTransitionId);
     }
 
+    /** @returns {string | null} */
+    getAgentTransitionId() {
+        return this.agentTransitionId;
+    }
+
     /**
      * @param {string} text
      * @param {import('./types.js').ImageAttachment[]} images
+     * @param {import('./session-runtime-events.js').RuntimeQueuedMessage} [message]
+     * @param {number} [submissionOrder]
      * @returns {boolean}
      */
-    queueAgentTransitionSteering(text, images = []) {
+    queueAgentTransitionSteering(text, images = [], message, submissionOrder) {
         if (!this.agentTransitionId) return false;
-        this.agentTransitionSteering.push({ text, images: images.map((image) => ({ ...image })) });
+        const entry = {
+            text,
+            images: images.map((image) => ({ ...image })),
+            ...(message
+                ? {
+                    message: {
+                        ...message,
+                        images: message.images.map((image) => ({ ...image })),
+                    },
+                }
+                : {}),
+            ...(submissionOrder === undefined ? {} : { submissionOrder }),
+        };
+        const laterEntryIndex = submissionOrder === undefined
+            ? -1
+            : this.agentTransitionSteering.findIndex((current) =>
+                current.submissionOrder !== undefined && current.submissionOrder > submissionOrder
+            );
+        if (laterEntryIndex < 0) this.agentTransitionSteering.push(entry);
+        else this.agentTransitionSteering.splice(laterEntryIndex, 0, entry);
         return true;
     }
 
@@ -739,17 +771,100 @@ export class HostedSession {
         if (this.agentTransitionId === transitionId) this.agentTransitionId = null;
     }
 
+    /** @param {string} messageId */
+    beginAgentSteeringPreparation(messageId) {
+        this.assertActive();
+        this.agentSteeringPreparations.add(messageId);
+    }
+
+    /** @param {string} messageId */
+    completeAgentSteeringPreparation(messageId) {
+        if (!this.agentSteeringPreparations.delete(messageId) || this.agentSteeringPreparations.size > 0) return;
+        for (const resolve of this.agentSteeringPreparationWaiters) resolve();
+        this.agentSteeringPreparationWaiters.clear();
+    }
+
+    /** @returns {boolean} */
+    hasAgentSteeringPreparations() {
+        return this.agentSteeringPreparations.size > 0;
+    }
+
+    /** @returns {Promise<void>} */
+    async waitForAgentSteeringPreparations() {
+        if (!this.hasAgentSteeringPreparations()) return;
+        await new Promise((resolve) => this.agentSteeringPreparationWaiters.add(() => resolve(undefined)));
+    }
+
+    /** @returns {AgentTransitionSteering[]} */
+    listAgentTransitionSteering() {
+        return this.agentTransitionSteering.map((entry) => ({
+            text: entry.text,
+            images: entry.images.map((image) => ({ ...image })),
+            ...(entry.message
+                ? {
+                    message: {
+                        ...entry.message,
+                        images: entry.message.images.map((image) => ({ ...image })),
+                    },
+                }
+                : {}),
+        }));
+    }
+
     /** @returns {AgentTransitionSteering[]} */
     consumeAgentTransitionSteering() {
         const steering = this.agentTransitionSteering;
         this.agentTransitionSteering = [];
-        return steering.map((entry) => ({ text: entry.text, images: entry.images.map((image) => ({ ...image })) }));
+        return steering.map((entry) => ({
+            text: entry.text,
+            images: entry.images.map((image) => ({ ...image })),
+            ...(entry.message
+                ? {
+                    message: {
+                        ...entry.message,
+                        images: entry.message.images.map((image) => ({ ...image })),
+                    },
+                }
+                : {}),
+        }));
+    }
+
+    /** @param {string} messageId */
+    removeAgentTransitionSteering(messageId) {
+        const index = this.agentTransitionSteering.findIndex((entry) => entry.message?.id === messageId);
+        if (index < 0) return false;
+        this.agentTransitionSteering.splice(index, 1);
+        return true;
+    }
+
+    /** @returns {AgentTransitionSteering[]} */
+    clearAgentTransitionSteering() {
+        return this.consumeAgentTransitionSteering();
     }
 
     /** @param {AgentTransitionSteering[]} entries */
     restoreAgentTransitionSteering(entries) {
+        const missingEntries = entries.filter((entry) =>
+            !this.agentTransitionSteering.some((current) =>
+                entry.message?.id
+                    ? current.message?.id === entry.message.id
+                    : !current.message && current.text === entry.text &&
+                        JSON.stringify(current.images) === JSON.stringify(entry.images)
+            )
+        );
         this.agentTransitionSteering = [
-            ...entries.map((entry) => ({ text: entry.text, images: entry.images.map((image) => ({ ...image })) })),
+            ...missingEntries.map((entry) => ({
+                text: entry.text,
+                images: entry.images.map((image) => ({ ...image })),
+                ...(entry.message
+                    ? {
+                        message: {
+                            ...entry.message,
+                            images: entry.message.images.map((image) => ({ ...image })),
+                        },
+                    }
+                    : {}),
+            })),
             ...this.agentTransitionSteering,
         ];
     }
@@ -1073,6 +1188,9 @@ export class HostedSession {
         this.steeringTargetStack = [];
         this.agentTransitionId = null;
         this.agentTransitionSteering = [];
+        this.agentSteeringPreparations.clear();
+        for (const resolve of this.agentSteeringPreparationWaiters) resolve();
+        this.agentSteeringPreparationWaiters.clear();
         this.disposed = true;
         await Promise.all(pendingDisposals);
         await this.closeMcpToolPool();

@@ -98,6 +98,7 @@ export interface DispatchPostTriageArgs {
     images?: import("../session/types.js").ImageAttachment[];
     sessionManager?: SessionManager;
     localCI: LocalCIPort;
+    signal?: AbortSignal;
 }
 
 /**
@@ -155,9 +156,17 @@ async function runRootTurnUntilTaskCompletion(args: {
     userRequest: string;
     images?: import("../session/types.js").ImageAttachment[];
     dispatchKind?: import("../session/request-dispatch.ts").RequestDispatchKind;
+    signal?: AbortSignal;
 }): Promise<AgentMessage[]> {
     const waitController = new AbortController();
     const turnController = new AbortController();
+    const abortBoth = () => {
+        const reason = args.signal?.reason || new DOMException("Workflow turn canceled.", "AbortError");
+        waitController.abort(reason);
+        turnController.abort(reason);
+    };
+    if (args.signal?.aborted) abortBoth();
+    args.signal?.addEventListener("abort", abortBoth, { once: true });
     const turnId = args.hostedSession.getActiveTurnId?.() || undefined;
     const eventPromise = waitForWorkflowToolEvent(args.hostedSession, {
         kinds: ["task_completed"],
@@ -173,17 +182,21 @@ async function runRootTurnUntilTaskCompletion(args: {
         dispatchKind: args.dispatchKind,
         signal: turnController.signal,
     });
-    const first = await Promise.race([
-        eventPromise.then(() => ({ kind: "event" as const })),
-        turnPromise.then((messages) => ({ kind: "turn" as const, messages })),
-    ]);
-    if (first.kind === "event") {
-        turnController.abort(new DOMException("Workflow tool event accepted.", "AbortError"));
-        turnPromise.catch(() => undefined);
-        return [];
+    try {
+        const first = await Promise.race([
+            eventPromise.then(() => ({ kind: "event" as const })),
+            turnPromise.then((messages) => ({ kind: "turn" as const, messages })),
+        ]);
+        if (first.kind === "event") {
+            turnController.abort(new DOMException("Workflow tool event accepted.", "AbortError"));
+            turnPromise.catch(() => undefined);
+            return [];
+        }
+        waitController.abort(new DOMException("Agent turn finished without workflow event.", "AbortError"));
+        return first.messages;
+    } finally {
+        args.signal?.removeEventListener("abort", abortBoth);
     }
-    waitController.abort(new DOMException("Agent turn finished without workflow event.", "AbortError"));
-    return first.messages;
 }
 
 /**
@@ -324,6 +337,7 @@ export async function dispatchPostTriage({
     images,
     sessionManager,
     localCI,
+    signal,
 }: DispatchPostTriageArgs): Promise<Awaited<ReturnType<typeof runWorkflowValidationToStableBoundary>> | undefined> {
     if (!hostedSession || typeof hostedSession.getRootAgentName !== "function") {
         throw new Error("dispatchPostTriage: hostedSession is required");
@@ -335,11 +349,15 @@ export async function dispatchPostTriage({
     const normalizedTriage = normalizeTriageOutcome(triage);
     if (!normalizedTriage) throw new Error("dispatchPostTriage: routingIntent is required");
 
+    const checkCanceled = () => signal?.throwIfAborted();
     const activateAgent = async (agentName: string): Promise<void> => {
+        checkCanceled();
         await switchActiveAgent(hostedSession, { agentName });
+        checkCanceled();
     };
     applyAutoSessionName(sessionManager, normalizedTriage, hostedSession);
 
+    checkCanceled();
     const dispatchTarget = normalizedTriage.routingIntent === "INQUIRY"
         ? AGENTS.GUIDE
         : normalizedTriage.routingIntent === "IDEATION"
@@ -367,6 +385,7 @@ export async function dispatchPostTriage({
             complexity: normalizedTriage.complexity,
         },
     });
+    checkCanceled();
 
     if (normalizedTriage.routingIntent === "INQUIRY" || normalizedTriage.routingIntent === "IDEATION") {
         const agentName = normalizedTriage.routingIntent === "INQUIRY" ? AGENTS.GUIDE : AGENTS.IDEATOR;
@@ -377,6 +396,7 @@ export async function dispatchPostTriage({
             agentName,
             userRequest: decoratedRequest,
             images,
+            signal,
         });
         return;
     }
@@ -390,6 +410,7 @@ export async function dispatchPostTriage({
             agentName: AGENTS.OPERATOR,
             userRequest: decoratedRequest,
             images,
+            signal,
         });
         const acceptedCompletion = claimPendingTaskCompletion(
             hostedSession,
@@ -447,6 +468,7 @@ export async function dispatchPostTriage({
             userRequest: decoratedRequest,
             images,
             dispatchKind: "quick_fix",
+            signal,
         });
         const acceptedCompletion = claimPendingTaskCompletion(
             hostedSession,
@@ -501,6 +523,7 @@ export async function dispatchPostTriage({
         const isPlannedChange = isPlannedChangeClassification(normalizedTriage.routingIntent);
         const agentName = isPlannedChange ? AGENTS.PLANNER : AGENTS.ARCHITECT;
         await ensurePlansDir(projectRoot);
+        checkCanceled();
 
         const outcome = await runPlanningAgent({
             agentName,
@@ -508,6 +531,7 @@ export async function dispatchPostTriage({
             triageMeta: normalizedTriage,
             sessionManager,
             hostedSession,
+            signal,
         });
 
         const decision = decidePostPlanning(outcome, {
@@ -521,6 +545,7 @@ export async function dispatchPostTriage({
             planName: typeof decision.payload.planName === "string" ? decision.payload.planName : undefined,
             details: summarizeWorkflowDecision(decision),
         });
+        checkCanceled();
 
         if (decision.kind === "start_slicer") {
             const planName = String(decision.payload.planName);
@@ -583,6 +608,7 @@ export async function dispatchPostTriage({
         const planName = String(decision.payload.planName);
         const decisionMeta = decision.payload.triageMeta as TriageOutcomeInput | undefined;
         const decisionTriageMeta = normalizeTriageOutcome(decisionMeta) || normalizedTriage;
+        checkCanceled();
         let executionResult: Awaited<ReturnType<typeof executePlan>>;
         try {
             executionResult = await executePlan({

@@ -786,6 +786,29 @@ export async function updatePublication(projectRoot, id, expectedRevision, publi
 }
 
 /**
+ * Retire only the snapshot whose durable revalidation request has been fulfilled.
+ * The caller holds the Plan locks and has preserved the old record and checkout.
+ * @param {string} projectRoot
+ * @param {string} id
+ * @param {number} expectedRevision
+ */
+export async function retirePublicationForRevalidation(projectRoot, id, expectedRevision) {
+    return await withWorktreeRegistryLock(projectRoot, async () => {
+        const entries = await readRegistry(projectRoot);
+        const entry = entries.find((candidate) => candidate.id === id);
+        const publication = entry?.publication;
+        if (!entry || !publication || publication.revision !== expectedRevision || !publication.revalidation) {
+            throw new Error(`Publication ${id} changed while preparing revalidation.`);
+        }
+        assertPublicationAttempt(publication);
+        delete entry.publication;
+        entry.status = "active";
+        entry.updatedAt = new Date().toISOString();
+        await writeRegistry(projectRoot, entries);
+    });
+}
+
+/**
  * @typedef {Object} WorktreeRestoreEvidence
  * @property {string} id
  * @property {string} planName

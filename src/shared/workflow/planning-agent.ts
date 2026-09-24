@@ -1,5 +1,5 @@
 // @ts-nocheck: extracted from checked JSDoc workflow.js; tightening types is out of scope for this structural split.
-import { runActiveAgentTurn } from "../session/agent-switching.js";
+import { runRootTurnUntilRootWorkflowEvent, switchActiveAgent } from "../session/agent-switching.js";
 import { claimWorkflowToolEvent, settleWorkflowToolEvent } from "./workflow-tool-events.ts";
 import type { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { HostedSession } from "../session/hosted-session.js";
@@ -35,6 +35,7 @@ export interface RunPlanningAgentOptions {
     planName?: string;
     associationPurpose?: AssociationPurpose;
     cwd?: string;
+    signal?: AbortSignal;
 }
 
 export async function runPlanningAgent(
@@ -48,6 +49,7 @@ export async function runPlanningAgent(
         planName,
         associationPurpose = "planning",
         cwd,
+        signal,
     }: RunPlanningAgentOptions,
 ): Promise<PlanOutcomeResult> {
     if (!hostedSession) throw new Error("runPlanningAgent: hostedSession is required");
@@ -63,17 +65,24 @@ export async function runPlanningAgent(
     }
 
     const turnId = hostedSession.getActiveTurnId?.() || undefined;
-    await runActiveAgentTurn({
-        hostedSession,
+    signal?.throwIfAborted();
+    await switchActiveAgent(hostedSession, {
         agentName,
-        userRequest: initialRequest,
         images,
         sessionManager,
         triageMeta,
         ...(cwd ? { cwd } : {}),
     });
-
-    const event = claimWorkflowToolEvent(hostedSession, {
+    signal?.throwIfAborted();
+    const { event: terminalEvent } = await runRootTurnUntilRootWorkflowEvent({
+        hostedSession,
+        agentName,
+        userRequest: initialRequest,
+        images,
+        rootAgentSession: hostedSession.getRootAgentSession(),
+        signal,
+    });
+    const event = terminalEvent?.kind === "plan_written" ? terminalEvent : claimWorkflowToolEvent(hostedSession, {
         kinds: ["plan_written"],
         owningSession: null,
         ...(turnId ? { turnId } : {}),

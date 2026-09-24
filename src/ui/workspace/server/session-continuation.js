@@ -40,6 +40,15 @@ import {
 } from "../../../shared/session/session-transcript-projection.js";
 import { requireOwnerProjectRoot, sessionBelongsToOwnerProject } from "./owner-projects.js";
 
+/** A rejected image submission has not been accepted as an operation. */
+export class ImageSubmissionValidationError extends Error {
+    /** @param {string} message */
+    constructor(message = "Cannot attach image.") {
+        super(message);
+        this.name = "ImageSubmissionValidationError";
+    }
+}
+
 /** @typedef {"off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"} WorkspaceThinkingLevel */
 /** @typedef {{ name: string, firstMessage: string }} SessionListInfo */
 /** @typedef {{ page?: number, pageSize?: number, includeEmpty?: boolean, includeTotal?: boolean }} SessionListOptions */
@@ -1108,7 +1117,7 @@ export class WorkspaceSessionContinuationService {
                         initialImages: options.images || [],
                         agentName: launch.agentName,
                     });
-                    if (!preflight.ok) throw new Error(preflight.message);
+                    if (!preflight.ok) throw new ImageSubmissionValidationError(preflight.message);
                     preparedModelOverride = "preparedModelOverride" in preflight
                         ? preflight.preparedModelOverride || ""
                         : "";
@@ -1292,7 +1301,7 @@ export class WorkspaceSessionContinuationService {
                     initialImages: options.images || [],
                     agentName: decision.agentName,
                 });
-                if (!preflight.ok) throw new Error(preflight.message);
+                if (!preflight.ok) throw new ImageSubmissionValidationError(preflight.message);
                 preparedModelOverride = "preparedModelOverride" in preflight
                     ? preflight.preparedModelOverride || ""
                     : "";
