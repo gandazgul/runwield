@@ -19,9 +19,16 @@ executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-09-22"
 origin: "internal"
-status: "ready_for_work"
 userVerifiedAt: null
 routingIntent: "PLANNED_CHANGE"
+targetBranch: "main"
+workRecord:
+    status: "generated"
+    recordId: "c2c2d43c-223e-425b-954a-89a13157b230"
+    path: "docs/work-records/2026-09-23-deliver-steering-to-replacement-agents.md"
+    lastAttemptAt: "2026-09-23T16:07:59.874Z"
+status: "validated"
+validatedCommit: "c2f4c30b1ca146b20dc943e609bb27e0ead72a61"
 ---
 
 # Deliver Steering to the New Agent After Handoff

@@ -326,6 +326,7 @@ Deno.test("active and isolated Agents have exactly one production lifecycle boun
         "src/shared/session/agent-handler.js",
         "src/shared/session/agent-handler.ts",
         "src/shared/session/agent-switching.js",
+        "src/shared/session/root-workflow-turn.ts",
         "src/shared/workflow/orchestrator.ts",
     ]);
     const violations = [];

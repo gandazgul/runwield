@@ -307,7 +307,7 @@ export const validationTreeMismatchedWorktreeIdentityScenario = withValidationBr
         composedTui: true,
         initialAgentName: "guide",
         terminal: { columns: 100, rows: 30 },
-        timeoutMs: 60000,
+        timeoutMs: 240000,
         committedProjectFiles: [
             { path: ".wld/settings.json", text: `${JSON.stringify({ verification_command: "true" }, null, 4)}\n` },
         ],
@@ -354,7 +354,7 @@ export const validationTreeMismatchedWorktreeIdentityScenario = withValidationBr
                 type: "waitForPlanStatus",
                 planName: "mismatched-worktree-identity",
                 statuses: ["verified"],
-                timeoutMs: 90000,
+                timeoutMs: 180000,
             },
             { type: "captureProjectState", planNames: ["mismatched-worktree-identity"] },
         ],

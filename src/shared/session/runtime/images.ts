@@ -8,6 +8,7 @@ import {
     modelSupportsImageInput,
     persistImageAttachment,
     preflightImageAttachments,
+    prepareImagesForModel,
     resolveVisionFallbackModel,
 } from ".././image-attachments.js";
 import { getModelRegistry, SYSTEM_MODEL_DISCOVERY_NETWORK } from "../../models/model-registry.ts";
@@ -83,6 +84,39 @@ export class RuntimeImages {
         const session = this.services.sessionHost.getSession(sessionId);
         if (!session) return { ok: false, message: "Runtime session not found." };
         return await this.preflightImagesForAgentSession(session, images, getRuntimeRootAgentSession(session));
+    }
+
+    async prepareSteeringInputForAgentSession(
+        session: import(".././hosted-session.js").HostedSession,
+        text: string,
+        images: import(".././types.js").ImageAttachment[],
+        agentSession: RuntimeImageAgentSession,
+    ) {
+        const modelState = session.getActiveModelState();
+        const managed = session.getManagedMetadata?.();
+        const modelProvider = modelState.provider || managed?.provider || "";
+        const modelId = modelState.model || managed?.model || "";
+        const modelRegistry = agentSession.modelRegistry || getModelRegistry();
+        const activeModel = agentSession.model ||
+            (modelProvider && modelId ? modelRegistry.find(modelProvider, modelId) : undefined);
+        const modelProviderName = activeModel?.provider;
+        const executionBackend = activeModel?.executionBackend;
+        if (modelProviderName === "agy-cli" || executionBackend === "agy-cli") {
+            return { ok: false as const, message: "Antigravity CLI sessions do not support image attachments." };
+        }
+        let fallbackModelRef: string | undefined;
+        if (images.length > 0 && !modelSupportsImageInput(activeModel)) {
+            try {
+                fallbackModelRef = (await resolveVisionFallbackModel(
+                    modelRegistry,
+                    SYSTEM_MODEL_DISCOVERY_NETWORK,
+                    session.cwd,
+                ))?.modelRef;
+            } catch (error) {
+                return { ok: false as const, message: error instanceof Error ? error.message : String(error) };
+            }
+        }
+        return prepareImagesForModel({ text, images, activeModel, fallbackModelRef });
     }
 
     async preflightImagesForAgentSession(

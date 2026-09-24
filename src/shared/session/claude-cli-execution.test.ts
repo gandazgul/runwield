@@ -168,6 +168,33 @@ Deno.test("Claude CLI selected root turn dispatches without Pi AgentSession", as
     });
 });
 
+Deno.test("Claude CLI replacement waits for steering preparation before closing the handoff", async () => {
+    await withClaudeExecutionFixture(async (_home, cwd, logPath) => {
+        const manager = SessionManager.inMemory(cwd);
+        const hostedSession = createHostedSession(cwd, manager);
+        await ensureRootAgentSession({ hostedSession, agentName: AGENTS.GUIDE });
+        hostedSession.beginAgentTransition();
+        hostedSession.beginAgentSteeringPreparation("early-steering");
+
+        const turn = runRootTurn({
+            hostedSession,
+            agentName: AGENTS.GUIDE,
+            userRequest: "replacement request",
+        });
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        assertEquals(await Deno.readTextFile(logPath), "");
+        assertEquals(hostedSession.isAgentTransitioning(), true);
+
+        hostedSession.queueAgentTransitionSteering("prepared before replacement", []);
+        hostedSession.completeAgentSteeringPreparation("early-steering");
+        await turn;
+
+        const log = JSON.parse((await Deno.readTextFile(logPath)).trim().split("\n")[0]);
+        assertStringIncludes(log.stdin, "prepared before replacement");
+        assertEquals(hostedSession.isAgentTransitioning(), false);
+    });
+});
+
 Deno.test("Claude CLI selected root turn runs when Agent config has thinking level", async () => {
     await withClaudeExecutionFixture(async (_home, cwd, logPath) => {
         await Deno.mkdir(join(cwd, ".wld"), { recursive: true });

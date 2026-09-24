@@ -519,10 +519,14 @@ _Avoid_: Agent name, file name
 **Agent Session**: One invocation of an Agent with merged Agent Definition data, bound tools, extensions, and message
 history. _Avoid_: Run, interaction, conversation
 
-**Steering Message**: A user message submitted while an Agent Session is streaming, routed to the current foreground
-steerable Agent Session and injected at the next safe boundary. The current tool is allowed to finish, but later pending
-tool calls may be skipped so the Agent can reconsider with the user's input. _Avoid_: Provider-stream interruption,
-mid-tool cancellation
+**Steering Message**: A user message submitted while an Agent Session is streaming or during an Agent Handoff. It is
+routed to the current foreground steerable Agent Session, or held for the replacement Agent, and injected at the next
+safe boundary. The current tool is allowed to finish, but later pending tool calls can be skipped so the Agent can
+reconsider with the user's input. _Avoid_: Provider-stream interruption, mid-tool cancellation
+
+**Agent Handoff**: The change from one active root Agent Session to its replacement after an accepted workflow event.
+The outgoing turn settles before replacement provider work starts. Pending Steering Messages transfer to the replacement
+without becoming consumed during transfer. _Avoid_: Agent reload, message replay
 
 **Agent Handler**: The runtime handler that runs an active Agent Session turn and interprets workflow Custom Tool
 outcomes. _Avoid_: Agent-specific handler, special agent handler

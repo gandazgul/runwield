@@ -82,7 +82,12 @@ export async function switchActiveAgent(hostedSession, options) {
         hostedSession.getManagedOperationCapability?.() || undefined;
     const agentName = String(options?.agentName || "").trim();
     if (!agentName) throw new Error("switchActiveAgent requires an agentName");
-    const transitionId = hostedSession.beginAgentTransition();
+    const activeTransitionId = hostedSession.getAgentTransitionId?.() || null;
+    const ownsTransition = !activeTransitionId;
+    const transitionId = activeTransitionId || hostedSession.beginAgentTransition();
+    const completeOwnedTransition = () => {
+        if (ownsTransition) hostedSession.completeAgentTransition(transitionId);
+    };
 
     const previousAgentName = hostedSession.getRootAgentName();
     const previousHandler = hostedSession.getActiveOnMessage();
@@ -156,7 +161,7 @@ export async function switchActiveAgent(hostedSession, options) {
     );
 
     if (!shouldRebuildRoot && canReuseHandler) {
-        hostedSession.completeAgentTransition(transitionId);
+        completeOwnedTransition();
         if (options.releaseActiveWorkflow) releaseActiveWorkflowAfterUserSwitch(hostedSession, agentName);
         return { ok: true, agentName, model: options.model, changed: false };
     }
@@ -171,7 +176,7 @@ export async function switchActiveAgent(hostedSession, options) {
             customTools: options.customTools,
         });
     } catch (error) {
-        hostedSession.completeAgentTransition(transitionId);
+        completeOwnedTransition();
         throw error;
     }
     handlerMetadata.set(handler, {
@@ -186,17 +191,17 @@ export async function switchActiveAgent(hostedSession, options) {
                 activeHandler: handler,
             });
         } catch (error) {
-            hostedSession.completeAgentTransition(transitionId);
+            completeOwnedTransition();
             throw error;
         }
         if (hostedSession.getActiveOnMessage() !== handler) {
-            hostedSession.completeAgentTransition(transitionId);
+            completeOwnedTransition();
             throw new Error("switchActiveAgent: root builder did not atomically commit the staged Agent handler");
         }
     } else {
         hostedSession.setActiveOnMessage(handler);
     }
-    hostedSession.completeAgentTransition(transitionId);
+    completeOwnedTransition();
     hostedSession.assertActive();
     if (requestedCwd) hostedSession.rebindProjectRoot(requestedCwd);
     // Clear only after a successful switch; a failed build must preserve the
@@ -268,6 +273,7 @@ export async function switchActiveAgent(hostedSession, options) {
  * @property {boolean} [includeEditFallback]
  * @property {string} [debugLogPath]
  * @property {import('./request-dispatch.ts').RequestDispatchKind} [dispatchKind]
+ * @property {AbortSignal} [signal]
  */
 
 /**
@@ -295,6 +301,7 @@ export async function runActiveAgentTurn(options) {
         includeEditFallback,
         debugLogPath,
         dispatchKind,
+        signal,
     } = options;
 
     const switchOptions = {
@@ -312,12 +319,15 @@ export async function runActiveAgentTurn(options) {
         ...(includeEditFallback !== undefined ? { includeEditFallback } : {}),
         ...(debugLogPath ? { debugLogPath } : {}),
     };
+    signal?.throwIfAborted();
     await switchActiveAgent(hostedSession, switchOptions);
+    signal?.throwIfAborted();
     return await runRootTurn({
         hostedSession,
         agentName,
         userRequest,
         images,
         dispatchKind,
+        signal,
     });
 }

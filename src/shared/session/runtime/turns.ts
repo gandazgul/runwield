@@ -500,13 +500,19 @@ export class RuntimeTurns {
             let agentCanceled = false;
             const turnActive = session.isTurnActive();
             try {
-                operationCanceled = Boolean(session.cancelActiveInteractions?.());
+                if (session.isAgentTransitioning?.()) {
+                    currentOperation.cancel?.();
+                    operationCanceled = Boolean(currentOperation.cancel);
+                }
+                operationCanceled = Boolean(session.cancelActiveInteractions?.()) || operationCanceled;
                 const rootAgentSession = getRuntimeRootAgentSession(session);
                 if (rootAgentSession?.isCompacting && rootAgentSession?.abortCompaction) {
                     rootAgentSession.abortCompaction();
                     operationCanceled = true;
                 }
                 this.queues.clearQueuedMessagesInternal(session, "session_cancel");
+                const transitionId = session.getAgentTransitionId?.();
+                if (transitionId) session.completeAgentTransition(transitionId);
                 if (!onlyPlanReviewInteraction) {
                     agentCanceled = abortActiveSessionFn(session);
                     if (agentCanceled || turnActive) session.suppressNextAgentStoppedAttention();
@@ -547,6 +553,8 @@ export class RuntimeTurns {
                 operationCanceled = true;
             }
             this.queues.clearQueuedMessagesInternal(session, "session_cancel");
+            const transitionId = session.getAgentTransitionId?.();
+            if (transitionId) session.completeAgentTransition(transitionId);
             if (!onlyPlanReviewInteraction) {
                 agentCanceled = abortActiveSessionFn(session);
                 if (agentCanceled || turnActive) session.suppressNextAgentStoppedAttention();

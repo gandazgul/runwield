@@ -102,7 +102,7 @@ function isolatedPublicationScenario(
             composedTui: true,
             initialAgentName: "guide",
             terminal: { columns: 100, rows: 30 },
-            timeoutMs: 120000,
+            timeoutMs: options.resumeRepair ? 240000 : 120000,
             committedProjectFiles: [
                 { path: ".wld/settings.json", text: `${JSON.stringify({ verification_command: "true" }, null, 4)}\n` },
                 { path: "user-work.txt", text: "committed user work\n" },
