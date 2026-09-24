@@ -44,16 +44,6 @@
     white-space: nowrap;
 }
 
-.session-composer-prompt {
-    flex: 0 0 auto;
-    color: var(--rw-text);
-}
-
-.session-composer-selection {
-    min-width: 0;
-    margin-left: 0.45rem;
-}
-
 .session-composer-summary:hover:not(:disabled) {
     color: var(--rw-text);
     background: var(--rw-surface-muted);

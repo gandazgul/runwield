@@ -637,8 +637,7 @@ export function SessionComposer({
                     onFocus={expandComposer}
                     onClick={expandComposer}
                 >
-                    <span className="session-composer-prompt">{hasDraft ? "Continue draft" : "Write a message"}</span>
-                    <span className="session-composer-selection">{selectionSummary}</span>
+                    <span>{selectionSummary}</span>
                 </button>
                 <select
                     hidden={!expanded}

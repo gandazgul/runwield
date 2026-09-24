@@ -59,7 +59,7 @@ Deno.test("Session composer keeps provider/model identities and opens slash choi
     assertEquals(empty.match(/<select[^>]*disabled/g), null);
     assertEquals(empty.includes('aria-label="Attach image"'), true);
     assertEquals(empty.includes('title="Send"'), true);
-    assertEquals(empty.includes('class="session-composer-prompt">Write a message</span>'), true);
+    assertEquals(empty.includes(">Guide · openai-codex/gpt-5.6-luna · low</span>"), true);
     const commands = renderToStaticMarkup(createElement(SessionComposer, { ...props, draft: "/mo", canSend: true }));
     assertEquals(commands.includes('role="listbox" aria-label="Commands"'), true);
     assertEquals(commands.includes('aria-expanded="false"'), true);
@@ -1066,8 +1066,9 @@ Deno.test("Session composer preserves drafts across focus changes and shares one
         await act(() => form().props.onBlurCapture({ currentTarget: { contains: () => false }, relatedTarget: null }));
         assertEquals(form().props["data-expanded"], false);
         assertEquals(textarea().props.value, "Keep this draft");
-        assertEquals(summary().children[0].children[0], "Continue draft");
-        assertEquals(summary().children[1].children[0], "Planner · openai/gpt-model · high");
+        assertEquals(summary().children.length, 1);
+        assertEquals(summary().children[0].children[0], "Planner · openai/gpt-model · high");
+        assertEquals(summary().props["aria-label"], "Continue draft · Planner · openai/gpt-model · high");
         assertEquals(renderer.root.findByProps({ "aria-label": "Attached images" }).props.hidden, true);
         await act(() => summary().props.onClick());
         assertEquals(textarea().props.value, "Keep this draft");
