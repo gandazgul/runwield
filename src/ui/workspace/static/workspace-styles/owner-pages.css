@@ -130,6 +130,24 @@
     .owner-dashboard-intro {
         display: block;
     }
+
+    .owner-dashboard .rw-toolbar-button {
+        align-items: center;
+        display: inline-flex;
+        min-height: 44px;
+    }
+
+    .owner-dashboard-status a {
+        align-items: center;
+        display: inline-flex;
+        min-height: 44px;
+    }
+
+    .owner-dashboard-row strong {
+        overflow: visible;
+        overflow-wrap: anywhere;
+        white-space: normal;
+    }
 }
 
 .owner-form {
