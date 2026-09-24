@@ -1,6 +1,40 @@
 /** Stage one checked, flat release asset set. Never change published bytes. */
 import { join } from "@std/path";
 import { expectedReleaseAssetNames } from "./release.js";
+import { verifyBuildArtifact } from "./build-metadata.js";
+import { extractReleaseRuntime } from "../src/shared/remote/release-artifact.js";
+
+/**
+ * Explicit development bundle. Never builds a missing runtime, and never
+ * substitutes release assets for a development artifact.
+ * @param {string} launcher
+ * @param {string} linuxX64
+ * @param {string} linuxArm64
+ * @param {string} output
+ */
+export async function prepareDevelopmentArtifacts(launcher, linuxX64, linuxArm64, output) {
+    const entries = [
+        [launcher, "wld-launcher"],
+        [linuxX64, "wld-x86_64-unknown-linux-gnu"],
+        [linuxArm64, "wld-aarch64-unknown-linux-gnu"],
+    ];
+    const metadata = await Promise.all(entries.map(([path]) => verifyBuildArtifact(path)));
+    if (
+        metadata[1].target !== "x86_64-unknown-linux-gnu" ||
+        metadata[2].target !== "aarch64-unknown-linux-gnu" ||
+        metadata.some((item) =>
+            item.buildId !== metadata[0].buildId || item.protocol !== metadata[0].protocol ||
+            item.version !== metadata[0].version
+        )
+    ) {
+        throw new Error("Development artifacts have mismatched build/protocol/VERSION or GNU targets");
+    }
+    await Deno.mkdir(output);
+    for (const [path, name] of entries) {
+        await Deno.copyFile(path, join(output, name));
+        await Deno.copyFile(`${path}.build.json`, join(output, `${name}.build.json`));
+    }
+}
 
 /**
  * @typedef {Object} PublishedAsset
@@ -71,6 +105,27 @@ export async function prepareReleaseAssets(input, output, tag, published = false
             throw new Error("Published SHA256SUMS does not match the complete release set");
         }
     }
+    // New publication validates the actual archive bytes against one launcher
+    // identity. Published recovery must still accept immutable legacy assets
+    // (which predate embedded metadata) after checking their GitHub digests.
+    if (!published) {
+        const stage = await Deno.makeTempDir({ prefix: "wld-release-verify-" });
+        try {
+            let launcher = null;
+            for (const suffix of ["darwin-arm64", "darwin-x64", "linux-x64", "linux-arm64"]) {
+                const name = `wld-${tag}-${suffix}.tar.gz`;
+                const directory = join(stage, suffix);
+                await Deno.mkdir(directory);
+                const { metadata } = await extractReleaseRuntime(selected.get(name), suffix, launcher, directory);
+                if (!launcher) {
+                    if (metadata.version !== tag) throw new Error("Release launcher VERSION does not match tag");
+                    launcher = { buildId: metadata.buildId, protocol: metadata.protocol, version: metadata.version };
+                }
+            }
+        } finally {
+            await Deno.remove(stage, { recursive: true });
+        }
+    }
     if (publishedMetadata) {
         /** @type {PublishedRelease} */
         const metadata = JSON.parse(await Deno.readTextFile(publishedMetadata));
@@ -87,6 +142,15 @@ export async function prepareReleaseAssets(input, output, tag, published = false
 }
 
 if (import.meta.main) {
+    if (Deno.args[0] === "development") {
+        if (Deno.args.length !== 5) {
+            throw new Error(
+                "Usage: release-assets.js development <launcher> <linux-x64> <linux-arm64> <output-directory>",
+            );
+        }
+        await prepareDevelopmentArtifacts(Deno.args[1], Deno.args[2], Deno.args[3], Deno.args[4]);
+        Deno.exit(0);
+    }
     const [input, output, tag, mode, metadata] = Deno.args;
     if (!input || !output || !tag) throw new Error("Usage: release-assets.js <input> <output> <tag> [published]");
     if (mode === "published" && !metadata) throw new Error("Published recovery requires GitHub asset digests");

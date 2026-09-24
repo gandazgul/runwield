@@ -1,9 +1,11 @@
 # Product Requirements Document: Remote SSH
 
-Last updated: 2026-09-17 EDT
+Last updated: 2026-09-24 EDT
 
-**Status:** Proposed. Product direction agreed; remote behavior is not implemented or verified. **Document role:**
-Transient feature proposal. RunWield Core owns this capability.
+**Status:** Proposed full remote experience. A connection-only subset is implemented: remote location resolution,
+matched development runtime preparation, and a dormant remote TUI. It has no Agent turn, personal profile, or saved
+Session. **Document role:** Transient feature proposal. [RunWield Core](runwield-core-prd.md) owns the delivered
+installation, location, and connection cleanup requirements; this document keeps the remaining target behavior clear.
 
 ## Background
 
@@ -35,7 +37,10 @@ checkout, or automatic installation of every project dependency. Hostile-server 
 
 ## Product Fit and Main Journey
 
-Proposed commands:
+The following is the **target** journey, not a current workflow. Only the connection-only part of steps 1–3 is
+available; the view does not accept a user request or start the normal TUI conversation.
+
+Command forms (currently connection-only; full workflow proposed):
 
 ```sh
 wld remote sct:~/my-awesome-project
@@ -71,21 +76,48 @@ on the server after exit; a separate saved personal profile must not remain.
 
 ### Remote connection and setup
 
-**Scope and maturity:** Proposed addition.
+**Scope and maturity:** Connection-only subset available with explicit development artifacts. Agent access and full
+remote setup remain proposed. The [Core installation](runwield-core-prd.md#installation-and-updates),
+[project context](runwield-core-prd.md#project-context-and-initialization), and
+[recovery](runwield-core-prd.md#execution-validation-and-recovery) capabilities own the current subset.
 
-**Requirement: Open the requested remote location.** Both command forms work with SSH aliases and hostnames. Existing
-SSH user, key, port, jump-host, and host-verification behavior remains effective. Paths are data, not shell commands. An
-invalid or inaccessible folder fails clearly; RunWield must not silently work in another folder or create the target.
+**Current connection-only behavior:** `wld remote <host>[:<directory>]` uses OpenSSH configuration, authentication, and
+host verification, resolves an existing remote directory (remote home by default), and shows its canonical location in a
+dormant remote TUI. Git is optional. The remote Linux host needs `python3`, a writable private cache, and an executable
+compatible with the preflight for the matching glibc-linked Linux x86-64 or ARM64 build. The local machine needs OpenSSH
+and an explicitly built matching development bundle; see [build steps](runwield-core-prd.md#installation-and-updates).
+Runtime preparation checks build/protocol identity and checksums, reuses or repairs private cache entries, and does not
+run a remote personal installer or start a personal profile. Connection loss and exit clean up owned processes, with
+uncertain termination reported when it cannot be confirmed. The view does not start an Agent, provider request, saved
+Session, writer lock, SFTP server, SSHFS mount, or personal resource copy. No project execution or browser review is
+available through it. This is not a production remote release.
 
-**Requirement: Prepare RunWield automatically.** A supported host does not need a prior RunWield installation or
-provider login. RunWield prepares compatible required tools and reports progress. It does not overwrite a remote user's
-existing profile or package-managed installation. Missing permission or unsupported platform errors identify the real
-prerequisite; ordinary internal setup and repair stay automatic.
+**Current acceptance scenarios:**
 
-**Acceptance scenarios:**
+- Given an SSH alias and an existing remote directory, when the matching development bundle connects, the view shows the
+  canonical remote directory and notes that future SFTP access is broad but is not open now. It does not read or edit
+  project files through an Agent.
+- Given a remote home without Git, when the user omits the directory, the connection view opens at that home without
+  creating a project or a saved Session.
+- Given a missing directory, denied SSH access, missing `python3`, unsupported host architecture, incompatible
+  executable, or mismatched artifact, connection fails rather than falling back to another path or runtime. A retry can
+  repair interrupted private runtime staging without overwriting a personal or package-managed installation.
 
-- Given a valid alias and existing remote folder, when the folder command runs, the TUI opens there. Reading a file and
-  executing a command use that folder on the server, even when the laptop has a same-named folder with different files.
+**Remaining target requirement: Open the requested remote location.** Both command forms work with SSH aliases and
+hostnames. Existing SSH user, key, port, jump-host, and host-verification behavior remains effective. Paths are data,
+not shell commands. An invalid or inaccessible folder fails clearly; RunWield must not silently work in another folder
+or create the target.
+
+**Remaining target requirement: Prepare RunWield automatically.** A supported host does not need a prior RunWield
+installation or provider login. RunWield prepares compatible required tools and reports progress. It does not overwrite
+a remote user's existing profile or package-managed installation. Missing permission or unsupported platform errors
+identify the real prerequisite; ordinary internal setup and repair stay automatic.
+
+**Target acceptance scenarios (not yet delivered):**
+
+- Given a valid alias and existing remote folder, when the folder command runs, the full TUI opens there. Reading a file
+  and executing a command use that folder on the server, even when the laptop has a same-named folder with different
+  files.
 - Given no folder argument, when the host command runs, the TUI opens in the remote user's home without requiring Git.
 - Given a supported host without RunWield, when the user connects, setup completes without manual profile copying.
 - Given a bad host key, denied access, or missing folder, connection fails without bypassing SSH checks or starting work
@@ -96,7 +128,8 @@ prerequisite; ordinary internal setup and repair stay automatic.
 
 ### Local personal environment
 
-**Scope and maturity:** Proposed extension of Core customization and model behavior.
+**Scope and maturity:** Proposed extension of Core customization and model behavior. No personal profile or model
+service is started in the current connection-only view.
 
 **Requirement: Use one personal environment.** Local user settings, model selections, Agents, skills, and prompts apply
 to the remote Session. Remote project overrides retain their normal precedence. Personal changes save locally; changes
@@ -127,7 +160,8 @@ compatibility checks rather than a claim that every local executable is portable
 
 ### Local memories and saved Sessions
 
-**Scope and maturity:** Proposed extension of project context and Session continuity.
+**Scope and maturity:** Proposed extension of project context and Session continuity. The current connection creates no
+saved Session, writer lock, SFTP server, or SSHFS mount.
 
 **Requirement: Read and update the same local memories.** Core Memory injection, recall, additions, and deletions use
 local storage and preserve project/global scope. Work Record retrieval reads the remote project's canonical records. A
@@ -159,7 +193,8 @@ context. History identifies the remote target. Resume does not recreate unfinish
 
 ### Remote workflows and local review
 
-**Scope and maturity:** Proposed extension; existing approval and validation meanings remain unchanged.
+**Scope and maturity:** Proposed extension; existing approval and validation meanings remain unchanged. The current
+connection does not allow user turns, project tools, workflow actions, or browser reviews.
 
 **Requirement: Complete normal Core work remotely.** Reading and editing, Git, code search, planning, isolated
 execution, validation, repair, and publication use the remote project and its environment. This is not a shell-only
@@ -185,7 +220,9 @@ review server. Closing only the browser does not end the SSH Session.
 
 ### Disconnect and recovery
 
-**Scope and maturity:** Proposed connected-only behavior. This does not change Workspace browser-disconnect behavior.
+**Scope and maturity:** Proposed connected-only Agent and workflow behavior. The current connection-only supervisor
+stops its own view on exit or detected loss; there is no remote Agent or Session work to stop or recover. This does not
+change Workspace browser-disconnect behavior.
 
 **Requirement: Do not continue unattended.** Normal exit ends the remote TUI and stops active RunWield-owned work.
 Unexpected connection loss stops new work and cancels active owned processes when loss is detected, including when the
@@ -217,7 +254,7 @@ best-effort stop request alone does not meet connected-only operation.
 ## Success Measures
 
 - Complete the remote-only project journey above without manual profile copying, a second provider login, or a local
-  checkout. Baseline: this command and data split do not exist today.
+  checkout. Baseline: the connection-only view exists, but the personal-data split and full workflow do not.
 - Observe first-use setup effort and successful return visits in an owner pilot. No time target or adoption threshold
   has been agreed; record friction before setting either.
 - Pass the data-scope, wrong-machine, review, provider, and disconnect acceptance scenarios on each advertised supported
@@ -225,23 +262,26 @@ best-effort stop request alone does not meet connected-only operation.
 
 ## Delivery and Feasibility Limits
 
-The smallest useful release is a complete connected remote development journey, not just a remote prompt. The
-[feasibility report](../research/remote-ssh-feasibility.md) found a plausible path for Pi API/OAuth providers, including
-Codex through Pi and local/custom API endpoints. A 2026-09-20 throwaway proof then demonstrated the narrow Pi model path
-with local authentication, remote tools, streaming, cancellation, tunnel loss, and a fresh connection. It did not prove
-a complete remote RunWield Session or production controls.
+The connection-only subset is not the complete remote release. The smallest useful release is a complete connected
+remote development journey, not just a remote prompt. The [feasibility report](../research/remote-ssh-feasibility.md)
+found a plausible path for Pi API/OAuth providers, including Codex through Pi and local/custom API endpoints. A
+2026-09-20 throwaway proof then demonstrated the narrow Pi model path with local authentication, remote tools,
+streaming, cancellation, tunnel loss, and a fresh connection. It did not prove a complete remote RunWield Session or
+production controls.
 
 The owner has deferred Claude CLI and Antigravity CLI from the first release. Their existing native tools and local
 sign-in remain coupled to one machine, so do not advertise them without a later proof. Copying credentials or silently
 selecting another provider is not an acceptable workaround. Pi-backed providers are the initial compatibility scope.
 
-Host platform coverage and machine-specific integration support also need verification. Ordinary application build
-prerequisites remain the user's project environment, not automatic RunWield installation scope.
+The connection-only GNU/Linux x86-64 flow was exercised over OpenSSH on Linux 6.11.9 (Fedora 39, glibc 2.38), including
+remote home without Git, an existing folder, a symlink to a Git worktree, Ctrl-C, and owned-process loss. The ARM64
+runtime, older libc/kernel baselines, a disposable blocked-control network, and the release matrix remain unqualified.
+Ordinary application build prerequisites remain the user's project environment, not automatic RunWield installation
+scope.
 
-Handoff: `/agent architect` uses this proposal, the research report, and the early Epic draft to settle the production
-boundaries. The Epic is not approved or ready for decomposition. After delivery, fold lasting requirements into
-[RunWield Core](runwield-core-prd.md), retain unresolved scope explicitly, fix references, and remove this transient
-proposal under project policy.
+The [Remote SSH Epic](../plans/remote-ssh-development.md) tracks the remaining integration and release boundaries. After
+full delivery, fold lasting requirements into [RunWield Core](runwield-core-prd.md), retain unresolved scope explicitly,
+fix references, and remove this transient proposal under project policy.
 
 ## Risks and Mitigations
 
@@ -255,15 +295,11 @@ proposal under project policy.
 - **False disconnect success:** Ending the TUI can leave children running. Verify normal exit and loss without client
   cleanup. Preserve evidence when external effects cannot be confirmed.
 
-## Proposed Domain Language
+## Domain Language and Proposed Relationships
 
-**Remote SSH connection:** A connected-only RunWield interaction opened through `wld remote` against a remote folder,
-using locally owned personal data. Avoid calling it Personal Workspace, an unattended worker, or a separate Session
-type. It contains or resumes an ordinary **Session**; it does not own the Session's durable history.
-
-Affected existing terms: **RunWield Core**, **TUI**, **Session**, and **Project Runtime State**. Core gains remote
-project execution while personal data remains local. Project Runtime State stays with the remote checkout. These are
-proposed relationships; the current glossary is unchanged until implementation makes them true.
+**Remote SSH connection** is now defined in the [domain glossary](../domain-language.md#product-and-runtime). The
+current connection displays a remote TUI but does not contain or resume a **Session**. Full remote project execution,
+local personal data, and locally saved Session history are proposed relationships, not current glossary facts.
 
 ## Evidence and Open Checks
 

@@ -10,6 +10,10 @@ Remote development must use an existing Linux project without a laptop checkout 
 requires the terminal interface, Agent, and project workflows to run remotely. Personal settings, model credentials,
 memories, and saved Session history remain locally owned. Work is connected-only, not an unattended worker.
 
+Only the connection boundary is implemented so far: `wld remote` resolves an existing remote directory, prepares a
+matching Linux runtime, and displays a dormant TUI. It starts no personal profile, Agent turn, or saved Session. The
+local-personal-authority split below remains a proposed architecture, not a claim about this connection's capabilities.
+
 Pi uses synchronous transcript file operations. Replacing one model function or one Session-store interface does not
 separate all personal state from project execution. The owner chose to retain Pi's filesystem interface through a mount
 rather than introduce a per-entry network persistence protocol.
@@ -84,6 +88,7 @@ violates existing single-writer guarantees.
 - The architecture depends on OpenSSH and Pi behavior, but not a forked Pi persistence format or a RunWield-owned SFTP
   implementation. Replacing the mount later must preserve bundle format, identity, ownership, and save semantics.
 
-This record is proposed for the remote feature, not evidence of delivered support. The
+This record remains proposed for the full remote feature. The connection-only subset does not establish model access,
+Session mounts or saved history, remote workflows, browser review, or production release support. The
 [Remote SSH Epic](../plans/remote-ssh-development.md) holds the prototype findings, verification limits, rollout, and
 remaining integration work.

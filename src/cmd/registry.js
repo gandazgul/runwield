@@ -33,7 +33,7 @@ import { getAgentDisplayName } from "../shared/session/agents.js";
 import { SYSTEM_WORK_RECORD_MNEMOTECA_PORT } from "../shared/work-records/mnemoteca-port.ts";
 
 /** Known CLI / slash command names. Defined alongside the registry so adding a new command only touches one file. */
-/** @type {Readonly<{ROUTER: string, ONBOARD: string, AGENT: string, MODEL: string, LOGIN: string, LOGOUT: string, STATUS: string, EXPORT: string, SHARE: string, LOAD_PLAN: string, RESUME: string, NEW: string, NAME: string, SESSION: string, PLANS: string, WR: string, SLEEP: string, HELP: string, VERSION: string, UPDATE: string, QUIT: string, EXIT: string, INIT: string, THEME: string, INSTALL: string, REMOVE: string, COMPACT: string, SETTINGS: string, RELOAD: string, SNIP_FILTERS: string, COPY: string, CONTEXT: string, ACP: string, MCP: string, WORKSPACE: string}>} */
+/** @type {Readonly<{ROUTER: string, ONBOARD: string, AGENT: string, MODEL: string, LOGIN: string, LOGOUT: string, STATUS: string, EXPORT: string, SHARE: string, LOAD_PLAN: string, RESUME: string, NEW: string, NAME: string, SESSION: string, PLANS: string, WR: string, SLEEP: string, HELP: string, VERSION: string, UPDATE: string, QUIT: string, EXIT: string, INIT: string, THEME: string, INSTALL: string, REMOVE: string, COMPACT: string, SETTINGS: string, RELOAD: string, SNIP_FILTERS: string, COPY: string, CONTEXT: string, ACP: string, MCP: string, WORKSPACE: string, REMOTE: string}>} */
 export const COMMAND_NAMES = Object.freeze({
     ROUTER: "router",
     ONBOARD: "onboard",
@@ -70,6 +70,7 @@ export const COMMAND_NAMES = Object.freeze({
     ACP: "acp",
     MCP: "mcp",
     WORKSPACE: "workspace",
+    REMOTE: "remote",
 });
 
 /** @param {...string} parts */
@@ -130,6 +131,22 @@ function requireInteractiveCommandContext(options) {
 
 /** @type {Record<string, CommandDefinition>} */
 export const commandRegistry = {
+    [COMMAND_NAMES.REMOTE]: {
+        name: COMMAND_NAMES.REMOTE,
+        displayName: "Remote SSH connection",
+        description: "Open an existing remote Linux directory",
+        summary: "Connect to an existing remote Linux directory (no user turns yet).",
+        usage: [`${bin("remote <ssh-host>[:<remote-directory>]")}`],
+        notes: [
+            "Build the matching GNU/Linux runtime explicitly before connecting.",
+            "No saved Session or user turns in this slice.",
+        ],
+        execute: async (args) => {
+            const { runRemoteCommand } = await import("./remote/index.ts");
+            await runRemoteCommand(args);
+        },
+        surfaces: ["cli"],
+    },
     [COMMAND_NAMES.ROUTER]: {
         name: COMMAND_NAMES.ROUTER,
         displayName: getAgentDisplayName(COMMAND_NAMES.ROUTER),
