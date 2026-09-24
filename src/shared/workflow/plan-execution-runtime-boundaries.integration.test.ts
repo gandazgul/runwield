@@ -10,7 +10,14 @@
  * and whether the Plan reached `implemented`.
  */
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
-import { type Context, fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
+import {
+    fauxAssistantMessage,
+    fauxText,
+    fauxToolCall,
+    getCurrentSystemPrompt,
+    getCurrentTools,
+    type TranscriptContext,
+} from "@earendil-works/pi-ai";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { loadPlan, savePlan } from "../../plan-store.js";
@@ -65,11 +72,11 @@ function createExecutionFixture(projectRoot: string, interaction?: InteractionHa
 }
 
 /** Record the identity behind each model call so a label-only change cannot pass. */
-function captureTurn(fixture: ExecutionFixture, context: Context): void {
+function captureTurn(fixture: ExecutionFixture, context: TranscriptContext): void {
     fixture.turns.push({
         agentName: fixture.hostedSession.getRootAgentName(),
-        systemPrompt: context.systemPrompt ?? "",
-        toolNames: (context.tools ?? []).map((tool) => tool.name),
+        systemPrompt: getCurrentSystemPrompt(context.messages),
+        toolNames: getCurrentTools(context.messages).map((tool) => tool.name),
     });
 }
 
@@ -110,7 +117,7 @@ Deno.test("an engineer-owned Plan runs under Plan Engineer while the Plan keeps 
         await saveExecutablePlan(projectRoot, "backend-feature");
         const fixture = createExecutionFixture(projectRoot);
         setModelResponseFactories(
-            IMPLEMENT_AND_COMPLETE.map((message) => (context: Context) => {
+            IMPLEMENT_AND_COMPLETE.map((message) => (context: TranscriptContext) => {
                 captureTurn(fixture, context);
                 return message;
             }),
@@ -160,7 +167,7 @@ Deno.test("a legacy segment handoff announces Plan Engineer before resuming", as
             const planId = savedPlan?.attrs.planId || "plan-legacy-handoff";
             const fixture = createExecutionFixture(projectRoot);
             setModelResponseFactories(
-                IMPLEMENT_AND_COMPLETE.map((message) => (context: Context) => {
+                IMPLEMENT_AND_COMPLETE.map((message) => (context: TranscriptContext) => {
                     captureTurn(fixture, context);
                     return message;
                 }),
@@ -222,7 +229,7 @@ Deno.test("a frontend-owned Plan runs under Frontend Engineer", async () => {
         await saveExecutablePlan(projectRoot, "visual-feature", { executionAgent: "frontend-engineer" });
         const fixture = createExecutionFixture(projectRoot);
         setModelResponseFactories(
-            IMPLEMENT_AND_COMPLETE.map((message) => (context: Context) => {
+            IMPLEMENT_AND_COMPLETE.map((message) => (context: TranscriptContext) => {
                 captureTurn(fixture, context);
                 return message;
             }),
@@ -257,7 +264,7 @@ Deno.test("Plan Engineer reaches a real Pair checkpoint through production dispa
             return { outcome: "selected", value: "continue" };
         });
         setModelResponseFactories([
-            (context: Context) => {
+            (context: TranscriptContext) => {
                 captureTurn(fixture, context);
                 return fauxAssistantMessage(
                     fauxToolCall("pair_checkpoint", {
@@ -316,11 +323,11 @@ Deno.test("managed Pair discussion restores the owner, tool, cwd, and checkpoint
             const turns: CapturedTurn[] = [];
             let firstCheckpointId = "";
             setModelResponseFactories([
-                (context: Context) => {
+                (context: TranscriptContext) => {
                     turns.push({
                         agentName: activeRuntime.getSessionSnapshot(activeSessionId)?.activeAgent || null,
-                        systemPrompt: context.systemPrompt || "",
-                        toolNames: (context.tools || []).map((tool) => tool.name),
+                        systemPrompt: getCurrentSystemPrompt(context.messages),
+                        toolNames: getCurrentTools(context.messages).map((tool) => tool.name),
                     });
                     return fauxAssistantMessage(fauxToolCall("pair_checkpoint", {
                         action: "report",
@@ -330,21 +337,21 @@ Deno.test("managed Pair discussion restores the owner, tool, cwd, and checkpoint
                 () => fauxAssistantMessage(fauxText(`The increment is isolated. ${"Pair discussion. ".repeat(6000)}`)),
                 () => fauxAssistantMessage(fauxText("Compacted Pair checkpoint context.")),
                 () => fauxAssistantMessage(fauxText("Compacted Pair turn prefix.")),
-                (context: Context) => {
+                (context: TranscriptContext) => {
                     turns.push({
                         agentName: activeRuntime.getSessionSnapshot(activeSessionId)?.activeAgent || null,
-                        systemPrompt: context.systemPrompt || "",
-                        toolNames: (context.tools || []).map((tool) => tool.name),
+                        systemPrompt: getCurrentSystemPrompt(context.messages),
+                        toolNames: getCurrentTools(context.messages).map((tool) => tool.name),
                     });
-                    const match = context.systemPrompt?.match(/Checkpoint ID: ([^\n]+)/);
+                    const match = getCurrentSystemPrompt(context.messages).match(/Checkpoint ID: ([^\n]+)/);
                     firstCheckpointId = match?.[1] || "";
                     return fauxAssistantMessage(fauxText("The increment changes only the managed fixture."));
                 },
-                (context: Context) => {
+                (context: TranscriptContext) => {
                     turns.push({
                         agentName: activeRuntime.getSessionSnapshot(activeSessionId)?.activeAgent || null,
-                        systemPrompt: context.systemPrompt || "",
-                        toolNames: (context.tools || []).map((tool) => tool.name),
+                        systemPrompt: getCurrentSystemPrompt(context.messages),
+                        toolNames: getCurrentTools(context.messages).map((tool) => tool.name),
                     });
                     return fauxAssistantMessage(fauxToolCall("pair_checkpoint", {
                         action: "resolve",
@@ -453,8 +460,8 @@ Deno.test("resuming a session whose persisted workflow owner is engineer activat
             if (event.type === RuntimeEventTypes.AGENT_CHANGED && event.agentName) agentChanges.push(event.agentName);
         });
         let promptedSystemPrompt = "";
-        setModelResponseFactory((context: Context) => {
-            promptedSystemPrompt = context.systemPrompt ?? "";
+        setModelResponseFactory((context: TranscriptContext) => {
+            promptedSystemPrompt = getCurrentSystemPrompt(context.messages);
             return fauxAssistantMessage(fauxText("Continuing the Plan."));
         });
 
@@ -493,8 +500,8 @@ Deno.test("a QUICK_FIX workflow resumes under the selectable Engineer, not Plan 
         const runtime = makeRuntime(sessionHost);
         const sessionId = await runtime.createPromptReadySession({ cwd: projectRoot, agentName: "router" });
         let promptedSystemPrompt = "";
-        setModelResponseFactory((context: Context) => {
-            promptedSystemPrompt = context.systemPrompt ?? "";
+        setModelResponseFactory((context: TranscriptContext) => {
+            promptedSystemPrompt = getCurrentSystemPrompt(context.messages);
             return fauxAssistantMessage(fauxText("Continuing the quick fix."));
         });
 

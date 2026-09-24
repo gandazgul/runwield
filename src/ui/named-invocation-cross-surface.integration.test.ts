@@ -2,7 +2,7 @@
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
 import { fauxAssistantMessage, fauxText } from "@earendil-works/pi-ai";
-import type { Context } from "@earendil-works/pi-ai";
+import type { TranscriptContext } from "@earendil-works/pi-ai";
 import { withRuntimeCommandFixture } from "../cmd/testing/runtime-command-fixture.ts";
 import { createSessionRuntime } from "../shared/session/session-runtime.ts";
 import { listPersistedRootSessions } from "../shared/session/root-session.js";
@@ -23,11 +23,16 @@ interface NamedInvocationPayload {
 }
 
 interface TranscriptEntry {
+    id?: string;
+    parentId?: string;
     type?: string;
     customType?: string;
     provider?: string;
     modelId?: string;
     data?: NamedInvocationPayload & { agentName?: string };
+    message?: { role?: string; content?: Array<{ type?: string; text?: string }> };
+    targetId?: string;
+    replacement?: { content?: Array<{ type?: string; text?: string }> } | null;
 }
 
 interface NamedInvocationPromptResult {
@@ -124,8 +129,15 @@ async function readTranscriptSummary(transcriptPath: string): Promise<{
     const namedEntries = entries.filter((entry) =>
         entry.type === "custom" && entry.customType === "runwield.named_invocation"
     );
-    const payload = namedEntries.at(-1)?.data;
+    const namedEntry = namedEntries.at(-1);
+    const payload = namedEntry?.data;
     if (!payload) throw new Error(`No named invocation payload found in ${transcriptPath}`);
+    const userEntry = entries.find((entry) =>
+        entry.type === "message" && entry.parentId === namedEntry?.id && entry.message?.role === "user"
+    );
+    assertEquals(userEntry?.message?.content, [{ type: "text", text: compactInvocation }]);
+    const contextEdit = entries.find((entry) => entry.type === "context_edit" && entry.targetId === userEntry?.id);
+    assertEquals(contextEdit?.replacement?.content, [{ type: "text", text: expectedDisplayedInvocation }]);
     let restoredAgent = "";
     let restoredModel = "";
     for (const entry of entries) {
@@ -456,15 +468,15 @@ Deno.test("named invocation fixture matches TUI, Workspace, and ACP surfaces", a
             await writeCrossSurfacePrompt(projectRoot);
             const requests: string[] = [];
             setModelResponseFactories([
-                (context: Context) => {
+                (context: TranscriptContext) => {
                     requests.push(JSON.stringify(context.messages));
                     return fauxAssistantMessage(fauxText(expectedAssistantText));
                 },
-                (context: Context) => {
+                (context: TranscriptContext) => {
                     requests.push(JSON.stringify(context.messages));
                     return fauxAssistantMessage(fauxText(expectedAssistantText));
                 },
-                (context: Context) => {
+                (context: TranscriptContext) => {
                     requests.push(JSON.stringify(context.messages));
                     return fauxAssistantMessage(fauxText(expectedAssistantText));
                 },

@@ -241,11 +241,25 @@ export async function runPublicationPhase(
     context: PhaseContext,
     humanReviewMetadata: HumanReviewMetadata,
 ): Promise<PublicationOutcome> {
-    return await withPlanLock(
+    const outcome = await withPlanLock(
         context.projectRoot,
         args.planName,
         async () => await runLockedPublicationPhase(args, context, humanReviewMetadata),
     );
+    if (!outcome.recorded && await preparePublicationRevalidation(context.projectRoot, args.planName)) {
+        emitStatus(args, PUBLICATION_REVALIDATION_MESSAGE);
+        return {
+            recorded: false,
+            result: {
+                kind: "paused",
+                planName: args.planName,
+                projectRoot: context.projectRoot,
+                continueValidation: true,
+                reason: PUBLICATION_REVALIDATION_MESSAGE,
+            },
+        };
+    }
+    return outcome;
 }
 
 async function runLockedPublicationPhase(

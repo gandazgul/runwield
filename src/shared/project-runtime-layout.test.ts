@@ -91,6 +91,45 @@ Deno.test("project runtime layout resolves normal primary and selected internal 
     });
 });
 
+Deno.test("runtime migration retries one transient Git worktree listing failure", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const primaryCheckout = await fixture.checkout({ prefix: "runwield-runtime-layout-retry-" });
+        const binDir = await Deno.makeTempDir({ prefix: "runwield-runtime-layout-git-" });
+        const failedListMarker = join(binDir, "worktree-list-failed");
+        const originalPath = Deno.env.get("PATH") || "";
+        try {
+            const gitWrapper = join(binDir, "git");
+            await Deno.writeTextFile(
+                gitWrapper,
+                [
+                    "#!/bin/sh",
+                    `if [ \"$1\" = \"worktree\" ] && [ \"$2\" = \"list\" ] && [ ! -e ${
+                        JSON.stringify(failedListMarker)
+                    } ]; then`,
+                    `    touch ${JSON.stringify(failedListMarker)}`,
+                    "    exit 1",
+                    "fi",
+                    `PATH=${JSON.stringify(originalPath)}`,
+                    "export PATH",
+                    'exec git "$@"',
+                    "",
+                ].join("\n"),
+            );
+            await Deno.chmod(gitWrapper, 0o700);
+            Deno.env.set("PATH", `${binDir}:${originalPath}`);
+
+            const layout = await enterProjectRuntime(primaryCheckout);
+
+            assertExists(await Deno.stat(failedListMarker));
+            assertEquals(layout.primary.checkoutRoot, await Deno.realPath(primaryCheckout));
+        } finally {
+            Deno.env.set("PATH", originalPath);
+            await Deno.remove(binDir, { recursive: true }).catch(() => {});
+            await Deno.remove(primaryCheckout, { recursive: true }).catch(() => {});
+        }
+    });
+});
+
 Deno.test("project runtime layout keeps sandboxed primary and selected lock namespaces separate", async () => {
     const primaryCheckout = await fixture.checkout({ prefix: "runwield-runtime-layout-sandbox-primary-" });
     const selectedCheckout = await Deno.makeTempDir({ prefix: "runwield-runtime-layout-sandbox-selected-" });

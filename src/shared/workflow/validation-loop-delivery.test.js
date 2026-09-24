@@ -153,7 +153,6 @@ Deno.test("Epic child delivery commits its Manual QA artifact with verified meta
                     toolCallId: "call",
                     toolName: "qa_checklist_generated",
                     content: toolResult.content,
-                    details: toolResult.details || {},
                     isError: false,
                     timestamp: Date.now(),
                 }];

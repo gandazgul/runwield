@@ -273,8 +273,9 @@ function backupOwnerDatabase(db, dbPath, sourceVersion, now) {
     } catch {
         // Some filesystems do not support chmod; creation location is still owner-only best effort.
     }
-    const backup = new DatabaseSync(backupPath, { readOnly: true });
+    const backup = new DatabaseSync(backupPath);
     try {
+        backup.exec("PRAGMA journal_mode = DELETE");
         const quickCheck = /** @type {{ quick_check: string }} */ (backup.prepare("PRAGMA quick_check").get());
         if (quickCheck.quick_check !== "ok") {
             throw new Error(`Owner coordination backup failed quick_check: ${backupPath}`);
