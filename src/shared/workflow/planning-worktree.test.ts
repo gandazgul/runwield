@@ -117,18 +117,45 @@ Deno.test("planning worktree resume reuses saved Plan edits", async () => {
     assertStringIncludes(second.plan.markdown, "SAVED PLANNER EDIT");
 });
 
-Deno.test("planning worktree refuses to create a missing target from main", async () => {
+Deno.test("first Epic child planning starts from a new target branch", async () => {
     const repo = await fixture.checkout();
+    const remote = await Deno.makeTempDir();
+    await git(remote, ["init", "--bare", "--initial-branch=main"]);
+    await git(repo, ["remote", "add", "origin", remote]);
+    await git(repo, ["push", "origin", "main"]);
+    const mainCommit = await git(repo, ["rev-parse", "main"]);
 
-    await assertRejects(
-        () =>
-            preparePlanningWorktreeForPlan(repo, "epic/01-child", {
-                planId: "plan-child-01",
-                targetBranch: "missing-target",
-            }),
-        Error,
-        "Target branch does not exist",
-    );
+    const result = await preparePlanningWorktreeForPlan(repo, "epic/01-child", {
+        planId: "plan-child-01",
+        targetBranch: "new-target",
+    });
+
+    assertEquals(result.entry.baseCommit, mainCommit);
+    assertEquals(await git(repo, ["rev-parse", "new-target"]), mainCommit);
+    assertStringIncludes(result.plan.markdown, "PRIMARY STALE MARKER");
+});
+
+Deno.test("first Epic child uses the remote default branch, not local main", async () => {
+    const repo = await fixture.checkout();
+    const remote = await Deno.makeTempDir();
+    await git(remote, ["init", "--bare", "--initial-branch=trunk"]);
+    await git(repo, ["remote", "add", "origin", remote]);
+    await git(repo, ["push", "origin", "main:trunk"]);
+    await git(repo, ["switch", "-c", "trunk"]);
+    await Deno.writeTextFile(join(repo, "trunk-only.txt"), "default branch\n");
+    await git(repo, ["add", "."]);
+    await git(repo, ["commit", "-m", "advance default branch"]);
+    await git(repo, ["push", "origin", "trunk"]);
+    const defaultCommit = await git(repo, ["rev-parse", "trunk"]);
+    await git(repo, ["switch", "main"]);
+
+    const result = await preparePlanningWorktreeForPlan(repo, "epic/01-child", {
+        planId: "plan-child-01",
+        targetBranch: "new-target",
+    });
+
+    assertEquals(result.entry.baseCommit, defaultCommit);
+    assertEquals(await git(repo, ["rev-parse", "new-target"]), defaultCommit);
 });
 
 Deno.test("target child catalog uses saved planning documents over target branch copies", async () => {
