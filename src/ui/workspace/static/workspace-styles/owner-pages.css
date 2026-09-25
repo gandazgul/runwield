@@ -39,6 +39,14 @@
     margin: 0.5rem 0;
 }
 
+.owner-dashboard-error {
+    color: var(--rw-warning);
+}
+
+.owner-dashboard-error .rw-toolbar-button {
+    margin-left: 0.4rem;
+}
+
 .owner-dashboard-grid {
     display: grid;
     gap: 0.75rem;
