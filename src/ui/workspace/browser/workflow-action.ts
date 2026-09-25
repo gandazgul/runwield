@@ -1,28 +1,29 @@
 /** Submit a workflow action, including the existing Resume Check warning confirmation. */
-/**
- * @typedef {Object} WorkflowActionRequest
- * @property {string} requestId
- * @property {string} planId
- * @property {string} action
- * @property {number | null} [expectedGeneration]
- * @property {string | null} [expectedCurrentSegmentId]
- * @property {string | null} [expectedRevision]
- * @property {boolean} [acceptResumeWarnings]
- */
-/**
- * @typedef {Object} WorkflowActionResponse
- * @property {string} [error]
- * @property {string} [reviewUrl]
- * @property {string} [operationId]
- * @property {string} [status]
- * @property {string} [reason]
- * @property {boolean} [canceled]
- * @property {boolean} [requiresConfirmation]
- * @property {{ warnings: string[] }} [resumeCheck]
- * @property {{ kind: string, message: string }} [result]
- */
-/** @param {string} url @param {WorkflowActionRequest} request @returns {Promise<WorkflowActionResponse>} */
-export async function submitWorkflowAction(url, request) {
+type WorkflowActionRequest = {
+    requestId: string;
+    planId: string;
+    action: string;
+    expectedGeneration?: number | null;
+    expectedCurrentSegmentId?: string | null;
+    expectedRevision?: string | null;
+    acceptResumeWarnings?: boolean;
+};
+
+type WorkflowActionResponse = {
+    error?: string;
+    reviewUrl?: string;
+    operationId?: string;
+    status?: string;
+    reason?: string;
+    canceled?: boolean;
+    requiresConfirmation?: boolean;
+    resumeCheck?: { warnings: string[] };
+    result?: { kind: string; message: string };
+};
+export async function submitWorkflowAction(
+    url: string,
+    request: WorkflowActionRequest,
+): Promise<WorkflowActionResponse> {
     const csrf = document.cookie.split("; ").find((value) => value.startsWith("rw_owner_csrf="))
         ?.split("=").slice(1).join("=") || "";
     const response = await fetch(url, {
@@ -30,8 +31,7 @@ export async function submitWorkflowAction(url, request) {
         headers: { "content-type": "application/json", "x-runwield-csrf": decodeURIComponent(csrf) },
         body: JSON.stringify(request),
     });
-    /** @type {WorkflowActionResponse} */
-    const payload = await response.json();
+    const payload = await response.json() as WorkflowActionResponse;
     if (payload.requiresConfirmation && !request.acceptResumeWarnings) {
         if (!globalThis.confirm(`${payload.resumeCheck?.warnings.join("\n") || payload.error}\n\nResume from hold?`)) {
             return { canceled: true };

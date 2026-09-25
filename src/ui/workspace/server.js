@@ -1,5 +1,5 @@
 // @ts-nocheck: local wrapper includes a tiny Fresh-free router and production Astro bridge with dynamic handler shapes.
-import { ownerPlanContinuationApi } from "./routes/owner-plan-continuation.js";
+import { ownerPlanContinuationApi } from "./routes/owner-plan-continuation.ts";
 /**
  * Programmatic Workspace server composition.
  *

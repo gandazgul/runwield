@@ -1,4 +1,4 @@
-import { ownerPlanContinuationApi } from "./owner-plan-continuation.js";
+import { ownerPlanContinuationApi } from "./owner-plan-continuation.ts";
 import { resolveWorkflowPlanLocation } from "../../../shared/workflow/plan-location.ts";
 /* @module ui/workspace/routes/owner-session-api */
 
