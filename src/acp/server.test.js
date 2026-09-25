@@ -7,6 +7,7 @@ import { assert, assertEquals, assertStringIncludes, assertThrows } from "@std/a
 import { fauxAssistantMessage, fauxText, fauxToolCall, getSystemMessageText } from "@earendil-works/pi-ai";
 import { dirname, fromFileUrl, join, resolve } from "@std/path";
 import { withRuntimeCommandFixture } from "../cmd/testing/runtime-command-fixture.ts";
+import { savePlan } from "../plan-store.js";
 import { openFileSessionStore } from "../shared/session/file-session-store.ts";
 import { __resetSettingsForTests } from "../shared/settings.js";
 import { createRootSessionManager, resolveCreatedRootSessionPath } from "../shared/session/root-session.js";
@@ -1360,6 +1361,159 @@ Deno.test("ACP /session reports real Runtime totals", async () => {
             assertStringIncludes(text, "Total:");
             assertEquals(result.response.result.stopReason, "end_turn");
         } finally {
+            await closeTestServer(handle);
+        }
+    });
+});
+
+Deno.test("ACP /plan-review reports when this Session has no saved review", async () => {
+    await withRuntimeCommandFixture("runwield-acp-plan-review-", async (fixture) => {
+        const handle = startTestServer();
+        try {
+            const { sessionId } = await createSession(handle, fixture.projectRoot);
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "plan-review-command",
+                method: "session/prompt",
+                params: { sessionId, prompt: [{ type: "text", text: "/plan-review" }] },
+            });
+            const result = await readThroughResponse(handle, "plan-review-command");
+            assertStringIncludes(joinedAgentText(result.messages), "no previous Plan review");
+            assertEquals(result.response.result.stopReason, "end_turn");
+        } finally {
+            await closeTestServer(handle);
+        }
+    });
+});
+
+Deno.test("ACP /plan-review returns the live Plan Review URL while the original prompt remains pending", async () => {
+    await withRuntimeCommandFixture("runwield-acp-live-plan-review-", async (fixture) => {
+        await savePlan(fixture.projectRoot, "acp-review", "# ACP review\n\nReview this Plan.\n", {
+            classification: "PLANNED_CHANGE",
+            status: "draft",
+            summary: "Review this Plan",
+            affectedPaths: [],
+        });
+        let modelTurns = 0;
+        fixture.setModelResponseFactory(() => {
+            modelTurns++;
+            if (modelTurns !== 1) throw new Error("/plan-review must not start another model turn");
+            return fauxAssistantMessage(fauxToolCall("plan_written", { planName: "acp-review" }));
+        });
+        const handle = startTestServer();
+        /** @type {string | undefined} */
+        let reviewUrl;
+        try {
+            const { sessionId } = await createSession(handle, fixture.projectRoot);
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "select-planner",
+                method: "session/prompt",
+                params: { sessionId, prompt: [{ type: "text", text: "/agent planner" }] },
+            });
+            assertEquals((await readThroughResponse(handle, "select-planner")).response.result.stopReason, "end_turn");
+
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "original-review-turn",
+                method: "session/prompt",
+                params: { sessionId, prompt: [{ type: "text", text: "Present the saved Plan for review" }] },
+            });
+            for (let index = 0; index < 80; index++) {
+                const message = await readMessage(handle);
+                assert(message.id !== "original-review-turn", "Original prompt must wait for the review decision");
+                const meta = message.params?.update?._meta?.runwield;
+                if (meta?.interactionType === "plan_review" && typeof meta.reviewUrl === "string") {
+                    reviewUrl = meta.reviewUrl;
+                    break;
+                }
+            }
+            assert(reviewUrl, "The real review must publish a URL in an ACP session/update");
+            const page = await fetch(reviewUrl);
+            assertEquals(page.status, 200, await page.text());
+
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "live-review-command",
+                method: "session/prompt",
+                params: { sessionId, prompt: [{ type: "text", text: "/plan-review" }] },
+            });
+            const result = await readThroughResponse(handle, "live-review-command");
+            assertEquals(result.response.result.stopReason, "end_turn");
+            assert(
+                !result.messages.some((message) => message.id === "original-review-turn"),
+                "Original prompt must still wait for review after /plan-review",
+            );
+            const link = result.messages.find((message) =>
+                message.params?.update?._meta?.runwield?.command === "plan-review"
+            )?.params.update;
+            assertEquals(link?._meta?.runwield?.reviewUrl, reviewUrl);
+            assertStringIncludes(link?.content?.text || "", reviewUrl);
+            assertEquals(
+                result.messages.filter((message) => message.params?.update?._meta?.runwield?.interactionType).length,
+                0,
+                "/plan-review must not create another interaction",
+            );
+            assertEquals(modelTurns, 1);
+
+            const url = new URL(reviewUrl);
+            const token = url.searchParams.get("token");
+            assert(token, "The review URL must include a decision token");
+            const decision = await fetch(
+                new URL(`/api/review/decision?token=${encodeURIComponent(token)}`, url.origin),
+                {
+                    method: "POST",
+                    headers: { "content-type": "application/json", "x-runwield-review-token": token },
+                    body: JSON.stringify({ canceled: true }),
+                },
+            );
+            assertEquals(decision.status, 200, await decision.text());
+            const original = await readThroughResponse(handle, "original-review-turn");
+            assertEquals(original.response.result.stopReason, "end_turn");
+            assertEquals(modelTurns, 1);
+        } finally {
+            if (reviewUrl) {
+                const url = new URL(reviewUrl);
+                const token = url.searchParams.get("token");
+                if (token) {
+                    await fetch(new URL(`/api/review/decision?token=${encodeURIComponent(token)}`, url.origin), {
+                        method: "POST",
+                        headers: { "content-type": "application/json", "x-runwield-review-token": token },
+                        body: JSON.stringify({ canceled: true }),
+                    }).catch(() => {});
+                }
+            }
+            await closeTestServer(handle);
+        }
+    });
+});
+
+Deno.test("ACP /plan-review does not replace a prompt whose response is still pending", async () => {
+    await withRuntimeCommandFixture("runwield-acp-plan-review-busy-", async (fixture) => {
+        fixture.setModelResponse("Original turn complete.");
+        const handle = startTestServer({ holdResponseId: "original-turn" });
+        try {
+            const { sessionId } = await createSession(handle, fixture.projectRoot);
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "original-turn",
+                method: "session/prompt",
+                params: { sessionId, prompt: [{ type: "text", text: "Original prompt" }] },
+            });
+            await handle.heldResponseStarted;
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "review-while-busy",
+                method: "session/prompt",
+                params: { sessionId, prompt: [{ type: "text", text: "/plan-review" }] },
+            });
+            handle.releaseHeldResponse?.();
+            const result = await readThroughResponse(handle, "review-while-busy");
+            assertStringIncludes(joinedAgentText(result.messages), "busy with other work");
+            assertEquals(result.response.result.stopReason, "end_turn");
+            assert(result.messages.some((message) => message.id === "original-turn"), "Original prompt must finish.");
+        } finally {
+            handle.releaseHeldResponse?.();
             await closeTestServer(handle);
         }
     });

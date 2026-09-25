@@ -63,6 +63,10 @@ Global flags:
 - `/agent`: switch the active Agent.
 - `/init`: initialize the current project.
 - `/load-plan`: open a Plan selector or continue a saved Plan.
+- `/plan-review`: in an existing Session, show the live Plan review link or reopen that Session's most recent review of
+  the current saved Plan without a planning turn. Takes no arguments. A past review does not restore a pending answer;
+  busy Sessions and missing or no longer reviewable Plans receive an explanation. Available in TUI, ACP, and the
+  Workspace Session composer.
 - `/resume`: browse and resume a recent Session.
 - `/new`: start a new root Session.
 - `/name`: set or show the current Session name.

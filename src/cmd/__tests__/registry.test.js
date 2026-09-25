@@ -38,6 +38,15 @@ Deno.test("importing the registry does not initialize the TUI", async () => {
     assertEquals(new TextDecoder().decode(result.stdout), "");
 });
 
+Deno.test("plan-review help explains Session restart and saved content", () => {
+    const command = getSlashCommandDefinition("plan-review");
+    assertEquals(command?.notes?.some((note) => note.includes("current Session") && note.includes("restart")), true);
+    assertEquals(
+        command?.notes?.some((note) => note.includes("current saved Plan") && note.includes("lost review page")),
+        true,
+    );
+});
+
 Deno.test("getCommandDefinition resolves alias", () => {
     const command = getCommandDefinition("agents");
     assertEquals(command?.name, "agent");
@@ -136,6 +145,7 @@ Deno.test("Workspace slash surface comes from the registry and keeps current cov
     assertEquals(getSlashCommandDefinitions("workspace").map((command) => command.name), [
         "agent",
         "model",
+        "plan-review",
         "resume",
         "new",
         "session",

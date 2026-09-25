@@ -224,6 +224,7 @@ export class RuntimeWorkflows {
         _operationName: string,
         options: RuntimeWorkflowOptions,
         operation: () => Promise<T>,
+        activateAgent = true,
     ): Promise<T> {
         await this.lifecycle.materializeDeferredWorkflowSession(session);
         const managed = session.getManagedMetadata?.();
@@ -236,7 +237,7 @@ export class RuntimeWorkflows {
                 return await this.events.runBusyOperation(session.id, operation);
             }
             await this.managedOperations.awaitSettlement(session.id);
-            return await this.runWorkflowOperation(session, _operationName, options, operation);
+            return await this.runWorkflowOperation(session, _operationName, options, operation, activateAgent);
         }
         await this.restoreDormantManagedInvariant(session);
         if (session.getRootSessionManager?.()) {
@@ -251,12 +252,85 @@ export class RuntimeWorkflows {
                     ...options,
                     expectedGeneration: managed.generation ?? undefined,
                 },
-                activateAgent: true,
+                activateAgent,
             },
             async () => await operation(),
         );
         if (isManagedOperationFailure(result)) throw new Error(result.error);
         return result;
+    }
+
+    private readonly reopeningPlanReviews = new Set<string>();
+
+    async reopenPlanReview(
+        sessionId: string,
+        runtime: import("../session-runtime.ts").SessionRuntime,
+    ): Promise<
+        import("../../../cmd/load-plan/reopen-plan-review.ts").ReopenPlanReviewResult | {
+            kind: "busy" | "no_reference" | "live" | "starting";
+            message: string;
+            url?: string;
+        }
+    > {
+        const session = this.services.sessionHost.getSession(sessionId);
+        if (!session) return { kind: "no_reference", message: "This Session is not available." };
+        const active = [...session.getActiveInteractions().values()].find((entry) =>
+            entry.request?.type === "plan_review"
+        );
+        if (active) {
+            return active.request?.reviewUrl
+                ? { kind: "live", message: "The current Plan review is open.", url: active.request.reviewUrl }
+                : { kind: "starting", message: "The current Plan review is starting." };
+        }
+        if (
+            this.reopeningPlanReviews.has(sessionId) || session.isTurnActive() ||
+            this.managedOperations.hasOperation(sessionId) || session.getActiveInteractions().size
+        ) {
+            return { kind: "busy", message: "This Session is busy with other work." };
+        }
+        const managed = session.getManagedMetadata?.();
+        const reference = managed
+            ? this.services.sessionStore?.getLastPlanReview(managed.runwieldSessionId, managed.projectId)
+            : null;
+        if (!reference) return { kind: "no_reference", message: "This Session has no previous Plan review." };
+        this.reopeningPlanReviews.add(sessionId);
+        try {
+            await this.restoreDormantManagedInvariant(session);
+            if (session.getRootSessionManager?.()) {
+                return { kind: "busy", message: "This Session is busy with other work." };
+            }
+            const result = await this.runWorkflowOperation(session, "reopenPlanReview", {}, async () => {
+                const { reopenSavedPlanReview } = await import("../../../cmd/load-plan/reopen-plan-review.ts");
+                const current = managed
+                    ? this.services.sessionStore?.getLastPlanReview(managed.runwieldSessionId, managed.projectId)
+                    : null;
+                if (!current) {
+                    return { kind: "no_reference" as const, message: "This Session has no previous Plan review." };
+                }
+                return await reopenSavedPlanReview(runtime, sessionId, current, (message, isError) => {
+                    emitSystemStatus(session, message, { header: "RunWield", level: isError ? "error" : "info" });
+                });
+            }, false);
+            if ("executionToStart" in result && result.executionToStart) {
+                const { startReopenedPlanExecution } = await import("../../../cmd/load-plan/reopen-plan-review.ts");
+                await startReopenedPlanExecution(runtime, sessionId, result.executionToStart);
+            }
+            return {
+                kind: result.kind,
+                message: result.message,
+                ...("url" in result && result.url ? { url: result.url } : {}),
+            };
+        } catch (error) {
+            if (
+                error instanceof Error &&
+                (error.message === "managed_operation_in_progress" || error.message === "refresh_required")
+            ) {
+                return { kind: "busy", message: "This Session is busy with other work. Try again when it is idle." };
+            }
+            throw error;
+        } finally {
+            this.reopeningPlanReviews.delete(sessionId);
+        }
     }
 
     async runPlanAction(

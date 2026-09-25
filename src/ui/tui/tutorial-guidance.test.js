@@ -236,6 +236,7 @@ Deno.test("tutorial pause before Plan approval settles cancellation and reloads 
                 (await runtime.requestInteraction(created.sessionId, {
                     type: "plan_review",
                     prompt: "Review Plan",
+                    _meta: { planId: "plan-1", planName: "plan", planningAgentName: "planner" },
                 })).outcome,
                 "accepted",
             );
@@ -252,6 +253,7 @@ Deno.test("tutorial pause before Plan approval settles cancellation and reloads 
                         activeReviews.push(runtime.requestInteraction(created.sessionId, {
                             type: "plan_review",
                             prompt: "Review Plan before approval",
+                            _meta: { planId: "plan-1", planName: "plan", planningAgentName: "planner" },
                         }));
                         while (reviewEvents.length < 2) await new Promise((resolve) => setTimeout(resolve, 1));
                         return "pause";

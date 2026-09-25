@@ -17,6 +17,7 @@ const IMMEDIATE_BUILTIN_SLASH_COMMANDS_WHILE_STREAMING = new Set([
     "export",
     "help",
     "name",
+    "plan-review",
     "quit",
     "session",
     "share",

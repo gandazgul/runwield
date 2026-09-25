@@ -1,4 +1,5 @@
 import { isSequencePlan } from "../../shared/project-plan.ts";
+import { applySequenceReviewDecision, prepareSequenceReview } from "../../shared/workflow/sequence-review.ts";
 /**
  * @module cmd/load-plan/plan-review-flow
  * Direct Plan Review handling for Plans loaded from disk.
@@ -9,10 +10,11 @@ import { isSequencePlan } from "../../shared/project-plan.ts";
  */
 
 import { AGENTS, CLI_BIN } from "../../constants.js";
-import { type PlanFrontMatter, resolvePlanExecutionPolicy } from "../../plan-store.js";
+import { loadPlan, type PlanFrontMatter, resolvePlanExecutionPolicy } from "../../plan-store.js";
 import { decidePostExecution, decidePostPlanning } from "../../shared/workflow/decisions.js";
 import { isPlanReviewableWithoutReopen, isProjectPlan, recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
 import { resolveWorkflowPlanLocation } from "../../shared/workflow/plan-location.ts";
+import { loadPlanActionEvidence } from "../../shared/workflow/plan-actions.ts";
 import { normalizePlanApprovalAction, PLAN_APPROVAL_ACTIONS } from "../../shared/workflow/plan-approval.js";
 import {
     appendSessionCompleteGuidance,
@@ -45,6 +47,8 @@ interface DirectReviewOptions {
     projectRoot: string;
     plan: ReviewableLoadedPlan;
     agentName: string;
+    activatePlanningAgent?: boolean;
+    deferExecution?: boolean;
     uiAPI: UiAPI;
     executePlan: PlanSessionSurface["executePlan"];
     continueWorkflowValidation: PlanSessionSurface["runValidation"];
@@ -61,6 +65,11 @@ export interface DirectPlanReviewEligibility {
 
 export interface DirectPlanReviewResult {
     keepPlanAgentActive: boolean;
+    reviewUnanswered?: boolean;
+    executionToStart?: {
+        options: Parameters<PlanSessionSurface["executePlan"]>[0];
+        fallbackPlanContent: string;
+    };
 }
 
 const DIRECT_REVIEW_STATUSES = new Set(["draft", "feedback", "approved", "ready_for_work"]);
@@ -85,6 +94,8 @@ export async function reviewLoadedPlanDirectly({
     projectRoot,
     plan,
     agentName,
+    activatePlanningAgent = true,
+    deferExecution = false,
     uiAPI,
     executePlan,
     continueWorkflowValidation,
@@ -98,36 +109,151 @@ export async function reviewLoadedPlanDirectly({
     );
 
     if (isSequencePlan(plan.attrs)) {
-        const outcome = await runPlanningAgent({
-            agentName: AGENTS.PLANNER,
-            planName: plan.planName,
-            triageMeta: plan.attrs,
-            initialRequest:
-                `Open the complete saved Sequence ${plan.planName} for review using plan_written. Preserve its children and their IDs.`,
-            associationPurpose: "review",
+        // Freeze the complete saved set before presentation. No Planner turn is needed to open it.
+        const { documentRoot } = await resolveWorkflowPlanLocation(projectRoot, plan.planName);
+        const documents = await prepareSequenceReview(documentRoot, plan.planName);
+        const recovered = await requestRecoverablePlanReview({
+            requestReview: () =>
+                session.reviewPlan({
+                    planName: plan.planName,
+                    planPath: documents[0].planPath,
+                    documentRoot,
+                    planningAgentName: agentName,
+                    triageMeta: documents[0].frontmatter,
+                    sequenceDocuments: documents,
+                }),
+            requestRetry: async ({ response }) => {
+                if (response?.cancellationReason === "runtime_cancel") {
+                    return { outcome: RuntimeInteractionOutcomes.CANCELED, value: false };
+                }
+                const answer = await uiAPI.promptSelect("Review the Sequence again?", [
+                    { value: "yes", label: "Yes" },
+                    { value: "no", label: "No" },
+                ]);
+                return answer === "yes"
+                    ? { outcome: RuntimeInteractionOutcomes.ACCEPTED, value: true }
+                    : { outcome: RuntimeInteractionOutcomes.CANCELED, value: false };
+            },
         });
-        const decision = decidePostPlanning(outcome, {
-            planningAgentName: AGENTS.PLANNER,
-            fallbackTriageMeta: plan.attrs,
+        if (recovered.kind === "complete") {
+            uiAPI.appendSystemMessage(SESSION_COMPLETE_GUIDANCE, false, "RunWield");
+            return { keepPlanAgentActive: true, reviewUnanswered: true };
+        }
+        const response = recovered.response;
+        if (!response.sequenceDecision) {
+            uiAPI.appendSystemMessage(
+                "The review response omitted the Sequence decisions. Reopen the complete review.",
+                true,
+                "RunWield",
+            );
+            return { keepPlanAgentActive: true };
+        }
+        const applied = await applySequenceReviewDecision({
+            cwd: documentRoot,
+            documents,
+            decision: response.sequenceDecision,
         });
-        await executePostPlanningDecision({
-            decision,
-            fallbackPlanContent: plan.markdown || plan.body || "",
+        if (applied.cancellationReason) {
+            uiAPI.appendSystemMessage(applied.feedback || "Reopen the complete Sequence review.", true, "RunWield");
+            return { keepPlanAgentActive: true };
+        }
+        const outcome = applied.workflowOutcome!;
+        if (!applied.approved) {
+            const planningResult = await runPlanningAgent({
+                agentName,
+                initialRequest: buildReReviewRevisionRequest(plan.planName, applied.feedback),
+                triageMeta: applied.planAttrs || plan.attrs,
+                images: outcome.images,
+                planName: plan.planName,
+                associationPurpose: "review",
+            });
+            const decision = decidePostPlanning(planningResult, {
+                planningAgentName: agentName,
+                fallbackTriageMeta: applied.planAttrs || plan.attrs,
+            });
+            await executePostPlanningDecision({
+                decision,
+                fallbackPlanContent: plan.markdown || plan.body || "",
+                uiAPI,
+                executePlan,
+                continueWorkflowValidation,
+                runSlicerAgent,
+                session,
+            });
+            return { keepPlanAgentActive: shouldKeepPlanningAgentActive(decision) };
+        }
+        if (applied.approvalAction !== PLAN_APPROVAL_ACTIONS.RUN) {
+            uiAPI.appendSystemMessage(
+                appendSessionCompleteGuidance(`Plan saved. Resume later with: ${CLI_BIN} load-plan ${plan.planName}`),
+                false,
+                "RunWield",
+            );
+            return { keepPlanAgentActive: true };
+        }
+        if (!outcome.planName) throw new Error("The Sequence has no first child to execute.");
+        const child = await loadPlan(documentRoot, outcome.planName);
+        if (!child || child.attrs.planId !== outcome.triageMeta?.planId) {
+            uiAPI.appendSystemMessage(
+                "The first Sequence child changed. Reopen its saved Plan before execution.",
+                true,
+                "RunWield",
+            );
+            return { keepPlanAgentActive: true };
+        }
+        const confirmed = await confirmAffectedPathChangesBeforeExecution({
+            projectRoot,
+            planName: outcome.planName,
+            triageMeta: child.attrs,
             uiAPI,
-            executePlan,
-            continueWorkflowValidation,
-            runSlicerAgent,
-            session,
         });
-        return { keepPlanAgentActive: shouldKeepPlanningAgentActive(decision) };
+        if (!confirmed) return { keepPlanAgentActive: false };
+        const approvalEvidence = await loadPlanActionEvidence(documentRoot, child.attrs.planId || "");
+        if (approvalEvidence.kind !== "success") {
+            uiAPI.appendSystemMessage(approvalEvidence.message, true, "RunWield");
+            return { keepPlanAgentActive: true };
+        }
+        const executionOptions = {
+            planName: outcome.planName,
+            triageMeta: child.attrs,
+            approvalEvidence: approvalEvidence.evidence,
+            reviewFeedback: outcome.feedback,
+            reviewImages: outcome.images,
+        };
+        if (deferExecution) {
+            return {
+                keepPlanAgentActive: false,
+                executionToStart: {
+                    options: executionOptions,
+                    fallbackPlanContent: child.markdown || child.body || "",
+                },
+            };
+        }
+        const execRes = await executePlan(executionOptions);
+        const policy = resolvePlanExecutionPolicy(child.attrs);
+        const executionDecision = decidePostExecution(execRes, {
+            planName: outcome.planName,
+            triageMeta: child.attrs,
+            executionAgentName: policy.ok ? policy.policy.executionAgent : AGENTS.ENGINEER,
+        });
+        await validatePostExecutionDecision({
+            executionDecision,
+            executionResult: execRes,
+            fallbackPlanContent: child.markdown || child.body || "",
+            continueWorkflowValidation,
+            session,
+            uiAPI,
+        });
+        return { keepPlanAgentActive: false };
     }
-    await session.switchAgent(agentName);
+    // Reopening only inspects the Plan. A model is needed only if feedback starts an Agent turn.
+    if (activatePlanningAgent) await session.switchAgent(agentName);
 
     const recoverableReview = await requestRecoverablePlanReview({
         requestReview: () =>
             session.reviewPlan({
                 planName: plan.planName,
                 planPath: plan.path,
+                planningAgentName: agentName,
                 triageMeta: plan.attrs,
             }),
         requestRetry: async ({ response }) => {
@@ -153,7 +279,7 @@ export async function reviewLoadedPlanDirectly({
 
     if (recoverableReview.kind === "complete") {
         uiAPI.appendSystemMessage(SESSION_COMPLETE_GUIDANCE, false, "RunWield");
-        return { keepPlanAgentActive: true };
+        return { keepPlanAgentActive: true, reviewUnanswered: true };
     }
 
     const reviewResult = recoverableReview.response;
@@ -247,12 +373,28 @@ export async function reviewLoadedPlanDirectly({
             });
             if (!confirmed) return { keepPlanAgentActive: false };
 
-            const execRes = await executePlan({
+            const approvalEvidence = await loadPlanActionEvidence(projectRoot, plan.attrs.planId || "");
+            if (approvalEvidence.kind !== "success") {
+                uiAPI.appendSystemMessage(approvalEvidence.message, true, "RunWield");
+                return { keepPlanAgentActive: true };
+            }
+            const executionOptions = {
                 planName: plan.planName,
                 triageMeta: plan.attrs,
+                approvalEvidence: approvalEvidence.evidence,
                 reviewFeedback: reviewResult.feedback,
                 reviewImages: reviewResult.images,
-            });
+            };
+            if (deferExecution) {
+                return {
+                    keepPlanAgentActive: false,
+                    executionToStart: {
+                        options: executionOptions,
+                        fallbackPlanContent: plan.markdown || plan.body || "",
+                    },
+                };
+            }
+            const execRes = await executePlan(executionOptions);
             const policy = resolvePlanExecutionPolicy(plan.attrs);
             const executionDecision = decidePostExecution(execRes, {
                 planName: plan.planName,

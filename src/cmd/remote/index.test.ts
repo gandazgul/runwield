@@ -43,13 +43,40 @@ exec /bin/sh -c "$4"
 `,
         );
         await Deno.chmod(join(bin, "ssh"), 0o700);
+        // The source checkout has no compiled launcher identity. Supply only that
+        // build boundary to the CLI subprocess, without writing into the checkout.
+        const identity = join(root, "build-identity.js");
+        await Deno.writeTextFile(
+            identity,
+            `export const BUILD_ID = "${"a".repeat(64)}";\nexport const REMOTE_PROTOCOL_VERSION = 1;\n`,
+        );
+        const config = join(root, "deno.json");
+        const projectConfig = new URL("../../../deno.json", import.meta.url);
+        const { imports } = JSON.parse(await Deno.readTextFile(projectConfig));
+        await Deno.writeTextFile(
+            config,
+            JSON.stringify({
+                extends: fromFileUrl(projectConfig),
+                imports: {
+                    ...Object.fromEntries(
+                        Object.entries(imports).map(([key, value]) => [
+                            key,
+                            typeof value === "string" && value.startsWith("./")
+                                ? new URL(value, projectConfig).href
+                                : value,
+                        ]),
+                    ),
+                    [new URL("../../shared/build-identity.js", import.meta.url).href]: toFileUrl(identity).href,
+                },
+            }),
+        );
         await test({
             local,
             remote,
             sshLog,
             run: async (args, proof) => {
                 const output = await new Deno.Command(Deno.execPath(), {
-                    args: ["run", "-A", "--quiet", cli, "remote", ...args],
+                    args: ["run", "-A", "--quiet", "--config", config, cli, "remote", ...args],
                     cwd: local,
                     env: {
                         HOME: local,

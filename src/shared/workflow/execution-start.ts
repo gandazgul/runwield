@@ -597,7 +597,7 @@ export async function startActiveExecutionWorkflow(
             let relatedPlanPaths = [];
             if (!reusedWorktree) {
                 relatedPlanPaths = await materializeEpicPlanFamily(
-                    projectRoot,
+                    planAuthorityRoot,
                     worktree.path,
                     planName,
                     canonicalPlanSource.attrs,
