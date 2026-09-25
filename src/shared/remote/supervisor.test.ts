@@ -78,7 +78,16 @@ async function compiledSupervisor(): Promise<string> {
     await Deno.writeTextFile(join(root, "entry.ts"), entry.replace("./src/shared/remote/supervisor.ts", source));
     const executable = join(root, "supervisor");
     const result = await new Deno.Command(Deno.execPath(), {
-        args: ["compile", "-A", "--no-check", "--output", executable, join(root, "entry.ts")],
+        args: [
+            "compile",
+            "-A",
+            "--no-check",
+            "--config",
+            new URL("../../../deno.json", import.meta.url).pathname,
+            "--output",
+            executable,
+            join(root, "entry.ts"),
+        ],
         stdout: "piped",
         stderr: "piped",
     }).output();
