@@ -676,6 +676,13 @@ Deno.test("owner Workspace rejects stale live Plan review before answering Runti
                         planId: "owner-plan-id",
                         classification: "PLANNED_CHANGE",
                         expectedRevision: openedRevision,
+                        reviewedSource: {
+                            markdown: plan.markdown,
+                            path: plan.path,
+                            planName: "owner-plan",
+                            attrs: plan.attrs,
+                            revision: openedRevision,
+                        },
                         expectedStatus: "draft",
                         expectedWorktree: { kind: "none" },
                     },

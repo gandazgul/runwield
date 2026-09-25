@@ -58,6 +58,7 @@ type FileSessionControl = Pick<
     | "changeSessionActivationPhase"
     | "registerSessionArtifact"
     | "stagePlanAssociation"
+    | "recordLastPlanReview"
     | "publishGenerationAndRelease"
     | "releaseUnchangedActivation"
     | "recoverSessionControl"
@@ -244,6 +245,24 @@ export function createFileSessionControl(options: FileSessionControlOptions): Fi
             manifest.planAssociations = [...(manifest.planAssociations || []), association];
             manifests.write(manifest, held.manifestPath);
             return { ...association };
+        },
+
+        recordLastPlanReview(proof, review) {
+            const held = requireHeldLock(locks, proof);
+            const manifest = readJson<FileSessionManifest>(held.manifestPath);
+            assertProof(manifest, proof);
+            if (!review.planId?.trim() || !review.planName?.trim() || !review.planningAgentName?.trim()) {
+                throw new Error("Plan review requires a Plan ID, name, and planning Agent");
+            }
+            const reference = {
+                planId: review.planId,
+                planName: review.planName,
+                planningAgentName: review.planningAgentName,
+                requestedAt: isoNow(options.now),
+            };
+            manifest.lastPlanReview = reference;
+            manifests.write(manifest, held.manifestPath);
+            return { ...reference };
         },
 
         publishGenerationAndRelease(proof, evidence) {

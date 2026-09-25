@@ -136,6 +136,7 @@ Deno.test("Workspace slash surface comes from the registry and keeps current cov
     assertEquals(getSlashCommandDefinitions("workspace").map((command) => command.name), [
         "agent",
         "model",
+        "plan-review",
         "resume",
         "new",
         "session",

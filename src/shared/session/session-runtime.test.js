@@ -4450,3 +4450,66 @@ Deno.test("Workspace gets a stop alert even when the handler suppresses its norm
     assertEquals(attention.filter((event) => event.reason === "agentStopped").length, 1);
     assertEquals(attention[0].notificationSurface, "workspace");
 });
+
+Deno.test("managed Plan review requests persist the container before the adapter starts", async () => {
+    await withRuntimeCommandFixture("runtime-review-bookmark-", async ({ homeDir, projectRoot }) => {
+        const ownerStore = openOwnerCoordinationStore({ dbPath: `${homeDir}/owner.sqlite3` });
+        const fileStore = openFileSessionStore();
+        const runtime = createSessionRuntime({
+            sessionStore: ownerStore,
+            ownerProcessKind: "test",
+            ownerInstanceId: "review-bookmark-writer",
+        });
+        try {
+            const { sessionId } = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
+            const managed = runtime.getSessionSnapshot(sessionId)?.managed;
+            assert(managed);
+            assertEquals(fileStore.getLastPlanReview(managed.runwieldSessionId, managed.projectId), null);
+            /** @type {Array<import('./file-session-store-types.ts').LastPlanReviewReference | null>} */
+            const seenAtLaunch = [];
+            runtime.setInteractionAdapter(sessionId, {
+                requestInteraction: () => {
+                    seenAtLaunch.push(fileStore.getLastPlanReview(managed.runwieldSessionId, managed.projectId));
+                    return { outcome: "canceled" };
+                },
+            });
+            const onSurfaceReady = () => {};
+            /** @param {string} planId @param {string} planName @param {Record<string, string>} [extra] */
+            const request = (planId, planName, extra = {}) =>
+                runtime.requestInteraction(sessionId, {
+                    type: RuntimeInteractionTypes.PLAN_REVIEW,
+                    prompt: `Review ${planName}`,
+                    _meta: {
+                        planId,
+                        planName,
+                        planningAgentName: "planner",
+                        reviewUrl: "https://example.test/review",
+                        onSurfaceReady,
+                        ...extra,
+                    },
+                });
+            assertEquals((await request("first-id", "first")).outcome, "canceled");
+            assertEquals(seenAtLaunch[0]?.planId, "first-id");
+            assertEquals(
+                (await request("child-id", "child", {
+                    reviewContainerPlanId: "sequence-id",
+                    reviewContainerPlanName: "sequence",
+                    planningAgentName: "architect",
+                })).outcome,
+                "canceled",
+            );
+            assertEquals(seenAtLaunch[1]?.planId, "sequence-id");
+            assertEquals(fileStore.getLastPlanReview(managed.runwieldSessionId, managed.projectId), seenAtLaunch[1]);
+            assertEquals(Object.keys(seenAtLaunch[1] || {}).sort(), [
+                "planId",
+                "planName",
+                "planningAgentName",
+                "requestedAt",
+            ]);
+        } finally {
+            await runtime.closeAllSessionsWhenIdle();
+            fileStore.close();
+            ownerStore.close();
+        }
+    });
+});

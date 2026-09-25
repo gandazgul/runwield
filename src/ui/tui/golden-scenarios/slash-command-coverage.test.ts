@@ -18,6 +18,7 @@ const EXPECTED_SLASH_COMMANDS = [
     "name",
     "new",
     "onboard",
+    "plan-review",
     "quit",
     "reload",
     "resume",

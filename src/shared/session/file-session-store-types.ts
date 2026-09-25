@@ -20,6 +20,13 @@ export interface SessionArtifactReference {
     sourceSegmentId: string | null;
 }
 
+export interface LastPlanReviewReference {
+    planId: string;
+    planName: string;
+    planningAgentName: string;
+    requestedAt: string;
+}
+
 export type ManifestPlanAssociation = import("./plan-association.ts").ManifestPlanAssociation;
 export type PlanAssociation = import("./plan-association.ts").PlanAssociation;
 
@@ -64,6 +71,7 @@ export interface FileSessionManifest {
     segments: SessionTranscriptSegment[];
     artifacts?: SessionArtifactReference[];
     planAssociations?: ManifestPlanAssociation[];
+    lastPlanReview?: LastPlanReviewReference;
 }
 
 export interface FileSessionActivation {
@@ -380,6 +388,7 @@ export interface FileSessionStore {
     listSessionTranscriptSegments(runwieldSessionId: string): SessionTranscriptSegment[];
     listSessionArtifacts(runwieldSessionId: string, projectId?: string): SessionArtifactReference[];
     listSessionPlanAssociations(runwieldSessionId: string, projectId?: string): ManifestPlanAssociation[];
+    getLastPlanReview(runwieldSessionId: string, projectId?: string): LastPlanReviewReference | null;
     getCurrentSessionSegment(runwieldSessionId: string): SessionTranscriptSegment | null;
     appendSessionTranscriptSegment(options: SegmentAppendOptions): Promise<SessionTranscriptSegment>;
     sealSessionTranscriptSegment(options: SegmentSealOptions): SessionTranscriptSegment;
@@ -399,6 +408,10 @@ export interface FileSessionStore {
         options: RegisterSessionArtifactOptions,
     ): SessionArtifactReference;
     stagePlanAssociation(proof: FileActivationProof, entry: PlanAssociation): ManifestPlanAssociation;
+    recordLastPlanReview(
+        proof: FileActivationProof,
+        review: Pick<LastPlanReviewReference, "planId" | "planName" | "planningAgentName">,
+    ): LastPlanReviewReference;
     publishGenerationAndRelease(
         proof: FileActivationProof,
         evidence: TranscriptEvidence & { generation: number },

@@ -414,6 +414,10 @@ export function openFileSessionStore(options: OpenFileSessionStoreOptions = {}):
                 .filter((association) => association.committedGeneration !== null)
                 .map((association) => ({ ...association }));
         },
+        getLastPlanReview(runwieldSessionId, projectId) {
+            const found = manifests.resolve(runwieldSessionId, projectId);
+            return found?.manifest.lastPlanReview ? { ...found.manifest.lastPlanReview } : null;
+        },
         getCurrentSessionSegment(runwieldSessionId) {
             const found = manifests.resolve(runwieldSessionId);
             if (!found) return null;

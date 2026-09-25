@@ -167,8 +167,81 @@ export async function requestHostedSessionInteraction(hostedSession, request, si
         };
     }
     capability?.assertLive?.();
+    if (request.type === RuntimeInteractionTypes.PLAN_REVIEW && capability) {
+        const meta = request._meta || {};
+        let planId = meta.reviewContainerPlanId || meta.planId;
+        if (
+            !planId && meta.triageMeta && typeof meta.triageMeta === "object" &&
+            "planId" in meta.triageMeta
+        ) {
+            planId = meta.triageMeta.planId;
+        }
+        const planName = meta.reviewContainerPlanName || meta.planName;
+        const planningAgentName = meta.planningAgentName;
+        if (
+            typeof planId !== "string" || !planId.trim() ||
+            typeof planName !== "string" || !planName.trim() ||
+            typeof planningAgentName !== "string" || !planningAgentName.trim() ||
+            !capability.recordLastPlanReview
+        ) {
+            throw new Error("Plan review requires a Plan ID, name, and planning Agent with writer authority");
+        }
+        // The file store verifies the current writer proof and syncs the manifest
+        // before the adapter can present the review. This is not a pending wait.
+        capability.recordLastPlanReview({ planId, planName, planningAgentName });
+    }
     const id = request.id || createInteractionId();
     const interaction = { ...request, id };
+    if (
+        request.type === RuntimeInteractionTypes.PLAN_REVIEW &&
+        !Array.isArray(request._meta?.sequenceDocuments) &&
+        typeof request._meta?.planPath === "string" &&
+        !request._meta?.reviewedSource
+    ) {
+        // Keep file-backed review authority out of browser bundles that import
+        // the shared interaction outcome helpers from this module.
+        const { loadPlanFileStrict } = await import("../../plan-store.js");
+        const { loadPlanActionEvidence } = await import("../workflow/plan-actions.ts");
+        const { resolvePrimaryCheckoutRoot } = await import("../primary-checkout.ts");
+        const source = await loadPlanFileStrict(request._meta.planPath);
+        if (source.kind !== "loaded") {
+            throw new Error("The Plan could not be opened for review. Your files have not been changed.");
+        }
+        const triage = request._meta.triageMeta;
+        const planId = request._meta.reviewContainerPlanId || request._meta.planId ||
+            (triage && typeof triage === "object" && "planId" in triage ? triage.planId : null);
+        if (typeof planId !== "string" || source.attrs.planId !== planId) {
+            throw new Error("The Plan identity changed before review. Reload the Plan and review again.");
+        }
+        const evidence = await loadPlanActionEvidence(resolvePrimaryCheckoutRoot(hostedSession.cwd), planId);
+        if (evidence.kind !== "success") throw new Error(evidence.message);
+        if (evidence.evidence.revision !== source.revision) {
+            throw new Error("The Plan changed before review. Reload the Plan and review again.");
+        }
+        interaction._meta = {
+            ...request._meta,
+            expectedRevision: evidence.evidence.revision,
+            expectedStatus: evidence.evidence.status,
+            expectedWorktree: evidence.evidence.worktree,
+            reviewedSource: {
+                planName: request._meta.planName,
+                path: source.path,
+                markdown: source.markdown,
+                revision: source.revision,
+                attrs: source.attrs,
+            },
+        };
+    }
+    if (request.type === RuntimeInteractionTypes.PLAN_REVIEW) {
+        const originalReady = request._meta?.onSurfaceReady;
+        /** @param {string | {url: string}} surface */
+        const onSurfaceReady = (surface) => {
+            const url = typeof surface === "string" ? surface : surface?.url;
+            if (typeof url === "string" && url) interaction.reviewUrl = url;
+            if (typeof originalReady === "function") return originalReady(surface);
+        };
+        interaction._meta = { ...interaction._meta, onSurfaceReady };
+    }
     const reviewMeta = request.type === RuntimeInteractionTypes.PLAN_REVIEW && request._meta
         ? {
             sequenceDocuments: request._meta.sequenceDocuments,

@@ -179,6 +179,9 @@ export class SessionRuntime {
     clearActiveExecutionWorkflow(...args: Parameters<RuntimeAgentSettings["clearActiveExecutionWorkflow"]>) {
         return this.#settings.clearActiveExecutionWorkflow(...args);
     }
+    reopenPlanReview(sessionId: string) {
+        return this.#workflows.reopenPlanReview(sessionId, this);
+    }
     runPlanAction(...args: Parameters<RuntimeWorkflows["runPlanAction"]>) {
         return this.#workflows.runPlanAction(...args);
     }

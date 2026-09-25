@@ -85,6 +85,7 @@ import {
     ownerSessionOperationStatusApi,
     ownerSessionOperationStreamApi,
     ownerSessionOptionsApi,
+    ownerSessionPlanReviewApi,
     ownerSessionPlanWorkflowApi,
     ownerSessionSteerApi,
     ownerSessionTimelineApi,
@@ -346,6 +347,7 @@ export function createOwnerWorkspaceApp(options) {
     app.get("/api/owner/projects/:projectId/sessions/:runwieldSessionId/live", ownerSessionLiveApi);
     app.post("/api/owner/projects/:projectId/sessions/:runwieldSessionId/bootstrap", ownerSessionBootstrapApi);
     app.post("/api/owner/projects/:projectId/sessions/:runwieldSessionId/continue", ownerSessionContinuationStartApi);
+    app.post("/api/owner/projects/:projectId/sessions/:runwieldSessionId/plan-review", ownerSessionPlanReviewApi);
     app.post("/api/owner/projects/:projectId/sessions/:runwieldSessionId/plan-workflow", ownerSessionPlanWorkflowApi);
     app.post("/api/owner/projects/:projectId/sessions/:runwieldSessionId/configure", ownerSessionConfigureApi);
     app.post("/api/owner/projects/:projectId/sessions/:runwieldSessionId/force-recovery", ownerSessionForceRecoverApi);

@@ -116,12 +116,20 @@ restores the current checkpoint plus its execution owner, working directory, too
 A later accepted user turn can resolve it. Same-turn output, generated continuation, quoted text, and stale attempts
 cannot.
 
-Pi persists completed tool calls and interaction answers. A pending interaction remains an in-memory wait in its live
-process. An ACP interview can end a question's protocol request while keeping that Runtime operation and writer lock
-active for a later answer request. The connection retains undelivered updates between requests, not a durable tool wait.
-An answer must reach that process to continue the wait; it does not require a separate durable interaction state
-machine. Browser disconnection does not cancel the wait. If the process is lost, the user can ask the Agent to retry
-from saved history. Runtime stacks and unfinished external effects are not reconstructed automatically.
+Pi persists completed tool calls and interaction answers. The Session manifest also keeps the most recently presented
+Plan review's Plan ID, name, and planning Agent as a durable bookmark. It is updated under the Session Writer Lock
+before presenting the review. The bookmark does not store a pending interaction, decision, or approval. A later request
+to review again checks the current Plan's identity and eligibility and starts a new managed review when the Session is
+idle; if the original review is still live, Core returns its current link when available or reports that the review is
+starting. The bookmark does not reconstruct a lost wait or grant authority to execute the Plan.
+
+A pending interaction remains an in-memory wait in its live process. An ACP interview can end a question's protocol
+request while keeping that Runtime operation and writer lock active for a later answer request. The connection retains
+undelivered updates between requests, not a durable tool wait. An answer must reach that process to continue the wait;
+it does not require a separate durable interaction state machine. Browser disconnection does not cancel the wait. If the
+process is lost, `/plan-review` can start a new review from the current saved Plan; for other interactions, the user can
+ask the Agent to retry from saved history. Runtime stacks and unfinished external effects are not reconstructed
+automatically.
 
 ### Plan actions and notification delivery
 
