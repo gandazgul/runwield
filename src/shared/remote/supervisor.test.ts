@@ -1,12 +1,20 @@
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
-import { join } from "@std/path";
+import { join, toFileUrl } from "@std/path";
+import { BUILD_ID, REMOTE_PROTOCOL_VERSION } from "../build-identity.js";
 import { startRemoteControlService } from "./control.ts";
+import { getHomeDir } from "../../constants.js";
+import { startLaptopSftp } from "./sftp-mount.ts";
 
 // The compiled test entry exercises the production supervisor with a disposable
 // TUI process. It does not replace the supervisor, group cleanup, or control service.
 const entry = `import { runRemoteSupervisor } from "./src/shared/remote/supervisor.ts";
 if (Deno.args[0] === "--remote-supervisor") await runRemoteSupervisor();
-else if (Deno.args[0] === "--remote-view") {
+else if (Deno.args[0] === "--remote-model-proof") {
+    const reader = Deno.stdin.readable.getReader();
+    await reader.read();
+    await Deno.writeTextFile("proof", String(Deno.pid));
+    await new Promise<void>(() => {});
+} else if (Deno.args[0] === "--remote-view") {
     const byte = new Uint8Array(1);
     while ((await Deno.stdin.read(byte)) !== null && byte[0] !== 10) {}
     Deno.addSignalListener("SIGTERM", () => {});
@@ -66,22 +74,8 @@ async function compiledSupervisor(): Promise<string> {
     if (binary) return binary;
     const root = await Deno.makeTempDir();
     buildRoot = root;
-    await Deno.mkdir(join(root, "src/shared/remote"), { recursive: true });
-    await Deno.mkdir(join(root, "src/ui/tui"), { recursive: true });
-    for (
-        const path of [
-            "src/shared/remote/supervisor.ts",
-            "src/shared/foreground-process.ts",
-            "src/ui/tui/remote-connection-view.ts",
-        ]
-    ) {
-        await Deno.copyFile(path, join(root, path));
-    }
-    await Deno.writeTextFile(
-        join(root, "src/shared/build-identity.js"),
-        `export const BUILD_ID = "${"a".repeat(64)}"; export const REMOTE_PROTOCOL_VERSION = 1;`,
-    );
-    await Deno.writeTextFile(join(root, "entry.ts"), entry);
+    const source = toFileUrl(await Deno.realPath("src/shared/remote/supervisor.ts")).href;
+    await Deno.writeTextFile(join(root, "entry.ts"), entry.replace("./src/shared/remote/supervisor.ts", source));
     const executable = join(root, "supervisor");
     const result = await new Deno.Command(Deno.execPath(), {
         args: ["compile", "-A", "--no-check", "--output", executable, join(root, "entry.ts")],
@@ -102,14 +96,26 @@ async function running(pid: number): Promise<boolean> {
     }
 }
 
-for (const scenario of ["blocked", "close", "kill-launcher", "before-header", "partial-header", "silent-control"]) {
+for (
+    const scenario of [
+        "blocked",
+        "close",
+        "kill-launcher",
+        "before-header",
+        "partial-header",
+        "silent-control",
+        "model-proof-stall",
+    ]
+) {
     Deno.test({
         name: `production supervisor cleans up on ${scenario} without stopping unrelated work`,
         ignore: Deno.build.os !== "linux",
         fn: async () => {
             const executable = await compiledSupervisor();
             const root = await Deno.makeTempDir();
-            const service = startRemoteControlService({ buildId: "a".repeat(64), protocol: 1 });
+            await Deno.mkdir(join(getHomeDir(), ".wld"), { recursive: true });
+            const sftp = await startLaptopSftp();
+            const service = startRemoteControlService({ buildId: BUILD_ID, protocol: REMOTE_PROTOCOL_VERSION });
             const unrelated = new Deno.Command("sleep", { args: ["60"], stdout: "null", stderr: "null" }).spawn();
             const proxyAbort = new AbortController();
             const proxy = scenario === "silent-control"
@@ -124,12 +130,18 @@ for (const scenario of ["blocked", "close", "kill-launcher", "before-header", "p
                 })
                 : undefined;
             const port = proxy?.addr.transport === "tcp" ? proxy.addr.port : service.port;
+            if (scenario === "model-proof-stall") await Deno.writeTextFile(join(root, "sentinel.txt"), "sentinel");
             const header = JSON.stringify({
+                ...(scenario === "model-proof-stall"
+                    ? { modelProof: { provider: "laptop-test", modelId: "model", sentinelFile: "sentinel.txt" } }
+                    : {}),
                 credential: service.credential,
                 port,
-                buildId: "a".repeat(64),
-                protocol: 1,
+                buildId: BUILD_ID,
+                protocol: REMOTE_PROTOCOL_VERSION,
                 view: { host: "host", cwd: root, status: "Connected", trust: "Trust", readiness: "No turns" },
+                mount: sftp.header,
+                remoteHome: await Deno.realPath(getHomeDir()),
             });
             const driver = new Deno.Command("python3", {
                 args: [
@@ -146,6 +158,7 @@ for (const scenario of ["blocked", "close", "kill-launcher", "before-header", "p
                 stderr: "piped",
             }).spawn();
             let view = 0;
+            let proof = 0;
             let descendant = 0;
             let supervisor = 0;
             try {
@@ -153,7 +166,15 @@ for (const scenario of ["blocked", "close", "kill-launcher", "before-header", "p
                 const ready = await reader.read();
                 assertStringIncludes(new TextDecoder().decode(ready.value), "READY");
                 supervisor = Number(await Deno.readTextFile(join(root, "supervisor")));
-                if (!["before-header", "partial-header"].includes(scenario)) {
+                if (scenario === "model-proof-stall") {
+                    const deadline = Date.now() + 5_000;
+                    while (Date.now() < deadline && !proof) {
+                        proof = Number(await Deno.readTextFile(join(root, "proof")).catch(() => ""));
+                        await new Promise((resolve) => setTimeout(resolve, 30));
+                    }
+                    assert(proof > 0 && proof !== supervisor, "proof did not run in its own process");
+                }
+                if (!["before-header", "partial-header", "model-proof-stall"].includes(scenario)) {
                     const deadline = Date.now() + 5_000;
                     while (Date.now() < deadline && !view) {
                         view = Number(await Deno.readTextFile(join(root, "view")).catch(() => ""));
@@ -178,7 +199,7 @@ for (const scenario of ["blocked", "close", "kill-launcher", "before-header", "p
                 ));
                 await writer.close();
                 const started = Date.now();
-                if (scenario === "blocked") service.requestShutdown();
+                if (["blocked", "model-proof-stall"].includes(scenario)) service.requestShutdown();
                 const deadline = Date.now() +
                     (["silent-control", "before-header", "partial-header"].includes(scenario) ? 25_000 : 14_000);
                 while (Date.now() < deadline && await running(supervisor)) {
@@ -188,12 +209,14 @@ for (const scenario of ["blocked", "close", "kill-launcher", "before-header", "p
                 if (scenario === "blocked") {
                     assert(Date.now() - started >= 5_000, "forced exit skipped the grace period");
                 }
+                if (proof) assertEquals(await running(proof), false, `proof survived ${scenario}`);
                 if (view) assertEquals(await running(view), false, `view survived ${scenario}`);
                 if (descendant) assertEquals(await running(descendant), false, `grandchild survived ${scenario}`);
                 assertEquals(await running(unrelated.pid), true);
                 reader.releaseLock();
             } finally {
                 if (supervisor && await running(supervisor)) Deno.kill(supervisor, "SIGKILL");
+                if (proof && await running(proof)) Deno.kill(proof, "SIGKILL");
                 if (view && await running(view)) Deno.kill(view, "SIGKILL");
                 if (descendant && await running(descendant)) Deno.kill(descendant, "SIGKILL");
                 try {
@@ -204,6 +227,7 @@ for (const scenario of ["blocked", "close", "kill-launcher", "before-header", "p
                 } catch { /* Exited. */ }
                 proxyAbort.abort();
                 await Promise.all([driver.status, unrelated.status, service.close(), proxy?.finished]);
+                await sftp.close();
                 await Deno.remove(root, { recursive: true });
                 if (scenario === "silent-control" && buildRoot) {
                     await Deno.remove(buildRoot, { recursive: true });

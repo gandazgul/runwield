@@ -8,6 +8,7 @@ import { defineTool } from "@earendil-works/pi-coding-agent";
 import type { AgentToolResult, SessionManager } from "@earendil-works/pi-coding-agent";
 import type { Api, AssistantMessage, Context, Model, SimpleStreamOptions } from "@earendil-works/pi-ai/compat";
 import { getModelRegistry, SYSTEM_MODEL_DISCOVERY_NETWORK } from "../shared/models/model-registry.ts";
+import { remotePersonalResourcesActive } from "../shared/remote/personal-resources.ts";
 import { resolveImageRef, resolveVisionFallbackModel } from "../shared/session/image-attachments.js";
 
 export const DEFAULT_SEE_IMAGE_PROMPT =
@@ -36,24 +37,6 @@ interface TextContentBlock {
 type AssistantContent = string | TextContentBlock[] | AssistantMessage["content"] | null | undefined;
 type VisionModel = Model<Api>;
 
-interface VisionAuthSuccess {
-    ok: true;
-    apiKey?: string;
-    headers?: Record<string, string>;
-    env?: Record<string, string>;
-}
-
-interface VisionAuthFailure {
-    ok: false;
-    error?: string;
-}
-
-type VisionAuth = VisionAuthSuccess | VisionAuthFailure;
-
-interface VisionModelRegistry {
-    getApiKeyAndHeaders(model: VisionModel): Promise<VisionAuth>;
-}
-
 type CompleteSimpleFunction = (
     model: VisionModel,
     context: Context,
@@ -63,7 +46,9 @@ type CompleteSimpleFunction = (
 interface SeeImageToolOptions {
     cwd: string;
     sessionManager?: SessionManager;
-    completeSimpleFn: CompleteSimpleFunction;
+    completeSimpleFn?: CompleteSimpleFunction;
+    /** Selected by the bounded remote Session, never by this tool's caller. */
+    remoteModel?: VisionModel;
 }
 
 interface SeeImageDetails {
@@ -79,7 +64,12 @@ export function extractAssistantText(content: AssistantContent): string {
 }
 
 export function createSeeImageTool(opts: SeeImageToolOptions) {
-    const modelRegistry: VisionModelRegistry = getModelRegistry();
+    const remote = remotePersonalResourcesActive();
+    if (remote !== Boolean(opts.remoteModel)) {
+        throw new Error("Remote see_image requires a selected vision model; local callers cannot replace it");
+    }
+    if (!opts.completeSimpleFn) throw new Error("see_image requires a model completion function");
+    const modelRegistry = remote ? undefined : getModelRegistry();
 
     return defineTool<typeof PARAMETERS, SeeImageDetails>({
         name: "see_image",
@@ -93,15 +83,15 @@ export function createSeeImageTool(opts: SeeImageToolOptions) {
                     cwd: opts.cwd,
                     sessionManager: opts.sessionManager,
                 });
-                const fallback = await resolveVisionFallbackModel(
-                    modelRegistry,
-                    SYSTEM_MODEL_DISCOVERY_NETWORK,
-                    opts.cwd,
-                );
+                const fallback = remote
+                    ? { model: opts.remoteModel! }
+                    : await resolveVisionFallbackModel(modelRegistry, SYSTEM_MODEL_DISCOVERY_NETWORK, opts.cwd);
                 if (!fallback) throw new Error("visionFallback.model is not configured.");
-                const auth = await modelRegistry.getApiKeyAndHeaders(fallback.model);
-                if (!auth.ok) throw new Error(auth.error || "Unable to resolve auth for visionFallback.model.");
-                if (!auth.apiKey && !auth.headers) {
+                // Remote sessions have no provider credentials. The projected native runtime
+                // carries this request over the authenticated control connection instead.
+                const auth = remote ? undefined : await modelRegistry!.getApiKeyAndHeaders(fallback.model);
+                if (auth && !auth.ok) throw new Error(auth.error || "Unable to resolve auth for visionFallback.model.");
+                if (!remote && (!auth || !auth.apiKey && !auth.headers)) {
                     throw new Error(
                         `No API key configured for visionFallback.model: ${fallback.model.provider}/${fallback.model.id}`,
                     );
@@ -113,7 +103,7 @@ export function createSeeImageTool(opts: SeeImageToolOptions) {
                 const base64 = btoa(binary);
                 const question = params.question?.trim() || DEFAULT_SEE_IMAGE_PROMPT;
 
-                const response = await opts.completeSimpleFn(fallback.model, {
+                const context: Context = {
                     messages: [{
                         role: "user",
                         content: [
@@ -122,11 +112,12 @@ export function createSeeImageTool(opts: SeeImageToolOptions) {
                         ],
                         timestamp: Date.now(),
                     }],
-                }, {
+                };
+                const response = await opts.completeSimpleFn!(fallback.model, context, {
                     signal,
-                    apiKey: auth.apiKey,
-                    headers: auth.headers,
-                    env: auth.env,
+                    apiKey: auth?.ok ? auth.apiKey : undefined,
+                    headers: auth?.ok ? auth.headers : undefined,
+                    env: auth?.ok ? auth.env : undefined,
                     maxTokens: 2048,
                 });
 

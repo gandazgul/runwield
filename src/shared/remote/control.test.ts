@@ -15,6 +15,13 @@ Deno.test("remote control admits only a matching handshake before readiness", as
     const service = startRemoteControlService(identity);
     try {
         assertEquals((await request(service, "readiness")).status, 403);
+        assertEquals((await fetch(`http://127.0.0.1:${service.port}/models/catalog`)).status, 401);
+        assertEquals(
+            (await fetch(`http://127.0.0.1:${service.port}/models/catalog`, {
+                headers: { Authorization: `Bearer ${service.credential}` },
+            })).status,
+            403,
+        );
         assertEquals(
             (await request(service, "handshake", service.credential, JSON.stringify({ ...identity, protocol: 2 })))
                 .status,

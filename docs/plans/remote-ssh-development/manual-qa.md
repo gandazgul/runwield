@@ -21,3 +21,51 @@ Manual verification steps for remote-ssh-development/01-establish-the-remote-con
       or leave a usable connection.
 
 <!-- runwield:manual-qa:end child="remote-ssh-development/01-establish-the-remote-connection-and-matched-runtime" -->
+
+## Bridge Local Models and Personal Resources: Bounded Evidence
+
+On 2026-09-25, matching macOS and Linux x86_64 development artifacts (`buildId`
+`114b2dbd7021632ede19ac80aa00f32c833504c32ce640892f741b96f34a2d32`) connected to `sct` (Fedora 39, Linux x86_64). The
+host used SSHFS 3.7.3, FUSE 3.16.1, and stock OpenSSH SFTP. The mount used
+`sshfs_sync,direct_io,no_readahead,cache=no,dir_cache=no,attr_timeout=0,entry_timeout=0,negative_timeout=0`. The tested
+Pi packages were version 0.87.1.
+
+- Personal Skill, Agent, and Prompt Template files were created, edited, renamed, and deleted over the remote mount;
+  each change was visible on the laptop without a copy step. A laptop Skill edit became visible to a fresh remote read.
+  A separate project `.wld` write stayed on the remote host. A nested Skill script read its sibling, and its missing
+  custom command reported a shell error without preventing a later core command.
+- A synthetic laptop HTTP provider using the `openai-completions` API accepted two requests. The first requested a
+  remote-only file tool; the second contained that tool's result and laptop-only authentication. A stalled second
+  request closed after cancellation. Two fresh connections repeated the successful two-request proof. A separate
+  in-process Pi roundtrip selected the Skill and Prompt Template through RunWield's production resource resolvers, ran
+  the Skill's nested sibling script as a project tool, and sent its result in the next model request. That test used
+  ordinary temporary directories, not SSHFS.
+- Pausing the connection-owned laptop SFTP child made storage stall while SSH control stayed alive. The remote view
+  stopped after the storage deadline with a nonzero exit, and the mount was detached. Cleanup reported that a kernel
+  operation might remain unfinished. A write beneath the detached mount failed. A separate forced unmount caused the
+  remote supervisor to report mount loss, stop the connection with a nonzero exit, and reject an underlying-directory
+  write. After the operating system confirmed each unmount, only empty connection-owned directories were removed.
+  Killing the laptop launcher also ended its owned remote mount while an unrelated remote process remained alive.
+
+This proof used a synthetic provider and a bounded in-memory Agent Session. It does not establish real-provider OAuth
+behavior, ordinary remote user turns, durable Sessions, integrations, or the release platform matrix.
+
+<!-- runwield:manual-qa:start child="remote-ssh-development/02-bridge-local-models-and-personal-resources" -->
+
+## Bridge Local Models and Personal Resources
+
+Manual verification steps for remote-ssh-development/02-bridge-local-models-and-personal-resources
+
+- [ ] Connect to a test host and use the remote Agent to read a project sentinel; confirm the laptop model provider
+      receives it and only the laptop request carries credentials.
+- [ ] Create, edit, and delete a personal Agent, prompt, and nested Skill through remote file tools; inspect the laptop
+      files and confirm the edits are present.
+- [ ] Change a personal resource on the laptop, then reload it remotely and confirm the new content appears; run a
+      nested Skill that reads a sibling file.
+- [ ] Apply a project resource override and confirm it takes precedence while the project file and project settings
+      remain on the remote host.
+- [ ] Disconnect during a model request; confirm the request stops and the remote Agent reports a clear failure without
+      switching to a different provider.
+- [ ] Reconnect and confirm the current laptop resources load, with no writes to the remote user's personal profile.
+
+<!-- runwield:manual-qa:end child="remote-ssh-development/02-bridge-local-models-and-personal-resources" -->

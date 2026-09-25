@@ -15,7 +15,7 @@ interface RemoteFixture {
     local: string;
     remote: string;
     sshLog: string;
-    run: (args: string[]) => Promise<CliResult>;
+    run: (args: string[], proof?: string) => Promise<CliResult>;
 }
 
 /** Run the real CLI with a disposable home and an SSH executable that runs the remote command in a shell. */
@@ -47,7 +47,7 @@ exec /bin/sh -c "$4"
             local,
             remote,
             sshLog,
-            run: async (args) => {
+            run: async (args, proof) => {
                 const output = await new Deno.Command(Deno.execPath(), {
                     args: ["run", "-A", "--quiet", cli, "remote", ...args],
                     cwd: local,
@@ -59,6 +59,7 @@ exec /bin/sh -c "$4"
                         SSH_LOG: sshLog,
                         REMOTE_HOME: remote,
                         REMOTE_PYTHONPATH: root,
+                        ...(proof === undefined ? {} : { WLD_REMOTE_MODEL_PROOF: proof }),
                     },
                     stdin: "null",
                     stdout: "piped",
@@ -116,6 +117,10 @@ Deno.test("source remote help works without a generated identity and connection 
                 "src/shared/remote/target.js",
                 "src/shared/remote/control.ts",
                 "src/shared/remote/release-artifact.js",
+                "src/shared/remote/sftp-mount.ts",
+                "src/shared/remote/model-proof-config.ts",
+                "src/constants.js",
+                "runtime-root.js",
                 "scripts/build-metadata.js",
                 "src/shared/version.js",
             ]
@@ -136,6 +141,25 @@ Deno.test("source remote help works without a generated identity and connection 
     } finally {
         await Deno.remove(root, { recursive: true });
     }
+});
+
+Deno.test("remote CLI refuses malformed LIVE proof before contacting SSH", async () => {
+    await withRemoteFixture(async ({ run, sshLog }) => {
+        for (
+            const proof of [
+                "",
+                "{}",
+                "not-json",
+                '{"provider":"p","modelId":"m","sentinelFile":"../secret"}',
+                '{"provider":"p","modelId":"m","sentinelFile":"/tmp/secret"}',
+            ]
+        ) {
+            const result = await run(["alias"], proof);
+            assertEquals(result.code, 1);
+            assertStringIncludes(result.stderr, "Invalid WLD_REMOTE_MODEL_PROOF");
+            assertEquals(await exists(sshLog), false);
+        }
+    });
 });
 
 Deno.test("remote CLI rejects an option-like host before invoking SSH", async () => {

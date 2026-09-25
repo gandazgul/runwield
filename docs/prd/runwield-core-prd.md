@@ -415,15 +415,17 @@ and siblings active. Listings keep held work distinct from active and finished w
 **Scope and maturity:** Existing execution and validation baseline, with the owner's clarified completion and automatic
 recovery requirements below. These requirements do not certify that every current failure path already meets them.
 QUICK_FIX keeps its explicitly lighter behavior; answering a question does not require publication. The remote
-connection currently has setup/process cleanup only; remote Session or workflow recovery remains target scope.
+connection currently has setup/process cleanup and a personal mount; remote Session or workflow recovery remains target
+scope.
 
 **Requirement: Clean up connection-owned remote setup without claiming workflow recovery.**
 
-The connection-only remote supervisor monitors its control channel separately from the TUI and stops processes it
-started on normal exit or detected loss. Failed or interrupted runtime preparation leaves the existing profile, project
-files, and verified runtime cache in place; the next attempt can repair private staging. If process exit cannot be
-confirmed, report uncertainty. No remote Agent or Session work exists yet to resume or recover. The broader
-connected-only and uncertain-effects requirements remain [proposed](remote-ssh-prd.md#disconnect-and-recovery).
+The connection-only remote supervisor monitors its control channel separately from the TUI and stops owned processes,
+including the connection-owned personal SFTP/SSHFS transport, on normal exit or detected loss. Failed or interrupted
+runtime preparation leaves the existing profile, project files, and verified runtime cache in place; the next attempt
+can repair private staging. If process exit cannot be confirmed, report uncertainty. No remote Agent or Session work
+exists yet to resume or recover. The broader connected-only and uncertain-effects requirements remain
+[proposed](remote-ssh-prd.md#disconnect-and-recovery).
 
 **Acceptance scenarios:**
 
@@ -972,7 +974,17 @@ scope.
 
 ### Agent and skill customization
 
-**Scope and maturity:** Current baseline. New specialization proposals follow the project’s document conventions.
+**Scope and maturity:** Current baseline. New specialization proposals follow the project’s document conventions. The
+remote personal-resource mount and direct personal Skill file edits have bounded proof on the approved Linux `sct`
+pilot; ordinary remote Session customization remains target behavior.
+
+**Requirement: Keep personal files on the laptop during a remote connection.** The approved Linux `sct` pilot mounts
+laptop `~/.wld` at a private remote root through stock SFTP/SSHFS; the remote project's `.wld` stays remote. This is
+direct trusted-host access, not a copy or a confinement boundary. A normal connection still does not accept user turns.
+
+**Current bounded acceptance scenario:** Given a personal Skill file and a remote project `.wld`, when the personal file
+changes through the mount, the laptop sees it; a laptop edit is also visible through the mount, while project `.wld`
+remains on the server. This does not establish an ordinary remote Session's resource precedence.
 
 **Requirement: Respect user customization while retaining workflow capabilities.**
 
@@ -1034,6 +1046,11 @@ commands.
 CLI tools remain preferred for many integrations. MCP is optional and should not add unused prompt context.
 Configuration and loading details belong in [customization documentation](../customization.md).
 
+**Remote target:** [Local personal environment](remote-ssh-prd.md#local-personal-environment) specifies direct access to
+laptop `~/.wld` at a fresh private remote mount path, with project `.wld` remaining remote. Personal Agent, prompt, and
+Skill file edits change laptop files directly; there is no copy, sync, or special resource-save operation. A private
+mount path is not confinement of trusted remote users. This target is not yet a delivered Session.
+
 **Acceptance scenarios:**
 
 - When a user customizes an Agent at project scope, those choices take precedence over home and bundled settings while
@@ -1049,12 +1066,17 @@ Configuration and loading details belong in [customization documentation](../cus
   bundled Skills remain available.
 - Invoking `/release` from a Router Session presents the release-operation choices as a structured interview on clients
   that support forms; canceling the interview does not start a release.
+- **Remote target, not yet delivered:** Given a trusted remote connection with a private mount of laptop `~/.wld`, when
+  the user edits a personal Skill file, the laptop file changes directly without a resource copy or sync; a project
+  `.wld` override stays on the server.
 
 <a id="8-models-and-providers"></a>
 
 ### Models and providers
 
-**Scope and maturity:** Current baseline with explicitly labeled future tuning questions.
+**Scope and maturity:** Current baseline with explicitly labeled future tuning questions. Remote model execution from an
+ordinary remote Session is target behavior. The connection-only view accepts no user turns; an optional native Pi bridge
+proof uses a synthetic HTTP provider through the laptop service.
 
 **Requirement: Change models without losing Session or workflow context.**
 
@@ -1078,6 +1100,19 @@ Current requirements:
 - support vision fallback configuration for pasted images when the active model is text-only
 - keep Pi automatic prompt-cache warming off so RunWield does not add warming requests or charges; a user-facing warming
   setting remains deferred
+
+**Remote boundary and target:** The [Remote SSH proposal](remote-ssh-prd.md#local-personal-environment) keeps
+authenticated model requests, credentials, provider callbacks, and renewal in the laptop runtime while remote project
+tools execute on the server. On the approved built macOS/Linux `sct` pilot, an optional native Pi proof sent two
+synthetic HTTP provider requests; the second contained a remote-only tool result, cancellation closed the upstream
+request, and two reconnects completed the bounded path. This is not proof of an authenticated production provider or an
+ordinary remote user turn. The active full laptop `.wld` mount can expose credential files through broad standard SFTP
+access; local model execution is not filesystem confinement. Ordinary remote Agent support remains target behavior.
+
+**Remote target acceptance scenario (not yet delivered):** Given a Pi provider authenticated only on the laptop, when a
+remote Agent uses the model after a remote project tool result, the laptop runtime sends the authenticated request
+without a second sign-in or a model substitution. The trusted server can still access laptop-account files via SFTP;
+this is not confinement.
 
 **Requirement: Recover from temporary model-service failures.**
 
@@ -1173,15 +1208,17 @@ deno run -A scripts/release-assets.js development bin/wld bin/wld-linux-x64 bin/
 ```
 
 Use `bin/remote-build/wld-launcher` with its adjacent Linux GNU target files and `.build.json` files. The current remote
-host needs an OpenSSH server that can allocate a terminal and forward a loopback port, `python3`, a writable private
-cache, and a runnable glibc-linked Linux x86-64 or ARM64 executable. Git is optional for a non-Git directory. These
-steps do not prepare SSHFS/FUSE, personal services, or production release assets; see the
+host needs an OpenSSH server that can allocate a terminal and forward loopback ports, `python3`, a writable private
+cache, SSHFS/FUSE for the personal mount, and a runnable glibc-linked Linux x86-64 or ARM64 executable. Git is optional
+for a non-Git directory. The approved Linux `sct` pilot starts a stock SFTP/SSHFS personal mount before showing the
+dormant view. These steps do not prepare guarded Session access or production release assets; see the
 [Remote SSH proposal](remote-ssh-prd.md#remote-connection-and-setup).
 
 **Acceptance scenarios:**
 
 - Given a matching development bundle and a supported remote Linux host, connecting transfers or reuses a verified
-  executable and opens only the connection view; it does not initialize a personal profile.
+  executable, mounts the laptop personal root on the approved `sct` pilot, and opens only the connection view; it does
+  not initialize a remote personal profile.
 - Given a missing or mismatched artifact, incompatible executable, or missing remote prerequisite, connection fails with
   the cause rather than compiling, using another version, or starting a Session. A later attempt can repair an
   interrupted private staging file without overwriting a package-managed install.

@@ -4,7 +4,13 @@ import { parse as parseJsonc } from "@std/jsonc";
 import lockfile from "proper-lockfile";
 import { normalizePlanServerUrl } from "./collaboration/urls.js";
 import { resolvePrimaryCheckoutRoot } from "./primary-checkout.ts";
-import { getHomeDir } from "../constants.js";
+import { getCwd, getHomeDir } from "../constants.js";
+import { remoteSettingsSnapshot, updateRemoteGlobalSetting } from "./remote/settings-bridge.ts";
+import {
+    assertPersonalResourcePathSync,
+    personalGlobalRoot,
+    remotePersonalResourcesActive,
+} from "./remote/personal-resources.ts";
 
 export const PLAN_SERVER_URL_SETTING_KEY = "planServerUrl";
 export const ONBOARDING_TUTORIAL_OFFER_HANDLED_SETTING_KEY = "onboardingTutorialOfferHandled";
@@ -41,9 +47,8 @@ const RUNWIELD_CUSTOM_SETTING_KEYS = [
  *
  * @returns {string}
  */
-export function getSettingsDir(scope, projectRoot = Deno.cwd()) {
-    const homeDir = getHomeDir();
-    if (scope === "global") return join(homeDir, ".wld");
+export function getSettingsDir(scope, projectRoot = getCwd()) {
+    if (scope === "global") return personalGlobalRoot();
     let resolvedRoot = projectSettingsRootMemo.get(projectRoot);
     if (!resolvedRoot) {
         resolvedRoot = resolvePrimaryCheckoutRoot(projectRoot);
@@ -192,9 +197,60 @@ export function migratePiSettingsOnce(options = {}) {
     }
 }
 
+/** @typedef {Record<string, unknown>} GlobalSettingsValues */
+
+/** Return the laptop settings without using a mounted remote path. */
+export function readLaptopGlobalSettingsSnapshot() {
+    const path = join(getHomeDir(), ".wld", "settings.json");
+    migratePiSettingsOnce({ runwieldPath: path });
+    if (!fileExists(path)) return "{}";
+    const release = acquireSettingsLockSyncWithRetry(path);
+    try {
+        return readSettingsContent(path) ?? "{}";
+    } finally {
+        release();
+    }
+}
+
+/**
+ * Apply one structured change under the laptop's own settings lock.
+ * @param {import('./remote/settings-bridge.ts').SettingsUpdate} update
+ * @returns {string} The committed snapshot.
+ */
+export function applyLaptopGlobalSettingsUpdate(update) {
+    if (remotePersonalResourcesActive()) throw new Error("Laptop settings writer cannot use a remote mount");
+    const path = join(getHomeDir(), ".wld", "settings.json");
+    migratePiSettingsOnce({ runwieldPath: path });
+    ensureSettingsFileForLock(path);
+    const release = acquireSettingsLockSyncWithRetry(path);
+    try {
+        const content = readSettingsContent(path);
+        /** @type {GlobalSettingsValues} */
+        let parsed = {};
+        if (content) parsed = /** @type {GlobalSettingsValues} */ (parseJsonc(content));
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Invalid laptop settings");
+        if (update.kind === "set") parsed[update.key] = update.value;
+        else if (update.kind === "model") {
+            parsed.defaultModel = update.model;
+            parsed.defaultProvider = update.provider;
+        } else {
+            const prior = parsed.compaction;
+            parsed.compaction = {
+                ...(prior && typeof prior === "object" && !Array.isArray(prior) ? prior : {}),
+                [update.key]: update.value,
+            };
+        }
+        const snapshot = JSON.stringify(parsed, null, 2);
+        writeSettingsContent(path, snapshot);
+        return snapshot;
+    } finally {
+        release();
+    }
+}
+
 class RunWieldSettingsStorage {
     /** @param {string} [projectRoot] */
-    constructor(projectRoot = Deno.cwd()) {
+    constructor(projectRoot = getCwd()) {
         this.projectRoot = projectRoot;
     }
 
@@ -215,10 +271,20 @@ class RunWieldSettingsStorage {
      */
     #readSettings(scope) {
         const path = this.#resolvePath(scope);
-        if (scope === "global") {
+        if (scope === "global" && !remotePersonalResourcesActive()) {
             migratePiSettingsOnce({ runwieldPath: path });
         }
-        return readSettingsContent(path);
+        if (scope === "global" && remotePersonalResourcesActive()) {
+            assertPersonalResourcePathSync(path, "global settings");
+        }
+        const content = readSettingsContent(path);
+        if (scope === "global" && remotePersonalResourcesActive()) {
+            // The reader treats a failed file read as absent; detect detach
+            // during that read before returning an empty or cached snapshot.
+            assertPersonalResourcePathSync(path, "global settings");
+            return remoteSettingsSnapshot(content);
+        }
+        return content;
     }
 
     /**
@@ -247,13 +313,22 @@ class RunWieldSettingsStorage {
             newContent = preserveRunWieldCustomSettingsForWrite(content, newContent);
         }
         if (newContent !== undefined && newContent !== content) {
+            if (scope === "global" && remotePersonalResourcesActive()) {
+                throw new Error("Remote global settings writes require the laptop settings service");
+            }
             // Ensure the file exists before locking; proper-lockfile requires the
             // target to exist.
             ensureSettingsFileForLock(path);
 
             const release = acquireSettingsLockSyncWithRetry(path);
             try {
-                this.#writeSettings(scope, newContent);
+                // The first read can be stale. Recompute under the local lock.
+                const current = this.#readSettings(scope);
+                const changed = callback(current);
+                const next = changed === undefined
+                    ? undefined
+                    : preserveRunWieldCustomSettingsForWrite(current, changed);
+                if (next !== undefined && next !== current) this.#writeSettings(scope, next);
             } finally {
                 release();
             }
@@ -270,12 +345,34 @@ const projectStorageInstances = new Map();
 /** @type {Map<string, SettingsManager>} */
 const projectSettingsManagers = new Map();
 
+/** @type {Map<string, SettingsManager>} */
+const remoteManagerHandles = new Map();
+
+/** @type {Map<string, string | undefined>} */
+const remoteManagerSnapshots = new Map();
+
+/**
+ * Pi's reload() awaits its write queue, but its getters are synchronous. Keep
+ * the caller's manager reference stable while replacing the loaded manager
+ * when the laptop's mounted snapshot or acknowledged receipt changes.
+ * @param {string} projectRoot
+ */
+function refreshRemoteSettingsManager(projectRoot) {
+    if (!remotePersonalResourcesActive()) return;
+    const snapshot = readRemoteSettingsSnapshot();
+    if (remoteManagerSnapshots.get(projectRoot) === snapshot) return;
+    const manager = SettingsManager.fromStorage(getSettingsStorage(projectRoot));
+    manager.getCacheWarmingMode = () => "off";
+    projectSettingsManagers.set(projectRoot, manager);
+    remoteManagerSnapshots.set(projectRoot, snapshot);
+}
+
 /**
  * Initializes a settings manager for the requested project root.
  *
  * @param {string} [projectRoot]
  */
-export function initSettings(projectRoot = Deno.cwd()) {
+export function initSettings(projectRoot = getCwd()) {
     if (!projectSettingsManagers.has(projectRoot)) {
         const storage = new RunWieldSettingsStorage(projectRoot);
         const manager = SettingsManager.fromStorage(storage);
@@ -285,6 +382,34 @@ export function initSettings(projectRoot = Deno.cwd()) {
         manager.getCacheWarmingMode = () => "off";
         projectStorageInstances.set(projectRoot, storage);
         projectSettingsManagers.set(projectRoot, manager);
+        if (remotePersonalResourcesActive()) {
+            remoteManagerSnapshots.set(projectRoot, readRemoteSettingsSnapshot());
+            // A held Pi manager must see later laptop writes without an async
+            // reload or another call to getSettingsManager(). Forward both
+            // property reads and method calls to the latest loaded manager.
+            remoteManagerHandles.set(
+                projectRoot,
+                new Proxy(manager, {
+                    get(_target, property) {
+                        refreshRemoteSettingsManager(projectRoot);
+                        const current = /** @type {SettingsManager} */ (projectSettingsManagers.get(projectRoot));
+                        const value = Reflect.get(current, property, current);
+                        if (typeof value !== "function") return value;
+                        /** @param {unknown[]} args */
+                        return (...args) => {
+                            refreshRemoteSettingsManager(projectRoot);
+                            const live = /** @type {SettingsManager} */ (projectSettingsManagers.get(projectRoot));
+                            return Reflect.apply(Reflect.get(live, property, live), live, args);
+                        };
+                    },
+                    set(_target, property, value) {
+                        refreshRemoteSettingsManager(projectRoot);
+                        const current = /** @type {SettingsManager} */ (projectSettingsManagers.get(projectRoot));
+                        return Reflect.set(current, property, value, current);
+                    },
+                }),
+            );
+        }
     }
     storageInstance = /** @type {RunWieldSettingsStorage} */ (projectStorageInstances.get(projectRoot));
 }
@@ -294,9 +419,30 @@ export function initSettings(projectRoot = Deno.cwd()) {
  * @param {string} [projectRoot]
  * @returns {SettingsManager}
  */
-export function getSettingsManager(projectRoot = Deno.cwd()) {
+export function getSettingsManager(projectRoot = getCwd()) {
     if (!projectSettingsManagers.has(projectRoot)) initSettings(projectRoot);
-    return /** @type {SettingsManager} */ (projectSettingsManagers.get(projectRoot));
+    refreshRemoteSettingsManager(projectRoot);
+    return /** @type {SettingsManager} */ (
+        remoteManagerHandles.get(projectRoot) ?? projectSettingsManagers.get(projectRoot)
+    );
+}
+
+/** @returns {string | undefined} */
+function readRemoteSettingsSnapshot() {
+    const path = join(personalGlobalRoot(), "settings.json");
+    // A missing file is optional only while the activated root is still mounted.
+    assertPersonalResourcePathSync(path, "global settings");
+    let content;
+    try {
+        content = Deno.readTextFileSync(path);
+    } catch (error) {
+        if (!(error instanceof Deno.errors.NotFound)) throw error;
+        // An initialized global profile can have no settings.json yet. Recheck
+        // the root after the failed read so detach during the read fails closed.
+        assertPersonalResourcePathSync(path, "global settings");
+        content = "{}";
+    }
+    return remoteSettingsSnapshot(stripJsoncComments(content));
 }
 
 /**
@@ -316,6 +462,8 @@ export function __resetSettingsForTests() {
     storageInstance = null;
     projectStorageInstances.clear();
     projectSettingsManagers.clear();
+    remoteManagerHandles.clear();
+    remoteManagerSnapshots.clear();
     projectSettingsRootMemo.clear();
 }
 
@@ -383,7 +531,7 @@ export function preserveRunWieldCustomSettingsForWrite(previousContent, nextCont
  * @param {string} [projectRoot]
  * @returns {any}
  */
-export function getCustomSetting(key, scope = "project", projectRoot = Deno.cwd()) {
+export function getCustomSetting(key, scope = "project", projectRoot = getCwd()) {
     const storage = getSettingsStorage(projectRoot);
     let result = undefined;
 
@@ -412,7 +560,12 @@ export function getCustomSetting(key, scope = "project", projectRoot = Deno.cwd(
  * @param {"global" | "project"} scope
  * @param {string} [projectRoot]
  */
-export async function setCustomSetting(key, value, scope = "project", projectRoot = Deno.cwd()) {
+export async function setCustomSetting(key, value, scope = "project", projectRoot = getCwd()) {
+    if (scope === "global" && remotePersonalResourcesActive()) {
+        await updateRemoteGlobalSetting({ kind: "set", key, value });
+        await getSettingsManager(projectRoot).reload();
+        return;
+    }
     const storage = getSettingsStorage(projectRoot);
 
     storage.withLock(scope, (content) => {
@@ -495,14 +648,28 @@ function validatePositiveIntegerSetting(value, label) {
 }
 
 /**
+ * Persist the two parts of a remote model default in one laptop transaction.
+ * @param {string} projectRoot
+ * @param {string} model
+ * @param {string} provider
+ */
+export async function setRemoteDefaultModelSelection(projectRoot, model, provider) {
+    if (!remotePersonalResourcesActive()) throw new Error("Remote model settings require a remote connection");
+    await updateRemoteGlobalSetting({ kind: "model", model, provider });
+    await getSettingsManager(projectRoot).reload();
+}
+
+/**
  * Safely updates one numeric global compaction setting while preserving siblings.
- * Pi's SettingsManager exposes getters for these fields but only provides a
- * setter for enabled, so RunWield writes the same global compaction object.
- *
  * @param {"enabled" | "reserveTokens" | "keepRecentTokens"} key
  * @param {boolean | number} value
  */
 export async function setGlobalCompactionSetting(key, value) {
+    if (remotePersonalResourcesActive()) {
+        await updateRemoteGlobalSetting({ kind: "compaction", key, value });
+        await getSettingsManager().reload();
+        return;
+    }
     if (!storageInstance) initSettings();
 
     // @ts-ignore storageInstance is definitely assigned here
@@ -552,7 +719,7 @@ export async function setCompactionKeepRecentTokens(value) {
  * @param {string} [projectRoot]
  * @returns {any} Merged value from global + project scopes, or undefined if neither has it.
  */
-export function getMergedCustomSetting(key, projectRoot = Deno.cwd()) {
+export function getMergedCustomSetting(key, projectRoot = getCwd()) {
     const globalVal = getCustomSetting(key, "global", projectRoot);
     const projectVal = getCustomSetting(key, "project", projectRoot);
 

@@ -18,9 +18,11 @@ import { createRequire } from "node:module";
 import { parseArgs } from "@std/cli/parse-args";
 // Keep private runtime entries ahead of helper exposure, browser startup and
 // command-registry imports. Static imports execute before top-level dispatch.
-if (["--remote-preflight", "--remote-view", "--remote-supervisor"].includes(Deno.args[0])) {
+if (["--remote-preflight", "--remote-view", "--remote-supervisor", "--remote-model-proof"].includes(Deno.args[0])) {
     try {
-        const { runRemotePreflight, runRemoteView } = await import("./shared/remote/entry.ts");
+        const { runRemoteModelProofEntry, runRemotePreflight, runRemoteView } = await import(
+            "./shared/remote/entry.ts"
+        );
         if (Deno.args.length !== (Deno.args[0] === "--remote-supervisor" ? 2 : 1)) {
             throw new Error("Unexpected remote entry arguments");
         }
@@ -28,7 +30,8 @@ if (["--remote-preflight", "--remote-view", "--remote-supervisor"].includes(Deno
         else if (Deno.args[0] === "--remote-supervisor") {
             const { runRemoteSupervisor } = await import("./shared/remote/supervisor.ts");
             await runRemoteSupervisor();
-        } else await runRemoteView();
+        } else if (Deno.args[0] === "--remote-model-proof") await runRemoteModelProofEntry();
+        else await runRemoteView();
         // Private entries have no ordinary CLI or personal startup to serve.
         Deno.exit(0);
     } catch (error) {

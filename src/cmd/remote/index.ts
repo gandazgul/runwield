@@ -3,12 +3,13 @@
 import { dirname, join } from "@std/path";
 import { linuxTarget, prepareRemoteRuntime } from "../../shared/remote/runtime.js";
 import { fixedPythonCommand, resolveRemoteTarget } from "../../shared/remote/target.js";
-import { startRemoteControlService } from "../../shared/remote/control.ts";
+import { type MountHeader, startLaptopSftp } from "../../shared/remote/sftp-mount.ts";
 import { VERSION } from "../../shared/version.js";
 import { downloadReleaseRuntime } from "../../shared/remote/release-artifact.js";
+import { parseRemoteModelProof, type RemoteModelProof } from "../../shared/remote/model-proof-config.ts";
 
 export const REMOTE_USAGE = "Usage: wld remote <ssh-host>[:<remote-directory>]\n" +
-    "Open an existing remote Linux directory (defaults to the remote home).\n" +
+    "Open an existing remote Linux directory (defaults to the remote home). Laptop ~/.wld is mounted at remote ~/.wld.\n" +
     "Released launchers use their exact VERSION-tagged GNU/Linux asset; development builds require a matching local artifact.\n" +
     "This connection cannot accept a user turn or open a saved Session.";
 
@@ -120,6 +121,9 @@ async function sendPrivateHeader(host: string, socket: string, signal: AbortSign
     buildId: string;
     protocol: number;
     view: { host: string; cwd: string; status: string; trust: string; readiness: string };
+    mount: MountHeader;
+    remoteHome: string;
+    modelProof?: RemoteModelProof;
 }): Promise<void> {
     const child = new Deno.Command("ssh", {
         args: ["-T", "--", host, DELIVER_HEADER],
@@ -158,6 +162,8 @@ export async function runRemoteCommand(args: string[]): Promise<void> {
     }
     if (args.length !== 1) throw new Error(REMOTE_USAGE);
     const { host, path } = parseRemoteDestination(args[0]);
+    const proofEnv = Deno.env.get("WLD_REMOTE_MODEL_PROOF");
+    const modelProof = proofEnv === undefined ? undefined : parseRemoteModelProof(proofEnv);
     let identity: { BUILD_ID: string; REMOTE_PROTOCOL_VERSION: number };
     try {
         identity = await import("../../shared/build-identity.js");
@@ -204,7 +210,15 @@ export async function runRemoteCommand(args: string[]): Promise<void> {
     // path generated from the known identity and the local verified checksum.
     const expected = `${target.home}/.cache/runwield/runtime/${BUILD_ID}/${triple}/${metadata.sha256}/wld`;
     if (executable !== expected) throw new Error("Remote runtime returned an unexpected cache path");
-    const service = startRemoteControlService({ buildId: BUILD_ID, protocol: REMOTE_PROTOCOL_VERSION });
+    const { startRemoteControlService } = await import("../../shared/remote/control.ts");
+    const sftp = await startLaptopSftp();
+    let service: ReturnType<typeof startRemoteControlService>;
+    try {
+        service = startRemoteControlService({ buildId: BUILD_ID, protocol: REMOTE_PROTOCOL_VERSION });
+    } catch (error) {
+        await sftp.close();
+        throw error;
+    }
     let child: Deno.ChildProcess | undefined;
     let exited = false;
     let raw = false;
@@ -232,6 +246,8 @@ export async function runRemoteCommand(args: string[]): Promise<void> {
                 "ExitOnForwardFailure=yes",
                 "-R",
                 `127.0.0.1:${service.port}:127.0.0.1:${service.port}`,
+                "-R",
+                `127.0.0.1:${sftp.header.sftpPort}:127.0.0.1:${sftp.header.sftpPort}`,
                 "--",
                 host,
                 command,
@@ -261,20 +277,34 @@ export async function runRemoteCommand(args: string[]): Promise<void> {
             port: service.port,
             buildId: BUILD_ID,
             protocol: REMOTE_PROTOCOL_VERSION,
+            mount: sftp.header,
+            remoteHome: target.home,
+            ...(modelProof ? { modelProof } : {}),
             view: {
                 host,
                 cwd: target.cwd,
-                status: "Connected; connection-only",
-                trust:
-                    "Later Session access uses standard OpenSSH SFTP with broad laptop-account file access, not a sandbox. No such access is open now.",
-                readiness: "No user turns or saved Sessions in this connection.",
+                status: "Connected; laptop personal files mounted",
+                trust: "OpenSSH SFTP exposes laptop-account files, not a sandbox. No Session access is open.",
+                readiness: "Personal files available; no user turns or saved Sessions in this connection.",
             },
         });
         const writer = ssh.stdin.getWriter();
         while (!exited && !interrupted && !service.status().ready && !service.status().shutdown) {
             await Promise.race([status, new Promise((resolve) => setTimeout(resolve, 100))]);
         }
-        if (!service.status().ready) throw new Error("Remote connection did not become ready");
+        if (!service.status().ready) {
+            await stopOwnedSsh(ssh, () => exited);
+            let outputDetail = new TextDecoder().decode(ready.remainder);
+            while (outputDetail.length < 8192) {
+                const { done, value } = await output.read();
+                if (done) break;
+                outputDetail += new TextDecoder().decode(value);
+            }
+            output.releaseLock();
+            const detail = `${outputDetail}\n${await stderr}`.trim().replaceAll(service.credential, "[redacted]")
+                .replaceAll(sftp.header.sftpSecret, "[redacted]");
+            throw new Error(`Remote connection did not become ready: ${detail || "remote supervisor exited"}`);
+        }
         // Only terminal bytes ever enter the interactive SSH channel.
         if (Deno.stdin.isTerminal()) {
             Deno.stdin.setRaw(true);
@@ -330,6 +360,7 @@ export async function runRemoteCommand(args: string[]): Promise<void> {
             );
         }
         await service.close();
+        await sftp.close();
         if (raw) Deno.stdin.setRaw(false);
         // A pending terminal read otherwise keeps the launcher alive after
         // SSH and the remote TUI have both exited.
