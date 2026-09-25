@@ -6,6 +6,49 @@ import { startRemoteControlService } from "./control.ts";
 
 const identity = { buildId: "b".repeat(64), protocol: 1 };
 
+Deno.test("an unfinished settings body cannot write after admission ends", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const home = await Deno.makeTempDir();
+        const previous = Deno.env.get("HOME");
+        Deno.env.set("HOME", home);
+        try {
+            await Deno.mkdir(join(home, ".wld"));
+            await Deno.writeTextFile(join(home, ".wld", "settings.json"), "{}");
+            let finish!: () => void;
+            const pending = new Promise<void>((resolve) => finish = resolve);
+            const service = startRemoteControlService(identity);
+            const address = `http://127.0.0.1:${service.port}`;
+            const headers = { Authorization: `Bearer ${service.credential}` };
+            await fetch(`${address}/handshake`, { method: "POST", headers, body: JSON.stringify(identity) });
+            await fetch(`${address}/readiness`, { method: "POST", headers });
+            const body = new ReadableStream<Uint8Array>({
+                async start(controller) {
+                    await pending;
+                    controller.enqueue(new TextEncoder().encode(JSON.stringify({
+                        id: "a".repeat(32),
+                        update: { kind: "set", key: "theme", value: "dark" },
+                    })));
+                    controller.close();
+                },
+            });
+            try {
+                const response = fetch(`${address}/settings/update`, { method: "POST", headers, body });
+                service.requestShutdown();
+                finish();
+                assertEquals((await response).status, 403);
+                assertEquals(getCustomSetting("theme", "global"), undefined);
+            } finally {
+                finish();
+                await service.close();
+            }
+        } finally {
+            if (previous === undefined) Deno.env.delete("HOME");
+            else Deno.env.set("HOME", previous);
+            await Deno.remove(home, { recursive: true });
+        }
+    });
+});
+
 Deno.test("laptop settings updates need the live authenticated connection and preserve other fields", async () => {
     await withProcessGlobalTestLock(async () => {
         const home = await Deno.makeTempDir();

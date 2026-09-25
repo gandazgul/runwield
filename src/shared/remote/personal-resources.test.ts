@@ -43,6 +43,17 @@ Deno.test("remote personal resources select mounted files while project settings
             }),
         );
         await Deno.writeTextFile(join(globalRoot, "installed", "prompts", "inside.md"), "# Mounted package");
+        const managedRoot = join(globalRoot, "managed");
+        await Deno.mkdir(join(managedRoot, "prompts"), { recursive: true });
+        await Deno.writeTextFile(
+            join(managedRoot, "package.json"),
+            JSON.stringify({
+                name: "managed-package",
+                version: "1.0.0",
+                pi: { prompts: ["prompts/*.md"] },
+            }),
+        );
+        await Deno.writeTextFile(join(managedRoot, "prompts", "managed.md"), "# Mounted managed package");
         await Deno.mkdir(join(project, ".wld", "skills", "personal"), { recursive: true });
         await Deno.mkdir(join(agentsRoot, "skills", "external"), { recursive: true });
         const packageRoot = join(root, "private", "package-2");
@@ -58,13 +69,24 @@ Deno.test("remote personal resources select mounted files while project settings
         await Deno.writeTextFile(join(packageRoot, "prompts", "personal-package.md"), "# Laptop package prompt");
         await Deno.mkdir(join(project, ".wld", "prompts"), { recursive: true });
         await Deno.writeTextFile(join(project, ".wld", "prompts", "personal-package.md"), "# Project prompt");
+        const projectPackage = join(project, "project-package");
+        await Deno.mkdir(join(projectPackage, "prompts"), { recursive: true });
+        await Deno.writeTextFile(
+            join(projectPackage, "package.json"),
+            JSON.stringify({
+                name: "project-package",
+                version: "1.0.0",
+                pi: { prompts: ["prompts/*.md"] },
+            }),
+        );
+        await Deno.writeTextFile(join(projectPackage, "prompts", "project-package.md"), "# Project package");
         await Deno.writeTextFile(
             join(globalRoot, "settings.json"),
             JSON.stringify({
                 marker: "personal",
                 theme: "dark",
                 agents: { global: true },
-                packages: ["../package", "/laptop/.wld/installed", "npm:remote-only"],
+                packages: ["../package", "/laptop/.wld/installed", "npm:managed-package", "npm:remote-only"],
             }),
         );
         await Deno.writeTextFile(join(globalRoot, "RUNWIELD.md"), "personal instruction");
@@ -83,14 +105,19 @@ Deno.test("remote personal resources select mounted files while project settings
         await Deno.writeTextFile(join(agentsRoot, "AGENTS.md"), "external instruction");
         await Deno.writeTextFile(
             join(project, ".wld", "settings.json"),
-            JSON.stringify({ marker: "project", agents: { project: true } }),
+            JSON.stringify({ marker: "project", agents: { project: true }, packages: ["../project-package"] }),
         );
         configureRemotePersonalResources({
             globalRoot,
             agentsRoot,
-            packageRoots: { "../package": packageRoot, "/laptop/.wld/installed": join(globalRoot, "installed") },
+            packageRoots: {
+                "../package": packageRoot,
+                "/laptop/.wld/installed": join(globalRoot, "installed"),
+                "npm:managed-package": managedRoot,
+            },
         });
         assertEquals(getSettingsDir("global", project), globalRoot);
+        assertEquals(getSettingsManager(project).getProjectSettings().packages, ["../project-package"]);
         assertEquals(await resolveAgentDefsDir(project), join(globalRoot, "agents"));
         assertEquals(getMergedCustomSetting("marker", project), "project");
         assertEquals(getMergedCustomSetting("agents", project), { global: true, project: true });
@@ -104,7 +131,7 @@ Deno.test("remote personal resources select mounted files while project settings
                 marker: "personal",
                 theme: "light",
                 agents: { updated: true },
-                packages: ["../package", "/laptop/.wld/installed", "npm:remote-only"],
+                packages: ["../package", "/laptop/.wld/installed", "npm:managed-package", "npm:remote-only"],
             }),
         );
         await manager.reload();
@@ -125,8 +152,10 @@ Deno.test("remote personal resources select mounted files while project settings
                 resource.metadata.source,
             ]),
             [
+                [join(projectPackage, "prompts", "project-package.md"), "../project-package"],
                 [join(packageRoot, "prompts", "personal-package.md"), "../package"],
                 [join(globalRoot, "installed", "prompts", "inside.md"), "/laptop/.wld/installed"],
+                [join(managedRoot, "prompts", "managed.md"), "npm:managed-package"],
             ],
         );
         assertEquals(

@@ -101,6 +101,59 @@ async function stopChild(child: Deno.ChildProcess, label: string): Promise<void>
     }
 }
 
+async function runOwnedModelProof(
+    header: RemoteSupervisorHeader,
+    mount: RemoteMount,
+    signal: AbortSignal,
+): Promise<void> {
+    const child = new Deno.Command(Deno.execPath(), {
+        args: ["--remote-model-proof"],
+        cwd: header.view.cwd,
+        stdin: "piped",
+        stdout: "null",
+        stderr: "null",
+        detached: true,
+    }).spawn();
+    let resolveAbort = () => {};
+    const aborted = new Promise<undefined>((resolve) => {
+        resolveAbort = () => resolve(undefined);
+    });
+    let stopping: Promise<void> | undefined;
+    const stop = () => stopping ??= stopChild(child, "model proof");
+    const onAbort = () => {
+        resolveAbort();
+        void stop();
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    const writer = child.stdin.getWriter();
+    try {
+        if (signal.aborted) onAbort();
+        await writer.write(encoder.encode(
+            JSON.stringify({
+                proof: header.modelProof,
+                connection: { port: header.port, credential: header.credential },
+                cwd: header.view.cwd,
+                mount: {
+                    globalRoot: mount.globalRoot,
+                    agentsRoot: mount.agentsRoot,
+                    packageRoots: mount.packageRoots,
+                },
+            }) + "\n",
+        ));
+        // Keep stdin open as a parent-lifetime signal. A crashed supervisor
+        // closes the pipe, and the proof process aborts its model request.
+        const status = await Promise.race([child.status, aborted]);
+        if (!signal.aborted && !status?.success) throw new Error("Remote model proof process failed");
+    } catch (error) {
+        await stop();
+        throw error;
+    } finally {
+        signal.removeEventListener("abort", onAbort);
+        void writer.abort().catch(() => undefined);
+        if (signal.aborted) await stop();
+    }
+}
+
 /**
  * Private --remote-supervisor entry. The launcher requests an SSH tty for
  * terminal data and uses a separate -T SSH channel for the private header.
@@ -284,14 +337,7 @@ export async function runRemoteSupervisor(): Promise<void> {
                 }
             }, PERIOD_MS);
             try {
-                const { runRemoteModelProof } = await import("./model-proof.ts");
-                await runRemoteModelProof({
-                    proof: header.modelProof,
-                    mount: personalMount,
-                    connection: { port: header.port, credential: header.credential },
-                    cwd: header.view.cwd,
-                    signal: proofAbort.signal,
-                });
+                await runOwnedModelProof(header, personalMount, proofAbort.signal);
             } catch {
                 if (mountLost) throw new Error("Laptop personal mount lost; remote work stopped");
                 if (proofAbort.signal.aborted) return;

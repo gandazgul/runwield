@@ -102,7 +102,7 @@ function control(source: ModelRuntime) {
     };
 }
 
-async function fixture() {
+async function fixture(emittedEvents: AssistantMessageEvent[] = events) {
     const source = await ModelRuntime.create({
         credentials: new InMemoryCredentialStore(),
         modelsPath: null,
@@ -116,7 +116,7 @@ async function fixture() {
         receivedContext = context;
         const output = createAssistantMessageEventStream();
         queueMicrotask(() => {
-            for (const event of events) output.push(event);
+            for (const event of emittedEvents) output.push(event);
             output.end();
         });
         return output;
@@ -166,6 +166,29 @@ Deno.test("remote Pi streams preserve thinking, tool calls, usage, and image inp
                 assert(!test.lastStreamBody().includes(forbidden));
             }
         }
+    } finally {
+        await test.close();
+    }
+});
+
+Deno.test("remote model errors retain a safe unsupported-temperature reason", async () => {
+    const test = await fixture([{
+        type: "error",
+        reason: "error",
+        error: {
+            ...completed,
+            content: [],
+            stopReason: "error",
+            errorMessage: "temperature not supported at https://private.invalid/secret",
+        },
+    }]);
+    try {
+        const catalog = await fetchRemoteModelCatalog(test.connection);
+        const runtime = await createRemoteModelRuntime(test.connection, catalog);
+        const projected = runtime.getModel(model.provider, model.id)!;
+        const result = await runtime.streamSimple(projected, { messages: [] }, { temperature: 0.4 }).result();
+        assertEquals(result.errorMessage, "temperature is not supported");
+        assert(!JSON.stringify(result).includes("private.invalid"));
     } finally {
         await test.close();
     }

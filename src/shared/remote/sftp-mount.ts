@@ -82,6 +82,8 @@ export async function startLaptopSftp(): Promise<SftpService> {
         }
     }
     if (!executable) throw new Error("OpenSSH sftp-server is required on the laptop");
+    const agents = (await Deno.stat(join(home, ".agents")).catch(() => null))?.isDirectory ?? false;
+    const packages = await installedLaptopPackageRoots(home);
     const listener = Deno.listen({ hostname: "127.0.0.1", port: 0 });
     const address = listener.addr;
     if (address.transport !== "tcp") throw new Error("SFTP listener is not TCP");
@@ -90,6 +92,14 @@ export async function startLaptopSftp(): Promise<SftpService> {
     );
     const children = new Set<Deno.ChildProcess>();
     const connections = new Set<Deno.Conn>();
+    const stopServingChild = async (child: Deno.ChildProcess) => {
+        try {
+            child.kill("SIGKILL");
+        } catch { /* Already exited. */ }
+        if (!await Promise.race([child.status.then(() => true), wait(5_000).then(() => false)])) {
+            throw new Error(`SFTP serving process termination unconfirmed: ${child.pid}`);
+        }
+    };
     let closed = false;
     const serve = async (conn: Deno.Conn) => {
         connections.add(conn);
@@ -122,11 +132,10 @@ export async function startLaptopSftp(): Promise<SftpService> {
             } catch { /* Already closed. */ }
             connections.delete(conn);
             if (child) {
-                try {
-                    child.kill();
-                } catch { /* Already exited. */ }
-                await child.status;
-                children.delete(child);
+                const servingChild = child;
+                await stopServingChild(servingChild).then(() => children.delete(servingChild)).catch((error) =>
+                    console.error("SFTP serving cleanup failed:", error)
+                );
             }
         }
     };
@@ -144,8 +153,8 @@ export async function startLaptopSftp(): Promise<SftpService> {
             laptopHome: home,
             sftpPort: address.port,
             sftpSecret: secret,
-            agents: (await Deno.stat(join(home, ".agents")).catch(() => null))?.isDirectory ?? false,
-            packages: await installedLaptopPackageRoots(home),
+            agents,
+            packages,
         },
         async close() {
             if (closed) return;
@@ -156,13 +165,10 @@ export async function startLaptopSftp(): Promise<SftpService> {
                     conn.close();
                 } catch { /* Already closed. */ }
             }
-            for (const child of children) {
-                try {
-                    child.kill();
-                } catch { /* Already exited. */ }
-            }
             await accept;
-            await Promise.all([...children].map((child) => child.status));
+            const results = await Promise.allSettled([...children].map(stopServingChild));
+            const failure = results.find((result) => result.status === "rejected");
+            if (failure?.status === "rejected") throw failure.reason;
         },
     };
 }

@@ -193,6 +193,12 @@ function safeProviderDiagnostic(message: string | undefined): string {
         return "HTTP 503: service unavailable";
     }
     if (/context.length.exceeded|context.length|context overflow/i.test(text)) return "context_length_exceeded";
+    if (
+        /\btemperature\b/i.test(text) &&
+        /unsupported|not supported|not allowed|not accepted|invalid temperature/i.test(text)
+    ) {
+        return "temperature is not supported";
+    }
     if (/\b401\b|\b403\b|unauthori[sz]ed|invalid.api.key/i.test(text)) return "HTTP 401: unauthorized";
     return "Laptop model request failed";
 }

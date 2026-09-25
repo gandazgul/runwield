@@ -28,8 +28,8 @@ import { WORKFLOW_ADVANCEMENT_TOOL_NAMES } from "../../tools/registry.js";
 import { createRunWieldGrepToolDefinition } from "../../tools/grep.js";
 import { createRunWieldReadToolDefinition } from "../../tools/read.js";
 import { extractYaml, test as hasFrontMatter } from "@std/front-matter";
-import { basename, dirname, join } from "@std/path";
-import { AGENTS, getHomeDir, PROMPT_TEMPLATES_DIR } from "../../constants.js";
+import { basename, dirname, isAbsolute, join, relative } from "@std/path";
+import { AGENTS, getCwd, getHomeDir, PROMPT_TEMPLATES_DIR } from "../../constants.js";
 import {
     emitHostedSessionRuntimeEvent,
     emitSystemStatus,
@@ -468,9 +468,14 @@ export async function listPromptTemplates(options = {}) {
         const name = resource.path.split(/[\\/]/).pop()?.replace(/\.md$/, "") || "";
         if (!name || seen.has(name)) continue;
         try {
-            await assertPersonalResourcePath(resource.path, `package prompt template "${name}"`, {
-                packageResource: remotePersonalResourcesActive(),
-            });
+            const project = await Deno.realPath(cwd || getCwd());
+            const path = await Deno.realPath(resource.path);
+            const rest = relative(project, path);
+            if (rest === ".." || rest.startsWith("../") || isAbsolute(rest)) {
+                await assertPersonalResourcePath(resource.path, `package prompt template "${name}"`, {
+                    packageResource: remotePersonalResourcesActive(),
+                });
+            }
             const meta = await parsePromptTemplateMeta(resource.path);
             templates.push({
                 name,
