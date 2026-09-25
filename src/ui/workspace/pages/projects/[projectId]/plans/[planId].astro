@@ -72,7 +72,7 @@ let error: CanonicalPlanError | null = null;
 let recoveryGeneration: number | null = null;
 let recoveryCurrentSegmentId: string | null = null;
 try {
-    plan = await loadOwnerProjectPlanDetail(projectId, planId);
+    plan = await loadOwnerProjectPlanDetail(projectId, planId, { reviewOnly: Boolean(operationId && interactionId) });
 } catch (caught) {
     const serializedError = await serializeCanonicalPlanError(caught) as CanonicalPlanError;
     error = serializedError;

@@ -19,7 +19,15 @@ export function workflowActionHref(payload, action) {
 }
 
 export function WorkflowSidebar(
-    { presentation, payload = {}, title = "Plan workflow", embedded = false, onAction = null, onOpenSession = null },
+    {
+        presentation,
+        payload = {},
+        title = "Plan workflow",
+        embedded = false,
+        onAction = null,
+        onOpenSession = null,
+        onAnswerAgent = null,
+    },
 ) {
     const actionInFlight = useRef(false);
     const [pending, setPending] = useState(false);
@@ -106,13 +114,23 @@ export function WorkflowSidebar(
                     <section className="workflow-next-card" aria-label="Workflow action">
                         <h3>Next action</h3>
                         <p>{presentation.action.detail}</p>
-                        {onOpenSession && presentation.action.kind === "open_session"
+                        {onAnswerAgent && presentation.action.kind === "answer_agent"
+                            ? (
+                                <button className="rw-toolbar-button" type="button" onClick={onAnswerAgent}>
+                                    Answer agent
+                                </button>
+                            )
+                            : onOpenSession && presentation.action.kind === "open_session"
                             ? (
                                 <button className="rw-toolbar-button" type="button" onClick={onOpenSession}>
                                     Open Session
                                 </button>
                             )
-                            : onAction && ["run", "resume", "recover"].includes(presentation.action.kind)
+                            : onAction &&
+                                    (["run", "resume", "recover", "resume_from_hold"].includes(
+                                        presentation.action.kind,
+                                    ) ||
+                                        (presentation.action.kind === "review_plan" && !payload.reviewHref))
                             ? (
                                 <button
                                     className="rw-toolbar-button"

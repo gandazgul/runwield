@@ -1,3 +1,4 @@
+import { submitWorkflowAction } from "../browser/workflow-action.js";
 import { mergePlanAssociations } from "../../../shared/session/plan-association.ts";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { animateSidebarUpdate } from "../../design-system/components/react/sidebar-motion.ts";
@@ -2044,7 +2045,11 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         workflowIntent: typeof persistedWorkflowContext.routingIntent === "string"
             ? persistedWorkflowContext.routingIntent
             : "",
-        workflowStatus: typeof workflowProgress?.plan?.status === "string" ? workflowProgress.plan.status : "",
+        workflowStatus: workflowProgress?.overall?.state === "completed"
+            ? "verified"
+            : typeof workflowProgress?.plan?.status === "string"
+            ? workflowProgress.plan.status
+            : "",
         workflowClassification: typeof workflowProgress?.plan?.classification === "string"
             ? workflowProgress.plan.classification
             : "",
@@ -2062,8 +2067,8 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         workflowHasLiveQuestion: liveWorkflowInteraction?.kind === "interaction",
         workflowHasPlanReview: liveWorkflowInteraction?.kind === "plan-review",
         workflowHasCodeReview: liveWorkflowInteraction?.kind === "code-review",
-        workflowCanResume: Boolean(runwieldSessionId && availability.canContinue),
-        workflowCanRecover: Boolean(runwieldSessionId && interruptedOperation),
+        workflowCanResume: Boolean(runwieldSessionId && availability.canContinue && workflowProgress?.canResume),
+        workflowCanRecover: Boolean(runwieldSessionId && availability.canContinue && workflowProgress?.canRecover),
     }).workflow;
     const planHomeFromSnapshot = timeline ? activePlanHomeUrl(projectId, runwieldSessionId, timeline.snapshot) : "";
     const planHomeUrl = planHomeFromSnapshot;
@@ -2071,28 +2076,44 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         (liveWorkflowInteraction?.interactionId ? `#interaction-${liveWorkflowInteraction.interactionId}` : "") ||
         planHomeUrl;
     async function runWorkflowAction(action) {
-        if (!["run", "resume", "recover"].includes(action.kind)) return;
+        if (!["run", "resume", "recover", "review_plan", "resume_from_hold"].includes(action.kind)) return;
         const currentTimeline = timelineRef.current;
         const planId = activePlanId(currentTimeline?.snapshot);
         if (!planId) {
             throw new Error("Plan workflow evidence is unavailable. Refresh the Session and try again.");
         }
-        const result = await ownerFetch(
+        const result = await submitWorkflowAction(
             `/api/owner/projects/${encodeURIComponent(projectId)}/sessions/${
                 encodeURIComponent(runwieldSessionId)
             }/plan-workflow`,
             {
-                method: "POST",
-                body: JSON.stringify({
-                    requestId: crypto.randomUUID(),
-                    planId,
-                    action: action.kind,
-                    expectedGeneration: currentTimeline.generation,
-                }),
+                requestId: crypto.randomUUID(),
+                planId,
+                action: action.kind,
+                expectedGeneration: currentTimeline.generation,
+                expectedRevision: workflowProgress?.expectedRevision,
             },
         );
+        if (result.canceled) return "Plan remains on hold.";
+        if (action.kind === "resume_from_hold") {
+            const progressUrl = activePlanProgressApiUrl(projectId, runwieldSessionId, currentTimeline.snapshot);
+            if (progressUrl) setWorkflowProgress(await ownerFetch(progressUrl));
+        }
+        if (result.reviewUrl) {
+            workspaceNavigate(result.reviewUrl);
+            return "Plan review opened.";
+        }
+        if (result.operationId) {
+            setOperationStreamFailed(false);
+            setOperation({
+                operationId: result.operationId,
+                status: result.status || "running",
+                observed: 0,
+                attempts: 0,
+            });
+        }
         await loadTimeline();
-        return result.reason || "Workflow updated.";
+        return result.result?.message || result.reason || "Workflow started.";
     }
     const agents = Array.isArray(sessionOptions?.agents) ? sessionOptions.agents : [];
     const models = Array.isArray(sessionOptions?.models) ? sessionOptions.models : [];
@@ -2369,6 +2390,17 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                                                         title="Workflow"
                                                         embedded
                                                         onAction={runWorkflowAction}
+                                                        onAnswerAgent={() => {
+                                                            setContextCollapsed(true);
+                                                            globalThis.requestAnimationFrame(() => {
+                                                                const target = document.getElementById(
+                                                                    `interaction-${liveWorkflowInteraction?.interactionId}`,
+                                                                );
+                                                                target?.scrollIntoView({ block: "nearest" });
+                                                                (target?.querySelector("textarea, input, button, a") ||
+                                                                    target)?.focus();
+                                                            });
+                                                        }}
                                                         onOpenSession={() => {
                                                             setContextCollapsed(true);
                                                             scrollToLiveEdge();

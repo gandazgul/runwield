@@ -1296,6 +1296,7 @@ Deno.test("Workflow Resume submits the committed version and reports progress an
         globalThis.IS_REACT_ACT_ENVIRONMENT = true;
         const submissions = [];
         let generation = 7;
+        let planStatus = "implemented";
         let timelineReads = 0;
         let settle;
         let liveOperation = null;
@@ -1319,6 +1320,8 @@ Deno.test("Workflow Resume submits the committed version and reports progress an
             if (path.includes("/timeline?")) timelineReads++;
             return Promise.resolve(Response.json({
                 state: "idle",
+                plan: { status: planStatus },
+                canResume: true,
                 generation,
                 events: [],
                 complete: true,
@@ -1389,6 +1392,135 @@ Deno.test("Workflow Resume submits the committed version and reports progress an
         assertEquals(container.querySelector(".session-stream-panel").inert, false);
         assertEquals(header.querySelector('[aria-label="Show Session sidebar"]') !== null, true);
         await act(() => settle(Response.json({ kind: "paused", reason: "Validation paused." }, { status: 202 })));
+        liveOperation = null;
+        planStatus = "ready_for_work";
+        await act(async () =>
+            root.render((await import("react")).createElement(SessionSurface, {
+                key: "saved-plan",
+                projectId: "project",
+                runwieldSessionId: "saved-session",
+            }))
+        );
+        await act(() => header.querySelector('[aria-label="Show Session sidebar"]').click());
+        assertEquals(resume().textContent, "Review Plan");
+        let navigated = "";
+        browser.document.addEventListener("runwield:workspace-navigate", (event) => {
+            navigated = event.detail.href;
+            event.preventDefault();
+        });
+        await act(() => resume().click());
+        assertEquals(submissions.at(-1).action, "review_plan");
+        const reviewUrl = "/projects/project/plans/saved?session=saved-session&operation=review&interaction=approval";
+        await act(() => settle(Response.json({ reviewUrl }, { status: 202 })));
+        assertEquals(navigated, reviewUrl);
+    } finally {
+        if (root) await act(() => root.unmount());
+        globalThis.fetch = previousFetch;
+        for (const [key, descriptor] of previous) {
+            if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+            else Reflect.deleteProperty(globalThis, key);
+        }
+        if (previousActFlag === undefined) delete globalThis.IS_REACT_ACT_ENVIRONMENT;
+        else globalThis.IS_REACT_ACT_ENVIRONMENT = previousActFlag;
+        await browser.happyDOM.close();
+    }
+});
+
+Deno.test("mobile Answer agent reveals the waiting question", async () => {
+    const browser = new Window({ url: "http://localhost" });
+    const globals = [
+        "window",
+        "document",
+        "location",
+        "localStorage",
+        "sessionStorage",
+        "HTMLElement",
+        "CustomEvent",
+        "matchMedia",
+        "ResizeObserver",
+        "requestAnimationFrame",
+    ];
+    const previous = new Map(globals.map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+    const previousFetch = globalThis.fetch;
+    const previousActFlag = globalThis.IS_REACT_ACT_ENVIRONMENT;
+    const { act } = await import("react");
+    const { createRoot } = await import("react-dom/client");
+    const mobile = true;
+    const listeners = new Set();
+    const media = {
+        get matches() {
+            return mobile;
+        },
+        addEventListener(_event, listener) {
+            listeners.add(listener);
+        },
+        removeEventListener(_event, listener) {
+            listeners.delete(listener);
+        },
+    };
+    const header = browser.document.createElement("div");
+    header.setAttribute("data-workspace-header-actions", "");
+    const container = browser.document.createElement("div");
+    browser.document.body.append(header, container);
+    let root;
+    try {
+        for (const key of globals) {
+            const value = key === "window"
+                ? browser
+                : key === "matchMedia"
+                ? (query) => query === "(max-width: 900px)" ? media : browser.matchMedia(query)
+                : browser[key];
+            Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
+        }
+        globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+        const generation = 7;
+        const planStatus = "implemented";
+        const liveOperation = {
+            operationId: "question-operation",
+            status: "running",
+            remote: true,
+            events: [],
+            liveInteraction: { interactionId: "question", request: { type: "text", prompt: "Which option?" } },
+        };
+        globalThis.fetch = (url) => {
+            const path = String(url);
+            if (path.endsWith("/live")) {
+                return Promise.resolve(
+                    Response.json({ state: liveOperation ? "active" : "idle", generation, operation: liveOperation }),
+                );
+            }
+            if (path.includes("/session-operations/")) return Promise.resolve(Response.json(liveOperation));
+            if (path.includes("session-options")) {
+                return Promise.resolve(Response.json({ agents: [], models: [], commands: [], defaults: {} }));
+            }
+            return Promise.resolve(Response.json({
+                state: "idle",
+                plan: { status: planStatus },
+                canResume: true,
+                generation,
+                events: [],
+                complete: true,
+                snapshot: {
+                    workflowContext: { planId: "repair-plan", planName: "Repair Plan" },
+                },
+            }));
+        };
+        root = createRoot(container);
+        await act(async () =>
+            root.render(
+                (await import("react")).createElement(SessionSurface, {
+                    projectId: crypto.randomUUID(),
+                    runwieldSessionId: crypto.randomUUID(),
+                }),
+            )
+        );
+        await act(() => header.querySelector('[aria-label="Show Session sidebar"]').click());
+        const sidebar = () => container.querySelector('[aria-label="Workflow"]');
+        const answer = sidebar().querySelector("button");
+        assertEquals(answer.textContent, "Answer agent");
+        await act(() => answer.click());
+        assertEquals(container.querySelector(".session-stream-panel").inert, false);
+        assertEquals(container.querySelector("#session-context-sidebar").hidden, true);
     } finally {
         if (root) await act(() => root.unmount());
         globalThis.fetch = previousFetch;

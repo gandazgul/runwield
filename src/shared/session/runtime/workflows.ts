@@ -321,6 +321,89 @@ export class RuntimeWorkflows {
         return true;
     }
 
+    /** Reopen saved approval through the same tool and decisions as a planning turn. */
+    async reviewSavedPlan(sessionId: string, planId: string): Promise<RuntimeValidationResult> {
+        const session = this.services.sessionHost.getSession(sessionId);
+        if (!session) throw new Error("Session not found.");
+        const { findPlanEvidenceById } = await import("../../../plan-store.js");
+        const { loadPlanActionEvidence } = await import("../../workflow/plan-actions.ts");
+        const { createPlanWrittenTool } = await import("../../../tools/plan-written.ts");
+        const { claimWorkflowToolEvent, settleWorkflowToolEvent } = await import(
+            "../../workflow/workflow-tool-events.ts"
+        );
+        const plan = await findPlanEvidenceById(session.cwd, planId);
+        const agentName = plan.attrs.classification === "PROJECT" ? AGENTS.ARCHITECT : AGENTS.PLANNER;
+        const reviewed = await this.managedOperations.runManagedStandaloneMutation(
+            sessionId,
+            "workflow_operation",
+            async (activeSession) => {
+                const current = await findPlanEvidenceById(activeSession.cwd, planId);
+                if (!["approved", "ready_for_work"].includes(current.attrs.status || "")) {
+                    throw new Error("Plan changed. Refresh before opening review.");
+                }
+                const toolCallId = crypto.randomUUID();
+                const tool = createPlanWrittenTool({ hostedSession: activeSession, agentName });
+                const result = await tool.execute(
+                    toolCallId,
+                    { planName: current.planName },
+                    undefined,
+                    undefined,
+                    {} as import("@earendil-works/pi-coding-agent").ExtensionContext,
+                );
+                const event = claimWorkflowToolEvent(activeSession, { kinds: ["plan_written"], owningSession: null });
+                if (event?.kind !== "plan_written") {
+                    throw new Error(result.content.map((item) => item.type === "text" ? item.text : "").join("\n"));
+                }
+                settleWorkflowToolEvent(activeSession, event);
+                return event.payload as import("../../workflow/workflow-tool-events.ts").PlanWrittenEventPayload;
+            },
+            { activateAgent: false },
+        );
+        if (isManagedOperationFailure(reviewed)) throw new Error(reviewed.error);
+        let outcome = reviewed;
+        if (outcome.outcome === "feedback") {
+            outcome = await this.runPlanningAgent(sessionId, {
+                agentName,
+                planName: plan.planName,
+                triageMeta: outcome.triageMeta || plan.attrs,
+                associationPurpose: "review",
+                initialRequest:
+                    `Revise docs/plans/${plan.planName}.md using this review feedback, then submit it with plan_written.\n\n${
+                        outcome.feedback || ""
+                    }`,
+                images: outcome.images,
+            });
+        }
+        if (outcome.outcome === "approved_decompose") {
+            return await this.runSlicerAgent(sessionId, {
+                planName: outcome.planName || plan.planName,
+                triageMeta: outcome.triageMeta,
+                reviewFeedback: outcome.feedback,
+                reviewImages: outcome.images,
+            });
+        }
+        if (outcome.outcome !== "approved_execute") return { kind: outcome.outcome };
+        const approved = await findPlanEvidenceById(session.cwd, outcome.triageMeta?.planId || planId);
+        const evidence = await loadPlanActionEvidence(session.cwd, approved.planId);
+        if (evidence.kind !== "success") throw new Error(evidence.message);
+        const result = await this.executePlan(sessionId, {
+            planName: approved.planName,
+            triageMeta: approved.attrs,
+            approvalEvidence: evidence.evidence,
+            reviewFeedback: outcome.feedback,
+            reviewImages: outcome.images,
+        });
+        if (result.error) throw new Error(result.error);
+        if (!result.executionComplete) return result;
+        return await this.runValidation(sessionId, {
+            planName: approved.planName,
+            planContent: approved.markdown,
+            triageMeta: approved.attrs,
+            executionContext: result.executionContext,
+            trigger: "execution_completion",
+        }) || result;
+    }
+
     async executePlan(
         sessionId: string,
         options: RuntimeExecutePlanOptions,
@@ -340,11 +423,30 @@ export class RuntimeWorkflows {
             if (pendingResult) return pendingResult;
             const prepared = await this.runWorkflowOperation(session, "prepareExecutePlan", options, async () => {
                 const { executePlan } = await import("../../workflow/workflow.js");
+                const { resolveWorkflowPlanLocation } = await import("../../workflow/plan-location.ts");
+                const { recordPlanEvent } = await import("../../workflow/plan-lifecycle.js");
+                const location = await resolveWorkflowPlanLocation(session.cwd, options.planName || "");
+                if (options.triageMeta?.planId && location.plan?.attrs.planId !== options.triageMeta.planId) {
+                    throw new Error("Plan identity changed. Refresh before continuing execution.");
+                }
+                const interrupted = ["in_progress", "failed"].includes(location.plan?.attrs.status || "");
+                if (interrupted && location.plan) {
+                    // Resume the saved attempt in this segment. The execution runner restores
+                    // its worktree and tools; an ordinary user turn cannot establish that context.
+                    await recordPlanEvent({
+                        cwd: location.documentRoot,
+                        planName: options.planName || "",
+                        event: "recovery_continue",
+                        currentStatus: location.plan.attrs.status,
+                        expectedRevision: location.plan.revision,
+                        details: { triageMeta: location.plan.attrs },
+                    });
+                }
                 return await executePlan(
                     {
                         ...options,
                         hostedSession: session,
-                        prepareSegmentHandoff: true,
+                        prepareSegmentHandoff: !interrupted,
                     },
                 );
             });

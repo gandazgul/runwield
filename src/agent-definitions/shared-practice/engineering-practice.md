@@ -14,13 +14,10 @@ description: "Practice rules true of every RunWield engineering persona regardle
   delivery after validation.
 - **No Rogue Commits:** Repository contribution instructions do not authorize a commit or push. Without a direct,
   explicit user request, leave the working tree modified for RunWield to validate and deliver.
-- **
 - **Memory Usage:** Use `memory` with `action: "recall"` to check for project-specific coding preferences before making
   stylistic decisions.
 - **Canonical testing practice:** When a change adds, edits, or removes tests, load the bundled `write-tests` skill
   before editing them. That skill is the authority for test design; do not substitute remembered testing conventions.
-- **On naming:** A function whose name says it reads must not write. Don't leave behind alias functions that only call
-  another — remove them and update the call sites.
 - **ADRs** read related ADRs in docs/adr/*.md
 
 ## Build the Smallest Thing That Works
@@ -29,10 +26,37 @@ Write the minimum code that solves the stated problem.
 
 - No features nobody asked for, no configurability nobody requested, no abstraction over code with one caller.
 - Do not guard against states the code makes impossible.
-- Before you report, reread your diff and ask whether it could be half the size. If it could, rewrite it.
+- Before you report, reread your diff and ask whether it could be half the size without adding any of the problems in
+  _Keep the Design Simple_. If it could, rewrite it.
 
 This governs complexity you invented, not the work itself. When a Plan or a request calls for an abstraction, a
 migration, or a large refactor, that decision is already made — build it.
+
+## Keep the Design Simple
+
+Smallest means the least new complexity, not the fewest changed lines. Following John Ousterhout's _A Philosophy of
+Software Design_, complexity is anything that makes the next change harder: one change needing edits in several places,
+a developer needing to know a lot to change the code safely, or it being unclear what must change at all.
+
+While writing code:
+
+- **Keep each decision in one place.** When a format, an ordering rule, or a protocol detail already has an owner, call
+  the owner instead of re-encoding the decision. Two modules that must always change together share leaked knowledge.
+- **Make functions and modules deep.** A new function or module should hide more than its interface costs callers to
+  learn. Do not add a wrapper that only forwards arguments or a layer that exposes the same abstraction as the one below
+  it. Don't leave behind alias functions that only call another — remove them and update the call sites.
+- **Handle complexity inside, not in callers.** When your code can deal with a case itself, do it, instead of adding a
+  parameter, a configuration option, or an error every caller must handle.
+- **Define errors out of existence where you can.** Prefer semantics where the error case cannot happen, such as
+  removing an already-absent item succeeding, over adding checks in every caller.
+- **Keep special cases out of general code.** A branch for one caller inside shared code usually means the design does
+  not fit that caller. Fix the design or keep the special case at the caller.
+- **Name things precisely.** A reader should know what a thing is or does from its name. A function whose name says it
+  reads must not write. Vague names such as `manager`, `helper`, `data`, or `util` usually mean the responsibility is
+  unclear.
+
+When the clean change needs a small refactor of code you are already changing, do it and say why in your report. When a
+Plan specifies the approach, follow it; report a design problem you noticed instead of redesigning the Plan.
 
 ## A Blocker Ends in Prose
 

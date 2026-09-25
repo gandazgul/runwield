@@ -130,3 +130,51 @@ Deno.test("live validation replaces the pre-resume paused checkpoint", () => {
     assertEquals(presentation.stages.some((stage) => stage.id === "repair"), false);
     assertEquals(presentation.action?.kind, "open_session");
 });
+
+Deno.test("saved approval offers Review Plan while validation keeps Resume and live work keeps its action", () => {
+    for (const status of ["approved", "ready_for_work"]) {
+        const input = { planName: "Saved", status, sessionState: "idle", canResume: true };
+        assertEquals(buildWorkflowPresentation(input).action?.kind, "review_plan");
+        assertEquals(buildWorkflowPresentation({ ...input, hasLiveQuestion: true }).action?.kind, "answer_agent");
+        assertEquals(buildWorkflowPresentation({ ...input, hasCodeReview: true }).action?.kind, "review_code");
+    }
+    assertEquals(
+        buildWorkflowPresentation({ planName: "Paused", status: "implemented", canResume: true }).action?.kind,
+        "resume",
+    );
+    assertEquals(
+        buildWorkflowPresentation({ planName: "Running", status: "ready_for_work", sessionState: "active" }).action
+            ?.kind,
+        "open_session",
+    );
+});
+
+Deno.test("active and finished workflows ignore obsolete continuation flags", () => {
+    for (
+        const input of [
+            { status: "implemented", sessionState: "active" },
+            { status: "verified", sessionState: "idle" },
+            { status: "validated", classification: "PROJECT", sessionState: "idle" },
+        ]
+    ) {
+        const presentation = buildWorkflowPresentation({
+            planName: "Plan",
+            hasWorkingSession: true,
+            canRun: true,
+            canResume: true,
+            canRecover: true,
+            ...input,
+        });
+        assertEquals(presentation.action?.kind, "open_session");
+    }
+});
+
+Deno.test("held Plans offer Resume from hold only when the saved workflow is available", () => {
+    const input = { planName: "Held", status: "on_hold", hasWorkingSession: true };
+    assertEquals(buildWorkflowPresentation({ ...input, canResume: true }).action?.kind, "resume_from_hold");
+    assertEquals(buildWorkflowPresentation({ ...input, canResume: false }).action?.kind, "open_session");
+    assertEquals(
+        buildWorkflowPresentation({ ...input, canResume: true, sessionState: "active" }).action?.kind,
+        "open_session",
+    );
+});

@@ -130,6 +130,15 @@ Deno.test("Workspace Resume continues a paused validation repair in its existing
                 });
                 const payload = await response.json();
                 assertEquals(response.status, 202, JSON.stringify(payload));
+                assertExists(payload.operationId);
+                for (let i = 0; i < 500 && service.getOperation(payload.operationId).status === "running"; i++) {
+                    await new Promise((resolve) => setTimeout(resolve, 20));
+                }
+                assertEquals(
+                    service.getOperation(payload.operationId).status,
+                    "completed",
+                    JSON.stringify(service.getOperation(payload.operationId)),
+                );
                 assertEquals(repairs, 2, JSON.stringify(payload));
                 assertEquals(store.inspectSessionActivation(managed.runwieldSessionId).activation?.state, "idle");
                 const resumedSegments = store.listSessionTranscriptSegments(managed.runwieldSessionId);
@@ -140,7 +149,7 @@ Deno.test("Workspace Resume continues a paused validation repair in its existing
                     "Continuing the interrupted repair.",
                 );
             } finally {
-                await service.runtime.closeAllSessionsWhenIdle();
+                await service.runtime.closeAllSessions();
                 service.close();
             }
         } finally {

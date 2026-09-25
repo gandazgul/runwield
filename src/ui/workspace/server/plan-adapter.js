@@ -5,6 +5,7 @@
 import {
     countChildPlanProgress,
     findPlanById,
+    findPlanEvidenceById,
     groupPlanHierarchy,
     isChildFeaturePlan,
     isProjectPlan,
@@ -34,6 +35,8 @@ import {
 } from "../../../shared/work-records/auto-generation.js";
 import { executePlanAction, loadPlanActionEvidence } from "../../../shared/workflow/plan-actions.ts";
 import { PLAN_LIFECYCLE_ACTIONS } from "../constants.js";
+
+/** @typedef {{ reviewOnly?: boolean }} WorkspacePlanDetailOptions */
 
 export const ACTIVE_STATUSES = ACTIVE_PLAN_STATUSES;
 export const CLOSED_STATUSES = CLOSED_PLAN_STATUSES;
@@ -593,11 +596,14 @@ export async function loadPlanDetail(cwd, planId) {
 /**
  * @param {string} cwd
  * @param {string} planId
+ * @param {WorkspacePlanDetailOptions} [options]
  */
-export async function loadWorkspaceDetail(cwd, planId) {
-    const baseResource = await findPlanById(cwd, planId);
+export async function loadWorkspaceDetail(cwd, planId, options = {}) {
+    // Review needs one document, not board dependencies, lifecycle controls, or catalog writes.
+    const baseResource = options.reviewOnly ? await findPlanEvidenceById(cwd, planId) : await findPlanById(cwd, planId);
     const { assertAuthorizedPlanPath } = await import("./project-artifacts.ts");
     await assertAuthorizedPlanPath(cwd, baseResource.path, baseResource.planName);
+    if (options.reviewOnly) return { ...serializePlanDetail(baseResource), path: baseResource.path };
     const resource = isProjectPlan(baseResource.attrs) ? baseResource : await loadPlanBodyById(cwd, planId);
     const summaries = await loadPlanSummaries(cwd);
     return projectWorkspaceDetail({

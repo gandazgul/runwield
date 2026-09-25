@@ -51,6 +51,7 @@ const PLANNING_DOC_FRAGMENTS = [
     "user-authority",
     "show-the-work",
     "work-record-retrieval",
+    "conversational-turns",
 ] as const;
 
 /** The two personas that write planning documents and share their structural vocabulary. */
@@ -73,6 +74,7 @@ const SHOW_THE_WORK_MARKER = "Explain the work the way you would at a whiteboard
 const WORKING_TREE_MARKER = "`git stash` is the last resort when you genuinely cannot proceed";
 const RUNWIELD_DELIVERY_MARKER = "RunWield handles delivery after validation";
 const WORK_RECORD_MARKER = "do not call it ritualistically on every turn";
+const CONVERSATIONAL_TURNS_MARKER = "Never end on a promise or on a statement the user has nothing to answer";
 
 interface ProjectAgentFile {
     path: string;
@@ -274,6 +276,14 @@ Deno.test("planning personas receive the show-the-work practice", async () => {
     for (const [agentName] of PLANNING_PRACTICE_CONSUMERS) {
         const def = await loadAgentDef(agentName);
         assertStringIncludes(def.systemPrompt, SHOW_THE_WORK_MARKER, `${agentName} is missing show-the-work`);
+    }
+});
+
+Deno.test("conversational planning personas end each turn with a question or finished work", async () => {
+    for (const [agentName] of PLANNING_PRACTICE_CONSUMERS) {
+        const { systemPrompt } = await loadAgentDef(agentName);
+        const normalized = systemPrompt.replaceAll(/\s+/g, " ");
+        assertStringIncludes(normalized, CONVERSATIONAL_TURNS_MARKER, `${agentName} is missing conversational-turns`);
     }
 });
 

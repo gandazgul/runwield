@@ -846,13 +846,20 @@ export function createOrGetOperationReceipt(database, options) {
 
 /**
  * @param {import('./database.js').OwnerCoordinationDatabase} database
- * @param {{ deviceId?: string | null, requestId: string, requestHash: string, runwieldSessionId: string }} options
+ * @param {{ deviceId?: string | null, requestId: string, requestHash: string, runwieldSessionId?: string, projectId?: string }} options
  */
 export function findOperationReceiptByRequest(database, options) {
     const ownerDb = requireDatabase(database);
-    const existing = ownerDb.handle.prepare(
-        "SELECT * FROM owner_session_operations WHERE device_id IS ? AND runwield_session_id = ? AND request_id = ?",
-    ).get(options.deviceId ?? null, options.runwieldSessionId, options.requestId);
+    if (!options.runwieldSessionId && !options.projectId) {
+        throw new Error("Operation lookup requires a Session or Project.");
+    }
+    const existing = options.runwieldSessionId
+        ? ownerDb.handle.prepare(
+            "SELECT * FROM owner_session_operations WHERE device_id IS ? AND runwield_session_id = ? AND request_id = ?",
+        ).get(options.deviceId ?? null, options.runwieldSessionId, options.requestId)
+        : ownerDb.handle.prepare(
+            "SELECT * FROM owner_session_operations WHERE device_id IS ? AND project_id = ? AND request_id = ?",
+        ).get(options.deviceId ?? null, options.projectId ?? null, options.requestId);
     if (!existing) return null;
     if (existing.request_hash !== options.requestHash) {
         throw new Error("Operation request id was reused with different input");
