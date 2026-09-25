@@ -29,10 +29,10 @@ function executionSeedCount(transcript: string): number {
 
 Deno.test("preparation failure leaves the planning segment current", async () => {
     const source = await Deno.readTextFile(new URL("./runtime/workflows.ts", import.meta.url));
-    assertStringIncludes(source, "prepareSegmentHandoff: true");
+    assertStringIncludes(source, "prepareSegmentHandoff: !interrupted");
     assertStringIncludes(source, "await this.turns.rollManagedSessionSegment");
     assert(
-        source.indexOf("prepareSegmentHandoff: true") <
+        source.indexOf("prepareSegmentHandoff: !interrupted") <
             source.indexOf("await this.turns.rollManagedSessionSegment"),
     );
 });

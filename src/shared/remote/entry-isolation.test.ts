@@ -83,8 +83,10 @@ for (const populated of [false, true]) {
             assertEquals([0, -9].includes(code), true, screen);
             assertStringIncludes(screen, "isolated-host");
             // The terminal wraps long absolute directories across rows.
-            assertStringIncludes(screen, project.slice(0, 50));
-            assertStringIncludes(screen, project.slice(-35));
+            assertStringIncludes(
+                screen.replaceAll(/\x1b\]8;;\x07|\s/g, ""),
+                project.replaceAll(/\s/g, "").slice(0, 70),
+            );
             assertStringIncludes(screen, "No user turns");
             assertEquals(await files(home), before);
             assertEquals(await files(project), projectBefore);
