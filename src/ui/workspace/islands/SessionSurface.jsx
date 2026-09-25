@@ -1,3 +1,4 @@
+import { submitWorkflowAction } from "../browser/workflow-action.js";
 import { mergePlanAssociations } from "../../../shared/session/plan-association.ts";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { animateSidebarUpdate } from "../../design-system/components/react/sidebar-motion.ts";
@@ -745,6 +746,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     const [transientItems, setTransientItems] = useState(/** @type {Array<Record<string, any>>} */ ([]));
     const [workflowProgress, setWorkflowProgress] = useState(/** @type {any} */ (null));
     const [workflowProgressError, setWorkflowProgressError] = useState("");
+    const [liveValidationProgress, setLiveValidationProgress] = useState(null);
     const [sessionSidebarTab, setSessionSidebarTab] = useState("session");
     const sidebarPlanRef = useRef("");
     const [contextCollapsed, setContextCollapsed] = useState(false);
@@ -1500,6 +1502,10 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             setTimeline(nextTimeline);
         }
         const events = Array.isArray(payload.events) ? payload.events : [];
+        const validationEvent = events.findLast((event) => event.validationProgress);
+        setLiveValidationProgress(
+            validationEvent ? { ...validationEvent.validationProgress, message: validationEvent.message } : null,
+        );
         let items = reduceOperationTransientItems(events);
         if (payload.liveInteraction?.interactionId) {
             items = items.filter((item) => item.kind !== "busy");
@@ -2039,13 +2045,18 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         workflowIntent: typeof persistedWorkflowContext.routingIntent === "string"
             ? persistedWorkflowContext.routingIntent
             : "",
-        workflowStatus: typeof workflowProgress?.plan?.status === "string" ? workflowProgress.plan.status : "",
+        workflowStatus: workflowProgress?.overall?.state === "completed"
+            ? "verified"
+            : typeof workflowProgress?.plan?.status === "string"
+            ? workflowProgress.plan.status
+            : "",
         workflowClassification: typeof workflowProgress?.plan?.classification === "string"
             ? workflowProgress.plan.classification
             : "",
         workflowProgressFacts: Array.isArray(workflowProgress?.progressFacts)
             ? workflowProgress.progressFacts
             : undefined,
+        workflowLiveValidationProgress: operation?.status === "running" ? liveValidationProgress : null,
         workflowDegradedMessage: typeof workflowProgress?.degraded?.message === "string"
             ? workflowProgress.degraded.message
             : workflowProgressError,
@@ -2056,8 +2067,8 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         workflowHasLiveQuestion: liveWorkflowInteraction?.kind === "interaction",
         workflowHasPlanReview: liveWorkflowInteraction?.kind === "plan-review",
         workflowHasCodeReview: liveWorkflowInteraction?.kind === "code-review",
-        workflowCanResume: Boolean(runwieldSessionId && availability.canContinue),
-        workflowCanRecover: Boolean(runwieldSessionId && interruptedOperation),
+        workflowCanResume: Boolean(runwieldSessionId && availability.canContinue && workflowProgress?.canResume),
+        workflowCanRecover: Boolean(runwieldSessionId && availability.canContinue && workflowProgress?.canRecover),
     }).workflow;
     const planHomeFromSnapshot = timeline ? activePlanHomeUrl(projectId, runwieldSessionId, timeline.snapshot) : "";
     const planHomeUrl = planHomeFromSnapshot;
@@ -2065,32 +2076,44 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         (liveWorkflowInteraction?.interactionId ? `#interaction-${liveWorkflowInteraction.interactionId}` : "") ||
         planHomeUrl;
     async function runWorkflowAction(action) {
-        if (!["run", "resume", "recover"].includes(action.kind)) return;
-        const planId = activePlanId(timeline?.snapshot);
+        if (!["run", "resume", "recover", "review_plan", "resume_from_hold"].includes(action.kind)) return;
+        const currentTimeline = timelineRef.current;
+        const planId = activePlanId(currentTimeline?.snapshot);
         if (!planId) {
-            setMessage("Plan workflow evidence is unavailable.");
-            return;
+            throw new Error("Plan workflow evidence is unavailable. Refresh the Session and try again.");
         }
-        try {
-            await ownerFetch(
-                `/api/owner/projects/${encodeURIComponent(projectId)}/sessions/${
-                    encodeURIComponent(runwieldSessionId)
-                }/plan-workflow`,
-                {
-                    method: "POST",
-                    body: JSON.stringify({
-                        requestId: crypto.randomUUID(),
-                        planId,
-                        action: action.kind,
-                        expectedGeneration: timeline?.snapshot?.managed?.generation,
-                        expectedCurrentSegmentId: timeline?.snapshot?.managed?.currentSegmentId || null,
-                    }),
-                },
-            );
-            await refresh();
-        } catch (error) {
-            setMessage(errorMessage(error));
+        const result = await submitWorkflowAction(
+            `/api/owner/projects/${encodeURIComponent(projectId)}/sessions/${
+                encodeURIComponent(runwieldSessionId)
+            }/plan-workflow`,
+            {
+                requestId: crypto.randomUUID(),
+                planId,
+                action: action.kind,
+                expectedGeneration: currentTimeline.generation,
+                expectedRevision: workflowProgress?.expectedRevision,
+            },
+        );
+        if (result.canceled) return "Plan remains on hold.";
+        if (action.kind === "resume_from_hold") {
+            const progressUrl = activePlanProgressApiUrl(projectId, runwieldSessionId, currentTimeline.snapshot);
+            if (progressUrl) setWorkflowProgress(await ownerFetch(progressUrl));
         }
+        if (result.reviewUrl) {
+            workspaceNavigate(result.reviewUrl);
+            return "Plan review opened.";
+        }
+        if (result.operationId) {
+            setOperationStreamFailed(false);
+            setOperation({
+                operationId: result.operationId,
+                status: result.status || "running",
+                observed: 0,
+                attempts: 0,
+            });
+        }
+        await loadTimeline();
+        return result.result?.message || result.reason || "Workflow started.";
     }
     const agents = Array.isArray(sessionOptions?.agents) ? sessionOptions.agents : [];
     const models = Array.isArray(sessionOptions?.models) ? sessionOptions.models : [];
@@ -2367,6 +2390,21 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                                                         title="Workflow"
                                                         embedded
                                                         onAction={runWorkflowAction}
+                                                        onAnswerAgent={() => {
+                                                            setContextCollapsed(true);
+                                                            globalThis.requestAnimationFrame(() => {
+                                                                const target = document.getElementById(
+                                                                    `interaction-${liveWorkflowInteraction?.interactionId}`,
+                                                                );
+                                                                target?.scrollIntoView({ block: "nearest" });
+                                                                (target?.querySelector("textarea, input, button, a") ||
+                                                                    target)?.focus();
+                                                            });
+                                                        }}
+                                                        onOpenSession={() => {
+                                                            setContextCollapsed(true);
+                                                            scrollToLiveEdge();
+                                                        }}
                                                     />
                                                 )
                                                 : (

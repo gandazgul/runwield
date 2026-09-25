@@ -92,11 +92,11 @@ export async function loadCanonicalBoard(cwd) {
     return await adapter.loadBoard(cwd);
 }
 
-/** @param {string} cwd @param {string} planId */
-export async function loadCanonicalWorkspaceDetail(cwd, planId) {
+/** @param {string} cwd @param {string} planId @param {import('./plan-adapter.js').WorkspacePlanDetailOptions} [options] */
+export async function loadCanonicalWorkspaceDetail(cwd, planId, options = {}) {
     const adapter = await workspaceAdapter();
-    if (devMode()) return await loadDevDetail(cwd, planId);
-    return await adapter.loadWorkspaceDetail(cwd, planId);
+    if (devMode() && !options.reviewOnly) return await loadDevDetail(cwd, planId);
+    return await adapter.loadWorkspaceDetail(cwd, planId, options);
 }
 
 /**

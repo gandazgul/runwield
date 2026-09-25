@@ -1,6 +1,7 @@
 import type { SessionArtifactReference } from "./file-session-store-types.ts";
 import {
     buildWorkflowPresentation,
+    type LiveValidationProgress,
     type WorkflowPresentation,
     type WorkflowProgressFact,
 } from "../workflow/workflow-presentation.ts";
@@ -31,6 +32,7 @@ export interface SessionSidebarProjectionInput {
     workflowClassification?: string | null;
     workflowStatus?: string | null;
     workflowProgressFacts?: WorkflowProgressFact[];
+    workflowLiveValidationProgress?: LiveValidationProgress | null;
     workflowHasLiveQuestion?: boolean;
     workflowHasPlanReview?: boolean;
     workflowHasCodeReview?: boolean;
@@ -155,6 +157,7 @@ export function buildSessionSidebarProjection(input: SessionSidebarProjectionInp
         classification: input.workflowClassification,
         status: input.workflowStatus,
         progressFacts: input.workflowProgressFacts,
+        liveValidationProgress: input.workflowLiveValidationProgress,
         degradedMessage: input.workflowDegradedMessage,
         sessionState: input.workflowSessionState,
         hasWorkingSession: input.workflowHasWorkingSession,

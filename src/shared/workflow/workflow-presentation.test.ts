@@ -103,3 +103,78 @@ Deno.test("workflow descriptions show live user actions and publication failures
     assertEquals(publication.currentStage?.id, "delivery");
     assertEquals(publication.blocker, "Push rejected by the remote.");
 });
+
+Deno.test("live validation replaces the pre-resume paused checkpoint", () => {
+    const presentation = buildWorkflowPresentation({
+        planName: "Resume repair",
+        status: "implemented",
+        sessionState: "active",
+        progressFacts: [{
+            kind: "validation_checkpoint",
+            phase: "mechanical",
+            state: "paused",
+            repairKind: "semantic",
+        }],
+        liveValidationProgress: {
+            kind: "workflow",
+            outcome: "running",
+            stage: "ci",
+            message: "Running the tests in the execution worktree.",
+            checks: { ci: "running", semanticReview: "pending", humanReview: "pending", merge: "pending" },
+        },
+    });
+    assertEquals(presentation.currentStage?.id, "mechanical");
+    assertEquals(presentation.currentStage?.state, "current");
+    assertEquals(presentation.currentStage?.detail, "Running the tests in the execution worktree.");
+    assertEquals(presentation.stages.some((stage) => stage.state === "paused"), false);
+    assertEquals(presentation.stages.some((stage) => stage.id === "repair"), false);
+    assertEquals(presentation.action?.kind, "open_session");
+});
+
+Deno.test("saved approval offers Review Plan while validation keeps Resume and live work keeps its action", () => {
+    for (const status of ["approved", "ready_for_work"]) {
+        const input = { planName: "Saved", status, sessionState: "idle", canResume: true };
+        assertEquals(buildWorkflowPresentation(input).action?.kind, "review_plan");
+        assertEquals(buildWorkflowPresentation({ ...input, hasLiveQuestion: true }).action?.kind, "answer_agent");
+        assertEquals(buildWorkflowPresentation({ ...input, hasCodeReview: true }).action?.kind, "review_code");
+    }
+    assertEquals(
+        buildWorkflowPresentation({ planName: "Paused", status: "implemented", canResume: true }).action?.kind,
+        "resume",
+    );
+    assertEquals(
+        buildWorkflowPresentation({ planName: "Running", status: "ready_for_work", sessionState: "active" }).action
+            ?.kind,
+        "open_session",
+    );
+});
+
+Deno.test("active and finished workflows ignore obsolete continuation flags", () => {
+    for (
+        const input of [
+            { status: "implemented", sessionState: "active" },
+            { status: "verified", sessionState: "idle" },
+            { status: "validated", classification: "PROJECT", sessionState: "idle" },
+        ]
+    ) {
+        const presentation = buildWorkflowPresentation({
+            planName: "Plan",
+            hasWorkingSession: true,
+            canRun: true,
+            canResume: true,
+            canRecover: true,
+            ...input,
+        });
+        assertEquals(presentation.action?.kind, "open_session");
+    }
+});
+
+Deno.test("held Plans offer Resume from hold only when the saved workflow is available", () => {
+    const input = { planName: "Held", status: "on_hold", hasWorkingSession: true };
+    assertEquals(buildWorkflowPresentation({ ...input, canResume: true }).action?.kind, "resume_from_hold");
+    assertEquals(buildWorkflowPresentation({ ...input, canResume: false }).action?.kind, "open_session");
+    assertEquals(
+        buildWorkflowPresentation({ ...input, canResume: true, sessionState: "active" }).action?.kind,
+        "open_session",
+    );
+});

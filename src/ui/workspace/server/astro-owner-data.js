@@ -62,15 +62,15 @@ export async function loadOwnerProjectBoard(projectId) {
     return await loadCanonicalBoard(root);
 }
 
-/** @param {string} projectId @param {string} planId */
-export async function loadOwnerProjectPlanDetail(projectId, planId) {
+/** @param {string} projectId @param {string} planId @param {import('./plan-adapter.js').WorkspacePlanDetailOptions} [options] */
+export async function loadOwnerProjectPlanDetail(projectId, planId, options = {}) {
     const store = getAstroOwnerWorkspaceStore();
     if (!store && import.meta.env?.DEV) {
-        return await loadCanonicalWorkspaceDetail(currentWorkspaceCwd(), planId);
+        return await loadCanonicalWorkspaceDetail(currentWorkspaceCwd(), planId, options);
     }
     if (!store) throw new Error("Owner Workspace store is not available.");
     const root = requireOwnerProjectRoot(store, projectId);
-    return await loadCanonicalWorkspaceDetail(root, planId);
+    return await loadCanonicalWorkspaceDetail(root, planId, options);
 }
 
 /** @param {string} projectId @param {string} planId @param {string | null} runwieldSessionId */

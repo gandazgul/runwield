@@ -1,4 +1,5 @@
 // @ts-nocheck: local wrapper includes a tiny Fresh-free router and production Astro bridge with dynamic handler shapes.
+import { ownerPlanContinuationApi } from "./routes/owner-plan-continuation.js";
 /**
  * Programmatic Workspace server composition.
  *
@@ -339,6 +340,7 @@ export function createOwnerWorkspaceApp(options) {
         }
     });
     app.post("/api/owner/projects/:projectId/plans/:planId/actions", ownerProjectPlanActionApi);
+    app.post("/api/owner/projects/:projectId/plans/:planId/workflow", ownerPlanContinuationApi);
     app.get("/api/owner/projects/:projectId/session-options", ownerSessionOptionsApi);
     app.get("/api/owner/projects/:projectId/sessions", ownerProjectSessionsApi);
     app.post("/api/owner/projects/:projectId/sessions", ownerSessionCreateApi);

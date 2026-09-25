@@ -149,6 +149,8 @@ export type OwnerPlanProgress = {
     planWorkflowUrl?: string;
     recoveryUrl?: string;
     canRecover?: boolean;
+    canResume?: boolean;
+    canRun?: boolean;
     expectedGeneration?: number | null;
     expectedCurrentSegmentId?: string | null;
 };

@@ -124,6 +124,35 @@ Deno.test("submitPlanForReview accepts approval after a formatting-only Plan rew
     }
 });
 
+Deno.test("submitPlanForReview accepts approval after Markdown body formatting", async () => {
+    const { dir, planPath } = await makePlanFile();
+    const before = (await Deno.readTextFile(planPath)).replace(
+        "Do the thing.",
+        "Load every dashboard card independently while retaining verified rows and showing clear loading states.\n\n" +
+            "- Keep the existing dashboard rows visible while unrelated projects are still loading their data.\n\n" +
+            "| State | Display |\n| --- | --- |\n| Pending | Loading |\n",
+    );
+    await Deno.writeTextFile(planPath, before);
+    const browser = decisionBrowserAfter(async () => {
+        const formatted = await new Deno.Command(Deno.execPath(), {
+            args: ["fmt", "--quiet", "--line-width", "50", planPath],
+            stdout: "piped",
+            stderr: "piped",
+        }).output();
+        assertEquals(formatted.success, true);
+        assertEquals(await Deno.readTextFile(planPath) === before, false);
+    }, approvedDecision());
+    try {
+        const result = await submitPlanForReview({ cwd: dir, planName: "plan", planPath, browser });
+
+        assertEquals(result.approved, true);
+        assertEquals(result.cancellationReason, undefined);
+        assertEquals((await loadPlan(dir, "plan"))?.attrs.status, "approved");
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
 Deno.test("submitPlanForReview still rejects a substantive Plan edit made during review", async () => {
     const { dir, planPath } = await makePlanFile();
     const browser = decisionBrowserAfter(async () => {

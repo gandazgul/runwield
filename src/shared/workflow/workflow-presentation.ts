@@ -1,3 +1,9 @@
+import type { RuntimeValidationProgressPresentationInput } from "./validation-progress-presentation.ts";
+
+export interface LiveValidationProgress extends RuntimeValidationProgressPresentationInput {
+    message?: string;
+}
+
 export type WorkflowPresentationStepState =
     | "completed"
     | "current"
@@ -15,6 +21,7 @@ export type WorkflowPresentationActionKind =
     | "answer_agent"
     | "run"
     | "resume"
+    | "resume_from_hold"
     | "recover";
 
 export interface WorkflowProgressFact {
@@ -36,6 +43,7 @@ export interface WorkflowPresentationInput {
     projectPlanType?: string | null;
     status?: string | null;
     progressFacts?: WorkflowProgressFact[];
+    liveValidationProgress?: LiveValidationProgress | null;
     degradedMessage?: string | null;
     sessionState?: string | null;
     hasWorkingSession?: boolean;
@@ -238,6 +246,24 @@ function mergedRawStates(input: WorkflowPresentationInput, stages: StageDefiniti
     }
     if (input.hasPlanReview && states.has("planning")) states.set("planning", "running");
     if (input.hasCodeReview && states.has("code_review")) states.set("code_review", "running");
+    const live = input.liveValidationProgress;
+    if (live?.outcome === "running" && states.has("mechanical")) {
+        // Live work supersedes a saved checkpoint from before Resume was pressed.
+        states.set("planning", "completed");
+        states.set("execution", "completed");
+        states.set("repair", live.stage === "engineer_repair" ? "running" : "not_required");
+        for (
+            const [check, stage] of Object.entries({
+                ci: "mechanical",
+                semanticReview: "semantic",
+                humanReview: "code_review",
+                merge: "delivery",
+            })
+        ) {
+            const state = live.checks[check as keyof typeof live.checks];
+            states.set(stage, state === "canceled" ? "paused" : state === "failed" ? "pending" : state);
+        }
+    }
     return states;
 }
 
@@ -273,6 +299,9 @@ function currentStageIndex(stages: StageDefinition[], rawStates: Map<string, str
 }
 
 function detailFor(stage: WorkflowPresentationStage, input: WorkflowPresentationInput): string {
+    if (stage.current && input.liveValidationProgress?.outcome === "running" && input.liveValidationProgress.message) {
+        return input.liveValidationProgress.message;
+    }
     const fact = (input.progressFacts || []).find((item) =>
         item.kind === "publication"
             ? stage.id === "delivery"
@@ -360,6 +389,31 @@ function actionFor(
     }
     if (input.hasCodeReview) {
         return { kind: "review_code", label: "Review code", detail: "Open the current code review." };
+    }
+    const status = clean(input.status);
+    const completed = ["verified", "user_verified", "closed_without_verification"].includes(status) ||
+        (isProject(input) && status === "validated");
+    if (status === "on_hold" && input.canResume && clean(input.sessionState) !== "active") {
+        return {
+            kind: "resume_from_hold",
+            label: "Resume from hold",
+            detail: "Check the saved work and restore this Plan to its previous stage.",
+        };
+    }
+    if (clean(input.sessionState) === "active" || completed || status === "on_hold") {
+        return input.hasWorkingSession || clean(input.sessionState) === "active"
+            ? { kind: "open_session", label: "Open Session", detail: "Open the working Session." }
+            : { kind: "open_plan", label: "Open Plan", detail: "Open the Plan home." };
+    }
+    if (
+        ["approved", "ready_for_work"].includes(clean(input.status)) &&
+        clean(input.sessionState) !== "active" && (input.canResume || input.canRun)
+    ) {
+        return {
+            kind: "review_plan",
+            label: "Review Plan",
+            detail: "Review this Plan and choose whether to run it or save it for later.",
+        };
     }
     if (input.canRecover) {
         return { kind: "recover", label: "Recover", detail: "Open the Session to inspect the failure and continue." };

@@ -1,4 +1,5 @@
 // @ts-nocheck: Workspace React islands compile TSX, but this module uses JSDoc-style JavaScript only.
+import { submitWorkflowAction } from "../browser/workflow-action.js";
 
 import { useEffect, useMemo, useState } from "react";
 import { ArtifactReadSurface } from "./ArtifactReadSurface.tsx";
@@ -53,18 +54,14 @@ function buildPresentation(payload, progress) {
         hasLiveQuestion: Boolean(valueFromProgress(payload, progress, "interactionHref")),
         hasPlanReview: valueFromProgress(payload, progress, "reviewKind") === "plan",
         hasCodeReview: valueFromProgress(payload, progress, "reviewKind") === "code",
-        canRun: Boolean(valueFromProgress(payload, progress, "planWorkflowUrl")),
-        canResume: Boolean(
-            valueFromProgress(payload, progress, "planWorkflowUrl") &&
-                valueFromProgress(payload, progress, "sessionHref"),
-        ),
+        canRun: valueFromProgress(payload, progress, "canRun") === true,
+        canResume: valueFromProgress(payload, progress, "canResume") === true,
         canRecover: Boolean(valueFromProgress(payload, progress, "canRecover")),
     });
 }
 
 export function PlanHomeSurface({ payload, presentation = "standalone" }) {
     const [progress, setProgress] = useState(payload.workflow || null);
-    const [message, setMessage] = useState("");
     useEffect(() => {
         if (!payload.progressApiUrl) return;
         let cancelled = false;
@@ -92,24 +89,29 @@ export function PlanHomeSurface({ payload, presentation = "standalone" }) {
     }, [payload.progressApiUrl]);
 
     async function runAction(action) {
-        setMessage(`${action.label} is starting…`);
-        try {
-            const actionPayload = {
-                requestId: crypto.randomUUID(),
-                expectedGeneration: progress?.expectedGeneration ?? payload.expectedGeneration,
-                expectedCurrentSegmentId: progress?.expectedCurrentSegmentId ?? payload.expectedCurrentSegmentId,
-                planId: payload.planId,
-                action: action.kind,
-            };
-            const workflowUrl = progress?.planWorkflowUrl || payload.planWorkflowUrl;
-            if (["run", "resume", "recover"].includes(action.kind) && workflowUrl) {
-                await ownerFetch(workflowUrl, { method: "POST", body: JSON.stringify(actionPayload) });
+        const actionPayload = {
+            requestId: crypto.randomUUID(),
+            expectedGeneration: progress?.expectedGeneration ?? payload.expectedGeneration,
+            expectedRevision: progress?.expectedRevision ?? payload.expectedRevision,
+            expectedCurrentSegmentId: progress?.expectedCurrentSegmentId ?? payload.expectedCurrentSegmentId,
+            planId: payload.planId,
+            action: action.kind,
+        };
+        const workflowUrl = progress?.planWorkflowUrl || payload.planWorkflowUrl;
+        if (["run", "resume", "recover", "review_plan", "resume_from_hold"].includes(action.kind) && workflowUrl) {
+            const result = await submitWorkflowAction(workflowUrl, actionPayload);
+            if (result.canceled) return "Plan remains on hold.";
+            if (action.kind === "resume_from_hold") {
+                setProgress(await ownerFetch(payload.progressApiUrl, { method: "GET" }));
+                return result.result?.message || "Plan resumed from hold.";
             }
-            if (progress?.sessionHref || payload.sessionHref) {
-                location.assign(progress?.sessionHref || payload.sessionHref);
+            if (result.reviewUrl) {
+                location.assign(result.reviewUrl);
+                return;
             }
-        } catch (error) {
-            setMessage(error.message || String(error));
+        }
+        if (progress?.sessionHref || payload.sessionHref) {
+            location.assign(progress?.sessionHref || payload.sessionHref);
         }
     }
 
@@ -132,15 +134,12 @@ export function PlanHomeSurface({ payload, presentation = "standalone" }) {
             showLogo={false}
             contentsInitiallyOpen={false}
             workflowSidebar={
-                <>
-                    {message ? <p className="session-surface-status" role="status">{message}</p> : null}
-                    <WorkflowSidebar
-                        presentation={workflow}
-                        embedded
-                        payload={{ ...payload, ...(progress || {}) }}
-                        onAction={runAction}
-                    />
-                </>
+                <WorkflowSidebar
+                    presentation={workflow}
+                    embedded
+                    payload={{ ...payload, ...(progress || {}) }}
+                    onAction={runAction}
+                />
             }
         />
     );

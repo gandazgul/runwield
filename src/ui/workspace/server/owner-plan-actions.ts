@@ -24,58 +24,7 @@ export type OwnerPlanActionHttpResult = {
     };
 };
 
-type OwnerCoordinationStore = {
-    getSessionById: (runwieldSessionId: string) => { projectId: string; transcriptCwd: string } | null;
-    getProjectById: (projectId: string) => { currentRoot: string } | null;
-    inspectSessionActivation: (
-        runwieldSessionId: string,
-    ) => {
-        activation?: { currentSegmentId?: string | null } | null;
-        generation?: { generation: number; currentSegmentId?: string | null } | null;
-    };
-    createOrGetOperationReceipt: (
-        options: {
-            deviceId: string | null;
-            requestId: string;
-            requestHash: string;
-            runwieldSessionId: string;
-            projectId: string;
-            expectedGeneration: number;
-            kind: "plan_action";
-        },
-    ) => {
-        operationId: string;
-        status: string;
-        resultHttpStatus?: number | null;
-        resultBody?: { result?: PlanActionResult } | null;
-        resultGeneration?: number | null;
-        wasCreated?: boolean;
-    };
-    updateOperationReceipt: (
-        operationId: string,
-        updates: {
-            status: "running" | "completed" | "failed" | "conflict";
-            resultGeneration?: number | null;
-            resultHttpStatus?: number | null;
-            resultBody?: { result: PlanActionResult };
-            errorCode?: string | null;
-            errorMessage?: string | null;
-        },
-    ) => { operationId: string } | null;
-    acquireSessionActivation: (
-        options: {
-            runwieldSessionId: string;
-            projectId: string;
-            ownerInstanceId: string;
-            ownerProcessKind: "workspace";
-            expectedGeneration: number;
-            expectedCurrentSegmentId?: string | null;
-            phase: "preparing";
-        },
-    ) => { operationId: string };
-    releaseUnchangedActivation: (proof: { operationId: string }) => void;
-    markSessionUncertain: (proof: { operationId: string }, options: { reason: string }) => void;
-};
+type OwnerCoordinationStore = import("../../../shared/owner-coordination/index.js").OwnerCoordinationStore;
 
 function httpStatusForResult(result: PlanActionResult): number {
     if (result.kind === "success") return 200;
@@ -135,6 +84,7 @@ export async function runOwnerPlanAction(
         }
         throw error;
     }
+    if (!receipt.operationId) throw new Error("Plan action receipt was not created.");
     if (receipt.status === "completed") {
         const stored = completedResultFromReceipt(receipt);
         if (stored) return stored;
@@ -167,7 +117,7 @@ export async function runOwnerPlanAction(
         });
         return { status: 409, body: { result } };
     }
-    let proof: { operationId: string } | null = null;
+    let proof: ReturnType<OwnerCoordinationStore["acquireSessionActivation"]> | null = null;
     try {
         proof = store.acquireSessionActivation({
             runwieldSessionId: request.runwieldSessionId,
