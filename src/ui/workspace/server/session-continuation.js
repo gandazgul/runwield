@@ -357,6 +357,30 @@ export class WorkspaceSessionContinuationService {
         this.notifyOperation(operationId);
     }
 
+    /** Follow a user-approved new Session while retaining the original workflow Session.
+     * @param {string} operationId
+     * @param {string} sessionId
+     */
+    subscribeOperationSession(operationId, sessionId) {
+        let unsubscribe = () => {};
+        /** @param {import("../../../shared/session/session-runtime-events.js").SessionRuntimeEvent} event */
+        const receive = (event) => {
+            this.appendOperationEvent(operationId, event);
+            if (event.type !== "session_replaced" || event.reason !== "prompt_template") return;
+            unsubscribe();
+            const record = this.operations.get(operationId);
+            if (record) {
+                record.runtimeSessionId = event.newSessionId;
+                record.runwieldSessionId =
+                    this.runtime.getSessionSnapshot(event.newSessionId)?.managed?.runwieldSessionId || null;
+                record.events = [];
+            }
+            unsubscribe = this.runtime.subscribeSessionEvents(event.newSessionId, receive);
+        };
+        unsubscribe = this.runtime.subscribeSessionEvents(sessionId, receive);
+        return () => unsubscribe();
+    }
+
     /** @param {WorkspaceOperationRecord} record @param {import("../../../shared/session/session-runtime-events.js").SessionRuntimeEvent} event */
     notifyAttention(record, event) {
         if (event.type !== "attention_requested" || event.notificationSurface !== "workspace" || event.eventId) return;
@@ -1171,9 +1195,7 @@ export class WorkspaceSessionContinuationService {
                             null,
                     });
                     this.runtime.setInteractionAdapter(sessionId, this.createInteractionAdapter({ operationId }));
-                    unsubscribe = this.runtime.subscribeSessionEvents(sessionId, (event) => {
-                        this.appendOperationEvent(operationId, event);
-                    });
+                    unsubscribe = this.subscribeOperationSession(operationId, sessionId);
                     if (!preparedSessionId) {
                         if (launch.model) {
                             const modelResult = await applyUserModelSelection(
@@ -1399,9 +1421,7 @@ export class WorkspaceSessionContinuationService {
             adopted.sessionId,
             this.createInteractionAdapter({ operationId: receipt.operationId }),
         );
-        const unsubscribe = this.runtime.subscribeSessionEvents(adopted.sessionId, (event) => {
-            this.appendOperationEvent(receipt.operationId, event);
-        });
+        const unsubscribe = this.subscribeOperationSession(receipt.operationId, adopted.sessionId);
         queueMicrotask(async () => {
             try {
                 const result = await this.runtime.promptUserTurn(adopted.sessionId, {
@@ -1410,15 +1430,17 @@ export class WorkspaceSessionContinuationService {
                     agentName: decision.agentName,
                     preparedModelOverride,
                 });
-                let generation = result.ok ? options.expectedGeneration + 1 : options.expectedGeneration;
+                const effectiveSessionId = result.replacementSessionId || adopted.sessionId;
+                const effectiveSnapshot = this.runtime.getSessionSnapshot(effectiveSessionId);
+                let generation = effectiveSnapshot?.managed?.generation ?? options.expectedGeneration;
                 /** @type {"completed" | "failed"} */
                 let status = result.ok ? "completed" : "failed";
                 let error = result.error;
                 const pendingConfiguration = this.operations.get(receipt.operationId)?.pendingConfiguration || null;
                 if (result.ok && pendingConfiguration && Object.keys(pendingConfiguration).length) {
                     try {
-                        await this.applyPendingConfiguration(adopted.sessionId, pendingConfiguration);
-                        const snapshot = this.runtime.getSessionSnapshot(adopted.sessionId);
+                        await this.applyPendingConfiguration(effectiveSessionId, pendingConfiguration);
+                        const snapshot = this.runtime.getSessionSnapshot(effectiveSessionId);
                         generation = snapshot?.managed?.generation ?? generation;
                     } catch (configurationError) {
                         status = "failed";
@@ -1454,6 +1476,10 @@ export class WorkspaceSessionContinuationService {
                 });
             } finally {
                 unsubscribe();
+                const activeSessionId = this.operations.get(receipt.operationId)?.runtimeSessionId;
+                if (activeSessionId && activeSessionId !== adopted.sessionId) {
+                    this.runtime.closeSessionWhenIdle(activeSessionId);
+                }
                 this.runtime.closeSession(adopted.sessionId);
             }
         });

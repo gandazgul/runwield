@@ -73,8 +73,8 @@ interface SurfaceSummary {
     digest: string;
     profile: NamedInvocationProfile;
     result: string;
-    restoredAgent: string;
-    restoredModel: string;
+    activeAgent: string;
+    activeModel: string;
 }
 
 interface TestServerHandle {
@@ -93,7 +93,7 @@ const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const compactInvocation = "/cross-surface compare surfaces";
 const expectedDisplayedInvocation = "Cross-surface expansion: {{input}}\n\ncompare surfaces";
-const expectedTemporaryProfile = {
+const expectedProfile = {
     agentName: "operator",
     model: "runtime-command-fixture/alternate-fixture-model",
     thinkingLevel: "off",
@@ -118,8 +118,8 @@ async function writeCrossSurfacePrompt(projectRoot: string): Promise<void> {
 
 async function readTranscriptSummary(transcriptPath: string): Promise<{
     payload: NamedInvocationPayload;
-    restoredAgent: string;
-    restoredModel: string;
+    activeAgent: string;
+    activeModel: string;
 }> {
     const text = await Deno.readTextFile(transcriptPath);
     assertStringIncludes(text, compactInvocation);
@@ -138,17 +138,17 @@ async function readTranscriptSummary(transcriptPath: string): Promise<{
     assertEquals(userEntry?.message?.content, [{ type: "text", text: compactInvocation }]);
     const contextEdit = entries.find((entry) => entry.type === "context_edit" && entry.targetId === userEntry?.id);
     assertEquals(contextEdit?.replacement?.content, [{ type: "text", text: expectedDisplayedInvocation }]);
-    let restoredAgent = "";
-    let restoredModel = "";
+    let activeAgent = "";
+    let activeModel = "";
     for (const entry of entries) {
         if (entry.type === "custom" && entry.customType === "runwield.active_agent") {
-            restoredAgent = entry.data?.agentName || "";
+            activeAgent = entry.data?.agentName || "";
         }
         if (entry.type === "model_change") {
-            restoredModel = `${entry.provider || ""}/${entry.modelId || ""}`;
+            activeModel = `${entry.provider || ""}/${entry.modelId || ""}`;
         }
     }
-    return { payload, restoredAgent, restoredModel };
+    return { payload, activeAgent, activeModel };
 }
 
 async function transcriptPathForSession(projectRoot: string, sessionId: string): Promise<string> {
@@ -177,7 +177,7 @@ function runtimeSurfaceEvents(events: RuntimeSurfaceEvent[]): SurfaceEventSummar
             sawUser = true;
             continue;
         }
-        if (!sawAgent && event.type === "agent_changed" && event.agentName === expectedTemporaryProfile.agentName) {
+        if (!sawAgent && event.type === "agent_changed" && event.agentName === expectedProfile.agentName) {
             summaries.push({
                 type: "agent_changed",
                 agentName: event.agentName,
@@ -187,14 +187,14 @@ function runtimeSurfaceEvents(events: RuntimeSurfaceEvent[]): SurfaceEventSummar
             continue;
         }
         const model = normalizeModelValue(event.model, event.provider);
-        if (!sawModel && event.type === "model_changed" && model === expectedTemporaryProfile.model) {
+        if (!sawModel && event.type === "model_changed" && model === expectedProfile.model) {
             summaries.push({ type: "model_changed", model });
             sawModel = true;
             continue;
         }
         if (
             !sawThinking && event.type === "thinking_level_changed" &&
-            event.thinkingLevel === expectedTemporaryProfile.thinkingLevel
+            event.thinkingLevel === expectedProfile.thinkingLevel
         ) {
             summaries.push({ type: "thinking_level_changed", thinkingLevel: event.thinkingLevel });
             sawThinking = true;
@@ -243,7 +243,7 @@ function acpSurfaceEvents(messages: JsonMap[]): SurfaceEventSummary[] {
         }
         if (!sawAgent && meta?.type === "agent_changed") {
             const agentName = metaString(meta, "agentName");
-            if (agentName === expectedTemporaryProfile.agentName) {
+            if (agentName === expectedProfile.agentName) {
                 summaries.push({
                     type: "agent_changed",
                     agentName,
@@ -255,7 +255,7 @@ function acpSurfaceEvents(messages: JsonMap[]): SurfaceEventSummary[] {
         }
         if (!sawModel && meta?.type === "model_changed") {
             const model = normalizeModelValue(metaString(meta, "model"), metaString(meta, "provider"));
-            if (model === expectedTemporaryProfile.model) {
+            if (model === expectedProfile.model) {
                 summaries.push({ type: "model_changed", model });
                 sawModel = true;
                 continue;
@@ -263,7 +263,7 @@ function acpSurfaceEvents(messages: JsonMap[]): SurfaceEventSummary[] {
         }
         if (!sawThinking && meta?.type === "thinking_level_changed") {
             const thinkingLevel = metaString(meta, "thinkingLevel");
-            if (thinkingLevel === expectedTemporaryProfile.thinkingLevel) {
+            if (thinkingLevel === expectedProfile.thinkingLevel) {
                 summaries.push({ type: "thinking_level_changed", thinkingLevel });
                 sawThinking = true;
                 continue;
@@ -377,8 +377,8 @@ async function runTuiSurface(projectRoot: string): Promise<SurfaceSummary> {
             digest: transcript.payload.expansionDigest || result?.namedInvocation?.expansionDigest || "",
             profile: normalizedProfile(transcript.payload.profile || result?.namedInvocation?.profile),
             result: runtimeAssistantText(events),
-            restoredAgent: transcript.restoredAgent,
-            restoredModel: transcript.restoredModel,
+            activeAgent: transcript.activeAgent,
+            activeModel: transcript.activeModel,
         };
     } finally {
         await runtime.closeAllSessionsWhenIdle?.();
@@ -411,8 +411,8 @@ async function runWorkspaceSurface(projectRoot: string): Promise<SurfaceSummary>
             digest: transcript.payload.expansionDigest || "",
             profile: normalizedProfile(transcript.payload.profile),
             result: runtimeAssistantText(operation.events),
-            restoredAgent: transcript.restoredAgent,
-            restoredModel: transcript.restoredModel,
+            activeAgent: transcript.activeAgent,
+            activeModel: transcript.activeModel,
         };
     } finally {
         service.close();
@@ -453,8 +453,8 @@ async function runAcpSurface(projectRoot: string): Promise<SurfaceSummary> {
             digest: transcript.payload.expansionDigest || "",
             profile: normalizedProfile(transcript.payload.profile),
             result: acpAssistantText(messages),
-            restoredAgent: transcript.restoredAgent,
-            restoredModel: transcript.restoredModel,
+            activeAgent: transcript.activeAgent,
+            activeModel: transcript.activeModel,
         };
     } finally {
         await closeTestServer(handle);
@@ -490,31 +490,29 @@ Deno.test("named invocation fixture matches TUI, Workspace, and ACP surfaces", a
             assertEquals(new Set(summaries.map((summary) => summary.digest)).size, 1);
             assertEquals(
                 summaries.find((summary) => summary.surface === "acp")?.events,
-                summaries[0].events.filter((event) => event.type !== "agent_changed"),
+                summaries[0].events,
             );
             assertEquals(new Set(summaries.map((summary) => JSON.stringify(summary.profile))).size, 1);
             assertEquals(new Set(summaries.map((summary) => summary.result)).size, 1);
-            assertEquals(new Set(summaries.map((summary) => summary.restoredAgent)).size, 1);
-            assertEquals(new Set(summaries.map((summary) => summary.restoredModel)).size, 1);
+            assertEquals(new Set(summaries.map((summary) => summary.activeAgent)).size, 1);
+            assertEquals(new Set(summaries.map((summary) => summary.activeModel)).size, 1);
             for (const summary of summaries) {
                 const expectedEvents = [
+                    { type: "model_changed", model: expectedProfile.model },
+                    { type: "thinking_level_changed", thinkingLevel: expectedProfile.thinkingLevel },
                     { type: "user_message", text: expectedDisplayedInvocation },
-                    { type: "model_changed", model: expectedTemporaryProfile.model },
-                    { type: "thinking_level_changed", thinkingLevel: expectedTemporaryProfile.thinkingLevel },
                     { type: "assistant_text_delta" },
                 ];
-                if (summary.surface !== "acp") {
-                    expectedEvents.splice(1, 0, {
-                        type: "agent_changed",
-                        agentName: expectedTemporaryProfile.agentName,
-                        model: expectedTemporaryProfile.model,
-                    });
-                }
+                expectedEvents.unshift({
+                    type: "agent_changed",
+                    agentName: expectedProfile.agentName,
+                    model: expectedProfile.model,
+                });
                 assertEquals(summary.events, expectedEvents);
-                assertEquals(summary.profile, expectedTemporaryProfile);
+                assertEquals(summary.profile, expectedProfile);
                 assertEquals(summary.result, expectedAssistantText);
-                assertEquals(summary.restoredAgent, "router");
-                assertEquals(summary.restoredModel, "runtime-command-fixture/fixture-model");
+                assertEquals(summary.activeAgent, "operator");
+                assertEquals(summary.activeModel, expectedProfile.model);
             }
             assertEquals(requests.length, 3);
             for (const request of requests) {
@@ -523,5 +521,91 @@ Deno.test("named invocation fixture matches TUI, Workspace, and ACP surfaces", a
             }
         },
         { additionalModels: [{ id: "alternate-fixture-model", name: "Alternate Fixture Model" }] },
+    );
+});
+
+Deno.test("Workspace follows a conflicting template into its new Session and keeps planning resumable", async () => {
+    await withRuntimeCommandFixture(
+        "workspace-template-conflict-",
+        async ({ projectRoot, setModelResponseFactories }) => {
+            const dir = join(projectRoot, ".wld", "prompts");
+            await Deno.mkdir(dir, { recursive: true });
+            await Deno.writeTextFile(join(dir, "separate.md"), "---\nagent: engineer\n---\nSEPARATE TEMPLATE BODY");
+            setModelResponseFactories(Array.from({ length: 4 }, () => () => fauxAssistantMessage(fauxText("done"))));
+            const store = openOwnerCoordinationStore();
+            const service = new WorkspaceSessionContinuationService({ store });
+            const waitFor = async (id, predicate) => {
+                for (let attempt = 0; attempt < 200; attempt++) {
+                    const operation = service.getOperation(id);
+                    if (predicate(operation)) return operation;
+                    await new Promise((resolve) => setTimeout(resolve, 20));
+                }
+                throw new Error("Workspace operation did not reach the expected state");
+            };
+            try {
+                const project = store.registerProject({ root: projectRoot });
+                const started = await service.createSession({
+                    projectId: project.projectId,
+                    requestId: "plan",
+                    text: "Plan this change.",
+                    agentName: "planner",
+                });
+                const original = await waitFor(started.operationId, (operation) => operation?.status !== "running");
+                assertEquals(original.status, "completed");
+                const continued = await service.startContinuation({
+                    projectId: project.projectId,
+                    runwieldSessionId: original.runwieldSessionId,
+                    requestId: "template",
+                    text: "/separate",
+                    expectedGeneration: original.generation,
+                });
+                const question = await waitFor(
+                    continued.operationId,
+                    (operation) => operation?.liveInteraction || operation?.status !== "running",
+                );
+                assert(question.liveInteraction, JSON.stringify(question));
+                assertStringIncludes(question.liveInteraction.request.prompt, "unfinished planning");
+                await service.answerInteraction({
+                    projectId: project.projectId,
+                    runwieldSessionId: original.runwieldSessionId,
+                    operationId: continued.operationId,
+                    interactionId: question.liveInteraction.interactionId,
+                    requestId: "open-new",
+                    response: { outcome: "selected", value: "new_session" },
+                });
+                const finished = await waitFor(continued.operationId, (operation) => operation?.status !== "running");
+                assertEquals(finished.status, "completed", JSON.stringify(finished));
+                assert(finished.runwieldSessionId !== original.runwieldSessionId);
+                assert(
+                    finished.events.some((event) =>
+                        event.type === "user_message" && event.text === "SEPARATE TEMPLATE BODY"
+                    ),
+                );
+                const originalTimeline = await service.timeline(original.runwieldSessionId, {
+                    projectId: project.projectId,
+                });
+                assertEquals(originalTimeline.snapshot.activeAgent, "planner");
+                assert(
+                    !originalTimeline.events.some((event) =>
+                        event.type === "user_message" && event.text === "SEPARATE TEMPLATE BODY"
+                    ),
+                );
+                const followUp = await service.startContinuation({
+                    projectId: project.projectId,
+                    runwieldSessionId: finished.runwieldSessionId,
+                    requestId: "follow-up",
+                    text: "Continue.",
+                    expectedGeneration: finished.generation,
+                });
+                assertEquals(
+                    (await waitFor(followUp.operationId, (operation) => operation?.status !== "running")).status,
+                    "completed",
+                );
+            } finally {
+                await service.runtime.closeAllSessionsWhenIdle();
+                service.close();
+                store.close();
+            }
+        },
     );
 });

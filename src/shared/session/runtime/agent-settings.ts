@@ -619,7 +619,7 @@ export class RuntimeAgentSettings {
             }
             return await this.activateSessionAgent(session, options);
         }
-        return await this.managedOperations.runManagedStandaloneMutation(
+        const result = await this.managedOperations.runManagedStandaloneMutation(
             sessionId,
             "switch_agent",
             async (activeSession, capability) => {
@@ -630,5 +630,9 @@ export class RuntimeAgentSettings {
             },
             { activateAgent: false },
         );
+        if (result.ok && options.releaseActiveWorkflow) {
+            session.mergePendingManagedTurnIntent({ agentName: options.agentName });
+        }
+        return result;
     }
 }

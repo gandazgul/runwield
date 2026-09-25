@@ -1,25 +1,28 @@
 import { AGENTS } from "../../../constants.js";
-import { abortActiveSession as abortActiveSessionFn, runIsolatedAgentSession } from ".././session.js";
+import { abortActiveSession as abortActiveSessionFn } from ".././session.js";
 import { resolveNamedInvocation, withNamedInvocationDisplayMessage } from ".././named-invocation.ts";
 import { getRuntimeErrorMessage, RuntimeEventTypes } from ".././session-runtime-events.js";
 import { rollSessionTranscriptSegment } from ".././segment-rollover.ts";
-import { RuntimeInteractionTypes } from ".././session-runtime-interactions.js";
+import { promptTemplateWorkflowConflict, resolvePromptTemplateSettings } from "../prompt-template-settings.ts";
+import { recordManualModelSelection } from "../active-agent-session.js";
+import { getAgentDisplayName } from "../agents.js";
+import { requestHostedSessionInteraction, RuntimeInteractionTypes } from ".././session-runtime-interactions.js";
 
 import {
     getRuntimeRootAgentSession,
     imageReferencesForNamedInvocation,
     isRuntimeRootSessionManager,
-    normalizeThinkingLevel,
     SessionTurnInProgressError,
 } from "./support.ts";
 import { isManagedOperationFailure } from "./types.ts";
-import type { PromptSessionOptions } from "./types.ts";
+import type { PromptSessionOptions, PromptTurnContext } from "./types.ts";
 
 interface PromptSessionResult {
     ok: boolean;
     turns: number;
     error?: string;
     replacementSessionId?: string;
+    templateNewSession?: boolean;
     _validationResult?: import("./workflows.ts").RuntimeValidationResult | null;
     namedInvocation?: {
         kind: string;
@@ -28,6 +31,13 @@ interface PromptSessionResult {
         profile: import("../named-invocation.ts").NamedInvocationPayload["profile"];
         messageCount: number;
     };
+}
+
+interface UserPromptResult extends PromptSessionResult {
+    managed: boolean;
+    submittedRequest: string;
+    restoreDraft: boolean;
+    historyText?: string;
 }
 
 import type { RuntimeServices } from "./base.ts";
@@ -41,7 +51,10 @@ import type { RuntimeManagedSync } from "./managed-sync.ts";
 import type { RuntimeWorkflows } from "./workflows.ts";
 
 type RuntimeEventsDependency = Pick<RuntimeEvents, "beginBusyOperation" | "emitSessionEvent" | "endBusyOperation">;
-type RuntimeLifecycleDependency = Pick<RuntimeLifecycle, "hasPendingProject" | "materializeDeferredManagedShell">;
+type RuntimeLifecycleDependency = Pick<
+    RuntimeLifecycle,
+    "hasPendingProject" | "materializeDeferredManagedShell" | "createInteractiveSession"
+>;
 type RuntimeManagedOperationsDependency = Pick<
     RuntimeManagedOperations,
     "currentCapability" | "hasOperation" | "runManagedOperation"
@@ -51,7 +64,10 @@ type RuntimeImagesDependency = Pick<
     RuntimeImages,
     "persistPendingPromptImages" | "preflightSessionImages" | "preflightUserTurnImages"
 >;
-type RuntimeAgentSettingsDependency = Pick<RuntimeAgentSettings, "alignActiveExecutionWorkflowOwner">;
+type RuntimeAgentSettingsDependency = Pick<
+    RuntimeAgentSettings,
+    "alignActiveExecutionWorkflowOwner" | "activateSessionAgent" | "setSessionThinkingLevel"
+>;
 type RuntimeManagedSyncDependency = Pick<RuntimeManagedSync, "synchronizeManagedSession">;
 type RuntimeWorkflowsDependency = Pick<
     RuntimeWorkflows,
@@ -95,188 +111,7 @@ export class RuntimeTurns {
         await this.turnSettlements.get(sessionId);
     }
 
-    async promptNamedTemplateTurn(
-        sessionId: string,
-        invocation: import(".././named-invocation.ts").PromptTemplateInvocation,
-        options: PromptSessionOptions & { expectedGeneration: number | null },
-    ) {
-        const hostedSession = this.services.sessionHost.getSession(sessionId);
-        if (!hostedSession) throw new Error("SessionRuntime.promptNamedTemplateTurn: session not found");
-        const managed = hostedSession.getManagedMetadata?.();
-        if (!managed) {
-            throw new Error("SessionRuntime.promptNamedTemplateTurn: segmented Session metadata is unavailable");
-        }
-        const previousAgentInfo = hostedSession.getActiveAgentInfo?.() || null;
-        const previousModelState = hostedSession.getActiveModelState?.() || { model: "", provider: "" };
-        const previousUserModelOverride = hostedSession.isUserModelOverride?.() === true;
-        const previousThinkingLevel = hostedSession.getThinkingLevel?.() || "off";
-        const previousWorkflow = hostedSession.getActiveExecutionWorkflow?.() || null;
-        const previousPendingTaskCompletion = hostedSession.getPendingTaskCompletionForRestore?.() || null;
-        let temporaryProfilePublished = false;
-        let restored = false;
-        const emitActiveProfile = () => {
-            const activeAgent = hostedSession.getActiveAgentInfo?.() || null;
-            if (activeAgent?.agentName) {
-                this.events.emitSessionEvent(sessionId, {
-                    type: RuntimeEventTypes.AGENT_CHANGED,
-                    agentName: activeAgent.agentName,
-                    model: activeAgent.model || undefined,
-                });
-            }
-            const activeModel = hostedSession.getActiveModelState?.() || { model: "", provider: "" };
-            if (activeModel.model) {
-                this.events.emitSessionEvent(sessionId, {
-                    type: RuntimeEventTypes.MODEL_CHANGED,
-                    model: activeModel.model,
-                    provider: activeModel.provider,
-                });
-            }
-            this.events.emitSessionEvent(sessionId, {
-                type: RuntimeEventTypes.THINKING_LEVEL_CHANGED,
-                thinkingLevel: hostedSession.getThinkingLevel?.() || "off",
-            });
-        };
-        const restorePromptInvocationState = () => {
-            if (restored) return;
-            restored = true;
-            if (previousAgentInfo) {
-                hostedSession.resetAgentInfoStack(
-                    previousAgentInfo.displayName,
-                    previousAgentInfo.model,
-                    previousAgentInfo.provider,
-                    previousAgentInfo.agentName || "",
-                );
-            }
-            if (previousUserModelOverride) {
-                hostedSession.setActiveModelState(previousModelState.model, previousModelState.provider, true);
-            } else {
-                hostedSession.clearUserModelOverride?.();
-                hostedSession.setActiveModelState(previousModelState.model, previousModelState.provider, false);
-            }
-            hostedSession.setThinkingLevel?.(previousThinkingLevel);
-            hostedSession.restoreActiveExecutionWorkflow?.(previousWorkflow, previousPendingTaskCompletion);
-            if (temporaryProfilePublished) emitActiveProfile();
-        };
-        try {
-            return await this.managedOperations.runManagedOperation(
-                sessionId,
-                { name: "prompt", options, emitPromptEvents: options.emitInitialEvents === false ? false : undefined },
-                async ({ acceptedTurnId, hasPendingImages, capability }) => {
-                    const turnId = acceptedTurnId;
-                    let ok = false;
-                    let result: PromptSessionResult | null = null;
-                    if (!hostedSession.beginTurn(turnId)) throw new SessionTurnInProgressError(hostedSession.id);
-                    try {
-                        const imagePreflight = await this.images.preflightUserTurnImages(hostedSession.id, {
-                            initialRequest: invocation.payload.compactInvocation,
-                            initialImages: options.initialImages || [],
-                            agentName: invocation.agentName,
-                            preparedModelOverride: options.preparedModelOverride,
-                            modelOverride: invocation.model,
-                        });
-                        if (!imagePreflight.ok) throw new Error(imagePreflight.message);
-                        const images = await this.images.persistPendingPromptImages(
-                            hostedSession,
-                            options.initialImages || [],
-                        );
-                        invocation.payload.imageReferences = imageReferencesForNamedInvocation(images);
-                        if (hasPendingImages && options.emitInitialEvents !== false) {
-                            this.events.emitSessionEvent(hostedSession.id, {
-                                type: RuntimeEventTypes.USER_MESSAGE,
-                                turnId,
-                                text: invocation.payload.compactInvocation,
-                                images: images.map((image) => ({ ...image })),
-                            });
-                            this.events.emitSessionEvent(hostedSession.id, {
-                                type: RuntimeEventTypes.TURN_START,
-                                turnId,
-                            });
-                        }
-                        const sessionManager = hostedSession.getRootSessionManager?.() || null;
-                        if (!isRuntimeRootSessionManager(sessionManager)) {
-                            result = { ok: false, turns: 0, error: "missing_active_session_manager" };
-                            return result;
-                        }
-                        const cwd = hostedSession.getActiveExecutionCwd?.() || hostedSession.cwd;
-                        const messages = await withNamedInvocationDisplayMessage(
-                            sessionManager,
-                            invocation.payload,
-                            async () =>
-                                await runIsolatedAgentSession({
-                                    hostedSession,
-                                    agentName: invocation.agentName,
-                                    userRequest: invocation.expandedRequest,
-                                    images,
-                                    sessionManager,
-                                    cwd,
-                                    modelOverride: options.preparedModelOverride || invocation.model,
-                                    thinkingLevelOverride: invocation.thinkingLevel,
-                                    workflowAuthority: false,
-                                    ignoreManualModelOverride: true,
-                                    updateHostedThinkingLevel: false,
-                                    persistModelChange: false,
-                                    disableAutoCompaction: true,
-                                    managedOperationCapability: capability,
-                                    signal: capability.signal,
-                                    onExecutionSessionBuilt: (built) => {
-                                        const resolvedModel = built.resolvedModel
-                                            ? `${built.resolvedModel.provider}/${built.resolvedModel.id}`
-                                            : invocation.model;
-                                        const resolvedThinkingLevel = normalizeThinkingLevel(
-                                            built.resolvedThinkingLevel,
-                                        );
-                                        invocation.payload.profile = {
-                                            agentName: invocation.agentName,
-                                            ...(resolvedModel ? { model: resolvedModel } : {}),
-                                            thinkingLevel: resolvedThinkingLevel,
-                                        };
-                                        hostedSession.clearUserModelOverride?.();
-                                        hostedSession.setThinkingLevel?.(resolvedThinkingLevel);
-                                        temporaryProfilePublished = true;
-                                        emitActiveProfile();
-                                    },
-                                }),
-                            { persistModelChange: false },
-                        );
-                        ok = true;
-                        result = {
-                            ok: true,
-                            turns: 1,
-                            namedInvocation: {
-                                kind: invocation.kind,
-                                name: invocation.name,
-                                expansionDigest: invocation.payload.expansionDigest,
-                                profile: invocation.payload.profile,
-                                messageCount: Array.isArray(messages) ? messages.length : 0,
-                            },
-                        };
-                        return result;
-                    } catch (error) {
-                        this.events.emitSessionEvent(hostedSession.id, {
-                            type: RuntimeEventTypes.TERMINAL_ERROR,
-                            turnId,
-                            message: getRuntimeErrorMessage(error),
-                            error,
-                        });
-                        throw error;
-                    } finally {
-                        this.events.emitSessionEvent(hostedSession.id, {
-                            type: RuntimeEventTypes.TURN_END,
-                            turnId,
-                            ok,
-                            result: result || { turns: 0 },
-                        });
-                        hostedSession.endTurn(turnId);
-                        restorePromptInvocationState();
-                    }
-                },
-            );
-        } finally {
-            restorePromptInvocationState();
-        }
-    }
-
-    async promptUserTurn(sessionId: string, options: PromptSessionOptions) {
+    async promptUserTurn(sessionId: string, options: PromptSessionOptions): Promise<UserPromptResult> {
         const hostedSession = this.services.sessionHost.getSession(sessionId);
         if (!hostedSession) throw new Error("SessionRuntime.promptUserTurn: session not found");
         const namedInvocation = await resolveNamedInvocation({
@@ -284,6 +119,21 @@ export class RuntimeTurns {
             text: options.initialRequest,
             images: options.initialImages || [],
         });
+        if (namedInvocation.kind === "prompt_template") {
+            const pending = hostedSession.getPendingManagedTurnIntent();
+            const selectedAgent = pending.agentName || hostedSession.getActiveAgentInfo()?.agentName ||
+                hostedSession.getManagedMetadata()?.activeAgent;
+            if (!namedInvocation.agentName || namedInvocation.agentName === selectedAgent) {
+                namedInvocation.thinkingLevel ||= pending.thinkingLevel;
+            }
+            namedInvocation.agentName ||= pending.agentName;
+            if (!namedInvocation.model && !namedInvocation.agentName && pending.manualModel && pending.model) {
+                namedInvocation.model = pending.provider ? `${pending.provider}/${pending.model}` : pending.model;
+            }
+            if (!namedInvocation.agentName && options.agentName && options.agentName !== AGENTS.ROUTER) {
+                namedInvocation.agentName = options.agentName;
+            }
+        }
         const submittedRequest = options.initialRequest;
         let displayRequest = submittedRequest;
         if (namedInvocation.kind === "prompt_template") displayRequest = namedInvocation.expandedRequest;
@@ -302,7 +152,7 @@ export class RuntimeTurns {
         let deferredBusyStarted = false;
         if (isDeferredFirstTurn) {
             const hasInitialImages = (options.initialImages || []).length > 0;
-            if (!hasInitialImages) {
+            if (!hasInitialImages && namedInvocation.kind !== "prompt_template") {
                 this.events.emitSessionEvent(hostedSession.id, {
                     type: RuntimeEventTypes.USER_MESSAGE,
                     turnId: deferredFirstTurnId,
@@ -318,7 +168,9 @@ export class RuntimeTurns {
             }
             const activeAgentInfo = hostedSession.getActiveAgentInfo?.() || null;
             const agentName = options.agentName || activeAgentInfo?.agentName || AGENTS.ROUTER;
-            hostedSession.mergePendingManagedTurnIntent?.({ agentName });
+            if (namedInvocation.kind !== "prompt_template") {
+                hostedSession.mergePendingManagedTurnIntent?.({ agentName });
+            }
             // Give presentation adapters one event-loop turn to paint the user
             // message and first busy frame before filesystem/session setup begins.
             await new Promise((resolve) => setTimeout(resolve, 0));
@@ -343,15 +195,22 @@ export class RuntimeTurns {
             managed = hostedSession.getManagedMetadata() || managed;
         }
         options = { ...options, inputSurface: options.inputSurface || this.services.ownerProcessKind };
+        let cleanupTurnStart: (() => void) | undefined;
+        // Keep surface subscriptions alive across a user-approved Session change.
+        const onTurnStarted = (context: PromptTurnContext) => {
+            const cleanup = options.onTurnStarted?.(context);
+            if (typeof cleanup === "function") cleanupTurnStart = cleanup;
+        };
         const requestOptions = deferredFirstTurnId
             ? {
                 ...options,
+                onTurnStarted,
                 initialRequest: displayRequest,
                 preparedModelOverride,
                 turnId: deferredFirstTurnId,
-                emitInitialEvents: (options.initialImages || []).length > 0 ? undefined : false,
+                emitInitialEvents: deferredBusyStarted ? false : undefined,
             }
-            : { ...options, initialRequest: displayRequest, preparedModelOverride };
+            : { ...options, onTurnStarted, initialRequest: displayRequest, preparedModelOverride };
         const buildResult = (
             result: PromptSessionResult,
         ) => ({
@@ -365,27 +224,45 @@ export class RuntimeTurns {
         const expectedGenerationSource = managed.acknowledgedGeneration ?? managed.generation;
         const expectedGeneration = Number.isSafeInteger(expectedGenerationSource) ? expectedGenerationSource : null;
         try {
-            if (namedInvocation.kind === "prompt_template") {
-                return buildResult(
-                    await this.promptNamedTemplateTurn(sessionId, namedInvocation, {
-                        ...requestOptions,
-                        expectedGeneration,
-                    }),
-                );
+            const result = await this.promptManagedSession(sessionId, {
+                ...requestOptions,
+                expectedGeneration,
+                ...(namedInvocation.kind !== "ordinary"
+                    ? {
+                        modelRequest: namedInvocation.expandedRequest,
+                        namedInvocationPayload: namedInvocation.payload,
+                        ...(namedInvocation.kind === "prompt_template" ? { promptTemplate: namedInvocation } : {}),
+                    }
+                    : {}),
+            });
+            if (result.templateNewSession && namedInvocation.kind === "prompt_template") {
+                const created = await this.lifecycle.createInteractiveSession({
+                    cwd: hostedSession.cwd,
+                    mode: "new",
+                    deferManagedActivationUntilAgentReady: true,
+                });
+                const next = this.services.sessionHost.requireSession(created.sessionId);
+                next.setInteractionAdapter(hostedSession.getInteractionAdapter());
+                next.notificationSurface = hostedSession.notificationSurface;
+                next.localInputSurface = hostedSession.localInputSurface;
+                next.setMcpRequestServers(hostedSession.getMcpRequestServers());
+                this.events.emitSessionEvent(sessionId, {
+                    type: RuntimeEventTypes.SESSION_REPLACED,
+                    oldSessionId: sessionId,
+                    newSessionId: next.id,
+                    reason: "prompt_template",
+                    templateName: namedInvocation.name,
+                });
+                const nextResult = await this.promptUserTurn(next.id, {
+                    initialRequest: submittedRequest,
+                    initialImages: options.initialImages,
+                    inputSurface: options.inputSurface,
+                });
+                return { ...nextResult, replacementSessionId: next.id };
             }
-            return buildResult(
-                await this.promptManagedSession(sessionId, {
-                    ...requestOptions,
-                    expectedGeneration,
-                    ...(namedInvocation.kind === "skill"
-                        ? {
-                            modelRequest: namedInvocation.expandedRequest,
-                            namedInvocationPayload: namedInvocation.payload,
-                        }
-                        : {}),
-                }),
-            );
+            return buildResult(result);
         } finally {
+            cleanupTurnStart?.();
             if (deferredBusyStarted) this.events.endBusyOperation(sessionId, deferredFirstTurnId);
         }
     }
@@ -414,17 +291,110 @@ export class RuntimeTurns {
             {
                 name: "prompt",
                 options: operationOptions,
-                emitPromptEvents: operationOptions.emitInitialEvents === false ? false : undefined,
+                emitPromptEvents: operationOptions.promptTemplate || operationOptions.emitInitialEvents === false
+                    ? false
+                    : undefined,
+                activateAgent: operationOptions.promptTemplate ? false : undefined,
             },
-            async ({ acceptedTurnId, hasPendingImages, capability }) =>
-                await this.promptSession(sessionId, {
+            async ({ acceptedTurnId, hasPendingImages, capability }) => {
+                const template = operationOptions.promptTemplate;
+                if (template) {
+                    const profile = await resolvePromptTemplateSettings(hostedSession, {
+                        ...template,
+                        model: operationOptions.preparedModelOverride || template.model,
+                    });
+                    const conflict = promptTemplateWorkflowConflict(hostedSession, profile.agentName);
+                    if (conflict) {
+                        const response = await requestHostedSessionInteraction(
+                            hostedSession,
+                            {
+                                type: RuntimeInteractionTypes.SELECT,
+                                prompt: `/${template.name} requires ${
+                                    getAgentDisplayName(profile.agentName, hostedSession.cwd)
+                                }. This session has ${conflict}.`,
+                                options: [
+                                    { value: "new_session", label: "Open in new session" },
+                                    { value: "cancel", label: "Cancel" },
+                                ],
+                                defaultValue: "cancel",
+                            },
+                            capability.signal,
+                            capability,
+                        );
+                        if (response.outcome === "selected" && response.value === "new_session") {
+                            return { ok: true, turns: 0, templateNewSession: true };
+                        }
+                        if (response.outcome === "unsupported" || response.outcome === "blocked") {
+                            throw new Error(
+                                `/${template.name} requires a different Agent during ${conflict}. Open a new session and run /${template.name} there.`,
+                            );
+                        }
+                        return { ok: false, turns: 0, error: "Prompt canceled." };
+                    }
+                    const previousModel = hostedSession.getActiveModelState();
+                    const previousManual = hostedSession.isUserModelOverride();
+                    const slash = profile.model.indexOf("/");
+                    hostedSession.setActiveModelState(
+                        profile.model.slice(slash + 1),
+                        profile.model.slice(0, slash),
+                        profile.manualModel,
+                    );
+                    try {
+                        await this.settings.activateSessionAgent(hostedSession, {
+                            agentName: profile.agentName,
+                            model: profile.model,
+                            thinkingLevelOverride: profile.thinkingLevel,
+                            forceRebuild: true,
+                            managedOperationCapability: capability,
+                        });
+                    } catch (error) {
+                        hostedSession.setActiveModelState(previousModel.model, previousModel.provider, previousManual);
+                        if (!previousManual) hostedSession.clearUserModelOverride();
+                        throw error;
+                    }
+                    const state = hostedSession.getActiveModelState();
+                    this.events.emitSessionEvent(sessionId, {
+                        type: RuntimeEventTypes.MODEL_CHANGED,
+                        model: state.model,
+                        provider: state.provider,
+                    });
+                    if (profile.manualModel) {
+                        hostedSession.setActiveModelState(state.model, state.provider, true);
+                        const manager = hostedSession.getRootSessionManager();
+                        if (isRuntimeRootSessionManager(manager)) {
+                            recordManualModelSelection(manager, state.provider, state.model);
+                        }
+                    }
+                    await this.settings.setSessionThinkingLevel(sessionId, profile.thinkingLevel);
+                    template.payload.profile = {
+                        agentName: profile.agentName,
+                        model: profile.model,
+                        thinkingLevel: profile.thinkingLevel,
+                    };
+                }
+                const result = await this.promptSession(sessionId, {
                     ...operationOptions,
                     turnId: acceptedTurnId,
                     onTurnStarted: undefined,
-                    emitInitialEvents: operationOptions.emitInitialEvents === false ? false : hasPendingImages,
+                    emitInitialEvents: template
+                        ? true
+                        : operationOptions.emitInitialEvents === false
+                        ? false
+                        : hasPendingImages,
                     suppressEpicContinuation: true,
                     signal: capability.signal,
-                }, capability),
+                }, capability);
+                if (template) {
+                    result.namedInvocation = {
+                        kind: template.kind,
+                        name: template.name,
+                        expansionDigest: template.payload.expansionDigest,
+                        profile: template.payload.profile,
+                        messageCount: result.turns,
+                    };
+                }
+                return result;
+            },
         );
         if (isManagedOperationFailure(result)) return { ...result, turns: result.turns ?? 0 };
         const validationResult = result._validationResult;

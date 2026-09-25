@@ -63,10 +63,19 @@ model: anthropic/claude-sonnet-4
 thinkingLevel: low
 ```
 
-`agent` defaults to `operator`. `model` and `thinkingLevel` are one-turn overrides. If they are omitted, RunWield uses
-the selected Agent's normal model and thinking settings. Invalid Agents, models, or thinking levels fail before a model
-call. Prompt Templates run one auxiliary turn, then the root Agent, model, thinking level, workflow owner, and workflow
-checkpoint are restored. File changes made by that turn are not rolled back.
+Templates render into ordinary user messages in the current Session. Their front matter applies normal Session settings:
+`agent`, `model` (a `provider/model` reference), and `thinkingLevel`. Omitted fields inherit the current Session's
+selections. In a new Session with no explicit selections, the default is Operator with its configured model and thinking
+level, so `wld /commit` works without front matter. Changing Agent loads that Agent's defaults, then applies explicit
+template model and thinking choices. Applied settings persist for follow-up messages and resume. Invalid settings fail
+before the expanded message is submitted.
+
+During an unfinished workflow, including planning before a Plan exists, a template that requests a different Agent
+offers **Open in new session** or **Cancel**. Opening a new Session runs the template there and preserves the original
+workflow Session for resume. Canceling sends nothing and changes no settings. A client without this interaction tells
+the user to start a new Session. Templates that keep the workflow Agent run normally, including normal workflow tools
+and validation. Model and thinking changes alone do not interrupt workflow ownership. There is no temporary Agent,
+automatic switch back, or special template completion boundary.
 
 Installed package prompts are passive Markdown templates. They do not need the code-extension compatibility marker, but
 they cannot override built-in slash command names. RunWield warns at startup when a package prompt is blocked by a
