@@ -10,7 +10,7 @@ import {
 Deno.test("buildCompileArgs uses Deno compile flags and bundled resource includes", () => {
     const args = buildCompileArgs();
 
-    assertEquals(args.slice(0, 17), [
+    assertEquals(args.slice(0, 19), [
         "compile",
         "--output",
         "./bin/wld",
@@ -22,6 +22,8 @@ Deno.test("buildCompileArgs uses Deno compile flags and bundled resource include
         "--minify",
         "--app-name",
         "wld",
+        "--include",
+        "src/shared/build-identity.js",
         "--include",
         "src/ui/workspace/static/",
         "--include",
@@ -74,11 +76,15 @@ Deno.test("buildCompileArgs accepts release target, output, and reload overrides
 });
 
 Deno.test("parseCompileOptions supports separated and equals forms", () => {
-    assertEquals(parseCompileOptions(["--reload", "--output", "wld", "--target=aarch64-apple-darwin"]), {
-        reload: true,
-        output: "wld",
-        target: "aarch64-apple-darwin",
-    });
+    assertEquals(
+        parseCompileOptions(["--reload", "--output", "wld", "--target=aarch64-apple-darwin", "--expect-build-id=abc"]),
+        {
+            reload: true,
+            output: "wld",
+            target: "aarch64-apple-darwin",
+            expectBuildId: "abc",
+        },
+    );
     assertThrows(() => parseCompileOptions(["--target"]), Error, "requires a value");
     assertThrows(() => parseCompileOptions(["--wat"]), Error, "Unknown compile option");
 });

@@ -109,6 +109,13 @@ import {
 } from "../settings.js";
 import { modelSupportsImageInput, prepareImagesForModel, resolveVisionFallbackModel } from "./image-attachments.js";
 import { readPersistedActiveAgentName, readPersistedModelState, recordActiveAgent } from "./active-agent-session.js";
+import {
+    assertPersonalResourcePath,
+    personalAgentsRoot,
+    personalGlobalRoot,
+    PersonalResourcePathError,
+    remotePersonalResourcesActive,
+} from "../remote/personal-resources.ts";
 import { getBundledAgentDefsPath } from "./agent-assets.js";
 import { expandSkill, listSkills } from "./skill-catalog.ts";
 import { getPackagePromptTemplatePaths, resolveInstalledPackagePromptResources } from "../package-resources.js";
@@ -123,8 +130,7 @@ import { sanitizeSessionName } from "./session-name.js";
 
 /** @returns {string | null} */
 function homePromptsDir() {
-    const homeDir = getHomeDir();
-    return homeDir ? join(homeDir, ".wld", "prompts") : null;
+    return join(personalGlobalRoot(), "prompts");
 }
 
 const UNSUPPORTED_TEMPERATURE_RE =
@@ -420,15 +426,17 @@ export async function listPromptTemplates(options = {}) {
     ];
 
     for (const layer of layers) {
+        await assertPersonalResourcePath(layer.dir, `${layer.source} prompt directory`);
         if (!(await directoryExists(layer.dir))) continue;
 
         for await (const entry of Deno.readDir(layer.dir)) {
-            if (!entry.isFile || !entry.name.endsWith(".md")) continue;
+            if ((!entry.isFile && !entry.isSymlink) || !entry.name.endsWith(".md")) continue;
             const name = entry.name.replace(/\.md$/, "");
             if (seen.has(name)) continue;
 
             const filePath = join(layer.dir, entry.name);
             try {
+                await assertPersonalResourcePath(filePath, `${layer.source} prompt template`);
                 const meta = await parsePromptTemplateMeta(filePath);
                 templates.push({
                     name,
@@ -442,7 +450,8 @@ export async function listPromptTemplates(options = {}) {
                 });
                 promptTemplateModelByName.set(name, meta.model);
                 seen.add(name);
-            } catch {
+            } catch (error) {
+                if (error instanceof PersonalResourcePathError) throw error;
                 // Ignore unreadable prompt templates.
             }
         }
@@ -450,12 +459,18 @@ export async function listPromptTemplates(options = {}) {
 
     const packagePromptResources = Array.isArray(options.packagePromptResources)
         ? options.packagePromptResources
-        : await resolveInstalledPackagePromptResources({ cwd }).catch(() => []);
+        : await resolveInstalledPackagePromptResources({ cwd }).catch((error) => {
+            if (error instanceof PersonalResourcePathError) throw error;
+            return [];
+        });
 
     for (const resource of packagePromptResources || []) {
         const name = resource.path.split(/[\\/]/).pop()?.replace(/\.md$/, "") || "";
         if (!name || seen.has(name)) continue;
         try {
+            await assertPersonalResourcePath(resource.path, `package prompt template "${name}"`, {
+                packageResource: remotePersonalResourcesActive(),
+            });
             const meta = await parsePromptTemplateMeta(resource.path);
             templates.push({
                 name,
@@ -471,7 +486,8 @@ export async function listPromptTemplates(options = {}) {
             });
             promptTemplateModelByName.set(name, meta.model);
             seen.add(name);
-        } catch {
+        } catch (error) {
+            if (error instanceof PersonalResourcePathError) throw error;
             // Ignore unreadable package prompt templates.
         }
     }
@@ -491,10 +507,12 @@ export function getGlobalAgentMdPaths(homeDir, options = {}) {
     if (!homeDir) return [];
     const includeExternal = options.includeExternal ??
         (getCustomSetting("enableExternalGlobalAgentsMd", "global") ?? true);
+    const globalRoot = remotePersonalResourcesActive() ? personalGlobalRoot() : join(homeDir, ".wld");
+    const agentsRoot = remotePersonalResourcesActive() ? personalAgentsRoot() : join(homeDir, ".agents");
     return [
-        join(homeDir, ".wld", "RUNWIELD.md"),
-        join(homeDir, ".wld", "AGENTS.md"),
-        ...(includeExternal ? [join(homeDir, ".agents", "AGENTS.md")] : []),
+        join(globalRoot, "RUNWIELD.md"),
+        join(globalRoot, "AGENTS.md"),
+        ...(includeExternal && agentsRoot ? [join(agentsRoot, "AGENTS.md")] : []),
     ];
 }
 
@@ -506,8 +524,10 @@ export function getGlobalAgentMdPaths(homeDir, options = {}) {
 export async function readGlobalAgentMd(homeDir, options = {}) {
     for (const path of getGlobalAgentMdPaths(homeDir, options)) {
         try {
+            await assertPersonalResourcePath(path, "global instruction");
             return await Deno.readTextFile(path);
-        } catch {
+        } catch (error) {
+            if (error instanceof PersonalResourcePathError) throw error;
             // Try next candidate.
         }
     }
@@ -528,8 +548,9 @@ export async function listLoadedAgentMdFiles(cwd) {
 
     const homeDir = getHomeDir();
     for (const homePath of getGlobalAgentMdPaths(homeDir)) {
+        await assertPersonalResourcePath(homePath, "global instruction");
         if (await fileExists(homePath)) {
-            const source = homePath === join(homeDir, ".agents", "AGENTS.md")
+            const source = homePath === join(personalAgentsRoot() ?? join(homeDir, ".agents"), "AGENTS.md")
                 ? /** @type {"external"} */ ("external")
                 : /** @type {"home"} */ ("home");
             results.push({ path: homePath, source });
@@ -1217,6 +1238,8 @@ export async function resolveModel(
             continue;
         }
 
+        // Reject remote CLI selections from every source before discovery or a backend can start.
+        assertModelExecutionBackendSupported({ provider: parsed.provider, id: parsed.id });
         let found = modelRegistry.find(parsed.provider, parsed.id);
         let discovered = false;
         if (!found) {
@@ -1508,11 +1531,13 @@ async function readProjectInstructionFile(cwd) {
 async function readGlobalInstructionFile(homeDir) {
     for (const path of getGlobalAgentMdPaths(homeDir)) {
         try {
-            const source = path === join(homeDir, ".agents", "AGENTS.md")
+            await assertPersonalResourcePath(path, "global instruction");
+            const source = path === join(personalAgentsRoot() ?? join(homeDir, ".agents"), "AGENTS.md")
                 ? /** @type {"external"} */ ("external")
                 : /** @type {"home"} */ ("home");
             return { text: await Deno.readTextFile(path), path, source };
-        } catch {
+        } catch (error) {
+            if (error instanceof PersonalResourcePathError) throw error;
             // Try next candidate.
         }
     }
@@ -1975,6 +2000,9 @@ export async function buildAgentSession({
     const targetHostedSession = hostedSession ? requireHostedSession(hostedSession, "buildAgentSession") : null;
     const sessionCwd = cwd || targetHostedSession?.cwd;
     if (!sessionCwd) throw new Error("buildAgentSession: cwd or hostedSession cwd is required");
+    if (remotePersonalResourcesActive()) {
+        throw new Error("Remote managed agent sessions are not approved; use bounded model integration only");
+    }
     await ensureMnemotecaBinary();
     await ensureCymbalBinary();
     const agentDef = subAgentDefinition
@@ -2168,7 +2196,10 @@ export async function buildAgentSession({
             ? `${finalSystemPrompt}\n\n${NO_WORKFLOW_AUTHORITY_PROMPT}`
             : finalSystemPrompt,
     };
-    const packagePromptResources = await resolveInstalledPackagePromptResources({ cwd: sessionCwd }).catch(() => []);
+    const packagePromptResources = await resolveInstalledPackagePromptResources({ cwd: sessionCwd }).catch((error) => {
+        if (error instanceof PersonalResourcePathError) throw error;
+        return [];
+    });
     const packageExtensionResources = await resolveInstalledWldExtensionResources({ cwd: sessionCwd }).catch(() => []);
     const extensionFactories = [
         mnemotecaExtension,
@@ -4384,6 +4415,7 @@ export async function expandSkillCommand(skillName, additionalInstructions, cwd)
  */
 export async function expandPromptTemplate(templatePath, additionalInstructions) {
     try {
+        await assertPersonalResourcePath(templatePath, "prompt template");
         const raw = await Deno.readTextFile(templatePath);
         let body = raw;
 

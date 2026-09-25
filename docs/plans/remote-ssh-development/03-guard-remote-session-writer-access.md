@@ -29,10 +29,11 @@ planId: "30b4b5d9-8c70-4e11-a314-6132bf9ee2a0"
 
 ## Context
 
-Mounted Session files preserve Pi's synchronous file API, but mounted locks do not provide cross-machine exclusion. The
-laptop's native Session Writer Lock must remain authoritative, and the actual stock SFTP-serving process must retain
-ownership while it can write. Current release and rollover paths can explicitly unlock, so they cannot serve remote
-operations unchanged.
+The connection-wide mount of laptop `~/.wld` supplies personal file access, not Session writer authority. Separate
+operation-scoped mounted Session files preserve Pi's synchronous file API, but mounted locks do not provide
+cross-machine exclusion. The laptop's native Session Writer Lock must remain authoritative, and the actual stock
+SFTP-serving process must retain ownership while it can write. Current release and rollover paths can explicitly unlock,
+so they cannot serve remote operations unchanged.
 
 This slice builds and proves the storage safety boundary before normal remote user turns depend on it. It implements the
 writer-ownership and recovery parts of the Remote SSH PRD's **Local memories and saved Sessions** and **Disconnect and
@@ -47,8 +48,9 @@ never authorize another writer.
 ## Approach
 
 Extend the Session-store owner with a remote operation transaction rather than treating a mounted filesystem as the lock
-authority. Give every operation fresh serving and mount identities. Separate revocation from final lock release so
-error, disposal, publication, and rollover paths cannot unlock while stock SFTP still writes.
+authority. Give every operation fresh guarded serving and mount identities, distinct from the connection-wide personal
+mount. Separate revocation from final lock release so error, disposal, publication, and rollover paths cannot unlock
+while stock SFTP still writes.
 
 ```text
 acquire local lock
@@ -93,8 +95,8 @@ shifts, migration or compatibility risk grows, or the Verification Plan no longe
 
 ## Implementation Steps
 
-- Only the laptop Session owner acquires authoritative Session and catalog locks; mounted `tryLockSync` results can
-  never admit a remote writer.
+- Only the laptop Session owner acquires authoritative Session and catalog locks; neither the connection-wide personal
+  mount nor mounted `tryLockSync` results can admit a remote writer.
 - The stock SFTP-serving process inherits and retains native lock ownership for its complete writable lifetime,
   including launcher death, and the coordinator retains ownership through settlement.
 - Each managed operation receives a fresh SFTP channel, mount identity, and protected underlying directory; after

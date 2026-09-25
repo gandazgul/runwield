@@ -28,6 +28,7 @@ jobs:
             build_version: ${{ steps.metadata.outputs.build_version }}
             prerelease: ${{ steps.metadata.outputs.prerelease }}
             make_latest: ${{ steps.metadata.outputs.make_latest }}
+            astro_key: ${{ steps.build-key.outputs.value }}
 
         steps:
             - name: Checkout
@@ -58,6 +59,10 @@ jobs:
                     ];
                     await Deno.writeTextFile(Deno.env.get("GITHUB_OUTPUT"), lines.join("\n") + "\n", { append: true });
                   '
+
+            - name: Generate one workspace encryption key for all release targets
+              id: build-key
+              run: echo "value=$(openssl rand -base64 32)" >> "$GITHUB_OUTPUT"
 
             - name: Detect existing release without hiding API failures
               id: existing
@@ -375,6 +380,7 @@ jobs:
             - name: Compile binary
               env:
                   WLD_BUILD_VERSION: ${{ needs.metadata.outputs.build_version }}
+                  ASTRO_KEY: ${{ needs.metadata.outputs.astro_key }}
               run: deno run -A scripts/compile.js --target "${{ matrix.target }}" --output "${{ matrix.binary_name }}"
 
             - name: Smoke test native binary
@@ -382,13 +388,27 @@ jobs:
               run: |
                   ./wld --version | tee version.txt
                   grep -F "runwield ${{ needs.metadata.outputs.build_version }} (" version.txt
+                  ./wld --remote-preflight > preflight.json
+                  deno eval '
+                    const embedded = JSON.parse(await Deno.readTextFile("preflight.json"));
+                    const artifact = JSON.parse(await Deno.readTextFile("wld.build.json"));
+                    if (embedded.buildId !== artifact.buildId || embedded.protocol !== artifact.protocol ||
+                        embedded.version !== artifact.version) {
+                      throw new Error("Linux runtime embedded build/protocol/VERSION differs from release metadata");
+                    }
+                  '
 
             - name: Package artifact
               run: |
                   VERSION="${{ needs.metadata.outputs.build_version }}"
                   ASSET_BASE="wld-${VERSION}-${{ matrix.asset_suffix }}"
-                  tar -czf "${ASSET_BASE}.tar.gz" "${{ matrix.binary_name }}"
-                  tar -cf - "${{ matrix.binary_name }}" | zstd -10 -T0 -o "${ASSET_BASE}.tar.zst"
+                  if [[ "${{ matrix.binary_name }}" == "wld" ]]; then
+                    tar -czf "${ASSET_BASE}.tar.gz" wld wld.build.json
+                    tar -cf - wld wld.build.json | zstd -10 -T0 -o "${ASSET_BASE}.tar.zst"
+                  else
+                    tar -czf "${ASSET_BASE}.tar.gz" wld.exe wld.exe.build.json
+                    tar -cf - wld.exe wld.exe.build.json | zstd -10 -T0 -o "${ASSET_BASE}.tar.zst"
+                  fi
                   sha256sum "${ASSET_BASE}.tar.gz" > "${ASSET_BASE}.tar.gz.sha256"
                   sha256sum "${ASSET_BASE}.tar.zst" > "${ASSET_BASE}.tar.zst.sha256"
                   if [[ "${{ matrix.asset_suffix }}" == "windows-x64" ]]; then

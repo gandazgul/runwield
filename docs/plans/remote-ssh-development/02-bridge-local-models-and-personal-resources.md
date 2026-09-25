@@ -29,7 +29,7 @@ dependencies:
     - "01-establish-the-remote-connection-and-matched-runtime"
 targetBranch: "epic/remote-ssh-development"
 userVerifiedAt: null
-status: "in_progress"
+status: "implemented"
 ---
 
 # Bridge Local Models and Personal Resources

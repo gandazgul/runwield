@@ -4,6 +4,7 @@
  * single-writer coordination for every local RunWield runtime.
  */
 
+import { requireLocalSessionWriter } from "../remote/personal-resources.ts";
 import { resolve } from "@std/path";
 import { createHash } from "node:crypto";
 import { createFileSessionControl } from "./file-session-control.ts";
@@ -51,6 +52,7 @@ export { FILE_SESSION_STORE_VERSION } from "./file-session-storage.ts";
  * Workspace registration side effects.
  */
 export function openFileSessionStore(options: OpenFileSessionStoreOptions = {}): FileSessionStore {
+    requireLocalSessionWriter();
     const baseDir = options.baseDir || getRunWieldSessionsBaseDir();
     ensurePrivateDir(baseDir);
     const locks = new Map<string, HeldFileLock>();

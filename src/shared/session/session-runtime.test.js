@@ -42,6 +42,7 @@ import { defineCommittedGitFixture, git } from "../git-test-fixture.ts";
 const RUNTIME_TEST_PROVIDER = "session-runtime-test";
 const RUNTIME_TEST_MODEL = "fixture-model";
 const RUNTIME_TEST_API = "session-runtime-faux";
+// A real PNG is required: invalid image bytes are omitted during prompt preparation.
 const RUNTIME_TEST_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
 const RUNTIME_REPAIR_GIT_FIXTURE = defineCommittedGitFixture({ "README.md": "# Runtime repair fixture\n" });
 

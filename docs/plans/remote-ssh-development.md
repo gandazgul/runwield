@@ -41,8 +41,12 @@ wld remote sct
 The first command opens an existing remote directory. The second opens the remote user's home. Both respect the user's
 SSH configuration and host verification. No laptop checkout or source synchronization is required.
 
-**Status:** Proposed architecture for review, not delivered remote support. Three bounded prototypes established model
-transport, mounted file access, and guarded writer lifetime. They did not establish a complete remote RunWield Session.
+**Status:** A connection-only development subset resolves the remote location, mounts the laptop's full `~/.wld` through
+stock SFTP/SSHFS on the approved Linux `sct` pilot, and opens a dormant TUI. Direct bidirectional personal Skill file
+access is verified; the project `.wld` stays remote. An optional bounded native Pi proof on built macOS and Linux `sct`
+used a synthetic HTTP provider: two requests, a remote-only sentinel in the second, upstream closure on cancellation,
+and two reconnects. Earlier prototypes also examined model transport, mounted access, and guarded writer lifetime. None
+establishes ordinary remote turns, saved Sessions, workflows, or a release platform matrix.
 
 ### Agreed scope
 
@@ -50,9 +54,11 @@ transport, mounted file access, and guarded writer lifetime. They did not establ
 - Remote Linux x86-64 (Intel/AMD) and ARM64. Remote macOS and Windows are excluded.
 - Pi-backed providers first. Claude CLI and Antigravity CLI are deferred; no silent provider/model substitution.
 - Local personal settings, Agents, prompts, skills, model authentication, memories, and authoritative Session history.
-- Complete personal skill-tree copies as remote working resources. RunWield core must work; user skills and third-party
-  dependencies are best effort. Missing custom CLIs are the user's responsibility, not a compatibility-approval gate.
-- Guarded SSHFS Session mounts backed by standard laptop OpenSSH SFTP. Native writer locks remain on the laptop.
+- Direct SSHFS access to the laptop’s full `~/.wld` at a fresh private remote path. No personal resource copy, sync, or
+  special resource-save operation. Other enabled personal roots can be mounted separately. RunWield core must work;
+  machine-specific custom Skill dependencies are best effort.
+- The remote project, including its `.wld`, remains on the server. Guarded operation-scoped SSHFS Session writer access
+  is separate from the connection-wide personal mount; native writer locks remain on the laptop.
 - Trusted remote hosts may access files allowed by the laptop account. Use a clear notice and Agent instructions, not a
   filesystem sandbox. Do not add a custom SFTP server for confinement.
 - Local browser Plan Review and Code Review. Connected-only execution and saved continuation after reconnect.
@@ -93,21 +99,23 @@ graph TD
     R -->|Tools and workflows| P[Remote project]
     R -->|Model and personal requests| L
     L -->|Authenticated requests| M[Model provider]
-    R -->|Session file operations| F[Remote SSHFS mount]
+    R -->|Personal files| G[Fresh private SSHFS mount of laptop .wld]
+    G -->|Stock SFTP| L
+    R -->|Managed Session file operations| F[Separate guarded SSHFS mount]
     F -->|Private SSH channel| S[Local SFTP process]
     S -->|Native lock retained| D[Local Session bundle]
     L -->|Commit and recovery| D
 ```
 
-| Module responsibility     | Owner and contract                                                                                                                                                                 |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Connection launcher       | Laptop. Resolve SSH configuration, prepare matching remote runtime, establish channels, open local browser URLs, and coordinate shutdown.                                          |
-| Project runtime           | Remote Core. Own project files, settings, instructions, Git, worktrees, Plans, Work Records, Project Runtime State, validation, repair, and publication.                           |
-| Personal service          | Laptop, connection-scoped. Own settings/resource access, model runtime, Memory operations, and local Session control. Remote callers request named operations, not a laptop shell. |
-| Mounted transcript access | Remote Pi uses its file interface; standard laptop SFTP performs file operations. The serving process retains the existing native lock. The mount is transport, not authority.     |
-| Session store             | Laptop Core. Own stable identity, manifests, generations, recovery, attachments, catalog coordination, and lock admission. Remote state and UI are projections.                    |
-| Review                    | Remote server owns artifacts and pending decisions. Laptop launcher supplies a loopback forward and browser opening.                                                               |
-| Connection supervision    | Independent of a potentially blocked Agent. Stop owned work and revoke old connections on loss; never grant writer ownership from a timeout.                                       |
+| Module responsibility     | Owner and contract                                                                                                                                                                                                               |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Connection launcher       | Laptop. Resolve SSH configuration, prepare matching remote runtime, establish channels, open local browser URLs, and coordinate shutdown.                                                                                        |
+| Project runtime           | Remote Core. Own project files, settings, instructions, Git, worktrees, Plans, Work Records, Project Runtime State, validation, repair, and publication.                                                                         |
+| Personal service          | Laptop, connection-scoped. Own structured settings changes, model runtime, Memory operations, and local Session control. Personal files are accessed directly through SSHFS, not copied or saved through a special resource API. |
+| Mounted transcript access | Remote Pi uses its file interface; standard laptop SFTP performs file operations. The serving process retains the existing native lock. The mount is transport, not authority.                                                   |
+| Session store             | Laptop Core. Own stable identity, manifests, generations, recovery, attachments, catalog coordination, and lock admission. Remote state and UI are projections.                                                                  |
+| Review                    | Remote server owns artifacts and pending decisions. Laptop launcher supplies a loopback forward and browser opening.                                                                                                             |
+| Connection supervision    | Independent of a potentially blocked Agent. Stop owned work and revoke old connections on loss; never grant writer ownership from a timeout.                                                                                     |
 
 Module names describe responsibilities, not required new classes or folder layout. Shared Core behavior must not acquire
 remote-mode branches throughout every tool. Establish location-aware setup at Session creation and genuine external
@@ -131,8 +139,8 @@ prerequisites; no automatic root escalation. Report them clearly when unavailabl
 GNU/Linux runtime matrix for the shipped binaries, not every libc, kernel, or 32-bit ARM environment.
 
 Released builds use matching Linux x64/ARM64 assets. A development build requires a matching remote build artifact; no
-silent downgrade to a different release. Cache runtime binaries independently from connection-owned personal resource
-copies. Failed setup must not leave an active Agent, writable mount, or overwritten profile.
+silent downgrade to a different release. Cache runtime binaries independently from the fresh connection-owned personal
+mount. Failed setup must not leave an active Agent, writable mount, or overwritten profile.
 
 ### Local services and model requests
 
@@ -142,10 +150,11 @@ Private pipe channels remain preferable for SFTP. Bind any listener to loopback,
 log bearer credentials. A different local user reaching remote loopback must not gain model or personal-service access.
 The accepted broad SFTP trust does not make these service endpoints unauthenticated.
 
-The personal service exposes named capabilities: safe model catalog/auth status, model streaming/cancel, personal
-settings/resource reads and writes, Memory operations, Session open/acquire/commit/release, and browser-forward
-requests. Mutation acknowledgements mean the local owner completed the write. Retried control mutations need request
-identity and saved-result reconciliation; retrying transport must not repeat workflow decisions or external effects.
+The personal service exposes named capabilities: safe model catalog/auth status, model streaming/cancel, structured
+settings changes, Memory operations, Session open/acquire/commit/release, and browser-forward requests. Personal
+resource files are accessed directly through the mount, not through a special copy or save API. Mutation
+acknowledgements mean the local owner completed the write. Retried control mutations need request identity and
+saved-result reconciliation; retrying transport must not repeat workflow decisions or external effects.
 
 `createRunWieldModelRuntime` remains on the laptop. Provider endpoint URLs, headers, auth refresh, and provider
 callbacks execute there. A laptop `localhost` model endpoint still means the laptop. Return model metadata without
@@ -167,10 +176,11 @@ connected-only supervision.
 
 ### Mounted storage and native locks
 
-The remote mount presents the intended laptop Session storage, not the whole profile by default. It is **not** a
-sandbox: standard SFTP can access other files allowed by the laptop account. The owner accepts this. Show the trust
-notice and instruct the Agent to use this access for Session data and keep project work remote. Do not claim credentials
-are inaccessible; setup and normal operations must still avoid copying them, keys, or the complete environment.
+The connection-wide mount presents the laptop’s full `~/.wld` at a fresh private remote path. It is **not** a sandbox:
+standard SFTP can access other files allowed by the laptop account. The owner accepts this. Show the broad trust notice;
+mounted `.wld` can include credential files. Setup does not copy credentials or keys. Project work and project `.wld`
+remain remote. Managed Session writes use separate guarded operation-scoped access, never the connection-wide personal
+mount.
 
 Keep Pi entries and synchronous file operations. Use synchronous SSHFS writes with the tested conservative cache policy;
 verify actual file-sync and atomic-rename support. Do not claim that a cached write or successful remote directory fsync
@@ -225,16 +235,17 @@ the laptop. No cross-machine transaction or automatic replay can make that uncer
 ### Personal resources, integrations, and Memory
 
 Merge bundled defaults, local personal settings/resources, and remote project overrides with current Core precedence. Do
-not substitute the remote user's personal profile. Recognized personal mutations save through the laptop owner; project
-mutations save in the remote primary checkout. Successful saves are visible before disconnect.
+not substitute the remote user's personal profile. Structured personal settings mutations save through the laptop owner;
+direct personal resource file edits use the mount; project mutations save in the remote primary checkout. Successful
+saves are visible before disconnect.
 
-Copy full personal skill trees, including scripts and sibling files, into a separate connection-owned resource area.
-Keep local originals authoritative. Preserve resource-relative paths and project overrides in both RunWield and Pi skill
-loading. No per-skill approval or portability classifier is required. Custom absolute paths, native binaries, missing
-CLIs, and dependency setup remain the user's responsibility. Fail visibly without falling back to laptop project
-execution or blocking unrelated core work. Refresh copies from local authority on reconnect; do not merge arbitrary
-shell edits to a copied skill back over the local original. Remove connection-owned copies on normal cleanup and repair
-stale copies on later startup; do not promise forensic erasure from a trusted host.
+Mount full laptop personal Skill trees directly, including scripts and sibling files. Preserve resource-relative paths
+and project overrides in both RunWield and Pi skill loading. Other enabled personal roots outside `~/.wld` can use
+explicit mounts. No resource copies, reconnect refresh, copy-back merge, or special resource-save path is required: file
+edits through the mount change laptop files. Custom absolute paths, native binaries, missing CLIs, and dependency setup
+remain the user's responsibility. Fail visibly without falling back to laptop project execution or blocking unrelated
+core work. Cleanup removes connection-owned mounts, not personal files; do not promise forensic erasure from a trusted
+host.
 
 Core file/shell/Git/Cymbal/build/test tools operate remotely. Personal Mnemoteca operations operate locally.
 Network-only personal integrations can run locally when they need laptop configuration; they must not turn into laptop
@@ -310,8 +321,8 @@ deliberate user abandonment.
   selected. The mount preserves the file API; it still needs local ownership and settlement.
 - **Custom confined SFTP:** The fixed-file proof was useful, but not a server to ship. The owner chose standard SFTP and
   trusted-host access, avoiding a new protocol implementation or confinement dependency.
-- **Plain SSH/profile copying:** Fails local personal authority and sign-in requirements. Full skill copies are a
-  specific resource exception, not a copied profile.
+- **Plain SSH/profile copying:** Fails local personal authority and sign-in requirements. The full personal mount is
+  direct access, not a copied profile.
 - **Local Agent with forwarded tools:** Conflicts with the agreed remote TUI/Agent placement and shifts adaptation to
   project tools. Not selected.
 - **Remote history plus exit-time sync or timeout takeover:** Violates save and single-writer requirements. Excluded.
@@ -402,7 +413,7 @@ platform scope, trust, persistence ownership, or dependency strategy returns for
 
 - `src/cli.ts`, `src/cmd/registry.js` — remote entry, arguments, launch context, visible host/directory.
 - `src/shared/settings.js`, `src/shared/session/agents.js`, `agent-assets.js`, `named-invocation.ts`, and `session.js` —
-  local personal authority, remote project precedence, copied resource paths, both skill loaders, child context.
+  local personal authority, remote project precedence, mounted resource paths, both skill loaders, child context.
 - `src/shared/models/model-registry.ts`, `src/shared/session/backends/` — local model runtime, remote catalog/stream
   contract, supported-backend checks, refresh and cancellation.
 - `src/shared/session/root-session.js`, `file-session-*.ts`, `session-runtime.js`, `segment-rollover.ts`,
@@ -460,7 +471,7 @@ survive. A killed tunnel is not a partition test.
 | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------- |
 | Correct connection and setup            | Both command forms resolve remotely; missing paths fail; SSH verification remains active; core runtime prepares on clean x64/ARM64 hosts without changing existing profiles/installations.                               | Remote connection and setup                                   |
 | Correct personal authority              | Personal settings and Memory saves are visible locally before exit; project overrides save remotely; no normal setup copies provider keys or imports a remote personal profile.                                          | Local personal environment; Local memories and saved Sessions |
-| Complete skill resources, honest limits | Nested resource files reach remote copies; relative reads work; a missing custom CLI reports failure while core operations still work. No compatibility classifier blocks copying.                                       | Local personal environment                                    |
+| Complete skill resources, honest limits | Nested personal files are read directly through the mount; edits reach laptop files without copy-back. Relative reads work; missing custom CLIs report failure while core works.                                         | Local personal environment                                    |
 | Local model execution                   | Actual remote tool result reaches a second locally authenticated request; stream/result/options match; renewal stays local; cancellation stops upstream; unsupported CLI choice fails without substitution.              | Local personal environment                                    |
 | One Session writer                      | Stock serving process retains native lock after launcher death; competitors cannot write; successor starts only after old writable access ends; stale handles cannot change successor bytes.                             | Local memories and saved Sessions                             |
 | Local saved history                     | Completed saves and generations survive loss; local store computes evidence and syncs directories; protected mountpoint cannot accept fallback writes; no remote personal transcript remains.                            | Local memories and saved Sessions; Disconnect and recovery    |
@@ -468,7 +479,7 @@ survive. A killed tunnel is not a partition test.
 | Complete remote delivery                | File/shell/search/build/test/Git/worktree/validation/repair/publication all act on the remote-only project; laptop sentinel tree stays unchanged; child Agents retain remote context.                                    | Remote workflows and local review                             |
 | Local usable review                     | Browser displays remote Plan/diff/files/images; feedback reaches the same pending interaction; revisions/reopen/Guided Review work; browser close alone preserves the wait.                                              | Remote workflows and local review                             |
 | Connected-only recovery                 | Loss without a final client message stops new work and owned processes within tested bounds; storage stalls are detected separately; unrelated processes survive; reconnect reconciles uncertain effects without replay. | Disconnect and recovery                                       |
-| Honest trust and compatibility          | Notice states broad account-level SFTP access; no sandbox claim; supported build/provider matrix reflects actual tests rather than synthetic filesystem passes.                                                          | Local personal environment; Remote connection and setup       |
+| Honest trust and compatibility          | Notice states the full laptop `.wld` is mounted and standard SFTP allows broad account-level access; no sandbox claim; build/provider claims reflect tested artifacts.                                                   | Local personal environment; Remote connection and setup       |
 
 **Protected behavior:** Ordinary local TUI, ACP, and Workspace; settings precedence; Agent/model selection; private
 transcripts and dormant resume; operation-scoped native locks; Memory scopes; trusted Team Memory; Plan approval;
@@ -477,14 +488,14 @@ behavior does not change. Existing local Session directories/IDs and Memory coll
 
 **Behavior excluded from the new remote path:** Separate remote personal setup/history, exit-only personal sync,
 accidental laptop project operations, missing-folder fallback, silent model substitution, custom-skill portability
-gates, unguarded mounted writer locks, writes beneath a lost mount, and unattended continuation after detected loss.
-These are target prohibitions; ordinary local capabilities are not being removed.
+gates, copied personal resource trees, unguarded mounted writer locks, writes beneath a lost mount, and unattended
+continuation after detected loss. These are target prohibitions; ordinary local capabilities are not being removed.
 
 **Required document outcomes:** Each eventual implementation change updates its owning Core capability and scenarios
-with delivered behavior, not merely this Epic's intent. Update the transient PRD's platform/provider scope, full-copy
-best-effort skills, trusted broad SFTP notice, local-save and disconnect scenarios as those changes become true. Keep
-current and target behavior distinct. Shared behavior has one PRD owner. The end-to-end remote delivery and reconnect
-journeys need combined evidence across child boundaries.
+with delivered behavior, not merely this Epic's intent. Update the transient PRD's platform/provider scope, direct
+personal mounts, best-effort custom skills, trusted broad SFTP notice, local-save and disconnect scenarios as those
+changes become true. Keep current and target behavior distinct. Shared behavior has one PRD owner. The end-to-end remote
+delivery and reconnect journeys need combined evidence across child boundaries.
 
 After preserving both delivered and unresolved requirements in Core, fix references and retire the transient proposal
 under project policy. The implementation that establishes remote connections updates `docs/domain-language.md` with
@@ -515,13 +526,15 @@ local Session. Do not reinterpret old cwd strings or silently remap collections.
 SSH; continuing a remote Session requires its validated remote target.
 
 Roll out through an owner pilot on real supported hosts, then advertise the verified matrix only after the full journey
-and failure evidence pass. A partial connection/model proof is not a shipped remote feature. Startup checks run before
-personal data transfer and writable activation where possible. Repair interrupted setup and stale owned resources
-automatically. Uninstallation removes only private runtime/cache resources, never project edits or saved local history.
+and failure evidence pass. The connection-only development view is not a shipped full remote feature. Startup checks run
+before personal mount activation and writable Session access where possible. Repair interrupted setup and stale owned
+resources automatically. Uninstallation removes only private runtime/cache resources, never project edits or saved local
+history.
 
 Existing remote Git credentials and project build tools remain genuine external prerequisites. Broad SFTP trust does not
-authorize RunWield to copy laptop Git credentials automatically. Resource copies may contain whatever the user put in a
-skill; there is no secret-detection promise. Redact service credentials and provider auth from normal logs/errors.
+authorize RunWield to copy laptop Git credentials automatically. The full personal mount can expose credentials in
+`~/.wld`; there is no secret-detection or confinement promise. Redact service credentials and provider auth from normal
+logs/errors.
 
 Storage, model, and process failures remain recoverable intermediate conditions. Preserve evidence, stop dependent work,
 and let normal recovery re-establish a safe operation. A busy or uninterruptible serving process is not permission to

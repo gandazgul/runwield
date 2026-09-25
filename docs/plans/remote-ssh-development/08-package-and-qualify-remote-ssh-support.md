@@ -36,9 +36,9 @@ planId: "a65417c5-35b5-4192-9355-c5000440568f"
 ## Context
 
 The preceding children establish behavior, but RunWield cannot claim remote SSH support until released builds contain
-matching Linux x64 and ARM64 runtimes, compatible SSHFS helpers and notices, and full journey and failure evidence on
-the advertised matrix. Prototype success on one host, synthetic filesystem tests, or a killed tunnel are not sufficient
-release evidence.
+matching Linux x64 and ARM64 runtimes, compatible SSHFS helpers and broad-access notices, and full journey and failure
+evidence on the advertised matrix. Prototype success on one host, synthetic filesystem tests, or a killed tunnel are not
+sufficient release evidence.
 
 This slice closes the Remote SSH proposal into the lasting Core PRD, verifies ADR and glossary consistency, and retires
 the transient PRD only after delivered and unresolved requirements have durable owners.
@@ -91,6 +91,9 @@ shifts, migration or compatibility risk grows, or the Verification Plan no longe
   protocol metadata, checksums, and all required license/source notices.
 - Required SSHFS and user-space helpers are pinned, verified, installed atomically in private versioned storage, and
   selected without replacing system packages or attempting root escalation; unavailable FUSE prerequisites fail clearly.
+  The release qualifies the full laptop `~/.wld` mounted at a fresh private remote path, direct personal file edits,
+  remote project `.wld` ownership, and a separate guarded Session writer mount. It does not package copied personal
+  resources or a special resource synchronization service.
 - Development builds require a matching development artifact, and released launchers require the same release/protocol
   identity; neither can silently downgrade or run an arbitrary remote PATH installation.
 - Interrupted setup, stale connection resources, and partial helper installs repair automatically without deleting
@@ -119,9 +122,9 @@ shifts, migration or compatibility risk grows, or the Verification Plan no longe
   Pi provider matrix to perform the complete journey with a same-named laptop sentinel tree.
 - Paired failure matrix: test each listed failure against actual OpenSSH, stock SFTP, SSHFS, native Deno locks, built
   runtime, review UI, and provider. Continuously probe competing writers and confirm unrelated processes survive.
-- Compatibility: test remote home outside Git, missing paths, missing FUSE permission, missing custom skill
-  dependencies, unsupported models, alias changes, same-name projects, worktrees, and reconnect after uncertain
-  publication.
+- Compatibility: test remote home outside Git, missing paths, missing FUSE permission, direct personal file edits, broad
+  SFTP notice, remote project overrides, missing custom Skill dependencies, unsupported models, alias changes, same-name
+  projects, worktrees, and reconnect after uncertain publication.
 - Documentation: verify Core owns every lasting requirement and scenario, all links resolve after transient PRD removal,
   ADR statuses match implementation, and the glossary does not promote unverified support.
 
