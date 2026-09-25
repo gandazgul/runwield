@@ -3,6 +3,7 @@ import { assertEquals, assertStringIncludes } from "@std/assert";
 import { loadPlan, parsePlanFrontMatter, savePlan } from "../../plan-store.js";
 import { defineGitFixture, git } from "../git-test-fixture.ts";
 import { createGitPort } from "../git-port.ts";
+import { resolveProjectRuntimeLayout } from "../project-runtime-layout.ts";
 import { createWorkRecordMnemotecaFixture } from "../work-records/test-fixtures/mnemoteca-port.ts";
 import { HostedSession } from "../session/hosted-session.js";
 import { removeWorktreeGitArtifacts } from "../worktree.js";
@@ -10,6 +11,7 @@ import { createTestWorktreeAttempt, makeRepo } from "../worktree-test-helpers.js
 import { createEngineValidationArgs, shouldContinueParentEpicAfterValidation } from "./validation.ts";
 import { resolvePhaseContext } from "./validation-context.ts";
 import { runPublicationPhase } from "./validation-publication.ts";
+import { continueWorkflowValidation } from "./validation-supervisor.ts";
 import { loadPublicationAttempt, startPublicationAttempt } from "./publication-machine.ts";
 import {
     createValidationProgress,
@@ -90,7 +92,11 @@ async function makePlannedReviewWorktree() {
         planName: "p",
         worktreeRoot,
     });
-    const { uiAPI, hostedSession } = makeValidationUi();
+    const uiAPI = makeUi();
+    const hostedSession = attachRecorder(
+        new HostedSession({ id: "validation-worktree-test", cwd: projectRoot }),
+        uiAPI,
+    );
     hostedSession.setActiveExecutionWorkflow({
         planName: "p",
         triageMeta: { classification: "FEATURE", status: "validated_ci" },
@@ -115,6 +121,100 @@ async function makePlannedReviewWorktree() {
             await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
         },
     };
+}
+
+for (const interruption of ["abandoned catalog lock", "Git commit hook"]) {
+    Deno.test({
+        name: `publication resumes reviewed work after ${interruption} and presents a pause only once`,
+        ignore: Deno.build.os === "windows",
+        async fn() {
+            const fixture = await makePlannedReviewWorktree();
+            let obstruction = "";
+            try {
+                const plan = await loadPlan(fixture.executionCwd, "p");
+                if (!plan) throw new Error("Missing execution Plan");
+                await savePlan(fixture.executionCwd, "p", plan.body, {
+                    ...plan.attrs,
+                    status: "validated_reviewer",
+                    humanReviewMode: "none",
+                    humanReviewDecision: "not_required",
+                }, { expectedRevision: plan.revision });
+                await Deno.writeTextFile(`${fixture.executionCwd}/delivered.txt`, "reviewed implementation\n");
+                const mainBefore = await git(fixture.projectRoot, ["rev-parse", "main"]);
+                if (interruption === "abandoned catalog lock") {
+                    obstruction = resolveProjectRuntimeLayout(fixture.projectRoot).selected.planCatalogLockPath;
+                    const past = new Date(Date.now() - 60_000);
+                    await Deno.writeTextFile(
+                        obstruction,
+                        JSON.stringify({
+                            token: "abandoned-by-live-workspace",
+                            pid: Deno.pid,
+                            hostname: Deno.hostname(),
+                            updatedAtMs: past.getTime(),
+                        }),
+                    );
+                    await Deno.utime(obstruction, past, past);
+                } else {
+                    obstruction = `${fixture.projectRoot}/.git/hooks/pre-commit`;
+                    await Deno.writeTextFile(obstruction, "#!/bin/sh\necho 'commit hook rejected' >&2\nexit 1\n");
+                    await Deno.chmod(obstruction, 0o755);
+                }
+                setCurrentValidationProgress(
+                    fixture.hostedSession,
+                    createValidationProgress({
+                        kind: "workflow",
+                        outcome: "running",
+                        stage: "merge",
+                        cycle: 1,
+                        maxCycles: 3,
+                        checks: { ci: "passed", semanticReview: "passed", humanReview: "skipped", merge: "running" },
+                    }),
+                );
+                const result = await continueWorkflowValidation({
+                    hostedSession: fixture.hostedSession,
+                    planName: "p",
+                    planContent: plan.body,
+                    triageMeta: { classification: "FEATURE", status: "validated_reviewer" },
+                    git: createGitPort(),
+                    localCI: { run: () => Promise.reject(new Error("Completed CI must not run again")) },
+                    workRecordMnemotecaPort: createWorkRecordMnemotecaFixture(),
+                    semanticReviewPort: NO_ISOLATED_AGENT_PORT,
+                });
+                if (interruption === "abandoned catalog lock") {
+                    assertEquals(
+                        result.kind,
+                        "verified",
+                        JSON.stringify({
+                            result,
+                            publication: await loadPublicationAttempt(fixture.projectRoot, fixture.worktree.id),
+                        }),
+                    );
+                    assertEquals(
+                        await git(fixture.projectRoot, ["show", "main:delivered.txt"]),
+                        "reviewed implementation",
+                    );
+                } else {
+                    assertEquals(result.kind, "paused", JSON.stringify(result));
+                    assertStringIncludes(result.reason || "", "Fix the Git hook or commit error");
+                    assertEquals(
+                        fixture.uiAPI.messages.filter((/** @type {string} */ message) => message === result.reason)
+                            .length,
+                        1,
+                    );
+                    assertEquals(getCurrentValidationProgress(fixture.hostedSession)?.outcome, "paused");
+                    assertEquals(await git(fixture.projectRoot, ["rev-parse", "main"]), mainBefore);
+                    assertEquals((await loadPlan(fixture.executionCwd, "p"))?.attrs.status, "validated_reviewer");
+                    assertEquals(
+                        await Deno.readTextFile(`${fixture.executionCwd}/delivered.txt`),
+                        "reviewed implementation\n",
+                    );
+                }
+            } finally {
+                if (obstruction) await Deno.remove(obstruction).catch(() => {});
+                await fixture.cleanup();
+            }
+        },
+    });
 }
 
 for (const sealed of [false, true]) {
