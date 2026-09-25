@@ -96,7 +96,7 @@ export function createFooterOnlyUiApi(parentUiAPI) {
  * Creates a UiAPI object for RunWield TUI.
  *
  * @param {{ requestRender: () => void, setFocus: (component: any) => void }} tui
- * @param {{ addChild: (child: any) => void, removeChild: (child: any) => void, clear: () => void, children: any[] }} messageList
+ * @param {{ addChild: (child: any) => void, removeChild: (child: any) => void, clear: () => void, children: any[], invalidateChild?: (child: any) => void }} messageList
  * @param {import('./blocks.js').SpinnerBlock} spinner
  * @param {{ addChild: (child: any) => void, removeChild: (child: any) => void, children: any[] }} [inputAccessoryContainer]
  * @param {{ addChild: (child: any) => void, removeChild: (child: any) => void, clear?: () => void, children: any[] }} [validationPanelContainer]
@@ -244,6 +244,16 @@ export function createUiApi(
         pruneMessageList();
     };
 
+    /** @param {ToolExecutionBlock | ToolExecutionGroupBlock | ThinkingBlock | AgentMessageBlock | SystemMessageBlock} block */
+    const invalidateMessageBlock = (block) => {
+        const messageChild = messageList.children.includes(block)
+            ? block
+            : block instanceof ToolExecutionBlock
+            ? messageList.children.find((child) => child instanceof ToolExecutionGroupBlock && child.contains(block))
+            : undefined;
+        if (messageChild) messageList.invalidateChild?.(messageChild);
+    };
+
     const suppressFocusedCursorForBusy = () => {
         const tuiFocus = /** @type {{ focusedComponent?: import('@earendil-works/pi-tui').Component | null }} */ (
             /** @type {unknown} */ (tui)
@@ -330,6 +340,7 @@ export function createUiApi(
                 return;
             }
             block.enableElapsedTime();
+            invalidateMessageBlock(block);
             tui.requestRender();
             timer.renderTimer = setTimeout(renderElapsedFrame, 100);
             if (typeof timer.renderTimer.unref === "function") {
@@ -374,10 +385,12 @@ export function createUiApi(
                 /** @param {string} delta */
                 appendDelta: (delta) => {
                     block.appendText(delta);
+                    invalidateMessageBlock(block);
                     tui.requestRender();
                 },
                 end: () => {
                     block.end();
+                    invalidateMessageBlock(block);
                     tui.requestRender();
                 },
             };
@@ -446,6 +459,7 @@ export function createUiApi(
                 /** @param {string} delta */
                 appendText: (delta) => {
                     block.appendText(delta);
+                    invalidateMessageBlock(block);
                     tui.requestRender();
                 },
             };
@@ -534,6 +548,7 @@ export function createUiApi(
                     messageList.removeChild(children[index]);
                 }
                 lastBlock.appendText(text, header, style);
+                invalidateMessageBlock(lastBlock);
                 appendMessageListChild(new Spacer(1));
                 tui.requestRender();
                 return;
@@ -560,12 +575,23 @@ export function createUiApi(
                 };
             }
             const block = new ToolExecutionBlock(toolName, title);
+            const originalSetOutput = block.setOutput.bind(block);
+            block.setOutput = (text) => {
+                originalSetOutput(text);
+                invalidateMessageBlock(block);
+            };
+            const originalAppendOutput = block.appendOutput.bind(block);
+            block.appendOutput = (text) => {
+                originalAppendOutput(text);
+                invalidateMessageBlock(block);
+            };
             const originalEndExecution = block.endExecution.bind(block);
             block.endExecution = (isError, durationMs) => {
                 clearToolElapsedTimer(id);
                 originalEndExecution(isError, durationMs);
                 if (activeToolBlocks.get(id) === block) activeToolBlocks.delete(id);
                 trimCompletedToolGroupChildren();
+                invalidateMessageBlock(block);
                 if (!outputSuppressed) tui.requestRender();
             };
             activeToolBlocks.set(id, block);
@@ -609,7 +635,10 @@ export function createUiApi(
             if (visibleToolBlocks.length === 0) return;
 
             const expand = !visibleToolBlocks.some((block) => block.expanded);
-            for (const block of visibleToolBlocks) block.setExpanded(expand);
+            for (const block of visibleToolBlocks) {
+                block.setExpanded(expand);
+                invalidateMessageBlock(block);
+            }
             tui.requestRender();
         },
 

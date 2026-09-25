@@ -74,20 +74,94 @@ interface RenderedChildLayout {
     height: number;
 }
 
+interface RenderedChildContent {
+    width: number;
+    lines: string[];
+}
+
+interface RenderedContainerContent {
+    width: number;
+    lines: string[];
+    children: RenderedChildLayout[];
+}
+
 type VisibleToolBlock = ToolExecutionGroupBlock | ToolExecutionBlock;
 
 class MeasuredContainer extends Container {
     renderedChildren: RenderedChildLayout[] = [];
+    private readonly renderedLinesByChild = new Map<Component, RenderedChildContent>();
+    private renderedContent: RenderedContainerContent | undefined;
+
+    constructor(
+        private readonly parent?: MeasuredContainer,
+        private readonly cacheAllChildren = true,
+    ) {
+        super();
+    }
+
+    invalidateChild(child: Component): void {
+        this.renderedLinesByChild.delete(child);
+        this.renderedContent = undefined;
+        this.parent?.invalidateChild(this);
+    }
+
+    override invalidate(): void {
+        this.renderedLinesByChild.clear();
+        this.renderedContent = undefined;
+        super.invalidate();
+    }
+
+    override addChild(child: Component): void {
+        super.addChild(child);
+        this.renderedContent = undefined;
+        this.parent?.invalidateChild(this);
+    }
+
+    override removeChild(child: Component): void {
+        this.renderedLinesByChild.delete(child);
+        this.renderedContent = undefined;
+        super.removeChild(child);
+        this.parent?.invalidateChild(this);
+    }
+
+    override clear(): void {
+        this.renderedLinesByChild.clear();
+        this.renderedContent = undefined;
+        super.clear();
+        this.parent?.invalidateChild(this);
+    }
 
     override render(width: number): string[] {
+        const cachedContent = this.cacheAllChildren && this.renderedContent?.width === width
+            ? this.renderedContent
+            : undefined;
+        if (cachedContent) {
+            this.renderedChildren = cachedContent.children;
+            Reflect.set(this, "mouseLayout", { width, children: this.renderedChildren });
+            return cachedContent.lines;
+        }
         const lines: string[] = [];
         this.renderedChildren = [];
         for (const child of this.children) {
-            const childLines = child.render(width);
+            const cacheChild = this.cacheAllChildren || child instanceof MeasuredContainer;
+            let childLines: string[] | undefined;
+            if (cacheChild) {
+                const cachedChild = this.renderedLinesByChild.get(child);
+                childLines = cachedChild?.width === width ? cachedChild.lines : undefined;
+                if (!childLines) {
+                    childLines = child.render(width);
+                    this.renderedLinesByChild.set(child, { width, lines: childLines });
+                }
+            } else {
+                childLines = child.render(width);
+            }
             this.renderedChildren.push({ component: child, height: childLines.length });
             lines.push(...childLines);
         }
         Reflect.set(this, "mouseLayout", { width, children: this.renderedChildren });
+        if (this.cacheAllChildren) {
+            this.renderedContent = { width, lines, children: this.renderedChildren };
+        }
         return lines;
     }
 }
@@ -180,7 +254,7 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
     initRunWieldTheme();
     await applyPersistedTheme();
     const tui = options.tui;
-    const container = new MeasuredContainer();
+    const container = new MeasuredContainer(undefined, false);
     if (!options.suppressStartupHeader) {
         const titleLine = `${theme.fg("accent", theme.bold("RunWield ─ Plan-by-Default Harness"))} ${
             theme.fg("dim", `${VERSION}`)
@@ -216,7 +290,7 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
         container.addChild(new Spacer(1));
         container.addChild(new Spacer(1));
     }
-    const messageList = new MeasuredContainer();
+    const messageList = new MeasuredContainer(container);
     container.addChild(messageList);
     container.addChild(new Spacer(1));
     const validationPanelContainer = new Container();
