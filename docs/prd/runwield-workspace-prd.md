@@ -677,6 +677,15 @@ expose TUI-only process controls.
   amber and red.
 - When the owner changes Agents through browser controls, the selected Agent, model defaults, and thinking behavior
   match the TUI.
+- Given an existing browser Session with a live Plan review, when the owner enters `/plan-review`, Workspace returns its
+  current link when available or reports that it is starting instead of opening another review. If the review has ended,
+  the command requests a new review of that Session's last reviewed Plan under
+  [Core Plan review](runwield-core-prd.md#plan-review), not a replay of an unanswered decision.
+- Given no saved review, busy work, or a Plan that is unavailable or no longer reviewable, when the owner requests
+  `/plan-review`, Workspace explains why it cannot open the review.
+- Given a live Plan review opened by the TUI or an ACP client, when the owner answers it in Workspace, Workspace uses
+  the original reviewed document and rejects the decision if its content has changed. A Sequence group decision uses the
+  registered document worktree rather than an absent or older primary Plan.
 - Given Pair Execution in Workspace, a checkpoint appears in the normal timeline and the ordinary composer supports
   discussion and a later decision. No separate checkpoint form or final-approval buttons are required.
 - Given a pending Pair checkpoint, refreshing or reopening the Session preserves the report and lets a later user

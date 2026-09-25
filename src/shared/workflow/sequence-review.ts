@@ -264,11 +264,11 @@ interface ApplySequenceReviewOptions {
     cwd: string;
     documents: SequenceReviewDocument[];
     decision: SequenceReviewDecision;
-    hostedSession: HostedSession;
-    toolCallId: string;
+    hostedSession?: HostedSession;
+    toolCallId?: string;
 }
 
-/** Called by plan_written, after either browser transport returns the complete human decision. */
+/** Commit the complete human decision. Tool callers publish a workflow event; direct review continues it inline. */
 export async function applySequenceReviewDecision(
     { cwd, documents, decision, hostedSession, toolCallId }: ApplySequenceReviewOptions,
 ): Promise<SequenceReviewResult> {
@@ -441,6 +441,7 @@ export async function applySequenceReviewDecision(
     }
     // Publication wakes live consumers immediately. Only a committed decision may start a child;
     // acceptance or commit failures above must remain fully compensatable without a Session event.
+    if (!hostedSession || !toolCallId) return result;
     if (outcome?.outcome === "approved_execute" && outcome.planName) {
         hostedSession.setWorkflowPlanName(outcome.planName);
     }

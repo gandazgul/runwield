@@ -163,7 +163,13 @@ export async function executePlan({
                         {
                             type: RuntimeInteractionTypes.PLAN_REVIEW,
                             prompt: `Review plan "${planName}"`,
-                            _meta: { cwd: projectRoot, planName, planPath, triageMeta: _triageMeta || {} },
+                            _meta: {
+                                cwd: projectRoot,
+                                planName,
+                                planPath,
+                                triageMeta: _triageMeta || {},
+                                planningAgentName: isEpicPlan(_triageMeta) ? AGENTS.ARCHITECT : AGENTS.PLANNER,
+                            },
                         },
                         undefined,
                         hostedSession.getManagedOperationCapability?.() || null,

@@ -1,4 +1,5 @@
 import { validateSequenceReviewDecision } from "../../../shared/workflow/sequence-review.ts";
+import { resolveWorkflowPlanLocation } from "../../../shared/workflow/plan-location.ts";
 /* @module ui/workspace/server/session-continuation */
 
 import { mergePlanAssociations } from "../../../shared/session/plan-association.ts";
@@ -22,6 +23,8 @@ import {
 } from "../../../shared/session/user-selection.ts";
 import { normalizeBrowserNotificationPolicy } from "../../../shared/session/notification-content.ts";
 import { applySharedPlanReviewDecision } from "../../../shared/workflow/plan-review-actions.ts";
+import { loadPlanActionEvidence } from "../../../shared/workflow/plan-actions.ts";
+import { loadReviewFeedbackImages } from "../../../shared/workflow/review-feedback-images.ts";
 import { getWorktreeReviewDiff, WorktreeReviewComparisonError } from "../../../shared/workflow/git-snapshot.js";
 import {
     createSessionRuntime,
@@ -98,16 +101,18 @@ function browserTimelineProjection(projection) {
 /** @param {import('../../../shared/session/session-runtime-interactions.js').RuntimeInteractionRequest} request */
 function safePlanReviewReference(request) {
     const meta = request._meta && typeof request._meta === "object" ? request._meta : {};
+    const triageMeta = meta.triageMeta && typeof meta.triageMeta === "object"
+        ? /** @type {Record<string, unknown>} */ (meta.triageMeta)
+        : {};
     const planId = typeof meta.planId === "string" && meta.planId.trim()
         ? meta.planId.trim()
+        : typeof triageMeta.planId === "string" && triageMeta.planId.trim()
+        ? triageMeta.planId.trim()
         : typeof meta.planName === "string" && meta.planName.trim()
         ? meta.planName.trim()
         : "";
     if (!planId) return null;
     const planName = typeof meta.planName === "string" && meta.planName.trim() ? meta.planName.trim() : planId;
-    const triageMeta = meta.triageMeta && typeof meta.triageMeta === "object"
-        ? /** @type {Record<string, unknown>} */ (meta.triageMeta)
-        : {};
     const classification = typeof meta.classification === "string" && meta.classification.trim()
         ? meta.classification.trim()
         : typeof triageMeta.classification === "string"
@@ -120,6 +125,7 @@ function safePlanReviewReference(request) {
         agentLabel: typeof meta.agentLabel === "string" && meta.agentLabel.trim() ? meta.agentLabel.trim() : "Planner",
         classification,
         expectedRevision: typeof meta.expectedRevision === "string" ? meta.expectedRevision : null,
+        reviewedSource: meta.reviewedSource && typeof meta.reviewedSource === "object" ? meta.reviewedSource : null,
         expectedStatus: typeof meta.expectedStatus === "string" ? meta.expectedStatus : null,
         expectedWorktree: meta.expectedWorktree && typeof meta.expectedWorktree === "object"
             ? meta.expectedWorktree
@@ -951,7 +957,7 @@ export class WorkspaceSessionContinuationService {
                 encodeURIComponent(current.runwieldSessionId || "")
             }/artifacts/${encodeURIComponent(artifactReview.artifactId)}`
             : null;
-        if (codeReview && reviewUrl) {
+        if ((planReview || codeReview) && reviewUrl) {
             const meta = request._meta && typeof request._meta === "object" ? request._meta : {};
             if (typeof meta.onSurfaceReady === "function") meta.onSurfaceReady({ url: reviewUrl, opened: false });
         }
@@ -993,7 +999,35 @@ export class WorkspaceSessionContinuationService {
         return {
             supportsInteraction: () => true,
             /** @param {import('../../../shared/session/session-runtime-interactions.js').RuntimeInteractionRequest} request @param {AbortSignal} [signal] */
-            requestInteraction: (request, signal) => {
+            requestInteraction: async (request, signal) => {
+                const reviewPlanId = request.type === "plan_review" ? safePlanReviewReference(request)?.planId : null;
+                if (reviewPlanId) {
+                    const operation = this.operations.get(options.operationId);
+                    if (!operation) throw new Error("Workspace operation is not running.");
+                    const root = requireOwnerProjectRoot(this.store, operation.projectId);
+                    const evidence = await loadPlanActionEvidence(root, reviewPlanId);
+                    if (evidence.kind !== "success") throw new Error(evidence.message);
+                    // Freeze the document presented for this interaction. The decision must
+                    // not substitute the latest Plan as the source that the user reviewed.
+                    const plan = Array.isArray(request._meta?.sequenceDocuments)
+                        ? null
+                        : await findPlanEvidenceById(root, reviewPlanId);
+                    request._meta = {
+                        ...request._meta,
+                        expectedRevision: evidence.evidence.revision,
+                        expectedStatus: evidence.evidence.status,
+                        expectedWorktree: evidence.evidence.worktree,
+                        ...(plan && !request._meta?.reviewedSource && {
+                            reviewedSource: {
+                                planName: plan.planName,
+                                path: plan.path,
+                                markdown: plan.markdown,
+                                revision: plan.revision,
+                                attrs: plan.attrs,
+                            },
+                        }),
+                    };
+                }
                 const interactionId = String(request.id || crypto.randomUUID());
                 return new Promise((resolve, reject) => {
                     const current = this.operations.get(options.operationId);
@@ -1223,6 +1257,170 @@ export class WorkspaceSessionContinuationService {
             }
             releasePending();
         }
+    }
+
+    /**
+     * Open the saved Plan review without sending a user turn. A running review keeps its
+     * existing operation and interaction; a dormant Session gets a new operation.
+     * @param {{ deviceId?: string | null, projectId: string, runwieldSessionId: string, requestId: string, expectedGeneration: number }} options
+     */
+    async startPlanReview(options) {
+        const session = this.store.getSessionById(options.runwieldSessionId);
+        if (!session || !sessionBelongsToOwnerProject(this.store, session, options.projectId)) {
+            throw new Error("Session not found.");
+        }
+        const requestHash = stableHash({
+            kind: "reopen_plan_review",
+            session: options.runwieldSessionId,
+            expectedGeneration: options.expectedGeneration,
+        });
+        const existing = this.store.findOperationReceiptByRequest({
+            deviceId: options.deviceId || null,
+            requestId: options.requestId,
+            requestHash,
+            runwieldSessionId: options.runwieldSessionId,
+        });
+        if (existing && existing.projectId === options.projectId) {
+            return {
+                kind: "starting",
+                operationId: existing.operationId,
+                status: this.operations.get(existing.operationId)?.status || existing.status,
+                ...(existing.resultBody || {}),
+            };
+        }
+        const live = await this.liveSession(options.projectId, options.runwieldSessionId);
+        const running = live.operation;
+        if (running?.status === "running") {
+            const review = running.liveInteraction?.request;
+            if (review?.type === "plan_review") {
+                return {
+                    kind: review.reviewUrl ? "live" : "starting",
+                    operationId: running.operationId,
+                    url: review.reviewUrl || undefined,
+                };
+            }
+            // The runtime can see a review before the Workspace operation receives it.
+            const local = this.operations.get(running.operationId);
+            if (local?.runtimeSessionId) {
+                const result = await this.runtime.reopenPlanReview(local.runtimeSessionId);
+                if (result.kind === "live" || result.kind === "starting") {
+                    return { ...result, operationId: running.operationId };
+                }
+            }
+            return { kind: "busy", message: "This Session is busy with other work." };
+        }
+        if (!this.store.getLastPlanReview(options.runwieldSessionId, options.projectId)) {
+            return { kind: "no_reference", message: "This Session has no previous Plan review." };
+        }
+        let inspected = this.store.inspectSessionActivation(options.runwieldSessionId);
+        if (!inspected.generation || inspected.generation.generation !== options.expectedGeneration) {
+            throw new Error("Plan review requires the exact committed generation.");
+        }
+        if (inspected.activation?.state !== "idle") {
+            try {
+                await this.forceRecoverSessionControl({
+                    projectId: options.projectId,
+                    runwieldSessionId: options.runwieldSessionId,
+                    expectedGeneration: options.expectedGeneration,
+                });
+            } catch (error) {
+                if (error instanceof Error && error.message.includes("still open in another RunWield surface")) {
+                    return { kind: "busy", message: "This Session is busy with other work." };
+                }
+                throw error;
+            }
+            inspected = this.store.inspectSessionActivation(options.runwieldSessionId);
+            if (inspected.activation?.state !== "idle") {
+                throw new Error("This Session needs recovery before it can open a Plan review.");
+            }
+        }
+        const receipt = requireReceipt(this.store.createOrGetOperationReceipt({
+            deviceId: options.deviceId || null,
+            requestId: options.requestId,
+            requestHash,
+            runwieldSessionId: options.runwieldSessionId,
+            projectId: options.projectId,
+            expectedGeneration: options.expectedGeneration,
+            kind: "plan_action",
+        }));
+        if (receipt.status !== "accepted" || this.operations.has(receipt.operationId)) {
+            return { kind: "starting", operationId: receipt.operationId, status: receipt.status };
+        }
+        // Recovery can commit the killed owner's transcript as a newer generation.
+        // Keep the caller's generation in the receipt, but adopt the recovered one.
+        if (!inspected.generation) throw new Error("Recovered Session generation is missing.");
+        const recoveredGeneration = inspected.generation.generation;
+        this.store.updateOperationReceipt(receipt.operationId, { status: "running" });
+        this.setOperation(receipt.operationId, {
+            status: "running",
+            projectId: options.projectId,
+            events: [],
+            runwieldSessionId: options.runwieldSessionId,
+            expectedGeneration: recoveredGeneration,
+        });
+        queueMicrotask(async () => {
+            let runtimeSessionId = "";
+            let unsubscribe = () => {};
+            try {
+                const adopted = this.runtime.adoptManagedSession({
+                    session,
+                    generation: recoveredGeneration,
+                });
+                runtimeSessionId = adopted.sessionId;
+                this.setOperation(receipt.operationId, {
+                    ...(this.operations.get(receipt.operationId) || {
+                        projectId: options.projectId,
+                        events: [],
+                        status: "running",
+                    }),
+                    runtimeSessionId,
+                });
+                this.runtime.setInteractionAdapter(
+                    runtimeSessionId,
+                    this.createInteractionAdapter({
+                        operationId: receipt.operationId,
+                    }),
+                );
+                unsubscribe = this.runtime.subscribeSessionEvents(runtimeSessionId, (event) => {
+                    this.appendOperationEvent(receipt.operationId, event);
+                });
+                const result = await this.runtime.reopenPlanReview(runtimeSessionId);
+                const generation = this.runtime.getSessionSnapshot(runtimeSessionId)?.managed?.generation ??
+                    options.expectedGeneration;
+                const status =
+                    ["busy", "unanswered", "missing_plan", "identity_mismatch", "not_reviewable"].includes(result.kind)
+                        ? "failed"
+                        : "completed";
+                this.store.updateOperationReceipt(receipt.operationId, {
+                    status,
+                    resultGeneration: generation,
+                    resultBody: result,
+                    ...(status === "failed" && { errorMessage: result.message }),
+                });
+                this.setOperation(receipt.operationId, {
+                    ...(this.operations.get(receipt.operationId) || { projectId: options.projectId, events: [] }),
+                    status,
+                    generation,
+                    ...(status === "failed" && { error: result.message }),
+                });
+            } catch (error) {
+                const errorCode = codeFromError(error);
+                this.store.updateOperationReceipt(receipt.operationId, {
+                    status: "failed",
+                    errorCode,
+                    errorMessage: error instanceof Error ? error.message : String(error),
+                });
+                this.setOperation(receipt.operationId, {
+                    ...(this.operations.get(receipt.operationId) || { projectId: options.projectId, events: [] }),
+                    status: "failed",
+                    error: error instanceof Error ? error.message : String(error),
+                });
+            } finally {
+                unsubscribe();
+                if (runtimeSessionId) this.runtime.closeSessionWhenIdle(runtimeSessionId);
+            }
+        });
+        return { kind: "starting", operationId: receipt.operationId, status: "running" };
     }
 
     /**
@@ -1514,8 +1712,12 @@ export class WorkspaceSessionContinuationService {
                 : null;
             if (request?.type === "plan_review" && Array.isArray(planReview?.sequenceDocuments)) {
                 const decision = readPlanReviewDecisionMeta(options.response);
-                await validateSequenceReviewDecision(
+                const location = await resolveWorkflowPlanLocation(
                     requireOwnerProjectRoot(this.store, options.projectId),
+                    String(planReview.planName),
+                );
+                await validateSequenceReviewDecision(
+                    location.documentRoot,
                     /** @type {import('../../../shared/workflow/sequence-review.ts').SequenceReviewDocument[]} */ (planReview
                         .sequenceDocuments),
                     /** @type {import('../../../shared/workflow/sequence-review.ts').SequenceReviewDecision} */ (decision),
@@ -1532,21 +1734,28 @@ export class WorkspaceSessionContinuationService {
             } else if (request?.type === "plan_review" && planReview) {
                 const root = requireOwnerProjectRoot(this.store, options.projectId);
                 const planId = String(planReview.planId || "");
-                const plan = await findPlanEvidenceById(root, planId);
+                const source = planReview.reviewedSource && typeof planReview.reviewedSource === "object"
+                    ? /** @type {Record<string, unknown>} */ (planReview.reviewedSource)
+                    : null;
+                if (
+                    !source || typeof source.markdown !== "string" || typeof source.path !== "string" ||
+                    typeof source.planName !== "string" || !source.attrs || typeof source.attrs !== "object"
+                ) {
+                    throw new Error("Live review source is missing. Reload the Plan and review again.");
+                }
+                const attrs = /** @type {import('../../../plan-store.js').PlanFrontMatter} */ (source.attrs);
                 const decision = readPlanReviewDecisionMeta(options.response);
                 const actionResult = await applySharedPlanReviewDecision({
                     cwd: root,
-                    planName: plan.planName,
-                    planPath: plan.path,
-                    planWithFrontMatter: plan.markdown,
-                    planRevision: String(planReview.expectedRevision || plan.revision),
-                    originalAttrs: plan.attrs,
+                    planName: source.planName,
+                    planPath: source.path,
+                    planWithFrontMatter: source.markdown,
+                    planRevision: String(source.revision || planReview.expectedRevision || ""),
+                    originalAttrs: attrs,
                     trustedClassification:
                         /** @type {import('../../../plan-store.js').PlanFrontMatter['classification']} */ (planReview
                             .classification),
-                    trustedWorkKind:
-                        /** @type {import('../../../plan-store.js').PlanFrontMatter['workKind']} */ (plan.attrs
-                            .workKind),
+                    trustedWorkKind: attrs.workKind,
                     expectedSessionId: operation.runwieldSessionId,
                     reviewEvidence: {
                         planId,
@@ -1582,7 +1791,14 @@ export class WorkspaceSessionContinuationService {
                     });
                     throw new Error(message);
                 }
-                runtimeResponse = { outcome: "accepted", _meta: { ...actionResult } };
+                const images = await loadReviewFeedbackImages(
+                    /** @type {import('../../../shared/workflow/review-feedback-images.ts').ReviewImageDecision} */ (decision),
+                    root,
+                );
+                runtimeResponse = {
+                    outcome: "accepted",
+                    _meta: { ...actionResult, ...(images.length > 0 && { images }) },
+                };
             }
             await operation.answer.resolve(runtimeResponse);
             this.codeReviewRefreshContexts.delete(`${options.operationId}:${options.interactionId}`);

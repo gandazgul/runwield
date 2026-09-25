@@ -141,6 +141,7 @@ Deno.test("isImmediateBuiltinSlashCommandWhileStreaming recognizes safe one-shot
     assertEquals(isImmediateBuiltinSlashCommandWhileStreaming("/name Project Session"), true);
     assertEquals(isImmediateBuiltinSlashCommandWhileStreaming("/context"), true);
     assertEquals(isImmediateBuiltinSlashCommandWhileStreaming("/help"), true);
+    assertEquals(isImmediateBuiltinSlashCommandWhileStreaming("/plan-review"), true);
     assertEquals(isImmediateBuiltinSlashCommandWhileStreaming("/quit"), true);
     assertEquals(isImmediateBuiltinSlashCommandWhileStreaming("/model"), false);
     assertEquals(isImmediateBuiltinSlashCommandWhileStreaming("/agent router"), false);

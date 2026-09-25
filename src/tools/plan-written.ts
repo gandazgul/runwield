@@ -500,6 +500,7 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
                 );
             }
 
+            let reviewContainerPlanId = "";
             let planAssociationFailure = "";
             const appendPlanAssociationFailure = (text: string) =>
                 planAssociationFailure ? `${text}\n\n${planAssociationFailure}` : text;
@@ -512,6 +513,7 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
                 effectiveMeta = { ...effectiveMeta, ...identifiedAttrs };
                 const planId = typeof effectiveMeta.planId === "string" ? effectiveMeta.planId : "";
                 if (!planId) throw new Error("Plan identity is missing after identity repair");
+                reviewContainerPlanId = planId;
                 hostedSession.recordPlanAssociation({ planId, planName, purpose: "planning" });
             } catch (error) {
                 planAssociationFailure = `Plan Association was not recorded: ${
@@ -625,6 +627,9 @@ export function createPlanWrittenTool({ triageMeta, agentName = "planner", hoste
                                 cwd: reviewCwd,
                                 planId: canonicalReviewEvidence?.planId || effectiveMeta.planId,
                                 planName: canonicalReviewEvidence?.planName || planName,
+                                reviewContainerPlanId,
+                                reviewContainerPlanName: planName,
+                                planningAgentName: agentName,
                                 planPath,
                                 sequenceDocuments,
                                 classification: effectiveMeta.classification,

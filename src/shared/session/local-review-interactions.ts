@@ -30,7 +30,10 @@ export async function requestLocalReviewInteraction(request, signal, options = {
             agentLabel: typeof meta.agentLabel === "string" ? meta.agentLabel : undefined,
             triageMeta: meta.triageMeta,
             onOutput: typeof meta.onOutput === "function" ? meta.onOutput : undefined,
-            onSurfaceReady: typeof meta.onSurfaceReady === "function" ? meta.onSurfaceReady : options.onSurfaceReady,
+            onSurfaceReady: (surface) => {
+                meta.onSurfaceReady?.(surface);
+                options.onSurfaceReady?.(surface.url);
+            },
             signal,
             browser: SYSTEM_BROWSER_PORT,
         });

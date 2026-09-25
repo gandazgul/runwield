@@ -325,6 +325,25 @@ export async function ownerSessionContinuationStartApi(ctx) {
 }
 
 /** @param {any} ctx */
+export async function ownerSessionPlanReviewApi(ctx) {
+    try {
+        const body = await readJson(ctx.req);
+        requireOwnerProjectRoot(ctx.state.store, ctx.params.projectId);
+        const result = await ctx.state.sessionContinuation.startPlanReview({
+            deviceId: ctx.state.ownerDevice?.deviceId || null,
+            projectId: ctx.params.projectId,
+            runwieldSessionId: ctx.params.runwieldSessionId,
+            requestId: requireBoundedString(body.requestId, "requestId", 128),
+            expectedGeneration: requireExpectedGeneration(body.expectedGeneration),
+        });
+        return ownerJson(result, result.kind === "starting" ? 202 : 200);
+    } catch (error) {
+        const message = sanitizeOwnerError(error);
+        return ownerJson({ error: message }, /not enabled|epoch|uncertain|reconcile/.test(message) ? 503 : 409);
+    }
+}
+
+/** @param {any} ctx */
 export async function ownerSessionPlanWorkflowApi(ctx) {
     try {
         const body = await readJson(ctx.req);

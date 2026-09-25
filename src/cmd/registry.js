@@ -19,6 +19,7 @@ import { runCompactCommand } from "./compact/index.js";
 import { runCopyCommand } from "./copy/index.js";
 import { runReloadCommand } from "./reload/index.js";
 import { runVersionCommand } from "./version/index.js";
+import { runPlanReviewCommand } from "./plan-review/index.ts";
 import { runTerminalAuthSetup } from "../ui/tui/terminal-auth-setup.ts";
 import {
     runUpdateCommand,
@@ -33,7 +34,7 @@ import { getAgentDisplayName } from "../shared/session/agents.js";
 import { SYSTEM_WORK_RECORD_MNEMOTECA_PORT } from "../shared/work-records/mnemoteca-port.ts";
 
 /** Known CLI / slash command names. Defined alongside the registry so adding a new command only touches one file. */
-/** @type {Readonly<{ROUTER: string, ONBOARD: string, AGENT: string, MODEL: string, LOGIN: string, LOGOUT: string, STATUS: string, EXPORT: string, SHARE: string, LOAD_PLAN: string, RESUME: string, NEW: string, NAME: string, SESSION: string, PLANS: string, WR: string, SLEEP: string, HELP: string, VERSION: string, UPDATE: string, QUIT: string, EXIT: string, INIT: string, THEME: string, INSTALL: string, REMOVE: string, COMPACT: string, SETTINGS: string, RELOAD: string, SNIP_FILTERS: string, COPY: string, CONTEXT: string, ACP: string, MCP: string, WORKSPACE: string, REMOTE: string}>} */
+/** @type {Readonly<{ROUTER: string, ONBOARD: string, AGENT: string, MODEL: string, LOGIN: string, LOGOUT: string, STATUS: string, EXPORT: string, SHARE: string, LOAD_PLAN: string, PLAN_REVIEW: string, RESUME: string, NEW: string, NAME: string, SESSION: string, PLANS: string, WR: string, SLEEP: string, HELP: string, VERSION: string, UPDATE: string, QUIT: string, EXIT: string, INIT: string, THEME: string, INSTALL: string, REMOVE: string, COMPACT: string, SETTINGS: string, RELOAD: string, SNIP_FILTERS: string, COPY: string, CONTEXT: string, ACP: string, MCP: string, WORKSPACE: string, REMOTE: string}>} */
 export const COMMAND_NAMES = Object.freeze({
     ROUTER: "router",
     ONBOARD: "onboard",
@@ -45,6 +46,7 @@ export const COMMAND_NAMES = Object.freeze({
     EXPORT: "export",
     SHARE: "share",
     LOAD_PLAN: "load-plan",
+    PLAN_REVIEW: "plan-review",
     RESUME: "resume",
     NEW: "new",
     NAME: "name",
@@ -370,6 +372,17 @@ export const commandRegistry = {
         slashSurfaces: ["tui", "acp"],
         getArgumentCompletions: async (argumentPrefix) =>
             await (await import("./load-plan/index.ts")).getLoadPlanCompletions(argumentPrefix),
+    },
+    [COMMAND_NAMES.PLAN_REVIEW]: {
+        name: COMMAND_NAMES.PLAN_REVIEW,
+        displayName: "Plan Review",
+        description: "Return to the current or most recent Plan review",
+        summary: "Show the live Plan review link or reopen the last review in this Session.",
+        usage: ["/plan-review"],
+        notes: ["Only the most recent review in the current Session can be reopened."],
+        execute: runPlanReviewCommand,
+        surfaces: ["slash"],
+        slashSurfaces: ["tui", "acp", "workspace"],
     },
     [COMMAND_NAMES.RESUME]: {
         name: COMMAND_NAMES.RESUME,
