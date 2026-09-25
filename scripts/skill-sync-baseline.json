@@ -21,7 +21,7 @@
         },
         {
             "skill": "skills/review/SKILL.md",
-            "skillHash": "8daf4b957d392f5dcfc005bfde1a2f951d981bc7cd34a74b59aab58b0ded940e",
+            "skillHash": "99b39c8ffb221fad5a9a859b45527967ca726b7fc895a331fcafd54d883e55da",
             "supportFiles": [
                 {
                     "path": "skills/review/github.md",

@@ -89,15 +89,18 @@ Style preferences and formatter concerns are neither. Do not report them.
    returns their paths, byte ranges, and exact calls. Read those chunks and retry; retain findings already collected.
    This proves inspection coverage, not correctness.
 3. Use `read`, `grep`, `find`, and `ls` for context around changed lines when the diff alone is not enough to judge
-   behavior.
+   behavior. Map applicable Plan and repository rules, including path exclusions, to the files they cover.
 4. Work through the Plan's Objective, Implementation Steps, deliverables, constraints, and named edge cases. Every
    material requirement gets examined — approving without having looked is not the same as approving.
 5. Scan changed tests. Treat them as blocking only when the Plan required test changes, or when a touched test is
    broken, misleading, or contradicts the implemented behavior.
 6. Scan production changes for new injection seams. Confirm that every new port represents a genuine external capability
    and that tests still exercise product-owned machinery through observable behavior and real fixtures.
-7. Finding one issue does not finish the round. Collect every independent issue you can see now; do not hold findings
-   back for a later round. Later rounds are narrower and will not rediscover what you miss here.
+7. Validate each candidate against the actual code path. Check callers, guards, error handling, fallbacks, and type
+   guarantees before reporting it. For security findings, identify a plausible path across a trust boundary; for races,
+   identify an observable consequence. Drop unsupported candidates. Report each underlying defect once, even if several
+   files show it. Finding one issue does not finish the round. Collect every independent issue you can see now; do not
+   hold findings back for a later round. Later rounds are narrower and will not rediscover what you miss here.
 8. Call `review_complete` when the complete review is ready. If it returns a correction, address it and call again.
 
 ## Verifying Prior Findings

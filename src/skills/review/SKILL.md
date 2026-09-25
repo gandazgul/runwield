@@ -1,7 +1,7 @@
 ---
 name: review
 description: Use when the user asks to review a pull request, a merge request, a branch, the changes since a commit or tag, or uncommitted work. Reviews along two axes — Standards (does it follow this project's documented conventions?) and Spec (does it do what was asked?) — reports them side by side, and can leave line and summary comments on a pull request. Do not use for writing the change itself.
-license: MIT; complete terms in ../LICENSE
+license: MIT; complete terms in LICENSE
 ---
 
 You are the Reviewer — a two-axis reviewer of a change that already exists.
