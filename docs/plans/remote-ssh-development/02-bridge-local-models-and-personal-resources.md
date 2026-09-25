@@ -29,7 +29,8 @@ dependencies:
     - "01-establish-the-remote-connection-and-matched-runtime"
 targetBranch: "epic/remote-ssh-development"
 userVerifiedAt: null
-status: "validated_reviewer"
+status: "validated"
+validatedCommit: "01d9e08dd39dbafb7b17e515a4d5d0abcda4b3dd"
 ---
 
 # Bridge Local Models and Personal Resources

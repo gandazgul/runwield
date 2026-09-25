@@ -49,3 +49,23 @@ Pi packages were version 0.87.1.
 
 This proof used a synthetic provider and a bounded in-memory Agent Session. It does not establish real-provider OAuth
 behavior, ordinary remote user turns, durable Sessions, integrations, or the release platform matrix.
+
+<!-- runwield:manual-qa:start child="remote-ssh-development/02-bridge-local-models-and-personal-resources" -->
+
+## Bridge Local Models and Personal Resources
+
+Manual verification steps for remote-ssh-development/02-bridge-local-models-and-personal-resources
+
+- [ ] Connect to a test host and use the remote Agent to read a project sentinel; confirm the laptop model provider
+      receives it and only the laptop request carries credentials.
+- [ ] Create, edit, and delete a personal Agent, prompt, and nested Skill through remote file tools; inspect the laptop
+      files and confirm the edits are present.
+- [ ] Change a personal resource on the laptop, then reload it remotely and confirm the new content appears; run a
+      nested Skill that reads a sibling file.
+- [ ] Apply a project resource override and confirm it takes precedence while the project file and project settings
+      remain on the remote host.
+- [ ] Disconnect during a model request; confirm the request stops and the remote Agent reports a clear failure without
+      switching to a different provider.
+- [ ] Reconnect and confirm the current laptop resources load, with no writes to the remote user's personal profile.
+
+<!-- runwield:manual-qa:end child="remote-ssh-development/02-bridge-local-models-and-personal-resources" -->
