@@ -82,7 +82,13 @@ Deno.test("bounded remote Pi session reads its project through a tool and sends 
         "---\ndescription: Report the remote project sentinel\n---\n" +
             "Use the remote-sentinel Skill and report the result from its nested script.\n",
     );
-    await Deno.mkdir(join(project, ".wld"));
+    await Deno.mkdir(join(project, ".wld", "agents"), { recursive: true });
+    await Deno.writeTextFile(join(root, "RUNWIELD.md"), "mounted-laptop-instructions");
+    await Deno.writeTextFile(join(project, "RUNWIELD.md"), "remote-project-instructions");
+    await Deno.writeTextFile(
+        join(project, ".wld", "agents", "engineer.md"),
+        "---\nname: Project Engineer\n---\nremote-project-agent-instructions\n",
+    );
     await Deno.writeTextFile(
         join(project, ".wld", "settings.json"),
         JSON.stringify({
@@ -151,7 +157,7 @@ Deno.test("bounded remote Pi session reads its project through a tool and sends 
             reasoning: false,
             input: ["text"],
             cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-            contextWindow: 1000,
+            contextWindow: 128000,
             maxTokens: 100,
         }],
         auth: {
@@ -205,6 +211,7 @@ Deno.test("bounded remote Pi session reads its project through a tool and sends 
         });
         try {
             assertEquals(session.model?.id, "allowed");
+            assert(session.promptTemplates.some((template) => template.name === "remote-report"));
             assertEquals(registry.getSelectable().map((item) => item.id).sort(), ["allowed", "vision"]);
             assertEquals(registry.find("anthropic", "claude-sonnet-4-5"), undefined);
             assertEquals((await registry.getApiKeyAndHeaders(registry.find("laptop-only", "allowed")!)).ok, false);
@@ -340,6 +347,9 @@ Deno.test("bounded remote Pi session reads its project through a tool and sends 
             );
             await session.prompt(request);
             assertEquals(contexts.length, 2);
+            assertStringIncludes(contexts[0], "mounted-laptop-instructions");
+            assertStringIncludes(contexts[0], "remote-project-instructions");
+            assertStringIncludes(contexts[0], "remote-project-agent-instructions");
             assertStringIncludes(contexts[0], join(skillDir, "SKILL.md"));
             assertStringIncludes(contexts[0], "Run scripts/nested/read-sentinel.sh from this Skill directory");
             assertStringIncludes(contexts[0], "Use the remote-sentinel Skill and report the result");

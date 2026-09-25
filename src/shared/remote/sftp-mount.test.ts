@@ -28,6 +28,17 @@ Deno.test("laptop transport fails before listening when personal files are absen
     });
 });
 
+Deno.test("invalid package inventory rejects SFTP setup before opening a listener", async () => {
+    await syntheticHome(async (home) => {
+        await Deno.mkdir(join(home, ".wld"));
+        await Deno.writeTextFile(join(home, ".wld", "settings.json"), "{invalid");
+        await assertRejects(startLaptopSftp);
+        await Deno.writeTextFile(join(home, ".wld", "settings.json"), "{}");
+        const service = await startLaptopSftp();
+        await service.close();
+    });
+});
+
 Deno.test("laptop package inventory includes installed roots outside .wld but not absent packages", async () => {
     await syntheticHome(async (home) => {
         await Deno.mkdir(join(home, ".wld"));
@@ -157,10 +168,20 @@ Deno.test({
                 assertEquals(await mountLine(mount.globalRoot), undefined, "Live SSHFS mount remains");
                 assertEquals((await Deno.stat(mount.globalRoot)).mode! & 0o777, 0o500);
             } finally {
-                if (stoppedPid !== undefined) {
-                    try {
-                        Deno.kill(stoppedPid, "SIGCONT");
-                    } catch { /* Already exited. */ }
+                // Shutdown must terminate a stopped SFTP server without resuming it.
+                try {
+                    await Promise.race([
+                        service.close(),
+                        new Promise<never>((_, reject) =>
+                            setTimeout(() => reject(new Error("SFTP cleanup stalled")), 8_000)
+                        ),
+                    ]);
+                } finally {
+                    if (stoppedPid !== undefined) {
+                        try {
+                            Deno.kill(stoppedPid, "SIGCONT");
+                        } catch { /* Already exited. */ }
+                    }
                 }
                 if (mount && !closed) await mount.close().catch(() => undefined);
                 if (mount && mountedId && (await mountLine(mount.globalRoot))?.split(" ")[0] === mountedId) {

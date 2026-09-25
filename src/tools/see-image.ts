@@ -7,11 +7,7 @@ import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import type { AgentToolResult, SessionManager } from "@earendil-works/pi-coding-agent";
 import type { Api, AssistantMessage, Context, Model, SimpleStreamOptions } from "@earendil-works/pi-ai/compat";
-import {
-    getModelRegistry,
-    type RunWieldModelRegistry,
-    SYSTEM_MODEL_DISCOVERY_NETWORK,
-} from "../shared/models/model-registry.ts";
+import { getModelRegistry, SYSTEM_MODEL_DISCOVERY_NETWORK } from "../shared/models/model-registry.ts";
 import { remotePersonalResourcesActive } from "../shared/remote/personal-resources.ts";
 import { resolveImageRef, resolveVisionFallbackModel } from "../shared/session/image-attachments.js";
 
@@ -51,8 +47,8 @@ interface SeeImageToolOptions {
     cwd: string;
     sessionManager?: SessionManager;
     completeSimpleFn?: CompleteSimpleFunction;
-    /** Explicit credential-free catalog supplied by the bounded remote session. */
-    modelRegistry?: RunWieldModelRegistry;
+    /** Selected by the bounded remote Session, never by this tool's caller. */
+    remoteModel?: VisionModel;
 }
 
 interface SeeImageDetails {
@@ -68,13 +64,12 @@ export function extractAssistantText(content: AssistantContent): string {
 }
 
 export function createSeeImageTool(opts: SeeImageToolOptions) {
-    if (remotePersonalResourcesActive() && !opts.modelRegistry?.remote) {
-        throw new Error("Remote see_image requires an explicit remote model registry");
+    const remote = remotePersonalResourcesActive();
+    if (remote !== Boolean(opts.remoteModel)) {
+        throw new Error("Remote see_image requires a selected vision model; local callers cannot replace it");
     }
-    if (!remotePersonalResourcesActive() && !opts.completeSimpleFn) {
-        throw new Error("Local see_image requires a model completion function");
-    }
-    const modelRegistry: RunWieldModelRegistry = opts.modelRegistry ?? getModelRegistry();
+    if (!opts.completeSimpleFn) throw new Error("see_image requires a model completion function");
+    const modelRegistry = remote ? undefined : getModelRegistry();
 
     return defineTool<typeof PARAMETERS, SeeImageDetails>({
         name: "see_image",
@@ -88,16 +83,13 @@ export function createSeeImageTool(opts: SeeImageToolOptions) {
                     cwd: opts.cwd,
                     sessionManager: opts.sessionManager,
                 });
-                const fallback = await resolveVisionFallbackModel(
-                    modelRegistry,
-                    SYSTEM_MODEL_DISCOVERY_NETWORK,
-                    opts.cwd,
-                );
+                const fallback = remote
+                    ? { model: opts.remoteModel! }
+                    : await resolveVisionFallbackModel(modelRegistry, SYSTEM_MODEL_DISCOVERY_NETWORK, opts.cwd);
                 if (!fallback) throw new Error("visionFallback.model is not configured.");
                 // Remote sessions have no provider credentials. The projected native runtime
                 // carries this request over the authenticated control connection instead.
-                const remote = modelRegistry.remote;
-                const auth = remote ? undefined : await modelRegistry.getApiKeyAndHeaders(fallback.model);
+                const auth = remote ? undefined : await modelRegistry!.getApiKeyAndHeaders(fallback.model);
                 if (auth && !auth.ok) throw new Error(auth.error || "Unable to resolve auth for visionFallback.model.");
                 if (!remote && (!auth || !auth.apiKey && !auth.headers)) {
                     throw new Error(
@@ -121,18 +113,13 @@ export function createSeeImageTool(opts: SeeImageToolOptions) {
                         timestamp: Date.now(),
                     }],
                 };
-                const response = remote
-                    ? await (await modelRegistry.getRuntime()).streamSimple(fallback.model, context, {
-                        signal,
-                        maxTokens: 2048,
-                    }).result()
-                    : await opts.completeSimpleFn!(fallback.model, context, {
-                        signal,
-                        apiKey: auth?.ok ? auth.apiKey : undefined,
-                        headers: auth?.ok ? auth.headers : undefined,
-                        env: auth?.ok ? auth.env : undefined,
-                        maxTokens: 2048,
-                    });
+                const response = await opts.completeSimpleFn!(fallback.model, context, {
+                    signal,
+                    apiKey: auth?.ok ? auth.apiKey : undefined,
+                    headers: auth?.ok ? auth.headers : undefined,
+                    env: auth?.ok ? auth.env : undefined,
+                    maxTokens: 2048,
+                });
 
                 if (response.stopReason === "error") {
                     throw new Error(response.errorMessage || "visionFallback.model returned an error.");

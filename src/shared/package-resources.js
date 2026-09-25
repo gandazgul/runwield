@@ -4,12 +4,11 @@
  */
 
 import { DefaultPackageManager } from "@earendil-works/pi-coding-agent";
-import { join } from "@std/path";
+import { isAbsolute, join, relative } from "@std/path";
 import { getCwd } from "../constants.js";
 import { getSettingsDir, getSettingsManager } from "./settings.js";
 import {
     assertPersonalResourcePath,
-    personalGlobalRoot,
     personalPackageRoots,
     remotePersonalResourcesActive,
 } from "./remote/personal-resources.ts";
@@ -80,33 +79,7 @@ export async function resolveInstalledPackagePromptResources(options = {}) {
     const originalSources = new Map();
     // Only the laptop-verified package inventory is eligible remotely. In
     // particular, Pi must never probe a remote account's legacy global npm root.
-    const settingsManager = remote
-        ? new Proxy(settings, {
-            get(target, key) {
-                if (key === "getGlobalSettings") {
-                    return () => ({
-                        ...target.getGlobalSettings(),
-                        packages: (/** @type {ConfiguredPackageEntry[]} */ (target.getGlobalSettings().packages ?? []))
-                            .flatMap((entry) => {
-                                const source = typeof entry === "string" ? entry : entry.source;
-                                const path = roots[source];
-                                if (!path) return [];
-                                // Managed npm/git sources must retain their kind so Pi checks
-                                // installed versions. Local paths, including absolute paths
-                                // inside laptop .wld, must point at the private mount instead.
-                                const managed = /^(npm:|git:|github:|https?:\/\/|ssh:\/\/|git@)/.test(source);
-                                const mapped = managed && path.startsWith(personalGlobalRoot() + "/") ? source : path;
-                                if (mapped !== source && !originalSources.has(mapped)) {
-                                    originalSources.set(mapped, source);
-                                }
-                                return [typeof entry === "string" ? mapped : { ...entry, source: mapped }];
-                            }),
-                    });
-                }
-                return Reflect.get(target, key, target);
-            },
-        })
-        : settings;
+    const settingsManager = remote ? mappedRemotePackageSettings(settings, roots, originalSources) : settings;
     const packageManager = new DefaultPackageManager({
         cwd: options.cwd || getCwd(),
         agentDir: options.agentDir || getSettingsDir("global"),
@@ -116,7 +89,11 @@ export async function resolveInstalledPackagePromptResources(options = {}) {
     const resolved = await packageManager.resolve(() => Promise.resolve("skip"));
     const prompts = filterEnabledPackagePrompts(resolved);
     if (remote) {
+        const project = await Deno.realPath(options.cwd || getCwd());
         for (const resource of prompts) {
+            const path = await Deno.realPath(resource.path);
+            const rest = relative(project, path);
+            if (rest !== "" && rest !== ".." && !rest.startsWith("../") && !isAbsolute(rest)) continue;
             await assertPersonalResourcePath(resource.path, `package prompt "${resource.metadata.source}"`, {
                 packageResource: true,
             });
@@ -131,6 +108,35 @@ export async function resolveInstalledPackagePromptResources(options = {}) {
             },
         }))
         : prompts;
+}
+
+/**
+ * Map only laptop-installed global packages. Pi's loader also resolves packages before applying resource flags.
+ * @param {import('@earendil-works/pi-coding-agent').SettingsManager} settings
+ * @param {Readonly<Record<string, string>>} [roots]
+ * @param {Map<string, string>} [originalSources]
+ */
+export function mappedRemotePackageSettings(settings, roots = personalPackageRoots(), originalSources = new Map()) {
+    return new Proxy(settings, {
+        get(target, key) {
+            if (key === "getGlobalSettings") {
+                return () => ({
+                    ...target.getGlobalSettings(),
+                    packages: (/** @type {ConfiguredPackageEntry[]} */ (target.getGlobalSettings().packages ?? []))
+                        .flatMap((entry) => {
+                            const source = typeof entry === "string" ? entry : entry.source;
+                            const path = roots[source];
+                            if (!path) return [];
+                            // Pi must read the installed laptop directory, never install
+                            // a missing package or interpret a laptop path on the server.
+                            if (!originalSources.has(path)) originalSources.set(path, source);
+                            return [typeof entry === "string" ? path : { ...entry, source: path }];
+                        }),
+                });
+            }
+            return Reflect.get(target, key, target);
+        },
+    });
 }
 
 /** @param {ResolvedPaths} resolved @returns {ResolvedResource[]} */

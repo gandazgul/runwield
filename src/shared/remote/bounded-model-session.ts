@@ -4,16 +4,29 @@ import {
     DefaultResourceLoader,
     SessionManager,
 } from "@earendil-works/pi-coding-agent";
-import { isAbsolute } from "@std/path";
-import { type RunWieldModel, RunWieldModelRegistry } from "../models/model-registry.ts";
-import { resolveModel } from "../session/session.js";
+import { isAbsolute, join } from "@std/path";
+import { type RunWieldModel, RunWieldModelRegistry, SYSTEM_MODEL_DISCOVERY_NETWORK } from "../models/model-registry.ts";
+import {
+    applySessionTemperature,
+    assembleFinalSystemPrompt,
+    getConfiguredAgentTemperature,
+    getPromptTemplatePaths,
+    resolveModel,
+} from "../session/session.js";
+import { loadAgentDef } from "../session/agents.js";
 import { assertModelExecutionBackendSupported } from "../models/model-execution.ts";
 import { parseProviderModel } from "../models/model-validation.ts";
-import { modelSupportsImageInput } from "../session/image-attachments.js";
+import { modelSupportsImageInput, resolveVisionFallbackModel } from "../session/image-attachments.js";
 import { getResolvedVisionFallbackModelSetting, getSettingsManager } from "../settings.js";
 import { createSeeImageTool } from "../../tools/see-image.ts";
+import {
+    getPackagePromptTemplatePaths,
+    mappedRemotePackageSettings,
+    resolveInstalledPackagePromptResources,
+} from "../package-resources.js";
 import { createRemoteModelRuntime, fetchRemoteModelCatalog, type RemoteModelConnection } from "./model-bridge.ts";
 import {
+    assertPersonalResourcePath,
     configureRemotePersonalResources,
     personalGlobalRoot,
     remotePersonalResourcesActive,
@@ -117,28 +130,60 @@ export async function createBoundedRemoteModelSession(options: {
     // Other callers must not discard custom hooks silently.
     const runtime = await createRemoteModelRuntime({ ...options.connection, callbackPolicy: "no-extensions" }, catalog);
     const registry = new RunWieldModelRegistry({ remote: true, runtime, configDir: personalGlobalRoot() });
-    const model = await resolveBoundedRemoteModelSelection(registry, options);
+    const agentName = options.agentName ?? "engineer";
+    const agentDef = options.agentDef ?? await loadAgentDef(agentName, options.cwd);
+    const model = await resolveBoundedRemoteModelSelection(registry, { ...options, agentDef });
     const customTools = [...options.customTools ?? []];
     if (
         !modelSupportsImageInput(model) && getResolvedVisionFallbackModelSetting(options.cwd) &&
         !customTools.some((tool) => tool.name === "see_image")
     ) {
-        customTools.push(createSeeImageTool({
-            cwd: options.cwd,
-            modelRegistry: registry,
-        }));
+        const fallback = await resolveVisionFallbackModel(registry, SYSTEM_MODEL_DISCOVERY_NETWORK, options.cwd);
+        if (fallback) {
+            customTools.push(createSeeImageTool({
+                cwd: options.cwd,
+                remoteModel: fallback.model,
+                completeSimpleFn: (model, context, streamOptions) =>
+                    runtime.streamSimple(model, context, streamOptions).result(),
+            }));
+        }
     }
+    const systemPrompt = await assembleFinalSystemPrompt(
+        { ...agentDef, systemPrompt: agentDef.systemPrompt.replace("{{MEMORIES}}", "") },
+        customTools.map((tool) => tool.name),
+        customTools,
+        options.cwd,
+        "",
+        { homeDir: personalGlobalRoot() },
+    );
     const settingsManager = getSettingsManager(options.cwd);
+    const packagePrompts = await resolveInstalledPackagePromptResources({ cwd: options.cwd });
+    const promptPaths = [...getPromptTemplatePaths(options.cwd), ...getPackagePromptTemplatePaths(packagePrompts)];
+    // Pi reads symlink targets directly. Check every personal template before passing paths to its loader.
+    for (const path of promptPaths) {
+        await assertPersonalResourcePath(path, "prompt template path");
+        const stat = await Deno.stat(path).catch((error) => {
+            if (error instanceof Deno.errors.NotFound) return undefined;
+            throw error;
+        });
+        if (!stat?.isDirectory) continue;
+        for await (const entry of Deno.readDir(path)) {
+            if ((entry.isFile || entry.isSymlink) && entry.name.endsWith(".md")) {
+                await assertPersonalResourcePath(join(path, entry.name), "prompt template");
+            }
+        }
+    }
     const loader = new DefaultResourceLoader({
         cwd: options.cwd,
         agentDir: personalGlobalRoot(),
-        settingsManager,
+        settingsManager: mappedRemotePackageSettings(settingsManager),
         noExtensions: true,
         noContextFiles: true,
         noPromptTemplates: true,
+        additionalPromptTemplatePaths: promptPaths,
         noSkills: true,
         noThemes: true,
-        systemPromptOverride: () => "You are a bounded remote model integration session.",
+        systemPromptOverride: () => systemPrompt,
     });
     await loader.reload();
     const { session } = await createAgentSession({
@@ -153,5 +198,9 @@ export async function createBoundedRemoteModelSession(options: {
         customTools,
         ...(customTools.length ? {} : { noTools: "all" }),
     });
+    applySessionTemperature(
+        session,
+        getConfiguredAgentTemperature(agentName, options.cwd) ?? agentDef.temperature,
+    );
     return { session, registry };
 }
