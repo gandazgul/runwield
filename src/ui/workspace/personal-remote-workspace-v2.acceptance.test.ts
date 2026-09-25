@@ -638,8 +638,11 @@ Deno.test("personal remote Workspace v2 owner home has bounded refresh and visib
             }),
         );
         const html = await response.text();
-        assertStringIncludes(html, "dashboardRefreshInFlight");
-        assertStringIncludes(html, "status.hidden = false");
+        for (const label of ["Needs You", "Ready to Continue", "In Progress", "Recently Finished"]) {
+            assertStringIncludes(html, `<h2>${label}</h2>`);
+        }
+        assertStringIncludes(html, "Loading…");
+        assertStringIncludes(html, "/api/owner/dashboard/stream");
     } finally {
         await ownerApp.close();
         store.close();

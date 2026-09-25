@@ -48,6 +48,7 @@ import { reviewWidgetApi } from "./routes/api/review-widget-handlers.js";
 import {
     devicesApi,
     ownerDashboardApi,
+    ownerDashboardStreamApi,
     ownerErrorJson,
     ownerProjectBoardApi,
     ownerProjectFileContentApi,
@@ -314,6 +315,7 @@ export function createOwnerWorkspaceApp(options) {
     app.post("/api/owner/pairing/claim", pairingClaimApi);
     app.get("/api/owner/projects", projectsApi);
     app.get("/api/owner/dashboard", ownerDashboardApi);
+    app.get("/api/owner/dashboard/stream", ownerDashboardStreamApi);
     app.get("/api/owner/sidebar", ownerSidebarApi);
     app.get("/api/owner/search", ownerWorkspaceSearchApi);
     app.post("/api/owner/search/refresh", ownerWorkspaceSearchRefreshApi);
