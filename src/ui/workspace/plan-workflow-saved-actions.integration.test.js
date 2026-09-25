@@ -7,7 +7,7 @@ import { openOwnerCoordinationStore } from "../../shared/owner-coordination/inde
 import { buildWorkflowPresentation } from "../../shared/workflow/workflow-presentation.ts";
 import { WorkspaceSessionContinuationService } from "./server/session-continuation.js";
 import { ownerProjectPlanProgressApi } from "./routes/owner-api.js";
-import { ownerPlanContinuationApi } from "./routes/owner-plan-continuation.js";
+import { ownerPlanContinuationApi } from "./routes/owner-plan-continuation.ts";
 import { ownerSessionPlanWorkflowApi } from "./routes/owner-session-api.js";
 
 const repository = defineCommittedGitFixture({ ".gitignore": ".wld/internal/\n" });

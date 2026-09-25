@@ -1,5 +1,5 @@
 // @ts-nocheck: Workspace React islands compile TSX, but this module uses JSDoc-style JavaScript only.
-import { submitWorkflowAction } from "../browser/workflow-action.js";
+import { submitWorkflowAction } from "../browser/workflow-action.ts";
 
 import { useEffect, useMemo, useState } from "react";
 import { ArtifactReadSurface } from "./ArtifactReadSurface.tsx";

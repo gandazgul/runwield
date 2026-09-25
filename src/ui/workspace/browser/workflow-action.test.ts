@@ -1,5 +1,5 @@
 import { assertEquals, assertRejects } from "@std/assert";
-import { submitWorkflowAction } from "./workflow-action.js";
+import { submitWorkflowAction } from "./workflow-action.ts";
 
 Deno.test("held Plan warnings require confirmation and preserve revision on retry", async () => {
     const originalFetch = globalThis.fetch;

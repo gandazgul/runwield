@@ -1,35 +1,38 @@
 /** Plan-scoped continuation entry points, including Plans without a working Session. */
 import { findPlanEvidenceById } from "../../../plan-store.js";
-import { executePlanAction, loadPlanActionEvidence } from "../../../shared/workflow/plan-actions.ts";
+import {
+    executePlanAction,
+    loadPlanActionEvidence,
+    type PlanActionRequest,
+} from "../../../shared/workflow/plan-actions.ts";
 import { runWorkspaceResumeCheck } from "../server/plan-adapter.js";
 import { runOwnerPlanAction } from "../server/owner-plan-actions.ts";
 import { requireOwnerProjectRoot } from "../server/owner-projects.js";
 import { associatedPlanSession, ownerErrorJson, ownerJson } from "./owner-api.js";
 
-/**
- * @typedef {Object} PlanContinuationContext
- * @property {Request} req
- * @property {{ projectId: string, planId: string, runwieldSessionId?: string }} params
- * @property {{ store: import('../../../shared/owner-coordination/index.js').OwnerCoordinationStore,
- * sessionContinuation: import('../server/session-continuation.js').WorkspaceSessionContinuationService,
- * ownerDevice?: { deviceId: string } }} state
- */
-/**
- * @typedef {Object} PlanContinuationRequest
- * @property {string} requestId
- * @property {string} action
- * @property {string} [expectedRevision]
- * @property {number} [expectedGeneration]
- * @property {boolean} [acceptResumeWarnings]
- */
+type PlanContinuationContext = {
+    req: Request;
+    params: { projectId: string; planId: string; runwieldSessionId?: string };
+    state: {
+        store: import("../../../shared/owner-coordination/index.js").OwnerCoordinationStore;
+        sessionContinuation: import("../server/session-continuation.js").WorkspaceSessionContinuationService;
+        ownerDevice?: { deviceId: string };
+    };
+};
 
-/** @param {PlanContinuationContext} ctx */
-export async function ownerPlanContinuationApi(ctx) {
+type PlanContinuationRequest = {
+    requestId: string;
+    action: string;
+    expectedRevision?: string;
+    expectedGeneration?: number;
+    acceptResumeWarnings?: boolean;
+};
+
+export async function ownerPlanContinuationApi(ctx: PlanContinuationContext) {
     try {
         const text = await ctx.req.text();
         if (text.length > 65536) throw new Error("Request body is too large.");
-        /** @type {PlanContinuationRequest} */
-        const body = JSON.parse(text);
+        const body = JSON.parse(text) as PlanContinuationRequest;
         if (typeof body.requestId !== "string" || !body.requestId || body.requestId.length > 128) {
             throw new Error("Plan action requestId is required.");
         }
@@ -44,7 +47,7 @@ export async function ownerPlanContinuationApi(ctx) {
                 return ownerJson({ error: check.message, requiresConfirmation: true, resumeCheck: check }, 409);
             }
             if (!body.expectedRevision) throw new Error("Plan revision is required. Refresh and try again.");
-            const action = {
+            const action: PlanActionRequest = {
                 planId: plan.planId,
                 action: /** @type {const} */ ("resume_from_hold"),
                 expectedRevision: body.expectedRevision,

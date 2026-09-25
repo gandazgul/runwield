@@ -1,4 +1,4 @@
-import { submitWorkflowAction } from "../browser/workflow-action.js";
+import { submitWorkflowAction } from "../browser/workflow-action.ts";
 import { mergePlanAssociations } from "../../../shared/session/plan-association.ts";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { animateSidebarUpdate } from "../../design-system/components/react/sidebar-motion.ts";
