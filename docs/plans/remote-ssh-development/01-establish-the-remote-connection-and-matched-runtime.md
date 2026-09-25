@@ -27,7 +27,8 @@ dependencies:
     []
 targetBranch: "epic/remote-ssh-development"
 userVerifiedAt: null
-status: "validated_reviewer"
+status: "validated"
+validatedCommit: "6d7ce6b66647bd720bb365bfe337f990bad23925"
 ---
 
 # Establish the Remote Connection and Matched Runtime
