@@ -103,3 +103,30 @@ Deno.test("workflow descriptions show live user actions and publication failures
     assertEquals(publication.currentStage?.id, "delivery");
     assertEquals(publication.blocker, "Push rejected by the remote.");
 });
+
+Deno.test("live validation replaces the pre-resume paused checkpoint", () => {
+    const presentation = buildWorkflowPresentation({
+        planName: "Resume repair",
+        status: "implemented",
+        sessionState: "active",
+        progressFacts: [{
+            kind: "validation_checkpoint",
+            phase: "mechanical",
+            state: "paused",
+            repairKind: "semantic",
+        }],
+        liveValidationProgress: {
+            kind: "workflow",
+            outcome: "running",
+            stage: "ci",
+            message: "Running the tests in the execution worktree.",
+            checks: { ci: "running", semanticReview: "pending", humanReview: "pending", merge: "pending" },
+        },
+    });
+    assertEquals(presentation.currentStage?.id, "mechanical");
+    assertEquals(presentation.currentStage?.state, "current");
+    assertEquals(presentation.currentStage?.detail, "Running the tests in the execution worktree.");
+    assertEquals(presentation.stages.some((stage) => stage.state === "paused"), false);
+    assertEquals(presentation.stages.some((stage) => stage.id === "repair"), false);
+    assertEquals(presentation.action?.kind, "open_session");
+});

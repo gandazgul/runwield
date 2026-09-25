@@ -1,6 +1,6 @@
 // @ts-nocheck: shared browser renderer accepts server payloads from JS and Astro.
 
-import { Fragment } from "react";
+import { Fragment, useRef, useState } from "react";
 
 export function workflowActionHref(payload, action) {
     if (!action) return "";
@@ -19,8 +19,26 @@ export function workflowActionHref(payload, action) {
 }
 
 export function WorkflowSidebar(
-    { presentation, payload = {}, title = "Plan workflow", embedded = false, onAction = null },
+    { presentation, payload = {}, title = "Plan workflow", embedded = false, onAction = null, onOpenSession = null },
 ) {
+    const actionInFlight = useRef(false);
+    const [pending, setPending] = useState(false);
+    const [feedback, setFeedback] = useState(null);
+    async function runAction(action) {
+        if (actionInFlight.current) return;
+        actionInFlight.current = true;
+        setPending(true);
+        setFeedback({ message: `${action.label} in progress…`, error: false });
+        try {
+            const message = await onAction(action);
+            setFeedback({ message: message || "Workflow updated.", error: false });
+        } catch (error) {
+            setFeedback({ message: error instanceof Error ? error.message : String(error), error: true });
+        } finally {
+            actionInFlight.current = false;
+            setPending(false);
+        }
+    }
     const actionHref = workflowActionHref(payload, presentation.action);
     const stageLabels = new Map(presentation.stages.map((stage) => [stage.id, stage.label]));
     const repairReturns = new Map(
@@ -88,12 +106,20 @@ export function WorkflowSidebar(
                     <section className="workflow-next-card" aria-label="Workflow action">
                         <h3>Next action</h3>
                         <p>{presentation.action.detail}</p>
-                        {onAction && ["run", "resume", "recover"].includes(presentation.action.kind)
+                        {onOpenSession && presentation.action.kind === "open_session"
+                            ? (
+                                <button className="rw-toolbar-button" type="button" onClick={onOpenSession}>
+                                    Open Session
+                                </button>
+                            )
+                            : onAction && ["run", "resume", "recover"].includes(presentation.action.kind)
                             ? (
                                 <button
                                     className="rw-toolbar-button"
                                     type="button"
-                                    onClick={() => onAction(presentation.action)}
+                                    disabled={pending}
+                                    aria-busy={pending}
+                                    onClick={() => runAction(presentation.action)}
                                 >
                                     {presentation.action.label}
                                 </button>
@@ -104,6 +130,11 @@ export function WorkflowSidebar(
                     </section>
                 )
                 : null}
+            {feedback && (
+                <p className="session-surface-status" role={feedback.error ? "alert" : "status"}>
+                    {feedback.message}
+                </p>
+            )}
         </aside>
     );
 }

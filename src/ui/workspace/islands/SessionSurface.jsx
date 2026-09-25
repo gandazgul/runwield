@@ -745,6 +745,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     const [transientItems, setTransientItems] = useState(/** @type {Array<Record<string, any>>} */ ([]));
     const [workflowProgress, setWorkflowProgress] = useState(/** @type {any} */ (null));
     const [workflowProgressError, setWorkflowProgressError] = useState("");
+    const [liveValidationProgress, setLiveValidationProgress] = useState(null);
     const [sessionSidebarTab, setSessionSidebarTab] = useState("session");
     const sidebarPlanRef = useRef("");
     const [contextCollapsed, setContextCollapsed] = useState(false);
@@ -1500,6 +1501,10 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             setTimeline(nextTimeline);
         }
         const events = Array.isArray(payload.events) ? payload.events : [];
+        const validationEvent = events.findLast((event) => event.validationProgress);
+        setLiveValidationProgress(
+            validationEvent ? { ...validationEvent.validationProgress, message: validationEvent.message } : null,
+        );
         let items = reduceOperationTransientItems(events);
         if (payload.liveInteraction?.interactionId) {
             items = items.filter((item) => item.kind !== "busy");
@@ -2046,6 +2051,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         workflowProgressFacts: Array.isArray(workflowProgress?.progressFacts)
             ? workflowProgress.progressFacts
             : undefined,
+        workflowLiveValidationProgress: operation?.status === "running" ? liveValidationProgress : null,
         workflowDegradedMessage: typeof workflowProgress?.degraded?.message === "string"
             ? workflowProgress.degraded.message
             : workflowProgressError,
@@ -2066,31 +2072,27 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         planHomeUrl;
     async function runWorkflowAction(action) {
         if (!["run", "resume", "recover"].includes(action.kind)) return;
-        const planId = activePlanId(timeline?.snapshot);
+        const currentTimeline = timelineRef.current;
+        const planId = activePlanId(currentTimeline?.snapshot);
         if (!planId) {
-            setMessage("Plan workflow evidence is unavailable.");
-            return;
+            throw new Error("Plan workflow evidence is unavailable. Refresh the Session and try again.");
         }
-        try {
-            await ownerFetch(
-                `/api/owner/projects/${encodeURIComponent(projectId)}/sessions/${
-                    encodeURIComponent(runwieldSessionId)
-                }/plan-workflow`,
-                {
-                    method: "POST",
-                    body: JSON.stringify({
-                        requestId: crypto.randomUUID(),
-                        planId,
-                        action: action.kind,
-                        expectedGeneration: timeline?.snapshot?.managed?.generation,
-                        expectedCurrentSegmentId: timeline?.snapshot?.managed?.currentSegmentId || null,
-                    }),
-                },
-            );
-            await refresh();
-        } catch (error) {
-            setMessage(errorMessage(error));
-        }
+        const result = await ownerFetch(
+            `/api/owner/projects/${encodeURIComponent(projectId)}/sessions/${
+                encodeURIComponent(runwieldSessionId)
+            }/plan-workflow`,
+            {
+                method: "POST",
+                body: JSON.stringify({
+                    requestId: crypto.randomUUID(),
+                    planId,
+                    action: action.kind,
+                    expectedGeneration: currentTimeline.generation,
+                }),
+            },
+        );
+        await loadTimeline();
+        return result.reason || "Workflow updated.";
     }
     const agents = Array.isArray(sessionOptions?.agents) ? sessionOptions.agents : [];
     const models = Array.isArray(sessionOptions?.models) ? sessionOptions.models : [];
@@ -2367,6 +2369,10 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                                                         title="Workflow"
                                                         embedded
                                                         onAction={runWorkflowAction}
+                                                        onOpenSession={() => {
+                                                            setContextCollapsed(true);
+                                                            scrollToLiveEdge();
+                                                        }}
                                                     />
                                                 )
                                                 : (

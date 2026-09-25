@@ -1,5 +1,6 @@
 import { projectPlanType } from "../project-plan.ts";
 import { resolve } from "node:path";
+import { Marked } from "marked";
 import {
     getStoredPlanPath,
     injectFrontMatter,
@@ -76,13 +77,26 @@ function reviewRejected(message: string): SharedPlanReviewActionResult {
     return { approved: false, feedback: message, cancellationReason: "stale_plan_review" };
 }
 
+// Only prose soft breaks are formatting. Keep code, raw HTML, hard breaks,
+// links, and document structure in the comparison. This HTML is never displayed.
+const reviewMarkdown = new Marked({
+    gfm: true,
+    breaks: false,
+    walkTokens(token) {
+        if (token.type === "text" && token.escaped !== true && typeof token.text === "string") {
+            token.text = token.text.replace(/\r?\n/g, " ");
+        }
+    },
+});
+
 /**
  * Compare what the user reviewed with the current human-owned Plan document.
  *
  * A revision hashes the exact bytes, so YAML formatting alone makes it stale.
  * Review approval cares about meaning: canonicalize document Front Matter, omit
- * controller-owned projections, and compare the body separately. The eventual
- * write still uses the current byte revision as its atomic compare-and-set.
+ * controller-owned projections, and compare Markdown meaning without prose wrapping
+ * or table padding. The eventual write still uses the current byte revision as
+ * its atomic compare-and-set.
  */
 export function reviewSourceStillMatches(
     current: { attrs: PlanFrontMatter; body: string },
@@ -91,8 +105,9 @@ export function reviewSourceStillMatches(
 ): boolean {
     const canonicalAttrs = (attrs: PlanFrontMatter) =>
         planDocumentMarkdown(injectFrontMatter("", stripRuntimeFields(attrs)));
-    const canonicalBody = (body: string) => body.replace(/^\r?\n/, "");
-    return canonicalBody(current.body) === canonicalBody(originalBody) &&
+    const bodyMatches = current.body === originalBody ||
+        reviewMarkdown.parse(current.body, { async: false }) === reviewMarkdown.parse(originalBody, { async: false });
+    return bodyMatches &&
         canonicalAttrs(current.attrs) === canonicalAttrs(originalAttrs);
 }
 

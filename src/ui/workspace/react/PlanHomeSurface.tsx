@@ -64,7 +64,6 @@ function buildPresentation(payload, progress) {
 
 export function PlanHomeSurface({ payload, presentation = "standalone" }) {
     const [progress, setProgress] = useState(payload.workflow || null);
-    const [message, setMessage] = useState("");
     useEffect(() => {
         if (!payload.progressApiUrl) return;
         let cancelled = false;
@@ -92,24 +91,19 @@ export function PlanHomeSurface({ payload, presentation = "standalone" }) {
     }, [payload.progressApiUrl]);
 
     async function runAction(action) {
-        setMessage(`${action.label} is starting…`);
-        try {
-            const actionPayload = {
-                requestId: crypto.randomUUID(),
-                expectedGeneration: progress?.expectedGeneration ?? payload.expectedGeneration,
-                expectedCurrentSegmentId: progress?.expectedCurrentSegmentId ?? payload.expectedCurrentSegmentId,
-                planId: payload.planId,
-                action: action.kind,
-            };
-            const workflowUrl = progress?.planWorkflowUrl || payload.planWorkflowUrl;
-            if (["run", "resume", "recover"].includes(action.kind) && workflowUrl) {
-                await ownerFetch(workflowUrl, { method: "POST", body: JSON.stringify(actionPayload) });
-            }
-            if (progress?.sessionHref || payload.sessionHref) {
-                location.assign(progress?.sessionHref || payload.sessionHref);
-            }
-        } catch (error) {
-            setMessage(error.message || String(error));
+        const actionPayload = {
+            requestId: crypto.randomUUID(),
+            expectedGeneration: progress?.expectedGeneration ?? payload.expectedGeneration,
+            expectedCurrentSegmentId: progress?.expectedCurrentSegmentId ?? payload.expectedCurrentSegmentId,
+            planId: payload.planId,
+            action: action.kind,
+        };
+        const workflowUrl = progress?.planWorkflowUrl || payload.planWorkflowUrl;
+        if (["run", "resume", "recover"].includes(action.kind) && workflowUrl) {
+            await ownerFetch(workflowUrl, { method: "POST", body: JSON.stringify(actionPayload) });
+        }
+        if (progress?.sessionHref || payload.sessionHref) {
+            location.assign(progress?.sessionHref || payload.sessionHref);
         }
     }
 
@@ -132,15 +126,12 @@ export function PlanHomeSurface({ payload, presentation = "standalone" }) {
             showLogo={false}
             contentsInitiallyOpen={false}
             workflowSidebar={
-                <>
-                    {message ? <p className="session-surface-status" role="status">{message}</p> : null}
-                    <WorkflowSidebar
-                        presentation={workflow}
-                        embedded
-                        payload={{ ...payload, ...(progress || {}) }}
-                        onAction={runAction}
-                    />
-                </>
+                <WorkflowSidebar
+                    presentation={workflow}
+                    embedded
+                    payload={{ ...payload, ...(progress || {}) }}
+                    onAction={runAction}
+                />
             }
         />
     );

@@ -1247,3 +1247,157 @@ Deno.test("live updates finish saved running tools without dropping later repeat
     assertEquals(items[1].output, "Result");
     assertEquals(items[2].timestamp, "2026-09-19T20:03:00Z");
 });
+
+Deno.test("Workflow Resume submits the committed version and reports progress and errors inside the mobile sidebar", async () => {
+    const browser = new Window({ url: "http://localhost" });
+    const globals = [
+        "window",
+        "document",
+        "location",
+        "localStorage",
+        "sessionStorage",
+        "HTMLElement",
+        "CustomEvent",
+        "matchMedia",
+        "ResizeObserver",
+    ];
+    const previous = new Map(globals.map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+    const previousFetch = globalThis.fetch;
+    const previousActFlag = globalThis.IS_REACT_ACT_ENVIRONMENT;
+    const { act } = await import("react");
+    const { createRoot } = await import("react-dom/client");
+    const mobile = true;
+    const listeners = new Set();
+    const media = {
+        get matches() {
+            return mobile;
+        },
+        addEventListener(_event, listener) {
+            listeners.add(listener);
+        },
+        removeEventListener(_event, listener) {
+            listeners.delete(listener);
+        },
+    };
+    const header = browser.document.createElement("div");
+    header.setAttribute("data-workspace-header-actions", "");
+    const container = browser.document.createElement("div");
+    browser.document.body.append(header, container);
+    let root;
+    try {
+        for (const key of globals) {
+            const value = key === "window"
+                ? browser
+                : key === "matchMedia"
+                ? (query) => query === "(max-width: 900px)" ? media : browser.matchMedia(query)
+                : browser[key];
+            Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
+        }
+        globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+        const submissions = [];
+        let generation = 7;
+        let timelineReads = 0;
+        let settle;
+        let liveOperation = null;
+        globalThis.fetch = (url, options = {}) => {
+            const path = String(url);
+            if (path.endsWith("/plan-workflow")) {
+                submissions.push(JSON.parse(options.body));
+                return new Promise((resolve) => {
+                    settle = resolve;
+                });
+            }
+            if (path.endsWith("/live")) {
+                return Promise.resolve(
+                    Response.json({ state: liveOperation ? "active" : "idle", generation, operation: liveOperation }),
+                );
+            }
+            if (path.includes("/session-operations/")) return Promise.resolve(Response.json(liveOperation));
+            if (path.includes("session-options")) {
+                return Promise.resolve(Response.json({ agents: [], models: [], commands: [], defaults: {} }));
+            }
+            if (path.includes("/timeline?")) timelineReads++;
+            return Promise.resolve(Response.json({
+                state: "idle",
+                generation,
+                events: [],
+                complete: true,
+                snapshot: {
+                    workflowContext: { planId: "repair-plan", planName: "Repair Plan" },
+                },
+            }));
+        };
+        root = createRoot(container);
+        await act(async () =>
+            root.render(
+                (await import("react")).createElement(SessionSurface, {
+                    projectId: crypto.randomUUID(),
+                    runwieldSessionId: crypto.randomUUID(),
+                }),
+            )
+        );
+        await act(() => header.querySelector('[aria-label="Show Session sidebar"]').click());
+        const sidebar = () => container.querySelector('[aria-label="Workflow"]');
+        const resume = () => sidebar().querySelector("button");
+        const readsBefore = timelineReads;
+        await act(() => resume().click());
+        assertEquals(submissions.length, 1);
+        assertEquals(submissions[0].action, "resume");
+        assertEquals(submissions[0].planId, "repair-plan");
+        assertEquals(submissions[0].expectedGeneration, 7);
+        assertEquals(resume().disabled, true);
+        assertStringIncludes(sidebar().querySelector('[role="status"]').textContent, "Resume in progress");
+        await act(() => resume().click());
+        assertEquals(submissions.length, 1);
+        await act(() => {
+            generation = 8;
+            settle(Response.json({ kind: "paused", reason: "Code Review is ready." }, { status: 202 }));
+        });
+        assertEquals(resume().disabled, false);
+        assertEquals(timelineReads > readsBefore, true);
+        assertEquals(sidebar().querySelector('[role="status"]').textContent, "Code Review is ready.");
+        await act(() => resume().click());
+        assertEquals(submissions[1].expectedGeneration, 8);
+        await act(() =>
+            settle(Response.json({ error: "Session is busy. Try again when the turn finishes." }, { status: 409 }))
+        );
+        assertEquals(resume().disabled, false);
+        assertStringIncludes(sidebar().querySelector('[role="alert"]').textContent, "Session is busy");
+        await act(() => resume().click());
+        await act(() => {
+            liveOperation = {
+                operationId: "resumed-validation",
+                status: "running",
+                remote: true,
+                events: [{
+                    type: "system_status",
+                    message: "Running the tests in the execution worktree.",
+                    validationProgress: {
+                        kind: "workflow",
+                        outcome: "running",
+                        stage: "ci",
+                        checks: { ci: "running", semanticReview: "pending", humanReview: "pending", merge: "pending" },
+                    },
+                }],
+            };
+            globalThis.dispatchEvent(new Event("focus"));
+        });
+        assertStringIncludes(sidebar().textContent, "Running the tests in the execution worktree.");
+        assertEquals(sidebar().querySelector('li[aria-current="step"] span').textContent, "Tests and CI");
+        assertEquals(resume().textContent, "Open Session");
+        await act(() => resume().click());
+        assertEquals(container.querySelector(".session-stream-panel").inert, false);
+        assertEquals(header.querySelector('[aria-label="Show Session sidebar"]') !== null, true);
+        await act(() => settle(Response.json({ kind: "paused", reason: "Validation paused." }, { status: 202 })));
+    } finally {
+        if (root) await act(() => root.unmount());
+        globalThis.fetch = previousFetch;
+        for (const [key, descriptor] of previous) {
+            if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+            else Reflect.deleteProperty(globalThis, key);
+        }
+        if (previousActFlag === undefined) delete globalThis.IS_REACT_ACT_ENVIRONMENT;
+        else globalThis.IS_REACT_ACT_ENVIRONMENT = previousActFlag;
+        await browser.happyDOM.close();
+    }
+});

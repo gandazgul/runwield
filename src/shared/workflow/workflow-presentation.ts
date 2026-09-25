@@ -1,3 +1,9 @@
+import type { RuntimeValidationProgressPresentationInput } from "./validation-progress-presentation.ts";
+
+export interface LiveValidationProgress extends RuntimeValidationProgressPresentationInput {
+    message?: string;
+}
+
 export type WorkflowPresentationStepState =
     | "completed"
     | "current"
@@ -36,6 +42,7 @@ export interface WorkflowPresentationInput {
     projectPlanType?: string | null;
     status?: string | null;
     progressFacts?: WorkflowProgressFact[];
+    liveValidationProgress?: LiveValidationProgress | null;
     degradedMessage?: string | null;
     sessionState?: string | null;
     hasWorkingSession?: boolean;
@@ -238,6 +245,24 @@ function mergedRawStates(input: WorkflowPresentationInput, stages: StageDefiniti
     }
     if (input.hasPlanReview && states.has("planning")) states.set("planning", "running");
     if (input.hasCodeReview && states.has("code_review")) states.set("code_review", "running");
+    const live = input.liveValidationProgress;
+    if (live?.outcome === "running" && states.has("mechanical")) {
+        // Live work supersedes a saved checkpoint from before Resume was pressed.
+        states.set("planning", "completed");
+        states.set("execution", "completed");
+        states.set("repair", live.stage === "engineer_repair" ? "running" : "not_required");
+        for (
+            const [check, stage] of Object.entries({
+                ci: "mechanical",
+                semanticReview: "semantic",
+                humanReview: "code_review",
+                merge: "delivery",
+            })
+        ) {
+            const state = live.checks[check as keyof typeof live.checks];
+            states.set(stage, state === "canceled" ? "paused" : state === "failed" ? "pending" : state);
+        }
+    }
     return states;
 }
 
@@ -273,6 +298,9 @@ function currentStageIndex(stages: StageDefinition[], rawStates: Map<string, str
 }
 
 function detailFor(stage: WorkflowPresentationStage, input: WorkflowPresentationInput): string {
+    if (stage.current && input.liveValidationProgress?.outcome === "running" && input.liveValidationProgress.message) {
+        return input.liveValidationProgress.message;
+    }
     const fact = (input.progressFacts || []).find((item) =>
         item.kind === "publication"
             ? stage.id === "delivery"
