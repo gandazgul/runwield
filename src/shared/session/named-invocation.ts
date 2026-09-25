@@ -1,6 +1,5 @@
 import { extractYaml, test as hasFrontMatter } from "@std/front-matter";
 import { basename, join } from "@std/path";
-import { AGENTS } from "../../constants.js";
 import { fileExists } from "../helpers.js";
 import { parseProviderModel } from "../models/model-validation.ts";
 import { resolveInstalledPackagePromptResources } from "../package-resources.js";
@@ -64,7 +63,7 @@ export interface PromptTemplateInvocation {
     name: string;
     additionalInstructions: string;
     expandedRequest: string;
-    agentName: string;
+    agentName?: string;
     model?: string;
     thinkingLevel?: ThinkingLevel;
     payload: NamedInvocationPayload;
@@ -331,7 +330,8 @@ async function readPromptTemplateForInvocation(path: string, templateName: strin
 }
 
 async function resolvePromptTemplateAgent(agentField: string | undefined, templateName: string, cwd: string) {
-    const rawAgent = agentField || AGENTS.OPERATOR;
+    if (!agentField) return undefined;
+    const rawAgent = agentField;
     let agentName = "";
     try {
         agentName = normalizeAgentInternalName(rawAgent);

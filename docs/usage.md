@@ -318,8 +318,9 @@ than claiming immediate suspension. Resuming a saved Session asks whether to res
 explanations survive execution and repair transcript rollover. Ctrl+C first clears input.
 
 Prompt templates and skills can also appear as slash commands. Core resolves them the same way in TUI, Workspace, and
-ACP. Prompt Templates run one auxiliary turn and then restore the root profile; Skills expand into the current Agent's
-turn. See [Customization](customization.md).
+ACP. Prompt Templates render into ordinary messages and can apply persistent Agent, model, and thinking settings. A
+conflicting Agent during an unfinished workflow offers a new Session or cancellation. Skills expand into the current
+Agent's turn. See [Customization](customization.md).
 
 ## CLI commands
 

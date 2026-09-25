@@ -594,6 +594,12 @@ Recovery requirements:
   unmerged changes.
 - Given stale locks, inconsistent settings/storage, or mismatched Plan bookkeeping during a workflow, when RunWield
   encounters them, it restores its own consistent state and continues without exposing a repair task to the user.
+- Given a Workspace server that remains alive after abandoning a Plan lock, publication reclaims the abandoned file only
+  after proving the operating-system lock is free. A live operation keeps its lock even if its heartbeat is late.
+  Dashboard and search catalog reads do not acquire the catalog write lock; deliberate identity backfills still do.
+- Given publication pauses after automatic recovery, the Session presents the failure once, states what prevented
+  publication and what work was preserved, and gives a relevant next action. It does not prescribe reloading a Plan as a
+  cure for an unresolved internal error.
 - Given exhausted automatic attempts, when publication has not succeeded and the user has not abandoned, the same
   workflow remains recoverable; it cannot disappear into a terminal error even if that error has a detailed message.
 - Given a genuine external prerequisite, when RunWield waits, the user gets a specific action and an immediate retry or
@@ -1035,9 +1041,24 @@ second catalog.
 
 Slash-command skill invocation injects full Skill instructions only when needed and does not change the Agent profile.
 Prompt Template and Skill expansions reach the active model with the current Agent instructions and tools. The exact
-saved expansion remains available after a follow-up, compaction, or resume without changing the compact user-history
-display. Built-in command names and aliases take precedence over prompt templates and Skills on all surfaces, including
-built-ins unavailable on that surface.
+saved expansion remains available after a follow-up, compaction, or resume. Prompt Templates display rendered content;
+Skills retain their compact invocation. Built-in command names and aliases take precedence over prompt templates and
+Skills on all surfaces, including built-ins unavailable on that surface.
+
+**Requirement: Prompt Templates behave as typed messages with optional Session settings.**
+
+Core renders a Prompt Template and submits it through the ordinary user-message path, with ordinary tools, workflow
+transitions, validation, and compaction. Its optional Agent, provider/model, and thinking settings persist for
+follow-ups and resume. Omitted settings inherit the current Session. A new Session without explicit selections uses
+Operator and its configured model/thinking level. Changing Agent loads that Agent's defaults before explicit template
+overrides. Invalid settings fail before message submission.
+
+A template requesting a different Agent during an unfinished workflow offers **Open in new session** or **Cancel**. This
+includes planning before a Plan exists and execution/review/recovery waiting for user input. Opening a new Session runs
+the template there and preserves the original workflow Session for resume. Cancellation sends nothing and preserves
+settings and workflow state. Clients unable to present the choice explain how to run the template in a new Session.
+Model/thinking changes alone retain workflow ownership. Templates have no isolated turn or automatic return to a prior
+Agent. The rendered message is visible in chat; Core retains the original invocation and exact expansion for history.
 
 Engineer can ask structured questions with `user_interview` and drives the bundled `/release` prompt. Release choices
 use the current client's structured question interface where supported, including Workspace, before any release
@@ -1056,7 +1077,7 @@ mount path is not confinement of trusted remote users. This target is not yet a 
 - When a user customizes an Agent at project scope, those choices take precedence over home and bundled settings while
   required workflow capabilities remain available.
 - When a user invokes a Skill or Prompt Template, its full saved expansion reaches the active model and remains
-  available to follow-up and resume while the visible raw user entry stays compact.
+  available to follow-up and resume. Templates display their rendered message; Skills retain their compact command.
 - Given a non-bundled Skill in project `.agents/skills`, listing, model advertising, and invocation select that project
   file before home customization.
 - Given an `.agents` Skill whose published name or directory alias conflicts with a bundled Skill, listing, model
@@ -1064,6 +1085,16 @@ mount path is not confinement of trusted remote users. This target is not yet a 
   replace the bundled Skill.
 - When `enableExternalSkills` is false, neither `.agents` folder participates, while project and home `.wld` Skills and
   bundled Skills remain available.
+- Invoking `wld /commit` without template front matter or explicit Session selections uses Operator's configured model
+  and thinking level; ordinary follow-ups retain those settings.
+- Invoking a template with omitted settings in an existing Session retains its selected Agent/model/thinking level.
+  Explicit template settings override the corresponding selections and remain active after resume.
+- Invoking `/release` while Planner is discussing a change, before a Plan exists, offers a new Session or cancellation.
+  Opening runs with Engineer in the new Session; the original planning conversation remains resumable. Canceling sends
+  no expanded message and changes no Agent or settings.
+- Invoking a template that retains the active workflow Agent can use that Agent's normal workflow tools. A model or
+  thinking override alone does not create another Session or bypass validation.
+- Invoking a template with invalid execution settings reports the problem before a user-message event or model call.
 - Invoking `/release` from a Router Session presents the release-operation choices as a structured interview on clients
   that support forms; canceling the interview does not start a release.
 - **Remote target, not yet delivered:** Given a trusted remote connection with a private mount of laptop `~/.wld`, when

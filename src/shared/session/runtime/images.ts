@@ -2,6 +2,7 @@ import { AGENTS } from "../../../constants.js";
 import { readPersistedManualModelState, resolveResumeAgentName } from ".././active-agent-session.js";
 import { loadAgentDef } from ".././agents.js";
 import { resolveModel } from ".././session.js";
+import { resolvePromptTemplateSettings } from "../prompt-template-settings.ts";
 import { resolveNamedInvocation } from ".././named-invocation.ts";
 import { openPersistedRootSession } from ".././root-session.js";
 import {
@@ -180,7 +181,7 @@ export class RuntimeImages {
         });
         const activeAgentInfo = session.getActiveAgentInfo?.() || null;
         const agentName = namedInvocation.kind === "prompt_template"
-            ? namedInvocation.agentName
+            ? namedInvocation.agentName || options.agentName || activeAgentInfo?.agentName || AGENTS.OPERATOR
             : options.agentName || activeAgentInfo?.agentName || session.getRootAgentName?.() || AGENTS.ROUTER;
         const modelOverride = namedInvocation.kind === "prompt_template"
             ? options.preparedModelOverride || namedInvocation.model
@@ -205,7 +206,13 @@ export class RuntimeImages {
                     openedSessionManager = opened.sessionManager;
                 }
             }
-            let effectiveModelOverride = modelOverride;
+            const templateProfile = namedInvocation.kind === "prompt_template"
+                ? await resolvePromptTemplateSettings(session, {
+                    ...namedInvocation,
+                    model: options.preparedModelOverride || namedInvocation.model,
+                }, sessionManager)
+                : null;
+            let effectiveModelOverride = templateProfile?.model || modelOverride;
             if (!ignoreManualModelOverride && !effectiveModelOverride && sessionManager) {
                 const resumeAgent = await resolveResumeAgentName(sessionManager);
                 const persistedManualModel = readPersistedManualModelState(sessionManager, agentName || resumeAgent);
@@ -221,7 +228,7 @@ export class RuntimeImages {
             const activeModel = await resolveModel(
                 effectiveModelOverride,
                 agentDef,
-                agentName,
+                templateProfile?.agentName || agentName,
                 modelRegistry,
                 session,
                 session.cwd,

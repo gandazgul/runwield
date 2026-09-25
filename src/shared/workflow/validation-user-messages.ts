@@ -66,6 +66,7 @@ export type ValidationMessageRequest =
     | {
         kind: "publication_blocked";
         planName: string;
+        blockedByPlanLock?: boolean;
         stage:
             | "artifact_preparation"
             | "candidate_checkpoint"
@@ -233,13 +234,16 @@ export function buildValidationUserMessage(request: ValidationMessageRequest): s
         case "merge_dispatch":
             return "The repair Engineer is fixing the file clashes. The fix will be checked next.";
         case "publication_blocked":
+            if (request.blockedByPlanLock) {
+                return `Publishing ${request.planName} is paused because another RunWield operation is still using the project's Plans. Your checked changes and review decision are saved. Let that operation finish, then retry publication. Reloading this Plan alone will not release it.`;
+            }
             switch (request.stage) {
                 case "artifact_preparation":
-                    return `RunWield could not finish the final records for ${request.planName}. The validated commits are safe. Load this Plan and run validation again; completed records will be reused.`;
+                    return `Publishing ${request.planName} is paused because RunWield could not save its completion records, even after retrying. Your checked changes and review decision are saved. Report this RunWield error before retrying publication; reloading the Plan alone will not fix it.`;
                 case "candidate_checkpoint":
-                    return `Git could not save the final validation files for ${request.planName}. The validated commits are safe. Fix the Git hook or commit error reported in the console, then load this Plan and run validation again.`;
+                    return `Git could not save the final validation files for ${request.planName}, so publication is paused. Your changes and review decision are saved in the worktree. Fix the Git hook or commit error reported in the console, then retry publication.`;
                 case "lifecycle_staging":
-                    return `RunWield could not record the final validated state for ${request.planName}. The validated commits are safe. Load this Plan and run validation again; RunWield will rebuild this state from the execution copy.`;
+                    return `Publishing ${request.planName} is paused because RunWield could not save the Plan's completed validation, even after retrying. Your checked changes and review decision are saved. Report this RunWield error before retrying publication; reloading the Plan alone will not fix it.`;
                 case "candidate_sealing":
                     return `Git could not seal the final commits for ${request.planName}. The validated commits are safe. Fix the Git hook or commit error reported in the console, then load this Plan and run validation again.`;
                 case "git_publication":

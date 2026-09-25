@@ -1582,6 +1582,15 @@ function lockSafeSegment(value) {
 
 const PLAN_LOCK_WAIT_TIMEOUT_MS = 5 * 60_000;
 const PLAN_LOCK_HEARTBEAT_MS = 10_000;
+const PLAN_LOCK_ABANDONED_MS = 3 * PLAN_LOCK_HEARTBEAT_MS;
+
+export class PlanLockTimeoutError extends Error {
+    /** @param {string} lockPath */
+    constructor(lockPath) {
+        super(`Timed out waiting for the Plan lock at ${lockPath}.`);
+        this.name = "PlanLockTimeoutError";
+    }
+}
 
 /** @param {string} lockPath */
 async function acquireSimpleLock(lockPath) {
@@ -1612,11 +1621,15 @@ async function acquireSimpleLock(lockPath) {
                     await file.sync();
                 };
                 await writeHeartbeat();
+                let heartbeatWrite = Promise.resolve();
                 const heartbeat = setInterval(() => {
-                    writeHeartbeat().catch(() => {});
+                    heartbeatWrite = heartbeatWrite.then(writeHeartbeat).catch(() => {});
                 }, PLAN_LOCK_HEARTBEAT_MS);
                 return async () => {
                     clearInterval(heartbeat);
+                    // A heartbeat already in flight can leave truncated bytes if
+                    // release closes its descriptor between truncate and write.
+                    await heartbeatWrite;
                     file.close();
                     const snapshot = await readLockFileSnapshot(lockPath);
                     if (snapshot?.token !== token) return;
@@ -1641,17 +1654,18 @@ async function acquireSimpleLock(lockPath) {
             // legitimate work, so waiting it out made a killed process block every
             // operation on this Plan for the whole stale window — RunWield's own
             // bookkeeping locking the user out of their Plan.
-            const stale = await isLockHolderGone(snapshot.text);
+            // A long-lived Workspace process can abandon a file without exiting.
+            // Age only permits an ownership check: removal must still acquire the
+            // OS lock and match the snapshot, so a paused live holder stays safe.
+            // Windows removal cannot retain that OS lock across unlink.
+            const abandoned = Deno.build.os !== "windows" &&
+                Date.now() - Math.max(snapshot.mtime, snapshot.updatedAt || 0) > PLAN_LOCK_ABANDONED_MS;
+            const stale = abandoned || await isLockHolderGone(snapshot.text);
             if (stale && await removeLockFileIfSnapshotMatches(lockPath, snapshot)) {
                 continue;
             }
             if (Date.now() > deadline) {
-                throw new Error(
-                    `Another RunWield process has been working on this Plan for over ${
-                        Math.round(PLAN_LOCK_WAIT_TIMEOUT_MS / 60_000)
-                    } minutes and has not released it (${lockPath}). ` +
-                        `If no RunWield process is running, clear the abandoned lock with \`${CLI_BIN} plans doctor --repair\`.`,
-                );
+                throw new PlanLockTimeoutError(lockPath);
             }
             await new Promise((resolve) => setTimeout(resolve, 50));
         }
@@ -3655,8 +3669,8 @@ export async function onboardExternalPlan(cwd, planName, options = {}) {
  * @returns {Promise<PlanResource[]>}
  */
 export async function listPlanResources(cwd, options = {}) {
-    return await withPlanCatalogLock(cwd, async () => {
-        const backfillMissing = options.backfillMissing === true;
+    const backfillMissing = options.backfillMissing === true;
+    const read = async () => {
         const plans = await listPlans(cwd);
         const byId = groupExistingPlanIds(plans);
         assertNoDuplicatePlanIds(byId);
@@ -3691,7 +3705,10 @@ export async function listPlanResources(cwd, options = {}) {
         }
 
         return resources;
-    });
+    };
+    // Dashboard/search reads must not serialize publication behind a full catalog
+    // scan. Only identity backfills mutate the catalog and need its writer lock.
+    return await withProjectRuntimeReadScope(() => backfillMissing ? withPlanCatalogLock(cwd, read) : read());
 }
 
 /**

@@ -115,7 +115,7 @@ Deno.test("bundled release from Router exposes an interactive interview before r
                     "other",
                 ]);
                 assertEquals(canceledResult, true);
-                assertEquals(runtime.getSessionSnapshot(created.sessionId)?.activeAgent, "router");
+                assertEquals(runtime.getSessionSnapshot(created.sessionId)?.activeAgent, "engineer");
             } finally {
                 await runtime.closeAllSessionsWhenIdle();
             }
@@ -212,23 +212,23 @@ Deno.test("Prompt Template invocation sends active Segment history plus the exac
                     initialImages: [],
                 });
                 assertEquals(second.ok, true);
-                assertEquals(runtime.getSessionSnapshot(sessionId)?.activeAgent, "engineer");
+                assertEquals(runtime.getSessionSnapshot(sessionId)?.activeAgent, "operator");
                 assertEquals(modelRequests.length, 4);
 
-                const auxiliaryRequest = modelRequests[3];
-                assertStringIncludes(auxiliaryRequest, "Remember active fact ACTIVE-SEGMENT-ALPHA.");
-                assertStringIncludes(auxiliaryRequest, "ACTIVE-TOOL-EXCHANGE");
-                assertStringIncludes(auxiliaryRequest, "fixture response 3");
+                const templateRequest = modelRequests[3];
+                assertStringIncludes(templateRequest, "Remember active fact ACTIVE-SEGMENT-ALPHA.");
+                assertStringIncludes(templateRequest, "ACTIVE-TOOL-EXCHANGE");
+                assertStringIncludes(templateRequest, "fixture response 3");
                 assertStringIncludes(
-                    auxiliaryRequest,
+                    templateRequest,
                     "Use the active-session fact to answer this request: {{input}}\\n\\nWhat fact did I give you?",
                 );
                 assert(
-                    !auxiliaryRequest.includes("SEALED-PREDECESSOR-SENTINEL"),
+                    !templateRequest.includes("SEALED-PREDECESSOR-SENTINEL"),
                     "the model does not receive sealed predecessor segment text",
                 );
                 assert(
-                    !auxiliaryRequest.includes("/use-active-fact What fact did I give you?"),
+                    !templateRequest.includes("/use-active-fact What fact did I give you?"),
                     "the model receives the resolved expansion, not the compact slash command",
                 );
             } finally {
@@ -312,7 +312,6 @@ Deno.test("Prompt Template invocation sends active Segment history plus the exac
                     initialImages: [],
                 });
                 assertEquals(active.ok, true);
-                const beforeSnapshot = runtime.getSessionSnapshot(sessionId);
                 runtime.subscribeSessionEvents(sessionId, (event) => {
                     if (
                         event.type === "agent_changed" || event.type === "model_changed" ||
@@ -358,8 +357,11 @@ Deno.test("Prompt Template invocation sends active Segment history plus the exac
                     events.some((event) => event.type === "thinking_level_changed" && event.thinkingLevel === "off"),
                     true,
                 );
-                assertEquals(runtime.getSessionSnapshot(sessionId)?.activeAgent, beforeSnapshot?.activeAgent);
-                assertEquals(runtime.getSessionSnapshot(sessionId)?.activeModel, beforeSnapshot?.activeModel);
+                assertEquals(runtime.getSessionSnapshot(sessionId)?.activeAgent, "operator");
+                assertEquals(runtime.getSessionSnapshot(sessionId)?.activeModel, {
+                    provider: "claude-cli",
+                    model: "sonnet",
+                });
             } finally {
                 await runtime.closeAllSessionsWhenIdle?.();
                 store.close();
@@ -435,7 +437,7 @@ Deno.test("Prompt Template invocation rejects unsupported Claude CLI thinking be
     );
 });
 
-Deno.test("Prompt Template invocation fails oversized Claude CLI requests before process launch", async () => {
+Deno.test("Prompt Template invocation uses ordinary Claude CLI handling for large requests", async () => {
     await withRuntimeCommandFixture(
         "named-invocation-claude-capacity-",
         async ({ projectRoot, homeDir }) => {
@@ -461,16 +463,13 @@ Deno.test("Prompt Template invocation fails oversized Claude CLI requests before
             const runtime = makeRuntime();
             try {
                 const created = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
-                await assertRejects(
-                    () =>
-                        runtime.promptUserTurn(created.sessionId, {
-                            initialRequest: "/too-large",
-                            initialImages: [],
-                        }),
-                    Error,
-                    "The current Session history does not fit claude-cli/sonnet",
-                );
-                assertEquals(await Deno.readTextFile(logPath), "");
+                const result = await runtime.promptUserTurn(created.sessionId, {
+                    initialRequest: "/too-large",
+                    initialImages: [],
+                });
+                assertEquals(result.ok, true);
+                const log = JSON.parse((await Deno.readTextFile(logPath)).trim().split("\n")[0]);
+                assertStringIncludes(log.stdin, "x ".repeat(100));
             } finally {
                 await runtime.closeAllSessionsWhenIdle?.();
                 if (previousPath === undefined) Deno.env.delete("PATH");
@@ -672,9 +671,9 @@ Deno.test("Prompt Template invocation rejects unsupported thinking before a mode
     );
 });
 
-Deno.test("Prompt Template auxiliary turns cannot advance an active workflow", async () => {
+Deno.test("Prompt Templates use the current workflow tools and ordinary execution path", async () => {
     await withRuntimeCommandFixture(
-        "named-invocation-no-workflow-authority-",
+        "named-invocation-workflow-authority-",
         async ({ projectRoot, setModelResponseFactory }) => {
             const promptDir = join(projectRoot, ".wld", "prompts");
             await Deno.mkdir(promptDir, { recursive: true });
@@ -682,9 +681,11 @@ Deno.test("Prompt Template auxiliary turns cannot advance an active workflow", a
                 join(promptDir, "finish-work.md"),
                 ["---", "agent: engineer", "---", "Try to complete the workflow."].join("\n"),
             );
-            setModelResponseFactory(() =>
-                fauxAssistantMessage(fauxToolCall("task_completed", { message: "- Should not be accepted." }))
-            );
+            let availableTools: string[] = [];
+            setModelResponseFactory((context) => {
+                availableTools = getCurrentTools(context.messages).map((tool) => tool.name);
+                return fauxAssistantMessage(fauxText("Working within the current workflow."));
+            });
 
             const runtime = makeRuntime();
             const created = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
@@ -696,22 +697,22 @@ Deno.test("Prompt Template auxiliary turns cannot advance an active workflow", a
                 executionAgent: "engineer",
                 executionCwd: projectRoot,
             });
-            const beforeWorkflow = runtime.getSessionSnapshot(sessionId)?.activeExecutionWorkflow;
             await runtime.promptUserTurn(sessionId, {
                 initialRequest: "/finish-work",
                 initialImages: [],
             });
 
-            assertEquals(runtime.getSessionSnapshot(sessionId)?.activeExecutionWorkflow, beforeWorkflow);
+            assert(availableTools.includes("task_completed"));
+            assertEquals(runtime.getSessionSnapshot(sessionId)?.activeExecutionWorkflow?.executionAgent, "engineer");
             assertEquals(runtime.getSessionSnapshot(sessionId)?.activeAgent, "engineer");
         },
     );
 });
 
-Deno.test("Prompt Template model override is one-shot and does not replace the root model", async () => {
+Deno.test("Prompt Template model override persists for ordinary follow-ups", async () => {
     await withRuntimeCommandFixture(
         "named-invocation-one-shot-model-",
-        async ({ projectRoot, setModelResponseFactory }) => {
+        async ({ projectRoot, setModelResponseFactories }) => {
             const promptDir = join(projectRoot, ".wld", "prompts");
             await Deno.mkdir(promptDir, { recursive: true });
             await Deno.writeTextFile(
@@ -725,15 +726,21 @@ Deno.test("Prompt Template model override is one-shot and does not replace the r
                 ].join("\n"),
             );
             const usedModels: string[] = [];
-            setModelResponseFactory((_context, _options, _state, model) => {
+            const respond: import("@earendil-works/pi-ai").FauxResponseFactory = (
+                _context,
+                _options,
+                _state,
+                model,
+            ) => {
                 usedModels.push(`${model.provider}/${model.id}`);
                 return fauxAssistantMessage(fauxText("alternate model response"));
-            });
+            };
+            setModelResponseFactories([respond, respond]);
 
             const runtime = makeRuntime();
             const created = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
             await runtime.switchAgent(created.sessionId, { agentName: "operator" });
-            const beforeModel = runtime.getSessionSnapshot(created.sessionId)?.activeModel;
+
             const result = await runtime.promptUserTurn(created.sessionId, {
                 initialRequest: "/alt-model this turn",
                 initialImages: [],
@@ -741,7 +748,15 @@ Deno.test("Prompt Template model override is one-shot and does not replace the r
 
             assertEquals(result.ok, true);
             assertEquals(usedModels, ["runtime-command-fixture/alternate-fixture-model"]);
-            assertEquals(runtime.getSessionSnapshot(created.sessionId)?.activeModel, beforeModel);
+            assertEquals(runtime.getSessionSnapshot(created.sessionId)?.activeModel, {
+                provider: "runtime-command-fixture",
+                model: "alternate-fixture-model",
+            });
+            await runtime.promptUserTurn(created.sessionId, { initialRequest: "Continue with that model." });
+            assertEquals(usedModels, [
+                "runtime-command-fixture/alternate-fixture-model",
+                "runtime-command-fixture/alternate-fixture-model",
+            ]);
         },
         { additionalModels: [{ id: "alternate-fixture-model", name: "Alternate Fixture Model" }] },
     );
