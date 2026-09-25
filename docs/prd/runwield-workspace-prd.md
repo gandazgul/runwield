@@ -391,6 +391,13 @@ remain explorable, but users should not have to inspect every Project to discove
 The Dashboard shows current work across Projects and links to the Session or Plan where the owner can act. It does not
 create an additional approval step or change which work the owner can continue.
 
+**Requirement: Show the Dashboard before checks finish.** The first page response shows all four attention cards with
+loading states. Verified rows appear as their checks finish, even when another Project or unrelated Plan check is still
+pending. Counts remain visibly incomplete until checks finish. A successful empty section says there is no work only
+when all relevant checks succeeded. A failed check never makes an empty section look successful. Partial errors keep
+verified rows and offer Retry. A failed refresh keeps prior rows but labels them as not updated; a successful retry
+replaces obsolete rows. Each card keeps its sorting, expansion, and focus during updates.
+
 **Requirement: Bound navigation reads and share concurrent refreshes.** Dashboard and sidebar requests made together
 share their in-progress read. Navigation reads only the recent Session page it needs, without counting the full Session
 archive, and reads each Session's Plan associations once per refresh. Completed reads are not retained as a stale cache;
@@ -402,8 +409,10 @@ Project, or the Dashboard. Loading and failed reads keep New Session and existin
 present a pending collection as empty. Later detail updates preserve expanded Projects, focus, and sidebar position.
 
 Each dashboard read verifies runtime layout and migration evidence once per checkout, rather than repeating those checks
-for every Plan and worktree lookup. The next read verifies that evidence again; Plan and Session state remain fresh
-within the read.
+for every Plan and worktree lookup. Registry evidence for a Project is read once for its Plans, with duplicate live
+attempts still treated as errors. The next read verifies that evidence again; Plan and Session state remain fresh within
+the read. The visible page makes one finite shared dashboard request per refresh, waits five seconds after it settles
+before another automatic request, and pauses automatic requests while hidden.
 
 Each section defaults to most recently updated first, has a header button to reverse its sort, and initially shows five
 items. Rows show the relevant update time, and finished rows also show completion time when it differs. Row labels name
@@ -414,6 +423,13 @@ unless a current unanswered interaction needs the owner.
 
 **Acceptance scenarios:**
 
+- Given a slow dashboard read, the first HTML shows all four cards as loading. Verified rows appear before unrelated
+  checks finish in either the same Project or another Project; other cards remain visibly incomplete.
+- Given completed checks with no eligible work, a card says “Nothing here.” Given failed checks, it instead shows an
+  error and Retry. A partial failure keeps verified rows; a failed background refresh keeps older rows marked not
+  updated. A successful retry replaces old rows and clears the warning.
+- Given the Dashboard is hidden or a request is still active, automatic refresh does not start another scan. Dashboard
+  and sidebar callers share active preparation without treating a prior completed read as current evidence.
 - Given two registered Projects with blocked, ready, finished, and running work, when the owner opens Workspace, the
   queue surfaces what needs attention without opening each Project.
 - When the owner pins work, it becomes easier to find but does not gain approval or execution permission.
