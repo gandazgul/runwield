@@ -731,12 +731,13 @@ indexer
 eligible agent shell commands. _Avoid_: Required tool, agent tool, search tool
 
 **Prompt Template**: A layered markdown template that defines a Core-owned named invocation available in TUI, Workspace,
-and ACP Sessions. Its front matter can select one auxiliary-turn Agent, model, and thinking level; missing Agent means
-Operator. _Avoid_: TUI command definition, prompt command
+and ACP Sessions. It renders into an ordinary user message. Its front matter can select persistent Session Agent, model,
+and thinking settings; omitted settings inherit the Session, with Operator defaults for an unconfigured new Session.
+_Avoid_: TUI command definition, prompt command
 
 **Named Invocation**: A raw user slash request that Core resolves to a Prompt Template or Skill. RunWield displays the
-compact slash request but stores the exact resolved expansion for resume and model context. _Avoid_: TUI expansion,
-client-side dispatch
+rendered Prompt Template or compact Skill command and stores the exact resolved expansion for resume and model context.
+_Avoid_: TUI expansion, client-side dispatch
 
 **Sealed Session Transcript Segment**: A Session Transcript Segment that is no longer writable and has recorded byte
 length, digest, and terminal-entry evidence for its final JSONL contents. _Avoid_: Archived transcript, old session,

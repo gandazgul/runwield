@@ -3,7 +3,7 @@
  * Command to start a new session.
  */
 
-import { AGENTS, getCwd } from "../../constants.js";
+import { getCwd } from "../../constants.js";
 import type { SessionRuntime } from "../../shared/session/session-runtime.ts";
 import { setTerminalTitleForName } from "../../ui/tui/terminal-title.ts";
 
@@ -35,7 +35,6 @@ export async function runNewCommand(argv: string[], options: NewCommandOptions =
         : getCwd();
     const nextSessionId = await options.sessionRuntime.createPromptReadySession({
         cwd: projectRoot,
-        agentName: AGENTS.ROUTER,
         deferPersistenceUntilFirstMessage: true,
     });
     if (sessionName) await options.sessionRuntime.renameSession(nextSessionId, sessionName);

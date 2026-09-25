@@ -51,8 +51,7 @@ export const PROTECTED_TOOL_NAMES = Object.freeze([
 ]);
 
 /**
- * Tools that advance or finalize a RunWield workflow. Prompt Template
- * auxiliary turns never receive these capabilities.
+ * Tools that advance or finalize a RunWield workflow.
  *
  * @type {readonly string[]}
  */

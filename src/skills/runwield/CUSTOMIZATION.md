@@ -25,9 +25,12 @@ instead.
 Put user prompt templates in `~/.wld/prompts/` or project templates in `.wld/prompts/`. The filename becomes the slash
 command name. RunWield Core resolves the slash command in TUI, Workspace, and ACP sessions.
 
-Prompt Template Front Matter can set `agent`, `model`, and `thinkingLevel` for one auxiliary turn. Missing `agent`
-defaults to Operator. Invalid execution fields fail before a model call. The compact slash command stays visible in the
-Session, while Core stores the exact resolved expansion for resume.
+Prompt Template Front Matter can set `agent`, `model` (`provider/model`), and `thinkingLevel`. Templates render into
+ordinary user messages; settings persist for follow-ups and resume. Omissions inherit the current Session. A new Session
+without explicit selections uses Operator and its configured model/thinking level. Changing Agent uses that Agent's
+defaults before explicit template overrides. Invalid settings fail before submission. During an unfinished workflow,
+changing Agent offers a new Session or cancellation, preserving the original workflow. Model/thinking changes alone keep
+the workflow. Core stores the exact expansion for resume and displays the rendered template in chat.
 
 A prompt template cannot override a built-in slash command name. RunWield warns at startup when an installed package
 prompt is blocked by a built-in command collision. Use `/reload` after editing prompt files in an active TUI.

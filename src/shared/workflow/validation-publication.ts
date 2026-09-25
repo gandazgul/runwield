@@ -477,9 +477,11 @@ async function runLockedPublicationPhase(
                 kind: "publication_blocked",
                 planName: args.planName,
                 stage: failure.publicationStage || "git_publication",
+                blockedByPlanLock: failure.blockedByPlanLock,
             });
             await logValidationFailure(new Error(failure.reason), failure.publicationStage || "git_publication");
-            emitStatus(args, blockedMessage, "warning");
+            // The supervisor presents this pause and settles the progress panel.
+            // Emitting here as well shows the same failure twice in the Session.
             return {
                 recorded: false,
                 result: {
