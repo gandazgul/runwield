@@ -81,6 +81,7 @@ export const REMOTE_RESOLVE_COMMAND = fixedPythonCommand(RESOLVE_SOURCE);
  * @returns {Promise<RemoteTarget>}
  */
 export async function resolveRemoteTarget(host, path = null, sshExecutable = "ssh", signal) {
+    // deno-lint-ignore no-control-regex -- SSH destinations must not contain control or whitespace characters.
     if (!host || host.startsWith("-") || /[\x00-\x20\x7f]/.test(host)) {
         throw new Error("Invalid SSH destination");
     }

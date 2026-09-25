@@ -94,8 +94,12 @@ async function stopChild(child: Deno.ChildProcess, label: string): Promise<void>
  * 127.0.0.1:<header.port>:127.0.0.1:<service.port>.
  */
 export async function runRemoteSupervisor(): Promise<void> {
-    if (!Deno.build.standalone || Deno.args.length !== 1 || Deno.args[0] !== "--remote-supervisor") {
+    if (!Deno.build.standalone || Deno.args.length !== 2 || Deno.args[0] !== "--remote-supervisor") {
         throw new Error("Remote supervisor requires its own compiled executable");
+    }
+    const setupPort = Number(Deno.args[1]);
+    if (!/^[1-9]\d*$/.test(Deno.args[1]) || setupPort > 65535) {
+        throw new Error("Invalid remote supervisor control port");
     }
     if (Deno.build.os !== "linux") throw new Error("Remote supervisor requires Linux");
     const originalMode = await stty("-g");
@@ -114,8 +118,11 @@ export async function runRemoteSupervisor(): Promise<void> {
     let inputPump: Deno.ChildProcess | undefined;
     let inputPumpStopped = false;
     let childStopped = false;
+    let stopActive: (() => void) | undefined;
     let childExited = false;
     let connection: Deno.Conn | undefined;
+    const setupHealthAbort = new AbortController();
+    let setupHealthTimer: ReturnType<typeof setInterval> | undefined;
     let interrupted = false;
     const onEarlyClosure = () => {
         interrupted = true;
@@ -125,6 +132,7 @@ export async function runRemoteSupervisor(): Promise<void> {
         try {
             listener.close();
         } catch { /* Already closed. */ }
+        stopActive?.();
     };
     for (const signal of ["SIGHUP", "SIGINT", "SIGTERM"] as const) {
         Deno.addSignalListener(signal, onEarlyClosure);
@@ -134,11 +142,62 @@ export async function runRemoteSupervisor(): Promise<void> {
         // A banner cannot cause the terminal to echo a credential: the header
         // travels exclusively over the separate non-terminal SSH channel.
         console.log(`REMOTE_SUPERVISOR_READY:${socketPath}`);
+        // Monitor the SSH terminal before waiting on the separate header channel.
+        // A dead launcher cannot strand the supervisor in accept/readHeader.
+        inputPump = new Deno.Command("cat", {
+            stdin: "inherit",
+            stdout: "piped",
+            stderr: "null",
+            detached: true,
+        }).spawn();
+        const pump = inputPump;
+        // The detached SSH peer can keep the PTY open after its laptop launcher
+        // dies. Probe the forwarded laptop service before the private header
+        // arrives; an unauthenticated health request must be refused with 401.
+        // The port is a locator, not a credential, and the regular authenticated
+        // health checks take over after header admission.
+        let misses = 0;
+        let checking = false;
+        setupHealthTimer = setInterval(async () => {
+            if (checking || interrupted) return;
+            checking = true;
+            try {
+                const response = await fetch(`http://127.0.0.1:${setupPort}/health`, {
+                    method: "POST",
+                    signal: AbortSignal.any([setupHealthAbort.signal, AbortSignal.timeout(4_000)]),
+                });
+                if (response.status !== 401) throw new Error("Remote launcher control unavailable");
+                misses = 0;
+            } catch {
+                if (!setupHealthAbort.signal.aborted && ++misses >= 3) onEarlyClosure();
+            } finally {
+                checking = false;
+            }
+        }, PERIOD_MS);
+        const inputReader = pump.stdout.getReader();
+        // deno-lint-ignore prefer-const -- The input monitor starts before the view exists.
+        let writer: WritableStreamDefaultWriter<Uint8Array> | undefined;
+        const input = (async () => {
+            try {
+                while (true) {
+                    const { done, value } = await inputReader.read();
+                    if (done) break;
+                    if (writer) await writer.write(value);
+                }
+            } catch {
+                /* TUI or terminal closed. */
+            } finally {
+                inputReader.releaseLock();
+                onEarlyClosure();
+            }
+        })();
         let header: RemoteSupervisorHeader;
         try {
             connection = await listener.accept();
             header = await readHeader(connection);
         } finally {
+            setupHealthAbort.abort();
+            if (setupHealthTimer !== undefined) clearInterval(setupHealthTimer);
             try {
                 connection?.close();
             } catch { /* Already closed. */ }
@@ -167,6 +226,7 @@ export async function runRemoteSupervisor(): Promise<void> {
         await stty("raw", "-echo");
         child = new Deno.Command(Deno.execPath(), {
             args: ["--remote-view"],
+            cwd: header.view.cwd,
             stdin: "piped",
             stdout: "inherit",
             stderr: "inherit",
@@ -176,7 +236,7 @@ export async function runRemoteSupervisor(): Promise<void> {
         void view.status.then(() => {
             childExited = true;
         });
-        const writer = view.stdin.getWriter();
+        writer = view.stdin.getWriter();
         await writer.write(encoder.encode(JSON.stringify(header.view) + "\n"));
         let stopped = false;
         const healthAbort = new AbortController();
@@ -189,34 +249,11 @@ export async function runRemoteSupervisor(): Promise<void> {
             healthAbort.abort();
             wake?.();
         };
+        stopActive = stop;
         const onSignal = () => stop();
         Deno.addSignalListener("SIGINT", onSignal);
         Deno.addSignalListener("SIGTERM", onSignal);
         Deno.addSignalListener("SIGHUP", onSignal);
-        // A separate owned process reads the terminal. A blocked tty read in
-        // this supervisor would otherwise keep it alive after the TUI exits.
-        inputPump = new Deno.Command("cat", {
-            stdin: "inherit",
-            stdout: "piped",
-            stderr: "null",
-            detached: true,
-        }).spawn();
-        const pump = inputPump;
-        const inputReader = pump.stdout.getReader();
-        const input = (async () => {
-            try {
-                while (true) {
-                    const { done, value } = await inputReader.read();
-                    if (done) break;
-                    await writer.write(value);
-                }
-            } catch {
-                /* TUI or terminal closed. */
-            } finally {
-                inputReader.releaseLock();
-                stop();
-            }
-        })();
         // Admit terminal input only after the pump is running. The launcher
         // waits for readiness before showing the view or forwarding input.
         if (await control(header, "readiness") || interrupted) stop();
@@ -250,19 +287,24 @@ export async function runRemoteSupervisor(): Promise<void> {
         } finally {
             stop();
             await monitor;
-            await stopChild(pump, "terminal input");
+            // Neither a blocked input write nor pump cleanup can delay the
+            // view's own five-second graceful/forced shutdown deadline.
+            await Promise.all([
+                childExited ? Promise.resolve() : stopChild(view, "TUI"),
+                stopChild(pump, "terminal input"),
+            ]);
+            childStopped = true;
             inputPumpStopped = true;
-            await writer.abort().catch(() => undefined);
-            await inputReader.cancel().catch(() => undefined);
-            await input;
+            void writer.abort().catch(() => undefined);
+            void input;
             Deno.removeSignalListener("SIGINT", onSignal);
             Deno.removeSignalListener("SIGTERM", onSignal);
             Deno.removeSignalListener("SIGHUP", onSignal);
-            if (!childExited) await stopChild(view, "TUI");
-            childStopped = true;
             await control(header, "shutdown").catch(() => undefined);
         }
     } finally {
+        setupHealthAbort.abort();
+        if (setupHealthTimer !== undefined) clearInterval(setupHealthTimer);
         if (child && !childStopped && !childExited) await stopChild(child, "TUI").catch(() => undefined);
         if (inputPump && !inputPumpStopped) await stopChild(inputPump, "terminal input").catch(() => undefined);
         for (const signal of ["SIGHUP", "SIGINT", "SIGTERM"] as const) {

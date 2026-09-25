@@ -12,6 +12,7 @@ export interface RemoteConnectionViewConfig {
 function safeLine(value: string): string {
     // The supervisor receives these strings from a remote host. Never render
     // terminal control sequences or multiline output supplied by that host.
+    // deno-lint-ignore no-control-regex -- Replace terminal controls and line separators in remote text.
     return value.replace(/[\x00-\x1f\x7f-\x9f\u2028\u2029]/g, " ").trim();
 }
 

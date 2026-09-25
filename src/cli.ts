@@ -21,7 +21,9 @@ import { parseArgs } from "@std/cli/parse-args";
 if (["--remote-preflight", "--remote-view", "--remote-supervisor"].includes(Deno.args[0])) {
     try {
         const { runRemotePreflight, runRemoteView } = await import("./shared/remote/entry.ts");
-        if (Deno.args.length !== 1) throw new Error("Unexpected remote entry arguments");
+        if (Deno.args.length !== (Deno.args[0] === "--remote-supervisor" ? 2 : 1)) {
+            throw new Error("Unexpected remote entry arguments");
+        }
         if (Deno.args[0] === "--remote-preflight") await runRemotePreflight();
         else if (Deno.args[0] === "--remote-supervisor") {
             const { runRemoteSupervisor } = await import("./shared/remote/supervisor.ts");

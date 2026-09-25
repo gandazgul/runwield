@@ -28,10 +28,10 @@ Deno.test("release extraction checks binary bytes, target, build and archive mem
         };
         const path = join(stage, "wld.build.json");
         const archive = join(root, "runtime.tar.gz");
-        async function pack(members = ["wld", "wld.build.json"]) {
+        const pack = async (members = ["wld", "wld.build.json"]) => {
             const result = await new Deno.Command("tar", { args: ["-czf", archive, "-C", stage, ...members] }).output();
             if (!result.success) throw new Error("Could not create test archive");
-        }
+        };
         await Deno.writeTextFile(path, JSON.stringify(metadata));
         await pack();
         assertEquals(

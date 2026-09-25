@@ -1,5 +1,5 @@
-import { assertEquals, assertStringIncludes, assertThrows } from "@std/assert";
-import { fromFileUrl, join } from "@std/path";
+import { assertEquals, assertRejects, assertStringIncludes, assertThrows } from "@std/assert";
+import { fromFileUrl, join, toFileUrl } from "@std/path";
 import { parseRemoteDestination } from "./index.ts";
 
 const cli = fromFileUrl(new URL("../../cli.ts", import.meta.url));
@@ -101,6 +101,41 @@ Deno.test("remote CLI help and invalid arity do not contact SSH", async () => {
         assertEquals(excess.code, 1);
         assertEquals(await exists(sshLog), false);
     });
+});
+
+Deno.test("source remote help works without a generated identity and connection explains the build step", async () => {
+    const root = await Deno.makeTempDir();
+    try {
+        for (const path of ["src/cmd/remote", "src/shared/remote", "scripts"]) {
+            await Deno.mkdir(join(root, path), { recursive: true });
+        }
+        for (
+            const path of [
+                "src/cmd/remote/index.ts",
+                "src/shared/remote/runtime.js",
+                "src/shared/remote/target.js",
+                "src/shared/remote/control.ts",
+                "src/shared/remote/release-artifact.js",
+                "scripts/build-metadata.js",
+                "src/shared/version.js",
+            ]
+        ) await Deno.copyFile(path, join(root, path));
+        const module = await import(toFileUrl(join(root, "src/cmd/remote/index.ts")).href);
+        const originalLog = console.log;
+        let help = "";
+        try {
+            console.log = (message: string) => {
+                help = message;
+            };
+            await module.runRemoteCommand(["--help"]);
+        } finally {
+            console.log = originalLog;
+        }
+        assertStringIncludes(help, "Usage: wld remote");
+        await assertRejects(() => module.runRemoteCommand(["example"]), Error, "scripts/compile.js --output bin/wld");
+    } finally {
+        await Deno.remove(root, { recursive: true });
+    }
 });
 
 Deno.test("remote CLI rejects an option-like host before invoking SSH", async () => {

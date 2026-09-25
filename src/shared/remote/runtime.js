@@ -175,6 +175,7 @@ export const REMOTE_PREPARE_COMMAND = fixedPythonCommand(PREPARE_SOURCE);
  * @returns {Promise<{path: string, reused: boolean}>}
  */
 export async function prepareRemoteRuntime(host, platform, artifact, sshExecutable = "ssh", signal) {
+    // deno-lint-ignore no-control-regex -- SSH destinations must not contain control or whitespace characters.
     if (!host || host.startsWith("-") || /[\x00-\x20\x7f]/.test(host)) throw new Error("Invalid SSH destination");
     const metadata = await verifyRemoteRuntimeArtifact(artifact, platform);
     const bytes = await Deno.readFile(artifact);

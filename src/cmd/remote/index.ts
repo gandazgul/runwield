@@ -4,7 +4,6 @@ import { dirname, join } from "@std/path";
 import { linuxTarget, prepareRemoteRuntime } from "../../shared/remote/runtime.js";
 import { fixedPythonCommand, resolveRemoteTarget } from "../../shared/remote/target.js";
 import { startRemoteControlService } from "../../shared/remote/control.ts";
-import { BUILD_ID, REMOTE_PROTOCOL_VERSION } from "../../shared/build-identity.js";
 import { VERSION } from "../../shared/version.js";
 import { downloadReleaseRuntime } from "../../shared/remote/release-artifact.js";
 
@@ -25,6 +24,7 @@ export function parseRemoteDestination(value: string): { host: string; path: str
         else if (value[i] === "]") bracket = false;
         else if (value[i] === ":" && !bracket) {
             const host = value.slice(0, i);
+            // deno-lint-ignore no-control-regex -- SSH destinations must not contain control or whitespace characters.
             if (!host || host.startsWith("-") || /[\x00-\x20\x7f]/.test(host)) {
                 throw new Error("Invalid SSH destination");
             }
@@ -32,6 +32,7 @@ export function parseRemoteDestination(value: string): { host: string; path: str
         }
     }
     if (bracket) throw new Error("Invalid SSH destination");
+    // deno-lint-ignore no-control-regex -- SSH destinations must not contain control or whitespace characters.
     if (/[\x00-\x20\x7f]/.test(value)) throw new Error("Invalid SSH destination");
     return { host: value, path: null };
 }
@@ -157,6 +158,16 @@ export async function runRemoteCommand(args: string[]): Promise<void> {
     }
     if (args.length !== 1) throw new Error(REMOTE_USAGE);
     const { host, path } = parseRemoteDestination(args[0]);
+    let identity: { BUILD_ID: string; REMOTE_PROTOCOL_VERSION: number };
+    try {
+        identity = await import("../../shared/build-identity.js");
+    } catch (error) {
+        if (!(error instanceof TypeError && error.message.includes("build-identity.js"))) throw error;
+        throw new Error(
+            "No launcher build identity. Build the launcher and matching Linux artifact explicitly with deno run -A scripts/compile.js --output bin/wld.",
+        );
+    }
+    const { BUILD_ID, REMOTE_PROTOCOL_VERSION } = identity;
     const setupAbort = new AbortController();
     const cancelSetup = () => setupAbort.abort();
     Deno.addSignalListener("SIGINT", cancelSetup);
@@ -211,7 +222,9 @@ export async function runRemoteCommand(args: string[]): Promise<void> {
     Deno.addSignalListener("SIGINT", onInterrupt);
     Deno.addSignalListener("SIGTERM", onInterrupt);
     try {
-        const command = `exec ${remoteExecutable(BUILD_ID, triple, metadata.sha256)} --remote-supervisor`;
+        const command = `exec ${
+            remoteExecutable(BUILD_ID, triple, metadata.sha256)
+        } --remote-supervisor ${service.port}`;
         child = new Deno.Command("ssh", {
             args: [
                 "-tt",

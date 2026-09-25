@@ -2931,6 +2931,10 @@ Deno.test("SessionRuntime ignores synthetic switch-requesting tool results", asy
     assertEquals(runtime.getSessionSnapshot(sessionId)?.activeAgent, activeAgentBefore);
 });
 
+// A real PNG is required: invalid image bytes are omitted during prompt preparation.
+const HANDOFF_TEST_IMAGE =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+
 Deno.test("SessionRuntime delivers steering submitted from the Triage report to Planner once", async () => {
     const sessionHost = new SessionHost();
     const runtime = makeRuntime({ sessionHost });
@@ -2980,7 +2984,7 @@ Deno.test("SessionRuntime delivers steering submitted from the Triage report to 
             steeringSubmission = runtime.steerSession(
                 sessionId,
                 "Keep the reproduction deterministic.",
-                [{ base64: btoa("handoff-image"), mimeType: "image/png" }],
+                [{ base64: HANDOFF_TEST_IMAGE, mimeType: "image/png" }],
                 "tui",
             );
         }
@@ -3104,7 +3108,7 @@ Deno.test("SessionRuntime transfers pending Router steering to Planner in submis
     const secondSteering = await runtime.steerSession(
         sessionId,
         "Second pending instruction with image.",
-        [{ base64: btoa("pending-image"), mimeType: "image/png" }],
+        [{ base64: HANDOFF_TEST_IMAGE, mimeType: "image/png" }],
     );
     releaseRouterResponse.resolve();
 
