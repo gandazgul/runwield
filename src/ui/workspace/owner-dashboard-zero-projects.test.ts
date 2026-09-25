@@ -7,8 +7,8 @@ Deno.test("Dashboard with no registered Projects completes all four empty sectio
     const store = openOwnerCoordinationStore({ dbPath: `${dir}/owner.sqlite3` });
     const continuation = {
         operations: new Map(),
-        async listSessions() {
-            return { sessions: [] };
+        listSessions() {
+            return Promise.resolve({ sessions: [] });
         },
     };
     try {

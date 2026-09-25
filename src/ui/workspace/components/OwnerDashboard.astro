@@ -1,13 +1,16 @@
+---
+import DashboardSection from "./DashboardSection.astro";
+---
 <section class="owner-dashboard" data-owner-dashboard>
     <div class="owner-dashboard-intro">
         <p>Plans that need you, can continue, are running, or recently finished.</p>
         <a class="rw-toolbar-button" href="/projects">Projects</a>
     </div>
     <div class="owner-dashboard-grid" data-dashboard-sections>
-        <section class="owner-dashboard-section" aria-label="Needs You" data-dashboard-card="needs-you"><div class="owner-dashboard-section-heading"><h2>Needs You</h2></div><p class="owner-dashboard-status" role="status">Loading…</p></section>
-        <section class="owner-dashboard-section" aria-label="Ready to Continue" data-dashboard-card="ready"><div class="owner-dashboard-section-heading"><h2>Ready to Continue</h2></div><p class="owner-dashboard-status" role="status">Loading…</p></section>
-        <section class="owner-dashboard-section" aria-label="In Progress" data-dashboard-card="in-progress"><div class="owner-dashboard-section-heading"><h2>In Progress</h2></div><p class="owner-dashboard-status" role="status">Loading…</p></section>
-        <section class="owner-dashboard-section" aria-label="Recently Finished" data-dashboard-card="recently-finished"><div class="owner-dashboard-section-heading"><h2>Recently Finished</h2></div><p class="owner-dashboard-status" role="status">Loading…</p></section>
+        <DashboardSection sectionKey="needs-you" label="Needs You" index={0} />
+        <DashboardSection sectionKey="ready" label="Ready to Continue" index={1} />
+        <DashboardSection sectionKey="in-progress" label="In Progress" index={2} />
+        <DashboardSection sectionKey="recently-finished" label="Recently Finished" index={3} />
     </div>
     <p class="owner-dashboard-status" role="status" data-dashboard-warning hidden></p>
 </section>
@@ -16,10 +19,6 @@
     const root = document.querySelector('[data-owner-dashboard]');
     if (!root) return;
     const warning = root.querySelector('[data-dashboard-warning]');
-    const cards = [...root.querySelectorAll('[data-dashboard-card]')];
-    const labels = ['Needs You', 'Ready to Continue', 'In Progress', 'Recently Finished'];
-    const keys = ['needs-you', 'ready', 'in-progress', 'recently-finished'];
-    const preferences = new Map();
     let settled = null;
     let current = null;
     let lastFrame = null;
@@ -30,84 +29,13 @@
     let controller = null;
     let destroyed = false;
 
-    function escapeText(value) {
-        return String(value || '').replace(/[&<>\"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[char]));
-    }
-    function timeHtml(value, label) {
-        const timestamp = Date.parse(value);
-        return Number.isFinite(timestamp)
-            ? '<time datetime="' + escapeText(new Date(timestamp).toISOString()) + '">' + label + ' ' + escapeText(new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(timestamp)) + '</time>'
-            : '';
-    }
-    function itemHtml(item) {
-        const updated = timeHtml(item.updatedAt, 'Updated');
-        const finished = timeHtml(item.recentAt, 'Finished');
-        const dates = finished && item.recentAt === item.updatedAt ? finished : updated + (updated && finished ? ' · ' : '') + finished;
-        return '<a class="owner-dashboard-row" href="' + escapeText(item.href) + '" title="' + escapeText(item.title) + '">' +
-            '<span><strong>' + escapeText(item.title) + '</strong><small>' + escapeText(item.projectName) + ' · ' + escapeText(item.statusLabel) + '</small>' +
-            (dates ? '<small class="owner-dashboard-row-time">' + dates + '</small>' : '') + '</span>' +
-            '<span class="owner-dashboard-row-action">' + escapeText(item.actionLabel || 'View Plan') + '</span></a>';
-    }
-    function renderCard(index) {
-        const card = cards[index];
-        const key = keys[index];
-        const label = labels[index];
-        const oldItems = settled?.sections?.find((section) => section.key === key)?.items || [];
-        const newItems = current?.sections?.find((section) => section.key === key)?.items || [];
-        // Until the read succeeds, prior rows are still visible but never called current.
-        const items = settled && (pending || failed)
-            ? [...new Map([...oldItems, ...newItems].map((item) => [item.type + ':' + item.projectId + ':' + item.planId + ':' + item.href, item])).values()]
-            : newItems;
-        const sorting = [...items].sort((a, b) => (Date.parse(b.updatedAt) || 0) - (Date.parse(a.updatedAt) || 0) || a.href.localeCompare(b.href));
-        const preference = preferences.get(key) || { oldestFirst: false, expanded: false };
-        if (preference.oldestFirst) sorting.reverse();
-        const shown = preference.expanded ? sorting : sorting.slice(0, 5);
-        const diagnostics = (lastFrame?.diagnostics || []).length > 0;
-        const incomplete = pending || failed || diagnostics;
-        const id = 'dashboard-items-' + index;
-        const sortLabel = preference.oldestFirst ? 'Oldest update first' : 'Newest update first';
-        const sortArrow = preference.oldestFirst ? 'M18 20V4m-4 4 4-4 4 4' : 'M18 4v16m-4-4 4 4 4-4';
-        const heading = '<div class="owner-dashboard-section-heading"><h2>' + label + '</h2>' +
-            (!pending || items.length ? '<span title="' + (incomplete ? 'Results incomplete' : 'Known items') + '">' + items.length + (incomplete ? '+' : '') + '</span>' : '') +
-            (items.length > 1 ? '<button class="rw-icon-button owner-dashboard-sort" type="button" data-dashboard-sort="' + key + '" aria-label="' + label + ': ' + sortLabel + '. Reverse sort" title="' + sortLabel + '" aria-pressed="' + preference.oldestFirst + '"><svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h7M4 12h7M4 18h7"/><path d="' + sortArrow + '"/></svg></button>' : '') + '</div>';
-        const state = failed
-            ? '<p class="owner-dashboard-status owner-dashboard-error" role="alert">' + (settled ? 'Could not update results. Showing previous results.' : items.length ? 'Some results could not be checked.' : 'Could not load results.') + ' <button class="rw-toolbar-button" type="button" data-dashboard-retry>Retry</button></p>'
-            : pending ? '<p class="owner-dashboard-status" role="status">' + (settled ? 'Updating…' : 'Loading…') + (items.length ? ' Results incomplete.' : '') + '</p>'
-            : diagnostics ? '<p class="owner-dashboard-status owner-dashboard-error" role="alert">Results incomplete. Some Projects could not be checked. <button class="rw-toolbar-button" type="button" data-dashboard-retry>Retry</button></p>' : '';
-        const body = '<div id="' + id + '">' + (shown.length ? shown.map(itemHtml).join('') : pending ? '' : failed || diagnostics ? '<p class="empty">Other items may be missing.</p>' : '<p class="empty">Nothing here.</p>') + '</div>';
-        const expand = items.length > 5 ? '<button class="rw-toolbar-button" type="button" data-dashboard-expand="' + key + '" aria-controls="' + id + '" aria-expanded="' + preference.expanded + '">' + (preference.expanded ? 'Show less' : 'Read more (' + (items.length - 5) + ')') + '</button>' : '';
-        const html = heading + body + state + expand;
-        if (card.innerHTML === html) return;
-        const focused = document.activeElement;
-        const focusWasInside = card.contains(focused);
-        const action = focusWasInside && (focused.getAttribute('data-dashboard-sort') ? 'sort' : focused.getAttribute('data-dashboard-expand') ? 'expand' : focused.getAttribute('data-dashboard-retry') !== null ? 'retry' : '');
-        const row = focusWasInside && focused.closest('.owner-dashboard-row');
-        card.innerHTML = html;
-        if (focusWasInside) {
-            const target = action ? card.querySelector('[data-dashboard-' + action + ']') : row && [...card.querySelectorAll('.owner-dashboard-row')].find((link) => link.getAttribute('href') === row.getAttribute('href') && link.getAttribute('title') === row.getAttribute('title'));
-            const next = target || card.querySelector('h2');
-            if (next.tagName === 'H2') next.tabIndex = -1;
-            next.focus({ preventScroll: true });
-        }
-    }
     function render() {
-        cards.forEach((_, index) => renderCard(index));
+        root.dispatchEvent(new CustomEvent('dashboard:update', { detail: { settled, current, lastFrame, pending, failed } }));
         const diagnostics = lastFrame?.diagnostics || [];
         warning.hidden = diagnostics.length === 0;
         if (diagnostics.length) warning.innerHTML = 'Some Project checks reported problems. Dashboard items may be missing. <a href="/projects">Open Projects</a>.';
     }
-    root.addEventListener('click', (event) => {
-        const button = event.target.closest('button');
-        if (!button || !root.contains(button)) return;
-        if (button.hasAttribute('data-dashboard-retry')) { refresh(); return; }
-        const key = button.dataset.dashboardSort || button.dataset.dashboardExpand;
-        if (!keys.includes(key)) return;
-        const preference = preferences.get(key) || { oldestFirst: false, expanded: false };
-        if (button.hasAttribute('data-dashboard-sort')) preference.oldestFirst = !preference.oldestFirst;
-        else preference.expanded = !preference.expanded;
-        preferences.set(key, preference);
-        renderCard(keys.indexOf(key));
-    });
+    root.addEventListener('dashboard:retry', () => refresh());
     function schedule() {
         clearTimeout(timer);
         if (!destroyed && document.visibilityState === 'visible') timer = setTimeout(refresh, 5000);
@@ -116,7 +44,7 @@
         if (destroyed || pending || document.visibilityState === 'hidden') return;
         const id = ++requestId;
         controller = new AbortController();
-        current = { sections: keys.map((key, index) => ({ key, label: labels[index], items: [] })) };
+        current = null;
         lastFrame = null;
         pending = true;
         failed = false;
@@ -136,8 +64,13 @@
                 if (!Array.isArray(frame.sections) || !frame.progress) throw new Error('Invalid dashboard update.');
                 current = frame;
                 lastFrame = frame;
-                if (frame.type === 'complete') { complete = true; pending = false; settled = frame; }
+                if (frame.type === 'complete') { complete = true; pending = false; }
                 render();
+                if (complete) settled = { ...frame, sections: frame.sections.map((section) => {
+                    if (!frame.sectionProgress?.[section.key]?.failed) return section;
+                    const old = settled?.sections?.find((entry) => entry.key === section.key)?.items || [];
+                    return { ...section, items: [...new Map([...old, ...section.items].map((item) => [item.type + ':' + item.projectId + ':' + item.href, item])).values()] };
+                }) };
             };
             while (true) {
                 const { done, value } = await reader.read();

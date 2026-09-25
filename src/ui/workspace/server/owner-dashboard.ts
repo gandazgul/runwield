@@ -442,13 +442,15 @@ function operationPlanId(store: OwnerStore, projectId: string, operation: Worksp
 async function registryFor(
     root: string,
     plan: OwnerPlan,
-    diagnostics: Diagnostic[] = [],
-    projectId = "",
+    diagnostics: Diagnostic[],
+    projectId: string,
+    onFailure: () => void,
 ): Promise<WorktreeRegistryEntry | null> {
     if (!safeText(plan.planId)) return null;
     try {
         return await findByPlanId(root, plan.planId);
     } catch (error) {
+        onFailure();
         diagnostics.push({
             source: "registry-reader",
             message: diagnosticMessage(error instanceof Error ? error : new Error(String(error))),
@@ -464,6 +466,8 @@ async function projectPayload(
     sessionContinuation: SessionContinuation,
     projectRecord: OwnerProject,
     publish: (item: DashboardItem) => void,
+    setPending: (categories: DashboardCategory[]) => void,
+    reportFailure: (categories: DashboardCategory[]) => void,
 ): Promise<SidebarProject> {
     const health = store.getProjectHealth(projectRecord.projectId);
     const project = serializeOwnerProject(projectRecord, health) as SidebarProject;
@@ -479,6 +483,7 @@ async function projectPayload(
                 repairHref: settingsHref(project.projectId),
                 repairLabel: "Open Project settings",
             });
+            reportFailure(CATEGORY_ORDER);
         }
     }
 
@@ -493,6 +498,7 @@ async function projectPayload(
                 repairHref: settingsHref(project.projectId),
                 repairLabel: "Open Project settings",
             });
+            reportFailure(CATEGORY_ORDER);
         }
     }
 
@@ -514,6 +520,7 @@ async function projectPayload(
                 repairHref: settingsHref(project.projectId),
                 repairLabel: "Open Project settings",
             });
+            reportFailure(["needs-you", "in-progress", "recently-finished"]);
         }
         hasMoreSessions = result.hasNext === true;
     } catch (error) {
@@ -523,6 +530,7 @@ async function projectPayload(
             repairHref: settingsHref(project.projectId),
             repairLabel: "Open Project settings",
         });
+        reportFailure(["needs-you", "in-progress", "recently-finished"]);
     }
 
     const associatedSessionIds = new Set<string>();
@@ -550,19 +558,6 @@ async function projectPayload(
     }
 
     const activeEvidenceByPlan = new Map<string, ClassificationEvidence>();
-    // Start independent readiness checks before waiting for Session and live-connection data.
-    const readinessByPlan = new Map<string, Promise<boolean>>();
-    if (root) {
-        for (const plan of plans) {
-            if (!READY.has(planStatus(plan))) continue;
-            readinessByPlan.set(
-                plan.planId,
-                loadPlanActionEvidence(root, plan.planId).then((readiness) =>
-                    readiness.kind === "success" && READY.has(readiness.evidence.status)
-                ).catch(() => false),
-            );
-        }
-    }
     const dashboardSessions: DashboardItem[] = [];
     const currentOperations = new Map(
         [...(sessionContinuation.operations?.entries() || [])].filter(([, operation]) =>
@@ -619,6 +614,7 @@ async function projectPayload(
                 return !linked || linked === plan.planId;
             }).map(([, result]) => result),
         );
+    const publishedStandalone = new Set<string>();
     const publishStandalone = () => {
         for (const [operationId, operation] of currentOperations) {
             if (operation.projectId !== project.projectId || operation.status !== "running") continue;
@@ -645,6 +641,8 @@ async function projectPayload(
                 continue;
             }
             const item = operationItem(project, operationId, operation, plan, session);
+            if (publishedStandalone.has(operationId)) continue;
+            publishedStandalone.add(operationId);
             dashboardSessions.push(item);
             publish(item);
         }
@@ -665,24 +663,75 @@ async function projectPayload(
     const standaloneSessions = sessions.filter((session) =>
         session.runwieldSessionId && !associatedSessionIds.has(session.runwieldSessionId)
     );
+    // A resolved live socket can publish its standalone Session without waiting for other sockets.
+    for (const task of liveBySession.values()) task.then(publishStandalone);
+    publishStandalone();
     const registries = new Map<string, WorktreeRegistryEntry | null>();
     const registryBatch = root
         ? findByPlanIds(root, plans.map((plan) => plan.planId)).catch(() => null)
         : Promise.resolve(null);
     // Each Plan settles after its own evidence, not after another Plan's readiness.
+    const remaining = new Map<DashboardCategory, number>(CATEGORY_ORDER.map((category) => [category, 0]));
+    const categoriesFor = (plan: OwnerPlan): DashboardCategory[] => {
+        if (!isDashboardEligible(plan)) return [];
+        const status = planStatus(plan);
+        if (READY.has(status)) return ["needs-you", "ready", "in-progress"];
+        if (FINISHED.has(status) || status === "validated") return ["needs-you", "in-progress", "recently-finished"];
+        return ["needs-you", "in-progress"];
+    };
+    for (const plan of plans) {
+        for (const category of categoriesFor(plan)) {
+            remaining.set(category, (remaining.get(category) || 0) + 1);
+        }
+    }
+    // A live Session can affect the attention and running cards even without a Plan.
+    for (const category of ["needs-you", "in-progress"] as DashboardCategory[]) {
+        remaining.set(category, (remaining.get(category) || 0) + 1);
+    }
+    const updatePending = () => setPending(CATEGORY_ORDER.filter((category) => (remaining.get(category) || 0) > 0));
+    updatePending();
+    const finish = (categories: DashboardCategory[]) => {
+        for (const category of categories) remaining.set(category, (remaining.get(category) || 0) - 1);
+        updatePending();
+    };
+    allLive.then(() => {
+        publishStandalone();
+        finish(["needs-you", "in-progress"]);
+    });
     let nextPlan = 0;
     await Promise.all(Array.from({ length: Math.min(6, plans.length) }, async () => {
         while (nextPlan < plans.length) {
             const plan = plans[nextPlan++];
-            const [, batch, ready] = await Promise.all([
-                liveForPlan(plan),
-                registryBatch,
-                readinessByPlan.get(plan.planId) || Promise.resolve(false),
-            ]);
+            const [, batch] = await Promise.all([liveForPlan(plan), registryBatch]);
+            let ready = false;
+            if (root && READY.has(planStatus(plan))) {
+                try {
+                    const result = await loadPlanActionEvidence(root, plan.planId);
+                    if (result.kind === "success") ready = READY.has(result.evidence.status);
+                    else {
+                        diagnostics.push({
+                            source: "readiness-reader",
+                            message: result.message,
+                            repairHref: settingsHref(project.projectId),
+                            repairLabel: "Open Project settings",
+                        });
+                        reportFailure(["ready"]);
+                    }
+                } catch (error) {
+                    diagnostics.push({
+                        source: "readiness-reader",
+                        message: diagnosticMessage(error instanceof Error ? error : new Error(String(error))),
+                        repairHref: settingsHref(project.projectId),
+                        repairLabel: "Open Project settings",
+                    });
+                    reportFailure(["ready"]);
+                }
+            }
             const registry = batch
                 ? batch.get(plan.planId) || null
                 : root
-                ? await registryFor(root, plan, diagnostics, project.projectId)
+                ? await registryFor(root, plan, diagnostics, project.projectId, () =>
+                    reportFailure(categoriesFor(plan)))
                 : null;
             registries.set(plan.planId, registry);
             const evidence = activeEvidenceByPlan.get(plan.planId) || {};
@@ -709,10 +758,10 @@ async function projectPayload(
             activeEvidenceByPlan.set(plan.planId, evidence);
             const category = classifyPlan(plan, registry, evidence);
             if (category) publish(dashboardItem(project, plan, category, registry, evidence));
+            finish(categoriesFor(plan));
         }
     }));
     await allLive;
-    publishStandalone();
     plansForSidebar.sort((left, right) => {
         const leftHold = planStatus(left) === "on_hold" ? 1 : 0;
         const rightHold = planStatus(right) === "on_hold" ? 1 : 0;
@@ -750,6 +799,7 @@ type DashboardFrame = {
     sections: DashboardSection[];
     progress: { completedProjects: number; totalProjects: number; pending: boolean };
     diagnostics: Diagnostic[];
+    sectionProgress: Record<DashboardCategory, { pending: boolean; failed: boolean }>;
     error?: string;
 };
 type PendingRead = {
@@ -774,6 +824,9 @@ function startDashboardRead(store: OwnerStore, continuation: SessionContinuation
         sections: CATEGORY_ORDER.map(section),
         progress: { completedProjects: 0, totalProjects: 0, pending: true },
         diagnostics: [],
+        sectionProgress: Object.fromEntries(
+            CATEGORY_ORDER.map((category) => [category, { pending: true, failed: false }]),
+        ) as DashboardFrame["sectionProgress"],
     };
     const read: PendingRead = {
         frame,
@@ -837,6 +890,10 @@ async function readOwnerDashboard(
     const projects: SidebarProject[] = new Array(records.length);
     const items = new Map<string, DashboardItem>();
     let completedProjects = 0;
+    const projectProgress = records.map(() => ({
+        pending: new Set<DashboardCategory>(CATEGORY_ORDER),
+        failed: new Set<DashboardCategory>(),
+    }));
     const snapshot = (type: DashboardFrame["type"] = "snapshot") => {
         const sections = Object.fromEntries(CATEGORY_ORDER.map((category) => [category, section(category)])) as Record<
             DashboardCategory,
@@ -857,6 +914,10 @@ async function readOwnerDashboard(
             sections: CATEGORY_ORDER.map((category) => sections[category]),
             progress: { completedProjects, totalProjects: records.length, pending: completedProjects < records.length },
             diagnostics,
+            sectionProgress: Object.fromEntries(CATEGORY_ORDER.map((category) => [category, {
+                pending: projectProgress.some((progress) => progress.pending.has(category)),
+                failed: projectProgress.some((progress) => progress.failed.has(category)),
+            }])) as DashboardFrame["sectionProgress"],
         };
         emit(frame);
         return frame;
@@ -870,9 +931,26 @@ async function readOwnerDashboard(
             const record = records[index];
             try {
                 const project = await projectPayload(store, continuation, record, (item) => {
-                    items.set(`${item.projectId}:${item.type}:${item.planId || item.href}`, item);
+                    items.set(
+                        `${item.projectId}:${item.type}:${item.type === "session" ? item.href : item.planId}`,
+                        item,
+                    );
+                    snapshot();
+                }, (categories) => {
+                    projectProgress[index].pending = new Set(categories);
+                    snapshot();
+                }, (categories) => {
+                    for (const category of categories) projectProgress[index].failed.add(category);
                     snapshot();
                 });
+                for (const diagnostic of project.diagnostics) {
+                    const affected: DashboardCategory[] = diagnostic.source === "readiness-reader"
+                        ? ["ready"]
+                        : diagnostic.source === "sessions-reader"
+                        ? ["needs-you", "in-progress", "recently-finished"]
+                        : CATEGORY_ORDER;
+                    for (const category of affected) projectProgress[index].failed.add(category);
+                }
                 delete project.dashboardPlans;
                 delete project.dashboardSessions;
                 delete project.activeEvidenceByPlan;
@@ -880,6 +958,7 @@ async function readOwnerDashboard(
                 delete project.root;
                 projects[index] = project;
             } catch (error) {
+                projectProgress[index].failed = new Set(CATEGORY_ORDER);
                 // Rows already verified within this Project remain available with an incomplete warning.
                 projects[index] = {
                     projectId: record.projectId,
@@ -901,6 +980,7 @@ async function readOwnerDashboard(
                     }],
                 } as SidebarProject;
             }
+            projectProgress[index].pending.clear();
             completedProjects++;
             snapshot();
         }

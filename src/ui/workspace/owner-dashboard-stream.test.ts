@@ -2,6 +2,8 @@ import { assertEquals, assertStrictEquals } from "@std/assert";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import { getHomeDir } from "../../constants.js";
+import { dirname } from "@std/path";
+import { getWorktreeRegistryPath } from "../../shared/worktree-registry.js";
 import { makeManagedSessionFixture, readTranscriptEvidence } from "../../testing/managed-session-fixture.ts";
 import { savePlan } from "../../plan-store.js";
 import { defineCommittedGitFixture } from "../../shared/git-test-fixture.ts";
@@ -14,6 +16,7 @@ import { loadOwnerDashboard, subscribeOwnerDashboard } from "./server/owner-dash
 type StreamFrame = {
     type: string;
     progress: { pending: boolean };
+    sectionProgress: Record<string, { pending: boolean; failed: boolean }>;
     sections: Array<{ items: Array<{ planId: string }> }>;
 };
 
@@ -127,7 +130,7 @@ Deno.test("dashboard keeps Promise identity and publishes later Project while fi
     }
 });
 
-Deno.test("one Project streams an unrelated completed Plan before its live Session socket responds", async () => {
+Deno.test("one Project streams a finished row and registry failure before its unrelated live socket responds", async () => {
     if (Deno.build.os === "windows") return; // The live connection uses a named pipe there.
     const fixture = await makeManagedSessionFixture();
     const { store, session, project } = fixture;
@@ -165,6 +168,28 @@ Deno.test("one Project streams an unrelated completed Plan before its live Sessi
             status: "user_verified",
             userVerifiedAt: new Date().toISOString(),
         });
+        await savePlan(fixture.projectRoot, "validated", "# Validated\n", {
+            planId: "validated-plan",
+            classification: "FEATURE",
+            status: "validated",
+        });
+        await enterProjectRuntime(fixture.projectRoot);
+        const registryPath = getWorktreeRegistryPath(fixture.projectRoot);
+        await Deno.mkdir(dirname(registryPath), { recursive: true });
+        const attempt = (id: string) => ({
+            id,
+            planName: "validated",
+            planId: "validated-plan",
+            baseBranch: "main",
+            baseRef: "HEAD",
+            baseCommit: "abc123",
+            branch: `runwield/worktree/validated-${id}`,
+            path: `${fixture.projectRoot}/${id}`,
+            status: "active",
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+        });
+        await Deno.writeTextFile(registryPath, JSON.stringify({ version: 2, entries: [attempt("a"), attempt("b")] }));
         let proof = store.acquireSessionActivation({
             runwieldSessionId: session.runwieldSessionId,
             projectId: project.projectId,
@@ -231,8 +256,13 @@ Deno.test("one Project streams an unrelated completed Plan before its live Sessi
         const early = (async () => {
             for (;;) {
                 const frame = await nextFrame(reader!);
-                if (frame.sections.some((section) => section.items.some((item) => item.planId === "early-plan"))) {
+                if (
+                    frame.sections.some((section) => section.items.some((item) => item.planId === "early-plan")) &&
+                    frame.sectionProgress["recently-finished"]?.failed &&
+                    !frame.sectionProgress["recently-finished"].pending
+                ) {
                     assertEquals(frame.type, "snapshot");
+                    assertEquals(frame.sectionProgress["recently-finished"], { pending: false, failed: true });
                     assertEquals(frame.progress, { pending: true, completedProjects: 0, totalProjects: 1 });
                     assertEquals(
                         frame.sections.flatMap((section) => section.items).some((item) =>
@@ -294,9 +324,117 @@ Deno.test("one Project streams an unrelated completed Plan before its live Sessi
     }
 });
 
+Deno.test("unreadable publication registry fails the finished card before unrelated Project checks end", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "rw-dashboard-registry-" });
+    const first = `${dir}/first`;
+    const second = `${dir}/second`;
+    await Deno.mkdir(first);
+    await Deno.mkdir(second);
+    const store = openOwnerCoordinationStore({ dbPath: `${dir}/owner.sqlite3` });
+    const gate = Promise.withResolvers<void>();
+    try {
+        store.registerProject({ root: first, displayName: "Publication" });
+        const other = store.registerProject({ root: second, displayName: "Other" });
+        await savePlan(first, "validated", "# Validated\n", {
+            planId: "validated-plan",
+            classification: "FEATURE",
+            status: "validated",
+        });
+        await enterProjectRuntime(first);
+        const path = getWorktreeRegistryPath(first);
+        await Deno.mkdir(dirname(path), { recursive: true });
+        const attempt = (id: string) => ({
+            id,
+            planName: "validated",
+            planId: "validated-plan",
+            baseBranch: "main",
+            baseRef: "HEAD",
+            baseCommit: "abc123",
+            branch: `runwield/worktree/validated-${id}`,
+            path: `${dir}/${id}`,
+            status: "active",
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+        });
+        await Deno.writeTextFile(path, JSON.stringify({ version: 2, entries: [attempt("a"), attempt("b")] }));
+        const continuation = {
+            operations: new Map(),
+            async listSessions(projectId: string) {
+                if (projectId === other.projectId) await gate.promise;
+                return { sessions: [] };
+            },
+        };
+        const seen = Promise.withResolvers<void>();
+        const frames: Array<
+            {
+                type: string;
+                progress: { pending: boolean };
+                sectionProgress: Record<string, { pending: boolean; failed: boolean }>;
+            }
+        > = [];
+        const unsubscribe = subscribeOwnerDashboard(store, continuation, (frame) => {
+            frames.push(frame);
+            if (frame.sectionProgress["recently-finished"].failed) seen.resolve();
+        });
+        try {
+            await Promise.race([
+                seen.promise,
+                new Promise<never>((_, reject) =>
+                    setTimeout(() => reject(new Error("Registry error did not reach finished card")), 5000)
+                ),
+            ]);
+            const progress = frames.at(-1)!;
+            assertEquals(progress.type, "snapshot");
+            assertEquals(progress.progress.pending, true);
+            assertEquals(progress.sectionProgress["recently-finished"], { pending: true, failed: true });
+        } finally {
+            gate.resolve();
+            unsubscribe();
+        }
+        await loadOwnerDashboard(store, continuation);
+    } finally {
+        gate.resolve();
+        store.close();
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
+Deno.test("standalone Sessions linked to one on-hold Plan remain distinct", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "rw-dashboard-standalone-" });
+    const root = `${dir}/project`;
+    await Deno.mkdir(root);
+    const store = openOwnerCoordinationStore({ dbPath: `${dir}/owner.sqlite3` });
+    try {
+        const project = store.registerProject({ root, displayName: "Test" });
+        await savePlan(root, "held", "# Held\n", { planId: "held-plan", classification: "FEATURE", status: "on_hold" });
+        const operation = (sessionId: string) => ({
+            projectId: project.projectId,
+            runwieldSessionId: sessionId,
+            status: "running",
+            liveInteraction: {
+                interactionId: sessionId,
+                request: { type: "question", _meta: { planId: "held-plan" } },
+            },
+        });
+        const continuation = {
+            operations: new Map([["one", operation("session-one")], ["two", operation("session-two")]]),
+            listSessions() {
+                return Promise.resolve({ sessions: [] });
+            },
+        };
+        const result = await loadOwnerDashboard(store, continuation);
+        const rows = result.dashboard.sections.flatMap((section) => section.items);
+        assertEquals(rows.length, 2);
+        assertEquals(new Set(rows.map((item) => item.href)).size, 2);
+    } finally {
+        store.close();
+        await Deno.remove(dir, { recursive: true });
+    }
+});
+
 const tracedDashboardFixture = defineCommittedGitFixture({ "README.md": "# Dashboard scope\n" });
 
-Deno.test("HTTP dashboard stream retains one runtime verification until its producer settles", async () => {
+Deno.test("HTTP dashboard stream completes its producer and starts a fresh read afterward", async () => {
     if (Deno.build.os === "windows") return; // The live connection uses a named pipe there.
     await withProcessGlobalTestLock(async () => {
         const root = await tracedDashboardFixture.checkout({ prefix: "rw-dashboard-scope-" });
@@ -366,7 +504,6 @@ Deno.test("HTTP dashboard stream retains one runtime verification until its prod
                 entered.promise,
                 new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Live socket not reached")), 5000)),
             ]);
-            assertEquals(await listings(), 1);
             gate.resolve();
             const frames: StreamFrame[] = (await response.text()).trim().split("\n").map((line: string): StreamFrame =>
                 JSON.parse(line)
@@ -376,10 +513,10 @@ Deno.test("HTTP dashboard stream retains one runtime verification until its prod
                 frames.at(-1)?.sections.some((section) => section.items.some((item) => item.planId === "scope-plan")),
                 true,
             );
-            assertEquals(await listings(), 1);
+            const completedListings = await listings();
             const fresh = await app(new Request(url, { headers }));
             assertEquals((await fresh.text()).trim().split("\n").at(-1)?.includes('"type":"complete"'), true);
-            assertEquals(await listings(), 2);
+            assertEquals((await listings()) > completedListings, true);
         } finally {
             gate.resolve();
             if (listening) await new Promise<void>((resolve) => socket.close(() => resolve()));
