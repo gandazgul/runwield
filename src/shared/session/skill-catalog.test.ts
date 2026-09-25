@@ -1,5 +1,5 @@
 import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
-import { join } from "@std/path";
+import { dirname, fromFileUrl, join } from "@std/path";
 import { DefaultResourceLoader } from "@earendil-works/pi-coding-agent";
 import { fauxAssistantMessage, fauxText, getCurrentSystemPrompt, type TranscriptContext } from "@earendil-works/pi-ai";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
@@ -53,6 +53,32 @@ async function assertPublicSelection(
     assertStringIncludes(resolved.expandedRequest, `location="${expectedPath}"`);
     assertEquals(resolved.payload.source.layer, expectedSource);
 }
+
+Deno.test("installed review skill is user-invokable with its portable instructions and support files", async () => {
+    await withRuntimeCommandFixture("skill-catalog-review-", async ({ projectRoot }) => {
+        const review = (await listSkills({ cwd: projectRoot })).find((skill) => skill.name === "review");
+        assertEquals(review?.source, "bundled");
+        const resolved = await resolveNamedInvocation({ cwd: projectRoot, text: "/skill:review review PR 42" });
+        assertEquals(resolved.kind, "skill");
+        if (resolved.kind !== "skill" || !review) return;
+        assertStringIncludes(resolved.expandedRequest, "review PR 42");
+        assertStringIncludes(resolved.expandedRequest, "## Standards");
+        assertStringIncludes(resolved.expandedRequest, "## Spec");
+
+        const bundledDir = dirname(review.path);
+        for (const file of ["SKILL.md", "github.md", "gitlab.md", "pull-requests.md"]) {
+            assertEquals(
+                await Deno.readTextFile(join(bundledDir, file)),
+                (await Deno.readTextFile(fromFileUrl(new URL(`../../../skills/review/${file}`, import.meta.url))))
+                    .replace("license: MIT; complete terms in ../LICENSE", "license: MIT; complete terms in LICENSE"),
+            );
+        }
+        assertEquals(
+            await Deno.readTextFile(join(bundledDir, "LICENSE")),
+            await Deno.readTextFile(fromFileUrl(new URL("../../../skills/LICENSE", import.meta.url))),
+        );
+    });
+});
 
 Deno.test("Skill catalog applies all four custom layers in order and refreshes after winner removal", async () => {
     await withRuntimeCommandFixture("skill-catalog-layers-", async ({ projectRoot, homeDir }) => {

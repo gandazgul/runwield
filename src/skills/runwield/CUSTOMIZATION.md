@@ -35,7 +35,8 @@ the workflow. Core stores the exact expansion for resume and displays the render
 A prompt template cannot override a built-in slash command name. RunWield warns at startup when an installed package
 prompt is blocked by a built-in command collision. Use `/reload` after editing prompt files in an active TUI.
 
-Copy bundled templates for examples: `code-optimizer`, `code-review`, `commit`, and `release`.
+Copy bundled templates for examples: `code-optimizer`, `commit`, and `release`. For a user-requested review of a PR or
+other changes, invoke `/skill:review` instead.
 
 ## Skills
 
@@ -59,6 +60,7 @@ Bundled skills:
 - `prompt-writing`: write or tighten LLM prompts and agent instructions.
 - `prototype`: build throwaway prototypes for state, business logic, or UI options.
 - `research`: capture source-backed research findings as Markdown.
+- `review`: review a PR, branch, commit range, or working tree against project standards and the change's spec.
 - `resolving-merge-conflicts`: resolve in-progress merge or rebase conflicts.
 - `runwield`: answer user-facing questions about RunWield and `wld`.
 - `tdd`: use a red-green-refactor loop.
