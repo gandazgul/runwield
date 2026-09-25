@@ -118,7 +118,8 @@ for (
 ) {
     Deno.test({
         name: `production supervisor cleans up on ${scenario} without stopping unrelated work`,
-        ignore: Deno.build.os !== "linux",
+        // Opt in on a Linux host with working SSHFS and /dev/fuse, as in sftp-mount.test.ts.
+        ignore: Deno.build.os !== "linux" || Deno.env.get("WLD_TEST_SSHFS_STALL") !== "1" || Deno.uid() === 0,
         fn: async () => {
             const executable = await compiledSupervisor();
             const root = await Deno.makeTempDir();
