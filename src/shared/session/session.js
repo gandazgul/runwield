@@ -2175,6 +2175,12 @@ export async function buildAgentSession({
         mnemotecaExtension,
         cymbalExtension,
         ketchExtension,
+        // Pi persists prompt deltas across Agent switches. Replace the provider's
+        // leading instructions each run so a previous Agent's role cannot remain
+        // authoritative. Pi keeps the durable history and current tools intact.
+        (/** @type {import('@earendil-works/pi-coding-agent').ExtensionAPI} */ pi) => {
+            pi.on("before_agent_start", (event) => ({ systemPrompt: event.systemPrompt }));
+        },
         // Re-anchoring is per-agent-session: the agent identity is fixed here, and
         // the Plan pointer is read from live session state at compaction time.
         (/** @type {import('@earendil-works/pi-coding-agent').ExtensionAPI} */ pi) =>

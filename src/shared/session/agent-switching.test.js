@@ -1,5 +1,6 @@
 import { assert, assertEquals, assertRejects, assertStrictEquals } from "@std/assert";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { fauxAssistantMessage, fauxText, getCurrentTools, getSystemMessageText } from "@earendil-works/pi-ai";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { runActiveAgentTurn, switchActiveAgent } from "./agent-switching.js";
 import { __getRootSessionMetadataForTests } from "./session.js";
@@ -26,6 +27,74 @@ function makeSession(projectRoot) {
     });
     return { hostedSession, sessionManager };
 }
+
+Deno.test("Agent switches replace provider system instructions while retaining conversation history", async () => {
+    await withRuntimeCommandFixture(
+        "agent-switch-provider-prompt-",
+        async ({ projectRoot, setModelResponseFactory }) => {
+            const initial = makeSession(projectRoot);
+            const sessionManager = initial.sessionManager;
+            let hostedSession = initial.hostedSession;
+            /** @type {import('@earendil-works/pi-ai').TranscriptContext[]} */
+            const requests = [];
+            try {
+                for (const agentName of ["router", "ideator", "engineer", "engineer", "engineer", "router"]) {
+                    if (requests.length === 4) {
+                        hostedSession.dispose();
+                        hostedSession = new HostedSession({
+                            id: `restored-switch-${crypto.randomUUID()}`,
+                            cwd: projectRoot,
+                            sessionManager,
+                        });
+                    }
+                    setModelResponseFactory((context) => {
+                        requests.push(structuredClone(context));
+                        return fauxAssistantMessage(fauxText("Previous conversation retained."));
+                    });
+                    await runActiveAgentTurn({
+                        hostedSession,
+                        agentName,
+                        sessionManager,
+                        userRequest: `Request for ${agentName}.`,
+                    });
+                }
+
+                assertEquals(requests.length, 6);
+                for (const index of [2, 3, 4]) {
+                    const request = requests[index];
+                    const systems = request.messages.filter((message) => message.role === "system");
+                    assertEquals(systems.length, 1);
+                    assertEquals(request.messages[0].role, "system");
+                    const prompt = getSystemMessageText(systems[0]);
+                    assert(prompt.includes("You are the Engineer"));
+                    assert(!prompt.includes("Your ONLY job is to identify the Routing Intent"));
+                    assert(!prompt.includes("You are the Ideator"));
+                    const toolNames = getCurrentTools(request.messages).map((tool) => tool.name);
+                    assert(toolNames.includes("edit"));
+                    assert(toolNames.includes("task_completed"));
+                    assert(!toolNames.includes("triage_report"));
+                    assert(JSON.stringify(request.messages).includes("Request for router."));
+                    assert(JSON.stringify(request.messages).includes("Previous conversation retained."));
+                }
+
+                const routerSystems = requests[5].messages.filter((message) => message.role === "system");
+                assertEquals(routerSystems.length, 1);
+                assert(
+                    getSystemMessageText(routerSystems[0]).includes("Your ONLY job is to identify the Routing Intent"),
+                );
+                assert(!getSystemMessageText(routerSystems[0]).includes("You are the Engineer"));
+                assert(getCurrentTools(requests[5].messages).some((tool) => tool.name === "triage_report"));
+                // Request projection must not erase the durable prompt-change evidence.
+                const savedSystems = sessionManager.buildSessionContext().messages.filter((message) =>
+                    message.role === "system"
+                );
+                assert(savedSystems.length > 1);
+            } finally {
+                hostedSession.dispose();
+            }
+        },
+    );
+});
 
 Deno.test("switchActiveAgent rebuilds same Agent roots when cwd changes", async () => {
     await withRuntimeCommandFixture("agent-switch-cwd-rebuild-", async ({ projectRoot }) => {
