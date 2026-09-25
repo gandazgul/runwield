@@ -25,7 +25,13 @@ createdAt: "2026-09-24"
 origin: "internal"
 userVerifiedAt: null
 targetBranch: "main"
-status: "validated_reviewer"
+status: "validated"
+validatedCommit: "1d62eac5494cbf5065827e689ec4ffd7b55ac5a6"
+workRecord:
+    status: "generated"
+    recordId: "c306922c-8c08-42d2-851e-ee9b408b2778"
+    path: "docs/work-records/2026-09-25-reopened-plan-reviews-across-all-session-surfaces.md"
+    lastAttemptAt: "2026-09-25T20:34:50.680Z"
 ---
 
 # Reopen the Last Plan Review with a Slash Command
