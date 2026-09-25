@@ -179,4 +179,11 @@ export async function writeBuildIdentityFile(filePath, buildId) {
 
 if (import.meta.main) {
     await writeVersionFile(FILE_PATH, resolveBuildVersion({ readEnv: readEnvValue, runGit: runGitCommand }));
+    // Source checks and tests need the generated module; compiled builds replace this placeholder.
+    try {
+        await Deno.stat("src/shared/build-identity.js");
+    } catch (error) {
+        if (!(error instanceof Deno.errors.NotFound)) throw error;
+        await writeBuildIdentityFile("src/shared/build-identity.js", "0".repeat(64));
+    }
 }
