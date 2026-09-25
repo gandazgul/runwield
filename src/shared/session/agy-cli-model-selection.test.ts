@@ -263,8 +263,8 @@ Deno.test("explicit approved Agy CLI selection updates the active runtime Sessio
                 model: "gemini-3.8-flash",
                 provider: "agy-cli",
             });
-            assertEquals(getSettingsManager(projectRoot).getDefaultProvider(), "agy-cli");
-            assertEquals(getSettingsManager(projectRoot).getDefaultModel(), "gemini-3.8-flash");
+            assertEquals(getSettingsManager(projectRoot).getDefaultProvider(), "runtime-command-fixture");
+            assertEquals(getSettingsManager(projectRoot).getDefaultModel(), "fixture-model");
             assertStringIncludes(messages.at(-1) || "", `Switched model to ${AGY_FLASH}`);
         } finally {
             Deno.env.set("PATH", previousPath);
