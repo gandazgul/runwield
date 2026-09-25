@@ -49,6 +49,7 @@
     "npm:@deno/astro-adapter@0.6": "0.6.0_astro@7.3.2_@emnapi+core@1.11.3_@emnapi+runtime@1.11.3",
     "npm:@earendil-works/pi-agent-core@~0.87.1": "0.87.1_@modelcontextprotocol+sdk@1.30.0",
     "npm:@earendil-works/pi-ai@~0.87.1": "0.87.1_@modelcontextprotocol+sdk@1.30.0",
+    "npm:@earendil-works/pi-coding-agent@0.87.1": "0.87.1_@modelcontextprotocol+sdk@1.30.0",
     "npm:@earendil-works/pi-coding-agent@~0.87.1": "0.87.1_@modelcontextprotocol+sdk@1.30.0",
     "npm:@earendil-works/pi-tui@~0.87.1": "0.87.1",
     "npm:@lezer/common@^1.5.2": "1.5.2",

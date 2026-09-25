@@ -33,7 +33,8 @@ planId: "ec285d14-a71f-464c-a934-47c209958966"
 The connection, local model bridge, and guarded writer are useful foundations, but the first complete product slice is a
 normal remote TUI turn whose project work happens remotely and whose only authoritative conversation history is on the
 laptop. Current Session construction assumes one local cwd for project identity, resources, tools, and persistence, and
-Pi transcript writes bypass parts of the file Session store.
+Pi transcript writes bypass parts of the file Session store. Child 02 mounts the laptop's full `~/.wld` for direct
+personal file access, but that connection-wide mount cannot authorize Session writes.
 
 This slice completes the Remote SSH PRD's core **Local memories and saved Sessions** journey and the Core PRD's Session
 continuity and project-context outcomes. It must keep empty starts dormant, preserve local offline history, and
@@ -97,12 +98,13 @@ shifts, migration or compatibility risk grows, or the Verification Plan no longe
 
 - Session context represents durable remote host identity and canonical project path separately from current execution
   cwd/worktree and temporary storage mountpoints; laptop path APIs never resolve or create the remote locator.
-- A new empty remote TUI remains an in-memory shell with no bundle, catalog record, transcript, mount, or lock until the
-  first user message.
+- A new empty remote TUI remains an in-memory shell with no bundle, catalog record, transcript, guarded Session writer
+  mount, or lock until the first user message. The separate connection-wide personal mount may already exist.
 - The first user message acquires local ownership, creates the local bundle and planning segment, mounts fresh guarded
   access, persists the visible message, and only then allows the remote Pi turn and project tools to continue.
-- Pi transcript writes, compaction, metadata, image references, and segment rollover use mounted operation access, while
-  local Core commits manifests, generations, recovery descriptors, and catalog evidence from laptop bytes.
+- Pi transcript writes, compaction, metadata, image references, and segment rollover use guarded mounted operation
+  access, never the broad personal mount, while local Core commits manifests, generations, recovery descriptors, and
+  catalog evidence from laptop bytes.
 - Attachments selected locally or produced remotely transfer into local Session-owned storage; durable transcript
   references contain no connection-specific mount path.
 - Completed local history can be listed, projected, exported, and inspected while disconnected. Continuing it requires

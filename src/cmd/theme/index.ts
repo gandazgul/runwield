@@ -3,7 +3,8 @@
  * Implementation of the theme selection command.
  */
 
-import { getSettingsManager } from "../../shared/settings.js";
+import { getSettingsManager, setCustomSetting } from "../../shared/settings.js";
+import { remotePersonalResourcesActive } from "../../shared/remote/personal-resources.ts";
 import { DEFAULT_THEME_NAME, discoverAndRegisterThemes, getAvailableThemes, setTheme } from "../../ui/theme/theme.js";
 import { printCommandHelp } from "../help/index.js";
 import { COMMAND_NAMES } from "../registry.js";
@@ -56,7 +57,8 @@ export async function runThemeCommand(argv: string[], options: ThemeCommandOptio
             Deno.exitCode = 1;
             return;
         }
-        settings.setTheme(arg);
+        if (remotePersonalResourcesActive()) await setCustomSetting("theme", arg, "global");
+        else settings.setTheme(arg);
         setTheme(arg);
         console.log(`Theme switched to ${arg}`);
         return;
@@ -83,7 +85,8 @@ export async function runThemeCommand(argv: string[], options: ThemeCommandOptio
     });
 
     if (selection) {
-        settings.setTheme(selection);
+        if (remotePersonalResourcesActive()) await setCustomSetting("theme", selection, "global");
+        else settings.setTheme(selection);
         setTheme(selection);
     } else {
         setTheme(originalTheme);

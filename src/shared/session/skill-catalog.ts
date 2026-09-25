@@ -1,6 +1,12 @@
 import { extractYaml, test as hasFrontMatter } from "@std/front-matter";
 import { dirname, join, resolve } from "@std/path";
-import { getHomeDir, SKILLS_DIR } from "../../constants.js";
+import { SKILLS_DIR } from "../../constants.js";
+import {
+    assertPersonalResourcePath,
+    personalAgentsRoot,
+    personalGlobalRoot,
+    PersonalResourcePathError,
+} from "../remote/personal-resources.ts";
 import { directoryExists, fileExists } from "../helpers.js";
 import { getCustomSetting } from "../settings.js";
 import { extractBundledSkills } from "./agent-assets.js";
@@ -38,12 +44,17 @@ async function bundledSkillDirectories(): Promise<string[]> {
 }
 
 async function readLayer(layer: SkillLayer): Promise<SkillCandidate[]> {
+    await assertPersonalResourcePath(layer.dir, `${layer.source} Skill directory`);
     if (!(await directoryExists(layer.dir))) return [];
     const candidates: SkillCandidate[] = [];
     try {
         for await (const entry of Deno.readDir(layer.dir)) {
-            if (!entry.isDirectory) continue;
-            const path = join(layer.dir, entry.name, "SKILL.md");
+            if (!entry.isDirectory && !entry.isSymlink) continue;
+            const skillDir = join(layer.dir, entry.name);
+            await assertPersonalResourcePath(skillDir, `${layer.source} Skill directory`);
+            if (!(await directoryExists(skillDir))) continue;
+            const path = join(skillDir, "SKILL.md");
+            await assertPersonalResourcePath(path, `${layer.source} Skill`);
             if (!(await fileExists(path))) continue;
             try {
                 const raw = await Deno.readTextFile(path);
@@ -64,7 +75,8 @@ async function readLayer(layer: SkillLayer): Promise<SkillCandidate[]> {
                     directoryName: entry.name,
                     identities: name === entry.name ? [name] : [name, entry.name],
                 });
-            } catch {
+            } catch (error) {
+                if (error instanceof PersonalResourcePathError) throw error;
                 // Ignore unreadable or malformed skills without reserving their names.
             }
         }
@@ -87,7 +99,8 @@ export async function listSkills(options: { cwd?: string } = {}): Promise<SkillR
     const bundledCandidates = Array.from(bundledCandidatesByDirectory.values()).flat();
     const protectedBundledNames = new Set(bundledCandidates.flatMap((candidate) => candidate.identities));
     const projectRoot = options.cwd ? resolve(options.cwd) : undefined;
-    const home = getHomeDir();
+    const home = personalGlobalRoot();
+    const externalRoot = personalAgentsRoot();
     const externalEnabled = (getCustomSetting("enableExternalSkills", "global", options.cwd) ?? true) !== false;
     const layers: SkillLayer[] = [
         ...(projectRoot
@@ -100,9 +113,9 @@ export async function listSkills(options: { cwd?: string } = {}): Promise<SkillR
             : []),
         ...(home
             ? [
-                { dir: join(home, ".wld", "skills"), source: "home", external: false } as const,
-                ...(externalEnabled
-                    ? [{ dir: join(home, ".agents", "skills"), source: "external", external: true } as const]
+                { dir: join(home, "skills"), source: "home", external: false } as const,
+                ...(externalEnabled && externalRoot
+                    ? [{ dir: join(externalRoot, "skills"), source: "external", external: true } as const]
                     : []),
             ]
             : []),
@@ -133,6 +146,7 @@ export async function findSkill(name: string, options: { cwd?: string } = {}): P
 /** Expand an already selected Skill record for a model turn. */
 export async function expandSkillRecord(skill: SkillRecord, additionalInstructions?: string): Promise<string> {
     try {
+        await assertPersonalResourcePath(skill.path, `Skill "${skill.name}"`);
         const raw = await Deno.readTextFile(skill.path);
         const body = (hasFrontMatter(raw) ? extractYaml(raw).body : raw).trim();
         const skillBlock = `<skill name="${skill.name}" location="${skill.path}">\nReferences are relative to ${

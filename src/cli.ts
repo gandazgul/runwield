@@ -16,14 +16,37 @@
 
 import { createRequire } from "node:module";
 import { parseArgs } from "@std/cli/parse-args";
-import { cleanupAgentBrowserSessionSync, initializeAgentBrowserSession } from "./shared/agent-browser-session.ts";
-import { exposeBundledHelpersSync } from "./shared/package-install.ts";
+// Keep private runtime entries ahead of helper exposure, browser startup and
+// command-registry imports. Static imports execute before top-level dispatch.
+if (["--remote-preflight", "--remote-view", "--remote-supervisor"].includes(Deno.args[0])) {
+    try {
+        const { runRemotePreflight, runRemoteView } = await import("./shared/remote/entry.ts");
+        if (Deno.args.length !== (Deno.args[0] === "--remote-supervisor" ? 2 : 1)) {
+            throw new Error("Unexpected remote entry arguments");
+        }
+        if (Deno.args[0] === "--remote-preflight") await runRemotePreflight();
+        else if (Deno.args[0] === "--remote-supervisor") {
+            const { runRemoteSupervisor } = await import("./shared/remote/supervisor.ts");
+            await runRemoteSupervisor();
+        } else await runRemoteView();
+        // Private entries have no ordinary CLI or personal startup to serve.
+        Deno.exit(0);
+    } catch (error) {
+        console.error("[RunWield] Remote entry failed:", error);
+        Deno.exit(1);
+    }
+}
+const { cleanupAgentBrowserSessionSync, initializeAgentBrowserSession } = await import(
+    "./shared/agent-browser-session.ts"
+);
+const { exposeBundledHelpersSync } = await import("./shared/package-install.ts");
 
 function isProtocolOnlyStartup(argv: string[]): boolean {
-    return argv[0] === "mcp" || (argv[0] === "--mode" && argv[1] === "acp");
+    return argv[0] === "mcp" || argv[0] === "remote" ||
+        (argv[0] === "--mode" && argv[1] === "acp");
 }
 
-exposeBundledHelpersSync();
+if (Deno.args[0] !== "remote") exposeBundledHelpersSync();
 
 if (!isProtocolOnlyStartup(Deno.args)) initializeAgentBrowserSession();
 
@@ -33,7 +56,6 @@ if (Deno.build.standalone) {
         configurable: true,
     });
 }
-import { runVersionCommand } from "./cmd/version/index.js";
 
 function stripLeadingGlobalFlags(argv: string[]): string[] {
     const stripped: string[] = [];
@@ -91,6 +113,7 @@ async function main(): Promise<void> {
     const [firstPositional] = parsed._.map(String);
 
     if (parsed.version) {
+        const { runVersionCommand } = await import("./cmd/version/index.js");
         await runVersionCommand();
         return;
     }
@@ -98,6 +121,12 @@ async function main(): Promise<void> {
     if (normalizedArgs[0] === "package-smoke" && Deno.env.get("WLD_INTERNAL_PACKAGE_CHECK") === "1") {
         const { runPackageSmokeCommand } = await import("./cmd/package-smoke/index.ts");
         await runPackageSmokeCommand(normalizedArgs.slice(1));
+        return;
+    }
+
+    if (normalizedArgs[0] === "remote") {
+        const { runRemoteCommand } = await import("./cmd/remote/index.ts");
+        await runRemoteCommand(normalizedArgs.slice(1));
         return;
     }
 
