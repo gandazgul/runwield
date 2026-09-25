@@ -84,6 +84,7 @@ for (const populated of [false, true]) {
             assertStringIncludes(screen, "isolated-host");
             // The terminal wraps long absolute directories across rows.
             assertStringIncludes(
+                // deno-lint-ignore no-control-regex -- Strip terminal hyperlink controls before comparing wrapped text.
                 screen.replaceAll(/\x1b\]8;;\x07|\s/g, ""),
                 project.replaceAll(/\s/g, "").slice(0, 70),
             );
