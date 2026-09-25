@@ -303,6 +303,11 @@ document surfaces should feel consistent while keeping Plan lifecycle controls s
   lifecycle fields do not change accidentally.
 - When the user moves or manually closes work, the board reflects that choice without claiming automatic verification;
   failure and hold expose recovery or resume.
+- Resuming paused validation from the Workflow sidebar continues the saved validation and repair work, just like
+  `/load-plan`, in the existing execution worktree. The action uses the displayed committed Session version, prevents
+  duplicate clicks while pending, refreshes the Session afterward, and shows progress, pause reasons, and errors beside
+  the action, including on mobile. Live validation updates replace older paused checkpoint displays; Open Session from
+  its own sidebar reveals the conversation instead of navigating back to the same covered page.
 - When a Plan or Epic is renamed, its existing links still resolve and child progress remains visible.
 - The local board shows its W. logo and heading; the embedded Project board omits duplicate branding, Project title, and
   checkout health. View tabs and search share the header row, with search trailing the tabs. Columns use separators
