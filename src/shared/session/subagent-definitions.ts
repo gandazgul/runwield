@@ -104,6 +104,7 @@ export const REVIEWER_SUBAGENT_TOOLS = Object.freeze([
     "ls",
     "review_diff",
     "review_complete",
+    "delegate_agent",
 ]);
 
 export const SUBAGENT_DEFINITIONS: Readonly<Record<SubAgentDefinitionId, SubAgentDefinition>> = Object.freeze({

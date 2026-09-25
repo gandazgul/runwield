@@ -226,6 +226,20 @@ Deno.test("Router and Recorder do not expose delegate_agent by default", async (
     assertEquals(recorder.tools.includes("delegate_agent"), false);
 });
 
+Deno.test("RunWield PM, Init, Reviewer, and Slicer can delegate", async () => {
+    const definitions = await Promise.all([
+        loadAgentDef("pm", REPO_ROOT),
+        loadSubAgentDefinition(SUBAGENTS.INIT),
+        loadSubAgentDefinition(SUBAGENTS.REVIEWER),
+        loadSubAgentDefinition(SUBAGENTS.REVIEWER, { reviewerMode: "verify" }),
+        loadSubAgentDefinition(SUBAGENTS.SLICER),
+    ]);
+
+    for (const definition of definitions) {
+        assert(definition.tools.includes("delegate_agent"), `${definition.displayName} cannot delegate`);
+    }
+});
+
 Deno.test("bundled Agent definitions omit the removed router handoff tool", async () => {
     const removedToolName = ["return", "to", "router"].join("_");
     const agentNames = [
@@ -620,9 +634,10 @@ Deno.test("buildAgentSession wires review_complete and file tools into the Seman
             });
             session = built.session;
 
-            for (const toolName of ["read", "grep", "find", "ls", "review_diff", "review_complete"]) {
+            for (const toolName of ["read", "grep", "find", "ls", "review_diff", "review_complete", "delegate_agent"]) {
                 assert(built.tools.includes(toolName), `expected ${toolName} in effective reviewer tools`);
             }
+            assert(built.finalCustomTools.some((tool) => tool.name === "delegate_agent"));
             const reviewComplete = built.finalCustomTools.find((tool) => tool.name === "review_complete");
             assert(reviewComplete, "expected review_complete to be auto-wired into the reviewer session");
             assertEquals(typeof reviewComplete.execute, "function");
