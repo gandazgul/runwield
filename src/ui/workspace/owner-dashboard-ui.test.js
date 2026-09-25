@@ -1,10 +1,6 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
-import { Window } from "happy-dom";
+import { markup, mountDashboard, newDashboardWindow } from "./dashboard-test-dom.ts";
 
-const source = await Deno.readTextFile(new URL("./components/OwnerDashboard.astro", import.meta.url));
-const script = source.match(/<script is:inline data-astro-rerun>([\s\S]*?)<\/script>/)?.[1];
-if (!script) throw new Error("Dashboard script is missing");
-const markup = source.slice(0, source.indexOf("<script is:inline"));
 const labels = ["Needs You", "Ready to Continue", "In Progress", "Recently Finished"];
 const keys = ["needs-you", "ready", "in-progress", "recently-finished"];
 const first = {
@@ -19,21 +15,21 @@ const first = {
 };
 const second = { ...first, planId: "2", href: "/plans/2", title: "Second plan", updatedAt: "2026-09-21T12:00:00.000Z" };
 
-function frame(type, items = [], diagnostics = []) {
+function frame(type, items = [], diagnostics = [], sectionProgress = {}) {
     return {
         type,
         progress: { pending: type !== "complete" },
         diagnostics,
+        sectionProgress,
         sections: keys.map((key, index) => ({ key, label: labels[index], items: index === 0 ? items : [] })),
     };
 }
 function dashboard() {
-    const window = new Window({ url: "http://workspace.test/" });
-    window.document.body.innerHTML = markup;
+    const window = newDashboardWindow();
     const streams = [];
     window.fetch = () => new Promise((resolve) => streams.push(resolve));
     const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
-    window.eval(script);
+    mountDashboard(window);
     async function start() {
         await tick();
         let stream;
@@ -61,7 +57,7 @@ function dashboard() {
 }
 
 Deno.test("Dashboard initial HTML shows four pending cards before JavaScript or data", () => {
-    const window = new Window();
+    const window = newDashboardWindow();
     window.document.body.innerHTML = markup;
     assertEquals(
         [...window.document.querySelectorAll(".owner-dashboard-section h2")].map((node) => node.textContent),
@@ -175,14 +171,88 @@ Deno.test("Dashboard first-load error keeps verified partial rows and offers Ret
     }
 });
 
+Deno.test("a failed card retains old rows while another completed card replaces its rows", async () => {
+    const { window, start } = dashboard();
+    try {
+        let stream = await start();
+        await stream.send(frame("complete", [first]));
+        await stream.end();
+        window.document.dispatchEvent(new window.Event("visibilitychange"));
+        stream = await start();
+        await stream.send(frame("complete", [], [{ message: "Readiness failed" }], {
+            "needs-you": { pending: false, failed: true },
+            ready: { pending: false, failed: false },
+        }));
+        await stream.end();
+        assertEquals(
+            window.document.querySelector('[data-dashboard-card="needs-you"] .owner-dashboard-row').getAttribute(
+                "href",
+            ),
+            first.href,
+        );
+        assertStringIncludes(
+            window.document.querySelector('[data-dashboard-card="needs-you"] .owner-dashboard-error').textContent,
+            "Could not update",
+        );
+        assertEquals(
+            window.document.querySelector('[data-dashboard-card="ready"] .empty').textContent,
+            "Nothing here.",
+        );
+        assertEquals(window.document.querySelectorAll(".owner-dashboard-error").length, 1);
+        window.document.querySelector("[data-dashboard-retry]").click();
+        stream = await start();
+        await stream.send(frame("complete", [second]));
+        await stream.end();
+        assertEquals(window.document.querySelector(".owner-dashboard-row").getAttribute("href"), second.href);
+        assertEquals(window.document.querySelectorAll(".owner-dashboard-error").length, 0);
+    } finally {
+        await window.happyDOM.abort();
+    }
+});
+
+Deno.test("Dashboard shows loading and failure together while checks remain pending", async () => {
+    const { window, start } = dashboard();
+    try {
+        const stream = await start();
+        await stream.send(frame("snapshot", [first], [], {
+            "needs-you": { pending: true, failed: true },
+        }));
+        const card = window.document.querySelector('[data-dashboard-card="needs-you"]');
+        assertStringIncludes(
+            card.querySelector(".owner-dashboard-error").textContent,
+            "Some results could not be checked",
+        );
+        assertStringIncludes(card.querySelector('[role="status"]').textContent, "Loading");
+        assertEquals(card.querySelector(".owner-dashboard-section-heading span").textContent, "1+");
+        assertStringIncludes(
+            card.querySelector(".owner-dashboard-section-heading span").getAttribute("title"),
+            "pending",
+        );
+        assertEquals(card.querySelectorAll("[data-dashboard-retry]").length, 1);
+    } finally {
+        await window.happyDOM.abort();
+    }
+});
+
 Deno.test("Dashboard treats Project diagnostics as incomplete rather than empty", async () => {
     const { window, start } = dashboard();
     try {
         const stream = await start();
-        await stream.send(frame("complete", [], [{ message: "Unavailable", repairHref: "/projects/1/settings" }]));
+        await stream.send(
+            frame("complete", [], [{ message: "Unavailable", repairHref: "/projects/1/settings" }], {
+                ready: { pending: false, failed: true },
+            }),
+        );
         await stream.end();
-        assertStringIncludes(window.document.querySelector(".owner-dashboard-error").textContent, "Results incomplete");
-        assertEquals(window.document.querySelector(".empty").textContent, "Other items may be missing.");
+        assertStringIncludes(window.document.querySelector(".owner-dashboard-error").textContent, "Could not load");
+        assertEquals(
+            window.document.querySelector('[data-dashboard-card="ready"] .empty').textContent,
+            "Other items may be missing.",
+        );
+        assertEquals(
+            window.document.querySelector('[data-dashboard-card="needs-you"] .empty').textContent,
+            "Nothing here.",
+        );
         assertEquals(window.document.querySelector("[data-dashboard-warning]").hidden, false);
     } finally {
         await window.happyDOM.abort();

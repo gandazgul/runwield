@@ -1,10 +1,6 @@
 import { assertEquals } from "@std/assert";
-import { Window } from "happy-dom";
+import { mountDashboard, newDashboardWindow } from "./dashboard-test-dom.ts";
 
-const source = await Deno.readTextFile(new URL("./components/OwnerDashboard.astro", import.meta.url));
-const script = source.match(/<script is:inline data-astro-rerun>([\s\S]*?)<\/script>/)?.[1];
-if (!script) throw new Error("Dashboard controller is missing");
-const markup = source.slice(0, source.indexOf("<script is:inline"));
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 const keys = ["needs-you", "ready", "in-progress", "recently-finished"];
 const frame = (type: string) => ({
@@ -15,8 +11,7 @@ const frame = (type: string) => ({
 });
 
 Deno.test("Dashboard pauses hidden refresh and rejects updates after navigation", async () => {
-    const window = new Window({ url: "http://workspace.test/" });
-    window.document.body.innerHTML = markup;
+    const window = newDashboardWindow();
     let visibility = "visible";
     Object.defineProperty(window.document, "visibilityState", { get: () => visibility });
     const streams: Array<(response: Response) => void> = [];
@@ -28,7 +23,7 @@ Deno.test("Dashboard pauses hidden refresh and rejects updates after navigation"
         },
     });
     try {
-        window.eval(script);
+        mountDashboard(window);
         assertEquals(requests, 1);
         visibility = "hidden";
         window.document.dispatchEvent(new window.Event("visibilitychange"));

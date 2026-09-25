@@ -24,6 +24,7 @@
         "./node_modules",
         "./.astro",
         "./remote-server.ts",
+        "./dashboard-test-dom.ts",
         "./**/*.test.ts",
         "./**/*.test.tsx",
         "../../../third_party/plannotator/**/*.test.ts",
