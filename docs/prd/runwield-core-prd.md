@@ -102,6 +102,10 @@ New sessions start with the **Router** Agent.
 After Router hands off to Guide, Ideator, Operator, Planner, Architect, Engineer, or another specialist, that specialist
 remains the active root Agent. This keeps follow-up messages in useful context.
 
+**Requirement: Agent selection replaces active instructions.** Switching Agents preserves conversation history while
+replacing the model's system instructions and available tools with those of the selected Agent. Earlier Agents' system
+instructions remain historical evidence and must not govern subsequent requests, including after Session resume.
+
 **Requirement: Preserve steering through an Agent handoff.**
 
 When an accepted workflow event starts an Agent handoff, Core stops and settles the outgoing Agent turn before the
@@ -151,6 +155,10 @@ A deliberate Escape key remains available to interrupt the turn.
 
 - Given a new conversation, when the user submits a request, Router handles initial triage; after a specialist handoff,
   follow-up messages stay with that specialist.
+- Given a Session previously handled by Router and Ideator, when the user selects Engineer and requests implementation,
+  the model receives Engineer's instructions and tools with the earlier conversation intact. Router's triage-only
+  instructions no longer apply on the first turn, follow-ups, or a resumed Session. Selecting Router again restores its
+  routing instructions and tools.
 - Given Router has emitted an accepted Triage Report, when the user sends text or images before the specialist is ready,
   Router settles without another provider request and the specialist receives each message once, in order. The queue
   reports consumption only after delivery.
@@ -1048,6 +1056,11 @@ can intentionally replace bundled skills. When external skills are disabled, Cor
 project `.wld`, home `.wld`, then bundled skills. Pi-discovered, configured, extension, and package skills do not form a
 second catalog.
 
+**Requirement: User-invoked change review is available on install.** The bundled MIT `review` Skill lets a user review
+PRs and other selected changes against project standards and the requested behavior. It is separate from the workflow
+Reviewer, which judges implementation against an Approved Plan. The bundled Skill keeps the portable instructions and
+support files available without a separate install.
+
 Slash-command skill invocation injects full Skill instructions only when needed and does not change the Agent profile.
 Prompt Template and Skill expansions reach the active model with the current Agent instructions and tools. The exact
 saved expansion remains available after a follow-up, compaction, or resume. Prompt Templates display rendered content;
@@ -1087,6 +1100,8 @@ mount path is not confinement of trusted remote users. This target is not yet a 
   required workflow capabilities remain available.
 - When a user invokes a Skill or Prompt Template, its full saved expansion reaches the active model and remains
   available to follow-up and resume. Templates display their rendered message; Skills retain their compact command.
+- After installation, `/skill:review` is listed and invokes the portable review instructions and support files for a
+  user-selected PR or change. It does not replace the Plan workflow Reviewer.
 - Given a non-bundled Skill in project `.agents/skills`, listing, model advertising, and invocation select that project
   file before home customization.
 - Given an `.agents` Skill whose published name or directory alias conflicts with a bundled Skill, listing, model
