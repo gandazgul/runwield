@@ -1,4 +1,5 @@
 import { assertEquals } from "@std/assert";
+import { PlanLockTimeoutError } from "../../plan-store.js";
 
 import { classifyValidationOperationalError, type GitPublicationErrorKind } from "./validation-operational-errors.ts";
 import { decideValidationRecovery, DEFAULT_VALIDATION_RETRY_POLICY } from "./validation-recovery.ts";
@@ -103,4 +104,21 @@ Deno.test("a checkpoint failure does not claim the saved publication copy is inc
     assertEquals(message.includes("saved copy"), false);
     assertEquals(message.includes("Update RunWield"), false);
     assertEquals(message.includes("Git could not save the final validation files"), true);
+});
+
+Deno.test("publication explains a busy Plan operation without prescribing a failed reload", () => {
+    const failure = normalizePublicationFailure(
+        annotatePublicationStage(new PlanLockTimeoutError("/private/project/catalog.lock"), "lifecycle_staging"),
+    );
+    const message = buildValidationUserMessage({
+        kind: "publication_blocked",
+        planName: "demo",
+        stage: failure.publicationStage || "git_publication",
+        blockedByPlanLock: failure.blockedByPlanLock,
+    });
+    assertEquals(message.includes("another RunWield operation"), true);
+    assertEquals(message.includes("review decision are saved"), true);
+    assertEquals(message.includes("Let that operation finish, then retry publication"), true);
+    assertEquals(message.includes("/private/project"), false);
+    assertEquals(message.includes("Load this Plan and run validation again"), false);
 });

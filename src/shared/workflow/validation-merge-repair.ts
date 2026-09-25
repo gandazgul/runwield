@@ -5,6 +5,7 @@
  */
 
 import { AGENTS } from "../../constants.js";
+import { PlanLockTimeoutError } from "../../plan-store.js";
 import { logValidationFailure } from "./validation-state-errors.ts";
 import type { PhaseContext, UserActionPause, ValidationLoopArgs } from "./validation-types.ts";
 import { emitStatus } from "./validation-emit.ts";
@@ -35,6 +36,7 @@ export type PublicationStage =
 
 export type PublicationFailure = {
     reason: string;
+    blockedByPlanLock?: boolean;
     repairCwd?: string;
     mergeWorktreePath?: string;
     mergeFailureKind?: string;
@@ -46,6 +48,7 @@ export function normalizePublicationFailure(error: Error): PublicationFailure {
     const annotated = error as AnnotatedPublicationError;
     return {
         reason: error.message,
+        blockedByPlanLock: error instanceof PlanLockTimeoutError,
         repairCwd: annotated.repairCwd,
         mergeWorktreePath: annotated.mergeWorktreePath,
         mergeFailureKind: annotated.mergeFailureKind,
