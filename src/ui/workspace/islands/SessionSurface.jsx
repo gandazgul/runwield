@@ -1528,7 +1528,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         setOperation(next);
         setPendingConfiguration(payload.pendingConfiguration || null);
         setSteeringMessages((payload.queuedMessages || []).filter((item) => item.delivery === "steer"));
-        if (mode === "new" && payload.runwieldSessionId) {
+        if (payload.runwieldSessionId && (mode === "new" || payload.runwieldSessionId !== runwieldSessionId)) {
             if (operationNavigationRef.current) return;
             operationNavigationRef.current = true;
             await saveSessionDraft(

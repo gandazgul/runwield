@@ -578,6 +578,7 @@ export class RuntimeLifecycle {
                 ? this.settings.markPromptReadyAgent(hostedSession.id, { agentName })
                 : await this.settings.switchAgent(hostedSession.id, { agentName, mcpServers: options.mcpServers });
             if (!activated.ok) throw new Error(activated.error || "The Session could not start");
+            if (options.agentName) hostedSession.mergePendingManagedTurnIntent({ agentName: options.agentName });
             return hostedSession.id;
         } catch (error) {
             await this.closeSession(hostedSession.id);

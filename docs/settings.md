@@ -673,8 +673,9 @@ RunWield loads passive package prompt templates from `pi.prompts` without requir
 compatibility marker. Package prompts are appended after project, home, and bundled RunWield prompts, so they cannot
 silently replace those templates. If a package prompt name collides with a built-in slash command such as `/help`,
 `/agent`, or `/theme`, the built-in command wins and RunWield shows a startup warning for the blocked package prompt.
-When invoked, Prompt Template Front Matter can select `agent`, `model`, and `thinkingLevel` for that one auxiliary turn;
-invalid values fail before a model call.
+Prompt Template Front Matter can select persistent `agent`, `model`, and `thinkingLevel` Session settings; omitted
+values inherit the Session, with Operator defaults for an unconfigured new Session. Invalid values fail before
+submission. See [Prompt templates](customization.md#prompt-templates) for the unfinished-workflow guard.
 
 RunWield ignores all Pi-discovered skills, including configured `skills` paths, package skills, and extension skills.
 When `wld install <source>` finds package skills, it reports them as ignored and prints `npx skills add <source>`

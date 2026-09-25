@@ -853,12 +853,14 @@ Catalog APIs accept a project root and are tested for isolation between two root
 the higher runtime boundary rather than a universally enforced low-level type.
 
 `SessionRuntime.promptUserTurn()` is the raw named-invocation boundary. TUI, Workspace, and ACP send compact slash text
-to it. Skills expand into the current root Agent turn and still display as compact Skill commands. Prompt Templates run
-through a disposable auxiliary Agent Session with the active Session Transcript Segment as context and the exact
-resolved expansion as the next user message. Prompt Template live events and replay display that resolved expansion in
-chat while the transcript still stores the compact command for audit. The root Agent, model, thinking level, workflow
-owner, and workflow checkpoint stay owned by the root Session. `/reload` rebuilds the active Agent and emits replacement
-Prompt Template and Skill catalogs only after the rebuild succeeds.
+to it. Skills and Prompt Templates expand into ordinary root Agent turns. Skills retain the current profile. Prompt
+Templates apply ordinary Agent/model/thinking settings, inherited from the Session or, for an unconfigured new Session,
+Operator. Settings persist for follow-ups. Core rejects invalid settings before submitting the rendered message and
+guards an Agent change during an unfinished workflow with a new-Session-or-cancel interaction. The new Session runs the
+template independently; the original workflow remains resumable. Template live events and replay display the resolved
+expansion; the transcript also retains the compact invocation for audit. Templates keep ordinary workflow authority and
+compaction behavior. `/reload` rebuilds the active Agent and emits replacement Prompt Template and Skill catalogs only
+after the rebuild succeeds.
 
 ### Metrics and fail-open services
 
