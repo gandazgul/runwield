@@ -410,7 +410,24 @@ and siblings active. Listings keep held work distinct from active and finished w
 
 **Scope and maturity:** Existing execution and validation baseline, with the owner's clarified completion and automatic
 recovery requirements below. These requirements do not certify that every current failure path already meets them.
-QUICK_FIX keeps its explicitly lighter behavior; answering a question does not require publication.
+QUICK_FIX keeps its explicitly lighter behavior; answering a question does not require publication. The remote
+connection currently has setup/process cleanup only; remote Session or workflow recovery remains target scope.
+
+**Requirement: Clean up connection-owned remote setup without claiming workflow recovery.**
+
+The connection-only remote supervisor monitors its control channel separately from the TUI and stops processes it
+started on normal exit or detected loss. Failed or interrupted runtime preparation leaves the existing profile, project
+files, and verified runtime cache in place; the next attempt can repair private staging. If process exit cannot be
+confirmed, report uncertainty. No remote Agent or Session work exists yet to resume or recover. The broader
+connected-only and uncertain-effects requirements remain [proposed](remote-ssh-prd.md#disconnect-and-recovery).
+
+**Acceptance scenarios:**
+
+- Given connection loss or view exit, the supervisor stops its connection-owned view rather than leaving a detached
+  Agent; unrelated server processes are not part of its cleanup.
+- Given interrupted setup, reconnecting checks the private runtime cache and can prepare the matching executable without
+  asking the user to remove internal staging or altering their personal profile. This does not claim recovery of an
+  interrupted remote edit or publication.
 
 **Requirement: Publish successfully or end only by deliberate user abandonment.**
 
@@ -739,7 +756,23 @@ executable extensions. Public configuration is in the [theme reference](../theme
 ### Project context and initialization
 
 **Scope and maturity:** Current baseline; compressed Project Brief and further code-intelligence improvements are target
-scope.
+scope. Remote location resolution is available only in the connection-only subset described below; remote Project
+Runtime State access is target scope.
+
+**Requirement: Resolve an existing remote location without starting project work.**
+
+`wld remote <host>[:<directory>]` resolves the remote account's home by default or an existing requested directory on
+the server. It shows the canonical remote directory in a connection-only TUI. Relative paths and `~` refer to the remote
+account. Git is optional; discovery can report a repository or worktree without entering its Project Runtime State. This
+connection does not start Init, project tools, an Agent, or a saved Session. Full remote project work remains
+[proposed](remote-ssh-prd.md#remote-workflows-and-local-review).
+
+**Acceptance scenarios:**
+
+- Given a remote home without Git, when the user connects without a path, the connection view shows that home and does
+  not create a repository or Project Runtime State.
+- Given an existing remote path through a symlink or a Git worktree, when the user connects, the view shows its
+  canonical directory; a missing or inaccessible directory fails without creating or selecting a fallback directory.
 
 **Requirement: Preserve useful project facts and retrieve relevant context.**
 
@@ -1114,7 +1147,40 @@ Future/open requirements:
 ### Installation and updates
 
 **Scope and maturity:** Current Candidate release isolation and shell installation baseline. Prepared Homebrew and
-Windows WinGet support; public package availability is pending owner publication/submission.
+Windows WinGet support; public package availability is pending owner publication/submission. Remote development runtime
+preparation is a connection-only development-build subset, not a qualified production release.
+
+**Requirement: Prepare only a matching remote development runtime.**
+
+For the current `wld remote` connection view, build the launcher and Linux artifacts explicitly from the same unchanged
+checkout and compiler (Deno 2.9.3 or newer). A connection never compiles on demand or substitutes a released binary for
+a missing development artifact. The launcher verifies matching build/protocol identity, human-readable `VERSION`, and
+artifact checksum, then privately stages and preflights the executable on the remote host. An interrupted stage is
+repaired on a later connection. It does not run the personal installer, change the remote profile or a package-managed
+installation, or start a personal profile.
+
+```sh
+export ASTRO_KEY="$(openssl rand -base64 32)" # Keep this value private and unchanged for this artifact set.
+deno run -A scripts/compile.js --output bin/wld
+BUILD_ID=$(deno eval 'console.log(JSON.parse(await Deno.readTextFile("bin/wld.build.json")).buildId)')
+deno run -A scripts/compile.js --target x86_64-unknown-linux-gnu --output bin/wld-linux-x64 --expect-build-id "$BUILD_ID"
+deno run -A scripts/compile.js --target aarch64-unknown-linux-gnu --output bin/wld-linux-arm64 --expect-build-id "$BUILD_ID"
+deno run -A scripts/release-assets.js development bin/wld bin/wld-linux-x64 bin/wld-linux-arm64 bin/remote-build
+```
+
+Use `bin/remote-build/wld-launcher` with its adjacent Linux GNU target files and `.build.json` files. The current remote
+host needs an OpenSSH server that can allocate a terminal and forward a loopback port, `python3`, a writable private
+cache, and a runnable glibc-linked Linux x86-64 or ARM64 executable. Git is optional for a non-Git directory. These
+steps do not prepare SSHFS/FUSE, personal services, or production release assets; see the
+[Remote SSH proposal](remote-ssh-prd.md#remote-connection-and-setup).
+
+**Acceptance scenarios:**
+
+- Given a matching development bundle and a supported remote Linux host, connecting transfers or reuses a verified
+  executable and opens only the connection view; it does not initialize a personal profile.
+- Given a missing or mismatched artifact, incompatible executable, or missing remote prerequisite, connection fails with
+  the cause rather than compiling, using another version, or starting a Session. A later attempt can repair an
+  interrupted private staging file without overwriting a package-managed install.
 
 **Requirement: Isolate Candidate stabilization from ongoing feature work.**
 

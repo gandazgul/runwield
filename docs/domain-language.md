@@ -108,9 +108,17 @@ Plan status, Session status, ownership reason
 **Session Name**: The persisted short human label for a Session, initially derived from Router Triage for fresh user
 requests. It is distinct from the terminal window or tab title. _Avoid_: Tab title, conversation name
 
+**Remote SSH connection**: A connected-only Core interaction started with `wld remote` for an existing directory on a
+remote Linux host. The current connection opens a remote, connection-only TUI and prepares a matching runtime; it does
+not start an Agent turn or create or resume a Session. Local personal authority, saved Session history, and remote
+project workflows are target behavior, not properties of this connection yet. _Avoid_: Personal Workspace, unattended
+worker, remote Session type
+
 **Project Runtime State**: Machine-owned RunWield state inside a Project checkout. The current reserved root is
 `.wld/internal/`. User-derived `.wld/settings.json`, `.wld/agents/`, `.wld/skills/`, and `.wld/prompts/` are not Project
-Runtime State. _Avoid_: project settings, project config, all of `.wld/`
+Runtime State. A Remote SSH connection can identify a remote checkout but does not enter or create its Project Runtime
+State; future remote project work would keep that state with the remote checkout. _Avoid_: project settings, project
+config, all of `.wld/`
 
 **Project Runtime Entry**: The shared migration-or-verification operation that runs before normal Project Runtime State
 access. It can adopt eligible legacy state, confirm the selected and primary checkout layout, or refuse access with a
@@ -740,6 +748,8 @@ _Avoid_: Durable prompt, recoverable continuation, database interaction record
 
 ## Relationships
 
+- A **Remote SSH connection** uses Core to display a remote TUI for an existing directory; the connection itself is not
+  a **Session** and does not yet start project execution or open **Project Runtime State**.
 - A **Tutorial** explains one real **Planned Change** through normal **Plan Review** and **Workflow Validation**. It
   does not replace **Init** or own Plan lifecycle state.
 - One **Attached Workflow** governs one user request inside one **External Agent Host**.

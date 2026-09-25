@@ -29,6 +29,7 @@ debug.log
 prototypes/
 
 src/shared/version.js
+src/shared/build-identity.js
 
 # BEGIN RunWield owned runtime state
 .wld/internal/
