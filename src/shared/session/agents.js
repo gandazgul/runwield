@@ -5,14 +5,19 @@
 
 import { basename, dirname, fromFileUrl, join } from "@std/path";
 import { extractYaml, test as hasFrontMatter } from "@std/front-matter";
-import { AGENT_DEFS_DIR, AGENTS, getHomeDir, SYSTEM_PROMPT_TEMPLATE_PATH } from "../../constants.js";
+import { AGENT_DEFS_DIR, AGENTS, SYSTEM_PROMPT_TEMPLATE_PATH } from "../../constants.js";
 import { directoryExists, fileExists } from "../helpers.js";
+import {
+    assertPersonalResourcePath,
+    assertPersonalResourcePathSync,
+    personalGlobalRoot,
+    PersonalResourcePathError,
+} from "../remote/personal-resources.ts";
 import { PROTECTED_TOOL_NAMES, UNIVERSAL_AGENT_TOOL_NAMES } from "../../tools/registry.js";
 
 /** @returns {string | null} */
 function homeAgentDefsDir() {
-    const homeDir = getHomeDir();
-    return homeDir ? join(homeDir, ".wld", "agents") : null;
+    return join(personalGlobalRoot(), "agents");
 }
 
 export const __dirname = dirname(fromFileUrl(import.meta.url));
@@ -88,6 +93,7 @@ function getAgentDefDirsByPriority(projectRoot) {
 export async function resolveAgentDefsDir(projectRoot) {
     const localAgentDefsDir = projectRoot ? join(projectRoot, ".wld", "agents") : null;
     for (const dir of getAgentDefDirsByPriority(projectRoot)) {
+        await assertPersonalResourcePath(dir, "Agent definitions directory");
         if (await directoryExists(dir)) return dir;
     }
 
@@ -151,8 +157,10 @@ function readDisplayNameFromFrontMatterSync(internalName, projectRoot) {
     for (const filePath of candidatePaths) {
         let raw;
         try {
+            assertPersonalResourcePathSync(filePath, "Agent display name");
             raw = Deno.readTextFileSync(filePath);
-        } catch {
+        } catch (error) {
+            if (error instanceof PersonalResourcePathError) throw error;
             continue;
         }
         if (!hasFrontMatter(raw)) continue;
@@ -223,9 +231,11 @@ export async function listAgentDefNames(projectRoot) {
     const names = new Set();
 
     for (const dir of getAgentDefLayerDirs(projectRoot)) {
+        await assertPersonalResourcePath(dir, "Agent definitions directory");
         if (!(await directoryExists(dir))) continue;
         for await (const entry of Deno.readDir(dir)) {
-            if (!entry.isFile || !entry.name.endsWith(".md")) continue;
+            if ((!entry.isFile && !entry.isSymlink) || !entry.name.endsWith(".md")) continue;
+            await assertPersonalResourcePath(join(dir, entry.name), "Agent definition");
             const fileName = entry.name.replace(/\.md$/, "");
             const canonicalName = normalizeAgentInternalName(fileName);
             if (fileName !== canonicalName) {
@@ -340,6 +350,7 @@ export async function listAllAgentDefinitions(projectRoot) {
             const def = await loadAgentDef(name, projectRoot);
             agents.push(def);
         } catch (err) {
+            if (err instanceof PersonalResourcePathError) throw err;
             // Surface malformed agent definitions instead of silently dropping them.
             console.error(
                 `[RunWield] Skipping agent "${name}": ${err instanceof Error ? err.message : String(err)}`,
@@ -383,7 +394,8 @@ export async function isWorkflowOnlyAgent(agentName, projectRoot) {
     try {
         const def = await loadAgentDef(canonicalName, projectRoot);
         return def.workflowOnly === true;
-    } catch {
+    } catch (error) {
+        if (error instanceof PersonalResourcePathError) throw error;
         return false;
     }
 }
@@ -442,6 +454,7 @@ async function readSharedPracticeBody(name, projectRoot) {
         .map((dir) => join(dir, SHARED_PRACTICE_DIR, `${name}.md`));
 
     for (const filePath of candidatePaths) {
+        await assertPersonalResourcePath(filePath, `shared practice "${name}"`);
         if (!(await fileExists(filePath))) continue;
         const raw = await Deno.readTextFile(filePath);
         if (!hasFrontMatter(raw)) {
@@ -503,6 +516,7 @@ async function loadAgentDefFromPaths(agentName, filePaths, projectRoot) {
     let found = false;
 
     for (const filePath of filePaths) {
+        await assertPersonalResourcePath(filePath, `Agent definition "${agentName}"`);
         if (!(await fileExists(filePath))) continue;
 
         const raw = await Deno.readTextFile(filePath);

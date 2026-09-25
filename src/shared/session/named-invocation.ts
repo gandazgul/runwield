@@ -4,6 +4,7 @@ import { AGENTS } from "../../constants.js";
 import { fileExists } from "../helpers.js";
 import { parseProviderModel } from "../models/model-validation.ts";
 import { resolveInstalledPackagePromptResources } from "../package-resources.js";
+import { assertPersonalResourcePath, PersonalResourcePathError } from "../remote/personal-resources.ts";
 import { isWorkflowOnlyAgent, loadAgentDef, normalizeAgentInternalName } from "./agents.js";
 import { getPromptTemplatePaths } from "./session.js";
 import { expandSkillRecord, findSkill } from "./skill-catalog.ts";
@@ -283,9 +284,13 @@ async function findPromptTemplateResource(cwd: string, name: string): Promise<Pr
     const fileName = `${name}.md`;
     for (const layer of layers) {
         const path = join(layer.dir, fileName);
+        await assertPersonalResourcePath(path, `${layer.source} prompt template`);
         if (await fileExists(path)) return { path, source: layer.source };
     }
-    const packagePromptResources = await resolveInstalledPackagePromptResources({ cwd }).catch(() => []);
+    const packagePromptResources = await resolveInstalledPackagePromptResources({ cwd }).catch((error) => {
+        if (error instanceof PersonalResourcePathError) throw error;
+        return [];
+    });
     for (const resource of packagePromptResources) {
         if (basename(resource.path) !== fileName) continue;
         return {
@@ -300,6 +305,7 @@ async function findPromptTemplateResource(cwd: string, name: string): Promise<Pr
 async function readPromptTemplateForInvocation(path: string, templateName: string) {
     let raw = "";
     try {
+        await assertPersonalResourcePath(path, `prompt template "${templateName}"`);
         raw = await Deno.readTextFile(path);
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

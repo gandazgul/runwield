@@ -5,6 +5,7 @@
 
 import { basename, dirname, isAbsolute, join, relative, resolve, SEPARATOR } from "@std/path";
 import { createHash } from "node:crypto";
+import { requireLocalSessionWriter } from "../remote/personal-resources.ts";
 import { getHomeDir } from "../../constants.js";
 
 /**
@@ -27,6 +28,7 @@ export function encodeCwdForSessionDir(cwd) {
  * @returns {string}
  */
 export function getRunWieldSessionsBaseDir() {
+    requireLocalSessionWriter();
     const home = getHomeDir() || "~";
     return join(home, ".wld", "sessions");
 }

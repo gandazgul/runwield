@@ -41,6 +41,7 @@ import {
 import { isProjectInitComplete } from "../../cmd/init/init-completion.ts";
 import { createSessionRuntime } from "../../shared/session/session-runtime.ts";
 import { setActiveSessionModel } from "../../shared/session/model-selection.ts";
+import { remotePersonalResourcesActive } from "../../shared/remote/personal-resources.ts";
 import { RuntimeEventTypes } from "../../shared/session/session-runtime-events.js";
 import { renderBootBanner } from "./boot-banner.ts";
 import { getSelectedDefaultModelAvailability, maybeShowModelWelcome } from "./model-welcome.ts";
@@ -101,7 +102,9 @@ export async function persistThinkingLevel(
     projectRoot?: string,
 ): Promise<void> {
     try {
-        await getSettingsManager(projectRoot).setDefaultThinkingLevel(level);
+        if (remotePersonalResourcesActive()) {
+            await setCustomSetting("defaultThinkingLevel", level, "global", projectRoot);
+        } else await getSettingsManager(projectRoot).setDefaultThinkingLevel(level);
     } catch (e) {
         console.error(`Failed to persist thinking level: ${e}`);
     }

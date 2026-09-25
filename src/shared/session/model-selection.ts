@@ -1,5 +1,6 @@
 import { isUnsupportedModelExecutionBackendError } from "../models/model-execution.ts";
-import { getSettingsManager } from "../settings.js";
+import { getSettingsManager, setRemoteDefaultModelSelection } from "../settings.js";
+import { remotePersonalResourcesActive } from "../remote/personal-resources.ts";
 import type { SessionRuntime } from "./session-runtime.ts";
 
 export interface ModelActivationResult {
@@ -13,6 +14,10 @@ export async function setDefaultModelSelection(
     model: string,
     provider?: string,
 ): Promise<void> {
+    if (remotePersonalResourcesActive()) {
+        await setRemoteDefaultModelSelection(projectRoot, model, provider || "");
+        return;
+    }
     const settingsManager = getSettingsManager(projectRoot);
     await settingsManager.setDefaultModel(model);
     await settingsManager.setDefaultProvider(provider || "");

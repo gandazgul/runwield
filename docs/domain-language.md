@@ -109,10 +109,17 @@ Plan status, Session status, ownership reason
 requests. It is distinct from the terminal window or tab title. _Avoid_: Tab title, conversation name
 
 **Remote SSH connection**: A connected-only Core interaction started with `wld remote` for an existing directory on a
-remote Linux host. The current connection opens a remote, connection-only TUI and prepares a matching runtime; it does
-not start an Agent turn or create or resume a Session. Local personal authority, saved Session history, and remote
-project workflows are target behavior, not properties of this connection yet. _Avoid_: Personal Workspace, unattended
-worker, remote Session type
+remote Linux host. The current connection prepares a matching runtime, mounts laptop personal files on the approved
+Linux `sct` pilot, and opens a dormant remote TUI. An optional bounded native Pi bridge proof is not an ordinary user
+turn; the normal connection does not create or resume a saved Session. Guarded Session history and remote project
+workflows remain target behavior. _Avoid_: Personal Workspace, unattended worker, remote Session type
+
+**Remote personal mount**: A connection-owned SSHFS view of the laptop’s full `~/.wld` at a fresh private remote path.
+Personal file edits through it change laptop files directly, not a copied resource tree. The remote project’s `.wld`
+stays on the server. The path is private for normal use, but standard SFTP permits broad laptop-account access by the
+trusted remote host; this is not a sandbox. This mount is not the guarded operation-scoped Session writer mount. Direct
+bidirectional Skill file access was verified on the approved Linux `sct` pilot before the connection-only view. This
+does not qualify other hosts or saved Sessions. _Avoid_: Resource sync, copied profile, confined mount
 
 **Project Runtime State**: Machine-owned RunWield state inside a Project checkout. The current reserved root is
 `.wld/internal/`. User-derived `.wld/settings.json`, `.wld/agents/`, `.wld/skills/`, and `.wld/prompts/` are not Project
@@ -749,7 +756,10 @@ _Avoid_: Durable prompt, recoverable continuation, database interaction record
 ## Relationships
 
 - A **Remote SSH connection** uses Core to display a remote TUI for an existing directory; the connection itself is not
-  a **Session** and does not yet start project execution or open **Project Runtime State**.
+  a saved **Session** and does not yet start ordinary project execution or open **Project Runtime State**. Its **Remote
+  personal mount** gives direct access to laptop personal files on the approved `sct` pilot, while the project’s `.wld`
+  stays remote. The optional native Pi bridge proof is not an ordinary turn. Target remote Sessions add a separate
+  guarded writer for saved history and local authenticated model execution.
 - A **Tutorial** explains one real **Planned Change** through normal **Plan Review** and **Workflow Validation**. It
   does not replace **Init** or own Plan lifecycle state.
 - One **Attached Workflow** governs one user request inside one **External Agent Host**.

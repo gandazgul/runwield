@@ -2,9 +2,10 @@
 
 Last updated: 2026-09-24 EDT
 
-**Status:** Proposed full remote experience. A connection-only subset is implemented: remote location resolution,
-matched development runtime preparation, and a dormant remote TUI. It has no Agent turn, personal profile, or saved
-Session. **Document role:** Transient feature proposal. [RunWield Core](runwield-core-prd.md) owns the delivered
+**Status:** Proposed full remote experience. A connection-only development subset prepares a matched remote runtime,
+mounts the laptop's full `~/.wld` through stock SFTP/SSHFS on the approved Linux `sct` pilot, and opens a dormant remote
+TUI. An optional bounded native Pi bridge proof is available; neither path enables ordinary user turns or saved
+Sessions. **Document role:** Transient feature proposal. [RunWield Core](runwield-core-prd.md) owns the delivered
 installation, location, and connection cleanup requirements; this document keeps the remaining target behavior clear.
 
 ## Background
@@ -76,27 +77,32 @@ on the server after exit; a separate saved personal profile must not remain.
 
 ### Remote connection and setup
 
-**Scope and maturity:** Connection-only subset available with explicit development artifacts. Agent access and full
-remote setup remain proposed. The [Core installation](runwield-core-prd.md#installation-and-updates),
+**Scope and maturity:** Connection-only subset available with explicit development artifacts and a tested personal mount
+on the approved Linux `sct` pilot. Ordinary Agent access and full remote setup remain proposed. The
+[Core installation](runwield-core-prd.md#installation-and-updates),
 [project context](runwield-core-prd.md#project-context-and-initialization), and
 [recovery](runwield-core-prd.md#execution-validation-and-recovery) capabilities own the current subset.
 
 **Current connection-only behavior:** `wld remote <host>[:<directory>]` uses OpenSSH configuration, authentication, and
 host verification, resolves an existing remote directory (remote home by default), and shows its canonical location in a
-dormant remote TUI. Git is optional. The remote Linux host needs `python3`, a writable private cache, and an executable
-compatible with the preflight for the matching glibc-linked Linux x86-64 or ARM64 build. The local machine needs OpenSSH
-and an explicitly built matching development bundle; see [build steps](runwield-core-prd.md#installation-and-updates).
-Runtime preparation checks build/protocol identity and checksums, reuses or repairs private cache entries, and does not
-run a remote personal installer or start a personal profile. Connection loss and exit clean up owned processes, with
-uncertain termination reported when it cannot be confirmed. The view does not start an Agent, provider request, saved
-Session, writer lock, SFTP server, SSHFS mount, or personal resource copy. No project execution or browser review is
-available through it. This is not a production remote release.
+dormant remote TUI. Git is optional. The remote Linux host needs `python3`, SSHFS/FUSE for the personal mount, a
+writable private cache, and an executable compatible with the preflight for the matching glibc-linked Linux x86-64 or
+ARM64 build. The local machine needs OpenSSH and an explicitly built matching development bundle; see
+[build steps](runwield-core-prd.md#installation-and-updates). Runtime preparation checks build/protocol identity and
+checksums, reuses or repairs private cache entries, and does not run a remote personal installer or start a personal
+profile. Connection loss and exit clean up owned processes, with uncertain termination reported when it cannot be
+confirmed. The launcher starts a connection-owned stock SFTP server and SSHFS mount of the laptop's full `~/.wld` at a
+fresh private remote root before showing the connection-only view on the approved Linux `sct` pilot. A direct personal
+Skill file edit through this mount changed the laptop file in both directions; the remote project's `.wld` remained
+remote. The normal view starts no user Agent turn, provider request, saved Session, or writer lock, and makes no
+personal resource copy. An optional, bounded native Pi bridge proof is separate from the normal view. No ordinary
+project execution or browser review is available through it. This is not a production remote release.
 
 **Current acceptance scenarios:**
 
 - Given an SSH alias and an existing remote directory, when the matching development bundle connects, the view shows the
-  canonical remote directory and notes that future SFTP access is broad but is not open now. It does not read or edit
-  project files through an Agent.
+  canonical remote directory and warns that the active stock SFTP connection permits broad laptop-account access. It
+  does not accept ordinary Agent turns or edit project files through them.
 - Given a remote home without Git, when the user omits the directory, the connection view opens at that home without
   creating a project or a saved Session.
 - Given a missing directory, denied SSH access, missing `python3`, unsupported host architecture, incompatible
@@ -128,30 +134,49 @@ identify the real prerequisite; ordinary internal setup and repair stay automati
 
 ### Local personal environment
 
-**Scope and maturity:** Proposed extension of Core customization and model behavior. No personal profile or model
-service is started in the current connection-only view.
+**Scope and maturity:** The connection-owned personal mount and a bounded native Pi bridge proof exist on the approved
+Linux `sct` pilot. Ordinary remote Sessions, model turns, and the full customization journey remain target behavior; no
+separate remote personal profile is started.
 
-**Requirement: Use one personal environment.** Local user settings, model selections, Agents, skills, and prompts apply
-to the remote Session. Remote project overrides retain their normal precedence. Personal changes save locally; changes
-to project settings save in the remote project. Reconnect uses current local data, not a stale remote profile.
+**Requirement: Use one personal environment.** Direct access to the laptop’s `~/.wld` through a private connection-owned
+mount is demonstrated on `sct`, not copied or synchronized personal resources. In the target ordinary remote Session,
+local user settings, model selections, Agents, complete Skill trees, and prompts apply. Enabled personal resources
+outside `~/.wld` can be mounted separately when needed. Remote project `.wld` overrides must retain normal precedence
+and stay on the server. Personal file edits through the current mount change laptop files directly; there is no special
+resource-save step. The target ordinary Session must see current local data on reconnect, not a stale remote profile.
 
-**Requirement: Keep credentials local.** RunWield does not copy local provider credentials, private SSH keys, or an
-entire local environment to the server. Supported providers use the existing local sign-in. A selected provider must not
+**Requirement: Keep authenticated model execution local.** The bounded native Pi proof routes a synthetic HTTP provider
+request from a remote in-memory Agent Session through the laptop bridge; this is not an authenticated production
+provider or an ordinary user turn. RunWield does not copy provider credentials, private SSH keys, or an entire local
+environment to the server as setup. Supported model requests and authentication run in the laptop runtime with the
+existing local sign-in. The full `~/.wld` mount includes credential-bearing files; trusted remote hosts have broad
+laptop-account file access through standard SFTP. This is not credential confinement. A selected provider must not
 silently change to another provider or billing method. Compatibility failures explain the limitation before the affected
 turn starts.
 
-**Requirement: Use customizations honestly.** Supported skills can read their instructions and referenced resources;
-local paths must not accidentally select unrelated remote files. Machine-specific scripts and MCP integrations require
-compatibility checks rather than a claim that every local executable is portable.
+**Requirement: Use customizations honestly.** Complete personal Skill trees and other supported resources are read
+through the mount without making working copies; local paths must not accidentally select unrelated remote files.
+Machine-specific scripts and MCP integrations are best effort, not a promise that every local executable works remotely.
 
-**Acceptance scenarios:**
+**Current bounded proof scenarios (not ordinary remote user turns):**
+
+- Given the approved Linux `sct` connection and a personal Skill file, when the file is changed through the mounted
+  root, the laptop sees the change; a laptop edit is visible remotely. The project `.wld` stays on the server.
+- Given the optional native Pi proof on the built macOS laptop and Linux `sct` runtimes with a synthetic HTTP provider,
+  when the remote-only project sentinel is read by its restricted tool, two provider requests occur and the second
+  includes that sentinel. Cancelling the proof closes the upstream request; two reconnects repeat the bounded path. This
+  does not verify real provider authentication, normal Session persistence, workflows, or a platform matrix.
+
+**Target acceptance scenarios (not yet delivered as an ordinary remote Session):**
 
 - Given a local Agent/model preset and a remote project override, when the Session starts, the effective settings match
   normal precedence without overwriting either machine's personal profile.
-- Given a personal setting changed through the remote TUI, when the user later opens local RunWield, that change is
-  present. A project-scoped change instead remains with the remote project.
+- Given a personal Agent, prompt, Skill file, or setting changed through the remote TUI, when the user later opens local
+  RunWield, the file change or completed settings save is present on the laptop without copy-back or resource sync. A
+  project `.wld` change instead remains with the remote project.
 - Given a supported provider authenticated only on the laptop, when it performs a remote edit, no second provider login
-  or remote credential copy is required. OAuth renewal, where used, updates local credentials.
+  or setup credential copy is required. OAuth renewal, where used, updates local credentials. The trusted remote host
+  can access laptop-account files through standard SFTP; the mount is not a credential sandbox.
 - Given an incompatible provider or path-dependent integration, when it is needed, RunWield reports the specific limit
   instead of silently substituting a model, omitting required tools, or operating on laptop files.
 
@@ -160,8 +185,9 @@ compatibility checks rather than a claim that every local executable is portable
 
 ### Local memories and saved Sessions
 
-**Scope and maturity:** Proposed extension of project context and Session continuity. The current connection creates no
-saved Session, writer lock, SFTP server, or SSHFS mount.
+**Scope and maturity:** Proposed extension of project context and Session continuity. The connection-only view creates
+no saved Session or writer lock. The existing connection-wide personal SFTP/SSHFS mount is not a Session writer: managed
+transcript writes require separate guarded operation-scoped access.
 
 **Requirement: Read and update the same local memories.** Core Memory injection, recall, additions, and deletions use
 local storage and preserve project/global scope. Work Record retrieval reads the remote project's canonical records. A
@@ -254,7 +280,8 @@ best-effort stop request alone does not meet connected-only operation.
 ## Success Measures
 
 - Complete the remote-only project journey above without manual profile copying, a second provider login, or a local
-  checkout. Baseline: the connection-only view exists, but the personal-data split and full workflow do not.
+  checkout. Baseline: the connection-only view and bounded personal-mount/model proofs exist, but an ordinary remote
+  Session and full workflow do not.
 - Observe first-use setup effort and successful return visits in an owner pilot. No time target or adoption threshold
   has been agreed; record friction before setting either.
 - Pass the data-scope, wrong-machine, review, provider, and disconnect acceptance scenarios on each advertised supported
@@ -266,8 +293,11 @@ The connection-only subset is not the complete remote release. The smallest usef
 remote development journey, not just a remote prompt. The [feasibility report](../research/remote-ssh-feasibility.md)
 found a plausible path for Pi API/OAuth providers, including Codex through Pi and local/custom API endpoints. A
 2026-09-20 throwaway proof then demonstrated the narrow Pi model path with local authentication, remote tools,
-streaming, cancellation, tunnel loss, and a fresh connection. It did not prove a complete remote RunWield Session or
-production controls.
+streaming, cancellation, tunnel loss, and a fresh connection. A later bounded native Pi proof on built macOS and Linux
+`sct` runtimes used a synthetic HTTP provider, observed two requests with a remote-only sentinel in the second, closed
+the upstream request on cancellation, and reconnected twice. The approved `sct` pilot also verified direct bidirectional
+personal Skill file access through stock SFTP/SSHFS. Neither proof establishes ordinary remote turns, saved Sessions,
+production provider compatibility, workflow support, or a release matrix.
 
 The owner has deferred Claude CLI and Antigravity CLI from the first release. Their existing native tools and local
 sign-in remain coupled to one machine, so do not advertise them without a later proof. Copying credentials or silently
@@ -285,11 +315,11 @@ fix references, and remove this transient proposal under project policy.
 
 ## Risks and Mitigations
 
-- **Credential privacy mistaken for server isolation:** A trusted server can see supplied instructions, memories, and
-  tool results. Local ownership is not secrecy from the connected server. Limit access to what the connection needs; do
-  not promise forensic erasure of all temporary bytes.
+- **Credential privacy mistaken for server isolation:** A trusted remote host can access the mounted full `~/.wld`,
+  including credential files, and other laptop-account files through standard SFTP. Local authenticated model execution
+  is not a credential-access boundary. Give an honest broad-access notice; do not claim confinement or forensic erasure.
 - **False remote support:** CLI tools or local skill paths can operate on the wrong machine. Verify remote-only files
-  and distinct local files, not just mocked tool calls.
+  and distinct local files, not just mocked tool calls. Personal resource edits must reach laptop files directly.
 - **Silent data divergence:** Exit-only synchronization can lose memories or settings. Require local save confirmation
   during work and preserve existing local data on failure.
 - **False disconnect success:** Ending the TUI can leave children running. Verify normal exit and loss without client
@@ -298,8 +328,9 @@ fix references, and remove this transient proposal under project policy.
 ## Domain Language and Proposed Relationships
 
 **Remote SSH connection** is now defined in the [domain glossary](../domain-language.md#product-and-runtime). The
-current connection displays a remote TUI but does not contain or resume a **Session**. Full remote project execution,
-local personal data, and locally saved Session history are proposed relationships, not current glossary facts.
+current connection mounts laptop personal files and displays a dormant remote TUI but does not contain or resume a saved
+**Session**. The optional native Pi proof is bounded, not a product turn. Full remote project execution, ordinary local
+model execution, and locally saved Session history remain target relationships.
 
 ## Evidence and Open Checks
 

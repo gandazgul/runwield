@@ -51,7 +51,9 @@ configuration: personal definitions execute through the laptop personal service,
 remotely after existing safety checks and overrides.
 
 Do not copy credential-bearing MCP environments or rewrite arbitrary path arguments; transparent portability would be
-false for servers that need both laptop secrets and remote files.
+false for servers that need both laptop secrets and remote files. The connection-wide mount of laptop `~/.wld` gives
+direct personal file access, not authority to run the personal Memory database or authenticated model runtime remotely.
+Standard SFTP grants broad trusted-user file access; it is not credential confinement.
 
 ## Expected Change Surface
 

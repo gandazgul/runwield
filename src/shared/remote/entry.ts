@@ -3,7 +3,7 @@
 
 const MAX_VIEW_HEADER_BYTES = 16 * 1024;
 
-async function readViewHeader(): Promise<string> {
+async function readPrivateHeader(): Promise<string> {
     const byte = new Uint8Array(1);
     const parts: number[] = [];
     while (parts.length < MAX_VIEW_HEADER_BYTES) {
@@ -13,6 +13,26 @@ async function readViewHeader(): Promise<string> {
         parts.push(byte[0]);
     }
     throw new Error("Remote view configuration is too large");
+}
+
+/** Run the bounded proof outside the supervisor so stalled resource reads cannot stop supervision. */
+export async function runRemoteModelProofEntry(): Promise<void> {
+    if (!Deno.build.standalone || Deno.args.length !== 1 || Deno.args[0] !== "--remote-model-proof") {
+        throw new Error("Remote model proof requires its own compiled process");
+    }
+    const input = JSON.parse(await readPrivateHeader());
+    const { runRemoteModelProof } = await import("./model-proof.ts");
+    const abort = new AbortController();
+    // EOF means the supervising process ended, even when it could not signal us.
+    void Deno.stdin.read(new Uint8Array(1)).then(() => abort.abort(), () => abort.abort());
+    await runRemoteModelProof({
+        proof: input.proof,
+        connection: input.connection,
+        cwd: input.cwd,
+        // The supervisor owns this mount. It terminates the proof process on loss.
+        mount: { ...input.mount, lost: new Promise<void>(() => {}), close: () => Promise.resolve() },
+        signal: abort.signal,
+    });
 }
 
 /** Report only the embedded identity of this executable; never start the CLI. */
@@ -31,7 +51,7 @@ export async function runRemotePreflight(): Promise<void> {
 
 /** Read the complete view configuration before starting ProcessTerminal. */
 export async function runRemoteView(): Promise<void> {
-    const header = await readViewHeader();
+    const header = await readPrivateHeader();
     const { parseRemoteConnectionViewConfig, showRemoteConnectionView } = await import(
         "../../ui/tui/remote-connection-view.ts"
     );

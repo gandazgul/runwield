@@ -14,6 +14,7 @@ import { dirname, join } from "@std/path";
 import { parse as parseJsonc } from "@std/jsonc";
 import { getSettingsDir } from "../settings.js";
 import { getHomeDir } from "../../constants.js";
+import { remotePersonalResourcesActive } from "../remote/personal-resources.ts";
 
 export type ExecutionBackend = "pi" | "claude-cli" | "agy-cli";
 type ExternalCliExecutionBackend = Exclude<ExecutionBackend, "pi">;
@@ -106,6 +107,8 @@ export const SYSTEM_MODEL_DISCOVERY_NETWORK: ModelDiscoveryNetworkPort = Object.
 });
 
 interface ModelRegistryOptions {
+    /** Credential-free catalog from an authenticated laptop control connection. */
+    remote?: boolean;
     runtime?: ModelRuntime | null;
     runtimePromise?: Promise<ModelRuntime>;
     configDir?: string;
@@ -474,10 +477,15 @@ export class RunWieldModelRegistry {
     configDir: string;
     credentialStore: RunWieldCredentialStore;
     registeredModels = new Map<string, RunWieldModel>();
+    readonly remote: boolean;
 
     constructor(options: ModelRegistryOptions = {}) {
-        this.runtime = options.runtime || resolvedModelRuntime;
-        this.runtimePromise = options.runtimePromise || modelRuntimePromise || undefined;
+        this.remote = options.remote === true;
+        if (this.remote && (!remotePersonalResourcesActive() || !options.runtime)) {
+            throw new Error("Remote model registry requires an explicit mounted context and runtime");
+        }
+        this.runtime = this.remote ? options.runtime! : options.runtime || resolvedModelRuntime;
+        this.runtimePromise = this.remote ? undefined : options.runtimePromise || modelRuntimePromise || undefined;
         this.configDir = options.configDir || getRunWieldModelConfigDir();
         this.credentialStore = options.credentialStore || getRunWieldCredentialStore(this.configDir);
         if (this.runtimePromise && !this.runtime) {
@@ -488,6 +496,7 @@ export class RunWieldModelRegistry {
     }
 
     async getRuntime(): Promise<ModelRuntime> {
+        if (this.remote) return this.runtime!;
         const runtime = this.runtime || await (this.runtimePromise || getModelRuntime());
         this.runtime = runtime;
         return runtime;
@@ -517,11 +526,13 @@ export class RunWieldModelRegistry {
     }
 
     async loginProvider(providerId: string, authType: AuthType, interaction: AuthInteraction): Promise<void> {
+        if (this.remote) throw new Error("Remote provider auth is laptop-owned");
         const runtime = await this.getRuntime();
         await runtime.login(providerId, authType, interaction);
     }
 
     async setProviderApiKey(providerId: string, apiKey: string): Promise<void> {
+        if (this.remote) throw new Error("Remote provider auth is laptop-owned");
         if (isExternalCliProvider(providerId)) return;
         await this.credentialStore.modify(providerId, () => Promise.resolve({ type: "api_key", key: apiKey }));
         const runtime = await this.getRuntime();
@@ -529,11 +540,13 @@ export class RunWieldModelRegistry {
     }
 
     async logoutProvider(providerId: string): Promise<void> {
+        if (this.remote) throw new Error("Remote provider auth is laptop-owned");
         const runtime = await this.getRuntime();
         await runtime.logout(providerId);
     }
 
     async refresh(): Promise<void> {
+        if (this.remote) throw new Error("Remote model catalog requires a new control connection");
         const runtime = await (this.runtimePromise || getModelRuntime());
         this.runtime = runtime;
         await runtime.refresh();
@@ -544,6 +557,7 @@ export class RunWieldModelRegistry {
     }
 
     getAll(): RunWieldModel[] {
+        if (this.remote) return Array.from(this.runtime!.getModels()) as RunWieldModel[];
         const runtimeModels = this.runtime
             ? Array.from(this.runtime.getModels()) as RunWieldModel[]
             : readBuiltinModels();
@@ -556,6 +570,7 @@ export class RunWieldModelRegistry {
     }
 
     getSelectable(): RunWieldModel[] {
+        if (this.remote) return this.getAvailable();
         return dedupeModels([...this.getAvailable(), ...getExternalCliAliasModels()]);
     }
 
@@ -569,6 +584,12 @@ export class RunWieldModelRegistry {
     }
 
     find(provider: string, modelId: string): RunWieldModel | undefined {
+        if (this.remote) {
+            const model = this.runtime!.getModel(provider, modelId) as RunWieldModel | undefined;
+            return model && this.getAvailable().some((item) => item.provider === provider && item.id === modelId)
+                ? model
+                : undefined;
+        }
         if (isExternalCliProvider(provider)) return createExternalCliModelDescriptor(provider, modelId);
         return this.runtime?.getModel(provider, modelId) as RunWieldModel | undefined ||
             this.registeredModels.get(`${provider}/${modelId}`) ||
@@ -578,12 +599,16 @@ export class RunWieldModelRegistry {
 
     isSelectable(model: RunWieldModel | undefined): boolean {
         if (!model) return false;
+        if (this.remote) {
+            return this.getAvailable().some((item) => item.provider === model.provider && item.id === model.id);
+        }
         if (isExternalCliModel(model)) return true;
         return this.hasConfiguredAuth(model);
     }
 
     hasConfiguredAuth(model: RunWieldModel | undefined): boolean {
         if (!model) return false;
+        if (this.remote) return this.isSelectable(model);
         if (isExternalCliModel(model)) return false;
         if (this.runtime?.hasConfiguredAuth(model.provider)) return true;
         const status = this.getProviderAuthStatus(model.provider);
@@ -596,6 +621,7 @@ export class RunWieldModelRegistry {
             error: string;
         }
     > {
+        if (this.remote) return { ok: false, error: "Remote model credentials stay on the laptop" };
         if (isExternalCliModel(model)) {
             return { ok: false, error: `No API auth for external CLI provider ${model.provider}` };
         }
@@ -614,6 +640,7 @@ export class RunWieldModelRegistry {
     }
 
     getProviderAuthStatus(provider: string): ProviderAuthStatus {
+        if (this.remote) return { configured: this.runtime!.hasConfiguredAuth(provider) };
         if (isExternalCliProvider(provider)) return { configured: false };
         const runtimeStatus = this.runtime?.getProviderAuthStatus(provider) as ProviderAuthStatus | undefined;
         if (runtimeStatus?.configured) return runtimeStatus;
@@ -628,18 +655,21 @@ export class RunWieldModelRegistry {
     }
 
     getProvider(provider: string): Provider | ConfiguredProviderInput | undefined {
+        if (this.remote) return this.runtime!.getProvider(provider);
         if (isExternalCliProvider(provider)) return undefined;
         return this.runtime?.getProvider(provider) || builtinProviders().find((item) => item.id === provider) ||
             this.getProviderConfig(provider);
     }
 
     getProviderDisplayName(provider: string): string {
+        if (this.remote) return this.runtime!.getProvider(provider)?.name || provider;
         if (isExternalCliProvider(provider)) return EXTERNAL_CLI_PROVIDER_DEFINITIONS[provider].displayName;
         return this.runtime?.getProvider(provider)?.name ||
             this.getProviderConfig(provider)?.name as string | undefined || provider;
     }
 
     async getProviderAuth(provider: string): Promise<AuthResultValue | undefined> {
+        if (this.remote) return undefined;
         if (isExternalCliProvider(provider)) return undefined;
         const runtime = this.runtime || await (this.runtimePromise || getModelRuntime());
         this.runtime = runtime;
@@ -658,6 +688,7 @@ export class RunWieldModelRegistry {
     }
 
     registerProvider(provider: string | ConfiguredProviderInput, config?: ConfiguredProviderInput): void {
+        if (this.remote) throw new Error("Remote model catalog is laptop-owned");
         const providerId = typeof provider === "string" ? provider : asString(provider.id, "");
         const providerConfig = typeof provider === "string" ? config : provider;
         if (!providerId || !providerConfig || isExternalCliProvider(providerId)) return;
@@ -673,6 +704,7 @@ export class RunWieldModelRegistry {
     }
 
     unregisterProvider(provider: string): void {
+        if (this.remote) throw new Error("Remote model catalog is laptop-owned");
         this.runtime?.unregisterProvider(provider);
         for (const key of this.registeredModels.keys()) {
             if (key.startsWith(`${provider}/`)) this.registeredModels.delete(key);
@@ -702,10 +734,12 @@ export class RunWieldModelRegistry {
     }
 
     readModelsConfig(): ModelsConfig {
+        if (this.remote) return {};
         return readJsoncObject(join(this.configDir, "models.json")) as ModelsConfig || {};
     }
 
     getProviderConfig(provider: string): ConfiguredProviderInput | undefined {
+        if (this.remote) return undefined;
         if (isExternalCliProvider(provider)) return undefined;
         const providers = this.readModelsConfig().providers;
         const config = isJsonRecord(providers) ? providers[provider] : undefined;
@@ -713,6 +747,7 @@ export class RunWieldModelRegistry {
     }
 
     getConfiguredModels(): RunWieldModel[] {
+        if (this.remote) return [];
         const providers = this.readModelsConfig().providers;
         if (!isJsonRecord(providers)) return [];
         return Object.entries(providers).flatMap(([provider, config]) =>
@@ -730,7 +765,7 @@ export async function discoverProviderModel(
     network: ModelDiscoveryNetworkPort,
     options: DiscoverProviderModelOptions = {},
 ): Promise<RunWieldModel | undefined> {
-    if (isExternalCliProvider(provider)) return undefined;
+    if (modelRegistry.remote || isExternalCliProvider(provider)) return undefined;
     const existing = modelRegistry.find(provider, modelId);
     if (existing) return existing;
 
@@ -850,6 +885,7 @@ export async function createRunWieldModelRuntime(): Promise<ModelRuntime> {
 }
 
 export function getModelRuntime(): Promise<ModelRuntime> {
+    if (remotePersonalResourcesActive()) throw new Error("Remote model runtime requires explicit control connection");
     const configDir = getRunWieldModelConfigDir();
     if (!modelRuntimePromise || modelRuntimeConfigDir !== configDir) {
         modelRuntimeConfigDir = configDir;
@@ -865,6 +901,7 @@ export function getModelRuntime(): Promise<ModelRuntime> {
 }
 
 export function getModelRegistry(): RunWieldModelRegistry {
+    if (remotePersonalResourcesActive()) throw new Error("Remote model registry requires explicit control connection");
     const agentDir = getRunWieldModelConfigDir();
     const piMigration = migratePiModelConfigOnce({ runwieldDir: agentDir });
     for (const failure of piMigration.failed) {

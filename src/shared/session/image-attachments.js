@@ -5,6 +5,7 @@
 
 import { basename, extname, isAbsolute, join, normalize, relative, resolve } from "@std/path";
 import { discoverProviderModel } from "../models/model-registry.ts";
+import { assertModelExecutionBackendSupported } from "../models/model-execution.ts";
 import { parseProviderModel } from "../models/model-validation.ts";
 import { getResolvedVisionFallbackModelSetting } from "../settings.js";
 import { getRunWieldSessionDir } from "./root-session.js";
@@ -194,6 +195,7 @@ export async function resolveVisionFallbackModel(modelRegistry, network, project
 
     const parsed = parseProviderModel(configured);
     if (!parsed.ok) throw new Error(`Invalid visionFallback.model: ${configured}. Use provider/id.`);
+    assertModelExecutionBackendSupported({ provider: parsed.provider, id: parsed.id });
 
     let found = modelRegistry.find(parsed.provider, parsed.id);
     if (!found) {
