@@ -1106,15 +1106,25 @@ export async function findActiveByPlanName(projectRoot, planName, options = {}) 
  * @param {string} planId
  */
 export async function findByPlanId(projectRoot, planId) {
+    return (await findByPlanIds(projectRoot, [planId])).get(planId) || null;
+}
+
+/** Read one authoritative registry snapshot for a group of dashboard Plans.
+ * @param {string} projectRoot
+ * @param {string[]} planIds
+ */
+export async function findByPlanIds(projectRoot, planIds) {
     const entries = await listEntries(projectRoot);
-    const live = entries.filter((entry) =>
-        entry.planId === planId && entry.status !== "planning" && NONTERMINAL_STATUSES.has(entry.status)
-    );
-    // Picking the first of several would silently hand back one of two worktrees and
-    // validate or merge whichever happened to be written first. This is the one place
-    // the ambiguity has to surface, because it is the question that cannot be answered.
-    if (live.length > 1) throw duplicateLiveAttemptError(live[0].planName, live);
-    return live[0] || null;
+    const matches = new Map();
+    for (const planId of planIds) {
+        const live = entries.filter((entry) =>
+            entry.planId === planId && entry.status !== "planning" && NONTERMINAL_STATUSES.has(entry.status)
+        );
+        // Never hide two active attempts for one Plan behind a batch lookup.
+        if (live.length > 1) throw duplicateLiveAttemptError(live[0].planName, live);
+        matches.set(planId, live[0] || null);
+    }
+    return matches;
 }
 
 /**

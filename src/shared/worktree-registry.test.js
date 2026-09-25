@@ -8,6 +8,7 @@ import {
     addEntry,
     findById,
     findByPlanId,
+    findByPlanIds,
     findByPlanName,
     getWorktreeRegistryLockPath,
     getWorktreeRegistryPath,
@@ -370,6 +371,13 @@ Deno.test("a damaged attempt for one Plan does not disable every other Plan", as
 
         const healthy = await findByPlanId(projectRoot, "plan-healthy");
         assertEquals(healthy?.id, "healthy", "an unrelated Plan keeps working");
+        const batch = await findByPlanIds(projectRoot, ["plan-healthy", "plan-missing"]);
+        assertEquals(batch.get("plan-healthy")?.id, "healthy");
+        assertEquals(batch.get("plan-missing"), null);
+        await assertRejects(
+            () => findByPlanIds(projectRoot, ["plan-healthy", "plan-broken"]),
+            WorktreeRegistryAmbiguityError,
+        );
         assertEquals((await findById(projectRoot, "dup-a"))?.id, "dup-a", "an exact attempt id is unambiguous");
 
         const ambiguous = await assertRejects(

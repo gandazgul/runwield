@@ -10,7 +10,7 @@ import {
 import { loadBoard, loadWorkspaceDetail } from "../server/plan-adapter.js";
 import { runOwnerPlanAction } from "../server/owner-plan-actions.ts";
 import { loadOwnerPlanProgress } from "../server/owner-plan-progress.ts";
-import { loadOwnerDashboard } from "../server/owner-dashboard.ts";
+import { loadOwnerDashboard, subscribeOwnerDashboard } from "../server/owner-dashboard.ts";
 import { listOwnerProjects, requireOwnerProjectRoot, serializeOwnerProject } from "../server/owner-projects.js";
 import { ownerSecurityHeaders } from "../server/owner-origin.js";
 import { reviewFileContentApi } from "./api/review-file-handlers.js";
@@ -81,6 +81,28 @@ function sanitizeOwnerDiagnosticValue(value) {
     for (const [key, child] of Object.entries(value)) {
         if (/(path|root|cwd|file)$/i.test(key)) continue;
         safe[key] = sanitizeOwnerDiagnosticValue(child);
+    }
+    return safe;
+}
+
+/**
+ * Dashboard links are generated from encoded IDs. Preserve these relative links while
+ * scrubbing all free-text fields, including diagnostics and Session prompts.
+ * @param {unknown} value
+ * @returns {unknown}
+ */
+function sanitizeOwnerDashboardFrame(value) {
+    if (typeof value === "string") return scrubLocalPaths(value);
+    if (!value || typeof value !== "object") return value;
+    if (Array.isArray(value)) return value.map(sanitizeOwnerDashboardFrame);
+    /** @type {Record<string, unknown>} */
+    const safe = {};
+    for (const [key, child] of Object.entries(value)) {
+        if (/(path|root|cwd|file)$/i.test(key)) continue;
+        safe[key] = (key === "href" || key === "repairHref") && typeof child === "string" &&
+                (child.startsWith("/projects/") || child === "/")
+            ? child
+            : sanitizeOwnerDashboardFrame(child);
     }
     return safe;
 }
@@ -179,6 +201,49 @@ export async function ownerDashboardApi(ctx) {
     } catch (error) {
         return ownerErrorJson(error);
     }
+}
+
+/** @param {any} ctx */
+export function ownerDashboardStreamApi(ctx) {
+    const encoder = new TextEncoder();
+    /** @type {(() => void) | undefined} */
+    let unsubscribe;
+    let closed = false;
+    const cleanup = () => {
+        closed = true;
+        unsubscribe?.();
+        ctx.req.signal.removeEventListener("abort", cleanup);
+    };
+    const stream = new ReadableStream({
+        start(target) {
+            ctx.req.signal.addEventListener("abort", cleanup, { once: true });
+            try {
+                unsubscribe = subscribeOwnerDashboard(ctx.state.store, ctx.state.sessionContinuation, (frame) => {
+                    if (closed) return;
+                    // Strip internal fields and redact local paths in every frame, including row text.
+                    target.enqueue(encoder.encode(JSON.stringify(sanitizeOwnerDashboardFrame(frame)) + "\n"));
+                    if (frame.type === "complete" || frame.type === "error") {
+                        cleanup();
+                        target.close();
+                    }
+                });
+                if (closed) unsubscribe();
+            } catch (error) {
+                target.enqueue(
+                    encoder.encode(JSON.stringify({ type: "error", error: sanitizeOwnerError(error) }) + "\n"),
+                );
+                cleanup();
+                target.close();
+            }
+        },
+        cancel() {
+            cleanup();
+        },
+    });
+    const headers = ownerSecurityHeaders(new Headers());
+    headers.set("content-type", "application/x-ndjson; charset=utf-8");
+    headers.set("x-accel-buffering", "no");
+    return new Response(stream, { headers });
 }
 
 /** @param {any} ctx */

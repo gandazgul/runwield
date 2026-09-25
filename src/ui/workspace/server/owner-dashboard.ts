@@ -1,9 +1,9 @@
 /** @module ui/workspace/server/owner-dashboard */
 
 import { isSequencePlan } from "../../../plan-store.js";
-import { findByPlanId, type WorktreeRegistryEntry } from "../../../shared/worktree-registry.js";
+import { findByPlanId, findByPlanIds, type WorktreeRegistryEntry } from "../../../shared/worktree-registry.js";
 import { loadPlanActionEvidence } from "../../../shared/workflow/plan-actions.ts";
-import { loadBoard } from "./plan-adapter.js";
+import { loadPlanSummaries } from "./plan-adapter.js";
 import { requireOwnerProjectRoot, serializeOwnerProject } from "./owner-projects.js";
 import { readLiveSessionConnection } from "../../../shared/session/live-session-connection.ts";
 import { withProjectRuntimeReadScope } from "../../../shared/project-runtime-layout.ts";
@@ -107,7 +107,7 @@ type SidebarProject = ReturnType<typeof serializeOwnerProject> & {
 
 type OwnerStore = {
     listProjects(): OwnerProject[];
-    getProjectHealth(projectId: string): ReturnType<typeof serializeOwnerProject> | null;
+    getProjectHealth(projectId: string): { status: string; evidence?: string[] } | null;
     requireEnabledProjectRoot(projectId: string): string;
     listSessionPlanAssociations?: (runwieldSessionId: string, projectId?: string) => Array<{
         planId?: string;
@@ -116,11 +116,9 @@ type OwnerStore = {
     inspectSessionActivation?: (runwieldSessionId: string) => {
         activation?: {
             state?: string;
-            ownerProcessKind?: string;
-            activeAgentName?: string;
             operationId?: string | null;
             updatedAt?: string;
-        };
+        } | null;
     };
 };
 
@@ -465,6 +463,7 @@ async function projectPayload(
     store: OwnerStore,
     sessionContinuation: SessionContinuation,
     projectRecord: OwnerProject,
+    publish: (item: DashboardItem) => void,
 ): Promise<SidebarProject> {
     const health = store.getProjectHealth(projectRecord.projectId);
     const project = serializeOwnerProject(projectRecord, health) as SidebarProject;
@@ -486,7 +485,7 @@ async function projectPayload(
     let plans: OwnerPlan[] = [];
     if (root) {
         try {
-            plans = ((await loadBoard(root)).plans || []) as OwnerPlan[];
+            plans = (await loadPlanSummaries(root)) as OwnerPlan[];
         } catch (error) {
             diagnostics.push({
                 source: "plans-reader",
@@ -551,13 +550,17 @@ async function projectPayload(
     }
 
     const activeEvidenceByPlan = new Map<string, ClassificationEvidence>();
+    // Start independent readiness checks before waiting for Session and live-connection data.
+    const readinessByPlan = new Map<string, Promise<boolean>>();
     if (root) {
         for (const plan of plans) {
             if (!READY.has(planStatus(plan))) continue;
-            const readiness = await loadPlanActionEvidence(root, plan.planId);
-            if (readiness.kind === "success" && READY.has(readiness.evidence.status)) {
-                activeEvidenceByPlan.set(plan.planId, { ready: true });
-            }
+            readinessByPlan.set(
+                plan.planId,
+                loadPlanActionEvidence(root, plan.planId).then((readiness) =>
+                    readiness.kind === "success" && READY.has(readiness.evidence.status)
+                ).catch(() => false),
+            );
         }
     }
     const dashboardSessions: DashboardItem[] = [];
@@ -567,65 +570,85 @@ async function projectPayload(
         ),
     );
     // Observe active TUI Sessions too; never infer a pending question from transcript history.
-    await Promise.all(sessions.map(async (session) => {
-        const sessionId = session.runwieldSessionId;
-        if (!sessionId) return;
-        const activation = store.inspectSessionActivation?.(sessionId).activation;
-        const planId = currentPlanBySession.get(sessionId);
-        if (planId && activation) {
-            const current = activeEvidenceByPlan.get(planId) || {};
-            activeEvidenceByPlan.set(planId, {
-                ...current,
-                activeSession: current.activeSession || activation.state === "active",
-                stopped: current.stopped || activation.state === "idle" || activation.state === "interrupted",
-                attentionHref: current.attentionHref || sessionHref(project.projectId, sessionId),
-                updatedAt: latestTimestamp(current.updatedAt, activation.updatedAt, session.headerTimestamp),
-            });
-        }
-        if (
-            activation?.state !== "active" || !activation.operationId || currentOperations.has(activation.operationId)
-        ) return;
-        try {
-            const live = await readLiveSessionConnection(sessionId, activation.operationId);
-            currentOperations.set(activation.operationId, {
-                projectId: project.projectId,
-                runwieldSessionId: sessionId,
-                status: "running",
-                events: live.events,
-                liveInteraction: live.interaction?.id
-                    ? { interactionId: live.interaction.id, request: live.interaction }
-                    : undefined,
-            });
-        } catch {
-            // A turn can finish while its live socket is being observed. Retry on the next refresh.
-        }
-    }));
-    for (const [operationId, operation] of currentOperations) {
-        if (operation.projectId !== project.projectId || operation.status !== "running") continue;
-        const reference = interactionPlan(operation);
-        const candidateId = operationPlanId(store, project.projectId, operation);
-        const plan = plans.find((candidate) => candidate.planId === candidateId) ||
-            plans.find((candidate) =>
-                reference.planName && [candidate.name, candidate.planName].includes(reference.planName)
-            );
-        const planId = plan?.planId;
-        const session = sessions.find((candidate) => candidate.runwieldSessionId === operation.runwieldSessionId);
-        if (planId && plan && isDashboardEligible(plan)) {
-            const current = activeEvidenceByPlan.get(planId) || {};
-            const waiting = Boolean(operation.liveInteraction?.interactionId);
+    const liveBySession = new Map(
+        sessions.filter((session) => session.runwieldSessionId).map((session) => [
+            session.runwieldSessionId!,
+            (async () => {
+                const sessionId = session.runwieldSessionId;
+                if (!sessionId) return;
+                const activation = store.inspectSessionActivation?.(sessionId).activation;
+                const planId = currentPlanBySession.get(sessionId);
+                if (planId && activation) {
+                    const current = activeEvidenceByPlan.get(planId) || {};
+                    activeEvidenceByPlan.set(planId, {
+                        ...current,
+                        activeSession: current.activeSession || activation.state === "active",
+                        stopped: current.stopped || activation.state === "idle" || activation.state === "interrupted",
+                        attentionHref: current.attentionHref || sessionHref(project.projectId, sessionId),
+                        updatedAt: latestTimestamp(current.updatedAt, activation.updatedAt, session.headerTimestamp),
+                    });
+                }
+                if (
+                    activation?.state !== "active" || !activation.operationId ||
+                    currentOperations.has(activation.operationId)
+                ) return;
+                try {
+                    const live = await readLiveSessionConnection(sessionId, activation.operationId);
+                    currentOperations.set(activation.operationId, {
+                        projectId: project.projectId,
+                        runwieldSessionId: sessionId,
+                        status: "running",
+                        events: live.events,
+                        liveInteraction: live.interaction?.id
+                            ? { interactionId: live.interaction.id, request: live.interaction }
+                            : undefined,
+                    });
+                } catch {
+                    // A turn can finish while its live socket is being observed. Retry on the next refresh.
+                }
+            })(),
+        ]),
+    );
+    const allLive = Promise.all(liveBySession.values());
+    // Resolve a Plan after only its own live connections (and any unassociated
+    // Session that could identify it by name). Other live sockets remain independent.
+    const liveForPlan = (plan: OwnerPlan) =>
+        Promise.all(
+            [...liveBySession].filter(([sessionId]) => {
+                const linked = currentPlanBySession.get(sessionId);
+                return !linked || linked === plan.planId;
+            }).map(([, result]) => result),
+        );
+    const publishStandalone = () => {
+        for (const [operationId, operation] of currentOperations) {
+            if (operation.projectId !== project.projectId || operation.status !== "running") continue;
+            const reference = interactionPlan(operation);
+            const candidateId = operationPlanId(store, project.projectId, operation);
+            const plan = plans.find((candidate) => candidate.planId === candidateId) ||
+                plans.find((candidate) =>
+                    reference.planName && [candidate.name, candidate.planName].includes(reference.planName)
+                );
+            const planId = plan?.planId;
+            const session = sessions.find((candidate) => candidate.runwieldSessionId === operation.runwieldSessionId);
+            if (planId && plan && isDashboardEligible(plan)) {
+                const current = activeEvidenceByPlan.get(planId) || {};
+                const waiting = Boolean(operation.liveInteraction?.interactionId);
+                const item = operationItem(project, operationId, operation, plan, session);
+                activeEvidenceByPlan.set(planId, {
+                    ...current,
+                    activeSession: true,
+                    liveQuestion: current.liveQuestion || waiting,
+                    attentionLabel: waiting ? interactionLabel(operation) : current.attentionLabel,
+                    attentionHref: waiting ? item.href : current.attentionHref,
+                    updatedAt: latestTimestamp(current.updatedAt, item.updatedAt),
+                });
+                continue;
+            }
             const item = operationItem(project, operationId, operation, plan, session);
-            activeEvidenceByPlan.set(planId, {
-                ...current,
-                activeSession: true,
-                liveQuestion: current.liveQuestion || waiting,
-                attentionLabel: waiting ? interactionLabel(operation) : current.attentionLabel,
-                attentionHref: waiting ? item.href : current.attentionHref,
-                updatedAt: latestTimestamp(current.updatedAt, item.updatedAt),
-            });
-            continue;
+            dashboardSessions.push(item);
+            publish(item);
         }
-        dashboardSessions.push(operationItem(project, operationId, operation, plan, session));
-    }
+    };
 
     const plansForSidebar = plans.filter((plan) => {
         if (!safeText(plan.planId)) return false;
@@ -643,11 +666,53 @@ async function projectPayload(
         session.runwieldSessionId && !associatedSessionIds.has(session.runwieldSessionId)
     );
     const registries = new Map<string, WorktreeRegistryEntry | null>();
-    if (root) {
-        for (const plan of plans) {
-            registries.set(plan.planId, await registryFor(root, plan, diagnostics, project.projectId));
+    const registryBatch = root
+        ? findByPlanIds(root, plans.map((plan) => plan.planId)).catch(() => null)
+        : Promise.resolve(null);
+    // Each Plan settles after its own evidence, not after another Plan's readiness.
+    let nextPlan = 0;
+    await Promise.all(Array.from({ length: Math.min(6, plans.length) }, async () => {
+        while (nextPlan < plans.length) {
+            const plan = plans[nextPlan++];
+            const [, batch, ready] = await Promise.all([
+                liveForPlan(plan),
+                registryBatch,
+                readinessByPlan.get(plan.planId) || Promise.resolve(false),
+            ]);
+            const registry = batch
+                ? batch.get(plan.planId) || null
+                : root
+                ? await registryFor(root, plan, diagnostics, project.projectId)
+                : null;
+            registries.set(plan.planId, registry);
+            const evidence = activeEvidenceByPlan.get(plan.planId) || {};
+            for (const [operationId, operation] of currentOperations) {
+                if (operation.projectId !== project.projectId || operation.status !== "running") continue;
+                const reference = interactionPlan(operation);
+                const candidateId = operationPlanId(store, project.projectId, operation);
+                if (
+                    candidateId !== plan.planId &&
+                    !(reference.planName && [plan.name, plan.planName].includes(reference.planName))
+                ) continue;
+                const session = sessions.find((candidate) =>
+                    candidate.runwieldSessionId === operation.runwieldSessionId
+                );
+                const item = operationItem(project, operationId, operation, plan, session);
+                const waiting = Boolean(operation.liveInteraction?.interactionId);
+                evidence.activeSession = true;
+                evidence.liveQuestion = evidence.liveQuestion || waiting;
+                evidence.attentionLabel = waiting ? interactionLabel(operation) : evidence.attentionLabel;
+                evidence.attentionHref = waiting ? item.href : evidence.attentionHref;
+                evidence.updatedAt = latestTimestamp(evidence.updatedAt, item.updatedAt);
+            }
+            if (ready) evidence.ready = true;
+            activeEvidenceByPlan.set(plan.planId, evidence);
+            const category = classifyPlan(plan, registry, evidence);
+            if (category) publish(dashboardItem(project, plan, category, registry, evidence));
         }
-    }
+    }));
+    await allLive;
+    publishStandalone();
     plansForSidebar.sort((left, right) => {
         const leftHold = planStatus(left) === "on_hold" ? 1 : 0;
         const rightHold = planStatus(right) === "on_hold" ? 1 : 0;
@@ -680,82 +745,166 @@ async function projectPayload(
 }
 
 type DashboardPayload = { projects: SidebarProject[]; dashboard: { sections: DashboardSection[] } };
+type DashboardFrame = {
+    type: "snapshot" | "complete" | "error";
+    sections: DashboardSection[];
+    progress: { completedProjects: number; totalProjects: number; pending: boolean };
+    diagnostics: Diagnostic[];
+    error?: string;
+};
+type PendingRead = {
+    promise: Promise<DashboardPayload>;
+    listeners: Set<(frame: DashboardFrame) => void>;
+    frame: DashboardFrame;
+};
 
-// Share only work currently in progress. Each later refresh reads fresh evidence.
-const pendingDashboardReads = new WeakMap<OwnerStore, WeakMap<SessionContinuation, Promise<DashboardPayload>>>();
+// The read and its listeners exist only until settlement; subsequent calls use fresh evidence.
+const pendingDashboardReads = new WeakMap<OwnerStore, WeakMap<SessionContinuation, PendingRead>>();
 
-export function loadOwnerDashboard(
-    store: OwnerStore,
-    sessionContinuation: SessionContinuation,
-): Promise<DashboardPayload> {
+function startDashboardRead(store: OwnerStore, continuation: SessionContinuation): PendingRead {
     let pending = pendingDashboardReads.get(store);
     if (!pending) {
         pending = new WeakMap();
         pendingDashboardReads.set(store, pending);
     }
-    const existing = pending.get(sessionContinuation);
+    const existing = pending.get(continuation);
     if (existing) return existing;
-    const reads = pending;
-    const result = withProjectRuntimeReadScope(() => readOwnerDashboard(store, sessionContinuation))
-        .finally(() => reads.delete(sessionContinuation));
-    reads.set(sessionContinuation, result);
-    return result;
+    const frame: DashboardFrame = {
+        type: "snapshot",
+        sections: CATEGORY_ORDER.map(section),
+        progress: { completedProjects: 0, totalProjects: 0, pending: true },
+        diagnostics: [],
+    };
+    const read: PendingRead = {
+        frame,
+        listeners: new Set(),
+        promise: Promise.resolve({ projects: [], dashboard: { sections: [] } }),
+    };
+    const emit = (next: DashboardFrame) => {
+        read.frame = next;
+        for (const listener of read.listeners) {
+            try {
+                listener(next);
+            } catch {
+                read.listeners.delete(listener);
+            }
+        }
+    };
+    read.promise = withProjectRuntimeReadScope(() => readOwnerDashboard(store, continuation, emit))
+        .then((payload) => {
+            emit({ ...read.frame, type: "complete", progress: { ...read.frame.progress, pending: false } });
+            return payload;
+        }, (error: Error) => {
+            emit({
+                ...read.frame,
+                type: "error",
+                error: diagnosticMessage(error),
+                progress: { ...read.frame.progress, pending: false },
+            });
+            throw error;
+        }).finally(() => {
+            pending.delete(continuation);
+            read.listeners.clear();
+        });
+    pending.set(continuation, read);
+    return read;
+}
+
+export function loadOwnerDashboard(store: OwnerStore, continuation: SessionContinuation): Promise<DashboardPayload> {
+    return startDashboardRead(store, continuation).promise;
+}
+
+/** Subscribe to the latest verified snapshot and all subsequent frames. Unsubscribe on disconnect. */
+export function subscribeOwnerDashboard(
+    store: OwnerStore,
+    continuation: SessionContinuation,
+    listener: (frame: DashboardFrame) => void,
+): () => void {
+    const read = startDashboardRead(store, continuation);
+    // Stream-only consumers observe the error frame, not the JSON Promise rejection.
+    read.promise.catch(() => {});
+    read.listeners.add(listener);
+    listener(read.frame);
+    return () => read.listeners.delete(listener);
 }
 
 async function readOwnerDashboard(
     store: OwnerStore,
-    sessionContinuation: SessionContinuation,
+    continuation: SessionContinuation,
+    emit: (frame: DashboardFrame) => void,
 ): Promise<DashboardPayload> {
-    const sections = Object.fromEntries(
-        CATEGORY_ORDER.map((category) => [category, section(category)]),
-    ) as Record<DashboardCategory, DashboardSection>;
-    const projects: SidebarProject[] = [];
     const records = store.listProjects();
-    for (const record of records) {
-        try {
-            const project = await projectPayload(store, sessionContinuation, record);
-            projects.push(project);
-            for (const plan of project.dashboardPlans || []) {
-                const registry = project.registryByPlan?.get(plan.planId) || null;
-                const evidence = project.activeEvidenceByPlan?.get(plan.planId) || {};
-                const category = classifyPlan(plan, registry, evidence);
-                if (category) sections[category].items.push(dashboardItem(project, plan, category, registry, evidence));
-            }
-            for (const item of project.dashboardSessions || []) sections[item.category].items.push(item);
-            delete project.dashboardPlans;
-            delete project.dashboardSessions;
-            delete project.activeEvidenceByPlan;
-            delete project.registryByPlan;
-            delete project.root;
-        } catch (error) {
-            const project = {
-                projectId: record.projectId,
-                displayName: record.displayName || "Project",
-                rootLabel: "registered Project",
-                lifecycle: record.lifecycle || "enabled",
-                healthStatus: "unavailable",
-                healthEvidence: [],
-                enabled: false,
-                plans: [],
-                sessions: [],
-                hasMorePlans: false,
-                hasMoreSessions: false,
-                diagnostics: [{
-                    source: "project-reader",
-                    message: diagnosticMessage(error instanceof Error ? error : new Error(String(error))),
-                    repairHref: settingsHref(record.projectId),
-                    repairLabel: "Open Project settings",
-                }],
-            } as SidebarProject;
-            projects.push(project);
+    const projects: SidebarProject[] = new Array(records.length);
+    const items = new Map<string, DashboardItem>();
+    let completedProjects = 0;
+    const snapshot = (type: DashboardFrame["type"] = "snapshot") => {
+        const sections = Object.fromEntries(CATEGORY_ORDER.map((category) => [category, section(category)])) as Record<
+            DashboardCategory,
+            DashboardSection
+        >;
+        for (const item of items.values()) {
+            if (item.category !== "recently-finished" || isRecent(item)) sections[item.category].items.push(item);
         }
-    }
-    sections["recently-finished"].items = sections["recently-finished"].items.filter((item) => isRecent(item));
-    for (const section of Object.values(sections)) {
-        section.items.sort((left, right) =>
-            (Date.parse(right.updatedAt) || 0) - (Date.parse(left.updatedAt) || 0) ||
-            left.href.localeCompare(right.href)
-        );
-    }
-    return { projects, dashboard: { sections: CATEGORY_ORDER.map((category) => sections[category]) } };
+        for (const value of Object.values(sections)) {
+            value.items.sort((left, right) =>
+                (Date.parse(right.updatedAt) || 0) - (Date.parse(left.updatedAt) || 0) ||
+                left.href.localeCompare(right.href)
+            );
+        }
+        const diagnostics = projects.filter(Boolean).flatMap((project) => project.diagnostics);
+        const frame = {
+            type,
+            sections: CATEGORY_ORDER.map((category) => sections[category]),
+            progress: { completedProjects, totalProjects: records.length, pending: completedProjects < records.length },
+            diagnostics,
+        };
+        emit(frame);
+        return frame;
+    };
+    snapshot();
+    // A small worker pool bounds simultaneous Project readers without serializing independent Projects.
+    let next = 0;
+    await Promise.all(Array.from({ length: Math.min(4, records.length) }, async () => {
+        while (next < records.length) {
+            const index = next++;
+            const record = records[index];
+            try {
+                const project = await projectPayload(store, continuation, record, (item) => {
+                    items.set(`${item.projectId}:${item.type}:${item.planId || item.href}`, item);
+                    snapshot();
+                });
+                delete project.dashboardPlans;
+                delete project.dashboardSessions;
+                delete project.activeEvidenceByPlan;
+                delete project.registryByPlan;
+                delete project.root;
+                projects[index] = project;
+            } catch (error) {
+                // Rows already verified within this Project remain available with an incomplete warning.
+                projects[index] = {
+                    projectId: record.projectId,
+                    displayName: record.displayName || "Project",
+                    rootLabel: "registered Project",
+                    lifecycle: record.lifecycle || "enabled",
+                    healthStatus: "unavailable",
+                    healthEvidence: [],
+                    enabled: false,
+                    plans: [],
+                    sessions: [],
+                    hasMorePlans: false,
+                    hasMoreSessions: false,
+                    diagnostics: [{
+                        source: "project-reader",
+                        message: diagnosticMessage(error instanceof Error ? error : new Error(String(error))),
+                        repairHref: settingsHref(record.projectId),
+                        repairLabel: "Open Project settings",
+                    }],
+                } as SidebarProject;
+            }
+            completedProjects++;
+            snapshot();
+        }
+    }));
+    const final = snapshot();
+    return { projects, dashboard: { sections: final.sections } };
 }
