@@ -19,7 +19,13 @@ createdAt: "2026-09-22"
 origin: "internal"
 userVerifiedAt: null
 targetBranch: "main"
-status: "validated_reviewer"
+status: "validated"
+validatedCommit: "9d743b334661b4af63f1508a90372864bc999bfd"
+workRecord:
+    status: "generated"
+    recordId: "15a3c6c3-168f-493f-99e5-f1457295f94f"
+    path: "docs/work-records/2026-09-25-restore-long-session-tui-rendering-and-safe-scrolling.md"
+    lastAttemptAt: "2026-09-25T18:30:43.114Z"
 ---
 
 # Restore long-Session TUI responsiveness and safe scrolling
