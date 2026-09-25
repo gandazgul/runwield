@@ -257,6 +257,10 @@ export class RuntimeReads {
             },
             thinkingLevel: pendingManagedIntent.thinkingLevel || managedThinkingLevel || session.getThinkingLevel(),
             busy: session.isTurnActive() || this.events.isBusy(session.id),
+            livePlanReview,
+            ...(livePlanReview && liveReview?.request?.reviewUrl
+                ? { livePlanReviewUrl: liveReview.request.reviewUrl }
+                : {}),
             activeTurnId: session.getActiveTurnId(),
             queuedMessages: this.queues.getQueuedMessages(session.id),
             workflowContext: workflowContext ? { ...workflowContext } : null,

@@ -120,6 +120,12 @@ defining another lifecycle.
   create another conversation.
 - When a client receives Plan links without RunWield-specific presentation metadata, the ordinary text links remain
   usable.
+- Given a live Plan review, when the ACP client sends `/plan-review`, the response includes its current browser link as
+  text when available, or reports that it is starting, rather than opening a second review. Given an idle Session with a
+  previous review, the same command requests a new review of the current saved Plan under
+  [Core Plan review](runwield-core-prd.md#plan-review), not a replay of a pending interaction.
+- Given no previous review, busy work, or a missing, replaced, or ineligible Plan, when the ACP client requests
+  `/plan-review`, it receives an explanation instead of an automatic approval or a stale review link.
 - Given a new or reloaded Session in Discord through OpenAB, `/models` presents model choices and the current model.
   Selecting a model makes the next message use it in that same conversation, including after a provider limit error.
 - An invalid model or reasoning choice, an unsupported reasoning choice, or a choice submitted during an active turn

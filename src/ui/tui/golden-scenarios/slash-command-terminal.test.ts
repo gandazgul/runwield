@@ -3,6 +3,7 @@ import {
     slashExitScenario,
     slashHelpScenario,
     slashLoadPlanScenario,
+    slashPlanReviewScenario,
     slashQuitScenario,
     slashShareScenario,
 } from "./slash-command-tree-terminal.ts";
@@ -10,6 +11,7 @@ import {
 registerSlashCommandGoldenTests("src/ui/tui/golden-scenarios/slash-command-tree-terminal.ts", [
     { scenario: slashHelpScenario, exportName: "slashHelpScenario" },
     { scenario: slashLoadPlanScenario, exportName: "slashLoadPlanScenario" },
+    { scenario: slashPlanReviewScenario, exportName: "slashPlanReviewScenario" },
     { scenario: slashShareScenario, exportName: "slashShareScenario" },
     { scenario: slashQuitScenario, exportName: "slashQuitScenario" },
     { scenario: slashExitScenario, exportName: "slashExitScenario" },

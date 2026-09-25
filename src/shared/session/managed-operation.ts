@@ -59,6 +59,12 @@ export type ManagedOperationCapability = {
     registerArtifact(
         options: import("./file-session-store-types.ts").RegisterSessionArtifactOptions,
     ): import("./file-session-store-types.ts").SessionArtifactReference;
+    recordLastPlanReview?(
+        review: Pick<
+            import("./file-session-store-types.ts").LastPlanReviewReference,
+            "planId" | "planName" | "planningAgentName"
+        >,
+    ): import("./file-session-store-types.ts").LastPlanReviewReference;
     stagePlanAssociation?(
         entry: import("./file-session-store-types.ts").PlanAssociation,
     ): import("./file-session-store-types.ts").ManifestPlanAssociation;

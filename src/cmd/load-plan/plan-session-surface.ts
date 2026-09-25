@@ -19,6 +19,7 @@ import type { SessionRuntime } from "../../shared/session/session-runtime.ts";
 import type { UiAPI } from "../../ui/tui/types.js";
 import type { PlanFrontMatter } from "../../plan-store.js";
 import type { PlanApprovalAction } from "../../shared/workflow/plan-approval.js";
+import type { SequenceReviewDecision } from "../../shared/workflow/sequence-review.ts";
 import type { ActiveExecutionWorkflow, PlanSessionSurface } from "./plan-session-types.ts";
 
 /**
@@ -38,6 +39,7 @@ interface RawReviewPayload {
     serverUrl?: unknown;
     revision?: unknown;
     reused?: unknown;
+    sequenceDecision?: SequenceReviewDecision;
 }
 
 /**
@@ -107,7 +109,7 @@ export function createPlanSessionSurface(
             const response = await runtime.requestInteraction(sessionId, {
                 type: RuntimeInteractionTypes.PLAN_REVIEW,
                 prompt: `Review plan "${meta.planName}"`,
-                _meta: { cwd: snapshot.cwd, ...meta },
+                _meta: { cwd: meta.documentRoot || snapshot.cwd, ...meta },
             });
             const responseAny = response as { _meta?: Record<string, unknown>; message?: unknown };
             const review = (responseAny._meta || {}) as RawReviewPayload;
@@ -121,8 +123,12 @@ export function createPlanSessionSurface(
                     : runtimeCanceled
                     ? "runtime_cancel"
                     : undefined,
-                approved: review.approved === true,
-                feedback: typeof review.feedback === "string" ? review.feedback : undefined,
+                approved: review.approved === true || review.sequenceDecision?.approved === true,
+                feedback: typeof review.feedback === "string"
+                    ? review.feedback
+                    : typeof review.sequenceDecision?.feedback === "string"
+                    ? review.sequenceDecision.feedback
+                    : undefined,
                 approvalAction: review.approvalAction,
                 planAttrs: review.planAttrs && typeof review.planAttrs === "object"
                     ? (review.planAttrs as PlanFrontMatter)
@@ -134,6 +140,7 @@ export function createPlanSessionSurface(
                 serverUrl: typeof review.serverUrl === "string" ? review.serverUrl : undefined,
                 revision: typeof review.revision === "string" ? review.revision : undefined,
                 reused: typeof review.reused === "boolean" ? review.reused : undefined,
+                sequenceDecision: review.sequenceDecision,
                 message: typeof response.message === "string" ? response.message : undefined,
             };
         },

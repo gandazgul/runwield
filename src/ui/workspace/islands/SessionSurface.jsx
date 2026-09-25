@@ -117,6 +117,63 @@ async function ownerFetch(url, options = {}) {
     return payload;
 }
 
+/**
+ * Open the current Workspace review, or wait for its operation to publish it.
+ * @param {string} projectId
+ * @param {string} sessionId
+ * @param {number} generation
+ * @param {() => boolean} [isCurrent]
+ */
+export async function requestWorkspacePlanReview(projectId, sessionId, generation, isCurrent = () => true) {
+    try {
+        const result = await ownerFetch(
+            `/api/owner/projects/${encodeURIComponent(projectId)}/sessions/${
+                encodeURIComponent(sessionId)
+            }/plan-review`,
+            {
+                method: "POST",
+                body: JSON.stringify({
+                    requestId: crypto.randomUUID(),
+                    expectedGeneration: generation,
+                }),
+            },
+        );
+        if (result.kind === "busy" || result.kind === "no_reference") return result.message;
+        if (result.url) {
+            workspaceNavigate(result.url);
+            return;
+        }
+        if (!result.operationId) {
+            return result.message || "Plan review is not available.";
+        }
+        // The review surface is published by the existing interaction, not by a second turn.
+        while (isCurrent()) {
+            const live = await ownerFetch(
+                `/api/owner/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(sessionId)}/live`,
+            );
+            const current = live.operation;
+            const reviewUrl = current?.liveInteraction?.request?.type === "plan_review"
+                ? current.liveInteraction.request.reviewUrl
+                : "";
+            if (reviewUrl) {
+                workspaceNavigate(reviewUrl);
+                return;
+            }
+            if (current?.operationId !== result.operationId || current.status !== "running") {
+                const settled = await ownerFetch(
+                    `/api/owner/session-operations/${encodeURIComponent(result.operationId)}`,
+                );
+                if (settled.status !== "running") {
+                    return settled.error || "Plan review finished without opening a review surface.";
+                }
+            }
+            await new Promise((resolve) => setTimeout(resolve, 300));
+        }
+    } catch (error) {
+        return errorMessage(error);
+    }
+}
+
 /** @param {string} key */
 function readStored(key) {
     try {
@@ -377,6 +434,7 @@ export function SessionComposer({
     const focusInputOnExpand = useRef(false);
     const [expanded, setExpanded] = useState(false);
     const hasDraft = Boolean(draft.trim() || imageAttachments.length);
+    const canReopenReview = draft.trim() === "/plan-review";
     const showStop = Boolean(onStop) && !hasDraft;
     const primaryLabel = showStop ? "Stop" : submitting ? "Sending" : sendLabel;
     const selectionSummary = [
@@ -569,7 +627,7 @@ export function SessionComposer({
                     }
                     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
                         event.preventDefault();
-                        if (canSend && !submitting) submitComposer();
+                        if ((canSend || canReopenReview) && !submitting) submitComposer();
                     }
                 }}
                 placeholder="Ask RunWield..."
@@ -709,7 +767,7 @@ export function SessionComposer({
                 <button
                     type={showStop ? "button" : "submit"}
                     className="rw-toolbar-button session-composer-icon-button session-send-button"
-                    disabled={!showStop && (!canSend || submitting)}
+                    disabled={!showStop && ((!canSend && !canReopenReview) || submitting)}
                     onClick={showStop ? onStop : undefined}
                     aria-label={primaryLabel}
                     title={primaryLabel}
@@ -929,6 +987,15 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             return true;
         }
         const argument = args.join(" ");
+        if (name === "plan-review") {
+            if (argument || mode === "new") {
+                setMessage(mode === "new" ? "Open a Session before reviewing a Plan." : "Usage: /plan-review");
+                return true;
+            }
+            setDraft("");
+            void openPlanReview();
+            return true;
+        }
         if (["agent", "model"].includes(name)) {
             if (!argument) {
                 setDraft(`/${name} `);
@@ -972,6 +1039,35 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             setDraft("");
         }
         return true;
+    }
+
+    async function openPlanReview() {
+        setMessage("Opening Plan review…");
+        const sessionId = runwieldSessionId;
+        try {
+            // A live review can make the committed timeline unavailable while its
+            // writer is active. The live Session still exposes that generation.
+            const generation = Number.isInteger(timelineRef.current?.generation)
+                ? timelineRef.current.generation
+                : (await ownerFetch(
+                    `/api/owner/projects/${encodeURIComponent(projectId)}/sessions/${
+                        encodeURIComponent(sessionId)
+                    }/live`,
+                )).generation;
+            if (!Number.isInteger(generation)) {
+                setMessage("Wait for this Session to become available.");
+                return;
+            }
+            const message = await requestWorkspacePlanReview(
+                projectId,
+                sessionId,
+                generation,
+                () => sessionIdentityRef.current === sessionId,
+            );
+            if (message && sessionIdentityRef.current === sessionId) setMessage(message);
+        } catch (error) {
+            if (sessionIdentityRef.current === sessionId) setMessage(errorMessage(error));
+        }
     }
 
     async function fetchTimeline(beforeEventId = "") {

@@ -1405,6 +1405,36 @@ function createRunWieldAcpServer(context) {
         }
         const runtimeSessionId = /** @type {string} */ (sessionMap.getRuntimeSessionId(acpSessionId));
         if (!runtimeSessionId) throwUnknownSession(acpSessionId);
+        const requestedCommand = extractAcpBuiltinCommand(request.prompt);
+        if (requestedCommand?.name === "plan-review" && requestedCommand.args.length === 0) {
+            const snapshot = runtime.getSessionSnapshot(runtimeSessionId);
+            if (snapshot?.livePlanReview) {
+                const result = await runtime.reopenPlanReview(runtimeSessionId);
+                await notifyClient(context, methods.client.session.update, {
+                    sessionId: acpSessionId,
+                    update: {
+                        sessionUpdate: "agent_message_chunk",
+                        content: {
+                            type: "text",
+                            text: result.url ? `${result.message} ${result.url}` : result.message,
+                        },
+                        _meta: { runwield: { command: "plan-review", ...(result.url && { reviewUrl: result.url }) } },
+                    },
+                });
+                return { stopReason: "end_turn" };
+            }
+            if (sessionMap.getRecord(acpSessionId)?.activePrompt || operations.has(acpSessionId)) {
+                await notifyClient(context, methods.client.session.update, {
+                    sessionId: acpSessionId,
+                    update: {
+                        sessionUpdate: "agent_message_chunk",
+                        content: { type: "text", text: "This Session is busy with other work." },
+                        _meta: { runwield: { command: "plan-review" } },
+                    },
+                });
+                return { stopReason: "end_turn" };
+            }
+        }
         if (sessionMap.getRecord(acpSessionId)?.activePrompt) {
             throw new RequestError(
                 ACP_INVALID_STATE,

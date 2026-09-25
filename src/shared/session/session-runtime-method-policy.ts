@@ -58,6 +58,7 @@ export const SESSION_RUNTIME_METHOD_POLICY = {
     reconfigureSessionModel: "fenced_standalone_mutation",
     reloadSession: "fenced_standalone_mutation",
     recordPlanAssociation: "fenced_standalone_mutation",
+    reopenPlanReview: "fenced_standalone_mutation",
     renameSession: "fenced_standalone_mutation",
     replaceSessionForExecutionFollowUp: "fenced_standalone_mutation",
     replaySession: "projection_adapter_local",

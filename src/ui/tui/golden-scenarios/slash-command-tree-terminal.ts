@@ -38,6 +38,25 @@ export const slashLoadPlanScenario = {
     ],
 };
 
+export const slashPlanReviewScenario = {
+    name: "slash-command-plan-review-empty",
+    slashCommands: ["plan-review"],
+    composedTui: true,
+    initialAgentName: "guide",
+    terminal: { columns: 100, rows: 30 },
+    actions: [
+        { type: "waitForScreen", text: "? help" },
+        { type: "type", text: "/plan-review" },
+        { type: "enter" },
+        { type: "waitForScreen", text: "no previous Plan review" },
+        { type: "waitForIdle" },
+    ],
+    assertions: [
+        (result: GoldenResult) => assertEventIncludes(result, "terminal:type:/plan-review"),
+        (result: GoldenResult) => assertScreenIncludes(result, "no previous Plan review"),
+    ],
+};
+
 export const slashShareScenario = {
     name: "slash-command-share-gh-unavailable",
     slashCommands: ["share"],
@@ -85,6 +104,7 @@ export const slashExitScenario = cleanExitScenario("slash-command-exit", "/exit"
 export const slashCommandTerminalScenarios = [
     slashHelpScenario,
     slashLoadPlanScenario,
+    slashPlanReviewScenario,
     slashShareScenario,
     slashQuitScenario,
     slashExitScenario,

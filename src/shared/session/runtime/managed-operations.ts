@@ -106,6 +106,16 @@ class ManagedOperationCapability {
         return this.#sessionStore.registerSessionArtifact(this.#proof, options);
     }
 
+    recordLastPlanReview(
+        review: Pick<
+            import("../file-session-store-types.ts").LastPlanReviewReference,
+            "planId" | "planName" | "planningAgentName"
+        >,
+    ) {
+        this.assertLive();
+        return this.#sessionStore.recordLastPlanReview(this.#proof, review);
+    }
+
     stagePlanAssociation(entry: import(".././file-session-store-types.ts").PlanAssociation) {
         this.assertLive();
         return this.#sessionStore.stagePlanAssociation(this.#proof, entry);

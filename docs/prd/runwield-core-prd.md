@@ -230,6 +230,15 @@ Loading a draft, feedback, approved, or ready-for-work Plan with a valid executi
 including Plans without custom shell checks. Users can inspect and annotate the saved Plan without first asking Planner
 to revise it. Approval, feedback, and cancellation follow the same review flow as a newly presented Plan.
 
+**Requirement: Return to the most recent Plan review in the same Session.**
+
+From an existing Session, `/plan-review` returns the link to its live Plan review when available. Otherwise, when the
+Session is idle, it opens that Session's most recently presented Plan for direct review without a new planning request.
+This is a saved reference to the last review, not a saved unanswered review decision. The current Plan and its identity
+and review eligibility are checked before opening it; the new decision follows the normal Plan review flow. A Session
+with no previous review, a busy Session, or a missing, replaced, or no longer reviewable Plan receives an explanation
+instead of an invented review or approval.
+
 **Requirement: Keep long review waits responsive.**
 
 Users can leave Plan Review open and return later without the waiting Session accumulating background work or becoming
@@ -247,6 +256,14 @@ slower to accept their decision. Terminal progress animations pause during human
   approval.
 - Given a ready-for-work Plan without custom shell checks, when the user loads it and chooses **Review plan**, the saved
   Plan opens for review without a planning turn; approving for later keeps it ready for work without starting execution.
+- Given a live Plan review in a Session, when the user requests `/plan-review`, they receive its current link when
+  available or a notice that it is starting; the command does not open a second review.
+- Given a previously presented review and an idle Session, when the user requests `/plan-review`, the current saved Plan
+  opens for a new decision without a planning turn. Feedback or approval still follows the normal review flow.
+- Given no previous review, a busy Session, or a Plan whose identity or review eligibility has changed, when the user
+  requests `/plan-review`, they receive a reason rather than approval of stale content.
+- Given a Sequence saved only in its registered planning worktree, when the user reopens its review, the complete group
+  decision is checked against that worktree, not a missing or older primary copy.
 - Given Plan Review remains open in a browser while `wld` waits in the terminal, progress timers remain paused;
   returning to submit a decision continues the same Session without restarting it or losing the pending review.
 
@@ -1474,6 +1491,8 @@ Required outcomes:
 - after a process failure, saved history remains available and the user receives a clear next action without silent
   repetition of unfinished work;
 - Plan review and execution use the current Plan and preserve the user's explicit approval choices;
+- the most recent Plan review can be requested again from its Session after a review has settled, but the saved
+  reference never restores an unanswered interaction or authorizes work on its own;
 - saved Named Invocation expansions continue through follow-up, compaction, and resume without replaying earlier tools
   or actions;
 - rebuilding Workspace registration or pairing does not prevent TUI or ACP from using intact local Sessions;
@@ -1509,6 +1528,9 @@ surface.
 - When a connection retry repeats the same submission, it does not start duplicate work; process loss leaves history and
   an actionable recovery choice.
 - When Workspace registration is rebuilt, intact local Sessions remain available through TUI and ACP.
+- Given a review that has ended or whose owner process has exited, when the owner returns to the saved Session and
+  requests `/plan-review`, RunWield checks the saved Plan before starting a new review; it does not resume the old
+  unanswered interaction or infer an approval.
 - Given a Tutorial-enabled Session, when work pauses, reloads, or rolls into execution or semantic repair, TUI guidance
   resumes from committed Session context without repeating explanations, discovery, implementation, or publication.
   Choosing ordinary continuation keeps guidance off while preserving the Plan and workflow.

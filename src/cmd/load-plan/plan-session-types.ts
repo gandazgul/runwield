@@ -9,6 +9,7 @@
 import type { PlanFrontMatter } from "../../plan-store.js";
 import type { PlanApprovalAction } from "../../shared/workflow/plan-approval.js";
 import type { PlanActionRequest, PlanActionResult } from "../../shared/workflow/plan-actions.ts";
+import type { SequenceReviewDecision, SequenceReviewDocument } from "../../shared/workflow/sequence-review.ts";
 
 export type ActiveExecutionWorkflow = import("../../shared/types.js").ActiveExecutionWorkflow;
 
@@ -33,13 +34,17 @@ export interface PlanReviewOutcome {
     revision?: string;
     reused?: boolean;
     message?: string;
+    sequenceDecision?: SequenceReviewDecision;
 }
 
 /** The metadata a review is opened with. */
 export interface PlanReviewRequest {
+    planningAgentName?: string;
     planName: string;
     planPath: string;
     triageMeta: Record<string, unknown>;
+    documentRoot?: string;
+    sequenceDocuments?: SequenceReviewDocument[];
 }
 
 /** Options accepted when switching the active agent. */

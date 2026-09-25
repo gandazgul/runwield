@@ -13,7 +13,7 @@ export { isEpicPlan, isProjectPlan, isSequencePlan } from "./shared/project-plan
 import { extractYaml, test as hasFrontMatter } from "@std/front-matter";
 import { readLockFileSnapshot, removeLockFileIfSnapshotMatches } from "./shared/lock-file-snapshot.ts";
 import { getLockHostname, isLockHolderGone } from "./shared/process-liveness.ts";
-import { basename, dirname, join, relative, resolve } from "@std/path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "@std/path";
 import { AsyncLocalStorage } from "node:async_hooks";
 import {
     CLI_BIN,
@@ -3773,7 +3773,15 @@ export async function findPlanEvidenceById(cwd, planId) {
             );
         }
         if (matches.length === 0) throw new Error(`Plan not found for planId: ${normalized}`);
-        const loaded = await loadPlanFileStrict(matches[0].path);
+        // Target-branch list entries can use a Git revision:path reference, not a
+        // filesystem path. Prefer the saved local child in the selected document
+        // worktree when it has the same identity.
+        const local = !isAbsolute(matches[0].path) && resolvePrimaryCheckoutRoot(cwd) !== cwd
+            ? await loadPlanStrict(cwd, matches[0].name)
+            : null;
+        const loaded = local?.kind === "loaded" && local.attrs.planId === matches[0].attrs.planId
+            ? local
+            : await loadPlanFileStrict(matches[0].path);
         if (loaded.kind !== "loaded") {
             if (loaded.kind === "malformed") throw loaded.error;
             throw new Error(`Plan not found for planId: ${normalized}`);
