@@ -1,4 +1,8 @@
 import { assert, assertEquals } from "@std/assert";
+import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { HostedSession } from "../../shared/session/hosted-session.js";
+import { executePlan } from "../../shared/workflow/plan-executor.ts";
 import { join } from "@std/path";
 import { defineGitFixture, git } from "../../shared/git-test-fixture.ts";
 import { loadPlan, savePlan } from "../../plan-store.js";
@@ -15,6 +19,7 @@ import { createSessionRuntime } from "../../shared/session/session-runtime.ts";
 import { openOwnerCoordinationStore } from "../../shared/owner-coordination/index.js";
 import { RuntimeInteractionTypes } from "../../shared/session/session-runtime-interactions.js";
 import { withRuntimeCommandFixture } from "../testing/runtime-command-fixture.ts";
+import { reopenSavedPlanReview } from "./reopen-plan-review.ts";
 
 const repoFixture = defineGitFixture(async (repo) => {
     await Deno.writeTextFile(join(repo, "README.md"), "base\n");
@@ -86,6 +91,72 @@ Deno.test("reopened Sequence sends a complete group decision from its registered
             assertEquals((await loadPlan(planning.entry.path, "sequence"))?.attrs.status, "ready_for_work");
             assertEquals((await loadPlan(planning.entry.path, "sequence/first"))?.attrs.status, "ready_for_work");
             assertEquals(await loadPlan(repo, "sequence"), null);
+        } finally {
+            await runtime.closeAllSessionsWhenIdle();
+            store.close();
+        }
+    });
+});
+
+Deno.test("Approve & Run executes the first Sequence child saved only in its planning worktree", async () => {
+    await withRuntimeCommandFixture("reopen-worktree-sequence-run-", async ({ homeDir, setModelMessages }) => {
+        const repo = await repoFixture.checkout();
+        const planning = await preparePlanningWorktreeForPlan(repo, "sequence", {
+            planId: "sequence-id",
+            targetBranch: "review-target",
+        });
+        assertEquals(await loadPlan(repo, "sequence/first"), null);
+        const store = openOwnerCoordinationStore({ dbPath: `${homeDir}/owner.sqlite3` });
+        const runtime = createSessionRuntime({ sessionStore: store, ownerProcessKind: "test" });
+        try {
+            const { sessionId } = await runtime.createInteractiveSession({ cwd: repo, mode: "new" });
+            runtime.setInteractionAdapter(sessionId, {
+                requestInteraction(request) {
+                    if (request.type !== RuntimeInteractionTypes.PLAN_REVIEW) return { outcome: "canceled" };
+                    const documents = request._meta?.sequenceDocuments as SequenceReviewDocument[];
+                    return {
+                        outcome: "accepted",
+                        _meta: {
+                            sequenceDecision: {
+                                approved: true,
+                                approvalAction: "run",
+                                documents: documents.map((doc) => ({ planId: doc.planId, plan: doc.plan })),
+                            },
+                        },
+                    };
+                },
+            });
+            const result = await reopenSavedPlanReview(runtime, sessionId, {
+                planId: "sequence-id",
+                planName: "sequence",
+                planningAgentName: "planner",
+                requestedAt: "2026-01-01T00:00:00.000Z",
+            }, () => {});
+            assertEquals(result.kind, "complete", result.message);
+            assertEquals(result.executionToStart?.options.planName, "sequence/first");
+            assertEquals(result.executionToStart?.options.approvalEvidence?.planId, "first-id");
+            assertEquals((await loadPlan(planning.entry.path, "sequence/first"))?.attrs.status, "ready_for_work");
+            assertEquals(await loadPlan(repo, "sequence/first"), null);
+
+            setModelMessages([
+                fauxAssistantMessage(fauxToolCall("task_completed", { message: "- Child implemented." })),
+            ]);
+            const sessionManager = SessionManager.inMemory(repo);
+            const hostedSession = new HostedSession({ id: crypto.randomUUID(), cwd: repo });
+            hostedSession.setRootSessionManager(sessionManager);
+            const execution = await executePlan({
+                planName: "sequence/first",
+                triageMeta: result.executionToStart?.options.triageMeta,
+                approvalEvidence: result.executionToStart?.options.approvalEvidence,
+                sessionManager,
+                hostedSession,
+            });
+            assertEquals(execution.executionComplete, true, execution.error);
+            const executionCwd = execution.executionContext?.executionCwd;
+            assert(executionCwd && executionCwd !== repo);
+            assertEquals((await loadPlan(executionCwd, "sequence/first"))?.attrs.status, "implemented");
+            assertEquals((await loadPlan(executionCwd, "sequence"))?.attrs.planId, "sequence-id");
+            assertEquals(await loadPlan(repo, "sequence/first"), null);
         } finally {
             await runtime.closeAllSessionsWhenIdle();
             store.close();

@@ -10,7 +10,7 @@ import { applySequenceReviewDecision, prepareSequenceReview } from "../../shared
  */
 
 import { AGENTS, CLI_BIN } from "../../constants.js";
-import { type PlanFrontMatter, resolvePlanExecutionPolicy } from "../../plan-store.js";
+import { loadPlan, type PlanFrontMatter, resolvePlanExecutionPolicy } from "../../plan-store.js";
 import { decidePostExecution, decidePostPlanning } from "../../shared/workflow/decisions.js";
 import { isPlanReviewableWithoutReopen, isProjectPlan, recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
 import { resolveWorkflowPlanLocation } from "../../shared/workflow/plan-location.ts";
@@ -191,8 +191,8 @@ export async function reviewLoadedPlanDirectly({
             return { keepPlanAgentActive: true };
         }
         if (!outcome.planName) throw new Error("The Sequence has no first child to execute.");
-        const child = await resolveWorkflowPlanLocation(projectRoot, outcome.planName);
-        if (!child.plan || child.plan.attrs.planId !== outcome.triageMeta?.planId) {
+        const child = await loadPlan(documentRoot, outcome.planName);
+        if (!child || child.attrs.planId !== outcome.triageMeta?.planId) {
             uiAPI.appendSystemMessage(
                 "The first Sequence child changed. Reopen its saved Plan before execution.",
                 true,
@@ -203,18 +203,18 @@ export async function reviewLoadedPlanDirectly({
         const confirmed = await confirmAffectedPathChangesBeforeExecution({
             projectRoot,
             planName: outcome.planName,
-            triageMeta: child.plan.attrs,
+            triageMeta: child.attrs,
             uiAPI,
         });
         if (!confirmed) return { keepPlanAgentActive: false };
-        const approvalEvidence = await loadPlanActionEvidence(projectRoot, child.plan.attrs.planId || "");
+        const approvalEvidence = await loadPlanActionEvidence(documentRoot, child.attrs.planId || "");
         if (approvalEvidence.kind !== "success") {
             uiAPI.appendSystemMessage(approvalEvidence.message, true, "RunWield");
             return { keepPlanAgentActive: true };
         }
         const executionOptions = {
             planName: outcome.planName,
-            triageMeta: child.plan.attrs,
+            triageMeta: child.attrs,
             approvalEvidence: approvalEvidence.evidence,
             reviewFeedback: outcome.feedback,
             reviewImages: outcome.images,
@@ -224,21 +224,21 @@ export async function reviewLoadedPlanDirectly({
                 keepPlanAgentActive: false,
                 executionToStart: {
                     options: executionOptions,
-                    fallbackPlanContent: child.plan.markdown || child.plan.body || "",
+                    fallbackPlanContent: child.markdown || child.body || "",
                 },
             };
         }
         const execRes = await executePlan(executionOptions);
-        const policy = resolvePlanExecutionPolicy(child.plan.attrs);
+        const policy = resolvePlanExecutionPolicy(child.attrs);
         const executionDecision = decidePostExecution(execRes, {
             planName: outcome.planName,
-            triageMeta: child.plan.attrs,
+            triageMeta: child.attrs,
             executionAgentName: policy.ok ? policy.policy.executionAgent : AGENTS.ENGINEER,
         });
         await validatePostExecutionDecision({
             executionDecision,
             executionResult: execRes,
-            fallbackPlanContent: child.plan.markdown || child.plan.body || "",
+            fallbackPlanContent: child.markdown || child.body || "",
             continueWorkflowValidation,
             session,
             uiAPI,
