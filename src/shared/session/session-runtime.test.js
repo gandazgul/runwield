@@ -4447,22 +4447,27 @@ Deno.test("notification routing follows accepted input, not the observing surfac
 });
 
 Deno.test("Workspace gets a stop alert even when the handler suppresses its normal attention event", async () => {
-    const sessionHost = new SessionHost();
-    const runtime = makeRuntime({ sessionHost });
-    const { hostedSession, capability } = createScriptedManagedTurn(sessionHost);
-    hostedSession.setActiveOnMessage(() => Promise.resolve({ kind: "complete" }));
-    hostedSession.suppressNextAgentStoppedAttention();
-    /** @type {import('./session-runtime-events.js').RuntimeAttentionRequestedEvent[]} */
-    const attention = [];
-    runtime.subscribeSessionEvents(hostedSession.id, (event) => {
-        if (event.type === RuntimeEventTypes.ATTENTION_REQUESTED) attention.push(event);
+    await withRuntimeCommandFixture("runtime-stop-alert-", async ({ projectRoot, setModelResponseFactory }) => {
+        const sessionHost = new SessionHost();
+        const runtime = makeRuntime({ sessionHost });
+        try {
+            const sessionId = await runtime.createPromptReadySession({ cwd: projectRoot, agentName: "guide" });
+            const hosted = sessionHost.getSession(sessionId);
+            assertExists(hosted);
+            setModelResponseFactory(() => {
+                hosted.suppressNextAgentStoppedAttention();
+                return fauxAssistantMessage(fauxText("Finished."));
+            });
+            /** @type {import('./session-runtime-events.js').RuntimeAttentionRequestedEvent[]} */
+            const attention = [];
+            runtime.subscribeSessionEvents(sessionId, (event) => {
+                if (event.type === RuntimeEventTypes.ATTENTION_REQUESTED) attention.push(event);
+            });
+            await runtime.promptUserTurn(sessionId, { initialRequest: "Finish this turn", inputSurface: "workspace" });
+            assertEquals(attention.filter((event) => event.reason === "agentStopped").length, 1);
+            assertEquals(attention[0].notificationSurface, "workspace");
+        } finally {
+            await runtime.closeAllSessionsWhenIdle();
+        }
     });
-    const result = await runtime.promptSession(
-        hostedSession.id,
-        { initialRequest: "Finish this turn", initialImages: [], inputSurface: "workspace" },
-        capability,
-    );
-    assertEquals(result.ok, true);
-    assertEquals(attention.filter((event) => event.reason === "agentStopped").length, 1);
-    assertEquals(attention[0].notificationSurface, "workspace");
 });

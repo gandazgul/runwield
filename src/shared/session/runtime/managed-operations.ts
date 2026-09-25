@@ -1,4 +1,5 @@
 import {
+    readPersistedActiveAgentName,
     readPersistedManualModelState,
     recordManualModelSelection,
     resolveResumeAgentName,
@@ -361,7 +362,8 @@ export class RuntimeManagedOperations {
                 ...managed,
                 generation: 0,
                 acknowledgedGeneration: 0,
-                activeAgent: hostedSession.getRootAgentName?.() || null,
+                activeAgent: hostedSession.getRootAgentName?.() ||
+                    readPersistedActiveAgentName(hostedSession.getRootSessionManager?.() || undefined) || null,
                 model: managedModelState.model,
                 provider: managedModelState.provider,
                 thinkingLevel: hostedSession.getThinkingLevel?.() || managed.thinkingLevel || "off",
@@ -740,7 +742,8 @@ export class RuntimeManagedOperations {
                 generation: nextGeneration,
                 acknowledgedGeneration: nextGeneration,
                 name: hostedSession.getRootSessionManager?.()?.getSessionName?.() || managed.name || null,
-                activeAgent: hostedSession.getRootAgentName?.() || null,
+                activeAgent: hostedSession.getRootAgentName?.() ||
+                    readPersistedActiveAgentName(hostedSession.getRootSessionManager?.() || undefined) || null,
                 model: managedModelState.model,
                 provider: managedModelState.provider,
                 thinkingLevel: hostedSession.getThinkingLevel?.() || managed.thinkingLevel || "off",

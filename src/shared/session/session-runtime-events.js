@@ -59,7 +59,8 @@ export const RuntimeEventTypes = Object.freeze({
 /**
  * @typedef {RuntimeEventBase & { type: "session_replaced", oldSessionId: string, newSessionId: string, reason: "epic_continuation", parentPlanName: string, completedPlanName: string, childPlanName: string, action: "plan" | "readiness_execute" | "execute" }} RuntimeEpicContinuationSessionReplacedEvent
  * @typedef {RuntimeEventBase & { type: "session_replaced", oldSessionId: string, newSessionId: string, reason: "execution_follow_up", planName: string }} RuntimeExecutionFollowUpSessionReplacedEvent
- * @typedef {RuntimeEpicContinuationSessionReplacedEvent | RuntimeExecutionFollowUpSessionReplacedEvent} RuntimeSessionReplacedEvent
+ * @typedef {RuntimeEventBase & { type: "session_replaced", oldSessionId: string, newSessionId: string, reason: "prompt_template", templateName: string }} RuntimePromptTemplateSessionReplacedEvent
+ * @typedef {RuntimeEpicContinuationSessionReplacedEvent | RuntimeExecutionFollowUpSessionReplacedEvent | RuntimePromptTemplateSessionReplacedEvent} RuntimeSessionReplacedEvent
  */
 
 /**
@@ -465,7 +466,7 @@ export function assertSessionRuntimeEvent(event) {
         case RuntimeEventTypes.SESSION_REPLACED:
             for (const field of ["oldSessionId", "newSessionId"]) requireString(field);
             requireRuntimeEvent(
-                ["epic_continuation", "execution_follow_up"].includes(value.reason),
+                ["epic_continuation", "execution_follow_up", "prompt_template"].includes(value.reason),
                 event.type,
                 "reason is invalid",
             );
@@ -476,6 +477,8 @@ export function assertSessionRuntimeEvent(event) {
                     event.type,
                     "action is invalid",
                 );
+            } else if (value.reason === "prompt_template") {
+                requireString("templateName");
             } else {
                 requireString("planName");
             }

@@ -48,7 +48,7 @@ Deno.test("resolveNamedInvocation resolves Prompt Template Front Matter and exac
     });
 });
 
-Deno.test("resolveNamedInvocation defaults Prompt Templates to Operator when agent is omitted", async () => {
+Deno.test("resolveNamedInvocation preserves an omitted Agent for runtime Session defaults", async () => {
     await withRuntimeCommandFixture("named-invocation-default-agent-", async ({ projectRoot }) => {
         await writePrompt(projectRoot, "commit-message", [], "Write a commit message for {{input}}");
 
@@ -56,7 +56,7 @@ Deno.test("resolveNamedInvocation defaults Prompt Templates to Operator when age
 
         assertEquals(resolved.kind, "prompt_template");
         if (resolved.kind !== "prompt_template") return;
-        assertEquals(resolved.agentName, "operator");
+        assertEquals(resolved.agentName, undefined);
     });
 });
 
