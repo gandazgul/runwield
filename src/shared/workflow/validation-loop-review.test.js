@@ -371,6 +371,7 @@ Deno.test("runValidationPhase configures Semantic Reviewer with diff tools and i
         "ls",
         "review_diff",
         "review_complete",
+        "delegate_agent",
     ]);
     assertEquals(sessionOpts[0].includeEditFallback, false);
     assertNotEquals(sessionOpts[0].sessionManager, rootSessionManager);
