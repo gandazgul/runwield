@@ -20,7 +20,13 @@ createdAt: "2026-09-24"
 origin: "internal"
 userVerifiedAt: null
 targetBranch: "main"
-status: "validated_reviewer"
+status: "validated"
+validatedCommit: "d48e5de5783930463c7b88c9919c288f6952100a"
+workRecord:
+    status: "generated"
+    recordId: "77e3062e-8334-4a08-8bf4-9c36b1d43090"
+    path: "docs/work-records/2026-09-25-progressive-attention-dashboard-loading-delivered.md"
+    lastAttemptAt: "2026-09-25T20:32:31.195Z"
 ---
 
 # Progressive Dashboard Loading
