@@ -57,7 +57,7 @@ Deno.test("owner Plan review command opens a saved review through the authorized
                             headers: { cookie },
                         }),
                     )).json();
-                const post = async (requestId) =>
+                const post = (requestId) =>
                     app.handler()(
                         new Request(`${base}/plan-review`, {
                             method: "POST",

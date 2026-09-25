@@ -17,6 +17,7 @@ const FENCED_METHOD_DRIVERS: Record<string, string> = {
     reconfigureSessionModel: "reconfigureSessionModel(",
     reloadSession: "reloadSession(",
     renameSession: "renameSession(",
+    reopenPlanReview: "runWorkflowOperation(",
     replaceSessionForExecutionFollowUp: "rollManagedSessionSegment(",
     rollManagedSessionSegment: "rollSessionTranscriptSegment(",
     runLocalShellCommand: "runLocalShellCommand(",

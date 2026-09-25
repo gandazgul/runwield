@@ -379,7 +379,10 @@ export const commandRegistry = {
         description: "Return to the current or most recent Plan review",
         summary: "Show the live Plan review link or reopen the last review in this Session.",
         usage: ["/plan-review"],
-        notes: ["Only the most recent review in the current Session can be reopened."],
+        notes: [
+            "Only the most recent review in the current Session can be reopened, even after a Session restart.",
+            "Reopening shows the current saved Plan, not the lost review page.",
+        ],
         execute: runPlanReviewCommand,
         surfaces: ["slash"],
         slashSurfaces: ["tui", "acp", "workspace"],

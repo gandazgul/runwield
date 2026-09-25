@@ -1,7 +1,7 @@
 // @ts-nocheck: extracted from checked JSDoc workflow.js; tightening types is out of scope for this structural split.
 import { isEpicPlan } from "../project-plan.ts";
 import { AGENTS, CLI_BIN, PLANS_DIR_NAME } from "../../constants.js";
-import { loadPlan, resolvePlanExecutionPolicy } from "../../plan-store.js";
+import { resolvePlanExecutionPolicy } from "../../plan-store.js";
 import { join } from "@std/path";
 import { emitSystemStatus } from "../session/session-runtime-events.js";
 import { getAgentDisplayName } from "../session/agents.js";
@@ -29,7 +29,7 @@ import { resolvePlanExecutionRuntimeAgent } from "./execution-agent.ts";
 import { projectEngineerPlanBody } from "./engineer-plan-projection.ts";
 import { createExecutionStartPorts, startActiveExecutionWorkflow } from "./execution-start.ts";
 import { emitLaunchingExecutionAgent } from "./execution-preparation-progress.ts";
-import { findActiveByPlanName as findExecutionWorktreeByPlanName } from "../worktree-registry.js";
+import { resolveWorkflowPlanLocation } from "./plan-location.ts";
 import type { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { PlanFrontMatter } from "../../plan-store.js";
 import type { ActiveExecutionWorkflow, HostedSession } from "../session/hosted-session.js";
@@ -108,9 +108,8 @@ export async function executePlan({
 
     async function tryLoadPlanForExecution() {
         try {
-            const liveAttempt = await findExecutionWorktreeByPlanName(projectRoot, planName);
-            const authorityRoot = liveAttempt?.path || projectRoot;
-            return { plan: await loadPlan(authorityRoot, planName), error: null };
+            const location = await resolveWorkflowPlanLocation(projectRoot, planName);
+            return { plan: location.plan, error: null };
         } catch (error) {
             return { plan: null, error };
         }

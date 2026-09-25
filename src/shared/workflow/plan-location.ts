@@ -72,6 +72,19 @@ export async function resolveWorkflowPlanLocation(
                     "Your files are unchanged. Restore that Plan file before continuing; the primary copy will not be used.",
             );
         }
+        const parentName = inferParentPlanName(planName);
+        const parentEntry = parentName && (await listControllerDocumentWorktrees(registryRoot))
+            .find((entry) => entry.planName === parentName);
+        if (parentEntry) {
+            const parent = await loadPlan(parentEntry.path, parentName);
+            if (!parent || (parentEntry.planId && parent.attrs.planId !== parentEntry.planId)) {
+                throw new Error(`The registered parent Plan ${parentName} is missing or has a different identity.`);
+            }
+            const child = await loadPlan(parentEntry.path, planName);
+            if (child?.attrs.parentPlan === parentName) {
+                return { registryRoot, documentRoot: parentEntry.path, plan: child };
+            }
+        }
     }
     const plan = await loadPlan(cwd, planName);
     if (plan?.attrs.planId) {
