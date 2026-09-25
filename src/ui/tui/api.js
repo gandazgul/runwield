@@ -569,6 +569,10 @@ export function createUiApi(
                 if (!outputSuppressed) tui.requestRender();
             };
             activeToolBlocks.set(id, block);
+            const children = messageList.children;
+            if (children.at(-1) instanceof Spacer && children.at(-2) instanceof ThinkingBlock) {
+                messageList.removeChild(children.at(-1));
+            }
             const isLocalShellCommand = title.startsWith("! ") || title.startsWith("!! ");
             if (isLocalShellCommand) {
                 closeCurrentToolGroup();

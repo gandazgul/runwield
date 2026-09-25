@@ -1,3 +1,4 @@
+import { loadPlanActionEvidence } from "../../../shared/workflow/plan-actions.ts";
 /** @module ui/workspace/routes/owner-api */
 
 import {
@@ -290,16 +291,49 @@ export async function ownerProjectFileContentApi(ctx) {
     }
 }
 
+/**
+ * Resolve a saved association even when navigation supplied only a Plan ID.
+ * @param {import('../../../shared/owner-coordination/index.js').OwnerCoordinationStore} store
+ * @param {string} projectId
+ * @param {string} planId
+ */
+export async function associatedPlanSession(store, projectId, planId) {
+    let selected = "";
+    let selectedAt = "";
+    let selectedCurrent = false;
+    for (let page = 0;; page++) {
+        const batch = await store.listProjectSessions(projectId, { catalog: false, page, pageSize: 100 });
+        for (const session of batch.sessions) {
+            const associations = store.listSessionPlanAssociations(session.runwieldSessionId, projectId)
+                .filter((entry) => entry.committedGeneration !== null);
+            const association = associations.findLast((entry) => entry.planId === planId);
+            if (!association) continue;
+            const current = associations.at(-1)?.planId === planId;
+            if (
+                !selected || (current && !selectedCurrent) ||
+                (current === selectedCurrent && association.recordedAt > selectedAt)
+            ) {
+                selected = session.runwieldSessionId;
+                selectedAt = association.recordedAt;
+                selectedCurrent = current;
+            }
+        }
+        if (!batch.hasNext) return selected;
+    }
+}
+
 /** @param {any} ctx */
 export async function ownerProjectPlanProgressApi(ctx) {
     try {
         const url = new URL(ctx.req.url);
-        const runwieldSessionId = url.searchParams.get("session") || "";
+        const runwieldSessionId = url.searchParams.get("session") ||
+            await associatedPlanSession(ctx.state.store, ctx.params.projectId, ctx.params.planId);
         const progress = await loadOwnerPlanProgress(ctx.state.store, {
             projectId: ctx.params.projectId,
             planId: ctx.params.planId,
             runwieldSessionId: runwieldSessionId || null,
         });
+        if (runwieldSessionId) await ctx.state.sessionContinuation.liveSession(ctx.params.projectId, runwieldSessionId);
         let live = null;
         let effectiveSessionId = runwieldSessionId;
         for (const [operationId, operation] of ctx.state.sessionContinuation.operations?.entries?.() || []) {
@@ -315,23 +349,48 @@ export async function ownerProjectPlanProgressApi(ctx) {
                     ctx.params.projectId,
                 ) || []
             );
-            const associated = associations.some((association) =>
-                association.planId === ctx.params.planId && association.committedGeneration !== null
-            );
-            if (request.type === "plan_review" && planReview?.planId !== ctx.params.planId) continue;
-            if (request.type === "code_review" && codeReview?.planId !== ctx.params.planId && !associated) continue;
-            if (request.type !== "plan_review" && request.type !== "code_review" && !associated) continue;
+            const info = operation.runtimeSessionId
+                ? ctx.state.sessionContinuation.runtime.getSessionSnapshot(operation.runtimeSessionId)
+                : operation.sessionInfo;
+            // A Session may have worked on several Plans. Only the current operation
+            // or live workflow can own its prompt; historical associations are not ownership.
+            const currentPlanId = planReview?.planId || codeReview?.planId || operation.planId ||
+                info?.activeExecutionWorkflow?.triageMeta?.planId || info?.workflowContext?.planId ||
+                info?.planAssociations?.at(-1)?.planId || associations.at(-1)?.planId;
+            if (currentPlanId !== ctx.params.planId) continue;
             effectiveSessionId = operation.runwieldSessionId || effectiveSessionId;
             live = { operationId, interactionId: operation.liveInteraction.interactionId, request };
             break;
         }
         const sessionHref = effectiveSessionId
             ? `/projects/${encodeURIComponent(ctx.params.projectId)}/sessions/${encodeURIComponent(effectiveSessionId)}`
-            : `/projects/${encodeURIComponent(ctx.params.projectId)}/sessions?plan=${
-                encodeURIComponent(ctx.params.planId)
-            }`;
+            : "";
         const inspected = effectiveSessionId ? ctx.state.store.inspectSessionActivation?.(effectiveSessionId) : null;
-        const canRecover = Boolean(effectiveSessionId && progress.overall?.state === "needs_attention");
+        const continuable = Boolean(
+            (effectiveSessionId
+                ? inspected?.activation?.state === "idle"
+                : ["approved", "ready_for_work", "on_hold"].includes(progress.plan.status)) &&
+                progress.overall?.state !== "completed" && !progress.degraded &&
+                [
+                    "approved",
+                    "ready_for_work",
+                    "on_hold",
+                    "in_progress",
+                    "failed",
+                    "ready_for_decomposition",
+                    "implemented",
+                    "validated_ci",
+                    "validated_reviewer",
+                    "validated",
+                ].includes(progress.plan.status),
+        );
+        const canRecover = continuable && progress.overall?.state === "needs_attention";
+        const evidence = progress.plan.status === "on_hold"
+            ? await loadPlanActionEvidence(
+                requireOwnerProjectRoot(ctx.state.store, ctx.params.projectId),
+                ctx.params.planId,
+            )
+            : null;
         return ownerJson({
             ...progress,
             sessionHref,
@@ -350,9 +409,14 @@ export async function ownerProjectPlanProgressApi(ctx) {
                 ? `/api/owner/projects/${encodeURIComponent(ctx.params.projectId)}/sessions/${
                     encodeURIComponent(effectiveSessionId)
                 }/plan-workflow`
-                : "",
+                : `/api/owner/projects/${encodeURIComponent(ctx.params.projectId)}/plans/${
+                    encodeURIComponent(ctx.params.planId)
+                }/workflow`,
+            expectedRevision: evidence?.kind === "success" ? evidence.evidence.revision : null,
             recoveryUrl: "",
             canRecover,
+            canResume: continuable,
+            canRun: false,
             expectedGeneration: inspected?.generation?.generation ?? null,
             expectedCurrentSegmentId: inspected?.generation?.currentSegmentId ?? null,
         });

@@ -314,7 +314,7 @@ export class ThinkingBlock {
 
     /** @param {number} w */
     render(w) {
-        const rawBody = this.hidden ? "hidden" : normalizeThinkingText(this.currentText).trimStart();
+        const rawBody = this.hidden ? "hidden" : normalizeThinkingText(this.currentText).trim();
         const bodyLines = rawBody ? rawBody.split(/\r?\n/).flatMap((line) => wrapPlainLine(line, w)) : [];
         const renderedLines = bodyLines.map((line) => theme.fg("thinkingText", line));
         return renderedLines

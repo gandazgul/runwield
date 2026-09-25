@@ -1,3 +1,5 @@
+import { ownerPlanContinuationApi } from "./owner-plan-continuation.js";
+import { resolveWorkflowPlanLocation } from "../../../shared/workflow/plan-location.ts";
 /* @module ui/workspace/routes/owner-session-api */
 
 import { ImageSubmissionValidationError } from "../server/session-continuation.js";
@@ -330,15 +332,29 @@ export async function ownerSessionPlanWorkflowApi(ctx) {
         const body = await readJson(ctx.req);
         const projectRoot = requireOwnerProjectRoot(ctx.state.store, ctx.params.projectId);
         const planId = requireBoundedString(body.planId, "planId", 300);
-        const plan = await findPlanEvidenceById(projectRoot, planId);
+        if (body.action === "resume_from_hold") {
+            return await ownerPlanContinuationApi({
+                ...ctx,
+                params: { ...ctx.params, planId },
+                req: new Request(ctx.req.url, { method: "POST", body: JSON.stringify(body) }),
+            });
+        }
+        const primary = await findPlanEvidenceById(projectRoot, planId);
+        const location = await resolveWorkflowPlanLocation(projectRoot, primary.planName);
+        const plan = location.plan;
+        if (!plan || plan.attrs.planId !== primary.planId) {
+            throw new Error("Plan evidence is unavailable. Refresh and try again.");
+        }
         const result = await ctx.state.sessionContinuation.startPlanWorkflowHandoff({
+            requestId: readOptionalBoundedString(body, "requestId", 128) || crypto.randomUUID(),
+            deviceId: ctx.state.ownerDevice?.deviceId || null,
             action: readOptionalBoundedString(body, "action", 32) || "run",
             projectId: ctx.params.projectId,
             runwieldSessionId: ctx.params.runwieldSessionId,
             expectedGeneration: requireExpectedGeneration(body.expectedGeneration),
-            planName: plan.planName,
+            planName: primary.planName,
             planContent: plan.markdown || plan.body || "",
-            triageMeta: { ...plan.attrs, planId: plan.planId },
+            triageMeta: { ...plan.attrs, planId: primary.planId },
         });
         if (result?.error) return ownerJson({ error: result.error }, 409);
         return ownerJson(result, 202);

@@ -203,7 +203,9 @@ specialist remains active for follow-up messages.
 
 Planner or Architect presents a saved Plan for review. Users can approve, save it for later, give feedback, or cancel.
 Feedback stays in the planning conversation so the Agent can revise it. Approval leads to a readiness check before
-execution or decomposition; a Plan needing repair explains what prevents it from proceeding.
+execution or decomposition; a Plan needing repair explains what prevents it from proceeding. Formatting-only changes
+while review is open, including YAML normalization, prose wrapping, and table padding, do not invalidate the decision.
+Changes to Plan meaning, code, execution policy, or workflow evidence still require reviewing the current Plan.
 
 **Requirement: Open saved Plans directly for review.**
 
@@ -222,6 +224,8 @@ slower to accept their decision. Terminal progress animations pause during human
   before execution.
 - When the user approves for later, work does not start; when they approve and run, readiness is checked before the
   appropriate execution or decomposition proceeds.
+- Given an open review, when a commit hook reformats the saved Plan without changing its meaning, the user’s decision
+  still applies; changed instructions, code, links, or execution policy reject the outdated decision.
 - When the user cancels review or readiness fails, the UI explains the next action without treating Agent prose as
   approval.
 - Given a ready-for-work Plan without custom shell checks, when the user loads it and chooses **Review plan**, the saved

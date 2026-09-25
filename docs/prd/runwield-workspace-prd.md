@@ -303,6 +303,11 @@ document surfaces should feel consistent while keeping Plan lifecycle controls s
   lifecycle fields do not change accidentally.
 - When the user moves or manually closes work, the board reflects that choice without claiming automatic verification;
   failure and hold expose recovery or resume.
+- Resuming paused validation from the Workflow sidebar continues the saved validation and repair work, just like
+  `/load-plan`, in the existing execution worktree. The action uses the displayed committed Session version, prevents
+  duplicate clicks while pending, refreshes the Session afterward, and shows progress, pause reasons, and errors beside
+  the action, including on mobile. Live validation updates replace older paused checkpoint displays; Open Session from
+  its own sidebar reveals the conversation instead of navigating back to the same covered page.
 - When a Plan or Epic is renamed, its existing links still resolve and child progress remains visible.
 - The local board shows its W. logo and heading; the embedded Project board omits duplicate branding, Project title, and
   checkout health. View tabs and search share the header row, with search trailing the tabs. Columns use separators
@@ -789,11 +794,26 @@ Review offers distinct outcomes:
   Workflow Validation.
 - **Approve for Later:** approve and prepare the Plan as Ready For Work without authorizing immediate execution.
 
-Plan approval never implies ambient permission for a different Session to execute it.
+Plan approval never implies ambient permission for a different Session to execute it. An idle Plan saved for later
+offers **Review Plan** in its Plan home and Session Workflow sidebar. This opens the saved Plan in the shared review
+surface directly; it does not ask an Agent to regenerate the Plan or start execution before a new approval decision.
 
 The Plan home and Session Workflow sidebar show the same workflow presentation: ordered stages, current step, blocker,
 next action, and proven working Session link when available. The separate Plan Progress page is not a product surface;
 its read data feeds Plan home and Session context.
+
+**Continuation routing:** Plan home resolves its working Session from saved Plan associations even when opened without a
+Session parameter. Available actions follow current workflow and Session state; a running or completed workflow does not
+offer Resume just because a continuation endpoint exists. Resuming interrupted execution continues its existing worktree
+and transcript segment, an Epic ready for decomposition opens Slicer, and validation resumes at its saved phase. Each
+action remains an observable Workspace operation with working questions, review links, cancellation, and errors.
+Repeated delivery of the same request must not start another operation.
+
+Live questions and reviews belong to the Plan currently owning that operation. A Session's historical association with
+another Plan never redirects that Plan's action to the current Plan's question or review. Plans on hold offer **Resume
+from hold**, run the existing worktree and staleness checks, and restore their previous stage after any warnings are
+confirmed. Approved Plans without a working Session offer **Review Plan**: Workspace creates the review Session and
+opens the shared review without an Agent turn. Repeated requests reuse that Session and operation.
 
 Shared rules: [Core Plan review](runwield-core-prd.md#plan-review), [lifecycle](runwield-core-prd.md#plan-lifecycle),
 and [execution, validation, and recovery](runwield-core-prd.md#execution-validation-and-recovery).
@@ -817,8 +837,23 @@ internal repair procedures.
 - On a phone, Code Review keeps a readable, scrollable diff below its file list. The list cannot squeeze the diff shut;
   layout controls wrap without widening the page.
 - When the same approval click is delivered twice, the action occurs once; Approve for Later never starts execution.
+- Given an idle Session whose Plan was approved for later, Review Plan opens a live review of that saved Plan. Approve
+  for Later keeps it Ready For Work; Approve & Run starts execution in that Session with the reviewed approval evidence.
 - Given an executing Plan, when the owner opens its workflow surface, its review, changes, validation, recovery, and
   resulting record are accessible in context.
+- Given a paused validation resumed from Workspace, subsequent questions and Code Review remain answerable there.
+- Given interrupted execution resumed from Workspace, file tools write inside the saved execution worktree, keep the
+  existing transcript segment, and completing implementation continues into validation.
+- Given a Session reused for a second Plan, opening the first Plan never shows the second Plan's live question or
+  review.
+- Given a held Plan, Resume from hold presents any worktree warnings, rejects stale Plan revisions, and restores the
+  previous stage only after confirmation; a Plan restored to Ready For Work then offers Review Plan.
+- Given an approved Plan with no Session, Review Plan creates one review Session; duplicate requests create neither
+  another Session nor another review, and no Agent runs before approval.
+- Given a Plan home opened without a Session query parameter, the saved working Session and eligible next action are
+  available; running and completed work offers navigation rather than another Resume.
+- Given a revised Plan review, reloading its URL reconnects to the latest review interaction in the same operation.
+- On mobile, Answer agent closes the workflow sidebar and makes the live question visible and usable in the Session.
 - Given a failed attempt caused by internal state, the workflow stays active while RunWield repairs it; it does not
   become Recently Finished or require the owner to fix storage or locks.
 

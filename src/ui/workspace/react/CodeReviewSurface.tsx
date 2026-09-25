@@ -1,4 +1,5 @@
 // @ts-nocheck: Workspace React islands compile TSX, but this module uses JSDoc-style JavaScript only.
+import { updateReviewInteractionUrl } from "../browser/review-navigation.ts";
 import { RunWieldMenu, RunWieldMenuItem } from "../../design-system/components/react/RunWieldMenu.tsx";
 import { RunWieldIconButton } from "../../design-system/components/react/RunWieldIconButton.tsx";
 import { animateSidebarUpdate } from "../../design-system/components/react/sidebar-motion.ts";
@@ -782,9 +783,7 @@ export function CodeReviewSurface({ payload, presentation = "standalone" }) {
                 `${initialPayload.interactionAnswerBaseUrl}/${encodeURIComponent(options.interactionId)}/answer`,
             );
             try {
-                const nextUrl = new URL(globalThis.location.href);
-                nextUrl.searchParams.set("interaction", options.interactionId);
-                globalThis.history.replaceState(globalThis.history.state, "", nextUrl);
+                updateReviewInteractionUrl(options.interactionId);
             } catch {
                 // In-place diff refresh remains usable when browser history is unavailable.
             }

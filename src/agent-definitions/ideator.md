@@ -4,6 +4,7 @@ description: "Research and ideation agent. Conducts Socratic interviews, researc
 temperature: 0.8
 sharedPractice:
     - user-authority
+    - conversational-turns
     - show-the-work
     - work-record-retrieval
 tools:

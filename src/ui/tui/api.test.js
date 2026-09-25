@@ -122,6 +122,26 @@ Deno.test("ThinkingBlock hides markdown comments and unwraps emphasis markers", 
     assertEquals(rendered, "Planning page layout and token guard\n\nInspecting server for static theme assets");
 });
 
+Deno.test("thinking ends with one blank row before the next thinking block or tool call", () => {
+    const { tui, messageList } = makeTuiHarness();
+    const ui = createUiApi(tui, messageList, new SpinnerBlock());
+    if (!ui.appendThinkingStart || !ui.startToolExecution) throw new Error("TUI API is incomplete.");
+    const first = ui.appendThinkingStart();
+    first.appendDelta("First thought.\n\n");
+    first.end();
+    const second = ui.appendThinkingStart();
+    second.appendDelta("Second thought.\n\n");
+    second.end();
+    ui.startToolExecution("tool-1", "bash", "$ echo done");
+
+    const lines = messageList.children.flatMap((child) => child.render(80)).map((line) => stripAnsi(line).trimEnd());
+    const firstLine = lines.findIndex((line) => line.includes("First thought."));
+    const secondLine = lines.findIndex((line) => line.includes("Second thought."));
+    const toolLine = lines.findIndex((line) => line.includes("echo done"));
+    assertEquals(secondLine - firstLine, 2);
+    assertEquals(toolLine - secondLine, 2);
+});
+
 Deno.test("createUiApi appends visible blocks, merges compatible system messages, and controls tools", () => {
     const { tui, messageList, renders } = makeTuiHarness();
     const spinner = new SpinnerBlock();

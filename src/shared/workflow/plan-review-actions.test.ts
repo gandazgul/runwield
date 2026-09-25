@@ -10,7 +10,7 @@ import {
 } from "../../plan-store.js";
 import { addEntry as addRegistryEntry, findById as findRegistryEntryById } from "../worktree-registry.js";
 import { defineCommittedGitFixture, git } from "../git-test-fixture.ts";
-import { applySharedPlanReviewDecision } from "./plan-review-actions.ts";
+import { applySharedPlanReviewDecision, reviewSourceStillMatches } from "./plan-review-actions.ts";
 import type { PlanFrontMatter } from "../../plan-store.js";
 import { HostedSession } from "../session/hosted-session.js";
 import { startActiveExecutionWorkflow } from "./workflow.js";
@@ -386,3 +386,47 @@ Deno.test("shared Plan review commits edited Feedback and approval notes with cl
         await Deno.remove(approvalFixture.dir, { recursive: true });
     }
 });
+
+for (
+    const { name, original, current, matches } of [
+        {
+            name: "prose wrapping",
+            original: "Review the saved Plan.\n",
+            current: "Review the\nsaved Plan.\n",
+            matches: true,
+        },
+        {
+            name: "list wrapping",
+            original: "- Review the saved Plan.\n",
+            current: "- Review the\n  saved Plan.\n",
+            matches: true,
+        },
+        {
+            name: "table padding",
+            original: "| A | B |\n| - | - |\n| x | y |\n",
+            current: "| A   | B   |\n| --- | --- |\n| x   | y   |\n",
+            matches: true,
+        },
+        { name: "changed prose", original: "Keep the data.\n", current: "Delete the data.\n", matches: false },
+        { name: "hard breaks", original: "First  \nSecond\n", current: "First Second\n", matches: false },
+        { name: "paragraph boundaries", original: "First\n\nSecond\n", current: "First Second\n", matches: false },
+        { name: "code whitespace", original: "```text\na  b\n```\n", current: "```text\na b\n```\n", matches: false },
+        { name: "code newlines", original: "```text\na\nb\n```\n", current: "```text\na b\n```\n", matches: false },
+        { name: "inline code", original: "Run `a  b`.\n", current: "Run `a b`.\n", matches: false },
+        {
+            name: "raw HTML whitespace",
+            original: "Before <pre>a\nb</pre> after.\n",
+            current: "Before <pre>a b</pre> after.\n",
+            matches: false,
+        },
+        { name: "link destinations", original: "[Plan](one.md)\n", current: "[Plan](two.md)\n", matches: false },
+        { name: "list nesting", original: "- One\n  - Two\n", current: "- One\n- Two\n", matches: false },
+        { name: "checkbox state", original: "- [ ] Pending\n", current: "- [x] Pending\n", matches: false },
+        { name: "table content", original: "| A |\n| - |\n| x |\n", current: "| A |\n| - |\n| y |\n", matches: false },
+    ]
+) {
+    Deno.test(`Plan review source comparison preserves ${name}`, () => {
+        const attrs = parsePlanFrontMatter("# Plan\n").attrs;
+        assertEquals(reviewSourceStillMatches({ attrs, body: current }, attrs, original), matches);
+    });
+}

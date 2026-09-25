@@ -182,6 +182,9 @@ export class SessionRuntime {
     runPlanAction(...args: Parameters<RuntimeWorkflows["runPlanAction"]>) {
         return this.#workflows.runPlanAction(...args);
     }
+    reviewSavedPlan(...args: Parameters<RuntimeWorkflows["reviewSavedPlan"]>) {
+        return this.#workflows.reviewSavedPlan(...args);
+    }
     executePlan(...args: Parameters<RuntimeWorkflows["executePlan"]>) {
         return this.#workflows.executePlan(...args);
     }

@@ -1,4 +1,5 @@
 // @ts-nocheck: Workspace React islands compile TSX, but this module uses JSDoc-style JavaScript only.
+import { updateReviewInteractionUrl } from "../browser/review-navigation.ts";
 import { RunWieldMenu, RunWieldMenuItem } from "../../design-system/components/react/RunWieldMenu.tsx";
 import { RunWieldIconButton } from "../../design-system/components/react/RunWieldIconButton.tsx";
 import { animateSidebarUpdate } from "../../design-system/components/react/sidebar-motion.ts";
@@ -655,6 +656,7 @@ function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup,
             setActiveInteractionAnswerUrl(
                 `${initialPayload.interactionAnswerBaseUrl}/${encodeURIComponent(options.interactionId)}/answer`,
             );
+            updateReviewInteractionUrl(options.interactionId);
         }
         setPlannerDiffBase(options.priorPlan);
         setPlannerDiffRevision((value) => value + 1);
