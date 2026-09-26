@@ -75,3 +75,26 @@ Deno.test("design-system keeps Workspace controls compact and reserves pills for
     assertFalse(workspace.includes(".action-primary"));
     assertStringIncludes(docs, "Use `.primary-action`, `.secondary-action`, and `.danger-action`");
 });
+
+Deno.test("document callouts take their colors from semantic tokens and keep a box on paper", async () => {
+    const tokens = await Deno.readTextFile(new URL("./tokens.css", import.meta.url));
+    const components = await Deno.readTextFile(new URL("./components.css", import.meta.url));
+    const print = await Deno.readTextFile(new URL("./print.css", import.meta.url));
+
+    assertStringIncludes(tokens, "--rw-callout-warning: var(--rw-warning);");
+    assertStringIncludes(tokens, "--rw-callout-note: var(--rw-accent);");
+    // TIP explains a choice; success green would read as a finished check.
+    assertStringIncludes(tokens, "--rw-callout-tip: var(--rw-brand);");
+
+    for (const kind of ["warning", "note", "tip"]) {
+        const rule = components.match(new RegExp(`\\[data-alert-kind="${kind}"\\] \\{([^}]*)\\}`))?.[1] || "";
+        assertStringIncludes(rule, `--rw-callout-color: var(--rw-callout-${kind});`);
+    }
+    const calloutStart = components.indexOf('.rw-plan-review [data-block-type="alert"] {');
+    const calloutRules = components.slice(calloutStart, components.indexOf("/* Guided Review", calloutStart));
+    assertFalse(/#[0-9a-f]{3,8}\b/i.test(calloutRules), "callouts must not hard-code colors");
+
+    const printRule = print.match(/\[data-block-type="alert"\] \{([^}]*)\}/)?.[1] || "";
+    assertStringIncludes(printRule, "border: 1px solid var(--rw-print-border)");
+    assertStringIncludes(printRule, "background: var(--rw-print-muted)");
+});

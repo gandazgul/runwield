@@ -44,6 +44,15 @@ new interface or a tricky branch, a small `mermaid` diagram for a flow or a stat
 already exists and only part of it moves. Add one line for the main option you set aside and what it would have cost.
 Skip all of it when a sentence is clearer.
 
+Optionally mark a key point with a callout next to the text it supports: `[!WARNING]` for a risk, `[!NOTE]` for a
+constraint, `[!TIP]` for the reason behind the approach. The marker stays alone on its line; a bold title states the
+point.
+
+> [!TIP]
+> **Reuse the existing reader**
+>
+> One reader keeps navigation and printing the same everywhere Plans are read.
+
 ## Expected Change Surface
 
 The boundaries this change is expected to touch. This list is guidance, not an allowlist: verify the real footprint

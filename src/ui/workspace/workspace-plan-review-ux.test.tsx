@@ -75,6 +75,24 @@ Deno.test("Plan Review fixture navigation lives in the Surface Lab instead of th
     }
 });
 
+Deno.test("Plan Review fixtures show every callout kind next to a dense comparison without callouts", async () => {
+    const devSurface = await Deno.readTextFile("src/ui/workspace/react/ReviewDevSurface.tsx");
+    const catalog = await Deno.readTextFile("src/ui/workspace/pages/dev/index.astro");
+    const between = (start: string, end: string) =>
+        devSurface.slice(devSurface.indexOf(start), devSurface.indexOf(end, devSurface.indexOf(start)));
+    const concise = between("const PLAN_FIXTURE =", "const DENSE_PLAN_FIXTURE =");
+    const dense = between("const DENSE_PLAN_FIXTURE =", "const INITIAL_PLAN_FIXTURE =");
+    const reader = between("const MARKDOWN_READER_FIXTURE =", "const CODE_REVIEW_FIXTURE =");
+
+    for (const kind of ["WARNING", "NOTE", "TIP"]) {
+        assertStringIncludes(concise, `\n> [!${kind}]\n> **`);
+        assertStringIncludes(reader, `\n> [!${kind}]\n> **`);
+    }
+    assertEquals(dense.includes("[!"), false);
+    assertStringIncludes(devSurface, 'planVariant === "dense" ? DENSE_PLAN_FIXTURE : PLAN_FIXTURE');
+    assertStringIncludes(catalog, 'id: "dense"');
+});
+
 Deno.test("Approve and Run opens stable Plan progress without changing other review outcomes", async () => {
     const route = await Deno.readTextFile(ROUTE_PATH);
     const surface = await Deno.readTextFile(SURFACE_PATH);

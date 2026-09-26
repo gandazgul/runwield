@@ -5,7 +5,7 @@ import { ArtifactReadSurface } from "./ArtifactReadSurface.tsx";
 import { CodeReviewSurface } from "./CodeReviewSurface.tsx";
 import { PlanReviewSurface } from "./PlanReviewSurface.tsx";
 
-const PLAN_FIXTURE = `---
+const PLAN_FRONT_MATTER = `---
 classification: "FEATURE"
 complexity: "MEDIUM"
 summary: "Fixture test plan for exercising every Plan Review UI interaction"
@@ -22,119 +22,161 @@ worktreeBaseBranch: "fixture/plan-review-ui"
 createdAt: "2026-07-13T14:00:00.000Z"
 status: "draft"
 ---
+`;
 
-# Fixture Test Plan: Plan Review UI
+/** Shared by the concise and dense samples so both carry the same exact steps. */
+const PLAN_STEPS = `## Implementation Steps
+
+- [ ] Step 1: Renaming a Plan appends its old name to \`previousNames\` and leaves the body unchanged.
+- [ ] Step 2: \`resolvePlan("old-name")\` returns the renamed Plan when no file matches the old name.
+- [ ] Step 3: A Workspace request for an old name redirects to the current Plan URL.
+- [ ] Step 4: Two Plans that list the same previous name resolve to neither, and the conflict is reported.
+- [ ] Step 5: Plan lists and boards show only current names.
+- [ ] Step 6: Plan Review shows the current name after following an old link.
+- [ ] Step 7: \`plan-resolver.test.ts\` covers resolution, redirects, and the conflict case.
+- [ ] Step 8: The Workspace PRD describes the redirect behavior.
+`;
+
+const PLAN_FIXTURE = `${PLAN_FRONT_MATTER}
+# Keep Saved Plan Links Working After Rename
 
 ## Context
 
-This is a fixture test plan for exercising the complete Plan Review UI. Lorem ipsum dolor sit amet, consectetur
-adipiscing elit. Integer nec odio praesent libero, sed cursus ante dapibus diam, sed nisi nulla quis sem at nibh
-elementum imperdiet duis sagittis ipsum.
+Renaming a Plan changes its file name. Links saved in Sessions, Work Records, and chat history then stop opening it, and
+users search for the Plan by hand.
 
-Lorem ipsum dolor sit amet, consectetur adipiscing elit. Praesent mauris fusce nec tellus sed augue semper porta.
-Mauris massa vestibulum lacinia arcu eget nulla, class aptent taciti sociosqu ad litora torquent per conubia nostra.
+> [!NOTE]
+> **The Plan file stays the source of truth**
+>
+> Do not add a database or a second copy of the Plan. Links resolve from files in \`docs/plans/\`.
 
 ## Objective
 
-Lorem ipsum dolor sit amet, consectetur adipiscing elit. Curabitur sodales ligula in libero sed dignissim lacinia nunc.
-Curabitur tortor pellentesque nibh, aenean quam in scelerisque sem at dolor maecenas mattis.
+Old Plan links open the renamed Plan, and new links use the new name.
 
-- Lorem ipsum dolor sit amet, consectetur adipiscing elit.
-- Sed dignissim lacinia nunc, curabitur tortor pellentesque nibh.
-- Aenean quam in scelerisque sem at dolor maecenas mattis.
-- Sed convallis tristique sem, proin ut ligula vel nunc egestas porttitor.
+- A renamed Plan records its previous names in front matter.
+- Opening an old name redirects to the current Plan.
+- Lists and boards show only the current name.
 
 ## Approach
 
+Record each previous name when a rename happens. Check those names only when a link matches no file.
+
 \`\`\`mermaid
 flowchart LR
-    Draft[Draft plan] --> Review{Review}
-    Review -->|Approved| Build[Implement]
-    Review -->|Feedback| Draft
+    Open[Open Plan link] --> Match{File exists?}
+    Match -->|Yes| Show[Show Plan]
+    Match -->|No| Alias{Previous name matches?}
+    Alias -->|Yes| Redirect[Redirect to current name]
+    Alias -->|No| Missing[Show not found]
 \`\`\`
 
-Lorem ipsum dolor sit amet, consectetur adipiscing elit. In hac habitasse platea dictumst morbi vestibulum volutpat
-enim. Aliquam erat volutpat nam dui mi tincidunt quis accumsan porttitor facilisis luctus metus.
+> [!TIP]
+> **Store previous names in the Plan itself**
+>
+> The name history moves with the file through branches, merges, and copies. A separate index would drift.
 
-Lorem ipsum dolor sit amet, consectetuer adipiscing elit. Morbi lectus risus iaculis vel suscipit quis luctus non massa.
-Fusce ac turpis quis ligula lacinia aliquet, mauris ipsum nulla metus varius laoreet.
-
-- Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore.
-- Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.
-- Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.
-- Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.
+Set aside: a redirect table in the Workspace server. It fails for links opened from the CLI or another checkout.
 
 ## Expected Change Surface
 
-- \`src/ui/workspace/react/PlanReviewSurface.tsx\` — Lorem ipsum dolor sit amet, consectetur adipiscing elit.
-- \`src/ui/workspace/react/ReviewDevSurface.tsx\` — Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
-- \`src/ui/workspace/react/plannotator.css\` — Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.
-- \`src/ui/workspace/routes/api/review-handlers.js\` — Duis aute irure dolor in reprehenderit in voluptate velit esse.
-- \`deno.json\` — Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit.
+- \`src/shared/plans/plan-rename.ts\` — records the previous name when a Plan is renamed.
+- \`src/shared/plans/plan-resolver.ts\` — resolves an unknown name through previous names.
+- \`src/ui/workspace/pages/projects/[projectId]/plans/[planId].astro\` — redirects old names to the current URL.
+- \`src/ui/workspace/react/PlanReviewSurface.tsx\` — shows the current name after a redirect.
 
 ## Reuse Opportunities
 
-Existing functions, modules, or patterns to reuse:
+- \`src/shared/plans/plan-front-matter.ts\` — reads and writes front matter without changing the body.
+- \`third_party/plannotator/packages/ui/utils/parser.ts\` — existing Markdown parsing for the preview.
 
-- \`third_party/plannotator/packages/ui/components/Viewer.tsx\` — Lorem ipsum dolor sit amet, consectetur adipiscing elit.
-- \`third_party/plannotator/packages/ui/components/AnnotationToolstrip.tsx\` — Sed do eiusmod tempor incididunt ut labore.
-- \`third_party/plannotator/packages/ui/components/sidebar/SidebarContainer.tsx\` — Ut enim ad minim veniam quis nostrud.
-- \`third_party/plannotator/packages/ui/utils/parser.ts\` — Duis aute irure dolor in reprehenderit in voluptate velit.
-
-Lorem ipsum dolor sit amet, consectetur adipiscing elit. Donec quam felis ultricies nec pellentesque eu pretium quis
-sem. Nulla consequat massa quis enim donec pede justo fringilla vel aliquet nec vulputate eget arcu.
-
-## Implementation Steps
-
-- [ ] Step 1: Lorem ipsum dolor sit amet, consectetur adipiscing elit, integer nec odio praesent libero.
-- [ ] Step 2: Sed cursus ante dapibus diam, sed nisi nulla quis sem at nibh elementum imperdiet.
-- [ ] Step 3: Duis sagittis ipsum praesent mauris fusce nec tellus sed augue semper porta.
-- [ ] Step 4: Mauris massa vestibulum lacinia arcu eget nulla class aptent taciti sociosqu ad litora.
-- [ ] Step 5: Curabitur sodales ligula in libero sed dignissim lacinia nunc curabitur tortor.
-- [ ] Step 6: Pellentesque nibh aenean quam in scelerisque sem at dolor maecenas mattis.
-- [ ] Step 7: Sed convallis tristique sem proin ut ligula vel nunc egestas porttitor morbi lectus risus.
-- [ ] Step 8: Iaculis vel suscipit quis luctus non massa fusce ac turpis quis ligula lacinia aliquet.
-
+${PLAN_STEPS}
 ## Verification Plan
 
-- Automated: Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore.
-- Manual: Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.
-- Expected: Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.
-- Headed browser: Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est.
-
-Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nam nec ante sed lacinia urna non tincidunt mattis tortor neque
-adipiscing diam a cursus ipsum ante quis turpis nulla facilisi ut fringilla suspendisse potenti.
+- Automated: \`deno run -A scripts/run-tests.js src/shared/plans/plan-resolver.test.ts\`.
+- Manual: Rename a Plan, then open its old link from a Session.
+- Expected: The old link opens the renamed Plan, and the address bar shows the new name.
+- Headed browser: Open an old link at desktop and phone widths and confirm the redirect.
 
 ## Edge Cases & Considerations
 
-- Lorem ipsum dolor sit amet, consectetur adipiscing elit, integer nec odio praesent libero sed cursus ante dapibus.
-- Sed nisi nulla quis sem at nibh elementum imperdiet duis sagittis ipsum praesent mauris fusce nec tellus.
-- Mauris massa vestibulum lacinia arcu eget nulla class aptent taciti sociosqu ad litora torquent per conubia.
-- Curabitur sodales ligula in libero sed dignissim lacinia nunc curabitur tortor pellentesque nibh aenean quam.
-- Sed convallis tristique sem proin ut ligula vel nunc egestas porttitor morbi lectus risus iaculis vel suscipit.
+> [!WARNING]
+> **A new Plan can reuse an old name**
+>
+> A user renames Plan A to B, then creates a new Plan A. The old link opens the new Plan A, because an existing file
+> always wins over a previous name.
 
-Lorem ipsum dolor sit amet, consectetur adipiscing elit. Vestibulum lacinia arcu eget nulla class aptent taciti sociosqu
-ad litora torquent per conubia nostra per inceptos himenaeos curabitur sodales ligula in libero.
+- Two renamed Plans can list the same previous name. Report the conflict instead of guessing (Step 4).
+- Long names such as \`docs/plans/archived/2026-07-13-keep-saved-plan-links-working-after-rename-and-archive.md\` wrap in lists and headers.
+
+Callout syntax inside a code block stays code:
+
+\`\`\`md
+> [!WARNING]
+> **This is an example, not a callout**
+\`\`\`
+
+> An ordinary quote stays a quote: "I lost the link after I renamed the Plan."
 `;
 
-const INITIAL_PLAN_FIXTURE = PLAN_FIXTURE
-    .replace(
-        'summary: "Fixture test plan for exercising every Plan Review UI interaction"',
-        'summary: "Initial fixture plan before review feedback"',
-    )
-    .replace(
-        "This is a fixture test plan for exercising the complete Plan Review UI.",
-        "This initial fixture plan covers the core Plan Review UI.",
-    )
-    .replace("- Sed convallis tristique sem, proin ut ligula vel nunc egestas porttitor.\n", "")
-    .replace(
-        "Lorem ipsum dolor sit amet, consectetur adipiscing elit. In hac habitasse platea dictumst morbi vestibulum volutpat",
-        "The initial approach keeps the review surface focused on reading and annotation before revision comparison. Morbi vestibulum volutpat",
-    )
-    .replace(
-        "- [ ] Step 3: Duis sagittis ipsum praesent mauris fusce nec tellus sed augue semper porta.",
-        "- [ ] Step 3: Add the first review toolbar actions.",
-    );
+/** The same requirements as PLAN_FIXTURE, written as dense prose without callouts, for readability comparison. */
+const DENSE_PLAN_FIXTURE = `${PLAN_FRONT_MATTER}
+# Keep Saved Plan Links Working After Rename
+
+## Context
+
+This plan addresses the problem that when a Plan is renamed its file name changes, which means that links that were
+previously saved in Sessions, Work Records, and chat history no longer open it, and as a result users have to search for
+the Plan by hand. It is important to note that the Plan file must remain the source of truth, so we should not introduce
+a database or a second copy of the Plan, and links should continue to resolve from the files in \`docs/plans/\`.
+
+## Objective
+
+The objective is essentially to make sure that old Plan links open the renamed Plan while new links use the new name,
+which involves having a renamed Plan record its previous names in its front matter, having the opening of an old name
+redirect to the current Plan, and making sure that lists and boards show only the current name.
+
+## Approach
+
+The approach is to record each previous name at the time a rename happens and then, when a link does not match any
+file, check those previous names; if a previous name matches, we redirect to the current name, and otherwise we show
+not found. We store the previous names in the Plan itself because the name history then moves with the file through
+branches, merges, and copies, whereas a separate index would drift over time. We considered a redirect table in the
+Workspace server but set it aside because it fails for links opened from the CLI or another checkout.
+
+## Expected Change Surface
+
+The change touches \`src/shared/plans/plan-rename.ts\` to record the previous name when a Plan is renamed,
+\`src/shared/plans/plan-resolver.ts\` to resolve an unknown name through previous names,
+\`src/ui/workspace/pages/projects/[projectId]/plans/[planId].astro\` to redirect old names to the current URL, and
+\`src/ui/workspace/react/PlanReviewSurface.tsx\` to show the current name after a redirect.
+
+## Reuse Opportunities
+
+We can reuse \`src/shared/plans/plan-front-matter.ts\`, which reads and writes front matter without changing the body,
+and \`third_party/plannotator/packages/ui/utils/parser.ts\` for the existing Markdown parsing in the preview.
+
+${PLAN_STEPS}
+## Verification Plan
+
+- Automated: \`deno run -A scripts/run-tests.js src/shared/plans/plan-resolver.test.ts\`.
+- Manual: Rename a Plan, then open its old link from a Session.
+- Expected: The old link opens the renamed Plan, and the address bar shows the new name.
+- Headed browser: Open an old link at desktop and phone widths and confirm the redirect.
+
+## Edge Cases & Considerations
+
+There are various edge cases to consider. If a user renames Plan A to B and then creates a new Plan A, the old link opens
+the new Plan A, because an existing file always wins over a previous name. In addition, two renamed Plans can list the
+same previous name, in which case we report the conflict instead of guessing (Step 4), and long names such as
+\`docs/plans/archived/2026-07-13-keep-saved-plan-links-working-after-rename-and-archive.md\` need to wrap in lists and
+headers.
+`;
+
+const INITIAL_PLAN_FIXTURE = DENSE_PLAN_FIXTURE.replace(
+    'summary: "Fixture test plan for exercising every Plan Review UI interaction"',
+    'summary: "Initial fixture plan before review feedback"',
+);
 
 const SECOND_PLAN_FIXTURE = PLAN_FIXTURE
     .replace(
@@ -142,18 +184,28 @@ const SECOND_PLAN_FIXTURE = PLAN_FIXTURE
         'summary: "Second fixture Plan revision after the first review round"',
     )
     .replace(
-        "- [ ] Step 6: Pellentesque nibh aenean quam in scelerisque sem at dolor maecenas mattis.",
-        "- [ ] Step 6: Verify the revised review flow in a browser.",
+        "- [ ] Step 6: Plan Review shows the current name after following an old link.",
+        "- [ ] Step 6: Verify the redirect in a browser.",
+    )
+    .replace(
+        `> [!WARNING]
+> **A new Plan can reuse an old name**
+>
+> A user renames Plan A to B, then creates a new Plan A. The old link opens the new Plan A, because an existing file
+> always wins over a previous name.
+
+`,
+        "",
     );
 
 const PLANNER_REVISED_PLAN_FIXTURE = PLAN_FIXTURE
     .replace(
-        "- Manual: Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.",
-        "- Manual: Open Plan Review, send one Planner chat turn, and confirm the revised Plan reloads without leaving the page.",
+        "- Manual: Rename a Plan, then open its old link from a Session.",
+        "- Manual: Rename a Plan twice, then open both old links from a Session.",
     )
     .replace(
-        "- Expected: Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.",
-        "- Expected: The Planner reply appears in the sidebar and Changes opens an automatic before/after diff.",
+        "- Expected: The old link opens the renamed Plan, and the address bar shows the new name.",
+        "- Expected: Both old links open the renamed Plan, and the address bar shows the current name.",
     );
 
 const DEV_LINKED_FILES = {
@@ -180,7 +232,7 @@ const PROJECT_PLAN_FIXTURE = PLAN_FIXTURE
         'summary: "Fixture PROJECT Epic for exercising approval and Slicer review actions"',
     )
     .replace('executionAgent: "frontend-engineer"\ncollaborationRecommendation: "autonomous"\n', "")
-    .replace("# Fixture Test Plan: Plan Review UI", "# Fixture PROJECT Epic: Plan Review UI");
+    .replace("# Keep Saved Plan Links Working After Rename", "# Epic: Keep Saved Plan Links Working");
 
 const MARKDOWN_READER_FIXTURE = `---
 title: "Markdown reader"
@@ -211,6 +263,34 @@ Use the Contents sidebar to navigate headings. It starts collapsed on phones.
 ## Notes
 
 Opening or closing this document does not approve a Plan or change its contents.
+
+> [!NOTE]
+> **Reading never changes the document**
+>
+> Opening, closing, or printing this report leaves its Markdown unchanged.
+
+> [!TIP]
+> **Use Contents on long reports**
+>
+> Each heading in the Contents sidebar jumps to its section, including on phones.
+
+> [!WARNING]
+> **Very long paths wrap instead of widening the page**
+>
+> \`docs/work-records/2026-09-26-keep-saved-plan-links-working-after-rename-with-a-deliberately-long-file-name.md\`
+> stays inside the document column.
+
+> [!CAUTION]
+> **Existing caution callouts keep their meaning**
+>
+> Other artifacts can already use this kind.
+
+> [!IMPORTANT]
+> **Existing important callouts stay readable**
+>
+> This kind uses a neutral color.
+
+> A plain quote remains a plain quote.
 `;
 
 const CODE_REVIEW_FIXTURE = `diff --git a/src/review/feedback.js b/src/review/feedback.js
@@ -627,6 +707,7 @@ const GUIDE_DEV_VARIANTS = [
 
 const PLAN_DEV_VARIANTS = [
     "feature",
+    "dense",
     "project",
     "sequence",
     "stale",
@@ -780,7 +861,7 @@ export function ReviewDevSurface({ surface, presentation = "standalone", variant
             reviewNotice: planNotice,
         }
         : {
-            plan: PLAN_FIXTURE,
+            plan: planVariant === "dense" ? DENSE_PLAN_FIXTURE : PLAN_FIXTURE,
             previousPlan: SECOND_PLAN_FIXTURE,
             planVersions: [
                 { plan: INITIAL_PLAN_FIXTURE, timestamp: "2026-07-13T14:00:00.000Z" },
@@ -806,7 +887,7 @@ export function ReviewDevSurface({ surface, presentation = "standalone", variant
                 projectLabel: "Personal Remote Workspace",
                 sessionLabel: "Planner Session",
                 sessionHref: "/projects/dev/sessions/planner-fixture",
-                planLabel: "Fixture Test Plan",
+                planLabel: "Keep Saved Plan Links Working After Rename",
                 actingSession: "Planner Session",
                 planStatus: "draft",
                 live: true,
@@ -814,7 +895,7 @@ export function ReviewDevSurface({ surface, presentation = "standalone", variant
             plannerConversation: {
                 enabled: true,
                 revisedPlan: PLANNER_REVISED_PLAN_FIXTURE,
-                reply: "I made the verification steps specific to the Planner conversation and automatic diff.",
+                reply: "I made the manual check cover a Plan that was renamed twice.",
             },
             reviewNotice: planNotice,
         };
