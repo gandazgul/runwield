@@ -247,6 +247,22 @@ Deno.test("pair_checkpoint rejects generated continuation as user assent", async
     assertEquals(resolved.details.reason, "user_turn_required");
 });
 
+Deno.test("pair_checkpoint rejects a background result as user assent", async () => {
+    const { session, sessionManager } = makePairSession();
+    const tool = createPairCheckpointTool({ hostedSession: session });
+    beginRequest(session, sessionManager, { dispatchKind: "plan_execution" });
+    const reported = await execute(tool, "checkpoint-1", reportParams);
+    beginRequest(session, sessionManager, { dispatchKind: "background_task_result" });
+
+    const resolved = await execute(tool, "resolve-background", {
+        action: "resolve",
+        checkpointId: reported.details.checkpointId,
+        decision: "continue",
+    });
+    assertEquals(resolved.details.reason, "user_turn_required");
+    assertEquals(readCurrentPairCheckpoint(session)?.resolution, null);
+});
+
 Deno.test("pair_checkpoint rejects stale and consumed decisions", async () => {
     const { session, sessionManager } = makePairSession();
     const tool = createPairCheckpointTool({ hostedSession: session });

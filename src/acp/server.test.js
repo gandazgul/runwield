@@ -2021,8 +2021,8 @@ Deno.test("ACP streams exact current context usage from a real Runtime turn", as
         let latestInputTokens = 0;
         fixture.setModelResponseFactory((context) => {
             latestInputTokens = estimateFauxPromptTokens(context);
-            const outputTokens = 48_000 - (latestInputTokens * 2);
-            assert(outputTokens > 0, "fixture prompt must leave room for a 48k exact context total");
+            const outputTokens = 52_000 - (latestInputTokens * 2);
+            assert(outputTokens > 0, "fixture prompt must leave room for a 52k exact context total");
             return fauxAssistantMessage(fauxText("x".repeat(outputTokens * 4)));
         });
         const handle = startTestServer();
@@ -2048,7 +2048,7 @@ Deno.test("ACP streams exact current context usage from a real Runtime turn", as
                 assertEquals(Object.hasOwn(update, "cost"), false);
             }
             const update = JSON.parse(frames[frames.length - 1]).params.update;
-            assertEquals(update.used, 48_000);
+            assertEquals(update.used, 52_000);
             assertEquals(update.size, 128_000);
             assert(
                 update.used !== latestInputTokens,

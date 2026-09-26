@@ -133,7 +133,8 @@ A fully typed `/load-plan <plan>` submits with one Enter, regardless of autocomp
 remain discoverable through completion; an exact Plan name must not select a longer matching name.
 
 A leading slash that resolves to an available command is a command, not a User Request. Disabled or unknown commands
-must fail visibly and must not fall through to Router.
+must fail visibly and must not fall through to Router. Generated Background Task results are not user commands; they
+must not overwrite an unsent draft or change the active specialist.
 
 **Requirement: Recover stale terminal visuals without disrupting work.**
 
@@ -1503,6 +1504,27 @@ The file storage, operation-scoped writer lock, transcript segments, and synchro
 [ADR-015](../adr/015-file-authoritative-session-bundles.md). These mechanisms implement the outcomes above; they do not
 create additional product restrictions on which screen the owner may use.
 
+**Requirement: Run bounded background work.**
+
+When its tool policy offers `background_task`, an Agent with effective shell authority can start an independent command,
+check its status, or cancel it by task ID without waiting for the command to finish. Where available, `delegate_agent`
+can start an isolated read-only Background Task with `background: true`; write-mode delegation cannot run in the
+background. Ordinary `bash` and synchronous delegation keep their existing behavior. Background shell starts do not
+grant shell authority to an Agent or child that lacks it. Up to five tasks can run per Session in the starting host
+process. A sixth start fails promptly; an unknown or foreign task ID cannot control another Session's work. Completed
+status includes the outcome; short output is inline and larger output is available through a local log path. Controls
+and limits are process-local: there is no cross-process task lookup, saved job queue, restart recovery, or replay after
+process exit.
+
+**Requirement: Receive task results without another user message.**
+
+A completed Background Task sends its result to the parent Agent while it runs or starts a managed result turn when the
+Agent can next accept one. The current specialist receives later results even after the starting turn settles. Pending
+questions and reviews keep their authority; task output cannot answer them, resolve a Pair checkpoint, approve a Plan,
+or count as workflow completion or validation. Stop and host shutdown cancel owned active tasks and suppress late
+automatic results. Normal turn settlement and browser tab closure do not stop tasks. Delivered results become Session
+history, but the running task itself does not survive process exit.
+
 **Requirement: Route attention to the latest user-input surface.**
 
 Notification destination follows the latest accepted user input (TUI, Workspace, or ACP), independently of which process
@@ -1534,6 +1556,19 @@ surface.
 - Given a Tutorial-enabled Session, when work pauses, reloads, or rolls into execution or semantic repair, TUI guidance
   resumes from committed Session context without repeating explanations, discovery, implementation, or publication.
   Choosing ordinary continuation keeps guidance off while preserving the Plan and workflow.
+- Given a shell-authorized Agent, when it starts a long command with `background_task`, it can continue immediately;
+  status reports progress and the final outcome, and cancel targets only that Session's task. Starting a sixth active
+  task fails without queuing it. A read-only Agent without effective shell authority cannot gain shell-start authority.
+- Given a read-only background delegate, when its parent turn ends, the child can finish and report its result without
+  becoming the foreground Agent. A request for a background write delegation fails before launch.
+- When a Background Task finishes while the parent works, its result reaches that parent through steering or a later
+  managed turn if steering is not consumed. When it finishes after the turn, the current specialist receives the result
+  without another user message. Long output has a readable log path instead of being silently truncated.
+- Given a pending question, review, or Pair checkpoint, when task output arrives, it waits for a safe turn; it cannot
+  answer, approve, resolve, execute a slash command, or change the latest user-input notification destination.
+- When the owner stops work or the host shuts down, active tasks are cancelled and late automatic results are
+  suppressed. A normal turn end or browser tab closure does not stop them. After process exit, reopening saved history
+  does not reconstruct or replay unfinished tasks; a task ID from another Session or process cannot be controlled here.
 
 ### Capability-organized product requirements
 

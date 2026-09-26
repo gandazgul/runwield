@@ -135,6 +135,7 @@ export function createReplayEvents(sessionId, entries, options = {}) {
     /** @type {Map<string, number>} */
     const replayToolStartedAt = new Map();
     let skipNextCompactNamedInvocation = "";
+    let pendingGeneratedTaskId = "";
     const finishReplayTool = (/** @type {string} */ toolCallId, /** @type {string | undefined} */ timestamp) => {
         const startedAt = replayToolStartedAt.get(toolCallId);
         replayToolStartedAt.delete(toolCallId);
@@ -144,6 +145,16 @@ export function createReplayEvents(sessionId, entries, options = {}) {
     for (const entry of entries) {
         if (!entry || typeof entry !== "object") continue;
         const value = /** @type {any} */ (entry);
+        if (
+            value.type === "custom" && value.customType === "runwield.request_attempt" &&
+            value.data?.phase === "started"
+        ) {
+            pendingGeneratedTaskId = value.data.dispatchKind === "background_task_result" &&
+                    typeof value.data.taskId === "string"
+                ? value.data.taskId
+                : "";
+            continue;
+        }
         const namedInvocationText = namedInvocationDisplayText(value);
         if (namedInvocationText) {
             const namedInvocationImages = namedInvocationImageReferences(value);
@@ -256,9 +267,13 @@ export function createReplayEvents(sessionId, entries, options = {}) {
                         type: RuntimeEventTypes.USER_MESSAGE,
                         eventId: makeEventId(value, RuntimeEventTypes.USER_MESSAGE, 0, segmentId),
                         messageId: `${entryMessageId(value, `${sessionId}:replay`, segmentId)}:0`,
+                        ...(pendingGeneratedTaskId
+                            ? { origin: "background_task_result", taskId: pendingGeneratedTaskId }
+                            : {}),
                         text,
                         images,
                     });
+                    pendingGeneratedTaskId = "";
                 }
             }
             let blockIndex = 0;

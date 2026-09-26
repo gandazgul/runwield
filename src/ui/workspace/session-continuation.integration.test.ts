@@ -1092,6 +1092,7 @@ Deno.test("Workspace new image Session deduplicates concurrent prepared requests
         },
         closeSessionWhenIdle: () => {},
         getSessionSnapshot: () => ({ managed: { runwieldSessionId: "rw-1" } }),
+        getSessionBackgroundTaskState: () => null,
         setInteractionAdapter: () => {},
         subscribeSessionEvents: () => () => {},
         promptUserTurn: (_sessionId, options) => {

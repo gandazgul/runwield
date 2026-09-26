@@ -647,9 +647,13 @@ same Session is open in the TUI; unsent text and images survive a refresh and re
 Every workflow tool appears as a prominent, fully expanded block. Its report, decisions, review notes, checklist, and
 outcome remain readable in live and saved history. Completed workflow calls must not remain marked as running.
 
-Several Sessions may run across several Projects. Closing a browser tab or losing network access does not cancel work.
-On reconnection, Workspace shows the latest saved conversation and current work. The user can continue when the Session
-is ready for input without a separate takeover or preparation step.
+Several Sessions may run across several Projects. Closing a browser tab or losing network access does not cancel work,
+including Background Tasks owned by the Workspace host process. Task results can start a turn after the original user
+turn ends and appear in the same conversation without a new browser message. On reconnection, Workspace shows the latest
+saved conversation and current work. The user can continue when the Session is ready for input without a separate
+takeover or preparation step. Task ownership and limits follow
+[Core Session continuity](runwield-core-prd.md#session-continuity), not browser tab lifetime; the browser does not offer
+a separate task dashboard or recover process-lost tasks.
 
 Pair Execution uses this same timeline and composer. A checkpoint report ends the Agent turn and remains visible as
 conversation. Questions and review discussion do not require a separate decision control and do not resume work.
@@ -706,6 +710,9 @@ expose TUI-only process controls.
   discussion and a later decision. No separate checkpoint form or final-approval buttons are required.
 - Given a pending Pair checkpoint, refreshing or reopening the Session preserves the report and lets a later user
   message resolve it without changing owner, worktree, working directory, tools, or attempt.
+- Given a Background Task started in a Workspace-hosted Session, when its browser tab closes before the task finishes,
+  its host continues the task. The result appears in the same conversation on reconnection, even if the original turn
+  has ended; it does not submit a user command, clear a draft, or resolve a pending human interaction.
 
 **Requirement: Read Session artifacts comfortably on desktop and phone.**
 

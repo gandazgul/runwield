@@ -31,6 +31,7 @@ export const RuntimeEventTypes = Object.freeze({
     QUEUED_MESSAGE_CHANGED: "queued_message_changed",
     USAGE: "usage",
     CANCELLATION: "cancellation",
+    BACKGROUND_TASK_SETTLED: "background_task_settled",
     TERMINAL_ERROR: "terminal_error",
     INTERACTION_REQUESTED: "interaction_requested",
     INTERACTION_RESOLVED: "interaction_resolved",
@@ -64,7 +65,7 @@ export const RuntimeEventTypes = Object.freeze({
  */
 
 /**
- * @typedef {RuntimeEventBase & { type: "user_message", text: string, messageId: string, images: import('./types.js').ImageAttachment[] }} RuntimeUserMessageEvent
+ * @typedef {RuntimeEventBase & { type: "user_message", text: string, messageId: string, images: import('./types.js').ImageAttachment[], origin?: "background_task_result", taskId?: string }} RuntimeUserMessageEvent
  */
 
 /**
@@ -202,6 +203,7 @@ export const RuntimeEventTypes = Object.freeze({
 
 /**
  * @typedef {RuntimeEventBase & { type: "cancellation", messageId: string, reason?: string, aborted?: boolean, message?: string, scope?: "agent" | "operation" | "session" }} RuntimeCancellationEvent
+ * @typedef {RuntimeEventBase & { type: "background_task_settled", taskId: string, state: import('./background-tasks.ts').BackgroundTaskState }} RuntimeBackgroundTaskSettledEvent
  */
 
 /**
@@ -245,7 +247,7 @@ export const RuntimeEventTypes = Object.freeze({
  */
 
 /**
- * @typedef {RuntimeSessionLifecycleEvent | RuntimeSessionReplacedEvent | RuntimeUserMessageEvent | RuntimeAssistantTextDeltaEvent | RuntimeAssistantThinkingDeltaEvent | RuntimeAssistantThinkingEndEvent | RuntimeToolStartEvent | RuntimeToolUpdateEvent | RuntimeToolEndEvent | RuntimeSystemStatusEvent | RuntimeTurnEvent | RuntimeBusyChangedEvent | RuntimeAgentChangedEvent | RuntimeModelChangedEvent | RuntimeThinkingLevelChangedEvent | RuntimeWorkflowContextChangedEvent | RuntimeSessionRenamedEvent | RuntimePresentationStateEvent | RuntimeQueuedMessageEvent | RuntimeUsageEvent | RuntimeCancellationEvent | RuntimeTerminalErrorEvent | RuntimeInteractionLifecycleEvent | RuntimePlanReviewLinkEvent | RuntimeAttentionRequestedEvent | RuntimeKeyboardHelpEvent | RuntimeManagedSyncStateEvent | RuntimeCommandCatalogChangedEvent} SessionRuntimeEvent
+ * @typedef {RuntimeSessionLifecycleEvent | RuntimeSessionReplacedEvent | RuntimeUserMessageEvent | RuntimeAssistantTextDeltaEvent | RuntimeAssistantThinkingDeltaEvent | RuntimeAssistantThinkingEndEvent | RuntimeToolStartEvent | RuntimeToolUpdateEvent | RuntimeToolEndEvent | RuntimeSystemStatusEvent | RuntimeTurnEvent | RuntimeBusyChangedEvent | RuntimeAgentChangedEvent | RuntimeModelChangedEvent | RuntimeThinkingLevelChangedEvent | RuntimeWorkflowContextChangedEvent | RuntimeSessionRenamedEvent | RuntimePresentationStateEvent | RuntimeQueuedMessageEvent | RuntimeUsageEvent | RuntimeCancellationEvent | RuntimeBackgroundTaskSettledEvent | RuntimeTerminalErrorEvent | RuntimeInteractionLifecycleEvent | RuntimePlanReviewLinkEvent | RuntimeAttentionRequestedEvent | RuntimeKeyboardHelpEvent | RuntimeManagedSyncStateEvent | RuntimeCommandCatalogChangedEvent} SessionRuntimeEvent
  */
 
 /** @type {Set<string>} */

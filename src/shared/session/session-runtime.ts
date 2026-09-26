@@ -134,6 +134,9 @@ export class SessionRuntime {
     getUserTurnSubmissionBlockMessage(...args: Parameters<RuntimeReads["getUserTurnSubmissionBlockMessage"]>) {
         return this.#reads.getUserTurnSubmissionBlockMessage(...args);
     }
+    getSessionBackgroundTaskState(sessionId: string) {
+        return this.#reads.getSessionBackgroundTaskState(sessionId);
+    }
     getQueuedMessages(...args: Parameters<RuntimeQueues["getQueuedMessages"]>) {
         return this.#queues.getQueuedMessages(...args);
     }

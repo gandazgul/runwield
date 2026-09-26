@@ -107,6 +107,10 @@ export class RuntimeReads {
         import("../hosted-session.js").MinimalSessionManagerLike,
         { leafId: string | null; info: ReturnType<typeof buildProjectedSessionInfo> }
     >();
+    getSessionBackgroundTaskState(sessionId: string) {
+        const tasks = this.services.sessionHost.getSession(sessionId)?.backgroundTasks;
+        return tasks ? { active: tasks.activeCount, pending: tasks.pendingCompletions().length } : null;
+    }
     listSessions() {
         return this.services.sessionHost.listSessions()
             .map((session) => this.getSessionSnapshot(session.id))

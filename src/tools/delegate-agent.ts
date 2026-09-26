@@ -38,6 +38,9 @@ const PARAMETERS = Type.Object({
         description:
             "Optional Delegated Agent Role. Omit (or use 'general') for an unspecialized delegate. Use 'verification-adversary' to have a read-only delegate attack a draft Plan's outcomes, steps, and verification claims with the cheapest counterfeit implementation; a role's authority ceiling can reduce the requested mode.",
     })),
+    background: Type.Optional(
+        Type.Boolean({ description: "Run a read-only delegate without waiting for its result." }),
+    ),
     brief: Type.String({
         minLength: 1,
         maxLength: 12000,
@@ -60,6 +63,7 @@ export interface DelegatedAgentSessionOptions {
     modelOverride?: string;
     thinkingLevelOverride?: ThinkingLevel;
     projectStateContext: string;
+    background?: boolean;
     signal?: AbortSignal;
 }
 
@@ -98,6 +102,9 @@ interface DelegateAgentDetails {
     effectiveAuthority?: DelegationMode;
     roleAuthorityCeiling?: DelegatedAuthority;
     output?: string;
+    task_id?: string;
+    state?: import("../shared/session/background-tasks.ts").BackgroundTaskState;
+    log_path?: string;
     tools?: string[];
     changedPaths?: string[] | null;
     changeAttributionComplete?: boolean;
@@ -342,7 +349,7 @@ export function createDelegateAgentTool(opts: DelegateAgentToolOptions) {
         name: "delegate_agent",
         label: "Delegate Agent",
         description:
-            "Run a bounded context-isolated Delegated Agent Session. Use mode 'read' for parallel investigation/review and mode 'write' for one exclusive synchronous implementation task. Pass an optional role to specialize the delegate: 'verification-adversary' attacks a draft Plan with the cheapest counterfeit implementation that would satisfy its claims. The parent waits for the result.",
+            "Run a bounded context-isolated Delegated Agent Session. Use mode 'read' for investigation/review and mode 'write' for one exclusive synchronous implementation task. Set background: true for independent read-only work and inspect its final task result before relying on it.",
         parameters: PARAMETERS,
         async execute(_toolCallId, params, signal, _onUpdate, _ctx): Promise<DelegateAgentResult> {
             const requestedMode: DelegationMode = params.mode === "write" ? "write" : "read";
@@ -356,6 +363,13 @@ export function createDelegateAgentTool(opts: DelegateAgentToolOptions) {
                 };
             }
 
+            if (params.background && requestedMode === "write") {
+                return {
+                    content: [{ type: "text" as const, text: "Background delegation requires requested read mode." }],
+                    details: { ok: false, mode: requestedMode, role: requestedRole, error: "background_write_denied" },
+                    isError: true,
+                };
+            }
             const role = getDelegatedRole(requestedRole);
             if (!role) {
                 const message = `Delegation failed: unknown role "${requestedRole}". Valid roles: ${
@@ -376,26 +390,59 @@ export function createDelegateAgentTool(opts: DelegateAgentToolOptions) {
 
             const mode = resolveEffectiveDelegationMode(requestedMode, role.authorityCeiling);
             const childTools = resolveDelegatedToolNames(opts.parentTools, mode);
+            const userRequest = [
+                `Delegation mode: ${mode}`,
+                ...roleRequestLines(role, requestedMode, mode),
+                "",
+                "You are running as a context-isolated child. Complete only the brief below and return a concise handoff.",
+                "",
+                "## Brief",
+                brief,
+            ].join("\n");
+            const modelOverride = resolveDelegatedModelOverride(opts.hostedSession, opts.modelOverride);
+            const thinkingLevelOverride = resolveDelegatedThinkingLevelOverride(
+                opts.hostedSession,
+                opts.thinkingLevelOverride,
+            );
+            if (params.background) {
+                try {
+                    signal?.throwIfAborted();
+                    const status = opts.hostedSession.backgroundTasks.startDelegate(async (childSignal) => {
+                        const messages = await opts.runIsolatedAgentSession({
+                            hostedSession: opts.hostedSession,
+                            agentName: AGENTS.DELEGATED,
+                            userRequest,
+                            cwd: opts.cwd,
+                            subAgentDefinition: { id: SUBAGENTS.DELEGATED, options: { delegatedRole: role.id } },
+                            toolNames: childTools,
+                            includeEditFallback: false,
+                            modelOverride,
+                            thinkingLevelOverride,
+                            projectStateContext: opts.hostedSession.getProjectStateContext(),
+                            background: true,
+                            signal: childSignal,
+                        });
+                        return extractAssistantOutput(messages) || "";
+                    });
+                    return {
+                        content: [{ type: "text" as const, text: JSON.stringify(status) }],
+                        details: { ok: true, mode, role: role.id, ...status },
+                    };
+                } catch (error) {
+                    const message = errorMessage(error instanceof Error ? error : String(error));
+                    return {
+                        content: [{ type: "text" as const, text: `Delegation failed: ${message}` }],
+                        details: { ok: false, mode, role: role.id, error: message },
+                        isError: true,
+                    };
+                }
+            }
             let release: (() => void) | undefined;
             let beforeSnapshot: DelegatedChangeSnapshot | null = null;
             try {
                 release = opts.hostedSession.acquireDelegatedAgentLease(mode);
                 beforeSnapshot = mode === "write" ? await captureDelegatedChangeSnapshot(opts.cwd) : null;
                 signal?.throwIfAborted?.();
-                const userRequest = [
-                    `Delegation mode: ${mode}`,
-                    ...roleRequestLines(role, requestedMode, mode),
-                    "",
-                    "You are running as a context-isolated child. Complete only the brief below and return a concise handoff.",
-                    "",
-                    "## Brief",
-                    brief,
-                ].join("\n");
-                const modelOverride = resolveDelegatedModelOverride(opts.hostedSession, opts.modelOverride);
-                const thinkingLevelOverride = resolveDelegatedThinkingLevelOverride(
-                    opts.hostedSession,
-                    opts.thinkingLevelOverride,
-                );
                 const messages = await opts.runIsolatedAgentSession({
                     hostedSession: opts.hostedSession,
                     agentName: AGENTS.DELEGATED,
