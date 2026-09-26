@@ -203,7 +203,8 @@ Deno.test("Workspace opens and approves a saved Plan review after its owner is S
                         persistentId = JSON.parse(await Deno.readTextFile(readyPath)).persistentId;
                         if (persistentId) break;
                     } catch (error) {
-                        if (!(error instanceof Deno.errors.NotFound)) throw error;
+                        // A read can race with the signal file being written.
+                        if (!(error instanceof Deno.errors.NotFound) && !(error instanceof SyntaxError)) throw error;
                     }
                     await new Promise((resolve) => setTimeout(resolve, 25));
                 }

@@ -991,7 +991,7 @@ export class HostedSession {
         });
     }
 
-    /** @param {{ routingIntent: unknown, complexity: unknown }} details */
+    /** @param {{ routingIntent: unknown, complexity: unknown, summary?: unknown }} details */
     setWorkflowTriageContext(details) {
         if (this.disposed) return;
         try {

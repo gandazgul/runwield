@@ -46,8 +46,16 @@ Deno.test("workflow context merges plan name and later triage clears stale plan"
         planName: "epic/child-plan",
     });
 
-    recordWorkflowTriageContext(sessionManager, { routingIntent: "QUICK_FIX", complexity: "LOW" });
-    assertEquals(readPersistedWorkflowContext(sessionManager), { routingIntent: "QUICK_FIX", complexity: "LOW" });
+    recordWorkflowTriageContext(sessionManager, {
+        routingIntent: "QUICK_FIX",
+        complexity: "LOW",
+        summary: "Show routing details in the sidebar.",
+    });
+    assertEquals(readPersistedWorkflowContext(sessionManager), {
+        routingIntent: "QUICK_FIX",
+        complexity: "LOW",
+        summary: "Show routing details in the sidebar.",
+    });
 });
 
 Deno.test("workflow context permits plan-only context", () => {

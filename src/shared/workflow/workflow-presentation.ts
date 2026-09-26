@@ -100,6 +100,14 @@ const EXECUTABLE_STAGES: StageDefinition[] = [
     { id: "completion", label: "Completion" },
 ];
 
+const QUICK_FIX_STAGES: StageDefinition[] = [
+    { id: "execution", label: "Implementation" },
+    { id: "mechanical", label: "Tests and CI" },
+    { id: "repair", label: "Repair" },
+    { id: "manual_qa", label: "Manual QA" },
+    { id: "completion", label: "Completion" },
+];
+
 const CONTAINER_STAGES: StageDefinition[] = [
     { id: "review", label: "Review" },
     { id: "decomposition", label: "Decomposition" },
@@ -122,7 +130,11 @@ function isProject(input: WorkflowPresentationInput): boolean {
 }
 
 function stageDefinitions(input: WorkflowPresentationInput): StageDefinition[] {
-    return isProject(input) ? CONTAINER_STAGES : EXECUTABLE_STAGES;
+    return clean(input.intent) === "QUICK_FIX"
+        ? QUICK_FIX_STAGES
+        : isProject(input)
+        ? CONTAINER_STAGES
+        : EXECUTABLE_STAGES;
 }
 
 function connectionDefinitions(stages: StageDefinition[], repairTarget: string): WorkflowPresentationConnection[] {
@@ -150,6 +162,10 @@ function baseStates(input: WorkflowPresentationInput, stages: StageDefinition[])
     const status = clean(input.status).toLowerCase();
     const states = new Map(stages.map((stage) => [stage.id, "pending"]));
     if (states.has("repair")) states.set("repair", "not_required");
+    if (clean(input.intent) === "QUICK_FIX") {
+        states.set("execution", "running");
+        return states;
+    }
     if (isProject(input)) {
         if (status === "feedback" || status === "failed") states.set("review", "needs_attention");
         else if (status === "ready_for_decomposition") states.set("decomposition", "running");
@@ -247,7 +263,27 @@ function mergedRawStates(input: WorkflowPresentationInput, stages: StageDefiniti
     if (input.hasPlanReview && states.has("planning")) states.set("planning", "running");
     if (input.hasCodeReview && states.has("code_review")) states.set("code_review", "running");
     const live = input.liveValidationProgress;
-    if (live?.outcome === "running" && states.has("mechanical")) {
+    if (live?.kind === "mechanical" && clean(input.intent) === "QUICK_FIX") {
+        states.set("execution", "completed");
+        states.set(
+            "mechanical",
+            live.checks.ci === "passed"
+                ? "completed"
+                : live.stage === "engineer_repair"
+                ? "pending"
+                : live.outcome === "paused"
+                ? "paused"
+                : live.outcome === "failed"
+                ? "needs_attention"
+                : "running",
+        );
+        states.set("repair", live.stage === "engineer_repair" ? "running" : "not_required");
+        if (live.stage === "manual_qa") states.set("manual_qa", "running");
+        if (live.outcome === "verified") {
+            states.set("manual_qa", "completed");
+            states.set("completion", "completed");
+        }
+    } else if (live?.outcome === "running" && states.has("mechanical")) {
         // Live work supersedes a saved checkpoint from before Resume was pressed.
         states.set("planning", "completed");
         states.set("execution", "completed");
@@ -310,7 +346,11 @@ function detailFor(stage: WorkflowPresentationStage, input: WorkflowPresentation
             : item.kind === "registry" && stage.id === "execution"
     );
     if (fact?.failure && clean(fact.message)) return clean(fact.message);
-    if (stage.current && input.hasLiveQuestion) return "The agent needs your answer in the Session before continuing.";
+    if (
+        stage.current && input.hasLiveQuestion &&
+        !(clean(input.intent) === "QUICK_FIX" && input.liveValidationProgress?.stage === "ci" &&
+            input.liveValidationProgress.outcome === "running")
+    ) return "The agent needs your answer in the Session before continuing.";
     if (stage.current && clean(input.degradedMessage)) return clean(input.degradedMessage);
     if (stage.id === "planning" && input.hasPlanReview) {
         return "Review the proposed Plan, then approve it or send feedback.";
@@ -354,6 +394,10 @@ function detailFor(stage: WorkflowPresentationStage, input: WorkflowPresentation
         };
         return results[stage.id] || "";
     }
+    if (clean(input.intent) === "QUICK_FIX") {
+        if (stage.id === "execution") return "Implement the quick fix in this Session.";
+        if (stage.id === "completion") return "The quick fix checks finished.";
+    }
     if (stage.id === "execution" && clean(input.status) === "ready_for_work") {
         return "Ready to implement. Continue from the Session to start work.";
     }
@@ -363,6 +407,7 @@ function detailFor(stage: WorkflowPresentationStage, input: WorkflowPresentation
         mechanical: "Run the required tests, lint, type checks, and CI validation.",
         semantic: "Review the implementation against the Plan and check for correctness issues.",
         repair: "Fix the reported issues, then rerun the failed check.",
+        manual_qa: "Prepare the manual QA checklist for the quick fix.",
         code_review: "Inspect the diff and address review feedback before publication.",
         delivery: "Publish the validated changes to the target branch and confirm they arrived.",
         completion: "Record delivery evidence and finish any remaining cleanup.",
@@ -377,7 +422,11 @@ function actionFor(
     _stage: WorkflowPresentationStage,
     input: WorkflowPresentationInput,
 ): WorkflowPresentationAction | null {
-    if (input.hasLiveQuestion) {
+    if (
+        input.hasLiveQuestion &&
+        !(clean(input.intent) === "QUICK_FIX" && input.liveValidationProgress?.stage === "ci" &&
+            input.liveValidationProgress.outcome === "running")
+    ) {
         return {
             kind: "answer_agent",
             label: "Answer agent",
@@ -391,6 +440,9 @@ function actionFor(
         return { kind: "review_code", label: "Review code", detail: "Open the current code review." };
     }
     const status = clean(input.status);
+    if (clean(input.intent) === "QUICK_FIX") {
+        return { kind: "open_session", label: "Open Session", detail: "Open the working Session." };
+    }
     const completed = ["verified", "user_verified", "closed_without_verification"].includes(status) ||
         (isProject(input) && status === "validated");
     if (status === "on_hold" && input.canResume && clean(input.sessionState) !== "active") {

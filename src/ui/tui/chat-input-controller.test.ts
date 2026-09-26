@@ -307,7 +307,7 @@ Deno.test("slash resume restores conversation after an interrupted checkpoint", 
         let expectedModel = "";
         try {
             await submitText(seeded.terminal, "restore this conversation");
-            await seeded.composition.waitForIdle();
+            await seeded.composition.waitForIdle(10_000);
             const snapshot = seeded.composition.runtime.getSessionSnapshot(seeded.composition.sessionId);
             if (!snapshot?.managed) throw new Error("Seeded Session was not persisted");
             managed = snapshot.managed;

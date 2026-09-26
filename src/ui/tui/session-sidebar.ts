@@ -8,7 +8,7 @@ import {
     type SessionSidebarTab,
 } from "../../shared/session/session-sidebar.ts";
 import type { SessionArtifactReference } from "../../shared/session/file-session-store-types.ts";
-import type { WorkflowProgressFact } from "../../shared/workflow/workflow-presentation.ts";
+import type { LiveValidationProgress, WorkflowProgressFact } from "../../shared/workflow/workflow-presentation.ts";
 import { theme } from "../theme/theme.js";
 
 export interface TuiSessionSidebarSnapshot {
@@ -17,8 +17,10 @@ export interface TuiSessionSidebarSnapshot {
     activeAgent?: string | null;
     activeModel?: { model?: string | null; provider?: string | null };
     thinkingLevel?: string | null;
+    validationProgress?: LiveValidationProgress | null;
     workflowContext?: {
         routingIntent?: string | null;
+        summary?: string | null;
         planId?: string | null;
         planName?: string | null;
         parentPlan?: string | null;
@@ -89,6 +91,7 @@ export function tuiSessionSidebarProjection(snapshot: TuiSessionSidebarSnapshot)
         workflowStatus: activeWorkflow?.triageMeta?.status || snapshot.workflowContext?.status,
         workflowClassification: activeWorkflow?.triageMeta?.classification || snapshot.workflowContext?.classification,
         workflowProgressFacts: snapshot.workflowContext?.progressFacts?.map((fact) => ({ ...fact })),
+        workflowLiveValidationProgress: snapshot.validationProgress,
         workflowSessionState: snapshot.busy ? "active" : "idle",
         workflowHasWorkingSession: Boolean(plan),
         workflowHasLiveQuestion: snapshot.workflowContext?.liveQuestion,
@@ -213,6 +216,20 @@ export class TuiSessionSidebar {
             sessionSidebarFields(projection.session).forEach((item, index) => {
                 if (index > 0) content.push("");
                 content.push(...field(item.label, item.value, inner));
+                if (index !== 0) return;
+                const routingIntent = snapshot.workflowContext?.routingIntent;
+                if (routingIntent) content.push("", ...field("Triage type", routingIntent.replaceAll("_", " "), inner));
+                const summary = snapshot.workflowContext?.summary?.trim();
+                if (!summary) return;
+                content.push("", theme.fg("dim", fit("TRIAGE SUMMARY", inner)));
+                let line = "";
+                for (const word of summary.split(/\s+/)) {
+                    if (line && visibleWidth(`${line} ${word}`) > inner) {
+                        content.push(fit(line, inner));
+                        line = word;
+                    } else line = line ? `${line} ${word}` : word;
+                }
+                if (line) content.push(fit(line, inner));
             });
         } else if (projection.artifacts.length === 0) {
             content.push(theme.fg("dim", fit("No declared artifacts yet.", inner)));

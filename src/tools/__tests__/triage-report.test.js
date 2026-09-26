@@ -74,7 +74,11 @@ Deno.test("triage_report execute records workflow context when a HostedSession i
         sessionName: "fix typo",
     });
 
-    assertEquals(hostedSession.getWorkflowContext(), { routingIntent: "QUICK_FIX", complexity: "LOW" });
+    assertEquals(hostedSession.getWorkflowContext(), {
+        routingIntent: "QUICK_FIX",
+        complexity: "LOW",
+        summary: "fix typo",
+    });
 });
 
 Deno.test("triage_report accepts documentation Work Kind only for planned changes", async () => {

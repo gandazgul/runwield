@@ -316,6 +316,7 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
     const editor = new Editor(tui, getEditorTheme());
     composerContainer.addChild(editor);
     const footerContainer = new Container();
+    let liveValidationProgress: TuiSessionSidebarSnapshot["validationProgress"] = null;
     const sessionSidebar = new TuiSessionSidebar(
         options.getSessionId,
         () => options.sessionRuntime.getSessionSnapshot(options.getSessionId()),
@@ -347,7 +348,10 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
             const sidebarWidth = Math.min(34, Math.max(28, Math.floor(availableWidth * 0.28)));
             const mainWidth = Math.max(48, availableWidth - sidebarWidth - 1);
             const mainLines = container.render(mainWidth);
-            const sidebarLines = sessionSidebar.render(sidebarWidth, snapshot);
+            const sidebarLines = sessionSidebar.render(sidebarWidth, {
+                ...snapshot,
+                validationProgress: liveValidationProgress,
+            });
             return composePinnedSessionSidebar(mainLines, sidebarLines, mainWidth, tui.terminal.rows);
         },
     };
@@ -373,7 +377,9 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
             invalidate: () => sessionSidebar.invalidate(),
             render: (width: number) => {
                 const snapshot = options.sessionRuntime.getSessionSnapshot(options.getSessionId());
-                return snapshot?.managed ? sessionSidebar.render(width, snapshot) : [];
+                return snapshot?.managed
+                    ? sessionSidebar.render(width, { ...snapshot, validationProgress: liveValidationProgress })
+                    : [];
             },
         };
         const transcriptLayout = new HStack([
@@ -481,6 +487,9 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
                     transcriptScrollView.viewportHeight,
                 )
             : undefined,
+        (progress) => {
+            liveValidationProgress = progress;
+        },
     );
     const removeSidebarActionListener = tui.addInputListener((data) => {
         if (!isSessionSidebarActionKey(data)) return undefined;

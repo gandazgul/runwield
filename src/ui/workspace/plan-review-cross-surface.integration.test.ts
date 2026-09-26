@@ -5,6 +5,16 @@ import { makeManagedSessionFixture } from "../../testing/managed-session-fixture
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { WorkspaceSessionContinuationService } from "./server/session-continuation.js";
 
+function stopChild(child) {
+    try {
+        child.kill("SIGTERM");
+    } catch (error) {
+        if (!(error instanceof TypeError && error.message === "Child process has already terminated")) {
+            throw error;
+        }
+    }
+}
+
 async function withRemoteReview(changePlan, expectDecision) {
     await withRuntimeCommandFixture("workspace-cross-review-", async ({ homeDir, projectRoot }) => {
         const fixture = await makeManagedSessionFixture({ home: homeDir, projectRoot });
@@ -90,7 +100,7 @@ async function withRemoteReview(changePlan, expectDecision) {
             }
         } finally {
             if (!finished) {
-                child.kill("SIGTERM");
+                stopChild(child);
                 await outputPromise.catch(() => {});
             }
             service.close();

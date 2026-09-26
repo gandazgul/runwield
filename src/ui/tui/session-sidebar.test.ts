@@ -73,6 +73,80 @@ Deno.test("TUI Session Sidebar defaults to workflow and cycles through shared ta
     assertStringIncludes(artifacts, "alt+] open artifact");
 });
 
+Deno.test("TUI Session Sidebar shows the saved triage type and full summary", () => {
+    const sidebar = new TuiSessionSidebar(
+        () => "triaged-session",
+        () => ({
+            managed: { generation: 1 },
+            workflowContext: {
+                routingIntent: "QUICK_FIX",
+                summary: "Add the triage report type and summary to the Session sidebar without changing other fields.",
+            },
+        }),
+    );
+    sidebar.render(34);
+    sidebar.cycleTab();
+    const session = stripAnsi(sidebar.render(34).join("\n"));
+    assertStringIncludes(session, "TRIAGE TYPE");
+    assertStringIncludes(session, "QUICK FIX");
+    assertStringIncludes(session, "TRIAGE SUMMARY");
+    assertStringIncludes(session, "Add the triage report type and");
+    assertStringIncludes(session, "without changing other fields.");
+});
+
+Deno.test("TUI quick fix workflow shows its current CI step without Plan stages or an unrelated prompt", () => {
+    const snapshot = {
+        managed: { generation: 1 },
+        busy: true,
+        workflowContext: { routingIntent: "QUICK_FIX", liveQuestion: true },
+        validationProgress: {
+            kind: "mechanical",
+            outcome: "running",
+            stage: "ci",
+            checks: { ci: "running", semanticReview: "skipped", humanReview: "skipped", merge: "skipped" },
+        },
+    } as const;
+    const sidebar = new TuiSessionSidebar(() => "quick-fix-session", () => snapshot);
+    const projection = tuiSessionSidebarProjection(snapshot);
+    assertEquals(projection.workflow.currentStage?.label, "Tests and CI");
+    assertEquals(projection.workflow.action?.kind, "open_session");
+    const workflow = stripAnsi(sidebar.render(34).join("\n"));
+    assertStringIncludes(workflow, "QUICK FIX");
+    assertStringIncludes(workflow, "● Tests and CI");
+    assertEquals(workflow.includes("Planning"), false);
+    assertEquals(workflow.includes("AI review"), false);
+    assertEquals(workflow.includes("Answer agent"), false);
+});
+
+Deno.test("quick fix workflow follows repair and manual QA progress", () => {
+    const base = {
+        managed: { generation: 1 },
+        busy: true,
+        workflowContext: { routingIntent: "QUICK_FIX" },
+    } as const;
+    assertEquals(tuiSessionSidebarProjection(base).workflow.currentStage?.label, "Implementation");
+    const checks = { ci: "failed", semanticReview: "skipped", humanReview: "skipped", merge: "skipped" } as const;
+    assertEquals(
+        tuiSessionSidebarProjection({
+            ...base,
+            validationProgress: { kind: "mechanical", outcome: "running", stage: "engineer_repair", checks },
+        }).workflow.currentStage?.label,
+        "Repair",
+    );
+    assertEquals(
+        tuiSessionSidebarProjection({
+            ...base,
+            validationProgress: {
+                kind: "mechanical",
+                outcome: "running",
+                stage: "manual_qa",
+                checks: { ...checks, ci: "passed" },
+            },
+        }).workflow.currentStage?.label,
+        "Manual QA",
+    );
+});
+
 Deno.test("artifact reader shortcut does not consume the sidebar cycle key or ordinary typing", () => {
     assertEquals(isSessionArtifactOpenKey("\u001b]"), true);
     assertEquals(isSessionArtifactOpenKey("\u001d"), false);
