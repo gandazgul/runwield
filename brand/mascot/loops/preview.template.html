@@ -1,0 +1,471 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>RunWield mascot loops</title>
+        <style>
+        /* THEME */
+        :root {
+            --rw-mascot-ink: #fff;
+            --rw-mascot-paper: #000;
+            --rw-font-sans: "Avenir Next",system-ui,sans-serif;
+            --rw-font-mono: "SFMono-Regular",Consolas,monospace;
+            color-scheme: dark;
+        }
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            margin: 0;
+            background: var(--rw-page-bg);
+            color: var(--rw-text);
+            font: 15px/1.6 var(--rw-font-sans);
+        }
+        main {
+            max-width: 1240px;
+            margin: auto;
+            padding: 36px 28px 64px;
+        }
+        h1 {
+            font-size: 32px;
+            letter-spacing: -.025em;
+            line-height: 1.2;
+            margin: 0 0 10px;
+        }
+        h2 {
+            font-size: 20px;
+            margin: 0 0 12px;
+        }
+        p {
+            max-width: 75ch;
+            color: var(--rw-text-dim);
+            margin: 8px 0 22px;
+        }
+        .toolbar {
+            display: flex;
+            gap: 16px;
+            align-items: end;
+            flex-wrap: wrap;
+            margin: 28px 0;
+        }
+        label {
+            display: grid;
+            gap: 5px;
+            color: var(--rw-text-dim);
+            font-size: 13px;
+        }
+        select,
+        button {
+            font: inherit;
+            color: var(--rw-text);
+            background: var(--rw-surface);
+            border: 1px solid var(--rw-border);
+            border-radius: 6px;
+            min-height: 40px;
+            padding: 7px 13px;
+            cursor: pointer;
+        }
+        button:hover,
+        select:hover {
+            background: var(--rw-surface-raised);
+        }
+        button:focus-visible,
+        select:focus-visible {
+            outline: 2px solid var(--rw-accent);
+            outline-offset: 3px;
+        }
+        .comparison {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 28px;
+        }
+        .stage {
+            background: var(--rw-mascot-paper);
+            color: var(--rw-mascot-ink);
+            min-height: 220px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .stage svg {
+            width: 120px;
+            height: 108px;
+        }
+        .terminal {
+            font: 16px/16px var(--rw-font-mono);
+            letter-spacing: 0;
+            white-space: pre;
+            margin: 0;
+        }
+        .stage .terminal {
+            font-size: 12px;
+            line-height: 12px;
+        }
+        .caption {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 9px;
+            color: var(--rw-text-dim);
+            font-size: 13px;
+        }
+        .family {
+            display: grid;
+            grid-template-columns: repeat(8,minmax(0,1fr));
+            gap: 10px;
+            margin: 28px 0 42px;
+        }
+        .family button {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+            flex: 1;
+            min-width: 0;
+            background: transparent;
+            border-color: transparent;
+        }
+        .family button[aria-pressed=true] {
+            border-color: var(--rw-border-strong);
+            background: var(--rw-surface);
+        }
+        .family svg {
+            width: 60px;
+            height: 54px;
+            fill: var(--rw-mascot-ink);
+        }
+        section {
+            margin-top: 36px;
+        }
+        .placement {
+            position: relative;
+            background: var(--rw-surface);
+            overflow: hidden;
+        }
+        .placement > img {
+            width: 100%;
+            display: block;
+        }
+        .placement .mascot {
+            position: absolute;
+            right: 3.5%;
+            bottom: 13.2%;
+            width: 11.8%;
+            height: auto;
+            fill: var(--rw-mascot-ink);
+            filter: none;
+        }
+        .placement.startup .mascot {
+            bottom: 14.6%;
+        }
+        .note {
+            font-size: 13px;
+        }
+        .frames {
+            display: flex;
+            overflow: auto;
+            gap: 24px;
+            padding: 20px 0;
+        }
+        .frame {
+            flex: none;
+            text-align: center;
+            color: var(--rw-text-dim);
+            font-size: 12px;
+        }
+        .frame svg {
+            display: block;
+            width: 80px;
+            height: 72px;
+            fill: var(--rw-mascot-ink);
+            margin-bottom: 8px;
+        }
+        .workspace {
+            background: var(--rw-surface);
+            padding: 24px;
+            border: 1px solid var(--rw-border);
+        }
+        .workspace-status {
+            display: flex;
+            align-items: end;
+            justify-content: space-between;
+            gap: 20px;
+        }
+        .identity {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            color: var(--rw-text);
+        }
+        .identity svg {
+            width: 60px;
+            height: 54px;
+            fill: var(--rw-mascot-ink);
+        }
+        .composer {
+            margin-top: 20px;
+            border-top: 1px solid var(--rw-border);
+            padding-top: 16px;
+            color: var(--rw-text-dim);
+        }
+        .compact {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-family: var(--rw-font-mono);
+        }
+        .compact pre {
+            margin: 0;
+            color: var(--rw-mascot-ink);
+        }
+        a {
+            color: var(--rw-accent);
+        }
+        code {
+            font-family: var(--rw-font-mono);
+            overflow-wrap: anywhere;
+        }
+        .check {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            min-height: 40px;
+        }
+        .check input {
+            width: 18px;
+            height: 18px;
+            accent-color: var(--rw-accent);
+        }
+        [hidden] {
+            display: none!important;
+        }
+        ::selection {
+            background: var(--rw-brand);
+            color: var(--rw-on-brand);
+        }
+        @media (max-width:650px) {
+            main {
+                padding: 24px 16px;
+            }
+            .comparison {
+                grid-template-columns: 1fr;
+                gap: 24px;
+            }
+            .toolbar {
+                gap: 12px;
+            }
+            .family {
+                grid-template-columns: repeat(4,minmax(0,1fr));
+            }
+            .family button {
+                font-size: 12px;
+            }
+            .workspace-status {
+                align-items: start;
+            }
+            .stage {
+                min-height: 220px;
+            }
+        }
+        </style>
+    </head>
+    <body>
+        <main>
+            <h1>One mascot. Eight working loops.</h1>
+            <p>Animation study · the same 20 × 18 pixel frames in the browser and terminal. These previews do not change RunWield.</p>
+            <div
+                class="toolbar"><label>Agent<select id="role"></select></label><label>State<select id="pose"><option value="thinking">Thinking</option><option value="idle">Idle</option><option value="answering">Answering</option></select></label><label>Playback<select id="speed"><option value="1">Normal · 1.8 s loop</option><option value="0.5">Half speed</option><option value="2">Double speed</option></select></label><button id="pause">Pause</button><button id="step">Next frame</button><label class="check"><input id="reduce" type="checkbox">Reduced motion</label></div>
+            <div class="comparison">
+                <div>
+                    <h2>Workspace</h2>
+                    <div class="stage">
+                        <svg viewBox="0 0 20 18" shape-rendering="crispEdges" fill="currentColor"
+                            aria-label="Selected mascot">
+                            <path id="large" />
+                        </svg>
+                    </div>
+                    <div class="caption"><span>Enlarged to inspect the pixels</span><span id="counter"></span></div>
+                </div>
+                <div>
+                    <h2>Terminal</h2>
+                    <div class="stage">
+                        <pre class="terminal" id="terminal" aria-label="Terminal mascot"></pre>
+                    </div>
+                    <div class="caption"><span>Real Unicode text: ▀ ▄ █</span><span>20 columns × 9 rows</span></div>
+                </div>
+            </div>
+            <div class="family" id="family"></div>
+            <p
+                class="note">Init uses Base; Guide shares Router; Slicer shares Planner; all Engineers share the keyboard. Delegated agents inherit their parent’s mascot. Recorder and Tester have no separate visible mascot.</p>
+            <h2 id="motionTitle"></h2>
+            <p id="motion"></p>
+            <div class="frames" id="frames" aria-label="Loop frames"></div>
+            <section>
+                <h2>Workspace placement · actual display size</h2>
+                <div class="workspace">
+                    <div
+                        class="workspace-status"><span>Session activity</span><div class="identity"><svg viewBox="0 0 20 18" shape-rendering="crispEdges" aria-hidden="true"><path class="live-path"/></svg><div><strong class="role-name"></strong><br><small class="state-name">Thinking</small></div></div></div>
+                    <div class="composer">Message the agent…</div>
+                </div>
+                <p
+                    class="note">60 × 54 CSS pixels. Keep the mascot next to the active agent, outside the message history. Idle and reduced-motion states stay still.</p>
+            </section>
+            <section>
+                <h2>TUI placement · above the agent name</h2>
+                <p>Bottom right, above the input border. In this layout, the mascot uses the empty area beneath the sidebar. This is a placement study over your screenshot.</p>
+                <div
+                    class="toolbar"><label>Screenshot<select id="screenshot"><option value="triage">Session with sidebar</option><option value="startup">Startup without sidebar</option></select></label></div>
+                <div class="placement"
+                    id="triage"><img src="TRIAGE_IMAGE" alt="RunWield TUI session screenshot supplied by the user"><svg class="mascot" viewBox="0 0 20 18" shape-rendering="crispEdges" aria-label="Proposed mascot placement"><path class="live-path"/></svg></div>
+                <div class="placement startup" id="startup"
+                    hidden><img src="STARTUP_IMAGE" alt="RunWield TUI startup screenshot supplied by the user"><svg class="mascot" viewBox="0 0 20 18" shape-rendering="crispEdges" aria-label="Proposed mascot placement"><path class="live-path"/></svg></div>
+                <p
+                    class="note">The screenshot labels are unchanged. Select Engineer for the session screenshot or Router for startup. The overlay shows a conservative full terminal footprint. Final integration must reserve this space so text and expanded sidebars cannot overlap it.</p>
+            </section>
+            <section>
+                <h2>Short-terminal fallback</h2>
+                <div class="workspace compact"><pre>▛▀▀▀▀▀▜
+▙ ▪ ▪ ▟</pre><span><strong class="role-name"></strong> · <span class="state-name">Thinking</span></span></div>
+                <p
+                    class="note">A two-row face and the written agent name when the full nine-row mascot cannot fit. The role accessory is intentionally omitted at this size.</p>
+            </section>
+            <section>
+                <h2>Run it in a terminal</h2>
+                <p><code id="command"></code></p>
+                <p
+                    class="note">Ctrl+C stops the preview and restores the cursor. No session, account, or agent connection is needed.</p>
+            </section>
+        </main>
+        <script>
+        /* DATA */
+        const $ = (id) => document.getElementById(id);
+        const names = {
+            base: "Base / Init",
+            router: "Router / Guide",
+            planner: "Planner / Slicer",
+            architect: "Architect",
+            engineer: "Engineers",
+            operator: "Operator",
+            reviewer: "Reviewer",
+            ideator: "Ideator",
+        };
+        const descriptions = {
+            base:
+                "The cursor holds on for two frames and off for two frames: 600 ms each. Eye blinks stay on frames 3 and 7; the cursor stays fixed.",
+            router:
+                "Router and Guide share the direction paddle. Its arrow alternates direction while Router considers where the work belongs.",
+            planner:
+                "Planner and Slicer share a clipboard. A pencil mark moves down it. The clipboard stays at the side so the face remains visible.",
+            architect:
+                "Drop, drop, drop. Each block lands before the next one appears; the completed stack pauses, disappears, and builds again.",
+            engineer:
+                "Every Engineer variant shares this keyboard: Engineer, Plan Engineer, Frontend Engineer, and Reviewer Feedback Engineer. Hands alternate while typing.",
+            operator:
+                "A chunky lever rocks left and right on a fixed pedestal, pausing at each end. The gear is preserved as an alternative.",
+            reviewer: "Eyes scan left to right, pause, then return to the left as the lines on the scroll move upward.",
+            ideator:
+                "The bulb fills and empties during thinking. It becomes steady when answering starts; the fill is an activity loop, not a completion estimate.",
+        };
+        let role = "base", frame = 0, paused = false, elapsed = 0, last = performance.now();
+        const media = matchMedia("(prefers-reduced-motion: reduce)");
+        $("reduce").checked = media.matches;
+        media.addEventListener("change", (event) => {
+            $("reduce").checked = event.matches;
+            draw();
+        });
+        animations.forEach((a) => {
+            const option = new Option(names[a.role], a.role);
+            $("role").add(option);
+            const button = document.createElement("button");
+            button.type = "button";
+            button.dataset.role = a.role;
+            button.innerHTML = '<svg viewBox="0 0 20 18" shape-rendering="crispEdges" aria-hidden="true"><path d="' +
+                a.idlePath + '"/></svg><span>' + names[a.role] + "</span>";
+            button.onclick = () => select(a.role);
+            $("family").append(button);
+        });
+        function select(value) {
+            role = value;
+            frame = 0;
+            elapsed = 0;
+            $("role").value = value;
+            $("motionTitle").textContent = names[role];
+            $("motion").textContent = descriptions[role];
+            document.querySelectorAll(".role-name").forEach((el) => el.textContent = names[role]);
+            document.querySelectorAll("[data-role]").forEach((el) =>
+                el.setAttribute("aria-pressed", String(el.dataset.role === role))
+            );
+            $("command").textContent = "deno run brand/mascot/loops/terminal.ts " + role;
+            const a = animations.find((a) => a.role === role);
+            $("speed").options[0].textContent = "Normal · " + (a.frames.reduce((sum, f) => sum + f.duration, 0) / 1000) +
+                " s loop";
+            $("frames").innerHTML = a.frames.map((f, i) =>
+                '<div class="frame"><svg viewBox="0 0 20 18" shape-rendering="crispEdges"><path d="' + f.path + '"/></svg>' +
+                (i + 1) + " · " + f.duration + " ms</div>"
+            ).join("");
+            draw();
+        }
+        function draw() {
+            const a = animations.find((a) => a.role === role), pose = $("pose").value;
+            const still = pose !== "thinking" || $("reduce").checked;
+            const path = pose === "answering" ? a.answeringPath : still ? a.idlePath : a.frames[frame].path;
+            const text = pose === "answering" ? a.answeringTerminal : still ? a.idleTerminal : a.frames[frame].terminal;
+            $("large").setAttribute("d", path);
+            document.querySelectorAll(".live-path").forEach((el) => el.setAttribute("d", path));
+            $("terminal").textContent = text.join("\n");
+            $("counter").textContent = still ? "Still pose" : "Frame " + (frame + 1) + " / " + a.frames.length;
+            document.querySelectorAll(".state-name").forEach((el) => el.textContent = pose[0].toUpperCase() + pose.slice(1));
+        }
+        $("role").onchange = (event) => select(event.target.value);
+        $("pose").onchange = () => {
+            frame = 0;
+            elapsed = 0;
+            draw();
+        };
+        $("reduce").onchange = draw;
+        $("pause").onclick = () => {
+            paused = !paused;
+            $("pause").textContent = paused ? "Play" : "Pause";
+            $("pause").setAttribute("aria-pressed", String(paused));
+        };
+        $("step").onclick = () => {
+            paused = true;
+            $("pause").textContent = "Play";
+            $("pause").setAttribute("aria-pressed", "true");
+            $("pose").value = "thinking";
+            frame = (frame + 1) % animations.find((a) => a.role === role).frames.length;
+            elapsed = 0;
+            draw();
+        };
+        $("screenshot").onchange = (event) => {
+            $("triage").hidden = event.target.value !== "triage";
+            $("startup").hidden = event.target.value !== "startup";
+            select(event.target.value === "triage" ? "engineer" : "router");
+        };
+        const visibleViews = new Set();
+        const observer = new IntersectionObserver((entries) =>
+            entries.forEach((entry) => {
+                if (entry.isIntersecting) visibleViews.add(entry.target);
+                else visibleViews.delete(entry.target);
+            })
+        );
+        document.querySelectorAll(".stage,.identity,.placement").forEach((el) => observer.observe(el));
+        function tick(now) {
+            const delta = Math.min(now - last, 100);
+            last = now;
+            if (visibleViews.size && !document.hidden && !paused && !$("reduce").checked && $("pose").value === "thinking") {
+                elapsed += delta * Number($("speed").value);
+                const a = animations.find((a) => a.role === role);
+                if (elapsed >= a.frames[frame].duration) {
+                    elapsed -= a.frames[frame].duration;
+                    frame = (frame + 1) % a.frames.length;
+                    draw();
+                }
+            }
+            requestAnimationFrame(tick);
+        }
+        select(role);
+        requestAnimationFrame(tick);
+        </script>
+    </body>
+</html>
