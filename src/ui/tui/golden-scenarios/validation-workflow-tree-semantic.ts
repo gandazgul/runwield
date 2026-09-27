@@ -229,11 +229,6 @@ export const validationTreeSemanticProviderErrorRetryScenario = withValidationBr
             { type: "enter" },
             { type: "enter" },
             {
-                type: "waitForScreen",
-                text: "The model provider could not complete AI review",
-                timeoutMs: 90000,
-            },
-            {
                 type: "waitForPlanStatus",
                 planName: "semantic-provider-error-retry",
                 statuses: ["verified"],

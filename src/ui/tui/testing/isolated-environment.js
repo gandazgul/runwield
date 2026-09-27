@@ -219,6 +219,7 @@ export async function createGoldenIsolatedEnvironment(options = {}) {
         RUNWIELD_HOME: runwieldDir,
         PATH: `${fixtureBinDir}:${Deno.env.get("PATH") || ""}`,
         NO_COLOR: "1",
+        TERM: "screen",
         WLD_GOLDEN_TUI: "1",
     };
     return {

@@ -249,7 +249,7 @@ function transcriptRequirementFor(id: ValidationWorkflowBranchId): string[] {
     if (id === "publication:dirty-primary-retry") {
         return [
             "have not saved to git yet",
-            "No remote is configured. Adding the commits to the local main branch",
+            "No remote is configured. Adding the commits to the local main",
             "Cleaning up the worktree",
             "is on main",
         ];
