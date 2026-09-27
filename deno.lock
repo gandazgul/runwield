@@ -94,7 +94,7 @@
     "npm:dompurify@*": "3.4.15",
     "npm:dompurify@^3.4.11": "3.4.15",
     "npm:esbuild@~0.28.2": "0.28.2",
-    "npm:fuse.js@^7.4.2": "7.4.2",
+    "npm:fuse.js@^7.5.0": "7.5.0",
     "npm:happy-dom@20.8.4": "20.8.4",
     "npm:highlight.js@^11.11.1": "11.11.1",
     "npm:katex@~0.18.4": "0.18.5",
@@ -4782,8 +4782,8 @@
     "function-bind@1.1.2": {
       "integrity": "sha512-7XHNxH7qX9xG5mIwxkhumTox/MIRNcOgDrxWsMt2pAr23WHp6MrRlN7FBSFpCpr+oVO0F744iUgR82nJMfG2SA=="
     },
-    "fuse.js@7.4.2": {
-      "integrity": "sha512-LVbzjD4WA6UP5B1UnP8wuaXJiLnqMdM/E4fiJXTJ5haJ5b/MBNsK29h2fm6swEoQaVQjvYFWKLE2RanyZIoRVQ=="
+    "fuse.js@7.5.0": {
+      "integrity": "sha512-sQtrEfA+ez/3G0cCZecF70oqpCRttCexYUG4mUrtWL49ULUzUyxokt5kyqwtKzj1270RaKih+hcP3qLcumccow=="
     },
     "gaxios@7.3.1": {
       "integrity": "sha512-kB3rzJV7d9juLZh8/56QTXCwQfxyhdOMdyYk1HdQKFtF8TJTDTZQJtixWIwXdE9Jji91mC41DUNpjleo4L4eAQ==",
@@ -6707,7 +6707,7 @@
       "npm:dockview-react@^8.2.0",
       "npm:dompurify@^3.4.11",
       "npm:esbuild@~0.28.2",
-      "npm:fuse.js@^7.4.2",
+      "npm:fuse.js@^7.5.0",
       "npm:happy-dom@20.8.4",
       "npm:highlight.js@^11.11.1",
       "npm:katex@~0.18.4",
