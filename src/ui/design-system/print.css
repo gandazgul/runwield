@@ -70,6 +70,18 @@
         break-inside: auto;
     }
 
+    .rw-plan-review :is(.alert, .directive, blockquote) {
+        break-inside: avoid;
+    }
+
+    .rw-plan-review :is(.alert, .directive, blockquote)[data-print-long-callout] {
+        break-inside: auto;
+    }
+
+    .rw-plan-review :is(.alert-title, .directive-title) {
+        break-after: avoid;
+    }
+
     .rw-plan-review :is(pre, pre code) {
         white-space: pre-wrap !important;
         overflow: visible !important;
