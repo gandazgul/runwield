@@ -7,7 +7,9 @@
         "slicer": "planner",
         "plan-engineer": "engineer",
         "frontend-engineer": "engineer",
-        "reviewer-feedback-engineer": "engineer"
+        "reviewer-feedback-engineer": "engineer",
+        "validation-repair-engineer": "engineer",
+        "manual-qa": "operator"
     },
     "agentInheritance": {
         "delegated": "parent"

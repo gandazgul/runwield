@@ -1,12 +1,13 @@
 # RunWield mascot concept
 
-Exploratory design, not yet an approved identity or production sprite set. Generated with the built-in image generation
-tool. No application behavior changed.
+The owner approved the animation family and its TUI/Workspace integration. Production one-bit frames live in
+`src/ui/mascot/frames.ts`; `loops/preview.html` remains the interactive study. The generated concept sheets below are
+historical references.
 
 ## Shared character
 
-Compact angular creature with white body, black face, square eyes, split feet, and small hands. The same anatomy carries
-every role. The companion is separate from the existing logo.
+Compact angular creature with white body, black face, square eyes, split feet, and an armless W silhouette. The same
+anatomy carries every role. The companion is separate from the existing logo.
 
 Target production palette: one foreground and one background, strictly two colors. The generated concept sheet includes
 raster edge smoothing; it is a visual reference, not a verified 1-bit sprite atlas. Production sprites should be
@@ -20,7 +21,7 @@ authored on one small logical grid and checked at actual size in both surfaces.
 | Planner / Slicer | Clipboard                                   | One writing hand                                      |
 | Architect        | Three stacked building blocks               | Three successive drops, pause, disappear, repeat      |
 | All Engineers    | Keyboard                                    | Alternating hands                                     |
-| Operator         | Gear                                        | Rotating teeth around a fixed center                  |
+| Operator         | Lever                                       | Rocks left/right with a pause at each end             |
 | Reviewer         | Long scroll held in front, with rolled ends | Eyes scan left to right, reset as paper advances      |
 | Ideator          | Lightbulb                                   | Fill loop during thinking; solid when response begins |
 

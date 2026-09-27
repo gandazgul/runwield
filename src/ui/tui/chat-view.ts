@@ -50,9 +50,14 @@ import { readSessionArtifact } from "../../shared/session/read-session-artifact.
 import { SYSTEM_BROWSER_PORT } from "../../shared/browser-port.ts";
 import { startArtifactReadSurface } from "../review/review-launcher.ts";
 
+import { TuiAgentMascot } from "./agent-mascot.ts";
+import { mascotPose } from "../mascot/mascot.ts";
+
 const SESSION_SIDEBAR_MIN_WIDTH = 132;
+const MASCOT_RAIL_MIN_WIDTH = 80;
 
 export interface ChatViewSessionSnapshot extends TuiSessionSidebarSnapshot {
+    activeAgentInfo?: { agentName?: string } | null;
     cwd: string;
     activeModel: { model?: string | null; provider?: string | null };
 }
@@ -316,6 +321,17 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
     const editor = new Editor(tui, getEditorTheme());
     composerContainer.addChild(editor);
     const footerContainer = new Container();
+    const mascot = new TuiAgentMascot(() => tui.requestRender());
+    let mascotAnswering = false;
+    const renderMascot = (width: number, compact: boolean) => {
+        const snapshot = options.sessionRuntime.getSessionSnapshot(options.getSessionId());
+        return mascot.render(width, compact, {
+            agentName: snapshot?.activeAgentInfo?.agentName || snapshot?.activeAgent || "",
+            parentAgentName: snapshot?.activeAgent || undefined,
+            sessionId: options.getSessionId(),
+            pose: mascotPose({ busy: runningTasksComponent.isBusy, answering: mascotAnswering }),
+        });
+    };
     let liveValidationProgress: TuiSessionSidebarSnapshot["validationProgress"] = null;
     const sessionSidebar = new TuiSessionSidebar(
         options.getSessionId,
@@ -329,6 +345,7 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
         render: (w: number) => {
             const availableWidth = Math.max(10, w - 2);
             return [
+                ...(w < MASCOT_RAIL_MIN_WIDTH ? renderMascot(availableWidth, true) : []),
                 ...composerContainer.render(availableWidth),
                 ...footerContainer.render(availableWidth),
             ];
@@ -342,17 +359,22 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
         render: (w: number) => {
             const availableWidth = Math.max(10, w - 2);
             const snapshot = options.sessionRuntime.getSessionSnapshot(options.getSessionId());
-            if (!snapshot?.managed || availableWidth < SESSION_SIDEBAR_MIN_WIDTH) {
-                return container.render(availableWidth);
-            }
-            const sidebarWidth = Math.min(34, Math.max(28, Math.floor(availableWidth * 0.28)));
-            const mainWidth = Math.max(48, availableWidth - sidebarWidth - 1);
+            if (w < MASCOT_RAIL_MIN_WIDTH) return container.render(availableWidth);
+            const showSidebar = snapshot?.managed && availableWidth >= SESSION_SIDEBAR_MIN_WIDTH;
+            const sidebarWidth = showSidebar ? 34 : 22;
+            const mainWidth = Math.max(1, availableWidth - sidebarWidth - 1);
             const mainLines = container.render(mainWidth);
-            const sidebarLines = sessionSidebar.render(sidebarWidth, {
-                ...snapshot,
-                validationProgress: liveValidationProgress,
-            });
-            return composePinnedSessionSidebar(mainLines, sidebarLines, mainWidth, tui.terminal.rows);
+            const dock = bottomDock.render(w);
+            const bodyHeight = Math.max(1, tui.terminal.rows - dock.length);
+            const mascotLines = renderMascot(sidebarWidth, bodyHeight < 24);
+            const sidebarLines = showSidebar
+                ? sessionSidebar.render(sidebarWidth, { ...snapshot, validationProgress: liveValidationProgress })
+                : [];
+            const space = Math.max(0, bodyHeight - mascotLines.length);
+            const rail = sidebarLines.slice(0, space);
+            while (rail.length < space) rail.push("");
+            rail.push(...mascotLines);
+            return composePinnedSessionSidebar(mainLines, rail, mainWidth, bodyHeight);
         },
     };
     const rootWrapper: Component = {
@@ -377,11 +399,20 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
             invalidate: () => sessionSidebar.invalidate(),
             render: (width: number) => {
                 const snapshot = options.sessionRuntime.getSessionSnapshot(options.getSessionId());
-                return snapshot?.managed
+                return snapshot?.managed && tui.terminal.columns >= SESSION_SIDEBAR_MIN_WIDTH
                     ? sessionSidebar.render(width, { ...snapshot, validationProgress: liveValidationProgress })
                     : [];
             },
         };
+        const mascotArea: Component = {
+            invalidate: () => {},
+            render: (width: number) =>
+                renderMascot(width, tui.terminal.rows - bottomDock.render(tui.terminal.columns).length < 24),
+        };
+        const rail = new VStack([
+            { component: new ScrollView(sidebarArea, { scrollbar: "auto" }), basis: 0, grow: 1, minSize: 0 },
+            { component: mascotArea, basis: "auto", shrink: 0 },
+        ]);
         const transcriptLayout = new HStack([
             {
                 component: transcriptScrollView,
@@ -390,12 +421,17 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
                 minSize: 48,
             },
             {
-                component: sidebarArea,
-                basis: 34,
+                component: rail,
+                basis: 22,
                 shrink: 0,
                 visible: (viewport) =>
-                    viewport.width >= SESSION_SIDEBAR_MIN_WIDTH &&
-                    Boolean(options.sessionRuntime.getSessionSnapshot(options.getSessionId())?.managed),
+                    viewport.width >= MASCOT_RAIL_MIN_WIDTH && viewport.width < SESSION_SIDEBAR_MIN_WIDTH,
+            },
+            {
+                component: rail,
+                basis: 34,
+                shrink: 0,
+                visible: (viewport) => viewport.width >= SESSION_SIDEBAR_MIN_WIDTH,
             },
         ], { gap: 1 });
         tui.setLayoutRoot(
@@ -491,6 +527,32 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
             liveValidationProgress = progress;
         },
     );
+    const originalSetBusy = uiAPI.setBusy;
+    uiAPI.setBusy = (busy) => {
+        if (!busy || !runningTasksComponent.isBusy) mascotAnswering = false;
+        originalSetBusy?.(busy);
+    };
+    const originalMessageStart = uiAPI.appendAgentMessageStart;
+    uiAPI.appendAgentMessageStart = (agentName) => {
+        const appender = originalMessageStart(agentName);
+        return {
+            ...appender,
+            appendText(delta) {
+                if (delta && runningTasksComponent.isBusy) mascotAnswering = true;
+                appender.appendText(delta);
+            },
+        };
+    };
+    const originalThinkingStart = uiAPI.appendThinkingStart;
+    uiAPI.appendThinkingStart = () => {
+        mascotAnswering = false;
+        return originalThinkingStart!();
+    };
+    const originalToolStart = uiAPI.startToolExecution;
+    uiAPI.startToolExecution = (...args) => {
+        mascotAnswering = false;
+        return originalToolStart!(...args);
+    };
     const removeSidebarActionListener = tui.addInputListener((data) => {
         if (!isSessionSidebarActionKey(data)) return undefined;
         const snapshot = options.sessionRuntime.getSessionSnapshot(options.getSessionId());
@@ -609,6 +671,7 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
             previewImages.clear();
         },
         resetForSessionReplacement() {
+            mascotAnswering = false;
             pastedImages.length = 0;
             previewImages.clear();
             uiAPI.hideKeyboardHelp?.();
@@ -626,6 +689,7 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
         },
         dispose() {
             disposed = true;
+            mascot.dispose();
             for (const surface of artifactReaders) void Promise.resolve(surface.stop()).catch(() => {});
             artifactReaders.clear();
             removeSidebarKeyListener();

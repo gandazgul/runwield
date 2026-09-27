@@ -671,17 +671,20 @@ expose TUI-only process controls.
   remain available. Image preflight rejection, including unsupported backend attachments such as Antigravity CLI,
   returns a validation error (HTTP 422) before acceptance for both new and resumed Sessions. It never queues the
   rejected request or clears its draft/previews. After correcting the model or image setup, one send is accepted.
-- On desktop and mobile, the unfocused composer shows only Attach, the Agent/provider/model/Thinking summary, and the
-  primary action. Its accessible name identifies a saved draft without adding visible text. On a phone, expanded
-  settings keep common selected values readable without sideways scrolling. Focusing the summary expands the textarea
-  and settings; moving focus outside collapses it without losing text, images or selections. Moving between its controls
-  keeps it expanded. Expansion and collapse animate without losing the visible history position or requiring live
-  followers to scroll down again; reduced motion is respected. The primary action stops running work when the draft is
-  empty and sends or steers when text or images are present.
+- On desktop and mobile, the unfocused composer shows the Agent mascot, Attach, the Agent/provider/model/Thinking
+  summary, and the primary action. Its accessible name identifies a saved draft without adding visible text. On a phone,
+  expanded settings keep common selected values readable without sideways scrolling. Focusing the summary expands the
+  textarea and settings; moving focus outside collapses it without losing text, images or selections. Moving between its
+  controls keeps it expanded. Expansion and collapse animate without losing the visible history position or requiring
+  live followers to scroll down again; reduced motion is respected. The primary action stops running work when the draft
+  is empty and sends or steers when text or images are present.
 - On a phone, opening the Session sidebar fills the available height below the Workspace header. Its tabs and close
   control remain reachable while scrolling. Arrow keys and Home/End move between context tabs, and each tab names its
   panel. Keyboard focus cannot enter the covered conversation or composer; closing the sidebar restores both in place
   and makes them available again. On desktop, the visible conversation stays usable.
+- The composer shows the active Agent mascot beside its controls, sharing identities and activity semantics with
+  [Core's Agent mascots](runwield-core-prd.md#agent-mascots). It keeps a fixed footprint on desktop and phones, pauses
+  for owner input, reduced motion, hidden tabs and offscreen views, and never animates from saved history alone.
 - When Core becomes busy after a message, the live end of the conversation immediately shows the shared dots loader and
   “Thinking...”, including before any assistant text arrives. It clears when Core is idle or the live operation ends,
   and pauses while a human answer is needed. Reopening saved history does not show an old busy indicator.

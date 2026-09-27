@@ -66,6 +66,7 @@ commitments; they are not a release audit. Internal mechanisms and detailed chec
 Other surfaces reference these requirements and add only their own user experience.
 
 - [TUI conversation](#tui-conversation)
+- [Agent mascots](#agent-mascots)
 - [Request routing](#request-routing)
 - [Plan review](#plan-review)
 - [Plan authoring and external adoption](#plan-authoring-and-external-adoption)
@@ -175,6 +176,27 @@ A deliberate Escape key remains available to interrupt the turn.
   interrupts it.
 - Given tool groups above and inside the current viewport, when the user presses Ctrl+O, only the intersecting groups
   toggle. A tool result longer than 500 lines keeps its first and last lines and identifies the omitted middle lines.
+
+### Agent mascots
+
+**Scope and maturity:** Current TUI and Workspace baseline.
+
+**Requirement: Recognizable Agent activity across surfaces.**
+
+TUI and Workspace use the same monochrome W mascot and approved role animations. Init uses Base, Guide uses Router,
+Slicer uses Planner, and all Engineer variants share Engineer. Delegated Agents inherit their parent's mascot, including
+an inherited ancestor identity for nested delegation. Recorder and Tester remain invisible; custom named Agents use
+Base. Operator uses a rocking lever; Architect builds three blocks; Reviewer reads a scroll.
+
+Mascots animate during live busy work, pause for owner input or idle, and hold an answering pose when assistant text
+arrives. Ideator's filled bulb means an observed answer, not predicted progress. Saved history cannot restart animation.
+The written Agent identity and activity status remain available. Browser reduced-motion settings, hidden tabs, and
+unmounting stop animation. Terminal disposal stops its clock. The TUI reserves space above the bottom-right Agent label
+without covering transcript or input; short/narrow terminals show a compact still face.
+
+Acceptance: an Agent change selects the corresponding prop; a delegated invocation keeps its parent's identity; a busy
+turn animates until an answer, owner wait, or settlement; resuming work restarts animation; resizing preserves access to
+conversation and composer; closing the surface leaves no animation timer running.
 
 <a id="32-routing-intents"></a>
 <a id="33-triage-experience"></a>

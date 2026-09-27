@@ -2189,3 +2189,13 @@ button.danger-action:disabled {
         justify-content: center;
     }
 }
+
+/* One-bit agent identity; reserve its footprint so changing frames never shifts controls. */
+.rw-agent-mascot {
+    display: block;
+    flex: 0 0 auto;
+    width: 60px;
+    height: 54px;
+    fill: var(--rw-text);
+    pointer-events: none;
+}
