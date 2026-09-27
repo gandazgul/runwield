@@ -4,7 +4,7 @@ import {
     isApprovalAcceptedValue,
     RuntimeInteractionOutcomes,
     RuntimeInteractionTypes,
-} from "../../../shared/session/session-runtime-interactions.js";
+} from "../../../shared/session/interaction-values.ts";
 import { MarkdownView } from "./MarkdownView.jsx";
 import { SessionQuestionForm } from "./SessionQuestionForm.tsx";
 import { RunWieldLink, RunWieldThinkingDots } from "../../design-system/components/react/RunWieldPrimitives.jsx";
