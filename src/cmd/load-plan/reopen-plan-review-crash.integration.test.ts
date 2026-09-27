@@ -60,7 +60,7 @@ Deno.test("a Session reopens the current saved Plan after its pending review pro
             setInterval(() => {}, 1000);
         `;
             const worker = new Deno.Command(Deno.execPath(), {
-                args: ["eval", "-A", "--config", fromFileUrl(new URL("../../../deno.json", import.meta.url)), script],
+                args: ["eval", "--config", fromFileUrl(new URL("../../../deno.json", import.meta.url)), script],
                 stdout: "null",
                 stderr: "piped",
             }).spawn();
@@ -191,7 +191,7 @@ Deno.test("Workspace opens and approves a saved Plan review after its owner is S
             setInterval(() => {}, 1000);
         `;
             const worker = new Deno.Command(Deno.execPath(), {
-                args: ["eval", "-A", "--config", fromFileUrl(new URL("../../../deno.json", import.meta.url)), script],
+                args: ["eval", "--config", fromFileUrl(new URL("../../../deno.json", import.meta.url)), script],
                 stdout: "null",
                 stderr: "piped",
             }).spawn();
