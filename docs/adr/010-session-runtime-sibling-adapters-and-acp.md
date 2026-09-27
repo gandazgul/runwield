@@ -37,7 +37,14 @@ controls stay unavailable outside the TUI. Built-in names remain reserved before
 Pair checkpoints are normal multi-turn Session conversation on TUI, Workspace, and ACP. Adapters render the checkpoint
 report through the ordinary event stream and accept follow-up messages through their normal prompt path. They do not
 advertise or collect a Pair checkpoint form. The shared runtime restores the durable checkpoint and execution context
-before root Agent activation.
+before root Agent activation. Background Task completion is generated Session input, not a user follow-up: it does not
+resolve the checkpoint or answer an interaction.
+
+The Hosted Session owns a bounded, process-local Background Task registry independently of a disposable root Agent turn.
+SessionRuntime schedules completed results through root-targeted steering or managed generated turns; adapters show
+those turns in the existing conversation. ACP may emit updates after an earlier prompt response, without extending that
+response or fabricating a client request. Workspace can keep its Session owner while tasks remain after a browser tab
+closes. Neither adapter takes over task control from another process.
 
 Each Hosted Session carries an absolute project root. Shared catalogs, layered settings, Plans, workflow metrics, memory
 commands, validation, and Worktree operations resolve from that root rather than the server process cwd. A Hosted

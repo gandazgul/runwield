@@ -416,9 +416,9 @@ Deno.test("HostedSession hydrates and persists workflow context defensively", ()
     });
 });
 
-Deno.test("HostedSession workflow context setters are fail-open after disposal", () => {
+Deno.test("HostedSession workflow context setters are fail-open after disposal", async () => {
     const session = new HostedSession({ id: "disposed-workflow", cwd: Deno.cwd() });
-    session.dispose();
+    await session.dispose();
 
     session.setWorkflowTriageContext({ routingIntent: "PLANNED_CHANGE", complexity: "LOW" });
     session.setWorkflowPlanName("plan");
@@ -520,7 +520,7 @@ Deno.test("two Hosted Sessions do not share workflow context", () => {
     assertEquals(beta.getWorkflowContext(), { planName: "beta-plan" });
 });
 
-Deno.test("HostedSession dispose clears owned runtime references and rejects later mutation", () => {
+Deno.test("HostedSession dispose clears owned runtime references and rejects later mutation", async () => {
     const sessionManager = makeSessionManager("disposing-manager");
     const root = makeDisposableSession("root");
     const sub = makeDisposableSession("sub");
@@ -538,7 +538,7 @@ Deno.test("HostedSession dispose clears owned runtime references and rejects lat
     });
     session.setWorkflowPlanName("disposing-plan");
 
-    session.dispose();
+    await session.dispose();
 
     assertEquals(session.disposed, true);
     assertEquals(root.disposed, true);

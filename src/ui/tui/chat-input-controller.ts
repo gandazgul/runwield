@@ -144,7 +144,7 @@ export function createChatInputController(options: ChatInputControllerOptions): 
 
     function forceResetUI(): void {
         editor.disableSubmit = false;
-        uiAPI.setBusy?.(false);
+        uiAPI.setBusy?.(runtime.getSessionSnapshot(options.getSessionId())?.busy === true);
         uiAPI.enableInput?.();
         view.focusEditor();
         view.requestRender();
@@ -433,7 +433,7 @@ export function createChatInputController(options: ChatInputControllerOptions): 
             }).catch(() => {});
             return;
         }
-        if (isProcessingSubmission) {
+        if (isProcessingSubmission || runtime.getSessionSnapshot(options.getSessionId())?.busy) {
             if (isImmediateBuiltinSlashCommandWhileStreaming(userRequest)) {
                 executeUserRequest(userRequest, images).catch((error) => {
                     const message = userTurnFailureMessage(error instanceof Error ? error : String(error));

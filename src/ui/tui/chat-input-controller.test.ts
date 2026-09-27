@@ -689,7 +689,7 @@ Deno.test("chat input controller connects Ctrl+C pending-exit state through real
 type ControllerRuntimeOverrides = Partial<
     Pick<
         ChatInputRuntime,
-        "preflightUserTurnImages" | "promptUserTurn" | "steerSession" | "queueNextTurnMessage"
+        "preflightUserTurnImages" | "promptUserTurn" | "steerSession" | "queueNextTurnMessage" | "getSessionSnapshot"
     >
 >;
 
@@ -741,6 +741,7 @@ function createControllerHarness(runtimeOverrides: ControllerRuntimeOverrides = 
         },
     };
     const messages: string[] = [];
+    const busyStates: boolean[] = [];
     const runtime = {
         preflightUserTurnImages: () => Promise.resolve({ ok: true, mode: "direct" }),
         persistSessionImage: (_sessionId: string, image: ImageAttachment) => Promise.resolve(image),
@@ -776,7 +777,9 @@ function createControllerHarness(runtimeOverrides: ControllerRuntimeOverrides = 
             messages.push(message);
         },
         hideKeyboardHelp() {},
-        setBusy() {},
+        setBusy(busy: boolean) {
+            busyStates.push(busy);
+        },
         enableInput() {},
         abortActivePrompt() {},
     };
@@ -798,8 +801,30 @@ function createControllerHarness(runtimeOverrides: ControllerRuntimeOverrides = 
         markCtrlCPendingExit: () => {},
         isCtrlCPendingExit: () => false,
     });
-    return { controller, editor, pastedImages, previewImages, messages, runtime };
+    return { controller, editor, pastedImages, previewImages, messages, busyStates, runtime };
 }
+
+Deno.test("chat input steers a generated background turn and keeps runtime busy", async () => {
+    let steered = "";
+    let promptCalls = 0;
+    const { controller, editor, busyStates } = createControllerHarness({
+        getSessionSnapshot: () => ({ busy: true }) as ReturnType<ChatInputRuntime["getSessionSnapshot"]>,
+        steerSession: (_sessionId, text) => {
+            steered = text;
+            return Promise.resolve({ ok: true, queued: true });
+        },
+        promptUserTurn: () => {
+            promptCalls++;
+            return Promise.resolve({ ok: true, turns: 1, managed: false, submittedRequest: "", restoreDraft: false });
+        },
+    });
+    editor.setText("Use the result and keep working.");
+    await editor.submitValue();
+    assertEquals(steered, "Use the result and keep working.");
+    assertEquals(promptCalls, 0);
+    controller.forceResetUI();
+    assertEquals(busyStates.at(-1), true);
+});
 
 Deno.test("chat input controller submits tutorial discovery as a normal Planner turn", async () => {
     let submitted: Parameters<ChatInputRuntime["promptUserTurn"]>[1] | null = null;

@@ -21,6 +21,7 @@ import {
 } from "./workflow-context-session.js";
 import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runtime-events.js";
 import { clearPairCheckpoint } from "./pair-checkpoint-session.ts";
+import { BackgroundTasks } from "./background-tasks.ts";
 
 /**
  * @typedef {Object} AgentInfo
@@ -217,6 +218,8 @@ export class HostedSession {
             sessionManagerCwd ? "sessionManager" : "cwd",
         );
         this.disposed = false;
+        /** Session-owned tasks are independent of disposable root and turn state. */
+        this.backgroundTasks = new BackgroundTasks(this);
 
         /** @type {AgentInfoRecord[]} */
         this.agentInfoStack = [];
@@ -278,6 +281,8 @@ export class HostedSession {
         this.agentStoppedAttentionTurnId = null;
         /** @type {string | null} */
         this.activeTurnId = null;
+        /** @type {string | null} */
+        this.generatedTaskTurnId = null;
         /** @type {ManagedSessionMetadata | null} */
         this.managed = options.managed || null;
         /** @type {import('./managed-operation.ts').ManagedOperationCapability | null} */
@@ -493,8 +498,7 @@ export class HostedSession {
         this.userModelOverride = false;
         this.activeThinkingLevel = "off";
         this.subAgentSessions.clear();
-        this.delegatedReaderCount = 0;
-        this.delegatedWriterActive = false;
+        // Background read leases outlive this root operation and release on child settlement.
         this.activeTurnId = null;
         this.steeringTargetStack = [];
         this.managedOperationCapability = null;
@@ -1158,6 +1162,7 @@ export class HostedSession {
 
     async dispose() {
         if (this.disposed) return;
+        await this.backgroundTasks.cancelAllAndSuppress();
         const pendingDisposals = [
             disposeIfPresentAsync(this.rootAgentSession),
             ...Array.from(this.subAgentSessions, (session) => disposeIfPresentAsync(session)),

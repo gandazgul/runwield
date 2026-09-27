@@ -191,6 +191,9 @@ Deno.test("managed read sweep drives read paths without writable Pi calls or tra
             await run("getRuntimeActiveExecutionWorkflow", () => {
                 runtime.getRuntimeActiveExecutionWorkflow(adopted.sessionId);
             });
+            await run("getSessionBackgroundTaskState", () => {
+                assertEquals(runtime.getSessionBackgroundTaskState(adopted.sessionId), { active: 0, pending: 0 });
+            });
             await run("getSessionContextReport", async () => {
                 const report = await runtime.getSessionContextReport(adopted.sessionId);
                 assertEquals(report === null, false);

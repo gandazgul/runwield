@@ -96,7 +96,11 @@ Stage labels below are delivery scope, not new lifecycle states or claims of shi
 loading, text and resource-link prompts, cancellation, closing, history replay, Agent and tool progress, usage, Plan
 links, advertised slash commands, and structured questions. ACP executes all shared slash commands except `/copy`,
 `/theme`, `/quit`, `/exit`, `/new`, `/resume`, and `/login`. A bare `/agent` opens Agent selection and is never routed
-as a model request. Compatibility documentation must clearly state the capabilities actually available.
+as a model request. Compatibility documentation must clearly state the capabilities actually available. A Background
+Task may finish after an ACP prompt response has ended: the same live ACP Session emits subsequent result-turn updates
+without a second client prompt or another response to the original request. Task limits and process-local ownership
+follow [Core Session continuity](runwield-core-prd.md#session-continuity); loading after process exit restores saved
+history, not a running task.
 
 **Requirement: Select models and reasoning levels through the client's native controls.**
 
@@ -134,6 +138,9 @@ defining another lifecycle.
   conversation and the choice remains current after reload.
 - When `/model`, an Agent switch, or a reasoning change updates the active Session, the client receives the complete
   current selection.
+- Given an ACP Agent starts a Background Task, when its original `session/prompt` ends before the task, the client
+  receives the later result as updates in that same live Session without sending another prompt. Reopening the Session
+  in a new process restores delivered history but does not restart the task.
 
 <a id="63-acp-compatibility-requirements"></a>
 
@@ -155,6 +162,7 @@ Stage 1 proves the reference journey through the shared Session experience. Prot
   client from continuing it. If work is currently running, the client reports that state without losing the user's
   input. Session storage and writer coordination follow ADR-015.
 - Cancellation waits for Runtime settlement and final mapped updates before `session/prompt` returns `cancelled`.
+  Cancelling a live Session also stops its owned Background Tasks; it does not send a late generated result turn.
 - ACP sends `available_commands_update` for enabled built-ins, prompt templates, and Skills. Built-in names and aliases
   have precedence over prompt resources, including built-ins unavailable on ACP.
 - Clients that advertise ACP forms receive native forms for select, text, and approval interactions. No OpenAB form
@@ -190,7 +198,10 @@ requirement.
 - Given a required non-interview select, text, or approval interaction without native forms, a local browser question
   can collect its answer; if that page cannot be reached, no default is chosen.
 - When the user cancels a live turn, final updates and cancellation settle before the turn is reported available for
-  another request.
+  another request. A task result that arrives after cancellation does not produce a new ACP turn.
+- Given a result-driven ACP turn after the previous prompt returned, its updates and any required interaction use the
+  same Session protocol channel; no extra response is sent for the earlier prompt, and task output cannot supply a user
+  answer to an interaction.
 - When a user cancels or declines an interview form, or the client reports that it expired, the pending turn settles and
   an ordinary follow-up message receives a response in the same Session.
 - When an interview asks a multiple-choice or yes/no question, the form presents the supplied choices, Other, and an

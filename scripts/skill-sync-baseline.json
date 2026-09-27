@@ -2,9 +2,9 @@
     "skills": [
         {
             "source": "src/agent-definitions/ideator.md",
-            "sourceHash": "69aa4999e97031c1cbfc343e7200cf1b0d7aac8581a87c1733bc7d284e4abb49",
+            "sourceHash": "f295bc11056e557394cbebd56f3309dd49b3fdb91926e76babe69d41ce87ced1",
             "skill": "skills/ideator/SKILL.md",
-            "skillHash": "c6c8c1db2f9cafbbce4a391aaa1fb101b2d072ccc877b9b7ce1d0371502b6137",
+            "skillHash": "2bfba6ddfe70fc2046507a1bbddfc730a5c94cf9daa93864c829559d562cd04d",
             "supportFiles": [
                 {
                     "path": "skills/ideator/PRD-FORMAT.md",
@@ -14,9 +14,9 @@
         },
         {
             "source": "src/agent-definitions/guide.md",
-            "sourceHash": "bc2b0fd0d8de904d66d24c800e0d70e9a1549f78b04437333dbd20de15269c51",
+            "sourceHash": "5f9bb627c45dd636c0793b002a5a03cf906e22c90c26d3cacef8db476a4f405f",
             "skill": "skills/guide/SKILL.md",
-            "skillHash": "67212de1d80d7f2542f3e3e41594f96cba1df46be385653538298a629c4d580f",
+            "skillHash": "f3673203ff332f553c6b09abe1f78c77e1be29371ffca2422916aa774ae60d0f",
             "supportFiles": []
         },
         {

@@ -320,10 +320,15 @@ export class WorkspaceSessionContinuationService {
         this.pendingCreateRequests = new Map();
         /** @type {Map<string, { cwd: string, targetBranch: string }>} */
         this.codeReviewRefreshContexts = new Map();
+        /** @type {Map<string, { sessionId: string, unsubscribe: () => void }>} */
+        this.retainedSessions = new Map();
+        this.closingRetainedSessions = new Map();
+        this.openingContinuations = new Map();
     }
 
     close() {
-        this.runtime.closeAllSessionsWhenIdle?.();
+        for (const retained of this.retainedSessions.values()) retained.unsubscribe();
+        this.retainedSessions.clear();
         this.operationListeners.clear();
         this.notificationListeners.clear();
         for (const stream of this.remoteNotificationStreams.values()) {
@@ -331,6 +336,7 @@ export class WorkspaceSessionContinuationService {
         }
         this.remoteNotificationStreams.clear();
         this.codeReviewRefreshContexts.clear();
+        return Promise.all(this.closingRetainedSessions.values()).then(() => this.runtime.closeAllSessionsWhenIdle());
     }
 
     /** @param {string} operationId */
@@ -348,6 +354,101 @@ export class WorkspaceSessionContinuationService {
             browserNotificationPolicy: this.resolveBrowserNotificationPolicy(record.projectId),
         });
         this.notifyOperation(operationId);
+    }
+
+    /** Release a task owner only when no task, result, or user submission still needs it.
+     * @param {string} runwieldSessionId
+     */
+    async releaseRetainedIfDrained(runwieldSessionId) {
+        const retained = this.retainedSessions.get(runwieldSessionId);
+        if (!retained || this.openingContinuations.has(runwieldSessionId)) return;
+        if (
+            [...this.operations.values()].some((operation) =>
+                operation.runwieldSessionId === runwieldSessionId && operation.status === "running"
+            )
+        ) return;
+        const tasks = this.runtime.getSessionBackgroundTaskState(retained.sessionId);
+        if (tasks && (tasks.active > 0 || tasks.pending > 0)) return;
+        // Remove ownership synchronously before awaiting disposal; a new submission
+        // waits on this promise rather than adopting a duplicate live owner.
+        this.retainedSessions.delete(runwieldSessionId);
+        retained.unsubscribe();
+        const closing = this.runtime.closeSessionWhenIdle(retained.sessionId);
+        this.closingRetainedSessions.set(runwieldSessionId, closing);
+        try {
+            await closing;
+        } finally {
+            if (this.closingRetainedSessions.get(runwieldSessionId) === closing) {
+                this.closingRetainedSessions.delete(runwieldSessionId);
+            }
+        }
+    }
+
+    /** @param {string} sessionId @param {string} operationId */
+    preserveTaskOwnerOrClose(sessionId, operationId) {
+        const snapshot = this.runtime.getSessionSnapshot(sessionId);
+        const runwieldSessionId = snapshot?.managed?.runwieldSessionId;
+        const tasks = this.runtime.getSessionBackgroundTaskState(sessionId);
+        if (runwieldSessionId && (snapshot?.busy || tasks?.active || tasks?.pending)) {
+            this.retainContinuationSession(runwieldSessionId, sessionId, operationId);
+        } else {
+            void this.runtime.closeSessionWhenIdle(sessionId);
+        }
+    }
+
+    /** @param {string} runwieldSessionId @param {string} sessionId @param {string} operationId */
+    retainContinuationSession(runwieldSessionId, sessionId, operationId) {
+        const previous = this.retainedSessions.get(runwieldSessionId);
+        if (previous) previous.unsubscribe();
+        let currentOperationId = operationId;
+        let unsubscribe = () => {};
+        /** @param {import("../../../shared/session/session-runtime-events.js").SessionRuntimeEvent} event */
+        const receive = (event) => {
+            if (event.type === "session_replaced" && event.reason === "prompt_template") {
+                const nextId = event.newSessionId;
+                const oldId = sessionId;
+                unsubscribe();
+                sessionId = nextId;
+                const record = this.operations.get(currentOperationId);
+                if (record) {
+                    record.runtimeSessionId = nextId;
+                    record.events = [];
+                    record.runwieldSessionId = this.runtime.getSessionSnapshot(nextId)?.managed?.runwieldSessionId ||
+                        null;
+                }
+                this.retainedSessions.set(runwieldSessionId, { sessionId: nextId, unsubscribe: () => unsubscribe() });
+                unsubscribe = this.runtime.subscribeSessionEvents(nextId, receive);
+                void this.runtime.closeSessionWhenIdle(oldId);
+                return;
+            }
+            if (event.type === "user_message" && event.origin === "background_task_result") {
+                currentOperationId = `background:${runwieldSessionId}:${event.taskId}`;
+                this.setOperation(currentOperationId, {
+                    status: "running",
+                    projectId: this.operations.get(operationId)?.projectId || "",
+                    runwieldSessionId,
+                    runtimeSessionId: sessionId,
+                    events: [],
+                });
+                this.runtime.setInteractionAdapter(
+                    sessionId,
+                    this.createInteractionAdapter({ operationId: currentOperationId }),
+                );
+            }
+            this.appendOperationEvent(currentOperationId, event);
+            if (event.type === "busy_changed" && !event.busy && currentOperationId !== operationId) {
+                const record = this.operations.get(currentOperationId);
+                if (record) this.setOperation(currentOperationId, { ...record, status: "completed" });
+            }
+            if (
+                event.type === "busy_changed" && !event.busy || event.type === "background_task_settled" ||
+                event.type === "cancellation"
+            ) {
+                queueMicrotask(() => void this.releaseRetainedIfDrained(runwieldSessionId));
+            }
+        };
+        unsubscribe = this.runtime.subscribeSessionEvents(sessionId, receive);
+        this.retainedSessions.set(runwieldSessionId, { sessionId, unsubscribe: () => unsubscribe() });
     }
 
     /** @param {string} operationId @param {import("../../../shared/session/session-runtime-events.js").SessionRuntimeEvent} event */
@@ -581,6 +682,8 @@ export class WorkspaceSessionContinuationService {
         if (!inspected.generation || inspected.generation.generation !== expectedGeneration) {
             throw new Error("Configuration requires the exact committed generation.");
         }
+        const retainedId = this.retainedSessions.get(runwieldSessionId)?.sessionId;
+        if (retainedId && this.runtime.getSessionSnapshot(retainedId)) return { sessionId: retainedId };
         const projection = await projectAggregateTranscript({
             cwd: session.transcriptCwd,
             sessionDir: getRunWieldSessionDir(session.transcriptCwd),
@@ -829,7 +932,9 @@ export class WorkspaceSessionContinuationService {
                 generation: snapshot?.managed?.generation ?? options.expectedGeneration,
             };
         } finally {
-            this.runtime.closeSession(adopted.sessionId);
+            if (adopted.sessionId !== this.retainedSessions.get(options.runwieldSessionId)?.sessionId) {
+                void this.runtime.closeSession(adopted.sessionId);
+            }
         }
     }
 
@@ -1272,7 +1377,7 @@ export class WorkspaceSessionContinuationService {
                     });
                 } finally {
                     unsubscribe();
-                    if (sessionId) this.runtime.closeSessionWhenIdle(sessionId);
+                    if (sessionId) this.preserveTaskOwnerOrClose(sessionId, operationId);
                 }
             });
             return { operationId, status: "running", runwieldSessionId: null, generation: null };
@@ -1387,10 +1492,11 @@ export class WorkspaceSessionContinuationService {
             let runtimeSessionId = "";
             let unsubscribe = () => {};
             try {
-                const adopted = this.runtime.adoptManagedSession({
-                    session,
-                    generation: recoveredGeneration,
-                });
+                await this.closingRetainedSessions.get(options.runwieldSessionId);
+                const retainedId = this.retainedSessions.get(options.runwieldSessionId)?.sessionId;
+                const adopted = retainedId && this.runtime.getSessionSnapshot(retainedId)
+                    ? { sessionId: retainedId }
+                    : this.runtime.adoptManagedSession({ session, generation: recoveredGeneration });
                 runtimeSessionId = adopted.sessionId;
                 this.setOperation(receipt.operationId, {
                     ...(this.operations.get(receipt.operationId) || {
@@ -1442,10 +1548,17 @@ export class WorkspaceSessionContinuationService {
                 });
             } finally {
                 unsubscribe();
-                if (runtimeSessionId) this.runtime.closeSessionWhenIdle(runtimeSessionId);
+                if (runtimeSessionId) this.preserveTaskOwnerOrClose(runtimeSessionId, receipt.operationId);
             }
         });
         return { kind: "starting", operationId: receipt.operationId, status: "running" };
+    }
+
+    /** @param {string} runwieldSessionId @param {{ sessionId: string } | null} adopted */
+    releasePreflightSession(runwieldSessionId, adopted) {
+        if (adopted?.sessionId && adopted.sessionId !== this.retainedSessions.get(runwieldSessionId)?.sessionId) {
+            void this.runtime.closeSession(adopted.sessionId);
+        }
     }
 
     /**
@@ -1453,62 +1566,173 @@ export class WorkspaceSessionContinuationService {
      */
     async startContinuation(options) {
         if (!options.text?.trim() && !options.images?.length) throw new Error("A message or image is required.");
-        const requestHash = stableHash({
-            kind: "continuation",
-            session: options.runwieldSessionId,
-            expectedGeneration: options.expectedGeneration,
-            text: options.text,
-            images: options.images || [],
-        });
-        const existingReceipt = this.store.findOperationReceiptByRequest({
-            deviceId: options.deviceId || null,
-            requestId: options.requestId,
-            requestHash,
-            runwieldSessionId: options.runwieldSessionId,
-        });
-        if (existingReceipt && existingReceipt.projectId === options.projectId) {
-            return {
-                operationId: existingReceipt.operationId,
-                status: this.operations.get(existingReceipt.operationId)?.status || existingReceipt.status,
-                generation: existingReceipt.resultGeneration,
-            };
-        }
-        const session = this.store.getSessionById(options.runwieldSessionId);
-        if (!session || !sessionBelongsToOwnerProject(this.store, session, options.projectId)) {
-            throw new Error("Session not found.");
-        }
-        const inspected = this.store.inspectSessionActivation(options.runwieldSessionId);
-        if (!inspected.generation || inspected.generation.generation !== options.expectedGeneration) {
-            throw new Error("Continuation requires the exact committed generation.");
-        }
-        if (inspected.activation?.state === "active") {
-            throw new Error("This Session is still busy. Keep the message queued in this browser until it finishes.");
-        }
-        if (inspected.activation?.state !== "idle") {
-            throw new Error("This Session needs recovery before it can accept messages.");
-        }
-        const projection = await projectAggregateTranscript({
-            cwd: session.transcriptCwd,
-            sessionDir: getRunWieldSessionDir(session.transcriptCwd),
-            runwieldSessionId: options.runwieldSessionId,
-            generation: inspected.generation,
-            segments: this.store.listSessionTranscriptSegments(options.runwieldSessionId),
-            limit: 500,
-        });
-        if (!projection.ok) throw new Error(projection.message);
-        const committedFacts = getCommittedTranscriptAuthorityFacts(projection);
-        const decision = deriveManagedSessionContinuationDecision({
-            activation: inspected.activation,
-            generation: inspected.generation,
-            projection,
-            expectedGeneration: options.expectedGeneration,
-        });
-        if (!decision.ok) throw new Error(decision.message);
-        let preflightAdopted = null;
-        let preparedModelOverride = "";
-        if ((options.images || []).length > 0) {
+        this.openingContinuations.set(
+            options.runwieldSessionId,
+            (this.openingContinuations.get(options.runwieldSessionId) || 0) + 1,
+        );
+        try {
+            await this.closingRetainedSessions.get(options.runwieldSessionId);
+            const requestHash = stableHash({
+                kind: "continuation",
+                session: options.runwieldSessionId,
+                expectedGeneration: options.expectedGeneration,
+                text: options.text,
+                images: options.images || [],
+            });
+            const existingReceipt = this.store.findOperationReceiptByRequest({
+                deviceId: options.deviceId || null,
+                requestId: options.requestId,
+                requestHash,
+                runwieldSessionId: options.runwieldSessionId,
+            });
+            if (existingReceipt && existingReceipt.projectId === options.projectId) {
+                return {
+                    operationId: existingReceipt.operationId,
+                    status: this.operations.get(existingReceipt.operationId)?.status || existingReceipt.status,
+                    generation: existingReceipt.resultGeneration,
+                };
+            }
+            const session = this.store.getSessionById(options.runwieldSessionId);
+            if (!session || !sessionBelongsToOwnerProject(this.store, session, options.projectId)) {
+                throw new Error("Session not found.");
+            }
+            const inspected = this.store.inspectSessionActivation(options.runwieldSessionId);
+            if (!inspected.generation || inspected.generation.generation !== options.expectedGeneration) {
+                throw new Error("Continuation requires the exact committed generation.");
+            }
+            if (inspected.activation?.state === "active") {
+                throw new Error(
+                    "This Session is still busy. Keep the message queued in this browser until it finishes.",
+                );
+            }
+            if (inspected.activation?.state !== "idle") {
+                throw new Error("This Session needs recovery before it can accept messages.");
+            }
+            const projection = await projectAggregateTranscript({
+                cwd: session.transcriptCwd,
+                sessionDir: getRunWieldSessionDir(session.transcriptCwd),
+                runwieldSessionId: options.runwieldSessionId,
+                generation: inspected.generation,
+                segments: this.store.listSessionTranscriptSegments(options.runwieldSessionId),
+                limit: 500,
+            });
+            if (!projection.ok) throw new Error(projection.message);
+            const committedFacts = getCommittedTranscriptAuthorityFacts(projection);
+            const decision = deriveManagedSessionContinuationDecision({
+                activation: inspected.activation,
+                generation: inspected.generation,
+                projection,
+                expectedGeneration: options.expectedGeneration,
+            });
+            if (!decision.ok) throw new Error(decision.message);
+            let preflightAdopted = null;
+            let preparedModelOverride = "";
+            if ((options.images || []).length > 0) {
+                try {
+                    const retained = this.retainedSessions.get(options.runwieldSessionId)?.sessionId;
+                    preflightAdopted = retained && this.runtime.getSessionSnapshot(retained)
+                        ? { sessionId: retained }
+                        : this.runtime.adoptManagedSession({
+                            session,
+                            generation: options.expectedGeneration,
+                            activeAgent: committedFacts.activeAgent,
+                            model: committedFacts.model,
+                            provider: committedFacts.provider,
+                            thinkingLevel: committedFacts.thinkingLevel,
+                            workflowContext:
+                                /** @type {import('../../../shared/session/workflow-context-session.js').WorkflowContext | null} */ (committedFacts
+                                    .workflowContext || null),
+                        });
+                    const preflight = await this.runtime.preflightUserTurnImages(preflightAdopted.sessionId, {
+                        initialRequest: options.text,
+                        initialImages: options.images || [],
+                        agentName: decision.agentName,
+                    });
+                    if (!preflight.ok) throw new ImageSubmissionValidationError(preflight.message);
+                    preparedModelOverride = "preparedModelOverride" in preflight
+                        ? preflight.preparedModelOverride || ""
+                        : "";
+                } catch (error) {
+                    this.releasePreflightSession(options.runwieldSessionId, preflightAdopted);
+                    throw error;
+                }
+            }
+            const matchingReceipt = this.store.findOperationReceiptByRequest({
+                deviceId: options.deviceId || null,
+                requestId: options.requestId,
+                requestHash,
+                runwieldSessionId: options.runwieldSessionId,
+            });
+            if (matchingReceipt && matchingReceipt.projectId === options.projectId) {
+                this.releasePreflightSession(options.runwieldSessionId, preflightAdopted);
+                return {
+                    operationId: matchingReceipt.operationId,
+                    status: this.operations.get(matchingReceipt.operationId)?.status || matchingReceipt.status,
+                    generation: matchingReceipt.resultGeneration,
+                };
+            }
+            const currentSession = this.store.getSessionById(options.runwieldSessionId);
+            if (!currentSession || !sessionBelongsToOwnerProject(this.store, currentSession, options.projectId)) {
+                this.releasePreflightSession(options.runwieldSessionId, preflightAdopted);
+                throw new Error("Session not found.");
+            }
+            const currentState = this.store.inspectSessionActivation(options.runwieldSessionId);
+            if (!currentState.generation || currentState.generation.generation !== options.expectedGeneration) {
+                this.releasePreflightSession(options.runwieldSessionId, preflightAdopted);
+                throw new Error("Continuation requires the exact committed generation.");
+            }
+            if (currentState.activation?.state === "active") {
+                this.releasePreflightSession(options.runwieldSessionId, preflightAdopted);
+                throw new Error(
+                    "This Session is still busy. Keep the message queued in this browser until it finishes.",
+                );
+            }
+            if (currentState.activation?.state !== "idle") {
+                this.releasePreflightSession(options.runwieldSessionId, preflightAdopted);
+                throw new Error("This Session needs recovery before it can accept messages.");
+            }
+            let receipt;
             try {
-                preflightAdopted = this.runtime.adoptManagedSession({
+                receipt = requireReceipt(this.store.createOrGetOperationReceipt({
+                    deviceId: options.deviceId || null,
+                    requestId: options.requestId,
+                    requestHash,
+                    runwieldSessionId: options.runwieldSessionId,
+                    projectId: options.projectId,
+                    expectedGeneration: options.expectedGeneration,
+                    kind: "continuation",
+                }));
+            } catch (error) {
+                this.releasePreflightSession(options.runwieldSessionId, preflightAdopted);
+                throw error;
+            }
+            if (this.operations.has(receipt.operationId)) {
+                this.releasePreflightSession(options.runwieldSessionId, preflightAdopted);
+                return {
+                    operationId: receipt.operationId,
+                    status: this.operations.get(receipt.operationId)?.status || "running",
+                };
+            }
+            if (receipt.status !== "accepted") {
+                this.releasePreflightSession(options.runwieldSessionId, preflightAdopted);
+                return {
+                    operationId: receipt.operationId,
+                    status: receipt.status,
+                    generation: receipt.resultGeneration,
+                };
+            }
+            this.store.updateOperationReceipt(receipt.operationId, { status: "running" });
+            this.setOperation(receipt.operationId, {
+                status: "running",
+                projectId: options.projectId,
+                events: [],
+                runwieldSessionId: options.runwieldSessionId,
+                expectedGeneration: options.expectedGeneration,
+            });
+            const retainedId = this.retainedSessions.get(options.runwieldSessionId)?.sessionId;
+            const retainedSessionId = retainedId && this.runtime.getSessionSnapshot(retainedId) ? retainedId : null;
+            const adopted = preflightAdopted ||
+                (retainedSessionId ? { sessionId: retainedSessionId } : this.runtime.adoptManagedSession({
                     session,
                     generation: options.expectedGeneration,
                     activeAgent: committedFacts.activeAgent,
@@ -1518,170 +1742,79 @@ export class WorkspaceSessionContinuationService {
                     workflowContext:
                         /** @type {import('../../../shared/session/workflow-context-session.js').WorkflowContext | null} */ (committedFacts
                             .workflowContext || null),
-                });
-                const preflight = await this.runtime.preflightUserTurnImages(preflightAdopted.sessionId, {
-                    initialRequest: options.text,
-                    initialImages: options.images || [],
-                    agentName: decision.agentName,
-                });
-                if (!preflight.ok) throw new ImageSubmissionValidationError(preflight.message);
-                preparedModelOverride = "preparedModelOverride" in preflight
-                    ? preflight.preparedModelOverride || ""
-                    : "";
-            } catch (error) {
-                if (preflightAdopted?.sessionId) this.runtime.closeSession(preflightAdopted.sessionId);
-                throw error;
-            }
-        }
-        const matchingReceipt = this.store.findOperationReceiptByRequest({
-            deviceId: options.deviceId || null,
-            requestId: options.requestId,
-            requestHash,
-            runwieldSessionId: options.runwieldSessionId,
-        });
-        if (matchingReceipt && matchingReceipt.projectId === options.projectId) {
-            if (preflightAdopted?.sessionId) this.runtime.closeSession(preflightAdopted.sessionId);
-            return {
-                operationId: matchingReceipt.operationId,
-                status: this.operations.get(matchingReceipt.operationId)?.status || matchingReceipt.status,
-                generation: matchingReceipt.resultGeneration,
-            };
-        }
-        const currentSession = this.store.getSessionById(options.runwieldSessionId);
-        if (!currentSession || !sessionBelongsToOwnerProject(this.store, currentSession, options.projectId)) {
-            if (preflightAdopted?.sessionId) this.runtime.closeSession(preflightAdopted.sessionId);
-            throw new Error("Session not found.");
-        }
-        const currentState = this.store.inspectSessionActivation(options.runwieldSessionId);
-        if (!currentState.generation || currentState.generation.generation !== options.expectedGeneration) {
-            if (preflightAdopted?.sessionId) this.runtime.closeSession(preflightAdopted.sessionId);
-            throw new Error("Continuation requires the exact committed generation.");
-        }
-        if (currentState.activation?.state === "active") {
-            if (preflightAdopted?.sessionId) this.runtime.closeSession(preflightAdopted.sessionId);
-            throw new Error("This Session is still busy. Keep the message queued in this browser until it finishes.");
-        }
-        if (currentState.activation?.state !== "idle") {
-            if (preflightAdopted?.sessionId) this.runtime.closeSession(preflightAdopted.sessionId);
-            throw new Error("This Session needs recovery before it can accept messages.");
-        }
-        let receipt;
-        try {
-            receipt = requireReceipt(this.store.createOrGetOperationReceipt({
-                deviceId: options.deviceId || null,
-                requestId: options.requestId,
-                requestHash,
-                runwieldSessionId: options.runwieldSessionId,
-                projectId: options.projectId,
-                expectedGeneration: options.expectedGeneration,
-                kind: "continuation",
-            }));
-        } catch (error) {
-            if (preflightAdopted?.sessionId) this.runtime.closeSession(preflightAdopted.sessionId);
-            throw error;
-        }
-        if (this.operations.has(receipt.operationId)) {
-            if (preflightAdopted?.sessionId) this.runtime.closeSession(preflightAdopted.sessionId);
-            return {
-                operationId: receipt.operationId,
-                status: this.operations.get(receipt.operationId)?.status || "running",
-            };
-        }
-        if (receipt.status !== "accepted") {
-            if (preflightAdopted?.sessionId) this.runtime.closeSession(preflightAdopted.sessionId);
-            return { operationId: receipt.operationId, status: receipt.status, generation: receipt.resultGeneration };
-        }
-        this.store.updateOperationReceipt(receipt.operationId, { status: "running" });
-        this.setOperation(receipt.operationId, {
-            status: "running",
-            projectId: options.projectId,
-            events: [],
-            runwieldSessionId: options.runwieldSessionId,
-            expectedGeneration: options.expectedGeneration,
-        });
-        const adopted = preflightAdopted || this.runtime.adoptManagedSession({
-            session,
-            generation: options.expectedGeneration,
-            activeAgent: committedFacts.activeAgent,
-            model: committedFacts.model,
-            provider: committedFacts.provider,
-            thinkingLevel: committedFacts.thinkingLevel,
-            workflowContext:
-                /** @type {import('../../../shared/session/workflow-context-session.js').WorkflowContext | null} */ (committedFacts
-                    .workflowContext || null),
-        });
-        this.setOperation(receipt.operationId, {
-            ...(this.operations.get(receipt.operationId) || { projectId: options.projectId, events: [] }),
-            status: "running",
-            runtimeSessionId: adopted.sessionId,
-        });
-        this.runtime.setInteractionAdapter(
-            adopted.sessionId,
-            this.createInteractionAdapter({ operationId: receipt.operationId }),
-        );
-        const unsubscribe = this.subscribeOperationSession(receipt.operationId, adopted.sessionId);
-        queueMicrotask(async () => {
-            try {
-                const result = await this.runtime.promptUserTurn(adopted.sessionId, {
-                    initialRequest: options.text,
-                    initialImages: options.images || [],
-                    agentName: decision.agentName,
-                    preparedModelOverride,
-                });
-                const effectiveSessionId = result.replacementSessionId || adopted.sessionId;
-                const effectiveSnapshot = this.runtime.getSessionSnapshot(effectiveSessionId);
-                let generation = effectiveSnapshot?.managed?.generation ?? options.expectedGeneration;
-                /** @type {"completed" | "failed"} */
-                let status = result.ok ? "completed" : "failed";
-                let error = result.error;
-                const pendingConfiguration = this.operations.get(receipt.operationId)?.pendingConfiguration || null;
-                if (result.ok && pendingConfiguration && Object.keys(pendingConfiguration).length) {
-                    try {
-                        await this.applyPendingConfiguration(effectiveSessionId, pendingConfiguration);
-                        const snapshot = this.runtime.getSessionSnapshot(effectiveSessionId);
-                        generation = snapshot?.managed?.generation ?? generation;
-                    } catch (configurationError) {
-                        status = "failed";
-                        error = configurationError instanceof Error
-                            ? configurationError.message
-                            : String(configurationError || "Configuration change failed.");
+                }));
+            this.setOperation(receipt.operationId, {
+                ...(this.operations.get(receipt.operationId) || { projectId: options.projectId, events: [] }),
+                status: "running",
+                runtimeSessionId: adopted.sessionId,
+            });
+            this.runtime.setInteractionAdapter(
+                adopted.sessionId,
+                this.createInteractionAdapter({ operationId: receipt.operationId }),
+            );
+            this.retainContinuationSession(options.runwieldSessionId, adopted.sessionId, receipt.operationId);
+            queueMicrotask(async () => {
+                try {
+                    const result = await this.runtime.promptUserTurn(adopted.sessionId, {
+                        initialRequest: options.text,
+                        initialImages: options.images || [],
+                        agentName: decision.agentName,
+                        preparedModelOverride,
+                    });
+                    const effectiveSessionId = result.replacementSessionId || adopted.sessionId;
+                    const effectiveSnapshot = this.runtime.getSessionSnapshot(effectiveSessionId);
+                    let generation = effectiveSnapshot?.managed?.generation ?? options.expectedGeneration;
+                    /** @type {"completed" | "failed"} */
+                    let status = result.ok ? "completed" : "failed";
+                    let error = result.error;
+                    const pendingConfiguration = this.operations.get(receipt.operationId)?.pendingConfiguration || null;
+                    if (result.ok && pendingConfiguration && Object.keys(pendingConfiguration).length) {
+                        try {
+                            await this.applyPendingConfiguration(effectiveSessionId, pendingConfiguration);
+                            const snapshot = this.runtime.getSessionSnapshot(effectiveSessionId);
+                            generation = snapshot?.managed?.generation ?? generation;
+                        } catch (configurationError) {
+                            status = "failed";
+                            error = configurationError instanceof Error
+                                ? configurationError.message
+                                : String(configurationError || "Configuration change failed.");
+                        }
                     }
+                    this.store.updateOperationReceipt(receipt.operationId, {
+                        status,
+                        resultGeneration: generation,
+                        errorCode: error || null,
+                        errorMessage: error || null,
+                    });
+                    this.setOperation(receipt.operationId, {
+                        ...(this.operations.get(receipt.operationId) || { projectId: options.projectId, events: [] }),
+                        status,
+                        generation,
+                        error,
+                        pendingConfiguration: status === "completed" ? undefined : pendingConfiguration || undefined,
+                    });
+                } catch (error) {
+                    const errorCode = codeFromError(error);
+                    this.store.updateOperationReceipt(receipt.operationId, {
+                        status: "failed",
+                        errorCode,
+                        errorMessage: error instanceof Error ? error.message : String(error),
+                    });
+                    this.setOperation(receipt.operationId, {
+                        ...(this.operations.get(receipt.operationId) || { projectId: options.projectId, events: [] }),
+                        status: "failed",
+                        error: errorCode,
+                    });
+                } finally {
+                    void this.releaseRetainedIfDrained(options.runwieldSessionId);
                 }
-                this.store.updateOperationReceipt(receipt.operationId, {
-                    status,
-                    resultGeneration: generation,
-                    errorCode: error || null,
-                    errorMessage: error || null,
-                });
-                this.setOperation(receipt.operationId, {
-                    ...(this.operations.get(receipt.operationId) || { projectId: options.projectId, events: [] }),
-                    status,
-                    generation,
-                    error,
-                    pendingConfiguration: status === "completed" ? undefined : pendingConfiguration || undefined,
-                });
-            } catch (error) {
-                const errorCode = codeFromError(error);
-                this.store.updateOperationReceipt(receipt.operationId, {
-                    status: "failed",
-                    errorCode,
-                    errorMessage: error instanceof Error ? error.message : String(error),
-                });
-                this.setOperation(receipt.operationId, {
-                    ...(this.operations.get(receipt.operationId) || { projectId: options.projectId, events: [] }),
-                    status: "failed",
-                    error: errorCode,
-                });
-            } finally {
-                unsubscribe();
-                const activeSessionId = this.operations.get(receipt.operationId)?.runtimeSessionId;
-                if (activeSessionId && activeSessionId !== adopted.sessionId) {
-                    this.runtime.closeSessionWhenIdle(activeSessionId);
-                }
-                this.runtime.closeSession(adopted.sessionId);
-            }
-        });
-        return { operationId: receipt.operationId, status: "running" };
+            });
+            return { operationId: receipt.operationId, status: "running" };
+        } finally {
+            const remaining = (this.openingContinuations.get(options.runwieldSessionId) || 1) - 1;
+            if (remaining) this.openingContinuations.set(options.runwieldSessionId, remaining);
+            else this.openingContinuations.delete(options.runwieldSessionId);
+        }
     }
 
     /**
@@ -2103,7 +2236,11 @@ export class WorkspaceSessionContinuationService {
         }
         const session = this.store.getSessionById(options.runwieldSessionId);
         if (!session) throw new Error("Session not found.");
-        const adopted = this.runtime.adoptManagedSession({ session, generation: options.expectedGeneration });
+        await this.closingRetainedSessions.get(options.runwieldSessionId);
+        const retainedId = this.retainedSessions.get(options.runwieldSessionId)?.sessionId;
+        const adopted = retainedId && this.runtime.getSessionSnapshot(retainedId)
+            ? { sessionId: retainedId }
+            : this.runtime.adoptManagedSession({ session, generation: options.expectedGeneration });
         const operationId = receipt.operationId;
         this.store.updateOperationReceipt(operationId, { status: "running" });
         this.setOperation(operationId, {
@@ -2165,7 +2302,7 @@ export class WorkspaceSessionContinuationService {
                     error,
                 });
                 unsubscribe();
-                this.runtime.closeSessionWhenIdle(adopted.sessionId);
+                this.preserveTaskOwnerOrClose(adopted.sessionId, operationId);
             }
         });
         return review ? await this.waitForPlanReview(operationId) : { operationId, status: "running" };

@@ -204,9 +204,45 @@ Deno.test("layered Agent Definition overrides can remove delegate_agent", async 
         const def = await loadAgentDef(AGENTS.GUIDE, projectRoot);
         assertEquals(def.tools.includes("read"), true);
         assertEquals(def.tools.includes("delegate_agent"), false);
+        assertEquals(def.tools.includes("background_task"), false);
     } finally {
         await Deno.remove(projectRoot, { recursive: true });
     }
+});
+
+Deno.test("bundled shell Agents offer background work without extending workflow-only definitions", async () => {
+    const allowed = [
+        AGENTS.ARCHITECT,
+        AGENTS.ENGINEER,
+        AGENTS.GUIDE,
+        AGENTS.IDEATOR,
+        AGENTS.OPERATOR,
+        AGENTS.PLANNER,
+        AGENTS.ROUTER,
+        "tester",
+    ];
+    for (const name of allowed) {
+        const definition = await loadAgentDef(name, REPO_ROOT);
+        assert(definition.tools.includes("bash"), `${name} must retain shell authority`);
+        assert(definition.tools.includes("background_task"), `${name} cannot run background shell work`);
+    }
+    for (const name of [AGENTS.PLAN_ENGINEER, AGENTS.FRONTEND_ENGINEER, AGENTS.RECORDER]) {
+        const definition = await loadAgentDef(name, REPO_ROOT);
+        assertEquals(definition.tools.includes("background_task"), false, `${name} is workflow-only`);
+    }
+    for (const name of [SUBAGENTS.DELEGATED, SUBAGENTS.REVIEWER]) {
+        const definition = await loadSubAgentDefinition(name);
+        assertEquals(definition.tools.includes("background_task"), false, `${name} must not gain shell authority`);
+    }
+});
+
+Deno.test("effective tool selection cannot re-enable background shell after Agent policy removes it", () => {
+    const resolved = resolveEffectiveSessionToolNames(
+        ["read", "set_session_name"],
+        ["read", "bash", "background_task"],
+        [],
+    );
+    assertEquals(resolved.includes("background_task"), false);
 });
 
 Deno.test("Frontend Engineer autonomous base tools include task completion without pair checkpoint", async () => {
@@ -321,6 +357,10 @@ Deno.test("Claude CLI and Agy CLI bridge the session name tool", async () => {
 
         assertEquals(claudeTools.some((tool) => tool.name === "set_session_name"), true);
         assertEquals(agyTools.some((tool) => tool.name === "set_session_name"), true);
+        assertEquals(claudeTools.some((tool) => tool.name === "background_task"), true);
+        assertEquals(agyTools.some((tool) => tool.name === "background_task"), true);
+        assertEquals(claudeTools.some((tool) => tool.name === "delegate_agent"), false);
+        assertEquals(agyTools.some((tool) => tool.name === "delegate_agent"), false);
     } finally {
         await removeTempDir(tempHome);
     }
@@ -997,7 +1037,7 @@ Deno.test("buildAgentSession disables developer role for Kimi code models", asyn
     });
 });
 
-Deno.test("buildAgentSession auto-wires delegate_agent only when retained by effective Agent policy", async () => {
+Deno.test("buildAgentSession wires bundled background shell and retained delegate tools", async () => {
     await withProcessGlobalTestLock(async () => {
         const originalHome = Deno.env.get("HOME");
         const tempHome = await Deno.makeTempDir({ prefix: "runwield-delegate-wiring-" });
@@ -1017,6 +1057,7 @@ Deno.test("buildAgentSession auto-wires delegate_agent only when retained by eff
             });
             sessions.push(enabled.session);
             assert(enabled.finalCustomTools.some((tool) => tool.name === "delegate_agent"));
+            assert(enabled.finalCustomTools.some((tool) => tool.name === "background_task"));
 
             const disabled = await buildAgentSession({
                 hostedSession,
@@ -1026,6 +1067,7 @@ Deno.test("buildAgentSession auto-wires delegate_agent only when retained by eff
             });
             sessions.push(disabled.session);
             assertEquals(disabled.finalCustomTools.some((tool) => tool.name === "delegate_agent"), false);
+            assert(disabled.finalCustomTools.some((tool) => tool.name === "background_task"));
         } finally {
             for (const session of sessions) session.dispose();
             __resetSettingsForTests();

@@ -31,6 +31,7 @@ export const SESSION_RUNTIME_METHOD_POLICY = {
     getRuntimeActiveExecutionWorkflow: "read_only",
     getEffectiveAgentName: "read_only",
     getSessionContextReport: "read_only",
+    getSessionBackgroundTaskState: "read_only",
     getSessionInfo: "read_only",
     getSessionMemoryBackupDir: "read_only",
     getSessionProjectRoot: "read_only",

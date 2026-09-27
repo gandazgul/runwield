@@ -60,6 +60,8 @@ export interface PromptTurnContext {
 
 export interface PromptSessionOptions {
     inputSurface?: import("../session-runtime-events.js").NotificationSurface;
+    generatedTaskId?: string;
+    onGeneratedTurnAccepted?: () => void;
     initialRequest: string;
     initialImages?: ImageAttachment[];
     onTurnStarted?: (context: PromptTurnContext) => void | (() => void);

@@ -45,10 +45,10 @@ type RuntimeEventsDependency = Pick<
 >;
 type RuntimeQueuesDependency = Pick<
     RuntimeQueues,
-    "getQueuedMessages" | "removeAllQueueSourceSubscriptions" | "steerSession"
+    "getQueuedMessages" | "removeAllQueueSourceSubscriptions" | "reconcileQueuedMessageSources" | "steerSession"
 >;
 type RuntimeReadsDependency = Pick<RuntimeReads, "getSessionSnapshot">;
-type RuntimeTurnsDependency = Pick<RuntimeTurns, "cancelSession">;
+type RuntimeTurnsDependency = Pick<RuntimeTurns, "cancelSession" | "reconcileBackgroundResultConsumption">;
 type RuntimeLifecycleDependency = Pick<RuntimeLifecycle, "clearPendingProject" | "hasPendingProject">;
 type RuntimeAgentSettingsDependency = Pick<RuntimeAgentSettings, "activateSessionAgent">;
 type RuntimeManagedSyncDependency = Pick<
@@ -625,6 +625,9 @@ export class RuntimeManagedOperations {
                 this.events.emitSessionEvent(hostedSession.id, {
                     type: RuntimeEventTypes.USER_MESSAGE,
                     turnId: acceptedTurnId,
+                    ...(options.generatedTaskId
+                        ? { origin: "background_task_result", taskId: options.generatedTaskId }
+                        : {}),
                     text: options.initialRequest,
                     images: (options.initialImages || []).map((image) => ({ ...image })),
                 });
@@ -760,6 +763,8 @@ export class RuntimeManagedOperations {
                 workflowContext: hostedSession.getWorkflowContext?.() || managed.workflowContext || null,
                 tutorialContext: hostedSession.getTutorialContext?.() || managed.tutorialContext || null,
             };
+            this.queues.reconcileQueuedMessageSources(hostedSession);
+            this.turns.reconcileBackgroundResultConsumption(hostedSession);
             hostedSession.dehydrateManagedSession();
             this.queues.removeAllQueueSourceSubscriptions(sessionId);
             await syncTranscriptFileAndParent(managed.transcriptPath);

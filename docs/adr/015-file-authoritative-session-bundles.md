@@ -37,10 +37,12 @@ Before TUI, ACP, Workspace, or another Runtime surface hydrates or mutates a Ses
 OS file lock. Other surfaces may read committed evidence but cannot construct a writable Pi manager.
 
 The lock belongs to the active managed operation, not to the lifetime of an open TUI window or Workspace server. Core
-explicitly releases it when the operation settles. This scope protects an operation's transcript context while allowing
-the owner to continue from another screen between operations. An idle resumed Session is a dormant reader; other open
-surfaces do not need to close first. The operating system also releases a held lock if its process or file descriptor
-closes unexpectedly.
+explicitly releases it when the operation settles. A Session-local Background Task may keep running in its starting host
+process after that operation settles, without holding the Session Writer Lock. Its later result turn takes the normal
+managed-operation path before writing transcript history. This scope protects an operation's transcript context while
+allowing the owner to continue from another screen between operations. An idle resumed Session is a dormant reader;
+other open surfaces do not need to close first. The operating system also releases a held lock if its process or file
+descriptor closes unexpectedly.
 
 Core has no lease duration, heartbeat deadline, or forced takeover. After a crash, the next inspector can acquire the
 lock and compare the current transcript with the last committed or activation-baseline evidence:
@@ -116,12 +118,15 @@ restores the current checkpoint plus its execution owner, working directory, too
 A later accepted user turn can resolve it. Same-turn output, generated continuation, quoted text, and stale attempts
 cannot.
 
-Pi persists completed tool calls and interaction answers. The Session manifest also keeps the most recently presented
-Plan review's Plan ID, name, and planning Agent as a durable bookmark. It is updated under the Session Writer Lock
-before presenting the review. The bookmark does not store a pending interaction, decision, or approval. A later request
-to review again checks the current Plan's identity and eligibility and starts a new managed review when the Session is
-idle; if the original review is still live, Core returns its current link when available or reports that the review is
-starting. The bookmark does not reconstruct a lost wait or grant authority to execute the Plan.
+Pi persists completed tool calls and interaction answers. Background Task IDs, running work, and pending result delivery
+are process-local, not manifest state. Saved delivered results remain transcript history; process exit does not recover,
+replay, or transfer an unfinished task to another host. Stop and host shutdown cancel owned tasks, while ordinary turn
+settlement and a browser tab closure do not. The Session manifest also keeps the most recently presented Plan review's
+Plan ID, name, and planning Agent as a durable bookmark. It is updated under the Session Writer Lock before presenting
+the review. The bookmark does not store a pending interaction, decision, or approval. A later request to review again
+checks the current Plan's identity and eligibility and starts a new managed review when the Session is idle; if the
+original review is still live, Core returns its current link when available or reports that the review is starting. The
+bookmark does not reconstruct a lost wait or grant authority to execute the Plan.
 
 A pending interaction remains an in-memory wait in its live process. An ACP interview can end a question's protocol
 request while keeping that Runtime operation and writer lock active for a later answer request. The connection retains

@@ -756,7 +756,7 @@ Deno.test("every eligible Agy role invokes its real lifecycle tool through confi
         assertEquals(reviewEvents.length, 1);
         assertEquals(reviewEvents[0].kind, "review_complete");
         assertEquals(reviewEvents[0].validationGeneration, "agy-review-generation");
-        assertStringIncludes(JSON.stringify(reviewEvents[0]), reviewTitle);
+        assertStringIncludes(JSON.stringify(reviewEvents[0].payload), reviewTitle);
 
         // The validation driver stops the CLI when the tool is accepted. Its
         // result must survive without waiting for a returned transcript.

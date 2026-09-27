@@ -92,6 +92,7 @@ function isAuthenticationSetupFailure(message) {
  * @property {SessionRuntime} runtime
  * @property {AcpSessionMap} sessionMap
  * @property {(requestId: string, release: () => void) => void} [releasePromptAfterResponse]
+ * @property {Map<string, ReturnType<typeof createInterviewOperation>>} operations
  */
 
 /**
@@ -869,7 +870,9 @@ function createInterviewOperation(options) {
     /** @type {PromiseWithResolvers<void>} */
     const started = Promise.withResolvers();
     /** @type {PromiseWithResolvers<void>} */
-    const completed = Promise.withResolvers();
+    let completed = Promise.withResolvers();
+    let generatedTurnActive = false;
+    let stopped = false;
 
     function signalWake() {
         wake.resolve();
@@ -878,6 +881,7 @@ function createInterviewOperation(options) {
 
     /** @param {(context: AcpNotificationContext) => Promise<void>} send */
     function queue(send) {
+        if (stopped) return;
         if (!attached) {
             undelivered.push(send);
             return;
@@ -942,6 +946,7 @@ function createInterviewOperation(options) {
     // presentation Promise. Its abort listener dismisses the losing surface.
     function subscribe() {
         unsubscribe = runtime.subscribeSessionEvents(runtimeSessionId, (event) => {
+            if (stopped) return;
             if (event.type === RuntimeEventTypes.SESSION_REPLACED) {
                 const nextId = event.newSessionId;
                 sessionMap.replaceRuntimeSession(acpSessionId, {
@@ -956,6 +961,17 @@ function createInterviewOperation(options) {
                 previous();
                 subscribe();
                 return;
+            }
+            if (event.type === RuntimeEventTypes.USER_MESSAGE && event.origin === "background_task_result") {
+                generatedTurnActive = true;
+                settled = false;
+                completed = Promise.withResolvers();
+            }
+            if (event.type === RuntimeEventTypes.BUSY_CHANGED && !event.busy && generatedTurnActive) {
+                generatedTurnActive = false;
+                settled = true;
+                completed.resolve();
+                signalWake();
             }
             const usage = runtime.getSessionSnapshot(runtimeSessionId)?.contextUsage || null;
             const notification = mapEventWithSessionCost(sessionMap, acpSessionId, event, usage);
@@ -1031,11 +1047,11 @@ function createInterviewOperation(options) {
             sessionMap.endPrompt(acpSessionId, current);
             if (prompt === current) {
                 prompt = null;
-                attached = null;
+                attached = initialContext;
+                if (attached) void flush(attached).catch(() => runtime.cancelSession(runtimeSessionId));
             }
         };
-        // The SDK may still be writing this response. Do not send later updates
-        // to a subscriber that will be removed when that response finishes.
+        // Hold updates until the SDK has written the prompt response.
         attached = null;
         if (current.requestId !== undefined && releasePromptAfterResponse) {
             releasePromptAfterResponse(current.requestId, release);
@@ -1093,9 +1109,6 @@ function createInterviewOperation(options) {
         get cancelled() {
             return cancelled;
         },
-        get hasUndeliveredUpdates() {
-            return undelivered.length > 0;
-        },
         /** @param {AcpNotificationContext & { requestId?: string | number | null }} context */
         async replay(context) {
             attachRequest(context);
@@ -1120,6 +1133,7 @@ function createInterviewOperation(options) {
             started.resolve();
         },
         stop() {
+            stopped = true;
             unsubscribe();
             runtime.setInteractionAdapter(runtimeSessionId, null);
         },
@@ -1214,8 +1228,7 @@ function createInterviewOperation(options) {
 function createRunWieldAcpServer(context) {
     const app = agent({ name: "RunWield ACP MVP" });
     const { runtime, sessionMap, releasePromptAfterResponse } = context;
-    /** @type {Map<string, ReturnType<typeof createInterviewOperation>>} */
-    const operations = new Map();
+    const operations = context.operations;
     /** @type {unknown} */
     let clientCapabilities = null;
 
@@ -1470,7 +1483,8 @@ function createRunWieldAcpServer(context) {
                 );
             }
             await operation.replay(context);
-            operations.delete(acpSessionId);
+            // Keep the old Session subscription until the new turn installs its own.
+            // A task can finish while this prompt is acquiring the writer lock.
         }
         const builtinCommand = extractAcpBuiltinCommand(request.prompt);
         if (builtinCommand) {
@@ -1525,9 +1539,11 @@ function createRunWieldAcpServer(context) {
             initialRequest: promptText,
             initialImages: promptImages,
             onTurnStarted: (/** @type {{ turnId: string }} */ { turnId }) => {
+                operation?.stop();
                 interview.start(context, turnId);
                 operations.set(acpSessionId, interview);
-                return () => interview.stop();
+                // Notifications and interactions can continue after this prompt settles.
+                return () => {};
             },
         });
         // The operation stays alive after a question's response. The request does not.
@@ -1535,11 +1551,8 @@ function createRunWieldAcpServer(context) {
             (result) => interview.settle(result),
             (error) => interview.settle(null, error),
         );
-        try {
-            return await interview.waitForRequest(context, settled, promptText, promptImages);
-        } finally {
-            if (interview.settled && !interview.hasUndeliveredUpdates) operations.delete(acpSessionId);
-        }
+        // Keep the subscription until the next prompt or session close.
+        return await interview.waitForRequest(context, settled, promptText, promptImages);
     });
 
     app.onRequest(methods.agent.session.close, async (context) => {
@@ -1547,6 +1560,7 @@ function createRunWieldAcpServer(context) {
         const record = sessionMap.getRecord(request.sessionId);
         if (!record) throwUnknownSession(request.sessionId);
         operations.get(request.sessionId)?.cancel();
+        operations.get(request.sessionId)?.stop();
         const result = await closeMappedSession(runtime, sessionMap, request.sessionId);
         operations.delete(request.sessionId);
         if (!result.ok) throwUnknownSession(request.sessionId);
@@ -1595,15 +1609,23 @@ export function startRunWieldAcpServer(input, output, options = {}) {
     const sessionStore = openFileSessionStore();
     const runtime = createSessionRuntime({ sessionStore, ownerProcessKind: "acp" });
     const sessionMap = new AcpSessionMap();
+    /** @type {Map<string, ReturnType<typeof createInterviewOperation>>} */
+    const operations = new Map();
     const connection = createRunWieldAcpServer({
         runtime,
         sessionMap,
+        operations,
         releasePromptAfterResponse: (requestId, release) => {
             promptReleases.set(requestId, release);
         },
     }).connect(stream);
     const closeMachinery = async () => {
         try {
+            for (const operation of operations.values()) {
+                operation.cancel();
+                operation.stop();
+            }
+            operations.clear();
             await closeAllMappedSessions(runtime, sessionMap);
         } finally {
             sessionStore.close();

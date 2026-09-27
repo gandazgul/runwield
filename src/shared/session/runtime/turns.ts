@@ -1,5 +1,7 @@
 import { AGENTS } from "../../../constants.js";
-import { abortActiveSession as abortActiveSessionFn } from ".././session.js";
+import { abortActiveSession as abortActiveSessionFn, steerRootSessionWithTarget } from ".././session.js";
+import { formatBackgroundTaskCompletion } from "../background-tasks.ts";
+import type { BackgroundTaskStatus } from "../background-tasks.ts";
 import { resolveNamedInvocation, withNamedInvocationDisplayMessage } from ".././named-invocation.ts";
 import { getRuntimeErrorMessage, RuntimeEventTypes } from ".././session-runtime-events.js";
 import { rollSessionTranscriptSegment } from ".././segment-rollover.ts";
@@ -16,6 +18,11 @@ import {
 } from "./support.ts";
 import { isManagedOperationFailure } from "./types.ts";
 import type { PromptSessionOptions, PromptTurnContext } from "./types.ts";
+
+interface TaskTranscriptEntry {
+    type?: string;
+    message?: { role?: string; content?: string | Array<{ type: string; text?: string }> };
+}
 
 interface PromptSessionResult {
     ok: boolean;
@@ -106,6 +113,109 @@ export class RuntimeTurns {
         this.workflows = workflows;
     }
     private turnSettlements = new Map<string, Promise<void>>();
+    private resultDrains = new Map<string, Promise<void>>();
+    private resultAcquisitions = new Set<string>();
+    private steeringResults = new Map<string, { taskId: string; text: string; unsubscribe: () => void }>();
+
+    /** Register once on the owning HostedSession; it remains registered after root dehydrate. */
+    registerBackgroundDelivery(sessionId: string): void {
+        const session = this.services.sessionHost.getSession(sessionId);
+        if (!session) return;
+        session.backgroundTasks.setCompletionHandler((status) => {
+            this.events.emitSessionEvent(sessionId, {
+                type: RuntimeEventTypes.BACKGROUND_TASK_SETTLED,
+                taskId: status.task_id,
+                state: status.state,
+            });
+            this.scheduleBackgroundResultDrain(sessionId);
+        });
+    }
+
+    private scheduleBackgroundResultDrain(sessionId: string): void {
+        if (this.resultDrains.has(sessionId)) return;
+        const drain = this.drainBackgroundResults(sessionId).finally(() => {
+            if (this.resultDrains.get(sessionId) === drain) this.resultDrains.delete(sessionId);
+        });
+        this.resultDrains.set(sessionId, drain);
+    }
+
+    /** A recorded root input is stronger evidence than a lost queue notification. */
+    reconcileBackgroundResultConsumption(session: import("../hosted-session.js").HostedSession): void {
+        const steering = this.steeringResults.get(session.id);
+        if (!steering) return;
+        const manager = session.getRootSessionManager();
+        const entries = (manager?.getEntries?.() || []) as TaskTranscriptEntry[];
+        const recorded = entries.some((entry) =>
+            entry.type === "message" && entry.message?.role === "user" &&
+            (typeof entry.message.content === "string"
+                ? entry.message.content === steering.text
+                : Array.isArray(entry.message.content) &&
+                    entry.message.content.some((block) => block.type === "text" && block.text === steering.text))
+        );
+        if (recorded) {
+            session.backgroundTasks.acknowledge(steering.taskId);
+            steering.unsubscribe();
+            this.steeringResults.delete(session.id);
+        }
+    }
+
+    private async drainBackgroundResults(sessionId: string): Promise<void> {
+        const session = this.services.sessionHost.getSession(sessionId);
+        if (!session) return;
+        const tasks = session.backgroundTasks;
+        while (!session.disposed && tasks.pendingCompletions().length > 0) {
+            const result: BackgroundTaskStatus = tasks.pendingCompletions()[0];
+            const id = result.task_id;
+            if (this.managedOperations.hasOperation(sessionId) || session.isTurnActive()) {
+                const root = getRuntimeRootAgentSession(session);
+                if (root?.isStreaming && !this.steeringResults.has(sessionId)) {
+                    const text = formatBackgroundTaskCompletion(result);
+                    const target = await steerRootSessionWithTarget(session, text, undefined, (steeringTarget) => {
+                        const manager = session.getRootSessionManager();
+                        manager?.appendCustomEntry?.("runwield.background_task_steering", { taskId: id, text });
+                        const unsubscribe = steeringTarget.subscribe((event) => {
+                            if (event.type === "queue_update") this.reconcileBackgroundResultConsumption(session);
+                        });
+                        this.steeringResults.set(sessionId, { taskId: id, text, unsubscribe });
+                    }).catch(() => null);
+                    // Consumption may complete inside steer(), before it returns or emits a queue update.
+                    this.reconcileBackgroundResultConsumption(session);
+                    if (!target) {
+                        this.steeringResults.get(sessionId)?.unsubscribe();
+                        this.steeringResults.delete(sessionId);
+                    }
+                }
+                await new Promise((resolve) => setTimeout(resolve, 100));
+                continue;
+            }
+            this.reconcileBackgroundResultConsumption(session);
+            this.steeringResults.get(sessionId)?.unsubscribe();
+            this.steeringResults.delete(sessionId);
+            if (!tasks.pendingCompletions().some((pending) => pending.task_id === id)) continue;
+            const managed = session.getManagedMetadata();
+            if (!managed) return;
+            try {
+                await this.sync.synchronizeManagedSession(sessionId, { emitEvents: false });
+                const current = session.getManagedMetadata() || managed;
+                const expectedGeneration = current.acknowledgedGeneration ?? current.generation ?? null;
+                if (!tasks.pendingCompletions().some((pending) => pending.task_id === id)) continue;
+                this.resultAcquisitions.add(sessionId);
+                const outcome = await this.promptManagedSession(sessionId, {
+                    initialRequest: formatBackgroundTaskCompletion(result),
+                    initialImages: [],
+                    generatedTaskId: id,
+                    expectedGeneration,
+                    onGeneratedTurnAccepted: () => tasks.acknowledge(id),
+                });
+                if (!outcome.ok) await new Promise((resolve) => setTimeout(resolve, 300));
+            } catch {
+                // An active competing writer or transient activation failure is retried locally.
+                await new Promise((resolve) => setTimeout(resolve, 300));
+            } finally {
+                this.resultAcquisitions.delete(sessionId);
+            }
+        }
+    }
 
     async awaitSettlement(sessionId: string) {
         await this.turnSettlements.get(sessionId);
@@ -114,6 +224,7 @@ export class RuntimeTurns {
     async promptUserTurn(sessionId: string, options: PromptSessionOptions): Promise<UserPromptResult> {
         const hostedSession = this.services.sessionHost.getSession(sessionId);
         if (!hostedSession) throw new Error("SessionRuntime.promptUserTurn: session not found");
+        hostedSession.backgroundTasks.resumeDelivery();
         const namedInvocation = await resolveNamedInvocation({
             cwd: hostedSession.cwd,
             text: options.initialRequest,
@@ -458,6 +569,11 @@ export class RuntimeTurns {
     cancelSession(sessionId: string) {
         const session = this.services.sessionHost.getSession(sessionId);
         if (!session) return { ok: false, aborted: false, error: "not_found" };
+        const hasBackgroundWork = session.backgroundTasks.activeCount > 0 ||
+            session.backgroundTasks.pendingCompletions().length > 0;
+        void session.backgroundTasks.cancelAllAndSuppress();
+        this.steeringResults.get(session.id)?.unsubscribe();
+        this.steeringResults.delete(session.id);
         const currentOperation = this.managedOperations.currentCapability(session.id);
         const activeInteractions = session.getActiveInteractions?.() || new Map();
         const onlyPlanReviewInteraction = activeInteractions.size > 0 &&
@@ -470,7 +586,7 @@ export class RuntimeTurns {
             let agentCanceled = false;
             const turnActive = session.isTurnActive();
             try {
-                if (session.isAgentTransitioning?.()) {
+                if (session.isAgentTransitioning?.() || this.resultAcquisitions.has(session.id)) {
                     currentOperation.cancel?.();
                     operationCanceled = Boolean(currentOperation.cancel);
                 }
@@ -487,7 +603,7 @@ export class RuntimeTurns {
                     agentCanceled = abortActiveSessionFn(session);
                     if (agentCanceled || turnActive) session.suppressNextAgentStoppedAttention();
                 }
-                aborted = operationCanceled || agentCanceled;
+                aborted = operationCanceled || agentCanceled || hasBackgroundWork;
             } finally {
                 this.events.emitSessionEvent(session.id, {
                     type: RuntimeEventTypes.CANCELLATION,
@@ -506,10 +622,10 @@ export class RuntimeTurns {
         if (session.getManagedMetadata?.()) {
             this.events.emitSessionEvent(session.id, {
                 type: RuntimeEventTypes.CANCELLATION,
-                aborted: false,
+                aborted: hasBackgroundWork,
                 reason: "session_cancel",
             });
-            return { ok: true, aborted: false };
+            return { ok: true, aborted: hasBackgroundWork };
         }
         let aborted = false;
         let operationCanceled = false;
@@ -529,7 +645,7 @@ export class RuntimeTurns {
                 agentCanceled = abortActiveSessionFn(session);
                 if (agentCanceled || turnActive) session.suppressNextAgentStoppedAttention();
             }
-            aborted = operationCanceled || agentCanceled;
+            aborted = operationCanceled || agentCanceled || hasBackgroundWork;
         } finally {
             this.events.emitSessionEvent(session.id, {
                 type: RuntimeEventTypes.CANCELLATION,
@@ -566,10 +682,19 @@ export class RuntimeTurns {
             const expectedGeneration = Number.isSafeInteger(expectedGenerationSource) ? expectedGenerationSource : 0;
             return await this.promptManagedSession(sessionId, { ...options, expectedGeneration });
         }
+        if (
+            options.generatedTaskId &&
+            !hostedSession.backgroundTasks.pendingCompletions().some((task) => task.task_id === options.generatedTaskId)
+        ) {
+            return { ok: false, turns: 0, error: "background_result_cancelled" };
+        }
+        options.signal?.throwIfAborted();
         const turnId = options.turnId || crypto.randomUUID();
         const emitInitialEvents = options.emitInitialEvents !== false;
         await this.settings.alignActiveExecutionWorkflowOwner(hostedSession);
         if (!hostedSession.beginTurn(turnId)) throw new SessionTurnInProgressError(hostedSession.id);
+        options.onGeneratedTurnAccepted?.();
+        this.registerBackgroundDelivery(sessionId);
         let cleanupTurn = () => {};
         let settleTurn = () => {};
         const turnSettlement = new Promise<void>((resolve) => {
@@ -589,9 +714,12 @@ export class RuntimeTurns {
         try {
             const imagePreflight = await this.images.preflightSessionImages(sessionId, images);
             if (!imagePreflight.ok) throw new Error(imagePreflight.message);
-            hostedSession.localInputSurface = this.services.ownerProcessKind;
-            hostedSession.notificationSurface = options.inputSurface || hostedSession.notificationSurface ||
-                this.services.ownerProcessKind;
+            if (!options.generatedTaskId) {
+                hostedSession.localInputSurface = this.services.ownerProcessKind;
+                hostedSession.notificationSurface = options.inputSurface || hostedSession.notificationSurface ||
+                    this.services.ownerProcessKind;
+            }
+            hostedSession.generatedTaskTurnId = options.generatedTaskId || null;
             const cleanup = options.onTurnStarted?.({ turnId });
             if (typeof cleanup === "function") cleanupTurn = cleanup;
             images = await this.images.persistPendingPromptImages(hostedSession, images);
@@ -602,6 +730,9 @@ export class RuntimeTurns {
                 this.events.emitSessionEvent(hostedSession.id, {
                     type: RuntimeEventTypes.USER_MESSAGE,
                     turnId,
+                    ...(options.generatedTaskId
+                        ? { origin: "background_task_result", taskId: options.generatedTaskId }
+                        : {}),
                     text: request,
                     images: images.map((image) => ({ ...image })),
                 });
@@ -653,6 +784,7 @@ export class RuntimeTurns {
             if (!isRuntimeRootSessionManager(rootSessionManager)) {
                 throw new Error("Runtime session manager is unavailable.");
             }
+            options.signal?.throwIfAborted();
             const runHandler = async () =>
                 await handler(
                     modelRequest,
@@ -699,6 +831,7 @@ export class RuntimeTurns {
                 result: result || { turns },
             });
             hostedSession.endTurn(turnId);
+            hostedSession.generatedTaskTurnId = null;
             if (busyStarted) this.events.endBusyOperation(hostedSession.id, turnId);
             try {
                 cleanupTurn();
