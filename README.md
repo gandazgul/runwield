@@ -24,6 +24,8 @@ ideate -> plan -> execute -> record -> use records to plan better
 [Website](https://runwield.dev) · [Install](#install-in-30-seconds) · [How it works](#the-problem) ·
 [Documentation](https://docs.runwield.dev)
 
+<p align="right"><img src="brand/mascot/readme/base.svg" width="80" height="72" alt="A little RunWield mascot blinks at you." /><br /><sub>Oh, hello.</sub></p>
+
 ---
 
 ## Install in 30 seconds
@@ -168,6 +170,8 @@ built next.
 ---
 
 ## Under the hood
+
+<p align="right"><img src="brand/mascot/readme/reviewer.svg" width="80" height="72" alt="The Reviewer mascot reads a tiny scroll, glancing from side to side." /><br /><sub>Just reading along.</sub></p>
 
 RunWield is built on [Pi](https://pi.dev) and ships as a single compiled binary.
 

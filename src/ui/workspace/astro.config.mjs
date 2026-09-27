@@ -10,6 +10,7 @@ import deno from "@deno/astro-adapter";
 import react from "./integrations/deno-react.mjs";
 import tailwindcss from "@tailwindcss/vite";
 
+console.error("[DEBUG-CHAIN] config loaded");
 const WORKSPACE_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = resolve(WORKSPACE_DIR, "../../..");
 const PLANNOTATOR_DIR = resolve(ROOT_DIR, "third_party/plannotator");
@@ -45,7 +46,13 @@ export default defineConfig({
         checkOrigin: false,
     },
     vite: {
-        plugins: [tailwindcss()],
+        plugins: [tailwindcss(), {
+            name: "debug-import-chain",
+            configResolved() { console.error("[DEBUG-CHAIN] plugin active"); },
+            resolveId(source, importer) {
+                if (source.includes("plan-store") || source.includes("pi-coding-agent") || source.includes("undici")) console.error("[DEBUG-CHAIN]", source, importer);
+            },
+        }],
         define: { "process.env.NODE_ENV": '"development"' },
         build: {
             rollupOptions: {
