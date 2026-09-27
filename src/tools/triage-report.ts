@@ -115,7 +115,7 @@ export function createTriageReportTool(
             const { routingIntent, complexity, summary, workKind } = details;
 
             try {
-                hostedSession?.setWorkflowTriageContext?.({ routingIntent, complexity });
+                hostedSession?.setWorkflowTriageContext?.({ routingIntent, complexity, summary });
             } catch (_caught) {
                 // Footer-context persistence is fail-open and must not block triage.
             }

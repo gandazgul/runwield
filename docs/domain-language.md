@@ -555,7 +555,15 @@ Session. _Avoid_: Router, dispatcher agent
 changing Plan Status. _Avoid_: Workflow Outcome, status update, lifecycle event
 
 **Delegated Agent Session**: A disposable context-isolated Agent Session that receives a bounded brief from a parent
-Agent Session and returns only its result. _Avoid_: Context-free session, Task worker, workflow handoff
+Agent Session and returns only its result. A read-only delegation may run as a Background Task; a write delegation may
+not. _Avoid_: Context-free session, Task worker, workflow handoff
+
+**Background Task**: A Session-local, host-process-owned shell command or read-only Delegated Agent Session started
+without blocking the parent Agent. Its task ID permits status and cancellation in that same live Session owner. Core
+sends its finished result to the parent Agent through steering or a later generated turn, not as a user Steering Message
+or workflow Task Completion. Up to five may be active per Session in one process. A task may outlive a normal Agent turn
+but does not survive process exit or replay on Session resume. _Avoid_: Durable job, workflow Task Completion, user
+Steering Message, detached `bash` command
 
 **Delegated Agent Role**: An optional specialization a parent selects on `delegate_agent`, composing a prompt overlay
 onto the base delegated prompt and declaring an authority ceiling that can reduce the requested delegation mode.

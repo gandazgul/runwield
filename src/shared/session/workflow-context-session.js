@@ -23,6 +23,7 @@ export const PENDING_SEGMENT_CONTINUATION_CUSTOM_TYPE = "runwield.pending_segmen
  * @typedef {Object} WorkflowContext
  * @property {string} [routingIntent]
  * @property {string} [complexity]
+ * @property {string} [summary]
  * @property {string} [planName]
  * @property {string} [parentPlan]
  * @property {string} [planId]
@@ -123,6 +124,7 @@ export function normalizeWorkflowContext(value) {
     if (routingIntent && complexity) {
         context.routingIntent = routingIntent;
         context.complexity = complexity;
+        if (typeof data.summary === "string" && data.summary.trim()) context.summary = data.summary.trim();
     }
     if (planName) context.planName = planName;
     if (parentPlan) context.parentPlan = parentPlan;
@@ -145,14 +147,18 @@ export function normalizeWorkflowContext(value) {
 
 /**
  * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined | null} sessionManager
- * @param {{ routingIntent: unknown, complexity: unknown }} details
+ * @param {{ routingIntent: unknown, complexity: unknown, summary?: unknown }} details
  * @returns {WorkflowContext | null}
  */
 export function recordWorkflowTriageContext(sessionManager, details) {
     const routingIntent = normalizeWorkflowRoutingIntent(details.routingIntent);
     const complexity = normalizeWorkflowComplexity(details.complexity);
     if (!routingIntent || !complexity) return readPersistedWorkflowContext(sessionManager);
-    return recordWorkflowContext(sessionManager, { routingIntent, complexity });
+    return recordWorkflowContext(sessionManager, {
+        routingIntent,
+        complexity,
+        summary: typeof details.summary === "string" ? details.summary.trim() : undefined,
+    });
 }
 
 /**
@@ -402,6 +408,7 @@ export function normalizeSegmentLineageEvidence(lineage) {
 export function workflowContextsEqual(left, right) {
     return (left?.routingIntent || "") === (right?.routingIntent || "") &&
         (left?.complexity || "") === (right?.complexity || "") &&
+        (left?.summary || "") === (right?.summary || "") &&
         (left?.planName || "") === (right?.planName || "") &&
         (left?.parentPlan || "") === (right?.parentPlan || "") &&
         (left?.planId || "") === (right?.planId || "") &&

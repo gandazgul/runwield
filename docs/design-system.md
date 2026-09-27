@@ -214,6 +214,23 @@ portals, and image-loading skeletons receive this artwork through the shared sty
 spinner, pulsing dots, or animated loading skeleton. Reduced-motion mode shows a still frame. Labels use
 `--rw-text-muted` by default.
 
+### Agent mascots
+
+`RunWieldMascot` adds the approved one-bit W character beside Workspace's composer Agent controls. TUI uses the same
+source in `src/ui/mascot/frames.ts`, rendered as Unicode half blocks above the footer Agent identity in a reserved right
+column. Full artwork is 20 × 18 pixels (20 columns × 9 terminal rows); short or narrow terminals use a static two-row
+face. Workspace uses 60 × 54 pixels, or 40 × 36 on phones. Use `--rw-text` as the single foreground color.
+
+Mascots complement the written identity and existing Thinking status; they do not replace generic loading indicators.
+Animate only during live busy activity. Hold a still pose during answers, idle, or owner interaction; Ideator's full
+bulb indicates observed answer text, never estimated completion. Browser motion stops offscreen, in hidden tabs, and
+under reduced motion. Unmounting or closing a surface cancels its clock. Reserve dimensions across frame changes.
+
+Init uses Base; Guide uses Router; Slicer uses Planner; every Engineer variant shares Engineer. Delegated agents inherit
+the parent's identity (pass the inherited ancestor for nested delegation). Recorder and Tester have no mascot. Unknown
+named agents use Base. Operator uses the approved lever; the earlier gear remains commented in the source for reference.
+These shared identity and activity requirements are owned by [Core](prd/runwield-core-prd.md#agent-mascots).
+
 ### Session timeline and control patterns
 
 Normal System, recovery, and interaction-result notices use a mint (`--rw-brand`) stripe and tint to identify RunWield.

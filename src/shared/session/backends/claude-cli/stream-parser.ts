@@ -27,6 +27,7 @@ export interface ClaudeCliThinkingDelta {
 
 export type ClaudeCliStreamEvent =
     | { kind: "assistant_delta"; text: string }
+    | { kind: "assistant_continuation"; text: string }
     | { kind: "plain_text"; text: string }
     | { kind: "text_partial"; text: string }
     | { kind: "thinking_partial"; text: string }
@@ -112,7 +113,7 @@ export function parseClaudeCliJsonLine(line: string): ClaudeCliStreamEvent | nul
     if (eventType === "content_block_delta") {
         const delta = isJsonRecord(parsed.delta) ? parsed.delta : parsed;
         const text = asString(delta.text);
-        return text ? { kind: "assistant_delta", text } : null;
+        return text ? { kind: "assistant_continuation", text } : null;
     }
     if (eventType === "stream_event") {
         const inner = isJsonRecord(parsed.event) ? parsed.event : null;
@@ -161,6 +162,7 @@ export async function parseClaudeCliStream(
     let streamedBlockText = "";
     let thinkingActive = false;
     let previousCompletePlainLine = false;
+    let previousAssistantComplete = false;
 
     const endThinking = () => {
         if (!thinkingActive) return;
@@ -174,18 +176,25 @@ export async function parseClaudeCliStream(
             callbacks.onThinkingDelta?.({ text: event.text });
             return;
         }
-        if (event.kind === "text_partial") {
+        if (event.kind === "text_partial" || event.kind === "assistant_continuation") {
             previousCompletePlainLine = false;
             endThinking();
-            visibleText += event.text;
+            const separator = event.kind === "text_partial" && previousAssistantComplete && visibleText &&
+                    !visibleText.endsWith("\n") && !event.text.startsWith("\n")
+                ? "\n"
+                : "";
+            previousAssistantComplete = false;
+            const text = separator + event.text;
+            visibleText += text;
             streamedBlockText += event.text;
-            callbacks.onDelta({ text: event.text });
+            callbacks.onDelta({ text });
             return;
         }
         if (event.kind === "plain_text") {
             endThinking();
             const text = previousCompletePlainLine ? `\n${event.text}` : event.text;
             previousCompletePlainLine = false;
+            previousAssistantComplete = false;
             visibleText += text;
             callbacks.onDelta({ text });
             return;
@@ -195,13 +204,19 @@ export async function parseClaudeCliStream(
             endThinking();
             const alreadyStreamed = streamedBlockText;
             streamedBlockText = "";
+            const separator = previousAssistantComplete && visibleText && !visibleText.endsWith("\n") &&
+                    !event.text.startsWith("\n")
+                ? "\n"
+                : "";
+            previousAssistantComplete = true;
             if (alreadyStreamed && event.text === alreadyStreamed) return;
             const remainder = alreadyStreamed && event.text.startsWith(alreadyStreamed)
                 ? event.text.slice(alreadyStreamed.length)
                 : event.text;
             if (!remainder) return;
-            visibleText += remainder;
-            callbacks.onDelta({ text: remainder });
+            const text = separator + remainder;
+            visibleText += text;
+            callbacks.onDelta({ text });
             return;
         }
         endThinking();

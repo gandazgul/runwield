@@ -6,7 +6,8 @@ export type RequestDispatchKind =
     | "interactive"
     | "plan_execution"
     | "quick_fix"
-    | "validation_repair";
+    | "validation_repair"
+    | "background_task_result";
 
 export type RequestPromptMode = "original" | "continuation";
 export type RequestAttemptPhase = "started" | "completed" | "failed";
@@ -21,6 +22,7 @@ export interface RequestAttemptEntry {
     phase: RequestAttemptPhase;
     promptMode: RequestPromptMode;
     requestRecorded: boolean;
+    taskId?: string;
 }
 
 export interface PreparedRequestDispatch {
@@ -31,6 +33,7 @@ export interface PreparedRequestDispatch {
     requestHash: string;
     dispatchKind: RequestDispatchKind;
     backend: string;
+    taskId?: string;
 }
 
 interface TranscriptCustomEntry {
@@ -50,11 +53,13 @@ export function prepareRequestDispatch(
         userRequest: string;
         dispatchKind: RequestDispatchKind;
         backend: string;
+        taskId?: string;
     },
 ): PreparedRequestDispatch {
     const requestHash = hashRequest(options.userRequest);
     const failed = readLatestFailedAttempt(sessionManager);
-    const continuesFailedRequest = failed?.requestHash === requestHash;
+    const continuesFailedRequest = failed?.requestHash === requestHash &&
+        failed.dispatchKind === options.dispatchKind;
     const requestId = continuesFailedRequest ? failed.requestId : `request:${crypto.randomUUID()}`;
     const promptMode: RequestPromptMode = continuesFailedRequest && failed.requestRecorded
         ? "continuation"
@@ -67,6 +72,7 @@ export function prepareRequestDispatch(
         requestHash,
         dispatchKind: options.dispatchKind,
         backend: options.backend,
+        ...(options.taskId ? { taskId: options.taskId } : {}),
     };
     appendAttempt(sessionManager, prepared, "started", false);
     return prepared;
@@ -119,6 +125,7 @@ function appendAttempt(
             phase,
             promptMode: prepared.promptMode,
             requestRecorded,
+            ...(prepared.taskId ? { taskId: prepared.taskId } : {}),
         } satisfies RequestAttemptEntry,
     );
 }

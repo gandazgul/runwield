@@ -103,6 +103,7 @@ export function createFooterOnlyUiApi(parentUiAPI) {
  * @param {{ addChild: (child: any) => void, removeChild: (child: any) => void, clear?: () => void, children: any[] }} [activeInteractionContainer]
  * @param {{ addChild: (child: any) => void, removeChild: (child: any) => void, clear?: () => void, children: any[] }} [queuedInputContainer]
  * @param {() => VisibleToolBlock[]} [getVisibleToolBlocks]
+ * @param {(progress: import('../../shared/session/session-runtime-events.js').RuntimeValidationProgress | null) => void} [onValidationProgress]
  * @returns {import('./types.js').UiAPI}
  */
 export function createUiApi(
@@ -114,6 +115,7 @@ export function createUiApi(
     activeInteractionContainer,
     queuedInputContainer,
     getVisibleToolBlocks,
+    onValidationProgress,
 ) {
     const activeToolBlocks = new Map();
     /** @type {Map<string, { block: SystemMessageBlock, spacer: Spacer }>} */
@@ -483,6 +485,7 @@ export function createUiApi(
         updateValidationProgress: (progress) => {
             if (outputSuppressed) return;
             validationProgress = structuredClone(progress);
+            onValidationProgress?.(validationProgress);
             renderValidationPanel();
             tui.requestRender();
         },
@@ -512,6 +515,7 @@ export function createUiApi(
 
         clearValidationPanel: () => {
             validationProgress = null;
+            onValidationProgress?.(null);
             latestEngineerReport = null;
             latestReviewerReport = null;
             validationReportOrder = 0;
@@ -872,6 +876,7 @@ export function createUiApi(
             validationPanelContainer?.clear?.();
             activeInteractionContainer?.clear?.();
             validationProgress = null;
+            onValidationProgress?.(null);
             latestEngineerReport = null;
             latestReviewerReport = null;
             validationPanelBlock = null;
@@ -897,6 +902,7 @@ export function createUiApi(
             validationPanelContainer?.clear?.();
             activeInteractionContainer?.clear?.();
             validationProgress = null;
+            onValidationProgress?.(null);
             latestEngineerReport = null;
             latestReviewerReport = null;
             validationPanelBlock = null;
@@ -926,6 +932,7 @@ export function createUiApi(
             queuedInputContainer?.clear?.();
             removeInputAccessoryResources();
             validationProgress = null;
+            onValidationProgress?.(null);
             latestEngineerReport = null;
             latestReviewerReport = null;
             validationPanelBlock = null;

@@ -30,6 +30,8 @@ import { createSessionTabNotificationController } from "../browser/session-tab-n
 import { WorkspaceHeaderActionsPortal } from "../react/WorkspaceHeaderActionsPortal.tsx";
 import { loadSessionDrafts, readSessionDraft, saveSessionDraft } from "../browser/session-drafts.ts";
 import { sessionAgentSelection, sessionCommandSuggestions, sessionModelLabel } from "../browser/session-commands.ts";
+import { RunWieldMascot } from "../../design-system/components/react/RunWieldMascot.tsx";
+import { mascotPose } from "../../mascot/mascot.ts";
 import { WorkflowSidebar } from "../react/WorkflowSidebar.tsx";
 
 export const SESSION_PAGE_SIZE = 30;
@@ -414,6 +416,9 @@ export function SessionComposer({
     models = [],
     thinkingLevels = [],
     agentValue,
+    mascotAgent = agentValue || "",
+    mascotParentAgent = undefined,
+    mascotActivity = "idle",
     modelValue,
     thinkingValue,
     onAgentChange,
@@ -651,6 +656,7 @@ export function SessionComposer({
                 )
                 : null}
             <div className="session-composer-actions" aria-label="Session settings">
+                <RunWieldMascot agentName={mascotAgent} parentAgentName={mascotParentAgent} pose={mascotActivity} />
                 <input
                     ref={fileInputRef}
                     type="file"
@@ -2426,6 +2432,17 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                                 models={models}
                                 thinkingLevels={thinkingLevels}
                                 agentValue={stagedAgent}
+                                mascotAgent={timeline.snapshot?.activeAgentInfo?.agentName || currentAgent}
+                                mascotParentAgent={currentAgent}
+                                mascotActivity={mascotPose({
+                                    busy: transientItems.some((item) => item.kind === "busy"),
+                                    waiting: Boolean(liveWorkflowInteraction),
+                                    answering: transientItems.filter((item) =>
+                                                item.kind !== "busy"
+                                            ).at(-1)?.kind === "message" &&
+                                        transientItems.filter((item) => item.kind !== "busy").at(-1)?.role ===
+                                            "assistant",
+                                })}
                                 modelValue={stagedModelKey}
                                 thinkingValue={displayedThinking}
                                 onAgentChange={(agentName) => configureSession({ agentName })}

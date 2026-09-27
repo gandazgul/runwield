@@ -227,6 +227,32 @@ Deno.test("Claude CLI parser preserves line breaks in plain assistant stdout", a
     assertEquals(result.text, "First line\nSecond line\nThird line");
 });
 
+Deno.test("Claude CLI parser separates streamed assistant updates across tool calls", async () => {
+    const deltas: string[] = [];
+    const result = await parseClaudeCliStream(
+        streamFromText([
+            JSON.stringify({
+                type: "stream_event",
+                event: { type: "content_block_delta", delta: { type: "text_delta", text: "Checking." } },
+            }),
+            JSON.stringify({
+                type: "assistant",
+                message: { content: [{ type: "text", text: "Checking." }, { type: "tool_use", name: "Bash" }] },
+            }),
+            JSON.stringify({ type: "user", message: { content: [{ type: "tool_result", content: "ok" }] } }),
+            JSON.stringify({
+                type: "stream_event",
+                event: { type: "content_block_delta", delta: { type: "text_delta", text: "Next step." } },
+            }),
+            JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "Next step." }] } }),
+            JSON.stringify({ type: "result", result: "Next step." }),
+        ].join("\n")),
+        { onDelta: (delta) => deltas.push(delta.text) },
+    );
+    assertEquals(deltas.join(""), "Checking.\nNext step.");
+    assertEquals(result.text, "Checking.\nNext step.");
+});
+
 Deno.test("Claude CLI parser keeps plain diagnostics around a matching final result", async () => {
     const result = await parseClaudeCliStream(
         streamFromText([

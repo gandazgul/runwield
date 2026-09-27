@@ -4,20 +4,27 @@
 
 **Review what the AI plans to do before it touches your code. Then prove it did it.**
 
-RunWield is a coding harness that makes the agent slow down at the moments that matter. It sorts your request by risk,
-writes a plan you actually review when the blast radius is real, executes it through specialized roles, and refuses to
-call the work done until CI and a separate reviewer agree it matches the plan you approved.
+Millions of developers now spend their days reviewing code they didn't write, from AI agents that never explained what
+they were building. RunWield fixes that. It's a senior tech lead in a box: it reads your repo, writes a plan you approve
+before any code changes, has specialized agents build it, and won't call the work done until CI and a separate reviewer
+confirm it matches the plan. Every decision is recorded, so the next change starts from what your team already learned.
+The core is free, runs locally, and it works with any model.
+
+Ceremony scales with risk: quick fixes stay quick, and only risky work gets a plan. Big implementations get an expert
+architect review and a series of plans to implement in manageable chunks.
 
 ```text
 ideate -> plan -> execute -> record -> use records to plan better
 ```
 
-[![Watch the 90-second RunWield demo: Plan Review, execution, validation, Code Review, and Workspace](brand/runwield-demo-poster.jpg)](brand/runwield-demo.mp4)
+<p align="center"><img src="brand/workspace-session.png" width="900" alt="A RunWield Workspace session. Projects and their Plans are listed on the left, the Plan Engineer's conversation and activity are in the middle, and the Plan's workflow on the right shows Planning, Execution, Tests and CI, AI review, and Code Review completed." /></p>
 
-[Watch the 90-second demo](brand/runwield-demo.mp4)
+[![Watch the 90-second RunWield demo](brand/runwield-demo-poster.jpg)](https://youtu.be/IHplUpFZIuU)
 
 [Website](https://runwield.dev) · [Install](#install-in-30-seconds) · [How it works](#the-problem) ·
 [Documentation](https://docs.runwield.dev)
+
+<p align="right"><img src="brand/mascot/readme/base.svg" width="80" height="72" alt="A little RunWield mascot blinks at you." /><br /><sub>Oh, hello.</sub></p>
 
 ---
 
@@ -66,6 +73,8 @@ along the way evaporates — the next session starts from zero and makes a versi
 writes code. You review it in a real browser UI — inline comments, revisions, approval — not by squinting at a wall of
 chat. Redirecting a plan costs a sentence. Redirecting a finished branch costs a day.
 
+<p align="center"><img src="brand/plan-review.png" width="800" alt="RunWield Plan Review in the browser. A Plan is open with one sentence highlighted and an inline comment box beside it, a table of contents on the left, an Annotations panel on the right, and an Approve &amp; Run button at the top." /></p>
+
 **2. Ceremony scales with risk.** Every request is triaged into one of six intents, and only the expensive ones get the
 expensive treatment:
 
@@ -98,10 +107,8 @@ learned instead of from an empty context window.
 
 ### Compared to other Software Factories
 
-They are currently task/ticket and session-centered. It helps teams operate AI software factories and manage context
-efficiently.
-
-RunWield is Plan- and lifecycle-centered. It intends to be the authority that decides:
+Most agent tools are organized around tickets and chat sessions. They help teams run many agents and manage context.
+RunWield is organized around the Plan and its lifecycle. It decides:
 
 - Which work needs a Plan.
 - Which Plan was approved.
@@ -117,7 +124,7 @@ RunWield is Plan- and lifecycle-centered. It intends to be the authority that de
 They expose rich session history. RunWield deliberately treats raw conversations as private working space and makes
 Plans, PRDs, ADRs, and Work Records the durable knowledge layer. All of the artifacts stay in your repo as plain
 markdown, so you can grep, diff, and version them like any other source file. RunWield will never encrypt or convert
-those files to keep you trapped, any other harness or coding tool can still make use of them.
+those files to keep you trapped. Any other harnesses or coding tools can still make use of them.
 
 ### What a Planned Change actually looks like
 
@@ -131,15 +138,23 @@ You type `wld "add rate limiting to the public API"`. Then:
 5. **CI runs.** Failures get bounded repair attempts.
 6. **Reviewer** compares the final diff against the plan _you_ approved, over multiple narrowing rounds, with findings
    carried in a ledger until they're resolved.
-7. **Merge-back is verified by Git**, and the plan flips to `verified`.
-8. **A Manual QA checklist and a Work Record** are generated automatically, so the reasoning survives the PR.
+7. **You review the code** in the browser — comment on lines, or ask the Engineer to change something. Your feedback
+   goes back through repair and validation, and you see the updated diff before approving. This step is optional.
+8. **Merge-back is verified by Git**, and the plan flips to `verified`.
+9. **A Manual QA checklist and a Work Record** are generated automatically, so the reasoning survives the PR.
 
 Every one of those steps is a place you can interrupt, redirect, or stop. That's the whole idea.
+
+<p align="center"><img src="brand/code-review.png" width="800" alt="RunWield Code Review in the browser for the Session Background Tasks Plan. A side-by-side diff of a new test file, with the changed-files tree on the left and an inline comment being added to line 12." /></p>
+
+<p align="center"><img src="brand/code-review-chat.png" width="800" alt="The same Code Review with the Validation Repair Engineer chat open on the right. The reviewer is typing a request to add another test, above a Send to Validation Repair Engineer button." /></p>
 
 ### Is it for you?
 
 **Yes, if** you work on codebases where a bad change is expensive, you want to steer before code exists instead of
 after, and you're tired of "done!" meaning "the model stopped typing."
+
+Probably not if you mostly write one-shots or quick scripts where a quick chat with Claude is enough.
 
 ---
 
@@ -150,11 +165,13 @@ I'm looking for **five developers** to run RunWield on one real, non-trivial cha
 In exchange: I'll personally help you get set up, fix whatever blocks you, and you get a direct line into what gets
 built next.
 
-**[Open an issue and say hi →](https://github.com/gandazgul/runwield/issues)**
+> [Try it with me →](https://runwield.dev/#beta)
 
 ---
 
 ## Under the hood
+
+<p align="right"><img src="brand/mascot/readme/reviewer.svg" width="80" height="72" alt="The Reviewer mascot reads a tiny scroll, glancing from side to side." /><br /><sub>Just reading along.</sub></p>
 
 RunWield is built on [Pi](https://pi.dev) and ships as a single compiled binary.
 
@@ -199,9 +216,8 @@ deno task ci                   # check, lint, format, tests
 deno task compile              # build the binary
 ```
 
-Branch, keep changes focused, run `deno task ci`, and open a PR with a summary and validation notes. The codebase is
-mostly pure JavaScript with JSDoc typing -> moving to TypeScript. See [contributing](docs/contributing.md) and
-[releasing](docs/releasing.md).
+Branch, keep changes focused, run `deno task ci`, and open a PR with a summary and validation notes. See
+[contributing](docs/contributing.md) and [releasing](docs/releasing.md).
 
 ---
 

@@ -155,6 +155,7 @@ function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup,
     const [reviewBasePlan, setReviewBasePlan] = useState(submittedPlan);
     const [plan, setPlan] = useState(initialPayload.plan || "");
     const [draftPlan, setDraftPlan] = useState(initialPayload.plan || "");
+    const [printDraftPlan, setPrintDraftPlan] = useState(initialPayload.plan || "");
     const [editorMode, setEditorMode] = useState("view");
     const [isPlanDiffActive, setIsPlanDiffActive] = useState(false);
     const [planDiffMode, setPlanDiffMode] = useState("clean");
@@ -251,7 +252,8 @@ function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup,
     useEffect(() => {
         if (active) document.title = `Plan Review - ${planTitle}`;
     }, [active, planTitle]);
-    const printPlan = editorMode === "edit" ? draftPlan : plan;
+    // Do not update the hidden Viewer on each keystroke: its DOM work resets the editor selection.
+    const printPlan = editorMode === "edit" ? printDraftPlan : plan;
     const printablePlan = useMemo(() => ({
         blocks: parseMarkdownToBlocks(printPlan),
         frontmatter: extractFrontmatter(printPlan).frontmatter,
@@ -735,6 +737,20 @@ function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup,
         if (!editorDirty) setDraftPlan(nextPlan);
     }
 
+    useEffect(() => {
+        if (editorMode === "view" && !isPlanDiffActive) {
+            viewerHandleRef.current?.applySharedAnnotations?.(annotations);
+        }
+    }, [annotations, editorMode, isPlanDiffActive, plan]);
+
+    async function printReview() {
+        if (editorMode === "edit") {
+            setPrintDraftPlan(editorHandleRef.current?.getMarkdown?.() ?? draftPlan);
+            await new Promise((resolve) => requestAnimationFrame(resolve));
+        }
+        await printDocument();
+    }
+
     function saveEditor() {
         const nextPlan = editorHandleRef.current?.getMarkdown?.() ?? draftPlan;
         setPlan(nextPlan);
@@ -974,7 +990,7 @@ function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup,
                                         iconOnly
                                         onOpenExport={() => setExportOpen(true)}
                                         onOpenSettings={() => setSettingsOpen(true)}
-                                        onPrint={printDocument}
+                                        onPrint={printReview}
                                     />
                                     <img src="/brand/logo.svg" alt="" aria-hidden="true" />
                                     <h1>Plan Review</h1>

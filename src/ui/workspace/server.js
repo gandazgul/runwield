@@ -275,7 +275,7 @@ export function createOwnerWorkspaceApp(options) {
             const message = error instanceof Error ? error.message : String(error);
             if (ctx.url.pathname.startsWith("/api/")) return ownerJsonResponse({ error: message }, 403);
             return ownerHtmlResponse(
-                "RunWield Owner Workspace",
+                "RunWield Workspace",
                 `<section class=\"error-panel\"><h2>Workspace request blocked</h2><p>${
                     escapeHtml(message)
                 }</p></section>`,

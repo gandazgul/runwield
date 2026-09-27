@@ -368,3 +368,19 @@
     font-size: 0.85rem;
     font-weight: 700;
 }
+
+@media (max-width: 640px) {
+    .session-composer-actions .rw-agent-mascot {
+        width: 40px;
+        height: 36px;
+    }
+}
+
+@media (max-width: 640px) {
+    .session-composer[data-expanded="true"] .rw-agent-mascot {
+        grid-column: 2;
+        grid-row: 3;
+        justify-self: start;
+        align-self: center;
+    }
+}

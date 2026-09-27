@@ -115,10 +115,12 @@ Project decomposition is described in [Core product requirements](prd/runwield-c
 
 ## Delegated Agent Sessions
 
-Agents may use `delegate_agent` for bounded foreground assistance without sharing their conversation or tool history. A
-read delegation can inspect with the parent's available read-only tools; up to three read delegations may run at once. A
-write delegation receives the parent's available write tools, runs synchronously and exclusively in the current
-worktree, and preserves any partial edits if it fails so the parent can inspect and report them.
+Agents may use `delegate_agent` for bounded isolated assistance without sharing their conversation or tool history. A
+read delegation can inspect with the parent's available read-only tools; up to three read delegations may run at once.
+With `background: true`, a read delegation returns a task ID immediately and reports its result later. A write
+delegation runs synchronously and exclusively in the current worktree. It preserves partial edits if it fails so the
+parent can inspect and report them. Background write delegation is not available. See
+[Session background work](sessions.md#background-work).
 
 Delegated children receive only the brief plus project/repository context. They cannot route workflows, complete parent
 workflow phases, mutate memory, interview the user, recursively delegate, commit changes, or exceed the parent's tool

@@ -18,7 +18,21 @@ surfaces.
 
 ## Core idea
 
-**Core metaphor:** the review gate.
+### Elevator Pitch
+
+Millions of developers now spend their days reviewing code they didn't write, from AI agents that never explained what
+they were building. RunWield fixes that. It's a senior tech lead in a box: it reads your repo, writes a plan you approve
+before any code changes, has specialized agents build it, and won't call the work done until CI and a separate reviewer
+confirm it matches the plan. Every decision is recorded, so the next change starts from what your team already learned.
+The core is free, runs locally, and it works with any model.
+
+#### Shorter
+
+AI agents write code fast, but developers are left untangling 40-file diffs to figure out what the agent was thinking.
+RunWield fixes that. It has the AI write a plan you review before it touches your code, then proves the finished work
+matches that plan. It's free, runs locally, and works with any model.
+
+**Core metaphor:** Senior Tech Lead in a box
 
 RunWield is the controlled point between agent speed and human trust. The brand should show that work can move fast, but
 only after it passes the right gates: risk routing, Plan review, implementation, CI, and separate review.

@@ -666,16 +666,15 @@ export async function steerRootSession(hostedSession, text, images) {
  * @param {import('./hosted-session.js').HostedSession | string} hostedSession
  * @param {string | import('./types.js').ImageAttachment[]} [text]
  * @param {import('./types.js').ImageAttachment[]} [images]
+ * @param {(target: import('@earendil-works/pi-coding-agent').AgentSession) => void} [beforeSteer]
  * @returns {Promise<import('@earendil-works/pi-coding-agent').AgentSession | null>}
  */
-export async function steerRootSessionWithTarget(hostedSession, text, images) {
+export async function steerRootSessionWithTarget(hostedSession, text, images, beforeSteer) {
     const targetHostedSession = requireHostedSession(hostedSession, "steerRootSessionWithTarget");
     const root = /** @type {any} */ (targetHostedSession.getRootAgentSession());
-    return await steerAgentSessionWithTarget(
-        root && isExecutionSession(root) ? getExecutionSteeringTarget(root) : root,
-        text,
-        images,
-    );
+    const target = root && isExecutionSession(root) ? getExecutionSteeringTarget(root) : root;
+    if (target?.isStreaming && beforeSteer) beforeSteer(target);
+    return await steerAgentSessionWithTarget(target, text, images);
 }
 
 /**
@@ -2060,6 +2059,18 @@ export async function buildAgentSession({
         finalCustomTools.push(createSetSessionNameTool({ hostedSession: targetHostedSession || undefined }));
     }
 
+    if (
+        tools.includes("background_task") && targetHostedSession &&
+        !finalCustomTools.find((t) => t.name === "background_task")
+    ) {
+        const { createBackgroundTaskTool } = await import("../../tools/background-task.ts");
+        finalCustomTools.push(createBackgroundTaskTool({
+            hostedSession: targetHostedSession,
+            cwd: sessionCwd,
+            allowShellStart: tools.includes("bash"),
+        }));
+    }
+
     if (tools.includes("user_interview") && !finalCustomTools.find((t) => t.name === "user_interview")) {
         finalCustomTools.push(createUserInterviewTool({ hostedSession: targetHostedSession || undefined }));
     }
@@ -2410,6 +2421,14 @@ export async function composeClaudeCliBridgedTools({
     if (declared.has("multi_file_edit") && !hasTool("multi_file_edit")) {
         const { createMultiFileEditTool } = await import("../../tools/multi_file_edit.ts");
         finalCustomTools.push(createMultiFileEditTool(cwd));
+    }
+    if (declared.has("background_task") && hostedSession && !hasTool("background_task")) {
+        const { createBackgroundTaskTool } = await import("../../tools/background-task.ts");
+        finalCustomTools.push(createBackgroundTaskTool({
+            hostedSession,
+            cwd,
+            allowShellStart: declared.has("bash"),
+        }));
     }
     const effectiveMcpRootTools = mcpRootTools || hostedSession?.getMcpRootTools?.() || [];
     for (const tool of effectiveMcpRootTools) {
@@ -4036,7 +4055,8 @@ export async function runRootTurn({
         if (backend === "agy-cli") assertAgyCliImageInputSupported(effectiveImages);
         dispatch = prepareRequestDispatch(sessionManager, {
             userRequest: effectiveUserRequest,
-            dispatchKind,
+            dispatchKind: targetHostedSession.generatedTaskTurnId ? "background_task_result" : dispatchKind,
+            ...(targetHostedSession.generatedTaskTurnId ? { taskId: targetHostedSession.generatedTaskTurnId } : {}),
             backend,
         });
         meta.rootTurnCount += 1;
@@ -4194,6 +4214,7 @@ export async function runNonInteractiveAgentPrompt({
  * @param {boolean} [opts.persistModelChange] - False for temporary Claude CLI turns that must not append a root model marker.
  * @param {boolean} [opts.disableAutoCompaction] - True when a temporary turn must fail instead of compacting root context.
  * @param {AbortSignal} [opts.signal] - Optional cancellation signal for transient delegated sessions.
+ * @param {boolean} [opts.background] - Independent read-only child without foreground ownership.
  * @param {import('./request-dispatch.ts').RequestDispatchKind} [opts.dispatchKind]
  * @param {import('./managed-operation.ts').ManagedOperationCapability} [opts.managedOperationCapability]
  * @param {ExecutionSessionBuiltCallback} [opts.onExecutionSessionBuilt]
@@ -4202,7 +4223,7 @@ export async function runNonInteractiveAgentPrompt({
 export async function runIsolatedAgentSession(opts) {
     const { withWorkflowToolEventSource, WorkflowStepCompleted } = await import("../workflow/workflow-tool-events.ts");
     const hostedSession = requireHostedSession(opts.hostedSession, "runIsolatedAgentSession");
-    const managedOperationCapability = opts.managedOperationCapability ||
+    const managedOperationCapability = opts.background ? null : opts.managedOperationCapability ||
         hostedSession.getManagedOperationCapability?.() || null;
     const projectStateContext = opts.projectStateContext ?? hostedSession.getProjectStateContext();
 
@@ -4230,7 +4251,7 @@ export async function runIsolatedAgentSession(opts) {
 
     try {
         opts.signal?.throwIfAborted();
-        subscriberState = executionSession && executionSession.kind !== "pi"
+        subscriberState = opts.background || executionSession && executionSession.kind !== "pi"
             ? {
                 resetTurn: () => {},
                 drainInvokedToolNames: () => [],
@@ -4238,21 +4259,19 @@ export async function runIsolatedAgentSession(opts) {
                 unsubscribe: () => {},
             }
             : attachSessionEventSubscribers(session, agentDef, opts.debugLogPath, hostedSession, opts.signal);
-        hostedSession.addSubAgentSession(
-            steeringTarget,
-            managedOperationCapability,
-        );
-        registeredSubAgent = true;
-
-        const finalModel = resolvedModel ? `${resolvedModel.provider}/${resolvedModel.id}` : undefined;
-        agentInfoId = hostedSession.pushAgentInfo(
-            agentDef.displayName,
-            finalModel,
-            resolvedModel?.provider || "",
-            opts.agentName,
-        );
+        if (!opts.background) {
+            hostedSession.addSubAgentSession(steeringTarget, managedOperationCapability);
+            registeredSubAgent = true;
+            const finalModel = resolvedModel ? `${resolvedModel.provider}/${resolvedModel.id}` : undefined;
+            agentInfoId = hostedSession.pushAgentInfo(
+                agentDef.displayName,
+                finalModel,
+                resolvedModel?.provider || "",
+                opts.agentName,
+            );
+            steeringTargetId = hostedSession.pushSteeringTargetSession(steeringTarget);
+        }
         opts.onExecutionSessionBuilt?.(built);
-        steeringTargetId = hostedSession.pushSteeringTargetSession(steeringTarget);
         opts.signal?.addEventListener("abort", abortChild, { once: true });
         opts.signal?.throwIfAborted();
         const dispatch = prepareRequestDispatch(session.sessionManager, {

@@ -21,8 +21,15 @@ executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-09-22"
 origin: "internal"
-status: "ready_for_work"
 userVerifiedAt: null
+targetBranch: "main"
+status: "validated"
+validatedCommit: "298934f4eb8b1d9057eb6ef8e2d399beaf57c6cd"
+workRecord:
+    status: "generated"
+    recordId: "de52a432-a53a-4024-8823-ee7e123f8d95"
+    path: "docs/work-records/2026-09-27-session-background-tasks-delivered-across-hosts.md"
+    lastAttemptAt: "2026-09-27T00:31:53.150Z"
 ---
 
 # Session Background Tasks

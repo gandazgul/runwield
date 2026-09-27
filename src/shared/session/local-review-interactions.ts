@@ -4,7 +4,7 @@
  * Runs local browser review surfaces for adapter-neutral Runtime interactions.
  */
 
-import { SYSTEM_BROWSER_PORT } from "../browser-port.ts";
+import { NO_OPEN_BROWSER_PORT } from "../browser-port.ts";
 import { RuntimeInteractionOutcomes, RuntimeInteractionTypes } from "./session-runtime-interactions.js";
 import { runCodeReview } from "../../ui/review/code-review.ts";
 import { submitPlanForReview } from "../../ui/review/plan-review.ts";
@@ -35,7 +35,7 @@ export async function requestLocalReviewInteraction(request, signal, options = {
                 options.onSurfaceReady?.(surface.url);
             },
             signal,
-            browser: SYSTEM_BROWSER_PORT,
+            browser: NO_OPEN_BROWSER_PORT,
         });
         return {
             outcome: result.canceled
@@ -59,7 +59,7 @@ export async function requestLocalReviewInteraction(request, signal, options = {
             reviewConversation: meta.reviewConversation,
             agentLabel: typeof meta.agentLabel === "string" ? meta.agentLabel : undefined,
             signal,
-            browser: SYSTEM_BROWSER_PORT,
+            browser: NO_OPEN_BROWSER_PORT,
             onSurfaceReady: typeof meta.onSurfaceReady === "function" ? meta.onSurfaceReady : options.onSurfaceReady,
         });
         return {
@@ -80,7 +80,7 @@ export async function requestLocalReviewInteraction(request, signal, options = {
             artifactKind,
             title: meta.title,
             path: meta.artifactPath,
-            browser: SYSTEM_BROWSER_PORT,
+            browser: NO_OPEN_BROWSER_PORT,
         });
         try {
             await options.onSurfaceReady?.(surface.url);

@@ -423,6 +423,44 @@ Deno.test("chat view keeps sidebar tabs on the first row above a queued steering
     }
 });
 
+Deno.test("chat view tracks quick fix validation in the workflow sidebar", async () => {
+    const terminal = new VirtualTerminal({ columns: 150, rows: 28 });
+    const tui = new TuiAltScreen(terminal);
+    const view = await createChatView({
+        tui,
+        suppressStartupHeader: true,
+        getSessionId: () => "quick-fix-session",
+        sessionRuntime: {
+            getSessionSnapshot: () => ({
+                cwd: "/tmp/runwield-quick-fix-fixture",
+                activeModel: { model: "fixture", provider: "test" },
+                managed: { generation: 0 },
+                busy: true,
+                workflowContext: { routingIntent: "QUICK_FIX", liveQuestion: true },
+            }),
+        },
+        setActiveModel: () => Promise.resolve({ status: "active" }),
+    });
+    try {
+        tui.start();
+        view.uiAPI.updateValidationProgress?.({
+            kind: "mechanical",
+            outcome: "running",
+            stage: "ci",
+            checks: { ci: "running", semanticReview: "skipped", humanReview: "skipped", merge: "skipped" },
+        });
+        tui.renderNow(true);
+        await terminal.flush();
+        const screen = terminal.getScreenText();
+        assertStringIncludes(screen, "● Tests and CI");
+        assertEquals(screen.includes("● Planning"), false);
+        assertEquals(screen.includes("Answer agent"), false);
+    } finally {
+        view.dispose();
+        tui.stop();
+    }
+});
+
 Deno.test("chat view keeps block backgrounds out of the sidebar when the scrollbar is visible", async () => {
     const terminal = new VirtualTerminal({ columns: 150, rows: 20 });
     const tui = new TuiAltScreen(terminal);

@@ -1,5 +1,18 @@
 import { useEffect } from "react";
 
+function markLongCallouts(root: ParentNode, marked?: Set<HTMLElement>) {
+    // Reserve room for the print margins, so only blocks that cannot fit may split.
+    for (
+        const callout of root.querySelectorAll<HTMLElement>(
+            ".rw-plan-review [data-print-region='article'] :is(.alert, .directive, blockquote)",
+        )
+    ) {
+        if (callout.getBoundingClientRect().height <= 800) continue;
+        callout.dataset.printLongCallout = "";
+        marked?.add(callout);
+    }
+}
+
 /** Print a static document, independent of the application's scroll and popup layers. */
 export async function printDocument() {
     const article = [...document.querySelectorAll<HTMLElement>(".rw-plan-review [data-print-region='article']")]
@@ -46,6 +59,8 @@ export async function printDocument() {
     );
     await target.fonts.ready;
     await Promise.all([...target.images].map((image) => image.decode().catch(() => {})));
+    // The edit-mode source is hidden; measure the visible clone in the print frame.
+    markLongCallouts(target);
     // Paint the static document before Chrome opens its blocking print dialog.
     targetWindow.requestAnimationFrame(() =>
         setTimeout(() => {
@@ -62,9 +77,11 @@ export async function printDocument() {
 export function useDocumentPrintMode() {
     useEffect(() => {
         const views = new Map<SVGSVGElement, string>();
+        const longCallouts = new Set<HTMLElement>();
         function prepare() {
             if (document.documentElement.classList.contains("plannotator-print")) return;
             document.documentElement.classList.add("plannotator-print");
+            markLongCallouts(document, longCallouts);
             for (const svg of document.querySelectorAll<SVGSVGElement>(".rw-plan-review svg[id^='mermaid-']")) {
                 if (views.has(svg)) continue;
                 const bounds = svg.getBBox();
@@ -81,6 +98,8 @@ export function useDocumentPrintMode() {
         }
         function restore() {
             document.documentElement.classList.remove("plannotator-print");
+            for (const callout of longCallouts) delete callout.dataset.printLongCallout;
+            longCallouts.clear();
             for (const [svg, viewBox] of views) {
                 if (viewBox) svg.setAttribute("viewBox", viewBox);
                 else svg.removeAttribute("viewBox");

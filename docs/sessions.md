@@ -52,6 +52,25 @@ messages load on demand in Workspace.
 For a remote machine, use your existing HTTPS proxy or private tunnel. For a container with a mounted repository, see
 [Workspace in a container](workspace-container.md).
 
+## Background work
+
+An Agent with shell access can start an independent command with `background_task`:
+
+```text
+background_task({ action: "start", command: "deno task test" })
+background_task({ action: "status", task_id: "<returned-task-id>" })
+background_task({ action: "cancel", task_id: "<returned-task-id>" })
+```
+
+A read-only delegate can run independently with
+`delegate_agent({ mode: "read", brief: "Inspect the parser", background: true })`. A background write delegate is not
+supported. Up to five Background Tasks may be active in one Session in the starting host process. Status and
+cancellation work only there; no other process can recover or replay the task after exit. A finished result reaches the
+Agent automatically while it works or in a later turn. Results at most 8 KiB appear inline; larger output is available
+from a local log path. Check the final result before treating a command as passed. Closing a browser tab or ending a
+normal turn does not cancel work; Stop and host shutdown do. Background output cannot answer an interaction or approve a
+Plan. See [Core Session continuity](prd/runwield-core-prd.md#session-continuity).
+
 ## Session names and terminal titles
 
 Fresh sessions start with a terminal title of `wld - <current folder>`. When Router completes Triage, it provides a
