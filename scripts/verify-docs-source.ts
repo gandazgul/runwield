@@ -46,10 +46,12 @@ export async function verifyDocsSource(cwd: string, documentedTag: string, sourc
     if (productPath) throw new Error(`Docs branch changes product path: ${productPath}`);
 }
 
-if (import.meta.main) {
+async function main(): Promise<void> {
     const [documentedTag, sourceSha] = Deno.args;
     if (!documentedTag || !sourceSha) {
         throw new Error("Usage: verify-docs-source.ts <documented-tag> <source-sha>");
     }
     await verifyDocsSource(getCwd(), documentedTag, sourceSha);
 }
+
+if (import.meta.main) await main();

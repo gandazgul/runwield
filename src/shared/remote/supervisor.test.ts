@@ -95,6 +95,10 @@ async function compiledSupervisor(): Promise<string> {
     return binary = executable;
 }
 
+function sshfsStallTestDisabled(): boolean {
+    return Deno.env.get("WLD_TEST_SSHFS_STALL") !== "1";
+}
+
 async function running(pid: number): Promise<boolean> {
     try {
         const text = await Deno.readTextFile(`/proc/${pid}/stat`);
@@ -119,7 +123,7 @@ for (
     Deno.test({
         name: `production supervisor cleans up on ${scenario} without stopping unrelated work`,
         // Opt in on a Linux host with working SSHFS and /dev/fuse, as in sftp-mount.test.ts.
-        ignore: Deno.build.os !== "linux" || Deno.env.get("WLD_TEST_SSHFS_STALL") !== "1" || Deno.uid() === 0,
+        ignore: Deno.build.os !== "linux" || sshfsStallTestDisabled() || Deno.uid() === 0,
         fn: async () => {
             const executable = await compiledSupervisor();
             const root = await Deno.makeTempDir();
