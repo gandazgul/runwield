@@ -21,7 +21,13 @@ createdAt: "2026-09-26T00:22:48-04:00"
 origin: "internal"
 userVerifiedAt: null
 targetBranch: "main"
-status: "validated_reviewer"
+status: "validated"
+validatedCommit: "c7cdea16e1e0d3cb714bb64f7bef64f4e580bcae"
+workRecord:
+    status: "generated"
+    recordId: "a4624808-efe4-4057-9ee9-8c7322165022"
+    path: "docs/work-records/2026-09-27-readable-plans-and-shared-callouts.md"
+    lastAttemptAt: "2026-09-27T14:38:13.128Z"
 ---
 
 # Make Plans Easier to Read
