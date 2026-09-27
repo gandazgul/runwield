@@ -73,10 +73,12 @@ Later Candidates resolve the live pushed Release Branch from `origin` and tag th
 previous Candidate. If the Release Branch is missing, changed during preflight, or has unrelated history, stop without
 publishing a tag.
 
-Only release fixes belong on an active Release Branch. Apply each fix there first, push it, create the next Candidate,
-and then explicitly forward-port the fix to `main`. Never merge `main` into an active Release Branch. Git cannot
-classify a commit as a fix; review enforces this scope. A Plan for a release fix must set its target branch to the
-applicable Release Branch. Ordinary feature Plans continue to target `main`.
+Only release fixes belong on an active Release Branch. Apply each fix there first and push it. To explicitly
+forward-port the fix to `main`, merge the pushed Release Branch into `main` and push `main` before creating the next
+Candidate. Verify that the fix commit is an ancestor of the pushed `main`; do not count a cherry-pick or a conflict
+resolution that drops the fix as integration. Never merge `main` into an active Release Branch. Git cannot classify a
+commit as a fix; review enforces this scope. A Plan for a release fix must set its target branch to the applicable
+Release Branch. Ordinary feature Plans continue to target `main`.
 
 The grandfathered Candidate series `v0.8.16`, `v0.9.0`, `v0.9.2`, `v0.9.3`, `v0.9.4`, `v0.9.6`, and `v0.10.1` retain the
 old `HEAD` source rule. This fixed list does not grow automatically. A missing branch does not make a new series legacy.
@@ -134,9 +136,10 @@ git fetch origin release/vX.Y.Z
 git switch --create release/vX.Y.Z --track origin/release/vX.Y.Z
 ```
 
-If that local branch already exists, switch to it and verify it against `origin` instead of recreating it. Push every
-fix before creating the next Candidate. Keep the Release Branch after Stable promotion; cleanup and ongoing patch
-maintenance are separate decisions.
+If that local branch already exists, switch to it and verify it against `origin` instead of recreating it. After each
+pushed fix, merge the Release Branch into `main`, resolve conflicts without dropping the fix, push `main`, and verify
+that the fix commit is on remote `main` before creating the next Candidate. Keep the Release Branch while Candidates are
+active. After Stable publication, merge its final tip into `main` and delete the branch as described below.
 
 ## Candidate promotion
 
@@ -150,9 +153,13 @@ maintenance are separate decisions.
 6. Run `deno task release:promote --candidate <candidate-tag>`.
 7. Wait for the Stable tag-triggered GitHub workflow to publish Stable assets.
 8. Edit the published Stable release with the curated temporary notes and verify they landed.
+9. For a branch-based series, fetch the Release Branch and merge its final remote tip into `main`. Resolve conflicts
+   without losing its fixes, push `main`, and verify that the tip is an ancestor of remote `main`. Delete the remote and
+   local Release Branch only after that verification. Do not delete it if Stable publication is still incomplete.
 
 Promotion creates a Stable tag at the Candidate tag's peeled commit. The Stable tag annotation may include
-`Promoted-From: <candidate-tag>` and must not persist a separate source commit field.
+`Promoted-From: <candidate-tag>` and must not persist a separate source commit field. The Release Branch may have
+advanced past the promoted Candidate; merging its tip into `main` does not change the immutable Stable tag.
 
 ## Direct Stable creation
 
@@ -298,4 +305,8 @@ gate; it does not trigger an automatic retry or a reduced check.
 - Promoted Stable binaries report the Stable identity, for example `runwield v0.8.12 (...)`.
 - Candidate and promoted Stable tags peel to the same source commit.
 - Candidate publication leaves GitHub latest on the prior Stable.
-- Local branches, index, working-tree changes, and untracked files remain untouched throughout the release operation.
+- Every pushed Release Branch fix is on remote `main` before the next Candidate is created.
+- After Stable publication, the final Release Branch tip is on remote `main` before the branch is deleted locally and
+  remotely.
+- Local branches, index, working-tree changes, and untracked files remain untouched by the release command; the required
+  merge and branch cleanup are separate operator steps.

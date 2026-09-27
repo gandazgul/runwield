@@ -19,8 +19,9 @@ Base holds the cursor on for two frames, then off for two frames (600 ms each). 
 eight-frame sequence is normal/on, normal/on, blink/off, normal/off, normal/on, normal/on, blink/off, normal/off. The
 cursor never moves. Static poses show normal eyes and a solid cursor.
 
-Init uses Base. Guide shares Router's frames through `AGENT_MASCOT_ALIASES`, included in the JSON export. The terminal
-demo accepts `guide`; the browser selector names the shared option Router / Guide.
+Init and Router use Base through `AGENT_MASCOT_ALIASES`, included in the JSON export. Guide alone uses the direction
+sign. The terminal demo accepts `init`, `router`, and `guide`; the browser selector labels these Base / Init / Router
+and Guide.
 
 All Engineer variants share Engineer's keyboard through the same alias map: Plan Engineer, Frontend Engineer, and
 Reviewer Feedback Engineer. Recorder and Tester are intentionally omitted from the visible mascot set per the owner.

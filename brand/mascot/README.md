@@ -20,9 +20,11 @@ authored on one small logical grid and checked at actual size in both surfaces.
 
 ## Roles
 
+Init and Router share Base, with the blinking terminal cursor. The direction sign belongs to Guide alone.
+
 | Agent            | Identifying feature                         | Suggested motion                                      |
 | ---------------- | ------------------------------------------- | ----------------------------------------------------- |
-| Router / Guide   | Direction paddle                            | Small paddle turn                                     |
+| Guide            | Direction paddle                            | Small paddle turn                                     |
 | Planner / Slicer | Clipboard                                   | One writing hand                                      |
 | Architect        | Three stacked building blocks               | Three successive drops, pause, disappear, repeat      |
 | All Engineers    | Keyboard                                    | Alternating hands                                     |

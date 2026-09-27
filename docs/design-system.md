@@ -228,10 +228,11 @@ Animate only during live busy activity. Hold a still pose during answers, idle, 
 bulb indicates observed answer text, never estimated completion. Browser motion stops offscreen, in hidden tabs, and
 under reduced motion. Unmounting or closing a surface cancels its clock. Reserve dimensions across frame changes.
 
-Init uses Base; Guide uses Router; Slicer uses Planner; every Engineer variant shares Engineer. Delegated agents inherit
-the parent's identity (pass the inherited ancestor for nested delegation). Recorder and Tester have no mascot. Unknown
-named agents use Base. Operator uses the approved lever; the earlier gear remains commented in the source for reference.
-These shared identity and activity requirements are owned by [Core](prd/runwield-core-prd.md#agent-mascots).
+Init and Router use Base; Guide alone carries the direction sign; Slicer uses Planner; every Engineer variant shares
+Engineer. Delegated agents inherit the parent's identity (pass the inherited ancestor for nested delegation). Recorder
+and Tester have no mascot. Unknown named agents use Base. Operator uses the approved lever; the earlier gear remains
+commented in the source for reference. These shared identity and activity requirements are owned by
+[Core](prd/runwield-core-prd.md#agent-mascots).
 
 ### Session timeline and control patterns
 
