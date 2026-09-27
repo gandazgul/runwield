@@ -129,7 +129,7 @@ Deno.test("a Plan review reference survives a writer process crash before settle
         setInterval(() => {}, 1000);
     `;
     const worker = new Deno.Command(Deno.execPath(), {
-        args: ["eval", "-A", script],
+        args: ["eval", script],
         stdout: "null",
         stderr: "piped",
     }).spawn();

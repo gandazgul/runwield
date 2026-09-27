@@ -50,6 +50,9 @@ exec /bin/sh -c "$4"
             identity,
             `export const BUILD_ID = "${"a".repeat(64)}";\nexport const REMOTE_PROTOCOL_VERSION = 1;\n`,
         );
+        // A development launcher requires a local Linux artifact, regardless of the release build version.
+        const version = join(root, "version.js");
+        await Deno.writeTextFile(version, 'export const VERSION = "development";\n');
         const config = join(root, "deno.json");
         const projectConfig = new URL("../../../deno.json", import.meta.url);
         const { imports } = JSON.parse(await Deno.readTextFile(projectConfig));
@@ -67,6 +70,7 @@ exec /bin/sh -c "$4"
                         ]),
                     ),
                     [new URL("../../shared/build-identity.js", import.meta.url).href]: toFileUrl(identity).href,
+                    [new URL("../../shared/version.js", import.meta.url).href]: toFileUrl(version).href,
                 },
             }),
         );

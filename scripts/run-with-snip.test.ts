@@ -66,7 +66,6 @@ Deno.test("a timed-out test stops its process and reports the timeout", async ()
     try {
         const result = await runBoundedTest([
             "eval",
-            "-A",
             `Deno.writeTextFileSync(${JSON.stringify(pidPath)}, String(Deno.pid)); setInterval(() => {}, 1000);`,
         ], { failureLabel: "tests", timeoutMs: 500 });
         failureLogPath = result.failureLogPath || "";
