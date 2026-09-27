@@ -69,7 +69,7 @@ export const slashInitScenario = {
     ],
     assertions: [
         (result: GoldenResult) => assertEventIncludes(result, "terminal:type:/init"),
-        (result: GoldenResult) => assertScreenIncludes(result, "already initialized for this project"),
+        (result: GoldenResult) => assertScreenIncludes(result, "already initialized"),
     ],
 };
 

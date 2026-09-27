@@ -74,7 +74,7 @@
         "@base-ui/react/": "npm:@base-ui/react@^1.7.0/",
         "@zag-js/dialog": "npm:@zag-js/dialog@^1.42.0",
         "@zag-js/preact": "npm:@zag-js/preact@^1.43.0",
-        "vite": "npm:vite@^8.1.5",
+        "vite": "npm:vite@^8.3.0",
         "esbuild": "npm:esbuild@^0.28.2",
         "codemirror": "npm:codemirror@^6.0.2",
         "@codemirror/commands": "npm:@codemirror/commands@^6.11.0",

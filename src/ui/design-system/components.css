@@ -1372,6 +1372,62 @@ button.danger-action:disabled {
     padding-top: 0.85rem;
 }
 
+/*
+ * Document callouts: Markdown `> [!WARNING]`, `[!NOTE]`, and `[!TIP]` alerts in Plan Review and the artifact reader.
+ * Styling only. Labels, icons, and text stay in the DOM so annotation offsets do not move.
+ */
+.rw-plan-review [data-block-type="alert"] {
+    --rw-callout-color: var(--rw-callout-neutral);
+    margin: 1.25rem 0;
+    padding: 0.75rem 1rem 0.85rem;
+    border: 1px solid color-mix(in oklab, var(--rw-callout-color) 40%, var(--rw-border));
+    border-radius: var(--rw-radius-card);
+    background: color-mix(in oklab, var(--rw-callout-color) 9%, var(--rw-surface));
+    color: var(--rw-text);
+    overflow-wrap: anywhere;
+}
+
+.rw-plan-review [data-alert-kind="warning"] {
+    --rw-callout-color: var(--rw-callout-warning);
+}
+
+.rw-plan-review [data-alert-kind="note"] {
+    --rw-callout-color: var(--rw-callout-note);
+}
+
+.rw-plan-review [data-alert-kind="tip"] {
+    --rw-callout-color: var(--rw-callout-tip);
+}
+
+.rw-plan-review [data-alert-kind="caution"] {
+    --rw-callout-color: var(--rw-callout-caution);
+}
+
+.rw-plan-review [data-block-type="alert"] .alert-title {
+    margin-bottom: 0.35rem;
+}
+
+.rw-plan-review [data-block-type="alert"] .alert-title:not(:has(.sr-only)) {
+    color: var(--rw-callout-color);
+    font-size: 0.75rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.rw-plan-review [data-block-type="alert"] .alert-title svg {
+    flex: none;
+    width: 0.9rem;
+    height: 0.9rem;
+}
+
+.rw-plan-review [data-block-type="alert"] > :is(p, ul, ol) {
+    color: var(--rw-text);
+}
+
+.rw-plan-review [data-block-type="alert"] strong {
+    color: var(--rw-text-strong);
+}
+
 /* Guided Review: Plannotator chapter cards with RunWield explanation blocks. */
 .rw-guide-explainer {
     container: guided-review / inline-size;

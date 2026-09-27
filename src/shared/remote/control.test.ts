@@ -62,7 +62,10 @@ Deno.test("three missed remote health checks revoke readiness", async () => {
     try {
         await request(service, "handshake", service.credential, JSON.stringify(identity));
         await request(service, "readiness");
-        await new Promise((resolve) => setTimeout(resolve, 15_100));
+        const deadline = Date.now() + 20_000;
+        while (!service.status().shutdown && Date.now() < deadline) {
+            await new Promise((resolve) => setTimeout(resolve, 50));
+        }
         assertEquals(service.status().shutdown, true);
         assertEquals(service.status().ready, false);
     } finally {

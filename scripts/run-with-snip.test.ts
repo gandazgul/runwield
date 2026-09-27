@@ -1,6 +1,6 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
-import { runWithSnip } from "./run-with-snip.ts";
+import { runBoundedTest, runWithSnip } from "./run-with-snip.ts";
 
 Deno.test("runWithSnip preserves compact success output", async () => {
     const root = await Deno.makeTempDir({ prefix: "runwield-snip-command-success-" });
@@ -57,6 +57,34 @@ exit 1
     } finally {
         if (failureLogPath) await Deno.remove(failureLogPath).catch(() => {});
         await Deno.remove(root, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("a timed-out test stops its process and reports the timeout", async () => {
+    const pidPath = await Deno.makeTempFile({ prefix: "runwield-test-timeout-" });
+    let failureLogPath = "";
+    try {
+        const result = await runBoundedTest([
+            "eval",
+            "-A",
+            `Deno.writeTextFileSync(${JSON.stringify(pidPath)}, String(Deno.pid)); setInterval(() => {}, 1000);`,
+        ], { failureLabel: "tests", timeoutMs: 500 });
+        failureLogPath = result.failureLogPath || "";
+        assertEquals(result.code, 124);
+        assertStringIncludes(result.stderr, "tests timed out");
+        assertStringIncludes(await Deno.readTextFile(failureLogPath), "exceeded 0.5s");
+        const pid = Number(await Deno.readTextFile(pidPath));
+        let stopped = false;
+        try {
+            Deno.kill(pid, "SIGTERM");
+        } catch (error) {
+            if (!(error instanceof Deno.errors.NotFound)) throw error;
+            stopped = true;
+        }
+        assertEquals(stopped, true);
+    } finally {
+        if (failureLogPath) await Deno.remove(failureLogPath).catch(() => {});
+        await Deno.remove(pidPath).catch(() => {});
     }
 });
 

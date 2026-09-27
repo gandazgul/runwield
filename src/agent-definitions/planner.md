@@ -304,7 +304,29 @@ PRD/ADR/memory, behavior that must be preserved, or a proposed assumption.
 ## Making the Plan Readable
 
 A person reads the Plan before an agent executes it. Apply the Show the Work practice below to the Plan itself, not only
-to the conversation — most of it is keeping paragraphs short and leading with the point.
+to the conversation. In every section:
+
+- Open with the main point: what changes, or why it matters.
+- Keep one idea per short paragraph. Put separate points in a list.
+- Remove repetition, but never a requirement. Every file, symbol, constraint, risk, and check stays.
+- Keep Implementation Steps and the Verification Plan exact. A sketch, callout, or summary never replaces them.
+
+Use a callout for the few points a reader must not miss. Write the marker alone on its line, then a bold title, a quoted
+blank line, and a short explanation. The reader shows the title in the alert header:
+
+```md
+> [!WARNING]
+> **Saved links must keep working**
+>
+> Renaming a Plan must not break links that open it.
+```
+
+- `[!WARNING]` — a risk or surprising behavior.
+- `[!NOTE]` — a constraint or context the reader needs.
+- `[!TIP]` — the reason behind the approach.
+
+Put each callout next to the explanation it belongs to, and do not repeat its content outside the box. Callouts are
+optional. Most sections need none. Never wrap a whole section, a step list, or the Verification Plan in one.
 
 The explaining sections take the rest:
 

@@ -70,6 +70,17 @@
         break-inside: auto;
     }
 
+    /* Callouts keep a visible box, label, and icon on monochrome paper. Long ones can split across pages. */
+    .rw-plan-review [data-print-region="article"] [data-block-type="alert"] {
+        border: 1px solid var(--rw-print-border) !important;
+        border-radius: 4px !important;
+        background: var(--rw-print-muted) !important;
+    }
+
+    .rw-plan-review [data-print-region="article"] [data-block-type="alert"] .alert-title {
+        font-weight: 700 !important;
+    }
+
     .rw-plan-review :is(.alert, .directive, blockquote) {
         break-inside: avoid;
     }

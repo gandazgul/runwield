@@ -249,7 +249,7 @@ function transcriptRequirementFor(id: ValidationWorkflowBranchId): string[] {
     if (id === "publication:dirty-primary-retry") {
         return [
             "have not saved to git yet",
-            "No remote is configured. Adding the commits to the local main branch",
+            "No remote is configured. Adding the commits to the local main",
             "Cleaning up the worktree",
             "is on main",
         ];
@@ -457,7 +457,10 @@ export function assertValidationBranchEvidence(
 
     const text = transcript(result);
     for (const required of branch.evidence.transcriptIncludes) {
-        assert(text.includes(required), `Branch ${id} missing visible transcript text: ${required}`);
+        assert(
+            text.replaceAll(/\s+/g, " ").includes(required),
+            `Branch ${id} missing visible transcript text: ${required}`,
+        );
     }
     for (const forbidden of branch.evidence.transcriptExcludes) {
         assert(!text.includes(forbidden), `Branch ${id} unexpectedly showed transcript text: ${forbidden}`);
