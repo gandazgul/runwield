@@ -30,6 +30,9 @@ workRecord:
     recordId: "de52a432-a53a-4024-8823-ee7e123f8d95"
     path: "docs/work-records/2026-09-27-session-background-tasks-delivered-across-hosts.md"
     lastAttemptAt: "2026-09-27T00:31:53.150Z"
+archivedAt: "2026-09-27T16:57:46.939Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/session-background-tasks.md"
 ---
 
 # Session Background Tasks

@@ -1,8 +1,6 @@
 ---
 planId: "a72d1a30-d67c-4a90-ae8b-27b754fe55ae"
-classification: "FEATURE"
 complexity: "HIGH"
-summary: "Prevent avoidable context-window overflow by monitoring active Agent Sessions, compacting at safe internal turn boundaries, and continuing the same assignment safely."
 affectedPaths:
     - "deno.json"
     - "deno.lock"
@@ -31,9 +29,10 @@ affectedPaths:
     - "src/acp/server.test.js"
     - "docs/sessions.md"
 createdAt: "2026-07-20T23:46:14-04:00"
-updatedAt: "2026-07-27T19:30:00.000Z"
-status: "ready_for_work"
 origin: "internal"
+classification: "PLANNED_CHANGE"
+status: "feedback"
+userVerifiedAt: null
 ---
 
 # Automatic Session Context Resilience
@@ -59,8 +58,19 @@ cancellation and Runtime ownership, and give TUI and ACP the same semantic outco
 architecture with no private Pi workaround. This Plan is therefore suitable for approval-for-later but is blocked until
 a released Pi interface satisfies the dependency contract below.
 
-The user also chose to derive trigger, recovery, and re-arm behavior from the active model context window and Pi's
-existing effective `compaction.reserveTokens`, without introducing competing percentage settings.
+On re-review, the user confirmed two trigger policies:
+
+- Engineer-family Agents retain the early trigger at `min(floor(W * 0.5), 80000)` tokens. The current family is
+  Engineer, Plan Engineer, Frontend Engineer, and Validation Repair Engineer.
+- All other Pi Agents retain the standard trigger strictly above `W - R`, where `W` is the active model context window
+  and `R` is its effective `compaction.reserveTokens`.
+- Post-compaction recovery must prevent repeated ineffective compaction. Context growth alone must not restart that
+  loop. No new user-facing threshold setting is required.
+
+This is a draft under re-review. The remaining sections still describe the earlier single-trigger design and old runtime
+integration. Before final revision, resolve whether a useful Engineer compaction that remains above the early trigger,
+but below `W - R`, may continue with early compaction disarmed or must pause. Then update recovery boundaries, current
+Pi evidence, integration paths, and verification together.
 
 Known workflow phase changes are a separate concern. Planning-to-execution and semantic-review-to-Engineer-repair use
 explicit fresh Session Transcript Segments with bounded seed packets. This Plan protects unexpectedly long activity

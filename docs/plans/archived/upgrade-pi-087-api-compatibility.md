@@ -27,6 +27,9 @@ workRecord:
     recordId: "eadeaf2f-0c2e-409f-8233-724d929d8e04"
     path: "docs/work-records/2026-09-24-pi-0-87-compatibility-upgrade.md"
     lastAttemptAt: "2026-09-24T17:08:32.253Z"
+archivedAt: "2026-09-27T16:37:28.736Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/upgrade-pi-087-api-compatibility.md"
 ---
 
 # Upgrade Pi to 0.87 with API compatibility
