@@ -296,7 +296,7 @@
             </div>
             <div class="family" id="family"></div>
             <p
-                class="note">Init uses Base; Guide shares Router; Slicer shares Planner; all Engineers share the keyboard. Delegated agents inherit their parent’s mascot. Recorder and Tester have no separate visible mascot.</p>
+                class="note">Init and Router use Base; Guide carries the sign; Slicer shares Planner; all Engineers share the keyboard. Delegated agents inherit their parent’s mascot. Recorder and Tester have no separate visible mascot.</p>
             <h2 id="motionTitle"></h2>
             <p id="motion"></p>
             <div class="frames" id="frames" aria-label="Loop frames"></div>
@@ -320,7 +320,7 @@
                 <div class="placement startup" id="startup"
                     hidden><img src="STARTUP_IMAGE" alt="RunWield TUI startup screenshot supplied by the user"><svg class="mascot" viewBox="0 0 20 18" shape-rendering="crispEdges" aria-label="Proposed mascot placement"><path class="live-path"/></svg></div>
                 <p
-                    class="note">The screenshot labels are unchanged. Select Engineer for the session screenshot or Router for startup. The overlay shows a conservative full terminal footprint. Final integration must reserve this space so text and expanded sidebars cannot overlap it.</p>
+                    class="note">The screenshot labels are unchanged. Select Engineer for the session screenshot or Base / Init / Router for startup. The overlay shows a conservative full terminal footprint. Final integration must reserve this space so text and expanded sidebars cannot overlap it.</p>
             </section>
             <section>
                 <h2>Short-terminal fallback</h2>
@@ -340,8 +340,8 @@
         /* DATA */
         const $ = (id) => document.getElementById(id);
         const names = {
-            base: "Base / Init",
-            router: "Router / Guide",
+            base: "Base / Init / Router",
+            guide: "Guide",
             planner: "Planner / Slicer",
             architect: "Architect",
             engineer: "Engineers",
@@ -352,8 +352,7 @@
         const descriptions = {
             base:
                 "The cursor holds on for two frames and off for two frames: 600 ms each. Eye blinks stay on frames 3 and 7; the cursor stays fixed.",
-            router:
-                "Router and Guide share the direction paddle. Its arrow alternates direction while Router considers where the work belongs.",
+            guide: "Guide alone carries the direction sign. Its arrow alternates while Guide works; Init and Router use Base.",
             planner:
                 "Planner and Slicer share a clipboard. A pencil mark moves down it. The clipboard stays at the side so the face remains visible.",
             architect:
@@ -440,7 +439,7 @@
         $("screenshot").onchange = (event) => {
             $("triage").hidden = event.target.value !== "triage";
             $("startup").hidden = event.target.value !== "startup";
-            select(event.target.value === "triage" ? "engineer" : "router");
+            select(event.target.value === "triage" ? "engineer" : "base");
         };
         const visibleViews = new Set();
         const observer = new IntersectionObserver((entries) =>

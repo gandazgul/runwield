@@ -5,17 +5,20 @@ import { mascotPose } from "./mascot.ts";
 Deno.test("mascot identities follow aliases, hidden agents and inherited delegation", () => {
     for (
         const [agent, expected] of [
-            ["Guide", "router"],
+            ["Guide", "guide"],
             ["Slicer", "planner"],
             ["Init", "base"],
+            ["Router", "base"],
             ["Frontend Engineer", "engineer"],
             ["validation-repair-engineer", "engineer"],
             ["reviewer-feedback-engineer", "engineer"],
             ["custom-specialist", "base"],
         ]
     ) assertEquals(mascotRoleForAgent(agent), expected);
-    assertEquals(mascotRoleForAgent("delegated", "guide"), "router");
+    assertEquals(mascotRoleForAgent("delegated", "guide"), "guide");
     assertEquals(mascotRoleForAgent("delegated", "frontend-engineer"), "engineer");
+    assertEquals(mascotRoleForAgent("delegated", "router"), "base");
+    assertEquals(mascotRoleForAgent("delegated", "init"), "base");
     assertEquals(mascotRoleForAgent("delegated"), undefined);
     for (const agent of ["recorder", "tester"]) {
         assertEquals(mascotRoleForAgent(agent), undefined);

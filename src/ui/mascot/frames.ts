@@ -1,11 +1,11 @@
 /** Approved, shared one-bit mascot frames for terminal and browser surfaces. */
 export const WIDTH = 20;
 export const HEIGHT = 18;
-export const ROLES = ["base", "router", "planner", "architect", "engineer", "operator", "reviewer", "ideator"] as const;
+export const ROLES = ["base", "guide", "planner", "architect", "engineer", "operator", "reviewer", "ideator"] as const;
 export type Role = typeof ROLES[number];
 export const AGENT_MASCOT_ALIASES: Readonly<Record<string, Role>> = {
     init: "base",
-    guide: "router",
+    router: "base",
     slicer: "planner",
     "plan-engineer": "engineer",
     "frontend-engineer": "engineer",
@@ -77,7 +77,7 @@ export function pixelsFor(role: Role, frame: number, pose: Pose = "thinking"): s
     rect(4 + eyeOffset, 8, 2, blink ? 1 : 2);
     rect(7 + eyeOffset, 8, 2, blink ? 1 : 2);
     if (role === "base" && (pose !== "thinking" || Math.floor(baseStep / 2) % 2 === 0)) rect(15, 14, 2, 2);
-    if (role === "router") {
+    if (role === "guide") {
         rect(14, 8, 1, 6);
         stamp(13, 4, [".#####.", "#######", "#######", "#######", ".#####."]);
         const right = step < 3;
