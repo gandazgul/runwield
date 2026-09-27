@@ -184,10 +184,11 @@ A deliberate Escape key remains available to interrupt the turn.
 
 **Requirement: Recognizable Agent activity across surfaces.**
 
-TUI and Workspace use the same monochrome W mascot and approved role animations. Init uses Base, Guide uses Router,
-Slicer uses Planner, and all Engineer variants share Engineer. Delegated Agents inherit their parent's mascot, including
-an inherited ancestor identity for nested delegation. Recorder and Tester remain invisible; custom named Agents use
-Base. Operator uses a rocking lever; Architect builds three blocks; Reviewer reads a scroll.
+TUI and Workspace use the same monochrome W mascot and approved role animations. Init and Router use Base; Guide alone
+carries the direction sign. Slicer uses Planner, and all Engineer variants share Engineer. Delegated Agents inherit
+their parent's mascot, including an inherited ancestor identity for nested delegation. Recorder and Tester remain
+invisible; custom named Agents use Base. Operator uses a rocking lever; Architect builds three blocks; Reviewer reads a
+scroll.
 
 Mascots animate during live busy work, pause for owner input or idle, and hold an answering pose when assistant text
 arrives. Ideator's filled bulb means an observed answer, not predicted progress. Saved history cannot restart animation.

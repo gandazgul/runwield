@@ -3355,9 +3355,10 @@ Deno.test("SessionRuntime owns steering and deferred queue transitions", async (
     assertEquals(runtime.getQueuedMessages(sessionId), []);
 });
 
-Deno.test("SessionRuntime reconciles consumed steering at turn end when the backend emits no queue update", async () => {
-    const sessionHost = new SessionHost();
-    const runtime = makeRuntime({ sessionHost });
+/** Create a managed turn with a real Session manager and a scripted Agent boundary.
+ * @param {SessionHost} sessionHost
+ */
+function createScriptedManagedTurn(sessionHost) {
     const cwd = runtimeProjectRoot();
     const sessionManager = SessionManager.create(cwd, getRunWieldSessionDir(cwd));
     const agentSession = makeSteeringAgentSession();
@@ -3412,6 +3413,13 @@ Deno.test("SessionRuntime reconciles consumed steering at turn end when the back
     hostedSession.setManagedOperationCapability(capability);
     hostedSession.setRootAgentName("router", capability);
     hostedSession.setRootAgentSession(agentSession, capability);
+    return { hostedSession, agentSession, capability };
+}
+
+Deno.test("SessionRuntime reconciles consumed steering at turn end when the backend emits no queue update", async () => {
+    const sessionHost = new SessionHost();
+    const runtime = makeRuntime({ sessionHost });
+    const { hostedSession, agentSession, capability } = createScriptedManagedTurn(sessionHost);
     /** @type {Array<{ ok: boolean, queued: boolean, error?: string, reason?: string }>} */
     const steeredResults = [];
     hostedSession.setActiveOnMessage(async () => {
