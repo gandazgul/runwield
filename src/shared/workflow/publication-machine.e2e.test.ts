@@ -221,6 +221,57 @@ Deno.test("publication survives process death at every effect and receipt bounda
     }
 });
 
+Deno.test("publication cleanup saves a directory left after Git removed its worktree registration", async () => {
+    const projectRoot = await makeRepo();
+    const worktreeRoot = await Deno.makeTempDir({ prefix: "publication-leftover-worktree-" });
+    const configPath = await Deno.makeTempFile({ prefix: "publication-leftover-driver-", suffix: ".json" });
+    try {
+        const worktree = await createTestWorktreeAttempt({ projectRoot, planName: "leftover", worktreeRoot });
+        await Deno.writeTextFile(join(worktree.path, "implementation.txt"), "published\n");
+        const targetHead = await git(projectRoot, ["rev-parse", "main"]);
+        await addEntry(projectRoot, {
+            id: "attempt-1",
+            planId: "plan-1",
+            planName: "leftover",
+            baseBranch: "main",
+            baseRef: "refs/heads/main",
+            baseCommit: targetHead,
+            branch: worktree.branch,
+            path: worktree.path,
+            status: "completed",
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+        });
+        await Deno.writeTextFile(
+            configPath,
+            JSON.stringify({
+                projectRoot,
+                attemptId: "attempt-1",
+                planName: "leftover",
+                targetBranch: "main",
+                executionBranch: worktree.branch,
+                executionCwd: worktree.path,
+            }),
+        );
+        assertEquals(await runDriver(configPath, "verification_receipt"), 86);
+        await git(projectRoot, ["worktree", "remove", worktree.path]);
+        await Deno.mkdir(join(worktree.path, ".astro", "collections"), { recursive: true });
+        await Deno.writeTextFile(join(worktree.path, ".astro", "collections", "note.txt"), "keep this\n");
+        assertEquals(await runDriver(configPath), 0);
+        assertEquals(await findById(projectRoot, "attempt-1", { migrate: false }), null);
+        assertEquals(await Deno.stat(worktree.path).then(() => true).catch(() => false), false);
+        assertEquals(
+            await Deno.readTextFile(join(`${worktree.path}.saved`, "files", ".astro", "collections", "note.txt")),
+            "keep this\n",
+        );
+        assertEquals((await git(projectRoot, ["branch", "--list", worktree.branch])).trim(), "");
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+        await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
+        await Deno.remove(configPath).catch(() => {});
+    }
+});
+
 Deno.test("publication restart accepts later target commits without publishing again", async (test) => {
     for (const mode of ["remote", "local"] as const) {
         for (const boundary of ["target_effect", "target_receipt", "verification_receipt", "cleanup_effect"]) {

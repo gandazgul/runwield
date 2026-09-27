@@ -37,20 +37,25 @@ export async function preserveUnregisteredPublicationFiles(
         if (canonical === source) return undefined;
     }
     const markerPath = join(executionCwd, ".git");
-    const markerStat = await Deno.lstat(markerPath).catch(() => null);
-    if (!markerStat?.isFile) return undefined;
-    const marker = (await Deno.readTextFile(markerPath)).trim();
-    if (!marker.startsWith("gitdir: ")) return undefined;
-    const admin = resolve(executionCwd, marker.slice("gitdir: ".length));
-    const common = await git(projectRoot, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
-    const adminParent = await Deno.realPath(dirname(admin)).catch(() => dirname(admin));
-    const expectedParent = await Deno.realPath(join(common, "worktrees")).catch(() => join(common, "worktrees"));
-    if (adminParent !== expectedParent) return undefined;
-    try {
-        await Deno.lstat(admin);
-        return undefined;
-    } catch (error) {
-        if (!(error instanceof Deno.errors.NotFound)) throw error;
+    const markerStat = await Deno.lstat(markerPath).catch((error) => {
+        if (error instanceof Deno.errors.NotFound) return null;
+        throw error;
+    });
+    if (markerStat) {
+        if (!markerStat.isFile) return undefined;
+        const marker = (await Deno.readTextFile(markerPath)).trim();
+        if (!marker.startsWith("gitdir: ")) return undefined;
+        const admin = resolve(executionCwd, marker.slice("gitdir: ".length));
+        const common = await git(projectRoot, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
+        const adminParent = await Deno.realPath(dirname(admin)).catch(() => dirname(admin));
+        const expectedParent = await Deno.realPath(join(common, "worktrees")).catch(() => join(common, "worktrees"));
+        if (adminParent !== expectedParent) return undefined;
+        try {
+            await Deno.lstat(admin);
+            return undefined;
+        } catch (error) {
+            if (!(error instanceof Deno.errors.NotFound)) throw error;
+        }
     }
     const saved = publicationSavedFilesPath(executionCwd);
     // Reserve the container without following an existing symlink or replacing

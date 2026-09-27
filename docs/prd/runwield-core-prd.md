@@ -656,8 +656,9 @@ Recovery requirements:
   already gone. It does not repeat publication, alter primary-checkout edits, or ask the user to repair normal Git
   history. If the published commits cannot be confirmed on the target, remaining files are kept.
 - Given confirmed publication and leftover checkout files whose Git registration is gone, cleanup preserves the entire
-  directory in a named saved-files folder and finishes without asking the user to repair Git bookkeeping. It reports
-  that folder and never discards uncommitted, untracked, or ignored files on the strength of commit history alone.
+  directory in a named saved-files folder and finishes without asking the user to repair Git bookkeeping, even if Git
+  already removed the checkout's `.git` file. It reports that folder and never discards uncommitted, untracked, or
+  ignored files on the strength of commit history alone.
 - When interrupted validation resumes, preserved work is reused without silently repeating completed actions or deleting
   unmerged changes.
 - Given stale locks, inconsistent settings/storage, or mismatched Plan bookkeeping during a workflow, when RunWield
