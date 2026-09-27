@@ -1,5 +1,5 @@
 // @ts-nocheck: Deno test imports are checked by scripts/run-tests.js, not Astro check.
-import { assertEquals, assertStringIncludes } from "@std/assert";
+import { assertEquals, assertMatch, assertStringIncludes } from "@std/assert";
 
 const ROUTE_PATH = "src/ui/workspace/pages/projects/[projectId]/plans/[planId].astro";
 const SURFACE_PATH = "src/ui/workspace/react/PlanReviewSurface.tsx";
@@ -73,6 +73,25 @@ Deno.test("Plan Review fixture navigation lives in the Surface Lab instead of th
     if (devSurface.includes('"aria-label": "Plan Review dev fixtures"')) {
         throw new Error("Plan Review fixture pages must not render a second navigation header");
     }
+});
+
+Deno.test("Plan Review fixtures show every callout kind next to a dense comparison without callouts", async () => {
+    const devSurface = await Deno.readTextFile("src/ui/workspace/react/ReviewDevSurface.tsx");
+    const catalog = await Deno.readTextFile("src/ui/workspace/pages/dev/index.astro");
+    const between = (start: string, end: string) =>
+        devSurface.slice(devSurface.indexOf(start), devSurface.indexOf(end, devSurface.indexOf(start)));
+    const concise = between("const PLAN_FIXTURE =", "const DENSE_PLAN_FIXTURE =");
+    const dense = between("const DENSE_PLAN_FIXTURE =", "const INITIAL_PLAN_FIXTURE =");
+    const reader = between("const MARKDOWN_READER_FIXTURE =", "const CODE_REVIEW_FIXTURE =");
+
+    for (const kind of ["WARNING", "NOTE", "TIP"]) {
+        const authoredCallout = new RegExp(`\\n> \\[!${kind}\\]\\n> \\*\\*[^\\n]+\\*\\*\\n>\\n> `);
+        assertMatch(concise, authoredCallout);
+        assertMatch(reader, authoredCallout);
+    }
+    assertEquals(dense.includes("[!"), false);
+    assertStringIncludes(devSurface, 'planVariant === "dense" ? DENSE_PLAN_FIXTURE : PLAN_FIXTURE');
+    assertStringIncludes(catalog, 'id: "dense"');
 });
 
 Deno.test("Approve and Run opens stable Plan progress without changing other review outcomes", async () => {

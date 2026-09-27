@@ -19,8 +19,15 @@ devServerUrl: "http://127.0.0.1:5173/dev/plan-review"
 devServerHmr: true
 createdAt: "2026-09-26T00:22:48-04:00"
 origin: "internal"
-status: "ready_for_work"
 userVerifiedAt: null
+targetBranch: "main"
+status: "validated"
+validatedCommit: "c7cdea16e1e0d3cb714bb64f7bef64f4e580bcae"
+workRecord:
+    status: "generated"
+    recordId: "a4624808-efe4-4057-9ee9-8c7322165022"
+    path: "docs/work-records/2026-09-27-readable-plans-and-shared-callouts.md"
+    lastAttemptAt: "2026-09-27T14:38:13.128Z"
 ---
 
 # Make Plans Easier to Read
@@ -66,9 +73,9 @@ Use three optional callouts:
 | `[!NOTE]`       | Important constraint or context | Blue, information icon  |
 | `[!TIP]`        | Reason behind the approach      | Teal, light bulb        |
 
-The marker occupies its own quoted line. A bold, descriptive title follows as body text, then a quoted blank line and a
-short explanation. The existing renderer keeps its small kind label and icon; the descriptive title carries the specific
-point.
+The marker occupies its own quoted line. A bold, descriptive title follows, then a quoted blank line and a short
+explanation. Plannotator shows the title in its alert header instead of the visible kind label; the kind remains in the
+accessible name. An alert without a title shows its kind label. Keep this built-in behavior.
 
 > [!TIP]
 > **Use the callouts the reader already understands**
@@ -80,8 +87,8 @@ Put each callout near the related explanation. Do not repeat its content outside
 required count, no boxes around whole sections, and no replacement for exact steps.
 
 Shared RunWield styles provide muted backgrounds, compact corners, clear text, and spacing. The existing icons and
-visible labels preserve meaning without color. Browser styling stays dark under both OS color preferences; printing uses
-the existing light paper palette.
+visible header text (kind or descriptive title) preserve meaning without color. Browser styling stays dark under both OS
+color preferences; printing uses the existing light paper palette.
 
 **Agreed scope:** Changes remains a plain comparison with authored titles and text intact. Matching its callout styling
 is deferred. This avoids changing the external Plannotator checkout for this release. The Markdown editor also keeps its
@@ -138,8 +145,10 @@ domain term requires a glossary change.
   review/reader hosts. WARNING is amber, NOTE blue, and TIP teal. Use semantic `--rw-*` tokens, with named callout
   aliases if needed; TIP must not imply successful completion.
 - **Readable boxes:** Those styles give callouts muted fills, compact corners, readable padding, wrapping text, and body
-  text at the document's reading size. Preserve visible labels and SVG icons. Ordinary quotes and CAUTION/IMPORTANT
-  alerts remain usable. Annotation DOM text, block IDs, and source content do not change for styling.
+  text at the document's reading size. Keep Plannotator's alert header intact: it shows the descriptive title instead of
+  the kind label when one is authored, and the kind label otherwise. Keep the existing SVG icon and accessible kind.
+  Ordinary quotes and CAUTION/IMPORTANT alerts remain usable. Annotation DOM text, block IDs, and source content do not
+  change for styling.
 - **Paper layout:** `print.css` gives callouts readable boundaries, labels, titles, and bodies. Short callouts stay
   together where practical; long ones can span pages without clipping. Printing from View, Edit, or Changes uses the
   current document without saving edits or changing screen appearance.
@@ -184,9 +193,10 @@ session. Check these routes at 1440×1000 and 390×844:
 
 Verify these observable results:
 
-- WARNING, NOTE, and TIP show their respective icon, kind label, descriptive title, short body, and muted
-  amber/blue/teal box. Check actual computed colors and text contrast, not just class names. Ordinary text meets 4.5:1
-  contrast. OS light and dark preferences do not switch the browser palette.
+- WARNING, NOTE, and TIP show their respective icon, descriptive title in the header, short body, and muted
+  amber/blue/teal box. A callout without an authored title shows its kind label instead. Check that the kind remains
+  accessible with an authored title. Check actual computed colors and text contrast, not just class names. Ordinary text
+  meets 4.5:1 contrast. OS light and dark preferences do not switch the browser palette.
 - Long titles, paths, and body text wrap without horizontal page overflow or clipped content. Ordinary quotes, code
   examples containing markers, and existing CAUTION/IMPORTANT alerts retain their meaning. Contents navigation still
   reaches the correct headings.
@@ -199,8 +209,8 @@ Verify these observable results:
   edit and save: only the intended content changes. Clean and raw Changes retain the authored title/body and distinguish
   revisions; colored boxes in Changes are not required.
 - Print / Save PDF from View, read-only, Edit with an unsaved callout edit, and Changes. The current title/body appears
-  on light paper without clipping or application controls. The unsaved edit prints without being saved. Check a callout
-  near a page boundary and a callout longer than a page.
+  on light paper without clipping or application controls; a callout without a title keeps its visible kind label. The
+  unsaved edit prints without being saved. Check a callout near a page boundary and a callout longer than a page.
 
 **Readability review**
 
@@ -218,12 +228,13 @@ Verify these observable results:
 > [!WARNING]
 > **Styling must not move review annotations**
 >
-> Annotation offsets depend on rendered text. Keep the existing labels, title text, and block attributes intact; do not
-> hide or promote body text into a new generated heading.
+> Annotation offsets depend on rendered text. Keep Plannotator's existing title row, accessible kind, and block
+> attributes intact. Do not duplicate the kind label or move the title back into the body.
 
 - The existing parser requires the alert marker alone on its line. Teach that syntax instead of extending it for
   same-line titles.
-- Colors cannot carry the only meaning. Keep labels and icons visible, including on monochrome paper.
+- Colors cannot carry the only meaning. Keep Plannotator's icon and header text visible, including on monochrome paper;
+  the kind stays accessible when an authored title replaces its visible label.
 - The shared reader serves other Markdown artifacts too. Existing alerts there receive the same style; this Plan changes
   authoring guidance only for the Planner.
 - The current browser theme is dark. Reuse replaceable semantic tokens, but do not add a theme picker or claim a light

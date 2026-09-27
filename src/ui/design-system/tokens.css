@@ -23,6 +23,12 @@
     --rw-complexity-low: var(--rw-text-dim);
     --rw-complexity-medium: var(--rw-warning);
     --rw-complexity-high: var(--rw-error);
+    /* Document callouts name their meaning; TIP uses the brand teal so it never reads as success. */
+    --rw-callout-warning: var(--rw-warning);
+    --rw-callout-note: var(--rw-accent);
+    --rw-callout-tip: var(--rw-brand);
+    --rw-callout-caution: var(--rw-error);
+    --rw-callout-neutral: var(--rw-text-dim);
     font-family: var(--rw-font-sans);
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;

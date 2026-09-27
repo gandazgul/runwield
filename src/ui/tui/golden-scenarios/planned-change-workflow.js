@@ -992,7 +992,7 @@ export const plannedChangeValidationFailureRetryScenario = {
     assertions: [
         assertsGoldenCoverage("recovery:validation-failure-retry", (result) => {
             assertScreenIncludes(result, "Running the tests in");
-            assertScreenIncludes(result, "will fix it now");
+            assertScreenIncludes(result, "Repaired retry fixture after CI failure.");
             const publication =
                 /** @type {{ remotePlanAttrs?: Record<string, unknown>, controllerState?: import('../../../shared/workflow/controller-state.ts').WorkflowControllerState, registryEntries?: Array<unknown> }} */ (result
                     .state.publication);

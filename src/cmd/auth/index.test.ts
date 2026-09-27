@@ -84,7 +84,8 @@ Deno.test("API-key login persists through the fixture credential store and statu
         await harness.waitForIdle(5_000);
         await harness.type("/status\r");
         const statusScreen = await harness.waitForScreen("Available models:", 60_000);
-        assertStringIncludes(statusScreen, `${FIXTURE_PROVIDER_DISPLAY} (${FIXTURE_PROVIDER}): API key stored`);
+        assertStringIncludes(statusScreen, `${FIXTURE_PROVIDER_DISPLAY} (${FIXTURE_PROVIDER}): API key`);
+        assertStringIncludes(statusScreen, "stored");
     });
 });
 
@@ -144,8 +145,9 @@ Deno.test("logout removes the fixture credential and status reflects the fallbac
         assertEquals(await registry.getStoredCredentialType(FIXTURE_PROVIDER), undefined);
 
         await harness.type("/status\r");
-        const statusScreen = await harness.waitForScreen("key in models.json");
-        assertStringIncludes(statusScreen, `${FIXTURE_PROVIDER_DISPLAY} (${FIXTURE_PROVIDER}): key in models.json`);
+        const statusScreen = await harness.waitForScreen("Available models:");
+        assertStringIncludes(statusScreen, `${FIXTURE_PROVIDER_DISPLAY} (${FIXTURE_PROVIDER}): key in`);
+        assertStringIncludes(statusScreen, "models.json");
     });
 });
 

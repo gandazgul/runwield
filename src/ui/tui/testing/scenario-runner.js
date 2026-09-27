@@ -2152,7 +2152,10 @@ async function runComposedTuiScenario(scenario, options) {
                     events.push("ui:managed-sync:stale");
                     composition.uiAPI.appendQueuedMessage?.("golden-queued", "Queued steering message");
                     events.push("ui:queued-steering:add");
-                    composition.uiAPI.appendImage?.("iVBORw0KGgo=", "image/png");
+                    composition.uiAPI.appendImage?.(
+                        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+                        "image/png",
+                    );
                     events.push("ui:image:png");
                     // Capture while the blocks are still up. Every one of them is torn
                     // down a few lines below, so the run's final screen cannot show
@@ -2168,7 +2171,9 @@ async function runComposedTuiScenario(scenario, options) {
                         if (
                             screen.includes("Thinking...") &&
                             screen.includes("Sync degraded — refresh required") &&
-                            screen.includes("Steering: Queued steering message")
+                            screen.includes("Steering: Queued steering message") &&
+                            (terminal.writes.includes("iVBORw0KGgoAAA") ||
+                                terminal.getScrollbackText().includes("[Image: [image/png]"))
                         ) break;
                         await new Promise((resolve) => setTimeout(resolve, 20));
                     }
@@ -2184,7 +2189,7 @@ async function runComposedTuiScenario(scenario, options) {
                     const presentationWrites = String(
                         /** @type {{ writes?: string }} */ (terminal).writes || "",
                     );
-                    state.presentationImageRendered = presentationWrites.includes("iVBORw0KGgo=") ||
+                    state.presentationImageRendered = presentationWrites.includes("iVBORw0KGgoAAA") ||
                         presentationScreen.includes("[Image: [image/png]") ||
                         presentationScrollback.includes("[Image: [image/png]");
                     composition.uiAPI.removeQueuedMessage?.("golden-queued");

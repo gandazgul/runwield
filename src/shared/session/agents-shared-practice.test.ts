@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
+import { assertEquals, assertMatch, assertRejects, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
 import { _AGENT_ATTENTION_NUDGES, listAgentDefNames, loadAgentDef } from "./agents.js";
 
@@ -277,6 +277,39 @@ Deno.test("planning personas receive the show-the-work practice", async () => {
         const def = await loadAgentDef(agentName);
         assertStringIncludes(def.systemPrompt, SHOW_THE_WORK_MARKER, `${agentName} is missing show-the-work`);
     }
+});
+
+/** Plan Review recognizes an alert only when its marker is alone on the quoted line. */
+const MARKER_ONLY_CALLOUT = /^> \[!(WARNING|NOTE|TIP)\]$/m;
+
+Deno.test("the Planner writes point-first Plans with optional callouts and exact steps", async () => {
+    const { systemPrompt } = await loadAgentDef("planner");
+    const normalized = systemPrompt.replaceAll(/\s+/g, " ");
+    assertStringIncludes(normalized, "Open with the main point");
+    assertStringIncludes(normalized, "Remove repetition, but never a requirement.");
+    assertStringIncludes(normalized, "Keep Implementation Steps and the Verification Plan exact.");
+    assertStringIncludes(normalized, "Callouts are optional.");
+    assertMatch(systemPrompt, MARKER_ONLY_CALLOUT);
+});
+
+Deno.test("the Plan format keeps its sections and shows callout syntax Plan Review renders", async () => {
+    const format = await Deno.readTextFile(join(BUNDLED_AGENT_DEFS, "document-formats", "planner-plan-format.md"));
+    for (
+        const heading of [
+            "Context",
+            "Objective",
+            "Approach",
+            "Expected Change Surface",
+            "Reuse Opportunities",
+            "Implementation Steps",
+            "Approval Confirmation",
+            "Verification Plan",
+            "Edge Cases & Considerations",
+        ]
+    ) {
+        assertStringIncludes(format, `\n## ${heading}\n`);
+    }
+    assertMatch(format, MARKER_ONLY_CALLOUT);
 });
 
 Deno.test("conversational planning personas end each turn with a question or finished work", async () => {

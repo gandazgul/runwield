@@ -723,6 +723,13 @@ Print / Save PDF produces a complete, paginated light rendering of the document,
 without Workspace navigation or review controls. The printed document is independent of screen scroll position and
 dark-mode preferences.
 
+Plan Review and the shared reader show Markdown WARNING, NOTE, and TIP alerts as callouts: amber, blue, and teal boxes
+with an icon, a kind label, and the author's bold title. They use the browser theme's semantic colors, wrap on phones,
+and keep a visible box and label on paper. Callouts do not change the Markdown, and annotations on their text stay
+attached. Plan authoring guidance is owned by
+[Core Plan authoring](runwield-core-prd.md#plan-authoring-and-external-adoption). The Changes view shows callout text as
+plain quotes; matching callout styling there is deferred.
+
 Opening an artifact gives immediate loading feedback until its document is ready. Browser waiting states use one
 consistent dots indicator, familiar from the TUI. One shared Markdown reader serves Plans, PRDs, ADRs, Work Records,
 Epic artifacts, and reports from every read-only entry point, including Ideator review prompts, Workspace/TUI Session
@@ -745,6 +752,11 @@ the standalone review exit action. TUI users can choose a registered artifact wi
   only artifact metadata and the return/close action differ.
 - In a TUI Session, Alt+] lists registered artifacts and opens the selected artifact in that reader without changing the
   running Agent or artifact content.
+- Given a Plan with WARNING, NOTE, and TIP callouts, when the owner opens it in Plan Review or the reader on desktop or
+  phone, each callout shows its icon, label, title, and text without widening the page. Printing shows each callout as a
+  labeled box on light paper.
+- Given an annotation on callout text, when the owner switches between View and Edit or sends feedback, the annotation
+  keeps the selected text.
 
 <a id="65-moving-between-tui-and-phone"></a>
 
