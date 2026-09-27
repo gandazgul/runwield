@@ -1,5 +1,5 @@
 // @ts-nocheck: Deno test imports are checked by scripts/run-tests.js, not Astro check.
-import { assertEquals, assertStringIncludes } from "@std/assert";
+import { assertEquals, assertMatch, assertStringIncludes } from "@std/assert";
 
 const ROUTE_PATH = "src/ui/workspace/pages/projects/[projectId]/plans/[planId].astro";
 const SURFACE_PATH = "src/ui/workspace/react/PlanReviewSurface.tsx";
@@ -85,8 +85,9 @@ Deno.test("Plan Review fixtures show every callout kind next to a dense comparis
     const reader = between("const MARKDOWN_READER_FIXTURE =", "const CODE_REVIEW_FIXTURE =");
 
     for (const kind of ["WARNING", "NOTE", "TIP"]) {
-        assertStringIncludes(concise, `\n> [!${kind}]\n> **`);
-        assertStringIncludes(reader, `\n> [!${kind}]\n> **`);
+        const authoredCallout = new RegExp(`\\n> \\[!${kind}\\]\\n> \\*\\*[^\\n]+\\*\\*\\n>\\n> `);
+        assertMatch(concise, authoredCallout);
+        assertMatch(reader, authoredCallout);
     }
     assertEquals(dense.includes("[!"), false);
     assertStringIncludes(devSurface, 'planVariant === "dense" ? DENSE_PLAN_FIXTURE : PLAN_FIXTURE');

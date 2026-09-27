@@ -72,6 +72,15 @@ export async function runWithSnip(
         stdout: "piped",
         stderr: "piped",
     }).output();
+    return await formatCommandResult(command, args, options, result);
+}
+
+async function formatCommandResult(
+    command: string,
+    args: string[],
+    options: SnipCommandOptions,
+    result: Deno.CommandOutput,
+): Promise<SnipCommandResult> {
     const decoder = new TextDecoder();
     const stdout = decoder.decode(result.stdout);
     const stderr = decoder.decode(result.stderr);
@@ -93,6 +102,49 @@ export async function runWithSnip(
         stderr: `${options.failureLabel} failed, read the failure log here: ${failureLogPath}\n`,
         failureLogPath,
     };
+}
+
+async function testTimeoutResult(timeoutMs: number): Promise<SnipCommandResult> {
+    const failureLogPath = await Deno.makeTempFile({ prefix: "tests-timeout-", suffix: ".log" });
+    await Deno.writeTextFile(failureLogPath, `Test process exceeded ${timeoutMs / 1000}s and was stopped.\n`);
+    return {
+        code: 124,
+        stdout: "",
+        stderr: `tests timed out, read the failure log here: ${failureLogPath}\n`,
+        failureLogPath,
+    };
+}
+
+// Run the test process itself, not Snip: stopping a Snip wrapper leaves its test child alive.
+export async function runBoundedTest(
+    args: string[],
+    options: SnipCommandOptions & { timeoutMs: number },
+): Promise<SnipCommandResult> {
+    const controller = new AbortController();
+    let timedOut = false;
+    const timer = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+    }, options.timeoutMs);
+    try {
+        const result = await new Deno.Command("deno", {
+            args,
+            cwd: options.cwd,
+            env: { ...Deno.env.toObject(), ...options.env },
+            stdin: options.stdin ?? "null",
+            stdout: "piped",
+            stderr: "piped",
+            signal: controller.signal,
+        }).output();
+        clearTimeout(timer);
+        if (timedOut) return await testTimeoutResult(options.timeoutMs);
+        return await formatCommandResult("deno", args, options, result);
+    } catch (error) {
+        if (!timedOut) throw error;
+        return await testTimeoutResult(options.timeoutMs);
+    } finally {
+        clearTimeout(timer);
+    }
 }
 
 export async function writeSnipCommandResult(result: SnipCommandResult): Promise<void> {

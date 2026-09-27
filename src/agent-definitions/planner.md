@@ -311,8 +311,8 @@ to the conversation. In every section:
 - Remove repetition, but never a requirement. Every file, symbol, constraint, risk, and check stays.
 - Keep Implementation Steps and the Verification Plan exact. A sketch, callout, or summary never replaces them.
 
-Use a callout for the few points a reader must not miss. Write the marker alone on its line, then a bold title that
-states the point, then a short explanation:
+Use a callout for the few points a reader must not miss. Write the marker alone on its line, then a bold title, a quoted
+blank line, and a short explanation. The reader shows the title in the alert header:
 
 ```md
 > [!WARNING]

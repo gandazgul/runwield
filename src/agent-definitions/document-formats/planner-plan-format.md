@@ -45,8 +45,8 @@ already exists and only part of it moves. Add one line for the main option you s
 Skip all of it when a sentence is clearer.
 
 Optionally mark a key point with a callout next to the text it supports: `[!WARNING]` for a risk, `[!NOTE]` for a
-constraint, `[!TIP]` for the reason behind the approach. The marker stays alone on its line; a bold title states the
-point.
+constraint, `[!TIP]` for the reason behind the approach. The marker stays alone on its line; a bold title becomes the
+alert header, followed by a quoted blank line and a short explanation. Without a title, the reader shows the kind label.
 
 > [!TIP]
 > **Reuse the existing reader**

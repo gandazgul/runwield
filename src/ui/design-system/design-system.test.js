@@ -93,7 +93,8 @@ Deno.test("document callouts take their colors from semantic tokens and keep a b
     const calloutStart = components.indexOf('.rw-plan-review [data-block-type="alert"] {');
     const calloutRules = components.slice(calloutStart, components.indexOf("/* Guided Review", calloutStart));
     assertFalse(/#[0-9a-f]{3,8}\b/i.test(calloutRules), "callouts must not hard-code colors");
-
+    assertStringIncludes(calloutRules, ".alert-title:not(:has(.sr-only))");
+    assertFalse(calloutRules.includes(".alert-title .sr-only"), "authored titles keep Plannotator's hidden kind label");
     const printRule = print.match(/\[data-block-type="alert"\] \{([^}]*)\}/)?.[1] || "";
     assertStringIncludes(printRule, "border: 1px solid var(--rw-print-border)");
     assertStringIncludes(printRule, "background: var(--rw-print-muted)");

@@ -167,7 +167,8 @@ Markdown fixture for the shared reader.
 ### Document callouts
 
 Plan Review and the shared reader render Markdown alerts as callouts. Use them for the few points a reader must not
-miss. Write the marker alone on its line, then a bold title that states the point, then a short explanation:
+miss. Write the marker alone on its line, then a bold title, a quoted blank line, and a short explanation. Plannotator
+shows the title in the alert header instead of the visible kind label; the kind remains accessible:
 
 ```md
 > [!WARNING]
@@ -184,9 +185,10 @@ miss. Write the marker alone on its line, then a bold title that states the poin
 | `[!CAUTION]`   | Existing kind in other artifacts | `--rw-callout-caution` (red)                 |
 | `[!IMPORTANT]` | Existing kind in other artifacts | `--rw-callout-neutral`                       |
 
-A callout has a tinted border, a muted fill, and card corners. Its small kind label and icon stay visible, so meaning
-does not depend on color. Styles in `components.css` only change appearance: labels, text, and block attributes stay in
-the DOM so annotations keep their positions. On paper, `print.css` draws a gray box with a bold label.
+A callout has a tinted border, a muted fill, and card corners. Plannotator shows the authored title next to its icon, or
+the kind label when there is no title. The kind remains accessible in both cases, so meaning does not depend on color.
+Styles in `components.css` only change the box appearance; they do not move text or change block attributes. On paper,
+`print.css` draws a gray box and keeps the header legible.
 
 Do not wrap a whole section, a step list, or a verification list in a callout, and do not repeat its content outside the
 box. A marker with text on the same line is an ordinary quote. The Changes view shows callouts as plain quotes with
