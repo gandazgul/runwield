@@ -666,16 +666,15 @@ export async function steerRootSession(hostedSession, text, images) {
  * @param {import('./hosted-session.js').HostedSession | string} hostedSession
  * @param {string | import('./types.js').ImageAttachment[]} [text]
  * @param {import('./types.js').ImageAttachment[]} [images]
+ * @param {(target: import('@earendil-works/pi-coding-agent').AgentSession) => void} [beforeSteer]
  * @returns {Promise<import('@earendil-works/pi-coding-agent').AgentSession | null>}
  */
-export async function steerRootSessionWithTarget(hostedSession, text, images) {
+export async function steerRootSessionWithTarget(hostedSession, text, images, beforeSteer) {
     const targetHostedSession = requireHostedSession(hostedSession, "steerRootSessionWithTarget");
     const root = /** @type {any} */ (targetHostedSession.getRootAgentSession());
-    return await steerAgentSessionWithTarget(
-        root && isExecutionSession(root) ? getExecutionSteeringTarget(root) : root,
-        text,
-        images,
-    );
+    const target = root && isExecutionSession(root) ? getExecutionSteeringTarget(root) : root;
+    if (target?.isStreaming && beforeSteer) beforeSteer(target);
+    return await steerAgentSessionWithTarget(target, text, images);
 }
 
 /**

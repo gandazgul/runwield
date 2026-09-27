@@ -440,7 +440,10 @@ export class WorkspaceSessionContinuationService {
                 const record = this.operations.get(currentOperationId);
                 if (record) this.setOperation(currentOperationId, { ...record, status: "completed" });
             }
-            if (event.type === "busy_changed" && !event.busy || event.type === "background_task_settled") {
+            if (
+                event.type === "busy_changed" && !event.busy || event.type === "background_task_settled" ||
+                event.type === "cancellation"
+            ) {
                 queueMicrotask(() => void this.releaseRetainedIfDrained(runwieldSessionId));
             }
         };

@@ -136,6 +136,7 @@ export function createReplayEvents(sessionId, entries, options = {}) {
     const replayToolStartedAt = new Map();
     let skipNextCompactNamedInvocation = "";
     let pendingGeneratedTaskId = "";
+    const steeredTasks = new Map();
     const finishReplayTool = (/** @type {string} */ toolCallId, /** @type {string | undefined} */ timestamp) => {
         const startedAt = replayToolStartedAt.get(toolCallId);
         replayToolStartedAt.delete(toolCallId);
@@ -153,6 +154,12 @@ export function createReplayEvents(sessionId, entries, options = {}) {
                     typeof value.data.taskId === "string"
                 ? value.data.taskId
                 : "";
+            continue;
+        }
+        if (value.type === "custom" && value.customType === "runwield.background_task_steering") {
+            if (typeof value.data?.taskId === "string" && typeof value.data?.text === "string") {
+                steeredTasks.set(value.data.text, value.data.taskId);
+            }
             continue;
         }
         const namedInvocationText = namedInvocationDisplayText(value);
@@ -262,17 +269,17 @@ export function createReplayEvents(sessionId, entries, options = {}) {
                 }
                 skipNextCompactNamedInvocation = "";
                 if (text || images.length) {
+                    const taskId = steeredTasks.get(text) || pendingGeneratedTaskId;
                     events.push({
                         ...common,
                         type: RuntimeEventTypes.USER_MESSAGE,
                         eventId: makeEventId(value, RuntimeEventTypes.USER_MESSAGE, 0, segmentId),
                         messageId: `${entryMessageId(value, `${sessionId}:replay`, segmentId)}:0`,
-                        ...(pendingGeneratedTaskId
-                            ? { origin: "background_task_result", taskId: pendingGeneratedTaskId }
-                            : {}),
+                        ...(taskId ? { origin: "background_task_result", taskId } : {}),
                         text,
                         images,
                     });
+                    steeredTasks.delete(text);
                     pendingGeneratedTaskId = "";
                 }
             }

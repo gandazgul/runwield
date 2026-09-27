@@ -3,6 +3,9 @@ import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi
 import type { TranscriptContext } from "@earendil-works/pi-ai";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { createSessionRuntime } from "./session-runtime.ts";
+import { openFileSessionStore } from "./file-session-store.ts";
+import { createReplayEvents } from "./session-transcript-projection.js";
+import { RuntimeEventTypes } from "./session-runtime-events.js";
 
 Deno.test("a completed task steers the busy parent root once before its next model request", async () => {
     await withRuntimeCommandFixture("background-busy-delivery-", async ({ projectRoot, setModelResponseFactories }) => {
@@ -39,6 +42,24 @@ Deno.test("a completed task steers the busy parent root once before its next mod
             );
             assertStringIncludes(nextRequest, "busy result");
             assertEquals(calls, 3);
+            const snapshot = runtime.getSessionSnapshot(created.sessionId);
+            const store = openFileSessionStore();
+            try {
+                const saved = store.getSessionById(snapshot?.managed?.runwieldSessionId || "");
+                assert(saved);
+                const entries = (await Deno.readTextFile(saved.transcriptPath)).trim().split("\n").map((line) =>
+                    JSON.parse(line)
+                );
+                const replay = createReplayEvents("busy", entries);
+                const generated = replay.filter((event) =>
+                    event.type === RuntimeEventTypes.USER_MESSAGE && event.origin === "background_task_result"
+                );
+                assertEquals(generated.length, 1);
+                assertStringIncludes(generated[0].text, "busy result");
+                assert(generated[0].taskId);
+            } finally {
+                store.close();
+            }
             assertEquals(runtime.getSessionBackgroundTaskState(created.sessionId)?.pending, 0);
             assertEquals(runtime.getSessionSnapshot(created.sessionId)?.managed?.generation, startGeneration + 1);
             assert(nextRequest.includes("Background task"));

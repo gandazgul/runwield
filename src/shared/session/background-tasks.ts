@@ -1,6 +1,8 @@
 import { dirname, join } from "@std/path";
 import { getHomeDir } from "../../constants.js";
 import { spawnForegroundShell } from "../foreground-process.ts";
+import { extractAssistantOutput } from "../workflow/workflow-results.js";
+import type { DelegatedAgentSessionOptions } from "../../tools/delegate-agent.ts";
 import type { HostedSession } from "./hosted-session.js";
 
 export type BackgroundTaskKind = "shell" | "delegate";
@@ -68,8 +70,10 @@ function errorText(error: Error | string): string {
 
 /** Remove terminal control sequences from text presented to the model, never from the log. */
 function safeText(text: string): string {
-    return text.replace(/\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\))?/g, "")
-        .replace(/[\x00-\x08\x0b-\x1f\x7f]/g, "");
+    // deno-lint-ignore no-control-regex
+    const withoutAnsi = text.replace(/\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\))?/g, "");
+    // deno-lint-ignore no-control-regex
+    return withoutAnsi.replace(/[\x00-\x08\x0b-\x1f\x7f]/g, "");
 }
 
 function countChunk(count: StreamCount, chunk: Uint8Array): void {
@@ -82,11 +86,13 @@ function lineCount(count: StreamCount): number {
     return count.lines + (count.lastByte !== null && count.lastByte !== 10 ? 1 : 0);
 }
 
-async function writeChunk(file: Deno.FsFile, chunk: Uint8Array): Promise<void> {
+async function writeChunk(file: Deno.FsFile, chunk: Uint8Array, onWritten: (part: Uint8Array) => void): Promise<void> {
     let offset = 0;
     while (offset < chunk.byteLength) {
         const written = await file.write(chunk.subarray(offset));
         if (written === 0) throw new Error("Task log write made no progress");
+        const part = chunk.subarray(offset, offset + written);
+        onWritten(part);
         offset += written;
     }
 }
@@ -190,6 +196,15 @@ export class BackgroundTasks {
         return this.snapshot(record);
     }
 
+    private recordWritten(record: TaskRecord, count: StreamCount, part: Uint8Array): void {
+        countChunk(count, part);
+        if (record.previewBytes <= INLINE_BACKGROUND_OUTPUT_BYTES) {
+            const copy = part.slice(0, INLINE_BACKGROUND_OUTPUT_BYTES + 1 - record.previewBytes);
+            record.preview[count === record.out ? "out" : "err"].push(copy);
+            record.previewBytes += copy.byteLength;
+        }
+    }
+
     private async drain(
         stream: ReadableStream<Uint8Array>,
         file: Deno.FsFile,
@@ -202,13 +217,7 @@ export class BackgroundTasks {
                 const { value, done } = await reader.read();
                 if (done) break;
                 try {
-                    await writeChunk(file, value);
-                    countChunk(count, value);
-                    if (record.previewBytes <= INLINE_BACKGROUND_OUTPUT_BYTES) {
-                        const copy = value.slice(0, INLINE_BACKGROUND_OUTPUT_BYTES + 1 - record.previewBytes);
-                        record.preview[count === record.out ? "out" : "err"].push(copy);
-                        record.previewBytes += copy.byteLength;
-                    }
+                    await writeChunk(file, value, (part) => this.recordWritten(record, count, part));
                 } catch (error) {
                     record.logFailure ??= `Task log write failed: ${
                         errorText(error instanceof Error ? error : String(error))
@@ -226,12 +235,10 @@ export class BackgroundTasks {
         record.status.state = record.logFailure ? "failed" : state;
         if (exitCode !== undefined) record.status.exit_code = exitCode;
         if (record.logFailure || error) record.status.error = record.logFailure ?? error;
-        if (!this.suppressed && !record.suppressDelivery) {
-            this.pending.add(record.status.task_id);
-            try {
-                this.completionHandler?.(this.snapshot(record));
-            } catch { /* pending result remains available */ }
-        }
+        if (!this.suppressed && !record.suppressDelivery) this.pending.add(record.status.task_id);
+        try {
+            this.completionHandler?.(this.snapshot(record));
+        } catch { /* pending result remains available */ }
     }
 
     startShell(options: { command: string; cwd: string; timeoutMs?: number }): BackgroundTaskStatus {
@@ -313,8 +320,8 @@ export class BackgroundTasks {
         }
     }
 
-    /** The delegate runner must not register its child as a foreground sub-agent. */
-    startDelegate(run: (signal: AbortSignal) => Promise<string>): BackgroundTaskStatus {
+    /** Execute the read-only child without registering it as a foreground sub-agent. */
+    startDelegate(options: Omit<DelegatedAgentSessionOptions, "signal" | "background">): BackgroundTaskStatus {
         const record = this.reserve("delegate");
         let release: () => void;
         try {
@@ -336,16 +343,29 @@ export class BackgroundTasks {
                     finalState = "cancelled";
                     return;
                 }
-                const text = await run(record.controller.signal);
+                const { runIsolatedAgentSession } = await import("./session.js");
+                const messages = await runIsolatedAgentSession({
+                    ...options,
+                    background: true,
+                    signal: record.controller.signal,
+                });
                 if (record.controller.signal.aborted) {
                     finalState = "cancelled";
                     return;
                 }
-                const bytes = new TextEncoder().encode(text);
-                await writeChunk(out, bytes);
-                countChunk(record.out, bytes);
-                record.previewBytes = Math.min(bytes.byteLength, INLINE_BACKGROUND_OUTPUT_BYTES + 1);
-                record.preview.out = [bytes.slice(0, record.previewBytes)];
+                const failed = [...messages].reverse().find((message) => message.role === "assistant");
+                if (failed?.role === "assistant" && failed.stopReason === "error") {
+                    throw new Error(failed.errorMessage || "Model request failed");
+                }
+                const bytes = new TextEncoder().encode(extractAssistantOutput(messages) || "");
+                try {
+                    await writeChunk(out, bytes, (part) => this.recordWritten(record, record.out, part));
+                } catch (error) {
+                    record.logFailure = `Task log write failed: ${
+                        errorText(error instanceof Error ? error : String(error))
+                    }`;
+                    throw error;
+                }
                 finalState = "completed";
             } catch (error) {
                 finalState = record.controller.signal.aborted ? "cancelled" : "failed";

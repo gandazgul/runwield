@@ -170,26 +170,25 @@ export class RuntimeTurns {
                 const root = getRuntimeRootAgentSession(session);
                 if (root?.isStreaming && !this.steeringResults.has(sessionId)) {
                     const text = formatBackgroundTaskCompletion(result);
-                    const target = await steerRootSessionWithTarget(session, text).catch(() => null);
-                    if (target && typeof target.getSteeringMessages === "function") {
-                        // Only a queue update that consumes this exact queued input acknowledges it.
-                        const steering = target.getSteeringMessages();
-                        if (steering?.includes(text)) {
-                            const unsubscribe = target.subscribe((event) => {
-                                if (event.type !== "queue_update") return;
-                                if (!target.getSteeringMessages?.().includes(text)) {
-                                    tasks.acknowledge(id);
-                                    this.steeringResults.get(sessionId)?.unsubscribe();
-                                    this.steeringResults.delete(sessionId);
-                                }
-                            });
-                            this.steeringResults.set(sessionId, { taskId: id, text, unsubscribe });
-                        }
+                    const target = await steerRootSessionWithTarget(session, text, undefined, (steeringTarget) => {
+                        const manager = session.getRootSessionManager();
+                        manager?.appendCustomEntry?.("runwield.background_task_steering", { taskId: id, text });
+                        const unsubscribe = steeringTarget.subscribe((event) => {
+                            if (event.type === "queue_update") this.reconcileBackgroundResultConsumption(session);
+                        });
+                        this.steeringResults.set(sessionId, { taskId: id, text, unsubscribe });
+                    }).catch(() => null);
+                    // Consumption may complete inside steer(), before it returns or emits a queue update.
+                    this.reconcileBackgroundResultConsumption(session);
+                    if (!target) {
+                        this.steeringResults.get(sessionId)?.unsubscribe();
+                        this.steeringResults.delete(sessionId);
                     }
                 }
                 await new Promise((resolve) => setTimeout(resolve, 100));
                 continue;
             }
+            this.reconcileBackgroundResultConsumption(session);
             this.steeringResults.get(sessionId)?.unsubscribe();
             this.steeringResults.delete(sessionId);
             if (!tasks.pendingCompletions().some((pending) => pending.task_id === id)) continue;

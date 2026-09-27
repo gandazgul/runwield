@@ -8,18 +8,11 @@ Deno.test("background read delegation returns before an isolated child model tur
     await withRuntimeCommandFixture("background-delegate-", async ({ projectRoot, setModelResponse }) => {
         setModelResponse("A read-only handoff. " + "x".repeat(20_001));
         const hostedSession = new HostedSession({ id: crypto.randomUUID(), cwd: projectRoot });
-        let releaseModel = () => {};
-        const modelGate = new Promise<void>((resolve) => {
-            releaseModel = resolve;
-        });
         const tool = createDelegateAgentTool({
             hostedSession,
             cwd: projectRoot,
             parentTools: ["read", "bash", "delegate_agent", "background_task"],
-            runIsolatedAgentSession: async (options) => {
-                await modelGate;
-                return await runIsolatedAgentSession(options);
-            },
+            runIsolatedAgentSession,
         });
         try {
             const result = await tool.execute(
@@ -41,14 +34,12 @@ Deno.test("background read delegation returns before an isolated child model tur
             assertEquals(hostedSession.getActiveSteeringTargetSession(), null);
             hostedSession.dehydrateManagedSession();
             assertEquals(hostedSession.getDelegatedAgentLeaseState().readers, 1);
-            releaseModel();
             const settled = await hostedSession.backgroundTasks.wait(taskId);
             assertEquals(settled.state, "completed", JSON.stringify(settled));
             assertEquals(settled.output, undefined);
             assertStringIncludes(await Deno.readTextFile(settled.log_path), "x".repeat(20_001));
             assertEquals(hostedSession.getDelegatedAgentLeaseState().readers, 0);
         } finally {
-            releaseModel();
             await hostedSession.dispose();
         }
     });

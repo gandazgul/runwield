@@ -407,22 +407,17 @@ export function createDelegateAgentTool(opts: DelegateAgentToolOptions) {
             if (params.background) {
                 try {
                     signal?.throwIfAborted();
-                    const status = opts.hostedSession.backgroundTasks.startDelegate(async (childSignal) => {
-                        const messages = await opts.runIsolatedAgentSession({
-                            hostedSession: opts.hostedSession,
-                            agentName: AGENTS.DELEGATED,
-                            userRequest,
-                            cwd: opts.cwd,
-                            subAgentDefinition: { id: SUBAGENTS.DELEGATED, options: { delegatedRole: role.id } },
-                            toolNames: childTools,
-                            includeEditFallback: false,
-                            modelOverride,
-                            thinkingLevelOverride,
-                            projectStateContext: opts.hostedSession.getProjectStateContext(),
-                            background: true,
-                            signal: childSignal,
-                        });
-                        return extractAssistantOutput(messages) || "";
+                    const status = opts.hostedSession.backgroundTasks.startDelegate({
+                        hostedSession: opts.hostedSession,
+                        agentName: AGENTS.DELEGATED,
+                        userRequest,
+                        cwd: opts.cwd,
+                        subAgentDefinition: { id: SUBAGENTS.DELEGATED, options: { delegatedRole: role.id } },
+                        toolNames: childTools,
+                        includeEditFallback: false,
+                        modelOverride,
+                        thinkingLevelOverride,
+                        projectStateContext: opts.hostedSession.getProjectStateContext(),
                     });
                     return {
                         content: [{ type: "text" as const, text: JSON.stringify(status) }],

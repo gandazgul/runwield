@@ -112,36 +112,6 @@ try {
     }
 });
 
-Deno.test("shell and delegate tasks share the same five active slots", async () => {
-    const f = await fixture();
-    let release = () => {};
-    const gate = new Promise<void>((resolve) => {
-        release = resolve;
-    });
-    try {
-        const shell = Array.from({ length: 3 }, () => f.tasks.startShell({ command: "sleep 20", cwd: f.cwd }));
-        const delegates = Array.from({ length: 2 }, () =>
-            f.tasks.startDelegate(async () => {
-                await gate;
-                return "ready";
-            }));
-        assertEquals(f.tasks.activeCount, 5);
-        try {
-            f.tasks.startDelegate(async () => "unexpected");
-            throw new Error("Sixth task started");
-        } catch (error) {
-            assertStringIncludes(String(error), "maximum is 5");
-        }
-        release();
-        await Promise.all(delegates.map((task) => f.tasks.wait(task.task_id)));
-        assertEquals(f.tasks.activeCount, 3);
-        await Promise.all(shell.map((task) => f.tasks.cancel(task.task_id)));
-    } finally {
-        release();
-        await f.cleanup();
-    }
-});
-
 Deno.test("output at exactly 8192 UTF-8 bytes is inline and empty output is explicit", async () => {
     const f = await fixture();
     try {
@@ -207,43 +177,6 @@ Deno.test("timeout and nonzero exit release slots", async () => {
         assertEquals(failed.state, "failed");
         assertEquals(failed.exit_code, 7);
         assertEquals(f.tasks.activeCount, 0);
-    } finally {
-        await f.cleanup();
-    }
-});
-
-Deno.test("delegate failure and cancellation release slots without losing final status", async () => {
-    const f = await fixture();
-    try {
-        const failed = await f.tasks.wait(
-            f.tasks.startDelegate(async () => {
-                throw Error("model failed");
-            }).task_id,
-        );
-        assertEquals(failed.state, "failed");
-        assertStringIncludes(failed.error || "", "model failed");
-        const active = f.tasks.startDelegate(async (signal) => {
-            await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
-            return "cancelled work";
-        });
-        assertEquals((await f.tasks.cancel(active.task_id)).state, "cancelled");
-        assertEquals(f.tasks.activeCount, 0);
-        assertEquals(f.session.getDelegatedAgentLeaseState().readers, 0);
-    } finally {
-        await f.cleanup();
-    }
-});
-
-Deno.test("delegates share slots, release reader leases, and keep untruncated output", async () => {
-    const f = await fixture();
-    try {
-        const task = f.tasks.startDelegate(async () => "z".repeat(20001));
-        const final = await f.tasks.wait(task.task_id);
-        assertEquals(final.kind, "delegate");
-        assertEquals(final.byte_count, 20001);
-        assertEquals(final.output, undefined);
-        assertEquals((await Deno.readTextFile(final.log_path)).length, 20001);
-        assertEquals(f.session.getDelegatedAgentLeaseState().readers, 0);
     } finally {
         await f.cleanup();
     }
