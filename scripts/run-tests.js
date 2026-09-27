@@ -46,9 +46,10 @@
 import { retainTestEvidence } from "./retain-test-evidence.js";
 import { basename, dirname, fromFileUrl, join, relative, resolve } from "@std/path";
 import { listCiFiles } from "./ci-files.ts";
-import { runWithSnip, writeSnipCommandResult } from "./run-with-snip.ts";
+import { runBoundedTest, writeSnipCommandResult } from "./run-with-snip.ts";
 import { mergeTestTimings, orderTestsByTiming, readTestTimings, writeTestTimings } from "./test-timings.js";
 
+const TEST_FILE_TIMEOUT_MS = 10 * 60 * 1000;
 const REPO_ROOT = dirname(dirname(fromFileUrl(import.meta.url)));
 const TEST_FILE_PATTERN = /(^|\/)(test|.+[._]test)\.(js|mjs|jsx|ts|tsx|mts)$/;
 const SKIP_DIRS = new Set([
@@ -330,7 +331,7 @@ async function runIsolatedSuite(sandboxRoot, denoDir, roots = [REPO_ROOT], exclu
             const reportArgs = options.reportDir
                 ? ["--junit-path", join(options.reportDir, `${name.replace(/[^a-zA-Z0-9.-]/g, "_")}.xml`)]
                 : [];
-            const result = await runWithSnip("deno", [
+            const result = await runBoundedTest([
                 "test",
                 "-A",
                 "--no-check",
@@ -341,7 +342,8 @@ async function runIsolatedSuite(sandboxRoot, denoDir, roots = [REPO_ROOT], exclu
             ], {
                 cwd: REPO_ROOT,
                 env,
-                failureLabel: "tests",
+                failureLabel: `tests (${name})`,
+                timeoutMs: TEST_FILE_TIMEOUT_MS,
             });
             const durationMs = Date.now() - fileStartedAt;
             observedTimings.push({ file: name, durationMs });
@@ -453,10 +455,11 @@ export async function main(args = Deno.args) {
             const executionArgs = testArgs.some((arg) => arg.startsWith("--node-modules-dir"))
                 ? testArgs
                 : ["--node-modules-dir=manual", ...testArgs];
-            const result = await runWithSnip("deno", ["test", ...executionArgs], {
+            const result = await runBoundedTest(["test", ...executionArgs], {
                 env,
                 stdin: "inherit",
                 failureLabel: "tests",
+                timeoutMs: TEST_FILE_TIMEOUT_MS,
             });
             await writeSnipCommandResult(result);
 

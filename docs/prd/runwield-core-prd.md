@@ -303,6 +303,13 @@ failure, or rollback. A metadata problem must never be blamed on the user's pros
 made since that content was opened; protecting those edits is separate from deciding whether metadata can advance.
 Actual changes to the intended work still follow normal Plan review and approval.
 
+**Requirement: Generated Plans are easy to read.**
+
+Planner starts each section with its main point, keeps one idea per short paragraph, and uses lists for separate points.
+It removes repetition but never a requirement: Implementation Steps and the Verification Plan stay exact. It may mark
+the few points a reader must not miss with a WARNING, NOTE, or TIP callout. Callouts are optional authoring guidance,
+not a body format: user-written Plans without them stay valid, and existing Plans are not rewritten.
+
 **Requirement: Domain reasoning fits the user's project.**
 
 For changes affecting domain behavior, Architect and Planner identify relevant concepts, identities, rules, owners,
@@ -335,6 +342,10 @@ does not reset its lifecycle or decisions.
   unchanged; deliberate loading then adopts it without changing its prose.
 - Given a user body edit made during a metadata transition, when that transition fails or rolls back, the latest body
   remains intact.
+- Given a new Plan from Planner, when the user reviews it, each section leads with its point, the key risk or constraint
+  is easy to find, and every step and verification item is still exact.
+- Given a Plan written without callouts or in another style, when it is loaded, reviewed, or approved, RunWield accepts
+  it unchanged.
 - Given malformed lifecycle metadata, when recovery runs, RunWield repairs its own state rather than rejecting the
   user's prose or requiring the user to edit internal fields.
 - Given an already adopted Plan, when it is loaded again, its age, identity, and lifecycle decisions remain intact.

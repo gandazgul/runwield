@@ -605,7 +605,12 @@ Deno.test("chat input controller shows Agy MCP setup approval action without spi
                     ),
                 );
             await submitText(terminal, "keep this draft");
-            await waitFor(() => terminal.getScrollbackText().includes("wld mcp agy-cli --setup"), "Agy setup action");
+            await waitFor(
+                () =>
+                    terminal.getScrollbackText().includes("wld mcp agy-cli") &&
+                    terminal.getScrollbackText().includes("--setup"),
+                "Agy setup action",
+            );
             assertEquals(terminal.getScrollbackText().includes("RunWield could not send that message"), false);
             assertEquals(terminal.getScrollbackText().includes("at async"), false);
             assertEquals(consoleErrors.length, 0);

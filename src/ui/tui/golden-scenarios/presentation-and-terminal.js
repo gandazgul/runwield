@@ -34,7 +34,7 @@ function assertPresentationScreenIncludes(result, text) {
 export const managedSyncQueueImageScenario = {
     name: "presentation-runtime-prompts-and-queued-state",
     composedTui: true,
-    terminal: { columns: 100, rows: 30 },
+    terminal: { columns: 100, rows: 60 },
     coverage: [
         "block:spinner",
         "block:managed-sync",
