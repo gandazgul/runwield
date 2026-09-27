@@ -1,7 +1,7 @@
 /** Recover writes made through the old layout after ownership moved to internal/. */
 import { dirname, join } from "@std/path";
 import type { ControllerRecord } from "./workflow/controller-registry.ts";
-import type { WorktreeRegistryEntry } from "./worktree-registry.js";
+import { inspectWorktreeRegistryAtPath, type WorktreeRegistryEntry } from "./worktree-registry.js";
 
 export interface RuntimeRecoveryPaths {
     source: string;
@@ -13,7 +13,6 @@ export interface RuntimeRecoveryPaths {
 
 /** The adopted registry owns known attempts; only distinct old attempts may be imported. */
 export async function inspectReturningRegistry(source: string, destination: string) {
-    const { inspectWorktreeRegistryAtPath } = await import("./worktree-registry.js");
     const legacy = await inspectWorktreeRegistryAtPath(source);
     const current = await inspectWorktreeRegistryAtPath(destination);
     for (const inspected of [legacy, current]) {

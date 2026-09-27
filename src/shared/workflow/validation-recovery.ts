@@ -1,6 +1,7 @@
 /** Typed outcomes for validation operations that did not reach a terminal Plan state. */
 
 import { getCustomSetting } from "../settings.js";
+import { recordMetric } from "./validation-context.ts";
 import type { ValidationLoopArgs } from "./validation-types.ts";
 import type { ValidationOperationalFailure, ValidationRecoveryClass } from "./validation-operational-errors.ts";
 
@@ -271,8 +272,7 @@ export async function recordOperationalRecoveryMetric(
     projectRoot: string,
     result: ValidationRecoveryResult,
 ): Promise<void> {
-    const metric = await import("./validation-context.ts");
-    await metric.recordMetric(args, projectRoot, {
+    await recordMetric(args, projectRoot, {
         category: "validation",
         event: "operational_recovery",
         planName: args.planName,

@@ -17,6 +17,7 @@ import {
     writePlanMarkdownWithRevision,
 } from "../../plan-store.js";
 import { emitSystemStatus } from "../session/session-runtime-events.js";
+import { runActiveAgentTurn, switchActiveAgent } from "../session/agent-switching.js";
 import { SUBAGENT_DEFINITIONS } from "../session/subagent-definitions.ts";
 import { buildSlicerRequest } from "./workflow-prompts.js";
 import { recordPlanEvent } from "./plan-lifecycle.js";
@@ -511,7 +512,6 @@ export async function runSlicerAgent({
 }: RunSlicerAgentOptions): Promise<RunSlicerAgentResult> {
     if (!hostedSession) throw new Error("runSlicerAgent: hostedSession is required");
     const projectRoot = hostedSession.cwd;
-    const agentSwitching = await import("../session/agent-switching.js");
     const slicerDisplay = SUBAGENT_DEFINITIONS[SUBAGENTS.SLICER].displayNameFallback;
     const previousAgentName = hostedSession.getRootAgentName();
     let boundary = null;
@@ -541,7 +541,7 @@ export async function runSlicerAgent({
             hostedSession.recordPlanAssociation({ planId, planName, purpose: "planning" });
         }
         const slicerCustomTools = createSlicerCustomTools(planName, projectRoot);
-        await agentSwitching.runActiveAgentTurn({
+        await runActiveAgentTurn({
             hostedSession,
             agentName: AGENTS.SLICER,
             userRequest: slicerRequest,
@@ -555,7 +555,7 @@ export async function runSlicerAgent({
         console.error("[RunWield] slicer_agent_failed", e);
         restoreFailedSlicerContextPhase(boundary);
         if (previousAgentName && hostedSession.getRootAgentName() !== previousAgentName) {
-            await agentSwitching.switchActiveAgent(hostedSession, { agentName: previousAgentName });
+            await switchActiveAgent(hostedSession, { agentName: previousAgentName });
         }
         const error = e instanceof Error ? e.message : String(e);
         emitSystemStatus(hostedSession, `${slicerDisplay} failed: ${error}`, {

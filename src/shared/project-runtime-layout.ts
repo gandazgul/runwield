@@ -20,6 +20,7 @@ import {
 } from "./lock-file-snapshot.ts";
 import { getLockHostname, isLockHolderGone } from "./process-liveness.ts";
 import { resolvePrimaryCheckoutRoot } from "./primary-checkout.ts";
+import { inspectWorktreeRegistryAtPath, withWorktreeRegistryLockAtPath } from "./worktree-registry.js";
 import { ensureRunWieldOwnedGitignoreBlock, LEGACY_PROJECT_RUNTIME_HAZARD_PATHS } from "./runwield-owned-paths.ts";
 import { assertPublicationAttempt, type PublicationAttempt } from "./workflow/publication-attempt.ts";
 import {
@@ -416,7 +417,6 @@ export async function migrateLegacyProjectRuntimeState(
     try {
         const lockedMarker = await readLayoutMarker(layout);
         if (isBlocked(lockedMarker)) return lockedMarker;
-        const { withWorktreeRegistryLockAtPath } = await import("./worktree-registry.js");
         return await withWorktreeRegistryLockAtPath(legacyWorktreeRegistryLockPath(primaryCheckoutRoot), async () => {
             const migrate = async (): Promise<ProjectRuntimeMigrationResult> => {
                 const locked = await preflight(layout, primaryCheckoutRoot, lockedMarker.marker, {
@@ -614,7 +614,6 @@ async function preflight(
         );
     }
 
-    const { inspectWorktreeRegistryAtPath } = await import("./worktree-registry.js");
     const registry = await inspectWorktreeRegistryAtPath(legacyWorktreeRegistryPath(primaryCheckoutRoot));
     if (registry.readError) {
         return block(

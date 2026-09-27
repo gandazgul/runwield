@@ -774,7 +774,6 @@ export async function updatePublication(projectRoot, id, expectedRevision, publi
                     `found ${String(currentRevision)}.`,
             );
         }
-        const { assertPublicationAttempt } = await import("./workflow/publication-attempt.ts");
         assertPublicationAttempt(publication);
         if (publication.attemptId !== id) {
             throw new Error(`Publication attempt id ${publication.attemptId} does not match registry entry ${id}.`);
