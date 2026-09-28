@@ -4,7 +4,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { dirname, join, relative } from "node:path";
 import { getHomeDir } from "../../../constants.js";
-import { findPlanEvidenceById, listPlanResources } from "../../../plan-store.js";
+import { listPlanResources } from "../../../plan-store.js";
 import { getWorkRecordsDir, listWorkRecords } from "../../../shared/work-records/store.js";
 import { isCurrentWorkRecord, workRecordNotices } from "../../../shared/work-records/list.js";
 import { projectAggregateTranscript } from "../../../shared/session/session-transcript-manifest.ts";
@@ -144,11 +144,7 @@ async function scanProjectDocuments(root) {
             const plans = await listPlanResources(root, { backfillMissing: false });
             for (const plan of plans) {
                 await assertAuthorizedPlanPath(root, plan.path, plan.planName);
-                if (!plan.planId) {
-                    throw new Error(
-                        "Plan reader found a Plan without durable identity. Repair the Plan before indexing.",
-                    );
-                }
+                if (!plan.planId) continue;
                 const facts = markdownFacts(plan.markdown);
                 found.push({
                     projectId: "",
@@ -377,12 +373,22 @@ function matchRank(document, query) {
     return 2;
 }
 
+/** Cache canonical readers for one query, not across queries: every query must see current evidence. */
+async function cachedCatalog(cache, key, read) {
+    if (!cache.has(key)) cache.set(key, await read());
+    return cache.get(key);
+}
+
 /** @param {string} root @param {Record<string, string>} row */
-async function hydrateCandidate(root, row, store) {
+async function hydrateCandidate(root, row, store, catalogs) {
     if (row.content_type === "session") {
         const session = store.getSessionById(row.source_id, row.project_id);
         if (!session) throw new Error("Session not found.");
-        const documents = await scanSessionDocuments(store, row.project_id, root);
+        const documents = await cachedCatalog(
+            catalogs,
+            `${row.project_id}:session`,
+            () => scanSessionDocuments(store, row.project_id, root),
+        );
         const document = documents.find((candidate) => candidate.sourceId === row.source_id);
         if (!document) throw new Error("Session evidence is unavailable.");
         return {
@@ -395,7 +401,13 @@ async function hydrateCandidate(root, row, store) {
         };
     }
     if (row.content_type === "plan") {
-        const plan = await findPlanEvidenceById(root, row.source_id);
+        const plans = await cachedCatalog(
+            catalogs,
+            `${row.project_id}:plan`,
+            () => listPlanResources(root, { backfillMissing: false }),
+        );
+        const plan = plans.find((candidate) => candidate.planId === row.source_id);
+        if (!plan) throw new Error("Plan not found.");
         await assertAuthorizedPlanPath(root, plan.path, plan.planName);
         const facts = markdownFacts(plan.markdown);
         return {
@@ -410,10 +422,13 @@ async function hydrateCandidate(root, row, store) {
     }
     if (row.content_type === "work-record") {
         await assertContainedProjectPath(root, getWorkRecordsDir(root));
-        const records = (await listWorkRecords(root, { createDir: false })).filter((record) =>
-            record.attrs.recordId.toLowerCase() === row.source_id.toLowerCase()
-        );
-        if (records.length !== 1 || !isCurrentWorkRecord(records[0])) throw new Error("Work Record is not current.");
+        const records = (await cachedCatalog(catalogs, `${row.project_id}:work-record`, () =>
+            listWorkRecords(root, { createDir: false }))).filter((record) =>
+                record.attrs.recordId.toLowerCase() === row.source_id.toLowerCase()
+            );
+        if (records.length !== 1 || !isCurrentWorkRecord(records[0])) {
+            throw new Error("Work Record is not current.");
+        }
         const record = records[0];
         await assertContainedProjectPath(root, record.path);
         const facts = markdownFacts(record.markdown);
@@ -616,10 +631,11 @@ export function createWorkspaceSearchService(options) {
             }`,
         ).all(...values);
         const valid = [];
+        const catalogs = new Map();
         for (const row of rows) {
             try {
                 const root = options.store.requireEnabledProjectRoot(String(row.project_id));
-                const hydrated = await hydrateCandidate(root, row, options.store);
+                const hydrated = await hydrateCandidate(root, row, options.store, catalogs);
                 const candidate = /** @type {SearchDocument} */ ({
                     projectId: String(row.project_id),
                     projectName: String(row.project_name),

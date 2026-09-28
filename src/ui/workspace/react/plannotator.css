@@ -1829,14 +1829,35 @@ body:has(.rw-code-review) button.review-toolbar-btn.primary:disabled,
 }
 
 @media (max-width: 980px) {
-    .rw-plan-review[data-plan-width] .rw-plan-document-canvas {
+    .rw-plan-review[data-plan-width] .rw-plan-document-canvas,
+    .rw-artifact-read .rw-plan-document-canvas {
         padding: 0;
     }
-    .rw-plan-review[data-plan-width] article[data-print-region="article"] {
+    .rw-artifact-read .rw-plan-document-canvas > .relative {
+        min-width: 0;
+        max-width: 100% !important;
+    }
+    .rw-plan-review[data-plan-width] article[data-print-region="article"],
+    .rw-artifact-read article[data-print-region="article"] {
         border: 0;
         border-radius: 0;
         box-shadow: none;
         padding: 1rem;
+    }
+    .rw-artifact-read article[data-print-region="article"] {
+        background: transparent;
+        overflow-wrap: anywhere;
+    }
+    .rw-artifact-read article[data-print-region="article"] > .mt-4.mb-6.p-4 {
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        margin: 0 0 1.5rem;
+        padding: 0;
+    }
+    .rw-artifact-read article[data-print-region="article"] > .mt-4.mb-6.p-4 .flex > .text-foreground {
+        min-width: 0;
+        overflow-wrap: anywhere;
     }
 }
 

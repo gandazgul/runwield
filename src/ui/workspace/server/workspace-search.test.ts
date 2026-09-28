@@ -564,7 +564,38 @@ Deno.test("Workspace search and Plan opens accept registered execution-worktree 
     }
 });
 
-Deno.test("Workspace search reports safe Plan identity repair diagnostics without changing files", async () => {
+Deno.test("Workspace search returns a large Plan result set", async () => {
+    const fixture = await searchFixture("plan-volume");
+    try {
+        await savePlan(fixture.root, "template", "# Matching Plan\n\nShared volume needle.\n", {
+            planId: "volume-0",
+            classification: "PLANNED_CHANGE",
+            status: "draft",
+        });
+        const template = await Deno.readTextFile(join(fixture.root, "docs", "plans", "template.md"));
+        for (let index = 1; index < 80; index++) {
+            await Deno.writeTextFile(
+                join(fixture.root, "docs", "plans", `volume-${index}.md`),
+                template.replace("volume-0", `volume-${index}`),
+            );
+        }
+        await fixture.search.refresh();
+        const first = await fixture.search.search({ query: "Shared volume needle", contentType: "plan", pageSize: 50 });
+        const second = await fixture.search.search({
+            query: "Shared volume needle",
+            contentType: "plan",
+            pageSize: 50,
+            page: 2,
+        });
+        assertEquals(first.total, 80);
+        assertEquals(second.total, 80);
+        assertEquals(new Set([...first.results, ...second.results].map((result) => result.sourceId)).size, 80);
+    } finally {
+        await fixture.close();
+    }
+});
+
+Deno.test("Workspace search leaves a lone Plan without an ID unchanged", async () => {
     const fixture = await searchFixture("plan-identity-diagnostics");
     try {
         await Deno.mkdir(join(fixture.root, "docs", "plans"), { recursive: true });
@@ -573,7 +604,29 @@ Deno.test("Workspace search reports safe Plan identity repair diagnostics withou
         await Deno.writeTextFile(path, markdown);
         await fixture.search.refresh();
         const payload = await fixture.search.search({ query: "Missing ID" });
-        assertStringIncludes(payload.states[0].message, "without durable identity");
+        assertEquals(payload.results, []);
+        assertEquals(payload.states[0].state, "ready");
+        assertEquals(await Deno.readTextFile(path), markdown);
+    } finally {
+        await fixture.close();
+    }
+});
+
+Deno.test("Workspace search skips a Plan without an ID and keeps other results", async () => {
+    const fixture = await searchFixture("plan-identity-diagnostics");
+    try {
+        await savePlan(fixture.root, "valid", "# Searchable Plan\n\nShared needle.\n", {
+            planId: "valid-id",
+            classification: "PLANNED_CHANGE",
+            status: "draft",
+        });
+        const path = join(fixture.root, "docs", "plans", "missing-id.md");
+        const markdown = "---\nclassification: PLANNED_CHANGE\nstatus: draft\n---\n# Missing ID\n\nShared needle.\n";
+        await Deno.writeTextFile(path, markdown);
+        await fixture.search.refresh();
+        const payload = await fixture.search.search({ query: "Shared needle" });
+        assertEquals(payload.results.map((result) => result.sourceId), ["valid-id"]);
+        assertEquals(payload.states[0].state, "ready");
         assertEquals(await Deno.readTextFile(path), markdown);
     } finally {
         await fixture.close();
