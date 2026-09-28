@@ -2,7 +2,7 @@
 import { join } from "@std/path";
 import { expectedReleaseAssetNames } from "./release.js";
 import { verifyBuildArtifact } from "./build-metadata.js";
-import { extractReleaseRuntime } from "../src/shared/remote/release-artifact.js";
+import { extractReleaseRuntime } from "../src/shared/remote/release-artifact.ts";
 
 /**
  * Explicit development bundle. Never builds a missing runtime, and never

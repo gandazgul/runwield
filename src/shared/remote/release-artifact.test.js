@@ -1,7 +1,7 @@
 import { assertEquals, assertRejects, assertThrows } from "@std/assert";
 import { join } from "@std/path";
 import { sha256Bytes } from "../../../scripts/build-metadata.js";
-import { extractReleaseRuntime, releaseRuntimeName } from "./release-artifact.js";
+import { extractReleaseRuntime, releaseRuntimeName } from "./release-artifact.ts";
 
 Deno.test("release names select only the VERSION-tagged GNU target", () => {
     assertEquals(releaseRuntimeName("v1.2.3-rc.1", "linux-arm64"), "wld-v1.2.3-rc.1-linux-arm64.tar.gz");
