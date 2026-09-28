@@ -70,6 +70,7 @@ export interface PlanReviewResult {
         | PlanReviewRecoveryRequired
         | undefined;
     sequenceDecision?: SequenceReviewDecision;
+    conversationTurn?: boolean;
     approved: boolean;
     canceled?: boolean;
     cancellationReason?: string;
@@ -221,6 +222,7 @@ export async function submitPlanForReview({
                 approvalAction: decision.approvalAction,
                 feedback: decision.feedback,
                 sequenceDecision: decision,
+                ...(decision.conversationTurn === true && { conversationTurn: true }),
             };
         }
         const actionResult = await applySharedPlanReviewDecision({
@@ -238,6 +240,7 @@ export async function submitPlanForReview({
         const images = await loadReviewFeedbackImages(decision, cwd);
         return {
             ...actionResult,
+            ...(decision.conversationTurn === true && { conversationTurn: true }),
             ...(decision.savedPath && { savedPath: decision.savedPath }),
             ...(images.length > 0 && { images }),
         };

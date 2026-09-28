@@ -1891,6 +1891,7 @@ export class WorkspaceSessionContinuationService {
                         approvalAction: decision.approvalAction,
                         feedback: decision.feedback,
                         sequenceDecision: decision,
+                        ...(decision.conversationTurn === true && { conversationTurn: true }),
                     },
                 };
             } else if (request?.type === "plan_review" && planReview) {
@@ -1959,7 +1960,11 @@ export class WorkspaceSessionContinuationService {
                 );
                 runtimeResponse = {
                     outcome: "accepted",
-                    _meta: { ...actionResult, ...(images.length > 0 && { images }) },
+                    _meta: {
+                        ...actionResult,
+                        ...(decision.conversationTurn === true && { conversationTurn: true }),
+                        ...(images.length > 0 && { images }),
+                    },
                 };
             }
             await operation.answer.resolve(runtimeResponse);

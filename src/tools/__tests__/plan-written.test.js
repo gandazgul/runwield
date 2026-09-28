@@ -192,7 +192,7 @@ Deno.test("plan_written streams declared plan details into the active tool block
     );
 });
 
-Deno.test("plan_written identifies Architect conversations and keeps one conversation identity", async () => {
+Deno.test("plan_written identifies Architect conversations and stops capture after final review", async () => {
     const { tool, hostedSession, interactionRequests } = await makeHarness({ classification: "PROJECT" });
     await execute(tool, "runtime-epic");
 
@@ -208,12 +208,7 @@ Deno.test("plan_written identifies Architect conversations and keeps one convers
         agentName: "Architect",
         messageKind: "assistant",
     });
-    assertEquals(meta.reviewConversation.events, [{
-        type: "assistant_text_delta",
-        delta: "I revised the architecture boundary.",
-        messageId: "architect-message",
-        agentName: "Architect",
-    }]);
+    assertEquals(meta.reviewConversation.events, []);
 });
 
 Deno.test("plan_written rejects invalid loaded Plan policy before review or readiness", async () => {

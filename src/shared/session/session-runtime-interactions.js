@@ -121,29 +121,6 @@ export async function requestHostedSessionInteraction(hostedSession, request, si
         };
     }
     capability?.assertLive?.();
-    if (request.type === RuntimeInteractionTypes.PLAN_REVIEW && capability) {
-        const meta = request._meta || {};
-        let planId = meta.reviewContainerPlanId || meta.planId;
-        if (
-            !planId && meta.triageMeta && typeof meta.triageMeta === "object" &&
-            "planId" in meta.triageMeta
-        ) {
-            planId = meta.triageMeta.planId;
-        }
-        const planName = meta.reviewContainerPlanName || meta.planName;
-        const planningAgentName = meta.planningAgentName;
-        if (
-            typeof planId !== "string" || !planId.trim() ||
-            typeof planName !== "string" || !planName.trim() ||
-            typeof planningAgentName !== "string" || !planningAgentName.trim() ||
-            !capability.recordLastPlanReview
-        ) {
-            throw new Error("Plan review requires a Plan ID, name, and planning Agent with writer authority");
-        }
-        // The file store verifies the current writer proof and syncs the manifest
-        // before the adapter can present the review. This is not a pending wait.
-        capability.recordLastPlanReview({ planId, planName, planningAgentName });
-    }
     const id = request.id || createInteractionId();
     const interaction = { ...request, id };
     if (
@@ -186,7 +163,35 @@ export async function requestHostedSessionInteraction(hostedSession, request, si
             },
         };
     }
+    /** @type {string | null} */
+    let reviewContainerPlanId = null;
     if (request.type === RuntimeInteractionTypes.PLAN_REVIEW) {
+        const meta = interaction._meta || {};
+        const triagePlanId = meta.triageMeta && typeof meta.triageMeta === "object" &&
+                "planId" in meta.triageMeta
+            ? meta.triageMeta.planId
+            : null;
+        const planId = meta.reviewContainerPlanId || meta.planId || triagePlanId;
+        const planName = meta.reviewContainerPlanName || meta.planName;
+        const planningAgentName = meta.planningAgentName;
+        if (capability) {
+            if (
+                typeof planId !== "string" || !planId.trim() ||
+                typeof planName !== "string" || !planName.trim() ||
+                typeof planningAgentName !== "string" || !planningAgentName.trim() ||
+                !capability.recordLastPlanReview
+            ) throw new Error("Plan review requires a Plan ID, name, and planning Agent with writer authority");
+            // Verify the writer proof after the reviewed source and revision checks.
+            capability.recordLastPlanReview({ planId, planName, planningAgentName });
+        }
+        if (
+            typeof planId === "string" && planId.trim() && typeof planningAgentName === "string" &&
+            planningAgentName.trim()
+        ) {
+            reviewContainerPlanId = planId;
+            const conversation = hostedSession.getPlanReviewConversation({ planId, planningAgentName });
+            interaction._meta = { ...meta, reviewConversation: conversation, agentLabel: conversation.agentLabel };
+        }
         const originalReady = request._meta?.onSurfaceReady;
         /** @param {string | {url: string}} surface */
         const onSurfaceReady = (surface) => {
@@ -220,6 +225,7 @@ export async function requestHostedSessionInteraction(hostedSession, request, si
     });
     const adapter = hostedSession.getInteractionAdapter?.();
     if (!adapter || typeof adapter.requestInteraction !== "function") {
+        if (reviewContainerPlanId) hostedSession.planReviewConversations.stopCapture(reviewContainerPlanId);
         const response = {
             outcome: RuntimeInteractionOutcomes.UNSUPPORTED,
             message: "No interaction adapter is available for this session.",
@@ -268,6 +274,7 @@ export async function requestHostedSessionInteraction(hostedSession, request, si
     });
     try {
         if (signal?.aborted || operationSignal?.aborted || abortController.signal.aborted) {
+            if (reviewContainerPlanId) hostedSession.planReviewConversations.stopCapture(reviewContainerPlanId);
             const response = { outcome: RuntimeInteractionOutcomes.CANCELED, message: "Interaction canceled." };
             emitHostedSessionRuntimeEvent(hostedSession, {
                 type: RuntimeEventTypes.INTERACTION_CANCELED,
@@ -309,9 +316,18 @@ export async function requestHostedSessionInteraction(hostedSession, request, si
             outcome: response.outcome,
             message: response.message,
         });
+        if (
+            reviewContainerPlanId &&
+            (response.outcome === RuntimeInteractionOutcomes.CANCELED ||
+                (response.outcome === RuntimeInteractionOutcomes.ACCEPTED &&
+                    response._meta?.approved === true && response._meta?.conversationTurn !== true))
+        ) hostedSession.planReviewConversations.stopCapture(reviewContainerPlanId);
         return response;
     } catch (error) {
         const response = interactionErrorToResponse(error);
+        if (reviewContainerPlanId && response.outcome === RuntimeInteractionOutcomes.CANCELED) {
+            hostedSession.planReviewConversations.stopCapture(reviewContainerPlanId);
+        }
         emitHostedSessionRuntimeEvent(hostedSession, {
             type: response.outcome === RuntimeInteractionOutcomes.CANCELED
                 ? RuntimeEventTypes.INTERACTION_CANCELED
