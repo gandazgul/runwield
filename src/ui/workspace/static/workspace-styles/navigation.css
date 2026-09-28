@@ -123,6 +123,10 @@
     display: none;
 }
 
+.workspace-main-header-actions .rw-workspace-search-trigger {
+    margin-right: 0.75rem;
+}
+
 .workspace-main-header-actions .rw-plannotator-actions {
     flex-wrap: nowrap;
     gap: 0.45rem;

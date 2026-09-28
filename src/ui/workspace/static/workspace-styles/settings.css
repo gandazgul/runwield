@@ -228,11 +228,23 @@
         inset: 0 auto 0 0;
         width: min(18rem, 86vw);
         z-index: 1050;
-        box-shadow: 18px 0 44px rgba(0, 0, 0, 0.36);
+        box-shadow: inset 3px 0 var(--rw-brand), 18px 0 44px rgba(0, 0, 0, 0.36);
+    }
+
+    .workspace-sidebar-overlay-open .rw-workspace-search-trigger {
+        display: none;
+    }
+
+    body:has(.workspace-sidebar-overlay-open) .rw-menu-positioner:has(.rw-menu-popup[aria-label="Workspace menu"]) {
+        z-index: 1051;
     }
 
     .workspace-sidebar-restore {
         display: inline-flex;
+    }
+
+    .workspace-shell-with-sidebar:has(.session-context-header[data-expanded="true"]) .workspace-sidebar-restore {
+        display: none;
     }
 
     .workspace-main-brand {

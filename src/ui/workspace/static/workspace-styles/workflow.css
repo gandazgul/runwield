@@ -97,6 +97,10 @@
         width: 100%;
     }
 
+    .workspace-main-header:has(.session-context-header[data-expanded="true"]) .rw-workspace-search-trigger {
+        display: none;
+    }
+
     .session-context-header[data-expanded="true"] {
         width: 100%;
         border-left: 0;
