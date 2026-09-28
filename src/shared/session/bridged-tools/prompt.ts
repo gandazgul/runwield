@@ -1,50 +1,78 @@
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { mcpAliasFor } from "./mcp-bridge.ts";
 
+/**
+ * Maps a RunWield capability to a host-native tool name.
+ * @typedef ToolMapEntry
+ * @property {string[]} rwNames  RunWield canonical names displayed in the mapping.
+ * @property {string}   nativeName  Corresponding host-native tool name.
+ */
+interface ToolMapEntry {
+    rwNames: string[];
+    nativeName: string;
+}
+
+const AGY_TOOL_MAP: ToolMapEntry[] = [
+    { rwNames: ["bash"], nativeName: "run_command" },
+    { rwNames: ["write", "write_docs"], nativeName: "write_to_file" },
+    { rwNames: ["edit", "edit_docs"], nativeName: "replace_file_content" },
+    { rwNames: ["read", "view"], nativeName: "view_file" },
+];
+
+const CLAUDE_TOOL_MAP: ToolMapEntry[] = [
+    { rwNames: ["bash"], nativeName: "Bash" },
+    { rwNames: ["write", "write_docs"], nativeName: "Write" },
+    { rwNames: ["edit", "edit_docs"], nativeName: "Edit" },
+    { rwNames: ["read", "view"], nativeName: "Read" },
+];
+
+/** True when the entry is relevant to the declared tool set. */
+function entryMatchesDeclared(entry: ToolMapEntry, declared: Set<string>): boolean {
+    if (entry.rwNames.some((n) => declared.has(n))) return true;
+    if (declared.has(entry.nativeName)) return true;
+    // multi_file_edit is a bridged MCP tool, but its presence in declared tools
+    // also signals that the agent can edit files natively.
+    if (entry.rwNames[0] === "edit" && declared.has("multi_file_edit")) return true;
+    return false;
+}
+
+function buildToolMappingSection(
+    map: ToolMapEntry[],
+    declaredTools?: string[],
+): string {
+    let entries = map;
+    if (declaredTools) {
+        const declared = new Set(declaredTools);
+        entries = map.filter((entry) => entryMatchesDeclared(entry, declared));
+        // Every agent can at minimum read files.
+        if (entries.length === 0) {
+            const readEntry = map.find((e) => e.rwNames.includes("read"));
+            if (readEntry) entries = [readEntry];
+        }
+    }
+    if (entries.length === 0) return "";
+    return [
+        "",
+        "## Tool Name Mapping",
+        "When RunWield prompts reference these names, use the corresponding native tool:",
+        ...entries.map((entry) => {
+            const rwLabel = entry.rwNames.map((n) => `\`${n}\``).join(", ");
+            return `- ${rwLabel} -> \`${entry.nativeName}\``;
+        }),
+    ].join("\n");
+}
+
 export function buildBridgedToolPromptAppendix(
     bridgedTools: ToolDefinition[],
     hostName: "Claude Code" | "Antigravity CLI",
     declaredTools?: string[],
 ): string {
+    const map = hostName === "Antigravity CLI" ? AGY_TOOL_MAP : CLAUDE_TOOL_MAP;
+    const toolMapping = buildToolMappingSection(map, declaredTools);
+
     const eligibleAliases = bridgedTools.map((tool) => mcpAliasFor(tool.name));
-    let nativeTools = "";
-    if (hostName === "Antigravity CLI") {
-        if (!declaredTools) {
-            nativeTools =
-                "\n\nAntigravity native tools differ from RunWield's tool names: use run_command for bash/shell commands, " +
-                "write_to_file to create new files (not multi_file_edit), view_file to read, and " +
-                "replace_file_content to edit. Run tests with run_command when it is available. " +
-                "Before reporting a missing capability, check the native tools declared for this turn; " +
-                "RunWield MCP multi_file_edit only changes existing files.";
-        } else {
-            const declared = new Set(declaredTools);
-            const clauses: string[] = [];
-            if (declared.has("bash") || declared.has("run_command")) {
-                clauses.push("use run_command for bash/shell commands");
-            }
-            if (declared.has("write") || declared.has("write_docs") || declared.has("write_to_file")) {
-                clauses.push("write_to_file to create new files (not multi_file_edit)");
-            }
-            if (declared.has("read") || declared.has("view") || declared.has("view_file")) {
-                clauses.push("view_file to read");
-            }
-            if (
-                declared.has("edit") || declared.has("edit_docs") || declared.has("multi_file_edit") ||
-                declared.has("replace_file_content")
-            ) {
-                clauses.push("replace_file_content to edit");
-            }
-            if (clauses.length === 0) clauses.push("view_file to read");
-            const testNote = declared.has("bash") || declared.has("run_command")
-                ? " Run tests with run_command when it is available."
-                : "";
-            nativeTools =
-                `\n\nAntigravity native tools differ from RunWield's tool names: ${clauses.join(", ")}.${testNote} ` +
-                "Before reporting a missing capability, check the native tools declared for this turn; " +
-                "RunWield MCP multi_file_edit only changes existing files.";
-        }
-    }
-    if (eligibleAliases.length === 0) return nativeTools;
+    if (eligibleAliases.length === 0) return toolMapping;
+
     const lines = [
         "",
         "## RunWield Bridged Tools (MCP)",
@@ -66,5 +94,5 @@ export function buildBridgedToolPromptAppendix(
             : `${hostName} native file, search, and shell tools`;
         lines.push("", `Before calling runwield_review_complete, inspect the implementation with ${inspectionTools}.`);
     }
-    return lines.join("\n") + nativeTools;
+    return lines.join("\n") + toolMapping;
 }

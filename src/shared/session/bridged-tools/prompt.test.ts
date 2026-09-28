@@ -3,19 +3,36 @@ import { getCwd } from "../../../constants.js";
 import { createMultiFileEditTool } from "../../../tools/multi_file_edit.ts";
 import { buildBridgedToolPromptAppendix } from "./prompt.ts";
 
-Deno.test("Antigravity prompt identifies native command and file creation tools", () => {
+Deno.test("Antigravity prompt includes tool name mapping for all capabilities", () => {
     const prompt = buildBridgedToolPromptAppendix([createMultiFileEditTool(getCwd())], "Antigravity CLI");
-    assertStringIncludes(prompt, "run_command");
-    assertStringIncludes(prompt, "write_to_file");
-    assertStringIncludes(prompt, "bash");
-    assertStringIncludes(prompt, "write");
-    assertStringIncludes(prompt, "multi_file_edit only changes existing files");
+    assertStringIncludes(prompt, "## Tool Name Mapping");
+    assertStringIncludes(prompt, "`bash` -> `run_command`");
+    assertStringIncludes(prompt, "`write`, `write_docs` -> `write_to_file`");
+    assertStringIncludes(prompt, "`edit`, `edit_docs` -> `replace_file_content`");
+    assertStringIncludes(prompt, "`read`, `view` -> `view_file`");
 });
 
-Deno.test("Antigravity prompt adapts to read-only declared tools", () => {
+Deno.test("Antigravity prompt adapts mapping to read-only declared tools", () => {
     const prompt = buildBridgedToolPromptAppendix([], "Antigravity CLI", ["read", "code_search"]);
-    assertStringIncludes(prompt, "view_file to read");
+    assertStringIncludes(prompt, "`read`, `view` -> `view_file`");
     assertEquals(prompt.includes("run_command"), false);
     assertEquals(prompt.includes("write_to_file"), false);
     assertEquals(prompt.includes("replace_file_content"), false);
+});
+
+Deno.test("Antigravity prompt includes edit mapping when multi_file_edit is declared", () => {
+    const prompt = buildBridgedToolPromptAppendix([], "Antigravity CLI", ["read", "multi_file_edit"]);
+    assertStringIncludes(prompt, "`edit`, `edit_docs` -> `replace_file_content`");
+    assertStringIncludes(prompt, "`read`, `view` -> `view_file`");
+    assertEquals(prompt.includes("run_command"), false);
+    assertEquals(prompt.includes("write_to_file"), false);
+});
+
+Deno.test("Claude Code prompt includes tool name mapping", () => {
+    const prompt = buildBridgedToolPromptAppendix([], "Claude Code");
+    assertStringIncludes(prompt, "## Tool Name Mapping");
+    assertStringIncludes(prompt, "`bash` -> `Bash`");
+    assertStringIncludes(prompt, "`write`, `write_docs` -> `Write`");
+    assertStringIncludes(prompt, "`edit`, `edit_docs` -> `Edit`");
+    assertStringIncludes(prompt, "`read`, `view` -> `Read`");
 });
