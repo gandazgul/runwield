@@ -264,10 +264,18 @@ the public guide allowlist and docs-site tooling, then forward-port them to `mai
 them. If it conflicts, repair the named documentation files and retry; do not reset the branch or overwrite the live
 manual. A product hotfix still uses the ordinary Candidate/Stable or direct Stable patch process above.
 
-Use the `publish-docs` manual workflow to retry the latest Stable deployment. Use its bootstrap option only once when
-`docs/stable` does not exist; it starts from the actual latest Stable tag and brings over only the reviewed public docs
-site support. Run `scripts/setup-docs-pages.sh` for the one-time GitHub Pages and DNS cutover. An older tag, an API
-failure, a failed build, or a rejected non-fast-forward push must leave the current Pages deployment unchanged.
+Use the `publish-docs` manual workflow to retry the latest Stable deployment. If a tag-triggered release run merges and
+pushes `docs/stable` but Pages rejects the tag under environment branch rules, dispatch `publish-docs` from the allowed
+`main` branch with the Stable tag. Do not merge or push the release again:
+
+```bash
+gh workflow run docs.yml --ref main -f tag=<stable-tag>
+```
+
+Use its bootstrap option only once when `docs/stable` does not exist; it starts from the actual latest Stable tag and
+brings over only the reviewed public docs site support. Run `scripts/setup-docs-pages.sh` for the one-time GitHub Pages
+and DNS cutover. An older tag, an API failure, a failed build, or a rejected non-fast-forward push must leave the
+current Pages deployment unchanged.
 
 ## Recovery
 
