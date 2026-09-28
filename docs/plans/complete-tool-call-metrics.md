@@ -23,7 +23,7 @@ createdAt: "2026-08-08T01:08:52-04:00"
 origin: "internal"
 userVerifiedAt: null
 targetBranch: "main"
-status: "in_progress"
+status: "implemented"
 ---
 
 # Complete Tool-Call Metrics

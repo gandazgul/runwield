@@ -33,6 +33,7 @@ export interface AgyCliAssistantDelta {
 
 export interface AgyCliStreamCallbacks {
     onDelta?: (delta: AgyCliAssistantDelta) => void;
+    onToolInfo?: () => void;
 }
 
 type JsonScalar = string | number | boolean | null;
@@ -260,6 +261,7 @@ export async function parseAgyCliStream(
             if (event.permissionDetail && toolPermissionDetails.size < 5) {
                 toolPermissionDetails.add(event.permissionDetail);
             }
+            callbacks.onToolInfo?.();
             return;
         }
         sawResult = true;

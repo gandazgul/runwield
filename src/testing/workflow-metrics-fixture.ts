@@ -12,7 +12,7 @@ export type WorkflowMetricFixtureValue =
     | { [key: string]: WorkflowMetricFixtureValue };
 
 export interface WorkflowMetricFixtureRecord {
-    v: 1;
+    v: 1 | 2;
     ts: string;
     category: string;
     event: string;
@@ -20,6 +20,7 @@ export interface WorkflowMetricFixtureRecord {
     planName?: string;
     cwdHash: string;
     details?: { [key: string]: WorkflowMetricFixtureValue };
+    [key: string]: unknown;
 }
 
 export interface WorkflowMetricsFixture {

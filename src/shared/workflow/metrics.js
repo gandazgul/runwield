@@ -273,6 +273,198 @@ function sanitizeDedicatedFrontendMetricDetails(event, details) {
  * @param {string} cwd
  * @returns {Promise<WorkflowMetricRecord | null>}
  */
+const V2_CATEGORIES = new Set(["execution", "tool_usage", "model_usage", "context", "command"]);
+let metricsWriteQueue = Promise.resolve();
+
+/**
+ * Await pending metrics file writes up to timeoutMs.
+ * @param {number} [timeoutMs]
+ * @returns {Promise<void>}
+ */
+export function drainWorkflowMetrics(timeoutMs = 5000) {
+    return Promise.race([
+        metricsWriteQueue,
+        new Promise((resolve) => setTimeout(resolve, timeoutMs)),
+    ]);
+}
+
+/**
+ * Sanitizes a v2 metric observation record against an explicit typed allowlist.
+ * @param {Record<string, unknown>} metric
+ * @param {string} cwdHash
+ * @returns {Record<string, unknown>}
+ */
+function sanitizeV2MetricRecord(metric, cwdHash) {
+    const record = {
+        v: 2,
+        ts: typeof metric.ts === "string" ? metric.ts : new Date().toISOString(),
+        eventId: typeof metric.eventId === "string" ? metric.eventId : crypto.randomUUID(),
+        recorderId: typeof metric.recorderId === "string" ? metric.recorderId : "rec",
+        seq: allowNonNegativeInteger(metric.seq) ?? 0,
+        category: allowEnum(metric.category, V2_CATEGORIES) || "execution",
+        event: typeof metric.event === "string" ? metric.event : "unknown",
+        cwdHash,
+    };
+
+    const linkKeys = [
+        "sessionId",
+        "segmentId",
+        "executionId",
+        "requestId",
+        "attemptId",
+        "turnId",
+        "modelRequestId",
+        "commandId",
+        "invocationId",
+        "parentExecutionId",
+        "parentToolCallId",
+        "taskId",
+        "exposureId",
+        "callId",
+        "parentCallId",
+        "sourceId",
+    ];
+    for (const key of linkKeys) {
+        if (typeof metric[key] === "string" && metric[key].length > 0 && metric[key].length <= MAX_STRING_LENGTH) {
+            record[key] = metric[key];
+        }
+    }
+
+    const metaKeys = [
+        "agent",
+        "provider",
+        "model",
+        "backend",
+        "dispatchKind",
+        "executionKind",
+        "mode",
+        "sourceSurface",
+        "outcome",
+        "reason",
+        "toolName",
+        "subUsage",
+        "estimatorVersion",
+        "inventoryCoverage",
+        "operationKind",
+        "commandLabel",
+        "action",
+        "scope",
+        "batchKind",
+        "status",
+        "usageKind",
+        "costCurrency",
+        "costSource",
+        "measurementAvailability",
+        "aggregationBasis",
+        "usageState",
+        "samplingPoint",
+        "retrySource",
+        "basis",
+        "availability",
+        "commandName",
+        "commandKind",
+        "command",
+        "alias",
+        "kind",
+        "errorReason",
+        "surface",
+        "phase",
+    ];
+    for (const key of metaKeys) {
+        if (typeof metric[key] === "string" && metric[key].length > 0 && metric[key].length <= MAX_STRING_LENGTH) {
+            record[key] = metric[key];
+        }
+    }
+
+    if (
+        metric.rawAlias === null || (typeof metric.rawAlias === "string" && metric.rawAlias.length <= MAX_STRING_LENGTH)
+    ) {
+        record.rawAlias = metric.rawAlias;
+    }
+    if (
+        metric.unavailableReason === null ||
+        (typeof metric.unavailableReason === "string" && metric.unavailableReason.length <= MAX_STRING_LENGTH)
+    ) {
+        record.unavailableReason = metric.unavailableReason;
+    }
+
+    const integerKeys = [
+        "elapsedMs",
+        "callCount",
+        "toolCount",
+        "totalCount",
+        "toolIndex",
+        "schemaTokens",
+        "residentTokens",
+        "totalSchemaTokens",
+        "totalResidentTokens",
+        "durationMs",
+        "resultBytes",
+        "resultTokens",
+        "imageCount",
+        "operationIndex",
+        "attempt",
+        "maxAttempts",
+        "delayMs",
+    ];
+    for (const key of integerKeys) {
+        const val = allowNonNegativeInteger(metric[key]);
+        if (val !== undefined) record[key] = val;
+    }
+
+    const nullableNumberKeys = [
+        "inputTokens",
+        "outputTokens",
+        "cacheReadTokens",
+        "cacheWriteTokens",
+        "costAmount",
+        "capacity",
+        "currentUsage",
+        "beforeTokens",
+        "afterTokens",
+        "requestStartedAt",
+        "firstResponseAt",
+        "firstVisibleTextAt",
+        "completedAt",
+        "firstResponseLatencyMs",
+        "firstVisibleTextLatencyMs",
+        "totalLatencyMs",
+    ];
+    for (const key of nullableNumberKeys) {
+        if (typeof metric[key] === "number" && Number.isFinite(metric[key])) {
+            record[key] = metric[key];
+        } else if (metric[key] === null) {
+            record[key] = null;
+        }
+    }
+
+    if (typeof metric.truncated === "boolean") record.truncated = metric.truncated;
+    else if (metric.truncated === null) record.truncated = null;
+
+    if (typeof metric.isError === "boolean") record.isError = metric.isError;
+
+    if (Array.isArray(metric.linkedExecutionIds)) {
+        record.linkedExecutionIds = metric.linkedExecutionIds.filter(
+            (id) => typeof id === "string" && id.length <= MAX_STRING_LENGTH,
+        );
+    }
+    if (isPlainObject(metric.coverage)) record.coverage = metric.coverage;
+    if (isPlainObject(metric.staticCategoryCounts)) record.staticCategoryCounts = metric.staticCategoryCounts;
+
+    return record;
+}
+
+/**
+ * @param {Object} metric
+ * @param {WorkflowMetricCategory} [metric.category]
+ * @param {string} [metric.event]
+ * @param {string} [metric.sessionId]
+ * @param {string} [metric.planName]
+ * @param {string} [metric.agentName]
+ * @param {unknown} [metric.details]
+ * @param {string} cwd
+ * @returns {Promise<WorkflowMetricRecord | Record<string, unknown> | null>}
+ */
 export async function recordWorkflowMetric(metric, cwd) {
     try {
         if (!cwd) throw new Error("recordWorkflowMetric: cwd is required");
@@ -284,33 +476,45 @@ export async function recordWorkflowMetric(metric, cwd) {
         if (!isWorkflowMetricsEnabled(resolvedSetting)) return null;
 
         const filePath = getWorkflowMetricsFilePath(projectRoot);
-        const dedicatedFrontendEvent = DEDICATED_FRONTEND_EVENTS.has(metric.event);
-        const dedicatedDetails = dedicatedFrontendEvent
-            ? sanitizeDedicatedFrontendMetricDetails(metric.event, metric.details)
-            : undefined;
-        /** @type {WorkflowMetricRecord} */
-        const record = {
-            v: 1,
-            ts: new Date().toISOString(),
-            category: metric.category,
-            event: metric.event,
-            cwdHash: await hashMetricCwd(projectRoot),
-            ...(!dedicatedFrontendEvent && metric.sessionId ? { sessionId: metric.sessionId } : {}),
-            ...(!dedicatedFrontendEvent && metric.planName ? { planName: metric.planName } : {}),
-            ...(!dedicatedFrontendEvent && metric.agentName ? { agentName: metric.agentName } : {}),
-            ...(dedicatedFrontendEvent
-                ? dedicatedDetails !== undefined ? { details: dedicatedDetails } : {}
-                : metric.details !== undefined
-                ? { details: sanitizeMetricDetails(metric.details) }
-                : {}),
-        };
+        const cwdHash = await hashMetricCwd(projectRoot);
 
-        try {
-            await Deno.mkdir(dirname(filePath), { recursive: true });
-            await Deno.writeTextFile(filePath, `${JSON.stringify(record)}\n`, { append: true });
-        } catch {
-            return record;
+        let record;
+        if (metric.v === 2) {
+            record = sanitizeV2MetricRecord(/** @type {Record<string, unknown>} */ (metric), cwdHash);
+        } else {
+            const dedicatedFrontendEvent = DEDICATED_FRONTEND_EVENTS.has(metric.event);
+            const dedicatedDetails = dedicatedFrontendEvent
+                ? sanitizeDedicatedFrontendMetricDetails(metric.event, metric.details)
+                : undefined;
+            /** @type {WorkflowMetricRecord} */
+            record = {
+                v: 1,
+                ts: new Date().toISOString(),
+                category: metric.category,
+                event: metric.event,
+                cwdHash,
+                ...(!dedicatedFrontendEvent && metric.sessionId ? { sessionId: metric.sessionId } : {}),
+                ...(!dedicatedFrontendEvent && metric.planName ? { planName: metric.planName } : {}),
+                ...(!dedicatedFrontendEvent && metric.agentName ? { agentName: metric.agentName } : {}),
+                ...(dedicatedFrontendEvent
+                    ? dedicatedDetails !== undefined ? { details: dedicatedDetails } : {}
+                    : metric.details !== undefined
+                    ? { details: sanitizeMetricDetails(metric.details) }
+                    : {}),
+            };
         }
+
+        const serialized = `${JSON.stringify(record)}\n`;
+        metricsWriteQueue = metricsWriteQueue.then(async () => {
+            try {
+                await Deno.mkdir(dirname(filePath), { recursive: true });
+                await Deno.writeTextFile(filePath, serialized, { append: true });
+            } catch {
+                // Fail-open: metric writes must never disrupt execution.
+            }
+        }).catch(() => {});
+
+        await metricsWriteQueue;
         return record;
     } catch {
         return null;

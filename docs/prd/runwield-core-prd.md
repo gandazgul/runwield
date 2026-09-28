@@ -1630,6 +1630,40 @@ retain delivery evidence. Scenarios guide verification but do not claim executab
 - Given an unimplemented proposal, when an Agent revises its PRD, the behavior stays labeled target rather than being
   presented as shipped.
 
+### Local workflow metrics
+
+<a id="local-workflow-metrics"></a>
+
+**Scope and maturity:** Target capability. Implemented local observation layer for local workflow recording. Reporting,
+dashboards, and export remain deferred.
+
+**Requirement: Record structured workflow observations locally with explicit opt-in, project isolation, and zero
+sensitive content leakage.**
+
+When `workflowMetrics` is enabled, RunWield records ordered tool usage, model token usage, monetary cost, context
+snapshots, compaction events, retries, response latency, and slash commands. Recording stays disabled by default.
+Observations write exclusively to local JSONL files in
+`~/.wld/workflow-metrics/<encoded-primary-project-root>/metrics.jsonl`. Linked worktrees share their primary Project
+metrics file.
+
+Records contain no prompts, no source code diffs, no tool results, no file contents, and no credentials. Bash command
+lines are normalized into coarse binary and subcommand labels. Memory tool calls record only the operation action and
+scope. Model usage records preserve exact numeric token counts, cache reads and writes, and cost values. Every execution
+emits an exposure inventory of available tools to permit accurate denominator analysis. Background tasks and delegated
+agents maintain explicit parent linkage without altering execution dispatch.
+
+**Acceptance scenarios:**
+
+- Given `workflowMetrics` disabled or unset, when turns, tool calls, or slash commands run, RunWield writes no metrics
+  records to disk.
+- Given `workflowMetrics` enabled in project or global settings, when an agent turn executes, RunWield records ordered
+  events with monotonic sequences, tool exposures, tool durations, model usage, and latency.
+- Given a bash command with flags, arguments, or pipelines, when recorded, RunWield stores only coarse safe command
+  labels and excludes all raw paths and arguments.
+- Given an execution with more than 40 tools, RunWield records individual tool exposure events without array truncation.
+- Given background delegated work, RunWield preserves parent tool call identity, parent execution identity, and task
+  identity across all recorded observation records.
+
 <a id="4-current-local-workspace-surface"></a>
 <a id="5-current-collaborative-planning-surface"></a>
 

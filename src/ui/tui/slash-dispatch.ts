@@ -147,6 +147,8 @@ export async function handleSlashCommand(ctx: SlashContext): Promise<boolean> {
     return true;
 }
 
+import { SlashCommandMetricsTracker } from "../../shared/workflow/command-metrics.ts";
+
 async function dispatchBuiltin(
     ctx: SlashContext,
     command: string,
@@ -154,6 +156,17 @@ async function dispatchBuiltin(
     commandRegistry: CommandRegistry,
     thisGen: number,
 ): Promise<void> {
+    const projectRoot = ctx.sessionRuntime.getSessionSnapshot?.(ctx.sessionId)?.cwd || Deno.cwd();
+    const tracker = new SlashCommandMetricsTracker({
+        command,
+        kind: "builtin",
+        surface: "tui",
+        projectRoot,
+        sessionId: ctx.sessionId,
+    });
+    await tracker.recordStart();
+    let outcome: "succeeded" | "failed" = "succeeded";
+    let errorReason: string | null = null;
     try {
         const notifyRunWieldEvent = ctx.notifyRunWieldEvent || ((eventName: string, options?: NotificationOptions) => {
             if (!isNotificationEventName(eventName)) return;
@@ -173,9 +186,13 @@ async function dispatchBuiltin(
             slashSurface: "tui",
         });
     } catch (error) {
+        outcome = "failed";
+        errorReason = error instanceof Error ? error.message : String(error);
         if (ctx.generationGuard.isCurrent(thisGen)) {
-            ctx.uiAPI.appendSystemMessage(`Error: ${error instanceof Error ? error.message : String(error)}`);
+            ctx.uiAPI.appendSystemMessage(`Error: ${errorReason}`);
         }
+    } finally {
+        await tracker.recordFinish({ outcome, errorReason });
     }
 }
 
@@ -190,30 +207,60 @@ async function dispatchExpandedInput(
 
 async function dispatchSkill(
     ctx: SlashContext,
-    _skill: SkillMeta,
+    skill: SkillMeta,
     _additionalInstructions: string,
     thisGen: number,
 ): Promise<void> {
+    const projectRoot = ctx.sessionRuntime.getSessionSnapshot?.(ctx.sessionId)?.cwd || Deno.cwd();
+    const tracker = new SlashCommandMetricsTracker({
+        command: skill.name,
+        kind: "skill",
+        surface: "tui",
+        projectRoot,
+        sessionId: ctx.sessionId,
+    });
+    await tracker.recordStart();
+    let outcome: "succeeded" | "failed" = "succeeded";
+    let errorReason: string | null = null;
     try {
         await dispatchExpandedInput(ctx, ctx.userRequest, ctx.savedImages);
     } catch (error) {
+        outcome = "failed";
+        errorReason = error instanceof Error ? error.message : String(error);
         if (ctx.generationGuard.isCurrent(thisGen)) {
-            ctx.uiAPI.appendSystemMessage(`Error: ${error instanceof Error ? error.message : String(error)}`);
+            ctx.uiAPI.appendSystemMessage(`Error: ${errorReason}`);
         }
+    } finally {
+        await tracker.recordFinish({ outcome, errorReason });
     }
 }
 
 async function dispatchTemplate(
     ctx: SlashContext,
-    _template: PromptTemplateMeta,
+    template: PromptTemplateMeta,
     _additionalInstructions: string,
     thisGen: number,
 ): Promise<void> {
+    const projectRoot = ctx.sessionRuntime.getSessionSnapshot?.(ctx.sessionId)?.cwd || Deno.cwd();
+    const tracker = new SlashCommandMetricsTracker({
+        command: template.name,
+        kind: "template",
+        surface: "tui",
+        projectRoot,
+        sessionId: ctx.sessionId,
+    });
+    await tracker.recordStart();
+    let outcome: "succeeded" | "failed" = "succeeded";
+    let errorReason: string | null = null;
     try {
         await dispatchExpandedInput(ctx, ctx.userRequest, ctx.savedImages);
     } catch (error) {
+        outcome = "failed";
+        errorReason = error instanceof Error ? error.message : String(error);
         if (ctx.generationGuard.isCurrent(thisGen)) {
-            ctx.uiAPI.appendSystemMessage(`Error: ${error instanceof Error ? error.message : String(error)}`);
+            ctx.uiAPI.appendSystemMessage(`Error: ${errorReason}`);
         }
+    } finally {
+        await tracker.recordFinish({ outcome, errorReason });
     }
 }

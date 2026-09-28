@@ -23,6 +23,7 @@ import {
     listUserModelOptions,
     parseUserModelSelection,
 } from "../shared/session/user-selection.ts";
+import { SlashCommandMetricsTracker } from "../shared/workflow/command-metrics.ts";
 
 const ACP_AUTH_REQUIRED = -32000;
 const ACP_NOT_IMPLEMENTED = -32004;
@@ -644,22 +645,47 @@ async function dispatchAcpBuiltinCommand(options) {
             handleInput: () => {},
         };
         const commandTui = { requestRender: () => {}, setFocus: () => {} };
-        await definition.execute(options.args, {
-            uiAPI: commandUiAPI,
-            editor: commandEditor,
-            tui: commandTui,
-            sessionRuntime: options.runtime,
+        const snapshot = options.runtime.getSessionSnapshot?.(runtimeSessionId);
+        const tracker = new SlashCommandMetricsTracker({
+            command: definition.name,
+            alias: options.commandName !== definition.name ? options.commandName : undefined,
+            kind: "builtin",
+            surface: "acp",
+            projectRoot: snapshot?.cwd || Deno.cwd(),
             sessionId: runtimeSessionId,
-            slashSurface: "acp",
-            replaceRuntimeSession: (nextSessionId) => {
-                const replacementSnapshot = options.runtime.getSessionSnapshot(nextSessionId);
-                options.sessionMap.replaceRuntimeSession(options.acpSessionId, {
-                    sessionId: nextSessionId,
-                    cwd: replacementSnapshot?.cwd,
-                });
-                runtimeSessionId = nextSessionId;
-            },
+            requestId: options.requestId,
         });
+        await tracker.recordStart();
+        let outcome = "succeeded";
+        let errorReason = null;
+        try {
+            await definition.execute(options.args, {
+                uiAPI: commandUiAPI,
+                editor: commandEditor,
+                tui: commandTui,
+                sessionRuntime: options.runtime,
+                sessionId: runtimeSessionId,
+                slashSurface: "acp",
+                replaceRuntimeSession: (nextSessionId) => {
+                    const replacementSnapshot = options.runtime.getSessionSnapshot(nextSessionId);
+                    options.sessionMap.replaceRuntimeSession(options.acpSessionId, {
+                        sessionId: nextSessionId,
+                        cwd: replacementSnapshot?.cwd,
+                    });
+                    runtimeSessionId = nextSessionId;
+                },
+            });
+        } catch (execError) {
+            outcome = prompt.cancelled ? "canceled" : "failed";
+            errorReason = execError instanceof Error ? execError.message : String(execError);
+            throw execError;
+        } finally {
+            if (prompt.cancelled && outcome !== "failed") outcome = "canceled";
+            await tracker.recordFinish({
+                outcome: /** @type {import('../shared/workflow/command-metrics.ts').SlashCommandOutcome} */ (outcome),
+                errorReason,
+            });
+        }
         await Promise.allSettled(pendingNotifications);
         return prompt.cancelled ? { stopReason: "cancelled" } : { stopReason: "end_turn" };
     } catch (error) {

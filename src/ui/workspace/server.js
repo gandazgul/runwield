@@ -75,6 +75,7 @@ import {
 import { createWorkspaceSessionContinuationService } from "./server/session-continuation.js";
 import {
     ownerNotificationsStreamApi,
+    ownerProjectCommandMetricsApi,
     ownerProjectSessionsApi,
     ownerSessionBootstrapApi,
     ownerSessionConfigureApi,
@@ -360,6 +361,7 @@ export function createOwnerWorkspaceApp(options) {
         ownerSessionInteractionAnswerApi,
     );
     app.post("/api/owner/projects/:projectId/session-operations/:operationId/steer", ownerSessionSteerApi);
+    app.post("/api/owner/projects/:projectId/command-metrics", ownerProjectCommandMetricsApi);
     app.post("/api/owner/session-operations/:operationId/cancel", ownerSessionOperationCancelApi);
     app.get("/api/owner/session-operations/:operationId/stream", ownerSessionOperationStreamApi);
     app.get("/api/owner/session-operations/:operationId", ownerSessionOperationStatusApi);

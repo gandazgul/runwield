@@ -36,6 +36,7 @@ import {
 } from "../session-runtime-events.js";
 import type { HostedSession } from "../hosted-session.js";
 import { describeRuntimeTool } from "../tool-event-title.js";
+import type { ExecutionMetricsRecorder } from "../../workflow/execution-metrics.ts";
 
 /** Concrete JSON shapes crossing the MCP boundary. */
 type JsonValue = string | number | boolean | null | JsonValue[] | JsonObject;
@@ -113,6 +114,8 @@ export interface RunWieldMcpBridgeOptions {
     consumePendingSteering?: () => string[];
     /** Stop the external backend immediately after a terminating lifecycle result. */
     onTerminalAccepted?: (internalName: string) => void;
+    /** Execution metrics recorder for tracking tool lifecycle and operations. */
+    recorder?: ExecutionMetricsRecorder;
 }
 
 export interface RunWieldMcpBridgeHandle {
@@ -324,6 +327,7 @@ export async function startRunWieldMcpBridge(
         });
         toolArgs.set(callId, args);
         emitToolStart(internalName, callId, args);
+        void options.recorder?.recordToolStart(callId, internalName, args);
     }
 
     function recordToolResult(
@@ -339,6 +343,23 @@ export async function startRunWieldMcpBridge(
             details: stampDetails(result.details, options.provenance),
             isError: result.isError === true,
             timestamp: Date.now(),
+        });
+        const startedAt = toolStartedAt.get(callId);
+        const reason = typeof result.details?.reason === "string" ? result.details.reason : undefined;
+        const outcome = reason && reason !== "execution_error" && reason !== "aborted"
+            ? "rejected" as const
+            : reason === "aborted"
+            ? "canceled" as const
+            : result.isError
+            ? "error" as const
+            : "success" as const;
+        void options.recorder?.recordToolFinish(callId, internalName, {
+            outcome,
+            reason,
+            isError: result.isError === true,
+            durationMs: startedAt === undefined ? null : Math.max(0, Date.now() - startedAt),
+            result: result.content,
+            args: toolArgs.get(callId),
         });
         emitToolEnd(internalName, callId, result);
     }
@@ -417,12 +438,14 @@ export async function startRunWieldMcpBridge(
                 content: executed.content,
                 details: executed.details as JsonObject | null | undefined,
                 terminate: executed.terminate === true,
+                isError: executed.isError === true,
             };
         } catch (error) {
             const reason = error instanceof Error ? error.message : String(error);
+            const isAborted = callSignal?.aborted === true;
             result = {
                 content: [{ type: "text", text: `runwield ${entry.kind} call failed: ${reason}` }],
-                details: { reason: "execution_error" },
+                details: { reason: isAborted ? "aborted" : "execution_error" },
                 isError: true,
             };
         }

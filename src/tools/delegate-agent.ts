@@ -65,6 +65,9 @@ export interface DelegatedAgentSessionOptions {
     projectStateContext: string;
     background?: boolean;
     signal?: AbortSignal;
+    parentToolCallId?: string;
+    parentExecutionId?: string;
+    taskId?: string;
 }
 
 type RunIsolatedAgentSession = (opts: DelegatedAgentSessionOptions) => Promise<AgentMessage[]>;
@@ -351,7 +354,7 @@ export function createDelegateAgentTool(opts: DelegateAgentToolOptions) {
         description:
             "Run a bounded context-isolated Delegated Agent Session. Use mode 'read' for investigation/review and mode 'write' for one exclusive synchronous implementation task. Set background: true for independent read-only work and inspect its final task result before relying on it.",
         parameters: PARAMETERS,
-        async execute(_toolCallId, params, signal, _onUpdate, _ctx): Promise<DelegateAgentResult> {
+        async execute(toolCallId, params, signal, _onUpdate, _ctx): Promise<DelegateAgentResult> {
             const requestedMode: DelegationMode = params.mode === "write" ? "write" : "read";
             const requestedRole = typeof params.role === "string" && params.role ? params.role : DELEGATED_ROLE_GENERAL;
             const brief = typeof params.brief === "string" ? params.brief.trim() : "";
@@ -418,6 +421,7 @@ export function createDelegateAgentTool(opts: DelegateAgentToolOptions) {
                         modelOverride,
                         thinkingLevelOverride,
                         projectStateContext: opts.hostedSession.getProjectStateContext(),
+                        parentToolCallId: toolCallId,
                     });
                     return {
                         content: [{ type: "text" as const, text: JSON.stringify(status) }],
@@ -453,6 +457,7 @@ export function createDelegateAgentTool(opts: DelegateAgentToolOptions) {
                     thinkingLevelOverride,
                     projectStateContext: opts.hostedSession.getProjectStateContext(),
                     signal,
+                    parentToolCallId: toolCallId,
                 });
                 const output = truncateToolText(
                     extractAssistantOutput(messages) || "(Delegated Agent returned no text.)",

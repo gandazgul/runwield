@@ -386,12 +386,13 @@ unless this setting is `true` or an object with `enabled: true`:
 When enabled, RunWield appends JSONL records to `~/.wld/workflow-metrics/<encoded-project-root>/metrics.jsonl`, where
 `<encoded-project-root>` uses the same project-directory encoding as persisted sessions. Linked execution worktrees
 write to the primary project's metrics file. Records cover routing, planning, execution, validation, recovery,
-model-selection, and tool-usage counter events. Metrics are record-only in this release; there is no reporting UI,
-analytics sync, or CLI summary command.
+model-selection, ordered tool usage, tool exposures and token denominators, model token usage and costs, context
+snapshots, compaction, retries, response latency, and slash commands. Metrics are record-only in this release; there is
+no reporting UI, analytics sync, or CLI summary command.
 
 Metrics records intentionally do not include prompts, user request text, plan markdown, diffs, CI output, review
-feedback, raw tool arguments/results, file contents, secrets, full auth configuration, shell commands, search queries,
-or absolute worktree paths.
+feedback, raw tool arguments/results, file contents, secrets, full auth configuration, raw shell command arguments,
+search queries, or absolute worktree paths. Shell command lines are normalized to coarse safe command labels.
 
 ### `codereview`
 

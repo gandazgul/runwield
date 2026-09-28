@@ -112,9 +112,10 @@ without reasoning support do not expose a reasoning selector. After a provider f
 available alternative and continue the conversation.
 
 Shared requirements: [Core Session continuity](runwield-core-prd.md#session-continuity),
-[Plan review](runwield-core-prd.md#plan-review), and
-[execution and recovery](runwield-core-prd.md#execution-validation-and-recovery). ACP adapts these outcomes rather than
-defining another lifecycle.
+[Plan review](runwield-core-prd.md#plan-review),
+[execution and recovery](runwield-core-prd.md#execution-validation-and-recovery), and
+[local workflow metrics](runwield-core-prd.md#local-workflow-metrics). ACP adapts these outcomes rather than defining
+another lifecycle.
 
 **Acceptance scenarios:**
 
@@ -141,6 +142,9 @@ defining another lifecycle.
 - Given an ACP Agent starts a Background Task, when its original `session/prompt` ends before the task, the client
   receives the later result as updates in that same live Session without sending another prompt. Reopening the Session
   in a new process restores delivered history but does not restart the task.
+- Given slash commands or agent turns executed via ACP with `workflowMetrics` enabled, RunWield records ordered command
+  and execution observations under the primary project without sending metrics payload bytes over the ACP client
+  protocol.
 
 <a id="63-acp-compatibility-requirements"></a>
 

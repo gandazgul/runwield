@@ -983,21 +983,39 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         setThinkingExplicitlySelected(thinkingLevel !== "default");
     }
 
+    function reportClientCommandMetric(commandName, outcome = "succeeded", errorReason) {
+        if (!projectId) return;
+        ownerFetch(`/api/owner/projects/${encodeURIComponent(projectId)}/command-metrics`, {
+            method: "POST",
+            body: JSON.stringify({
+                command: commandName,
+                kind: "builtin",
+                sessionId: runwieldSessionId || undefined,
+                phase: "finish",
+                outcome,
+                errorReason,
+            }),
+        }).catch(() => {});
+    }
+
     function handleComposerCommand(text) {
         const [rawName, ...args] = text.trim().slice(1).split(/\s+/);
         const name = rawName === "models" ? "model" : rawName === "agents" ? "agent" : rawName;
         const command = sessionOptions?.commands?.find((item) => item.name === name);
         if (command?.kind === "prompt") return false;
         if (!command) {
+            reportClientCommandMetric(name, "failed", "unknown_command");
             setMessage(`Unknown command: /${name}. Type / to see available commands.`);
             return true;
         }
         const argument = args.join(" ");
         if (name === "plan-review") {
             if (argument || mode === "new") {
+                reportClientCommandMetric("plan-review", "rejected", "invalid_argument");
                 setMessage(mode === "new" ? "Open a Session before reviewing a Plan." : "Usage: /plan-review");
                 return true;
             }
+            reportClientCommandMetric("plan-review", "succeeded");
             setDraft("");
             void openPlanReview();
             return true;
@@ -1010,9 +1028,11 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             const agent = sessionOptions.agents.find((item) => item.name === argument || item.displayName === argument);
             const model = sessionOptions.models.find((item) => sessionModelLabel(item) === argument);
             if ((name === "agent" && !agent) || (name === "model" && !model)) {
+                reportClientCommandMetric(name, "rejected", `no_matching_${name}`);
                 setMessage(`No matching ${name}. Choose an available option from the command picker.`);
                 return true;
             }
+            reportClientCommandMetric(name, "succeeded");
             if (mode === "new") {
                 if (name === "agent") selectNewAgent(agent.name);
                 if (name === "model") selectNewModel(`${model.provider}\u001f${model.id}`);
@@ -1027,6 +1047,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             }
             return true;
         }
+        reportClientCommandMetric(name, "succeeded");
         const projectPath = `/projects/${encodeURIComponent(projectId)}`;
         const destination = {
             new: `${projectPath}/sessions/new`,

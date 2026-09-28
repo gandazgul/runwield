@@ -554,3 +554,33 @@ export function ownerNotificationsStreamApi(ctx) {
     headers.set("connection", "keep-alive");
     return new Response(body, { headers });
 }
+
+/**
+ * Record slash command metric from Workspace client.
+ * @param {{ req: Request, params: { projectId: string } }} ctx
+ */
+export async function ownerProjectCommandMetricsApi(ctx) {
+    try {
+        const root = ctx.state?.store
+            ? requireOwnerProjectRoot(ctx.state.store, ctx.params.projectId)
+            : decodeURIComponent(ctx.params.projectId);
+        const payload = await readJson(ctx.req);
+        const { recordSlashCommandMetric } = await import("../../../shared/workflow/command-metrics.ts");
+        await recordSlashCommandMetric({
+            invocationId: payload.invocationId,
+            command: payload.command,
+            alias: payload.alias,
+            kind: payload.kind || "builtin",
+            surface: "workspace",
+            projectRoot: root,
+            sessionId: payload.sessionId,
+            phase: payload.phase || "finish",
+            outcome: payload.outcome || "succeeded",
+            durationMs: payload.durationMs,
+            errorReason: payload.errorReason,
+        });
+        return ownerJson({ ok: true });
+    } catch (error) {
+        return ownerErrorJson(error, 400);
+    }
+}
