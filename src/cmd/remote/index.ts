@@ -5,7 +5,7 @@ import { linuxTarget, prepareRemoteRuntime } from "../../shared/remote/runtime.j
 import { fixedPythonCommand, resolveRemoteTarget } from "../../shared/remote/target.js";
 import { type MountHeader, startLaptopSftp } from "../../shared/remote/sftp-mount.ts";
 import { VERSION } from "../../shared/version.js";
-import { downloadReleaseRuntime } from "../../shared/remote/release-artifact.js";
+import { downloadReleaseRuntime } from "../../shared/remote/release-artifact.ts";
 import { parseRemoteModelProof, type RemoteModelProof } from "../../shared/remote/model-proof-config.ts";
 
 export const REMOTE_USAGE = "Usage: wld remote <ssh-host>[:<remote-directory>]\n" +
