@@ -1,4 +1,5 @@
 ---
+planId: "266cb9df-e989-47c4-b2fd-9f55c17875ab"
 classification: "PLANNED_CHANGE"
 workKind: "FEATURE"
 complexity: "MEDIUM"
@@ -10,14 +11,15 @@ affectedPaths:
     - "src/ui/workspace/workspace-session-ux.test.tsx"
     - "src/ui/workspace/workspace-shell-navigation.test.ts"
     - "docs/prd/runwield-workspace-prd.md"
+executionAgent: "frontend-engineer"
+collaborationRecommendation: "autonomous"
 devServerCommand: "deno task workspace:dev"
 devServerUrl: "http://127.0.0.1:5173"
 devServerHmr: true
 createdAt: "2026-09-27"
-status: "draft"
-executionAgent: "frontend-engineer"
-collaborationRecommendation: "autonomous"
-planId: "266cb9df-e989-47c4-b2fd-9f55c17875ab"
+origin: "internal"
+status: "ready_for_work"
+userVerifiedAt: null
 ---
 
 # New Session Project Selector
