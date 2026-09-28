@@ -39,7 +39,7 @@ jobs:
             - name: Setup Deno
               uses: denoland/setup-deno@v2
               with:
-                  deno-version: v2.9.3
+                  deno-version: v2.9.7
 
             - name: Validate release metadata
               id: metadata
@@ -100,7 +100,7 @@ jobs:
             - name: Setup Deno
               uses: denoland/setup-deno@v2
               with:
-                  deno-version: v2.9.3
+                  deno-version: v2.9.7
 
             - name: Restore Snip binary
               id: snip-cache
@@ -212,7 +212,7 @@ jobs:
             - name: Setup Deno
               uses: denoland/setup-deno@v2
               with:
-                  deno-version: v2.9.3
+                  deno-version: v2.9.7
 
             - name: Restore Snip binary
               id: snip-cache
@@ -318,7 +318,7 @@ jobs:
             - name: Setup Deno
               uses: denoland/setup-deno@v2
               with:
-                  deno-version: v2.9.3
+                  deno-version: v2.9.7
 
             - name: Restore Deno dependency cache
               uses: actions/cache@v4
@@ -367,7 +367,7 @@ jobs:
             - name: Setup Deno
               uses: denoland/setup-deno@v2
               with:
-                  deno-version: v2.9.3
+                  deno-version: v2.9.7
 
             - name: Generate version file
               env:
@@ -446,7 +446,7 @@ jobs:
             - name: Setup Deno
               uses: denoland/setup-deno@v2
               with:
-                  deno-version: v2.9.3
+                  deno-version: v2.9.7
 
             - name: Download matrix artifacts
               if: needs.metadata.outputs.published != 'true'
@@ -493,7 +493,7 @@ jobs:
             - name: Setup Deno
               uses: denoland/setup-deno@v2
               with:
-                  deno-version: v2.9.3
+                  deno-version: v2.9.7
 
             - name: Download Windows package artifact
               uses: actions/download-artifact@v5
@@ -522,7 +522,7 @@ jobs:
             - name: Setup Deno
               uses: denoland/setup-deno@v2
               with:
-                  deno-version: v2.9.3
+                  deno-version: v2.9.7
 
             - name: Verify Stable package credentials
               if: needs.metadata.outputs.kind == 'stable'
@@ -614,7 +614,7 @@ jobs:
             - name: Setup Deno
               uses: denoland/setup-deno@v2
               with:
-                  deno-version: v2.9.3
+                  deno-version: v2.9.7
 
             - name: Render WinGet manifest artifact
               run: |
@@ -726,7 +726,7 @@ jobs:
             - name: Setup Deno
               uses: denoland/setup-deno@v2
               with:
-                  deno-version: v2.9.3
+                  deno-version: v2.9.7
 
             - name: Verify Homebrew tap credential
               env:

@@ -74,7 +74,7 @@ jobs:
             - name: Setup Deno
               uses: denoland/setup-deno@v2
               with:
-                  deno-version: v2.9.3
+                  deno-version: v2.9.7
 
             - name: Verify complete qualified release assets
               env:
@@ -120,7 +120,7 @@ jobs:
             - name: Setup Deno
               uses: denoland/setup-deno@v2
               with:
-                  deno-version: v2.9.3
+                  deno-version: v2.9.7
 
             - name: Verify documentation source and qualified release
               env:

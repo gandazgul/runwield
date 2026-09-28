@@ -31,7 +31,7 @@ jobs:
             - name: Setup Deno
               uses: denoland/setup-deno@v2
               with:
-                  deno-version: v2.9.3
+                  deno-version: v2.9.7
 
             - name: Render Homebrew tap artifact
               env:
