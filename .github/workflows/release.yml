@@ -546,6 +546,10 @@ jobs:
                   brew update
                   brew tap 1broseidon/tap
                   brew trust --formula 1broseidon/tap/cymbal
+                  # macOS runners may link legacy OpenSSL, blocking the openssl@3 dependency.
+                  if brew list --versions openssl@1.1 | grep -q .; then
+                    brew unlink openssl@1.1
+                  fi
 
             - name: Validate Homebrew before publication
               env:
