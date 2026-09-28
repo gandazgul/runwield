@@ -32,6 +32,9 @@ workRecord:
     recordId: "c306922c-8c08-42d2-851e-ee9b408b2778"
     path: "docs/work-records/2026-09-25-reopened-plan-reviews-across-all-session-surfaces.md"
     lastAttemptAt: "2026-09-25T20:34:50.680Z"
+archivedAt: "2026-09-27T17:01:01.189Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/reopen-plan-review-command.md"
 ---
 
 # Reopen the Last Plan Review with a Slash Command

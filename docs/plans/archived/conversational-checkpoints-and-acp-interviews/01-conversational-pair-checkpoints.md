@@ -31,6 +31,9 @@ userVerifiedAt: null
 targetBranch: "main"
 status: "validated"
 validatedCommit: "d3abcd6bf72f2e12ec04b0d10d3cf9d86d82a583"
+archivedAt: "2026-09-28T01:30:51.868Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/conversational-checkpoints-and-acp-interviews/01-conversational-pair-checkpoints.md"
 ---
 
 # Make Pair Checkpoints a Conversation

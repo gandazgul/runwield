@@ -28,6 +28,9 @@ workRecord:
     recordId: "d140df78-c3cc-43d8-a0c8-8f588a67a5e7"
     path: "docs/work-records/2026-09-24-conversational-pair-checkpoints-and-acp-interview-chat-fallback.md"
     lastAttemptAt: "2026-09-24T17:55:02.869Z"
+archivedAt: "2026-09-28T01:30:51.868Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/conversational-checkpoints-and-acp-interviews.md"
 ---
 
 # Conversational Pair Checkpoints and ACP Interview Fallback

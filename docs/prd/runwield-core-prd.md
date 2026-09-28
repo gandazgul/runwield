@@ -1252,12 +1252,20 @@ Claude Code, owns the conversation and model calls.
 Antigravity CLI users can select the supported Flash and Pro model families and their thinking level from normal model
 controls. Setup uses their installed CLI and existing sign-in. Unsupported selections and attachments explain what must
 change before a turn starts. Session history shows the selected model, thinking level, and Antigravity backend
-independently of unsent composer changes. Replay includes assistant messages and RunWield tool activity; the CLI's
-internal activity is not available in RunWield history. Configuration details are in
-[Settings](../settings.md#antigravity-cli). RunWield supplies the active working directory as the backend workspace so
-normal project file access does not fail because a noninteractive CLI opened without a workspace. Genuine permission
-failures identify the denied action and, when supplied by the CLI, the file target, with sensitive details redacted. The
-failure appears once in live Sessions and remains available in replay; it does not discard the pending request.
+independently of unsent composer changes. Replay includes assistant messages, RunWield tools, and completed native
+Antigravity tools reported as indexed tool steps. RunWield shows native tool starts and completed results as they
+arrive. An unfinished native step is visible live but does not appear as a still-running tool after replay. Other CLI
+internals remain unavailable in RunWield history. Configuration details are in
+[Settings](../settings.md#antigravity-cli). An existing RunWield MCP entry for a standalone `wld` with the stable
+`mcp agy-cli` command remains usable when the user switches between installed binaries; no global config rewrite is
+needed. RunWield supplies the active working directory as the backend workspace so normal project file access does not
+fail because a noninteractive CLI opened without a workspace. RunWield declares native command and file tools in
+temporary Antigravity Agent frontmatter so an execution turn can run commands, create files, edit files, and read files.
+Execution turns auto-approve Antigravity tool permission requests in noninteractive mode, not only project file reads;
+this does not change Antigravity's global settings or override operating-system access controls. Genuine permission
+failures that remain identify the denied action and, when supplied by the CLI, the file target, with sensitive details
+redacted. The failure appears once in live Sessions and remains available in replay; it does not discard the pending
+request.
 
 Future/open requirements:
 
@@ -1287,6 +1295,13 @@ Future/open requirements:
   backend internals.
 - Given an Antigravity turn in a project or execution worktree, reading a file there uses that directory's workspace
   access without requiring a global permission bypass.
+- Given Antigravity's existing RunWield MCP entry points to another installed standalone `wld` with the same stable
+  command arguments, a newly built `wld` can start an Antigravity turn without replacing the global entry.
+- Given an Antigravity Engineer turn, its temporary Agent declares native `run_command`, `write_to_file`,
+  `replace_file_content`, and `view_file` so it can run a test command and create a new file in the execution workspace.
+- Given Antigravity reports a native tool as active and then done, the Session shows one live tool start and one
+  completed result with the available command, file target, or task action in its title. Replay keeps the completed
+  call. An active tool without a completion has no invented result and does not remain stuck after reload.
 - Given an Antigravity result with exit code zero, an empty response, and a denied action, the turn fails with an
   actionable notice shown once in TUI and Workspace. Replay retains the notice and the external conversation ID when
   supplied, without saving raw commands or tool output.

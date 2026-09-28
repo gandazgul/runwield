@@ -944,6 +944,8 @@ owns PRD authoring behavior.
 - When an indexed source changes, disappears, escapes its registered root, or becomes ineligible, search and an issued
   destination refuse stale evidence before the next background scan.
 - When one Project cannot be indexed, healthy Project results and the failed Project's safe status remain visible.
+- When a Plan lacks an ID, search skips it without changing its file and still returns other valid results from that
+  Project.
 - When the owner opens a Work Record or supported document, the shared read-only reader shows current canonical content
   and returns to the preserved Search URL. Session artifact readers still return to their Session.
 - When an Agent retrieves planning knowledge, owner-private Session entry text and source-code results are not silently

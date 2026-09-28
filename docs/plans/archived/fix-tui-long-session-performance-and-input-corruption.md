@@ -26,6 +26,9 @@ workRecord:
     recordId: "15a3c6c3-168f-493f-99e5-f1457295f94f"
     path: "docs/work-records/2026-09-25-restore-long-session-tui-rendering-and-safe-scrolling.md"
     lastAttemptAt: "2026-09-25T18:30:43.114Z"
+archivedAt: "2026-09-28T01:19:41.833Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/fix-tui-long-session-performance-and-input-corruption.md"
 ---
 
 # Restore long-Session TUI responsiveness and safe scrolling

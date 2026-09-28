@@ -28,6 +28,9 @@ workRecord:
     recordId: "a4624808-efe4-4057-9ee9-8c7322165022"
     path: "docs/work-records/2026-09-27-readable-plans-and-shared-callouts.md"
     lastAttemptAt: "2026-09-27T14:38:13.128Z"
+archivedAt: "2026-09-28T00:50:18.153Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/improve-plan-readability.md"
 ---
 
 # Make Plans Easier to Read

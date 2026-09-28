@@ -1,10 +1,12 @@
 ---
 planId: "a72d1a30-d67c-4a90-ae8b-27b754fe55ae"
+classification: "PLANNED_CHANGE"
+workKind: "FEATURE"
 complexity: "HIGH"
 affectedPaths:
     - "deno.json"
     - "deno.lock"
-    - "src/shared/session/session-context-resilience.js"
+    - "src/shared/session/session-context-resilience.ts"
     - "src/shared/session/session-context-resilience.test.js"
     - "src/shared/session/session.js"
     - "src/shared/session/session-prompt.test.js"
@@ -12,14 +14,19 @@ affectedPaths:
     - "src/shared/session/hosted-session.js"
     - "src/shared/session/hosted-session.test.js"
     - "src/shared/session/abort-active-session.test.js"
-    - "src/shared/session/session-runtime.js"
+    - "src/shared/session/runtime/turns.ts"
+    - "src/shared/session/runtime/agent-settings.ts"
+    - "src/shared/session/runtime/managed-operations.ts"
     - "src/shared/session/session-runtime.test.js"
     - "src/shared/session/session-runtime-events.js"
     - "src/shared/session/session-runtime-events.test.js"
     - "src/shared/session/types.js"
-    - "src/shared/session/agent-handler.js"
-    - "src/shared/session/agent-handler.test.js"
-    - "src/tools/delegate-agent.js"
+    - "src/shared/session/agent-handler.ts"
+    - "src/shared/session/agent-handler.test.ts"
+    - "src/shared/session/root-workflow-turn.ts"
+    - "src/shared/session/request-dispatch.ts"
+    - "src/shared/session/background-tasks.ts"
+    - "src/tools/delegate-agent.ts"
     - "src/tools/__tests__/delegate-agent.test.js"
     - "src/cmd/compact/index.js"
     - "src/cmd/compact/index.test.js"
@@ -27,36 +34,55 @@ affectedPaths:
     - "src/ui/tui/runtime-adapter.test.js"
     - "src/acp/event-mapper.js"
     - "src/acp/server.test.js"
+    - "src/ui/workspace/components/SessionTimeline.jsx"
+    - "src/shared/session/session-transcript-projection.js"
     - "docs/sessions.md"
+    - "docs/prd/runwield-core-prd.md"
+    - "docs/prd/session-context-resilience-prd.md"
+    - "docs/adr/010-session-runtime-sibling-adapters-and-acp.md"
+executionAgent: "engineer"
+collaborationRecommendation: "autonomous"
+devServerCommand: "deno task workspace:dev"
+devServerUrl: "http://127.0.0.1:5173"
+devServerHmr: true
 createdAt: "2026-07-20T23:46:14-04:00"
 origin: "internal"
-classification: "PLANNED_CHANGE"
-status: "feedback"
 userVerifiedAt: null
+status: "ready_for_work"
 ---
 
 # Automatic Session Context Resilience
 
 ## Context
 
-RunWield currently prevents one overflow path in `compactBeforePromptIfNeeded()` by estimating the resident Agent
-Session context plus the prepared User Request before calling Pi. Pi 0.80.5 also performs threshold and overflow
-compaction, but its `_handlePostAgentRun()` check runs only after a complete autonomous model/tool chain. A long
-execution, validation repair, research, or delegated Agent Session can therefore cross the model context window between
-the initial User Request and Pi's post-run check.
+RunWield must compact long Pi Agent Sessions without repeated ineffective attempts, lost messages, or false task
+completion. Current RunWield adds pre-request checks and an early Engineer threshold. It also patches Pi's private
+`_checkCompaction()` and calls `_runAutoCompaction()`. These paths do not share a verified recovery decision.
 
-Pi core already defines a `shouldStopAfterTurn` loop hook that runs after an assistant response and its tool results but
-before queue polling or another provider call. Neither RunWield's pinned Pi 0.80.5 nor the latest inspected 0.80.10
-release publicly exposes and wires that hook through `AgentSession`; upstream issue
-<https://github.com/earendil-works/pi/issues/4325> tracks the same long-tool-loop compaction gap. Calling `abort()` from
-a Pi `turn_end` subscriber is not an acceptable substitute because it can start an aborted provider call, persist an
-aborted assistant message, or deadlock settlement.
+The inspected dependency family is Pi 0.87.1, selected by `^0.87.1` imports. Pi now checks context before the next
+assistant response. It exposes an Agent `finishTurn` callback and public `compaction_end` recovery measurements.
+However, an ended Agent loop can restart through AgentSession when queues remain. The compaction result event is not an
+awaited permission to continue. The missing prerequisite is supported control over recovery, all automatic compaction
+paths, and queue-safe continuation—not basic mid-run compaction.
 
-`docs/prd/session-context-resilience-prd.md` defines the intended Core behavior: monitor active Agent Sessions at
-bounded internal turn boundaries, compact early, continue the same assignment, prevent ineffective retry loops, preserve
-cancellation and Runtime ownership, and give TUI and ACP the same semantic outcomes. The user chose an upstream-first
-architecture with no private Pi workaround. This Plan is therefore suitable for approval-for-later but is blocked until
-a released Pi interface satisfies the dependency contract below.
+The existing three tests in `session-context-resilience.test.js` passed during re-review. They use a bare Agent and
+check guessed method names, so they do not prove the current AgentSession behavior. Replace that evidence with real
+AgentSession characterization. Historical issue <https://github.com/earendil-works/pi/issues/4325> and the historical
+Work Record `dc467de9-9e61-4746-a4c0-c7b3cecae1c9` are background, not proof that this capability is present today.
+
+The owning capability is [Core: Compaction and image context](../prd/runwield-core-prd.md#compaction-and-image-context),
+including **Retain useful conversation and attachment context**. The linked
+[Session Context Resilience proposal](../prd/session-context-resilience-prd.md) supplies target requirements for useful
+recovery, same-assignment continuation, cancellation, and content-free status. This change adds their verified Pi
+behavior and removes growth-only retries after ineffective compaction. Manual compaction, resume controls, disabled
+compaction settings, Named Invocation expansions, and useful conversation context must survive.
+
+[Core: Session continuity](../prd/runwield-core-prd.md#session-continuity) and
+[Execution, validation, and recovery](../prd/runwield-core-prd.md#execution-validation-and-recovery) remain
+authoritative for Session identity, workflow preservation, and recoverable interruptions. Terminal user interface (TUI),
+Agent Client Protocol (ACP), and Workspace must present equivalent outcomes. The user retained the upstream-first
+architecture: no private Pi workaround. Approval is for later implementation until the public dependency contract below
+is proven.
 
 On re-review, the user confirmed two trigger policies:
 
@@ -67,10 +93,9 @@ On re-review, the user confirmed two trigger policies:
 - Post-compaction recovery must prevent repeated ineffective compaction. Context growth alone must not restart that
   loop. No new user-facing threshold setting is required.
 
-This is a draft under re-review. The remaining sections still describe the earlier single-trigger design and old runtime
-integration. Before final revision, resolve whether a useful Engineer compaction that remains above the early trigger,
-but below `W - R`, may continue with early compaction disarmed or must pause. Then update recovery boundaries, current
-Pi evidence, integration paths, and verification together.
+The user also confirmed that useful Engineer compaction may leave context above the early trigger and still continue,
+provided it is safe under `W - R`. In that case, early compaction stays disarmed. Context growth does not re-arm it.
+Failed or ineffective compaction still pauses automatic recovery and continuation.
 
 Known workflow phase changes are a separate concern. Planning-to-execution and semantic-review-to-Engineer-repair use
 explicit fresh Session Transcript Segments with bounded seed packets. This Plan protects unexpectedly long activity
@@ -79,7 +104,10 @@ transactional segment rollover.
 
 ## Objective
 
-After the public Pi prerequisite is available, add automatic context resilience for root and transient Agent Sessions.
+After the public Pi prerequisite is proven, add coordinated automatic context resilience for root, foreground isolated,
+and background delegated Pi Agent Sessions. Other Execution Backends retain their existing behavior; this Plan does not
+claim control over compaction inside Claude CLI or Antigravity CLI.
+
 RunWield will detect pressure at a completed internal turn, prevent another provider request, serialize automatic
 compaction per Hosted Session, verify recovered headroom, and continue the same assignment without a second User Request
 or workflow dispatch. Failed or ineffective recovery must pause automatic intervention and leave the Session usable and
@@ -90,8 +118,16 @@ and resets context-health state for the activated successor segment.
 
 ## Approach
 
-Treat the public Pi release as a hard execution prerequisite. The released interface must let RunWield, without private
-property/method access:
+### Public dependency gate
+
+> [!WARNING]
+> **The complete public contract is not yet proven**
+>
+> Start with Pi 0.87.1. Its new hooks satisfy only part of this Plan. Keep feature implementation on hold if the real
+> AgentSession cannot pass the contract tests. A dependency upgrade, method-name check, or passing old fixture is not
+> sufficient evidence.
+
+The released interface must let RunWield, without private property/method access:
 
 - evaluate or request a graceful stop after a completed internal turn and before queue polling or another provider call;
 - preserve the completed assistant response and all tool results without an aborted transcript artifact;
@@ -101,27 +137,70 @@ property/method access:
   ordering and Agent Session settlement; and
 - suppress continuation after cancellation, failed recovery, or unsafe post-compaction pressure.
 
-If the first candidate Pi release exposes only a low-level stop callback but not enough supported Agent Session control
-to satisfy recovery and queue-ordering tests, this Plan remains blocked. Do not patch `Agent.createLoopConfig()`, call
-`_runAutoCompaction()`, call `agent.continue()` around `AgentSession`, or otherwise replace the missing public contract
-with private access. Once a qualifying release exists, upgrade the related `@earendil-works/pi-*` packages together and
-capture the dependency contract in a no-network characterization test before integrating it.
+The contract must also cover Pi's native pre-response, post-run, and overflow paths. None may compact outside the shared
+arbiter or continue after a recovery veto. Do not patch `Agent.createLoopConfig()`, `_checkCompaction()`, or
+`_runAutoCompaction()`, or call `agent.continue()` around AgentSession. Do not use subscriber-driven `abort()` as a
+graceful-stop substitute. Upgrade the related Pi packages together only if a newer released family is needed. Keep
+imports and lockfile aligned; avoid unrelated upgrades.
 
-Create a deep `session-context-resilience.js` module at the Agent Session/Runtime seam. Its small interface will accept
-an Agent Session, Hosted Session arbiter, cancellation signal, and semantic event sink; observe the public Pi lifecycle;
-and wrap one RunWield Agent invocation from pre-request pressure checking through any compact-and-continue cycles.
-`session.js` remains responsible for Agent construction and subscription, while the new module owns the context-health
-state machine. A Hosted-Session-level arbiter coordinates all root and concurrent transient Agent Sessions so only one
-manual or automatic compaction can run for that Hosted Session; each Agent Session retains its own pressure/pause state.
-Segment rollover disposes or detaches predecessor monitoring and initializes clean state for the successor; it does not
-request a predecessor compaction or continuation.
+### One owner for compaction policy
 
-For context window `W` and effective reserve `R`, use the user-approved policy:
+`session-context-resilience.ts` owns threshold selection, measurement, compaction serialization, and continuation.
+Callers provide the real Hosted Session, Agent identity, Pi Session, and operation signal. They do not choose
+thresholds, supply replacement policy, or inject RunWield-owned storage and workflow functions. `session.js` keeps Agent
+construction and subscription. Adapters only render Core outcomes.
 
-- trigger threshold `T = max(0, W - R)`; pressure exists only when context tokens are strictly greater than `T`,
-  matching Pi's exported `shouldCompact()` behavior;
-- minimum recovery `M = min(R, floor(T / 2))`;
-- safe re-arm band `S = max(0, T - M)`; paused monitoring re-arms when usage is less than or equal to `S`.
+```text
+Runtime turn / isolated Pi turn
+  runPrompt
+    context-resilience policy owned by Hosted Session
+      public Pi completed-turn control
+      shared compaction arbiter
+      measure -> continue same assignment OR pause
+```
+
+The Hosted Session retains root health for the current segment across managed-operation dehydration and root rebuilds. A
+WeakMap keyed only by a disposable Pi AgentSession is insufficient. Agent changes recompute eligibility without
+forgetting a failed recovery on unchanged root context. Each isolated child has separate health, but all children,
+including background children, share the Hosted Session arbiter. Detach disposed children. Segment rollover detaches
+predecessor operations and starts clean successor health; it never compacts or continues the sealed predecessor.
+
+Replace the existing Engineer threshold wrappers and pre-request private call, rather than adding a second controller.
+Move their Pair checkpoint and request-attempt snapshot restoration to supported compaction lifecycle handling. Preserve
+Named Invocation context edits and Pi's own summaries. This keeps future threshold changes in one policy owner.
+
+### Trigger and recovery policy
+
+Use the active model's effective settings, including `getCompactionSettings(model)` overrides:
+
+- Standard safety threshold: `T = max(0, W - R)`, with pressure only at `usage > T`.
+- Engineer early threshold: `E = min(floor(W * 0.5), 80000)`, with pressure at `usage >= E` while early compaction is
+  armed. Apply it only to `AGENTS.ENGINEER`, `PLAN_ENGINEER`, `FRONTEND_ENGINEER`, and `REVIEWER_FEEDBACK_ENGINEER`.
+  Other Agents never use `E`.
+- Minimum useful recovery: `M = min(R, floor(T / 2))`. Require strict progress when `M = 0`.
+- Standard paused re-arm band: `S = max(0, T - M)`.
+- Engineer early re-arm band: `SE = max(0, E - M)`. This uses the same recovery margin, not a new percentage setting.
+
+The user chose the two triggers, useful continuation above `E`, and no growth-only re-arm. `SE` is the implementation
+assumption that applies the existing reserve-derived recovery margin to the early trigger. A zero-margin case must still
+land strictly below `E` before early re-arm, since the early trigger is inclusive.
+
+After any automatic attempt, determine the next early-trigger state from the recovery estimate, not a boolean return
+value. Effective recovery may continue at or below `T`, even above `E`. Keep early compaction armed only if resident
+usage lands at or below `SE` and strictly below `E`; otherwise disarm it. A later measurement can re-arm it only on
+those same boundaries. Setting the next state during a successful compaction adds no extra `rearmed` event to that
+lifecycle. Do not restore the old 5%-or-8K growth rule. Standard protection at `T` remains active for Engineers when
+early compaction is disarmed; this is the safety fallback, not permission to repeat the early attempt as context grows.
+
+On failed or ineffective recovery, stop the current automatic continuation and latch recovery pause. Capture usage at
+that failure. Later unchanged or growing usage must not clear the latch, even if an early attempt failed below `S`. For
+non-Engineers, clear it only after a measured reduction reaches `S`. For Engineers, require reduction into both bands:
+`usage <= min(S, SE)` and `usage < E`. Manual recovery or a model/settings change that makes the same usage fit these
+recomputed bands can also re-arm. Toggling auto-compaction off and on with unchanged capacity is not recovery.
+
+After the paused operation settles, a later user request may use safe context without automatic retries. Check its full
+prepared size against `T`; if unsafe, pause before submission. Do not resume the interrupted assignment automatically
+merely because a later measurement clears the latch.
 
 A compaction is effective only when Pi reports finite non-negative `tokensBefore` and `estimatedTokensAfter`, the
 estimate lands at or below `T`, and it recovers at least `M` tokens (or makes strict progress when `M` is zero). Before
@@ -134,10 +213,14 @@ compaction leaves total estimated context above `T` or recovers less than `M`, e
 `compacting(threshold), ineffective(insufficient_recovery), paused(insufficient_recovery)` and do not submit it. A
 compaction error instead emits `compacting(threshold), failed(compaction_failed), paused(compaction_failed)`.
 
-After failed or ineffective compaction, pause automatic intervention for that Agent Session. Recompute `W`, `R`, `T`,
-`M`, and `S` whenever the public Pi model identity, model context window, compaction enabled flag, or reserve-token
-value changes. Re-arm only when measured usage or a manual-compaction estimate is at or below the recomputed `S`; a
-model or settings change does not re-arm by itself if pressure remains unsafe.
+Recompute `W`, `R`, `T`, `E`, `M`, `S`, and `SE` when Agent identity, model, context window, enabled flag, or effective
+reserve changes. Do not treat an unknown post-compaction usage report as zero: retain Pi's finite recovery estimate
+until newer usage replaces it. A model/settings change is not itself proof of safe recovery.
+
+Automatic compaction disabled by settings, or `disableAutoCompaction` for an isolated invocation, must remain disabled.
+Preserve the isolated invocation's existing fail-before-provider sizing behavior. A manual `/compact` is still explicit
+user action and may run when the arbiter is free. Missing or invalid capacity cannot authorize automatic continuation
+based on guessed headroom.
 
 On effective recovery, continue with an internal custom message having `customType:
 "runwield_context_continuation"`,
@@ -147,21 +230,36 @@ Transcript as model context, but must not emit a Runtime `USER_MESSAGE`, appear 
 Handler, restart Router Triage, change the active Agent, release Runtime busy state, or advance Plan Lifecycle. Use the
 public Pi continuation/queue interface atomically: user steering and follow-up messages already queued at the
 continuation decision point retain their native order ahead of the internal continuation; no message may be duplicated
-or dropped.
+or dropped. Before each task-provider submission, recheck the actual projected context, including queued user input,
+Named Invocation expansions, images, and generated continuation. A safe summary estimate alone cannot authorize an
+unsafe next request. If newly queued input leaves that request unsafe after recovery, pause without another automatic
+compaction of the unchanged recovered history; retain the queued input for normal recovery handling.
 
-A recoverable context stop is not a provider/runtime error. After emitting `context_resilience: paused`, `runPrompt()`
-throws a typed internal `ContextResiliencePaused` outcome rather than returning a message array that could contain stale
-workflow tool outcomes. For a root Agent, `agent-handler.js` catches only that typed outcome before scanning messages
-and returns `{ kind: "context_paused" }`; the Agent turn result union includes that kind, `promptSession()` treats it as
-a non-handoff terminal outcome and settles with `ok: true`, the active Agent and any In-Progress Plan remain unchanged,
-and the next User Request is accepted. No Router, triage, Plan, or task-completion outcome is read from the partial
-turn.
+### Workflow and delegated outcomes
 
-A transient Delegated Agent Session cannot remain available after its foreground tool call settles: the same typed pause
-outcome reaches `delegate_agent`, which maps it to one deterministic `isError: true` tool result with
-`details.error: "context_resilience_paused"`; the child is disposed, the parent Agent Session remains active, and
-partial child text is not reported as a successful handoff. Unexpected implementation errors still use the existing
-`TERMINAL_ERROR` path.
+A recoverable context stop is not a provider failure or completed task. `runPrompt()` raises typed
+`ContextResiliencePaused`; root handling returns `{ kind: "context_paused" }` and Runtime settles with `ok: true`
+without changing the active Agent or In-Progress Plan. Classify this outcome in `runRootTurn()` before
+`failRequestDispatch()` and in `agent-handler.ts`; do not let it enter backend-failure retry logic. Record a distinct
+paused request-attempt phase with truthful `requestRecorded` for pre-submission versus mid-run pauses. It is not a
+failed or completed attempt. Existing transcript entries stay readable. Internal continuation retains the same request
+and attempt identities; it does not prepare a second dispatch or emit `BACKEND_CONTINUATION_REQUEST`.
+
+Workflow Tool Events, not transcript tool-result scans, remain the authority. In `root-workflow-turn.ts`, an accepted
+terminal handoff wins over predecessor compaction or continuation. Preserve feedback-only Plan review behavior and
+consume accepted events once. A context pause cannot fabricate a workflow event, consume a pending Task Completion as
+success, or erase a completion that was already accepted. `WorkflowStepCompleted` stays an internal handoff signal, not
+user cancellation. Session Transcript Segment Rollover follows the existing workflow owner after the outgoing operation
+settles.
+
+Foreground delegation maps the typed pause to one tool result with `isError: true` and
+`details.error: "context_resilience_paused"`, then disposes the child. The parent remains active; partial child output
+is not a successful handoff. A background delegation has already returned its task ID: its existing Background Task
+record settles `failed` with a deterministic `context_resilience_paused` error and one normal completion notification.
+Do not fabricate a second foreground tool result. Background children receive the coordinator even though they skip
+foreground subscribers. Unexpected implementation errors retain existing error handling.
+
+### Cancellation and manual compaction
 
 User cancellation preserves existing RunWield semantics: it clears all queued user steering/follow-up messages and any
 still-queued internal continuation, emits the existing queued-message dequeue events, emits exactly one `CANCELLATION`,
@@ -171,33 +269,54 @@ cancellation aborts that active turn and preserves the transcript entry; it does
 rollback, and no later continuation/provider call may start. Manual `/compact` and automatic intervention share the
 Hosted Session arbiter. A manual request acquires the lease when free; if any automatic or manual compaction already
 owns it, the command returns immediately with `{ ok: false, error: "compaction_in_progress" }` and starts no second
-compaction. Automatic waiters remain FIFO and remeasure after acquiring the released lease.
+compaction. Automatic waiters remain first-in-first-out (FIFO) and remeasure after acquiring the released lease.
 
-## Files to Modify
+Place the manual busy check before `runManagedStandaloneMutation()` can wait for the active operation. If a prompt is
+active but no compaction owns the arbiter, retain the existing managed-operation wait; do not hold a compaction lease
+while waiting for that prompt. Recheck and acquire atomically inside the managed operation. Preserve Session Writer Lock
+ownership. Distinguish cancellation from context pause before Runtime's `TERMINAL_ERROR` catch.
 
-- `deno.json` — after the prerequisite release, update the related Pi package constraints to one compatible released
-  family that provides the required public Agent Session lifecycle.
+### Status on every Session surface
+
+Core emits one validated `context_resilience` event per transition. Keep the original status/reason contract below and
+its content-free numeric fields. Replace duplicate generic automatic-compaction messages. Route the same event through
+TUI, ACP, and Workspace's existing system-event row; do not add a new visual pattern. Record semantic outcomes as
+append-only custom entries in the current Pi transcript, using the existing pattern for backend status. Project those
+entries with stable event IDs so live and reloaded history agree without duplicate rows. They are display evidence, not
+a new workflow authority. Hidden continuation must never become a user-authored replay message or resolve a Pair
+checkpoint.
+
+## Expected Change Surface
+
+The boundaries this change is expected to touch. This list is guidance, not an allowlist: verify the real footprint
+during implementation and change whatever the Implementation Steps need, including files not named here. Stop and report
+only when discovery changes approved intent — the change reaches another subsystem, public behavior or architecture
+shifts, migration or compatibility risk grows, or the Verification Plan no longer proves the objective.
+
+- `deno.json` — change the related Pi constraints only if a newer released family is required to pass the public
+  contract. The current baseline is 0.87.1, not 0.80.x.
 - `deno.lock` — lock the verified Pi release family; do not execute unrelated dependency upgrades.
-- `src/shared/session/session-context-resilience.js` — add the pure derived-threshold policy, Hosted Session arbiter,
-  per-Agent Session state machine, public Pi lifecycle integration, continuation message, overlap guard, recovery
-  measurement, and pause/re-arm behavior.
+- `src/shared/session/session-context-resilience.ts` — own the Engineer-only early trigger, standard safety policy,
+  shared arbiter, useful recovery, early disarm, failure pause, and public Pi continuation. New production code is
+  TypeScript under ADR-013; do not add a JavaScript baseline exception.
 - `src/shared/session/session-context-resilience.test.js` — characterize the released public Pi contract and cover the
   policy, state machine, long autonomous run, compaction serialization, queue ordering, continuation, pause, and re-arm.
-- `src/shared/session/session.js` — replace the standalone pre-request helper with the coordinator, route relevant
-  public Pi events into it, run root/transient prompts through one resilient path, and make the shared abort helper
-  cancel streaming and compaction for root and transient Agent Sessions.
+- `src/shared/session/session.js` — replace private compaction calls and Engineer wrappers with one public-policy path
+  for root, foreground isolated, and background Pi turns. Preserve checkpoint/request snapshots and prepared prompt
+  estimation. Classify pause before backend-failure recording; leave non-Pi backend dispatch unchanged.
 - `src/shared/session/session-prompt.test.js` — verify pre-request estimation, fail-before-provider behavior, internal
   continuation, no duplicate User Request/routing, and ordinary behavior below threshold.
 - `src/shared/session/session-subscribers.test.js` — verify completed-turn observation and canonical context-resilience
   emission without duplicate generic compaction statuses.
-- `src/shared/session/hosted-session.js` — own the shared manual/automatic compaction arbiter and active-turn
-  cancellation state for one Hosted Session.
+- `src/shared/session/hosted-session.js` — retain the coordinator and current-segment root health across Pi Session
+  disposal, plus isolated-child health and cancellation. All compaction shares one arbiter per Hosted Session.
 - `src/shared/session/hosted-session.test.js` — cover arbiter exclusivity, active-turn cancellation/settlement,
   disposal, and isolation between Hosted Sessions.
 - `src/shared/session/abort-active-session.test.js` — verify the shared abort path handles streaming and compaction for
   root and every registered transient Agent Session without duplicate aborts.
-- `src/shared/session/session-runtime.js` — make `cancelSession()` cancel the active Runtime turn and the Hosted Session
-  intervention while preserving turn settlement and busy-state invariants.
+- `src/shared/session/runtime/turns.ts`, `runtime/agent-settings.ts`, and `runtime/managed-operations.ts` — integrate
+  pause/cancellation settlement, fail-fast manual compaction, and health retention across ordinary dehydration. Keep
+  `session-runtime.ts` as the public facade; policy belongs in the private owners.
 - `src/shared/session/session-runtime.test.js` — cover cancellation races, recoverable paused settlement, busy-state
   continuity, root/transient parity, and independent Hosted Session progress.
 - `src/shared/session/session-runtime-events.js` — add one canonical `context_resilience` event with validated status,
@@ -206,12 +325,15 @@ compaction. Automatic waiters remain FIFO and remeasure after acquiring the rele
   payload allowlist.
 - `src/shared/session/types.js` — add a `context_paused` Agent turn result so recoverable pressure is distinguishable
   from normal completion and handoff without becoming a provider/runtime error.
-- `src/shared/session/agent-handler.js` — catch only `ContextResiliencePaused` before inspecting returned messages and
-  return the typed `context_paused` result without dispatching stale workflow outcomes.
-- `src/shared/session/agent-handler.test.js` — prove paused recovery returns `context_paused`, does not consume stale
-  workflow outcomes, change active Agent, or transition an In-Progress Plan.
-- `src/tools/delegate-agent.js` — map a transient Agent's typed context-pause outcome to one failed delegation tool
-  result instead of presenting partial child output as a successful handoff.
+- `src/shared/session/agent-handler.ts`, `root-workflow-turn.ts`, and `agent-handler.test.ts` — distinguish a pause from
+  a consume-once accepted Workflow Tool Event. Do not restore the retired transcript-outcome scanner.
+- `src/shared/session/request-dispatch.ts` and its tests — record paused attempts without marking backend failure or
+  generating a second request. Preserve legacy attempt records and genuine backend-failure continuation.
+- `src/shared/session/segment-rollover.test.js` and execution/repair handoff tests — verify predecessor suppression and
+  clean successor health through real workflow boundaries.
+- `src/tools/delegate-agent.ts`, `src/shared/session/background-tasks.ts`, and background task tests — map foreground
+  and background pause outcomes through their different existing settlement paths. Do not present partial output as
+  successful work.
 - `src/tools/__tests__/delegate-agent.test.js` — verify delegated Agent cancellation and context pause preserve tool
   settlement, report `context_resilience_paused` deterministically, and respect Hosted Session compaction serialization.
 - `src/cmd/compact/index.js` — handle Runtime's `compaction_in_progress` result without reading success-only compaction
@@ -223,16 +345,27 @@ compaction. Automatic waiters remain FIFO and remeasure after acquiring the rele
 - `src/ui/tui/runtime-adapter.test.js` — verify each user-visible context outcome renders once.
 - `src/acp/event-mapper.js` — map the same semantic event to ACP text plus structured `_meta` status/reason fields.
 - `src/acp/server.test.js` — verify ACP receives equivalent outcomes without Session content or TUI-specific semantics.
-- `docs/sessions.md` — document the public-Pi dependency, automatic mid-run behavior, derived recovery policy,
-  continuation, pause/recovery, cancellation, and relationship to `/compact`, `/context`, and `/session`.
+- `src/ui/workspace/components/SessionTimeline.jsx` and Session history/event projection tests — render the new event
+  once with the existing system-event row, in both live and saved history. Reuse `docs/design-system.md` patterns and
+  `--rw-*` tokens; no redesign is in scope.
+- `src/shared/session/session-transcript-projection.js` and the existing live-event persistence path — preserve semantic
+  context outcomes and exclude the hidden continuation from user-message replay.
+- `docs/sessions.md` — document Engineer-only early compaction, standard thresholds for other Agents, useful recovery,
+  continuation, pause/re-arm, cancellation, and `/compact`, `/context`, and `/session` behavior.
+- `docs/prd/runwield-core-prd.md`, `docs/prd/session-context-resilience-prd.md`, and affected references — fold lasting
+  requirements/scenarios into the owning Core capability when implemented, retain unmet scope as target/deferred, and
+  retire the transient proposal only after its unique intent is preserved.
+- `docs/adr/010-session-runtime-sibling-adapters-and-acp.md` — record shared policy ownership, the public-Pi constraint,
+  and health retention across disposable Pi Sessions. Preserve ADR-012 rollover precedence and ADR-015 file authority;
+  update their references only if needed. No new domain concept or glossary alias is proposed.
 
 ## Reuse Opportunities
 
 Existing functions, modules, or patterns to reuse:
 
-- `@earendil-works/pi-coding-agent` — after the prerequisite release, reuse only its public completed-turn hook,
-  `shouldCompact()`, `estimateTokens()`, Agent Session compaction/continuation operations, summaries, extension hooks,
-  and lifecycle events; do not build a second summarizer or transcript format.
+- `@earendil-works/pi-coding-agent` and `pi-agent-core` — characterize current public `finishTurn`, recovery events,
+  model-effective settings, `shouldCompact()`, projected context, and compaction/continuation operations. Reuse Pi's
+  summaries and transcript format; do not infer missing behavior from hook names.
 - `src/shared/session/session.js` — reuse prepared User Request token estimation, Agent Session metadata, and
   subscription lifecycle while moving compaction policy out of this broad module.
 - `src/shared/session/session-runtime-events.js` — reuse fail-fast canonical event creation so TUI and ACP remain
@@ -244,73 +377,99 @@ Existing functions, modules, or patterns to reuse:
 
 ## Implementation Steps
 
-- [ ] Step 1: Check the selected released Pi package family against the prerequisite contract. Add a no-network
-      characterization test proving: completed tool results precede the stop decision; returning stop prevents the next
-      provider call; no aborted assistant entry is persisted; automatic compaction exposes its result before
-      continuation; failed/unsafe recovery can suppress continuation; and native steering/follow-up order is preserved.
-      If any assertion fails or requires private access, stop execution with the Plan still blocked and make no RunWield
-      behavior changes.
-- [ ] Step 2: Upgrade `@earendil-works/pi-ai`, `pi-agent-core`, and `pi-coding-agent` (plus `pi-tui` only if required
-      for a compatible release family), update the lockfile, and run the existing full test suite before feature
-      implementation to separate dependency regressions from context-resilience changes.
-- [ ] Step 3: Implement and unit-test the pure `W/R/T/M/S` policy and explicit per-Agent Session states (`idle`,
-      `waiting_for_lease`, `stopping`, `compacting`, `measuring`, `continuing`, `paused`, `disposed`). Use strict
-      `tokens > T` pressure, `estimatedTokensAfter <= T` landing, `recoveredTokens >= M` progress, and `usage <= S`
-      re-arm boundaries.
-- [ ] Step 4: Add a FIFO Hosted Session arbiter shared by automatic and manual compaction. An automatic intervention
-      acquires the sole lease or gracefully waits without another provider call; after acquisition it remeasures
-      pressure, skips unnecessary compaction, and releases the lease on success, failure, cancellation, or disposal.
-      Manual `/compact` acquires only when immediately free and otherwise returns `compaction_in_progress` without
-      disturbing the owner or automatic FIFO waiters.
-- [ ] Step 5: Integrate the coordinator with `attachSessionEventSubscribers()` and `runPrompt()`: check resident plus
-      prepared User Request context before provider submission; after effective pre-request compaction submit the
-      original prepared request exactly once without continuation events; request the public graceful stop at pressured
-      internal turns; correlate compaction completion; and distinguish normal completion, recoverable pause, and user
-      cancellation without private Pi access.
-- [ ] Step 6: Continue only after effective recovery using the fixed hidden `runwield_context_continuation` message and
-      the public queue-safe Agent Session operation. Preserve messages already queued at the decision point ahead of the
-      internal continuation and test that no second Runtime User Request or Agent Handler invocation occurs.
-- [ ] Step 7: Apply the same coordinator and Hosted Session arbiter to persistent root and transient/delegated Agent
-      Sessions. Throw the typed pause outcome from `runPrompt()` for both paths; map root pauses to the new
-      `context_paused` Agent turn result before any message/outcome scan, and map transient pauses to a failed
-      delegation result before child disposal. Preserve active parent Agent identity, debug summaries, transcript
-      replay, and Plan Lifecycle.
-- [ ] Step 8: Extend Hosted Session/Runtime cancellation so canceling any intervention aborts the public graceful-stop,
-      compaction, measurement, and continuation operations for root or transient Agent Sessions, clears any still-queued
-      internal continuation and all queued user steering/follow-up messages as RunWield does today, preserves an
-      internal continuation entry if its turn already started, emits applicable dequeue transitions, and retains the
-      turn/busy lease until all underlying operations settle.
-- [ ] Step 9: Add the canonical `context_resilience` Runtime event with statuses `compacting`, `compacted`,
-      `continuing`, `continued`, `ineffective`, `paused`, `canceled`, `failed`, and `rearmed`; reasons `threshold`,
-      `oversized_request`, `compaction_failed`, `insufficient_recovery`, `user_cancel`, `manual_recovery`, and
-      `capacity_recovery`; a core-generated `message`; and optional numeric `usagePercent`/`recoveredPercent`. Use
-      `threshold` for normal automatic lifecycle, `manual_recovery` when `/compact` enters `S`, and `capacity_recovery`
-      when measured usage enters `S` after a model/context/settings recomputation. `oversized_request` is only a reason
-      on `paused`, never a status. Reject producer payload keys for prompts, summaries, tool data, file content, URLs,
-      or arbitrary details. Replace duplicate generic automatic-compaction statuses with this event.
-- [ ] Step 10: Map the canonical event in TUI and ACP. TUI renders `message` once; ACP emits the same text and preserves
-      only status, reason, and optional percentages in `_meta`; neither adapter calculates pressure or continuation
-      policy.
-- [ ] Step 11: Cover manual `/compact` re-arm, update Session documentation, run focused tests, then run the complete
-      RunWield quality gate.
-- [ ] Step 12: Add segment-boundary composition coverage proving a workflow-owned rollover suppresses predecessor
-      compaction/continuation, initializes context monitoring for the successor, and leaves stable Session/workflow
-      ownership unchanged.
+- [ ] Step 1: `session-context-resilience.test.js` characterizes the real released AgentSession with a deterministic
+      provider and real SessionManager, starting with 0.87.1. It proves completed tool persistence, graceful stop before
+      another provider request, native mid-run compaction, recovery veto, queued-message behavior, and cancellation.
+      Bare-Agent fixtures and guessed method-name checks no longer claim to prove the prerequisite. If any required
+      control needs private access, the dependency remains blocked: retain truthful characterization evidence, make no
+      production feature change, and do not report this Plan implemented.
+- [ ] Step 2: The selected Pi family passes the full public contract, and imports/lockfile agree. Upgrade `pi-ai`,
+      `pi-agent-core`, `pi-coding-agent`, and compatible `pi-tui` only when necessary. Record the verified version and
+      supported operations. Dependency regressions are distinguished from feature regressions with focused baseline
+      tests before integration.
+- [ ] Step 3: `session-context-resilience.ts` is the sole owner of `W/R/T/E/M/S/SE`, Engineer eligibility, early disarm,
+      useful recovery, and failure pause. Non-Engineers use only `T`; Engineers continue safely above `E` after useful
+      recovery. Unchanged or growing context cannot clear a failure latch or re-arm early compaction. Model-effective
+      settings, disabled compaction, inclusive/exclusive boundaries, zero margin, and invalid measurements are covered.
+- [ ] Step 4: Hosted Session health survives same-segment dehydration and root rebuilds, while each isolated child has
+      separate health. A shared FIFO arbiter serializes every native and RunWield automatic/manual compaction path.
+      Waiters start no provider request, remeasure on acquisition, and release on every settlement path. Public Runtime
+      manual compaction returns `compaction_in_progress` before waiting when already busy, without holding a lease while
+      waiting for an otherwise active prompt.
+- [ ] Step 5: `runPrompt()` and public Pi lifecycle integration use that policy before prompt submission and completed
+      internal-turn continuation. Original prepared requests, images, and transition steering are counted and submitted
+      once. The old Engineer growth rule and private `_checkCompaction`/`_runAutoCompaction` wrappers are removed from
+      the managed path. Pair checkpoint and request-attempt snapshots still survive compaction through public hooks.
+- [ ] Step 6: Effective mid-run recovery uses one hidden `runwield_context_continuation` through a supported
+      AgentSession operation. Existing steering/follow-up order is preserved; user messages precede this generated
+      entry. The same request/attempt, Agent Handler invocation, Runtime busy operation, and assignment remain active.
+      Pre-request compaction adds no continuation entry or continuation events.
+- [ ] Step 7: Typed context pause passes through `runRootTurn()`, `root-workflow-turn.ts`, `agent-handler.ts`, and
+      Runtime without provider-failure recording or task-completion claims. `request-dispatch.ts` records paused
+      attempts with truthful `requestRecorded`; old entries and genuine backend-failure continuation stay compatible.
+      Accepted Workflow Tool Events remain consume-once and outrank predecessor continuation. Feedback-only review
+      behavior is preserved; no transcript-outcome scanner is introduced.
+- [ ] Step 8: Foreground isolated and background delegated Pi Sessions use the same coordinator and arbiter. Foreground
+      pause returns one failed delegation result; background pause settles its existing task as failed and notifies
+      once. Both dispose child resources without reporting partial text as success. Other Execution Backends keep their
+      existing routing and failure behavior.
+- [ ] Step 9: User cancellation stops waiting, graceful-stop, compaction, measurement, and continuation work. It clears
+      pending user queues and unstarted internal continuation, preserves already persisted entries, emits one Runtime
+      cancellation and at most one context cancellation, and holds busy/writer ownership until settlement. It does not
+      emit `TERMINAL_ERROR`. `WorkflowStepCompleted` follows handoff rules instead of user-cancel cleanup.
+- [ ] Step 10: `session-runtime-events.js` validates one canonical `context_resilience` event with statuses
+      `compacting`, `compacted`, `continuing`, `continued`, `ineffective`, `paused`, `canceled`, `failed`, and
+      `rearmed`; reasons `threshold`, `oversized_request`, `compaction_failed`, `insufficient_recovery`, `user_cancel`,
+      `manual_recovery`, and `capacity_recovery`; a Core-generated `message`; and optional finite numeric
+      `usagePercent`/`recoveredPercent`. Normal automatic stages use `threshold`. A manual recovery uses
+      `manual_recovery`; measured/capacity recovery uses `capacity_recovery`. Emit re-arm only on an actual latch or
+      early-disarm transition that meets its applicable bands. `oversized_request` is a pause reason only. Reject
+      prompt, summary, tool, file-content, URL, and arbitrary-details payload keys.
+- [ ] Step 11: TUI, ACP, and Workspace render each canonical outcome once. ACP `_meta` includes only the allowed context
+      fields plus standard Runtime metadata. Workspace reuses the current system-event row; saved status agrees with
+      live status, and hidden continuation is never user-message replay. No adapter calculates pressure policy.
+- [ ] Step 12: Execution and AI-review repair handoff tests prove that accepted handoffs suppress predecessor
+      compaction/continuation before rollover, then activate a successor with clean health. Ordinary same-segment
+      hydration does not reset health. Pair checkpoint authority, Named Invocation expansions, cancellation, and request
+      identity remain protected after compaction.
+- [ ] Step 13: The Core compaction capability and its acceptance scenarios match delivered behavior. Consolidate lasting
+      intent from `session-context-resilience-prd.md`, retain unimplemented targets explicitly, update affected links,
+      and retire the transient proposal when reconciled. Session docs and ADR-010 describe the shared owner and public
+      dependency constraint without competing old policy. Existing glossary meanings are preserved; do not introduce a
+      new domain term for internal policy flags.
+
+## Approval Confirmation
+
+No Work Record supersession is proposed. Approval does not assert that the dependency gate is satisfied. Save for later
+unless the complete public AgentSession contract has been verified; a partial gate result is not feature completion.
 
 ## Verification Plan
 
-- Automated prerequisite gate: the public Pi characterization must assert zero provider calls between a pressured
-  completed turn and compaction; zero persisted assistant messages with `stopReason: "aborted"`; one persisted tool
-  result per completed tool call; and no private property/method access. Failure leaves the feature unimplemented.
+- Automated prerequisite gate: exercise a real AgentSession, SessionManager, native queues, and public lifecycle with a
+  deterministic provider. After a pressured completed turn, assert no task-provider call before verified recovery, one
+  persisted result per completed tool call, and no `stopReason: "aborted"` artifact from graceful stopping. Queue
+  messages before the stop and prove AgentSession cannot restart past a veto. Native threshold and overflow recovery
+  must respect the same arbiter and veto. Public result notification alone does not pass. Failure leaves the feature
+  unimplemented; do not keep an obsolete test that claims Pi lacks mid-run compaction.
+- Test setup: fake only the external model/provider boundary, not RunWield's coordinator, workflow events, storage,
+  locks, or Runtime. Use real Git/Session fixtures and the sandboxed runner. Tests that mutate cwd or HOME use
+  `withProcessGlobalTestLock`; production reads use `getCwd()`/`getHomeDir()`. No new owned injection seam is allowed.
 - Automated focused tests: run
-  `deno test -A src/shared/session/session-context-resilience.test.js
+  `deno run -A scripts/run-tests.js src/shared/session/session-context-resilience.test.js
   src/shared/session/session-prompt.test.js src/shared/session/session-subscribers.test.js
   src/shared/session/hosted-session.test.js src/shared/session/abort-active-session.test.js
   src/shared/session/session-runtime-events.test.js src/shared/session/session-runtime.test.js
-  src/shared/session/agent-handler.test.js src/tools/__tests__/delegate-agent.test.js
-  src/cmd/compact/index.test.js src/ui/tui/runtime-adapter.test.js src/acp/server.test.js`.
-- Automated full gate: run `deno task ci` and fix all check, Workspace check, lint, formatting, test, and release-check
-  failures.
+  src/shared/session/agent-handler.test.ts src/shared/session/request-dispatch.test.ts
+  src/shared/session/background-tasks.test.ts src/shared/session/background-tasks-extra.test.ts
+  src/shared/session/segment-rollover.test.js src/shared/session/session-transcript-projection.test.js
+  src/tools/__tests__/delegate-agent.test.js src/cmd/compact/index.test.js
+  src/ui/tui/runtime-adapter.test.js src/acp/server.test.js src/ui/workspace/workspace-session-ux.test.tsx`.
+  Include new focused integration suites through the same runner. Never use direct `deno test`.
+- Existing coverage: preserve manual/resume compaction, automatic-disabled behavior, image and Named Invocation context,
+  completed tool persistence, active-Agent identity, genuine backend failure recovery, steering transfer, Pair
+  checkpoints, independent Session progress, and execution/repair rollover. Replace tests for the old 5%-or-8K re-arm
+  policy and guessed missing Pi APIs. Their obsolete assertions must stop existing; their useful pressure/queue coverage
+  must not.
 - Long-run fixture: script at least six internal turns with deterministic large tool results. Assert the provider-call
   sequence is `pressure turn -> compaction call -> continuation turn` with no oversized provider call between pressure
   and compaction; Agent Handler invocation count remains `1`; Runtime emits one outer `TURN_START`, remains busy, and
@@ -319,30 +478,62 @@ Existing functions, modules, or patterns to reuse:
   sequence is exactly `compacting(threshold), compacted(threshold)`, the original request produces exactly one Runtime
   `USER_MESSAGE` and one provider submission, and no `runwield_context_continuation`, `continuing`, or `continued`
   occurs.
-- Effective mid-run recovery: for `W=128000`, `R=16384`, assert `T=111616`, `M=16384`, and `S=95232`. A result
-  `{tokensBefore: 118000, estimatedTokensAfter: 90000}` emits exactly
+- Trigger matrix: for `W=128000`, `R=16384`, assert `T=111616`, `E=64000`, `M=16384`, `S=95232`, and `SE=47616`. Each of
+  the four Engineer identities triggers at `64000`, not `63999`. A Router, Planner, Reviewer, and ordinary delegated
+  Agent do not compact at `64000` or `111616`; they trigger at `111617`. With `W=200000`, `E=80000`; a larger model does
+  not increase the Engineer cap. Exercise production policy through real `runPrompt()` and a mid-run AgentSession, not
+  just a pure formula test. A pass-through to Pi must fail the early-trigger cases.
+- Effective standard recovery: for a non-Engineer at `W=128000`, `R=16384`, a result
+  `{tokensBefore:118000, estimatedTokensAfter:90000}` emits exactly
   `compacting(threshold), compacted(threshold),
-  continuing(threshold), continued(threshold)`, performs one
-  continuation, and permits a later intervention only after usage crosses `111616` again.
+  continuing(threshold), continued(threshold)`, continues once, and
+  permits a later standard attempt only above `T`.
+- Useful Engineer recovery above the early trigger: with `W=200000`, `R=16384`, recover from `120000` to `90000`. Assert
+  one continuation and no early compaction at `90000`, `98000`, or later growth below `T=183616`. Explicitly cross the
+  old 8K growth boundary. The early trigger stays disarmed; standard protection still intercepts `183617` before
+  provider submission and checks useful recovery. No-op policy or the old growth guard must fail this test.
+- Early re-arm: for that Engineer, `SE=63616`. A later measurement at `63617` does not re-arm; `63616` does. Compaction
+  can trigger again only on a later crossing to `80000`. An Agent/model rebuild with unchanged context does not erase
+  disarm. Repeat at `M=0` to prove usage exactly `E` cannot immediately re-arm an inclusive trigger.
 - Ineffective/failure recovery: every attempted automatic compaction first emits `compacting(threshold)`. A result above
   `T` or recovery below `M` then performs zero continuation provider calls and emits exactly
   `ineffective(insufficient_recovery), paused(insufficient_recovery)`; a missing result or compaction error emits
   exactly `failed(compaction_failed), paused(compaction_failed)`. Both make zero additional automatic compaction
-  attempts while usage remains above `S`. A request that exceeds `T` against empty history attempts no compaction and
-  emits only `paused(oversized_request)`.
-- Re-arm: manual compaction at exactly `S` emits one `rearmed(manual_recovery)`; recomputed model/context/settings usage
-  at exactly `S` emits one `rearmed(capacity_recovery)`; usage at `S+1` emits neither. A model/settings change that
-  remains above its recomputed `S` does not re-arm.
+  attempts without genuine recovery into the applicable bands. Add an Engineer failure at `80000` with no reduction:
+  although already below standard `S`, unchanged/growing usage and repeated same-segment hydration must not re-arm or
+  compact again. A later safe user request can run without an automatic retry; an unsafe one cannot reach the provider.
+  A request exceeding `T` against empty history attempts no compaction and emits only `paused(oversized_request)`. A
+  request above `E` but below `T` is not oversized. Missing, NaN, infinite, or negative recovery measurements cannot
+  authorize continuation.
+- Failure-pause re-arm: after a non-Engineer failure above `S`, manual compaction to exactly `S` emits one
+  `rearmed(manual_recovery)`; a capacity change placing usage at exactly the new `S` emits one
+  `rearmed(capacity_recovery)`. `S+1` does neither. Engineer failure re-arm must also satisfy `SE` and `usage < E`. Mere
+  off/on toggles and unchanged model capacity do not reset a pause. Model-specific reserve overrides change the computed
+  bands. Neither re-arm path silently restarts a settled assignment.
 - Queue order: queue one steering message and two follow-up messages before continuation. Assert their persisted/model
   order remains Pi-native and all three precede the single `runwield_context_continuation` entry; assert no duplication,
-  dropped messages, or Runtime `USER_MESSAGE` for the internal entry.
-- Root pause: place stale `return_to_router`, triage, `plan_written`, and `task_completed` outcomes in the partial
-  message array, then force ineffective recovery. Assert `runPrompt()` raises `ContextResiliencePaused`, the Agent
-  Handler returns exactly `{ kind: "context_paused" }` without scanning or dispatching those outcomes, `promptSession()`
-  settles `ok: true`, and active Agent/workflow/Plan Lifecycle state is unchanged.
-- Delegated pause: force ineffective recovery in a transient Agent Session. Assert the child emits pause status,
-  performs zero continuation calls, is disposed, and returns one parent tool result with `isError: true` and
-  `details.error: "context_resilience_paused"`; partial child text never appears as a successful handoff.
+  dropped messages, or Runtime `USER_MESSAGE` for the internal entry. Then queue a large message during compaction: the
+  summary alone fits `T`, but the full next request does not. Assert zero unsafe provider submissions, no immediate
+  second compaction of unchanged history, retained queued input, and no duplicate user-message events.
+- Root pause: force ineffective recovery through the real Runtime. Assert typed `ContextResiliencePaused`, handler
+  `{ kind: "context_paused" }`, `ok: true` settlement, unchanged active Agent/workflow/Plan Lifecycle, and no backend
+  failure or `BACKEND_CONTINUATION_REQUEST`. Pre-submit attempts record `requestRecorded:false`; mid-run attempts record
+  true. Reload request-attempt entries and verify old failed/completed entries still behave correctly. No second attempt
+  or original-request replay is created by internal continuation. A genuine later user request still follows ordinary
+  dispatch; the guard prevents generated replay, not intentional user input.
+- Workflow races: race pressure against accepted triage, terminal approved `plan_written`, and durable `task_completed`
+  events. Assert consume-once workflow behavior and no predecessor continuation after an accepted handoff. Feedback-only
+  review stays in its planning conversation. Stale transcript tool results create no event or transition. A pause with
+  no accepted event cannot claim task completion. An accepted completion is not discarded by a competing pause.
+- Same-segment lifetime: pause or disarm early compaction, settle a real managed operation (disposing its Pi root), then
+  send a follow-up or run `/compact`. The Hosted Session retains health, performs no unchanged-context automatic retry,
+  and re-arms only from actual recovery. A fresh successor segment is tested separately.
+- Delegated pause: force ineffective recovery in a foreground Pi child. Assert it emits pause status, starts no
+  continuation, is disposed, and returns one parent tool result with `isError:true` and
+  `details.error:"context_resilience_paused"`. Repeat with a background child: the original task ID remains the same,
+  its task settles failed with that error, resources/lease are released, and one completion arrives through the normal
+  background delivery path. No second foreground result or successful partial handoff appears. Ordinary parent
+  settlement must not cancel a still-running background child; explicit Stop keeps existing cancellation semantics.
 - Cancellation: queue one steering and one follow-up message, then cancel once in each state (`waiting_for_lease`,
   `stopping`, `compacting`, `measuring`, `continuing`). Assert both queued user messages and any still-queued internal
   continuation are removed, each queued Runtime message receives one dequeue transition, one Runtime `CANCELLATION` and
@@ -354,29 +545,56 @@ Existing functions, modules, or patterns to reuse:
   concurrent compactions are `1` for the first Hosted Session and independently `1` for the second; all automatic
   waiters settle. While an automatic lease is held, `/compact` returns `compaction_in_progress` and the concurrent
   compaction count remains unchanged; when idle, manual `/compact` acquires the same lease.
-- Adapter parity: feed the same canonical events to TUI and ACP fixtures. Assert one displayed text per event and ACP
-  `_meta` contains only `type`, `status`, `reason`, `usagePercent`, and `recoveredPercent` in addition to standard
-  Runtime metadata.
+- Adapter parity: feed canonical events from a real recovery operation to TUI, ACP, and Workspace consumers. Assert one
+  displayed text per event. ACP `_meta` contains only `type`, `status`, `reason`, `usagePercent`, and `recoveredPercent`
+  plus standard Runtime metadata. Verify the producer allowlist rejects content-bearing extra keys. Reopen the persisted
+  root Session and assert the same saved outcomes, stable row identity, and no user-message replay of continuation.
+- Preserved authority: compact and reopen a Session with a Pair checkpoint, request-attempt snapshot, Named Invocation
+  expansion, and image attachment. The checkpoint still needs a genuine later user decision; generated continuation
+  cannot approve it. Request identity and model-visible expansion survive, and isolated-child compaction cannot restore
+  root-only metadata into the child.
+- Manual command through Runtime: while root or background automatic compaction owns the arbiter, `compactSession()`
+  returns `compaction_in_progress` before the blocked compaction is released. With an active prompt and no compaction,
+  it waits without holding the arbiter; after settlement it acquires safely. Manual instructions, cancellation, existing
+  completion notifications, and re-arm remain correct.
 - Segment-boundary composition: place the execution segment near pressure, dispatch a semantic repair rollover, and
   assert no predecessor compaction or hidden continuation occurs; the fresh repair segment starts with clean
   context-health state and remains independently protected if its own usage later crosses threshold.
+- Semantic review: inspect the call path to confirm one policy owner covers pre-request, mid-run, post-run, overflow,
+  manual, and background paths. No private Pi compaction patch or bypass remains; a forwarding wrapper or disconnected
+  policy module cannot satisfy the integration tests. Confirm paused request records do not become backend failures.
+- Manual browser check: start `deno task workspace:dev` at `http://127.0.0.1:5173` from the execution worktree. Use a
+  named headed `agent-browser` session to open the Session surface and exercise effective recovery, useful Engineer
+  recovery above `E`, ineffective pause, and Stop with a deterministic provider. Confirm one concise existing-style
+  status row per transition, uninterrupted busy state through continuation, usable input after settlement, unchanged
+  Agent/Plan, and no console errors. Reload the saved Session and check status/history parity. A rendering fixture is
+  supplemental; it does not replace real Runtime/persistence tests. No local Plan review UI is needed for these checks.
+- Documentation: map each Core/proposal recovery and cancellation scenario to the tests above. Confirm PRD maturity,
+  Session docs, ADR references, and existing glossary terms agree with implemented behavior. Do not claim non-Pi
+  compaction control or a passed dependency gate without evidence.
 
 ## Edge Cases & Considerations
 
-- This Plan is intentionally blocked on an external public Pi release. Approval should save it for later; execution must
-  not begin by substituting a private compatibility shim when the prerequisite is absent.
-- The dependency gate requires more than a low-level callback: RunWield must be able to observe recovery before
-  continuation and preserve queues through a supported Agent Session operation. A release that exposes only
-  `shouldStopAfterTurn` but cannot satisfy those assertions is insufficient.
+- The full public Pi contract remains unproven. Approval should save this Plan for later, not authorize a private
+  compatibility shim. Current `finishTurn` and recovery events are partial support, not proof of a continuation veto.
+- Pi's private `_runAutoCompaction()` return value means whether to continue, not whether compaction succeeded. The new
+  policy must measure public result data; neither a true nor false boolean proves useful recovery.
 - Pi reports context usage as unknown immediately after compaction. Use the public compaction result's
   `estimatedTokensAfter` for recovery measurement and retain an explicit unknown state until later provider usage
   replaces the estimate.
 - A single prepared User Request may exceed `T` even with an empty compacted history. Detect this before submission,
   emit exactly `paused(oversized_request)`, and recommend reducing the request or choosing a larger-context model;
   compaction cannot solve it.
-- Successful repeated compactions during an exceptionally long assignment are allowed only after each prior compaction
-  demonstrates effective recovery and context later crosses `T` again. Failed or ineffective recovery never self-retries
-  above `S`.
+- Repeated useful compactions are allowed after later threshold crossings. An Engineer early attempt must first re-arm
+  below `SE`; the standard `T` safety fallback remains available after useful recovery. Failed/ineffective recovery
+  latches automatic pause until genuine recovery meets the applicable bands. Being below `S` at an early failure is not
+  itself recovery.
+- Large reserve values can put `T` below `E`. Standard safety still wins; do not wait for an Engineer's early threshold
+  when the prepared request is already unsafe under `T`.
+- Assumption: context-health latches are live Hosted Session state. They survive ordinary same-segment dehydration and
+  Agent/model rebuilds, but this Plan does not add a cross-process retry scheduler or durable health-state schema. A
+  newly hosted Session measures current context before work; restoring exact prior pause flags across host exit is
+  deferred. Saved status is historical evidence, not permission to resume an old operation.
 - Tool results finish and persist before graceful stop. Never stop in the middle of tool execution or discard a result
   needed by the compaction summary or continuation.
 - A waiting Agent Session holds no Hosted Session compaction lease and starts no provider call. On lease acquisition it
@@ -386,11 +604,12 @@ Existing functions, modules, or patterns to reuse:
 - User cancellation wins every race and must not be reported as ineffective recovery or trigger re-arm. It retains the
   established behavior of discarding queued user steering/follow-up messages. Manual `/compact` remains available after
   pause when the shared arbiter is free and must not produce duplicate automatic status.
-- A transient Delegated Agent Session cannot be resumed after disposal. On failed or ineffective recovery, report one
-  failed tool result to the parent and require a fresh delegation for any retry; never label partial child output as a
+- A disposed Delegated Agent Session cannot resume. Foreground pause returns one failed tool result; background pause
+  finishes its existing task as failed. Any retry needs a fresh delegation. Never label partial child output as a
   successful result.
-- The exact `W/R/T/M/S` formula and inclusive/exclusive boundaries are explicit user decisions for this Plan. No new
-  user-facing percentage setting is introduced.
+- User decisions preserve Engineer-only `E`, standard `T` for other Agents, and useful continuation above `E` without
+  growth-only re-arm. The inherited `M/S` recovery margin remains; `SE` applies it to Engineer re-arm as a reviewable
+  implementation assumption. No new user-facing percentage setting is introduced.
 - Automatic model switching, an in-repository Pi fork, private Pi access, a replacement summarizer, arbitrary transcript
   compression, optional workflow metrics, extra `/settings` diagnostics, and durable storage of compaction summaries
   outside the Session Transcript are outside this Plan.

@@ -739,12 +739,20 @@ RunWield preserves the selected model and thinking level in the Session. It maps
 
 Concrete CLI model names ending in `-low`, `-medium`, or `-high` are execution details, not selectable model references.
 This backend does not accept image attachments. Setup explains and requests approval before installing its global custom
-agent and MCP configuration. Replay includes assistant messages, RunWield tool results, and backend status;
-Antigravity's internal file, shell, and tool activity stays in the CLI.
+agent and MCP configuration. An existing `runwield` MCP entry remains valid when it points to another standalone `wld`
+binary with the same `mcp agy-cli` arguments; switching binaries does not rewrite that global entry. Replay includes
+assistant messages, RunWield tool results, backend status, and completed native tool steps that Antigravity reports in
+its stream. Live Sessions show native tool starts and completed results as they arrive. Tool titles show commands, file
+targets, and task actions when Antigravity supplies them. An unfinished native step does not appear as a still-running
+tool after reload; unreported CLI internals are not shown. RunWield declares the native tools (`run_command`,
+`write_to_file`, `replace_file_content`, `view_file`) corresponding to each Agent's declared tool capabilities (`bash`,
+`write`, `edit`, `read`) in its temporary Agent definition so only permitted actions are available. The RunWield MCP
+`multi_file_edit` tool only edits existing files.
 
-RunWield passes the Session's current working directory with `--add-dir`, including execution worktrees. This gives
-Antigravity the workspace context needed for normal project file access; it does not change global permissions or bypass
-tool approval. Actions that still require approval cannot prompt in noninteractive mode. RunWield reports the blocked
-action and any available file target once, with sensitive details redacted. Review the action through Antigravity's
-`/permissions`, then retry in RunWield. See the
+RunWield passes the Session's current working directory with `--add-dir`, including execution worktrees. It also passes
+`--dangerously-skip-permissions` for execution turns because Antigravity cannot request approval in noninteractive mode.
+This auto-approves all Antigravity tool requests, not only project file reads. Use this backend only when you trust the
+Agent to run commands and access files with your account's permissions. The `/agents` setup check does not use this
+flag. If Antigravity still denies an action, RunWield reports the blocked action and available file target with
+sensitive details redacted. See the
 [Antigravity headless permissions documentation](https://antigravity.google/docs/cli/headless/#permissions-in-headless-mode).

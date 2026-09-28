@@ -27,6 +27,9 @@ userVerifiedAt: null
 targetBranch: "main"
 status: "validated"
 validatedCommit: "43bfd8b503357a8a648dd04ffa276367a8ce1a76"
+archivedAt: "2026-09-28T01:30:51.868Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/conversational-checkpoints-and-acp-interviews/02-acp-interview-chat-fallback.md"
 ---
 
 # Answer ACP Interviews in Chat Without Native Forms

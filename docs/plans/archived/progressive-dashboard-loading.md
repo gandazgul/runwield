@@ -27,6 +27,9 @@ workRecord:
     recordId: "77e3062e-8334-4a08-8bf4-9c36b1d43090"
     path: "docs/work-records/2026-09-25-progressive-attention-dashboard-loading-delivered.md"
     lastAttemptAt: "2026-09-25T20:32:31.195Z"
+archivedAt: "2026-09-27T17:04:22.806Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/progressive-dashboard-loading.md"
 ---
 
 # Progressive Dashboard Loading
