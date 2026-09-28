@@ -646,7 +646,7 @@ export function createUiApi(
             tui.requestRender();
         },
 
-        /** @param {import('../../shared/session/session-help.js').SessionHelpPayload} help */
+        /** @param {import('../../shared/session/session-help.ts').SessionHelpPayload} help */
         showKeyboardHelp: (help) => {
             if (!inputAccessoryContainer || outputSuppressed) return;
             if (keyboardHelp) {

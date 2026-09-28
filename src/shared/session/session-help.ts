@@ -24,25 +24,21 @@ const KEYBOARD_HELP_ITEMS = Object.freeze([
     Object.freeze({ key: "!!", description: "to run bash (no context)" }),
 ]);
 
-/**
- * @typedef {Object} SessionHelpItem
- * @property {string} key
- * @property {string} description
- */
+export interface SessionHelpItem {
+    key: string;
+    description: string;
+}
 
-/**
- * @typedef {Object} SessionHelpPayload
- * @property {string} title
- * @property {SessionHelpItem[]} items
- */
+export interface SessionHelpPayload {
+    title: string;
+    items: SessionHelpItem[];
+}
 
 /**
  * Return a clone of the canonical keyboard-help payload so event consumers
  * cannot mutate future Runtime responses.
- *
- * @returns {SessionHelpPayload}
  */
-export function getSessionKeyboardHelp() {
+export function getSessionKeyboardHelp(): SessionHelpPayload {
     return {
         title: KEYBOARD_HELP_TITLE,
         items: KEYBOARD_HELP_ITEMS.map((item) => ({ ...item })),

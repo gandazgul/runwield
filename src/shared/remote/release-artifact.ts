@@ -1,9 +1,23 @@
 import { join } from "@std/path";
+import type { ArtifactMetadata } from "../../../scripts/build-metadata.js";
 import { sha256Bytes, verifyBuildArtifact } from "../../../scripts/build-metadata.js";
 
-/** @typedef {{buildId: string, protocol: number, version: string}} LauncherIdentity */
-/** @type {Record<string, string>} */
-const TARGETS = {
+export interface LauncherIdentity {
+    buildId: string;
+    protocol: number;
+    version: string;
+}
+
+export interface ExtractedReleaseRuntime {
+    artifact: string;
+    metadata: ArtifactMetadata;
+}
+
+export interface DownloadedReleaseRuntime extends ExtractedReleaseRuntime {
+    directory: string;
+}
+
+const TARGETS: Record<string, string> = {
     "linux-x64": "x86_64-unknown-linux-gnu",
     "linux-arm64": "aarch64-unknown-linux-gnu",
     "darwin-x64": "x86_64-apple-darwin",
@@ -11,8 +25,7 @@ const TARGETS = {
 };
 const RELEASE_TAG = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-rc\.([1-9]\d*))?$/;
 
-/** @param {string} tag @param {string} suffix */
-export function releaseRuntimeName(tag, suffix) {
+export function releaseRuntimeName(tag: string, suffix: string): string {
     if (!RELEASE_TAG.test(tag) || (tag.includes("-rc.") && Number(tag.split("-rc.")[1]) < 1)) {
         throw new Error(`Invalid launcher release tag: ${tag}`);
     }
@@ -20,8 +33,7 @@ export function releaseRuntimeName(tag, suffix) {
     return `wld-${tag}-${suffix}.tar.gz`;
 }
 
-/** @param {string[]} args */
-async function tar(args) {
+async function tar(args: string[]): Promise<Uint8Array> {
     const result = await new Deno.Command("tar", { args, stdout: "piped", stderr: "piped" }).output();
     if (!result.success) throw new Error(`Invalid release archive: ${new TextDecoder().decode(result.stderr).trim()}`);
     return result.stdout;
@@ -30,12 +42,13 @@ async function tar(args) {
 /**
  * Verify archive contents, binary checksum and the matching launcher identity.
  * Never extract arbitrary archive paths to disk.
- * @param {string} archive
- * @param {string} suffix
- * @param {LauncherIdentity | null} launcher
- * @param {string} directory
  */
-export async function extractReleaseRuntime(archive, suffix, launcher, directory) {
+export async function extractReleaseRuntime(
+    archive: string,
+    suffix: string,
+    launcher: LauncherIdentity | null,
+    directory: string,
+): Promise<ExtractedReleaseRuntime> {
     const target = TARGETS[suffix];
     if (!target) throw new Error(`Unsupported release runtime: ${suffix}`);
     const entries = new TextDecoder().decode(await tar(["-tzf", archive])).trim().split(/\r?\n/);
@@ -59,16 +72,16 @@ export async function extractReleaseRuntime(archive, suffix, launcher, directory
 
 /**
  * Download only the exact VERSION-tagged asset and its own checksum.
- * @param {string} tag
- * @param {string} suffix
- * @param {LauncherIdentity} launcher
- * @param {AbortSignal} [signal]
  */
-export async function downloadReleaseRuntime(tag, suffix, launcher, signal) {
+export async function downloadReleaseRuntime(
+    tag: string,
+    suffix: string,
+    launcher: LauncherIdentity,
+    signal?: AbortSignal,
+): Promise<DownloadedReleaseRuntime> {
     const name = releaseRuntimeName(tag, suffix);
     const base = `https://github.com/gandazgul/runwield/releases/download/${tag}/${name}`;
-    /** @param {string} url */
-    async function download(url) {
+    async function download(url: string): Promise<Uint8Array> {
         let response;
         try {
             response = await fetch(url, {

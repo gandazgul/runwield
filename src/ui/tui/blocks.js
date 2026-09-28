@@ -618,7 +618,7 @@ export class ManagedSyncStatusBlock {
 }
 
 export class KeyboardHelpBlock {
-    /** @param {import('../../shared/session/session-help.js').SessionHelpPayload} help */
+    /** @param {import('../../shared/session/session-help.ts').SessionHelpPayload} help */
     constructor(help) {
         this.help = {
             title: help.title,
@@ -636,7 +636,7 @@ export class KeyboardHelpBlock {
     }
 
     /**
-     * @param {import('../../shared/session/session-help.js').SessionHelpItem} item
+     * @param {import('../../shared/session/session-help.ts').SessionHelpItem} item
      * @param {number} keyWidth
      * @param {number} width
      * @returns {string[]}
@@ -653,7 +653,7 @@ export class KeyboardHelpBlock {
     }
 
     /**
-     * @param {import('../../shared/session/session-help.js').SessionHelpItem[]} items
+     * @param {import('../../shared/session/session-help.ts').SessionHelpItem[]} items
      * @param {number} keyWidth
      * @param {number} columnWidth
      * @returns {string[]}

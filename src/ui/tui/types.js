@@ -54,7 +54,7 @@
  *   setManagedSyncStatus?: (status: import('../../shared/session/session-runtime-events.js').RuntimeManagedSyncStateEvent) => void,
  *   getActiveToolBlock?: (id: string) => ToolExecutionBlockApi | undefined,
  *   toggleToolOutputsExpanded?: () => void,
- *   showKeyboardHelp?: (help: import('../../shared/session/session-help.js').SessionHelpPayload) => void,
+ *   showKeyboardHelp?: (help: import('../../shared/session/session-help.ts').SessionHelpPayload) => void,
  *   hideKeyboardHelp?: () => void,
  *   addToolInvoked?: (event: import('@earendil-works/pi-coding-agent').SessionEvent) => void,
  *   addToolResult?: (event: import('@earendil-works/pi-coding-agent').SessionEvent) => void,
