@@ -30,7 +30,7 @@ import { resolveProjectRuntimeLayout } from "../../shared/project-runtime-layout
 import { createTestWorktreeAttempt } from "../../shared/worktree-test-helpers.js";
 import { withRuntimeCommandFixture } from "../testing/runtime-command-fixture.ts";
 import { runLoadPlanCommand } from "./index.ts";
-import { getLoadPlanCompletions } from "./getArgumentCompletions.js";
+import { getLoadPlanCompletions } from "./getArgumentCompletions.ts";
 import { getRunWieldRuntimeDir } from "../../constants.js";
 import type { PlanFrontMatterInput } from "../../plan-store.js";
 import type { EditorAPI, SelectOption, UiAPI } from "../../ui/tui/types.js";

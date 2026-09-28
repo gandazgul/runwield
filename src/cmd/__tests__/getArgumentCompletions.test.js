@@ -1,7 +1,7 @@
 import { assertEquals } from "@std/assert";
 import { getAgentCompletions } from "../agents/getArgumentCompletions.js";
-import { getModelCompletions } from "../models/getArgumentCompletions.js";
-import { getLoadPlanCompletions } from "../load-plan/getArgumentCompletions.js";
+import { getModelCompletions } from "../models/getArgumentCompletions.ts";
+import { getLoadPlanCompletions } from "../load-plan/getArgumentCompletions.ts";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 
 Deno.test("getAgentCompletions includes router", async () => {

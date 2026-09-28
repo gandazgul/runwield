@@ -1,10 +1,7 @@
 import { getModelRegistry, getModelRuntime } from "../../shared/models/model-registry.ts";
+import type { CommandCompletionItem } from "../registry.js";
 
-/**
- * @param {string} argumentPrefix
- * @returns {Promise<import('../registry.js').CommandCompletionItem[]>}
- */
-export async function getModelCompletions(argumentPrefix) {
+export async function getModelCompletions(argumentPrefix: string): Promise<CommandCompletionItem[]> {
     await getModelRuntime();
     const modelRegistry = getModelRegistry();
     const models = typeof modelRegistry.getSelectable === "function"
@@ -31,6 +28,6 @@ export async function getModelCompletions(argumentPrefix) {
             item.id.toLowerCase().startsWith(lowerPrefix) ||
             item.provider.toLowerCase().startsWith(lowerPrefix) ||
             // Handle OpenRouter-style IDs with slashes (e.g., google/gemini-flash)
-            item.id.toLowerCase().split("/").some((/** @type {string} */ part) => part.startsWith(lowerPrefix))
+            item.id.toLowerCase().split("/").some((part) => part.startsWith(lowerPrefix))
         );
 }

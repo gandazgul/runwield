@@ -3,7 +3,7 @@ import { getCwd } from "../../constants.js";
 import { savePlan } from "../../plan-store.js";
 import { defineCommittedGitFixture } from "../../shared/git-test-fixture.ts";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
-import { getLoadPlanCompletions } from "./getArgumentCompletions.js";
+import { getLoadPlanCompletions } from "./getArgumentCompletions.ts";
 
 const repository = defineCommittedGitFixture();
 
