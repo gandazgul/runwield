@@ -69,11 +69,13 @@ unless the Plan requires it.
 6. Run focused repository checks and final real-browser verification. Follow _Who Runs Full Validation_ below for the
    complete CI command. Check requested interactions, relevant desktop/mobile states, console errors, failed requests,
    final URL, and visible evidence. Apply _When Verification Fails, Act_ below to whatever CI and the browser report.
-7. Call `task_completed` exactly once only after all Plan steps and verification are complete. Include the required
-   content-free `browserPreflightOutcome` parameter and concise Markdown bullets for changes, commands and results, URL,
-   headed-browser checks, and visible evidence. If a Plan step or the browser verification blocked you, do not call it:
-   end your turn in plain text with the exact blocker and what remains unverified, as _A Blocker Ends in Prose_
-   describes.
+7. Get one accepted `task_completed` call only after all Plan steps and verification are complete. If the first eligible
+   call is rejected because Background Tasks are running, read their IDs and kinds. Wait for results or cancel them,
+   then retry only when the work is complete. The next eligible call cancels remaining tasks and accepts completion.
+   Cancellation is not evidence that a test passed. Include the required content-free `browserPreflightOutcome`
+   parameter and concise Markdown bullets for changes, commands and results, URL, headed-browser checks, and visible
+   evidence. If a Plan step or the browser verification blocked you, do not call it: end your turn in plain text with
+   the exact blocker and what remains unverified, as _A Blocker Ends in Prose_ describes.
 
 ## The Product Never Explains Its Own Build State
 

@@ -1578,7 +1578,10 @@ grant shell authority to an Agent or child that lacks it. Up to five tasks can r
 process. A sixth start fails promptly; an unknown or foreign task ID cannot control another Session's work. Completed
 status includes the outcome; short output is inline and larger output is available through a local log path. Controls
 and limits are process-local: there is no cross-process task lookup, saved job queue, restart recovery, or replay after
-process exit.
+process exit. On the first eligible `task_completed` call while Background Tasks run, Core rejects completion and lists
+the running task IDs and kinds. It explains that the next eligible call cancels the remaining tasks and accepts
+completion. The Agent can wait for results, cancel tasks, or make that next call. Cancellation does not prove a test
+passed. Later work can start new Background Tasks.
 
 **Requirement: Receive task results without another user message.**
 
@@ -1586,8 +1589,10 @@ A completed Background Task sends its result to the parent Agent while it runs o
 Agent can next accept one. The current specialist receives later results even after the starting turn settles. Pending
 questions and reviews keep their authority; task output cannot answer them, resolve a Pair checkpoint, approve a Plan,
 or count as workflow completion or validation. Stop and host shutdown cancel owned active tasks and suppress late
-automatic results. Normal turn settlement and browser tab closure do not stop tasks. Delivered results become Session
-history, but the running task itself does not survive process exit.
+automatic results. An accepted `task_completed` call suppresses pending and queued automatic results, even when no tasks
+are still running. If running tasks remain after the first eligible rejection, the next eligible call cancels them and
+accepts completion. Normal turn settlement and browser tab closure do not stop tasks or suppress their results.
+Delivered results become Session history, but the running task itself does not survive process exit.
 
 **Requirement: Route attention to the latest user-input surface.**
 
@@ -1625,11 +1630,17 @@ surface.
   task fails without queuing it. A read-only Agent without effective shell authority cannot gain shell-start authority.
 - Given a read-only background delegate, when its parent turn ends, the child can finish and report its result without
   becoming the foreground Agent. A request for a background write delegation fails before launch.
+- Given running Background Tasks, when an execution Agent first calls `task_completed` while eligible to finish, Core
+  rejects the call and lists each running task ID and kind. It explains that the next eligible completion call cancels
+  remaining tasks and accepts completion. The Agent can instead wait for results or cancel tasks first; cancellation
+  alone cannot count as a passing test. Later work can start new tasks.
 - When a Background Task finishes while the parent works, its result reaches that parent through steering or a later
   managed turn if steering is not consumed. When it finishes after the turn, the current specialist receives the result
   without another user message. Long output has a readable log path instead of being silently truncated.
 - Given a pending question, review, or Pair checkpoint, when task output arrives, it waits for a safe turn; it cannot
   answer, approve, resolve, execute a slash command, or change the latest user-input notification destination.
+- Given pending or queued task results, when `task_completed` is accepted, no result is delivered afterward, even if
+  zero tasks are running. A normal turn end still allows those results to reach the Agent.
 - When the owner stops work or the host shuts down, active tasks are cancelled and late automatic results are
   suppressed. A normal turn end or browser tab closure does not stop them. After process exit, reopening saved history
   does not reconstruct or replay unfinished tasks; a task ID from another Session or process cannot be controlled here.

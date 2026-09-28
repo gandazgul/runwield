@@ -68,7 +68,11 @@ supported. Up to five Background Tasks may be active in one Session in the start
 cancellation work only there; no other process can recover or replay the task after exit. A finished result reaches the
 Agent automatically while it works or in a later turn. Results at most 8 KiB appear inline; larger output is available
 from a local log path. Check the final result before treating a command as passed. Closing a browser tab or ending a
-normal turn does not cancel work; Stop and host shutdown do. Background output cannot answer an interaction or approve a
+normal turn does not cancel work or suppress results; Stop and host shutdown cancel work and suppress late results. The
+first eligible `task_completed` call with running tasks is rejected with their IDs and kinds. It explains that the next
+eligible call cancels remaining tasks and accepts completion. You can wait for results or cancel tasks before retrying.
+Cancellation is not evidence that a test passed. Every accepted completion suppresses pending and queued results, even
+if no tasks are running. Later work can start new tasks. Background output cannot answer an interaction or approve a
 Plan. See [Core Session continuity](prd/runwield-core-prd.md#session-continuity).
 
 ## Session names and terminal titles

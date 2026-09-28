@@ -221,6 +221,10 @@ export class HostedSession {
         this.disposed = false;
         /** Session-owned tasks are independent of disposable root and turn state. */
         this.backgroundTasks = new BackgroundTasks(this);
+        /** @type {string | null} */
+        this.backgroundCompletionWarning = null;
+        /** @type {(() => Promise<void>) | null} */
+        this.backgroundResultCleanup = null;
 
         /** @type {AgentInfoRecord[]} */
         this.agentInfoStack = [];
@@ -1127,6 +1131,32 @@ export class HostedSession {
 
     getActiveExecutionWorkflow() {
         return this.activeExecutionWorkflow;
+    }
+
+    /** @param {string} cycle */
+    warnBackgroundCompletion(cycle) {
+        if (this.backgroundCompletionWarning === cycle) return false;
+        this.backgroundCompletionWarning = cycle;
+        return true;
+    }
+
+    resetBackgroundCompletionWarning() {
+        this.backgroundCompletionWarning = null;
+    }
+
+    /** @param {() => Promise<void>} cleanup */
+    setBackgroundResultCleanup(cleanup) {
+        this.backgroundResultCleanup = cleanup;
+    }
+
+    async settleBackgroundTasksForCompletion() {
+        // Suppress synchronously before any result can enter a new turn.
+        const settlement = this.backgroundTasks.cancelAllAndSuppress();
+        try {
+            await this.backgroundResultCleanup?.();
+        } finally {
+            await settlement;
+        }
     }
 
     /** @param {string} cwd */

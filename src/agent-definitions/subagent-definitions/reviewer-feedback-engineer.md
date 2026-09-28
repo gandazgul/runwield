@@ -63,8 +63,11 @@ failure. It may also provide a repair-scoped diff tool. Do not reconstruct the o
 
 ## Your Completion Report
 
-When every supplied item is settled, call `task_completed` exactly once. Use one bullet per supplied failure or finding.
-Preserve stable finding identities when the packet provides them:
+When every supplied item is settled, get one accepted `task_completed` call. If the first eligible call is rejected
+because Background Tasks are running, read their IDs and kinds. Wait for results or cancel them, then retry only when
+every item is settled. The next eligible call cancels remaining tasks and accepts completion. Cancellation is not
+evidence that a test passed. Use one bullet per supplied failure or finding. Preserve stable finding identities when the
+packet provides them:
 
 - `R1-2 — fixed:` what you changed and where.
 - `R1-3 — already satisfied:` the evidence in the code showing it was already correct.

@@ -11,6 +11,7 @@ import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import type { HostedSession } from "../shared/session/hosted-session.js";
 import { AGENTS } from "../constants.js";
 import { recordAcceptedTaskCompletion } from "../shared/session/task-completion-session.ts";
+import { readRequestAttemptEntries } from "../shared/session/request-dispatch.ts";
 import {
     clearPairCheckpoint,
     hasFinalPairAssent,
@@ -32,7 +33,6 @@ const FRONTEND_ENGINEER_MESSAGE_DESCRIPTION = ENGINEER_MESSAGE_DESCRIPTION +
 
 type BrowserPreflightOutcome = "succeeded" | "failed" | "externally_blocked";
 type ActiveExecutionWorkflow = import("../shared/session/hosted-session.js").ActiveExecutionWorkflow;
-
 type TaskCompletedDetails =
     | {
         outcome: "rejected";
@@ -41,7 +41,9 @@ type TaskCompletedDetails =
             | "pair_execution_paused"
             | "wrong_execution_owner"
             | "pair_final_checkpoint_pending"
-            | "pair_checkpoint_context_unavailable";
+            | "pair_checkpoint_context_unavailable"
+            | "background_tasks_pending"
+            | "background_cleanup_failed";
     }
     | {
         outcome: "pair_completion_checkpoint";
@@ -123,8 +125,9 @@ function buildToolDescription(): string {
         "For frontend UI/UX work, include the dev server URL, headed browser checks performed, and visible evidence. " +
         "Call when your assigned work is done, and include a concise " +
         "report in the required `message` parameter, following its description for content and format. " +
-        "Normally called once per assignment. Calling it again is harmless — nothing is corrupted by a second " +
-        "report — so if the workflow or the user asks for another, comply instead of refusing. " +
+        "A first eligible call with running Background Tasks rejects and lists them; another call cancels remaining " +
+        "tasks and accepts completion. Check task status or cancel them yourself before retrying. " +
+        "Calling it again is harmless — if the workflow or user asks for another report, comply. " +
         "DO NOT call this tool when you are blocked: a step is impossible, two steps contradict each other, " +
         "something the work depends on does not exist, a credential, permission, service, or artifact you need is " +
         "unavailable, or any part of the assignment could not be done. A blocker ends your turn in plain text — " +
@@ -250,6 +253,52 @@ export function createTaskCompletedTool(
                     };
                 }
             }
+            const cycle = activeWorkflow
+                ? JSON.stringify([
+                    runtimeOwner,
+                    activeWorkflow.planName,
+                    activeWorkflow.executionAttemptStartedAtMs,
+                    activeWorkflow.validationGeneration,
+                    activeWorkflow.validationRepairGeneration,
+                    activeWorkflow.validationContinuation,
+                ])
+                : `request:${
+                    (
+                        targetHostedSession.getRootSessionManager()?.getBranch
+                            ? readRequestAttemptEntries(
+                                targetHostedSession.getRootSessionManager() as Parameters<
+                                    typeof readRequestAttemptEntries
+                                >[0],
+                            ).filter((entry) => entry.dispatchKind !== "background_task_result").at(-1)?.requestId
+                            : null
+                    ) || targetHostedSession.getActiveTurnId() || "standalone"
+                }`;
+            const running = targetHostedSession.backgroundTasks.runningTasks();
+            if (running.length && targetHostedSession.warnBackgroundCompletion(cycle)) {
+                return {
+                    content: [{
+                        type: "text",
+                        text: `task_completed rejected: Background Tasks still running:\n${
+                            running.map((task) => `- ${task.task_id} (${task.kind})`).join("\n")
+                        }\nUse background_task status or cancel to check them. Another eligible task_completed call cancels remaining tasks and accepts completion.`,
+                    }],
+                    details: { outcome: "rejected", reason: "background_tasks_pending" },
+                    terminate: false,
+                };
+            }
+            try {
+                await targetHostedSession.settleBackgroundTasksForCompletion();
+            } catch (error) {
+                return {
+                    content: [{
+                        type: "text",
+                        text: `task_completed rejected: background cleanup failed: ${String(error)}`,
+                    }],
+                    details: { outcome: "rejected", reason: "background_cleanup_failed" },
+                    terminate: false,
+                };
+            }
+            targetHostedSession.resetBackgroundCompletionWarning();
             const timestampMs = now();
             recordAcceptedTaskCompletion({
                 hostedSession: targetHostedSession,

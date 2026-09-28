@@ -129,11 +129,26 @@ export class BackgroundTasks {
     }
 
     get activeCount(): number {
-        return [...this.records.values()].filter((record) => record.status.state === "running").length;
+        return this.runningTasks().length;
+    }
+
+    runningTasks(): BackgroundTaskStatus[] {
+        return [...this.records.values()].filter((record) => record.status.state === "running")
+            .map((record) => this.snapshot(record));
+    }
+
+    isPending(taskId: string): boolean {
+        return this.pending.has(taskId);
+    }
+
+    canDeliver(taskId: string): boolean {
+        const record = this.records.get(taskId);
+        return Boolean(record && !this.suppressed && !record.suppressDelivery);
     }
 
     private reserve(kind: BackgroundTaskKind): TaskRecord {
         this.session.assertActive();
+        if (this.suppressed) throw new Error("Background tasks are stopping for Task Completion or Session Stop.");
         if (this.activeCount >= MAX_ACTIVE_BACKGROUND_TASKS) {
             throw new Error(`Too many background tasks are running; maximum is ${MAX_ACTIVE_BACKGROUND_TASKS}.`);
         }
@@ -415,9 +430,7 @@ export class BackgroundTasks {
     async cancelAllAndSuppress(): Promise<void> {
         this.suppressed = true;
         this.pending.clear();
-        for (const record of this.records.values()) {
-            if (record.status.state === "running") record.suppressDelivery = true;
-        }
+        for (const record of this.records.values()) record.suppressDelivery = true;
         await Promise.all(
             [...this.records.values()].filter((record) => record.status.state === "running").map((record) =>
                 this.cancel(record.status.task_id)
