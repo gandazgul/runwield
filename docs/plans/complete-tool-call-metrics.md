@@ -22,8 +22,8 @@ collaborationRecommendation: "autonomous"
 createdAt: "2026-08-08T01:08:52-04:00"
 origin: "internal"
 userVerifiedAt: null
-status: "in_progress"
 targetBranch: "main"
+status: "in_progress"
 ---
 
 # Complete Tool-Call Metrics
