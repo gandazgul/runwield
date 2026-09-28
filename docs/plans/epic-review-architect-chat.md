@@ -22,7 +22,13 @@ createdAt: "2026-09-27"
 origin: "internal"
 userVerifiedAt: null
 targetBranch: "main"
-status: "validated_reviewer"
+status: "validated"
+validatedCommit: "77e7db770fa6b1f26618366e77119a67645b6fee"
+workRecord:
+    status: "generated"
+    recordId: "72865c2d-85d1-47d1-91e4-91c0d2435a29"
+    path: "docs/work-records/2026-09-28-architect-chat-delivered-in-epic-review.md"
+    lastAttemptAt: "2026-09-28T04:56:57.634Z"
 ---
 
 # Architect Chat in Epic Review
