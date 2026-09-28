@@ -8,6 +8,8 @@ import { getRuntimeRootAgentSession } from "./runtime/support.ts";
 import { createTaskCompletedTool } from "../../tools/task-completed.ts";
 import { RuntimeEventTypes } from "./session-runtime-events.js";
 import { openFileSessionStore } from "./file-session-store.ts";
+import { HostedSession } from "./hosted-session.js";
+import { createValidationSessionPort } from "../workflow/validation-session-adapter.ts";
 
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
 type ModelInputMessage = { role: string; content: Array<{ type: string; text?: string }> };
@@ -324,40 +326,85 @@ Deno.test("completion after generated turn acceptance prevents final model dispa
                 ownerProcessKind: "test",
                 ownerInstanceId: crypto.randomUUID(),
             });
+            let releasePreparation = () => {};
             try {
                 const created = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
                 await runtime.switchAgent(created.sessionId, { agentName: "engineer" });
                 const session = host.requireSession(created.sessionId);
-                const beginTurn = session.beginTurn.bind(session);
+                releasePreparation = () => session.completeAgentSteeringPreparation("hold-generated-prompt");
                 const completions: Array<Promise<{ details: { outcome: string } }>> = [];
                 let armed = false;
-                // Preserve the real turn owner; observe only the acceptance instant to settle old work.
-                session.beginTurn = (turnId: string) => {
-                    const accepted = beginTurn(turnId);
-                    if (accepted && armed && !completions.length) {
-                        void session.backgroundTasks.cancelAllAndSuppress();
-                        const tool = createTaskCompletedTool({ hostedSession: session, agentName: "engineer" });
-                        // @ts-expect-error Direct execution ignores extension context.
-                        completions.push(tool.execute("final", { message: "- Done." }));
-                    }
-                    return accepted;
-                };
+                let preparationHeld = false;
+                let endGeneratedTurn = () => {};
+                const generatedTurnEnded = new Promise<void>((resolve) => endGeneratedTurn = resolve);
+                runtime.subscribeSessionEvents(created.sessionId, (event) => {
+                    if (event.type === RuntimeEventTypes.TURN_END && armed && preparationHeld) endGeneratedTurn();
+                    if (event.type !== RuntimeEventTypes.TURN_START || !armed || preparationHeld) return;
+                    preparationHeld = true;
+                    session.beginAgentSteeringPreparation("hold-generated-prompt");
+                });
                 assertEquals(
                     (await runtime.promptUserTurn(created.sessionId, { initialRequest: "Start work." })).ok,
                     true,
                 );
                 armed = true;
-                for (let attempt = 0; attempt < 300 && !completions.length; attempt++) {
+                for (let attempt = 0; attempt < 300 && !preparationHeld; attempt++) {
                     await new Promise((resolve) => setTimeout(resolve, 10));
                 }
-                assert(completions.length, "Generated turn did not reach the acceptance boundary");
+                assert(preparationHeld, "Generated turn did not reach prompt preparation");
+                // Let the handler enter runPrompt's asynchronous steering preparation wait.
+                await new Promise((resolve) => setTimeout(resolve, 50));
+                const tool = createTaskCompletedTool({ hostedSession: session, agentName: "engineer" });
+                // @ts-expect-error Direct execution ignores extension context.
+                completions.push(tool.execute("final", { message: "- Done." }));
                 assertEquals((await completions[0]).details.outcome, "task_completed");
+                session.completeAgentSteeringPreparation("hold-generated-prompt");
+                await Promise.race([
+                    generatedTurnEnded,
+                    new Promise((_, reject) =>
+                        setTimeout(() => reject(Error("Generated turn did not settle")), 10_000)
+                    ),
+                ]);
                 assertEquals(calls, 2);
             } finally {
+                releasePreparation();
                 await runtime.closeAllSessionsWhenIdle();
             }
         },
     );
+});
+
+Deno.test("automatic validation repair can start fresh background work after completion", async () => {
+    await withRuntimeCommandFixture("background-repair-", async ({ projectRoot }) => {
+        const session = new HostedSession({ id: crypto.randomUUID(), cwd: projectRoot });
+        try {
+            const completed = createTaskCompletedTool({ hostedSession: session, agentName: "engineer" });
+            // @ts-expect-error Direct execution ignores extension context.
+            assertEquals((await completed.execute("old", { message: "- Done." })).details.outcome, "task_completed");
+            const port = createValidationSessionPort(session, {
+                semanticReviewPort: {
+                    runIsolatedAgentSession: async () => {
+                        const task = session.backgroundTasks.startShell({
+                            command: "printf 'fresh repair'",
+                            cwd: projectRoot,
+                        });
+                        await session.backgroundTasks.wait(task.task_id);
+                        assertEquals(session.backgroundTasks.canDeliver(task.task_id), true);
+                        return [];
+                    },
+                },
+            });
+            await port.runIndependentRepairTurn({
+                kind: "validation",
+                agentName: "reviewer-feedback-engineer",
+                userRequest: "Repair.",
+                cwd: projectRoot,
+            });
+            assertEquals(session.backgroundTasks.pendingCompletions().length, 1);
+        } finally {
+            await session.dispose();
+        }
+    });
 });
 
 Deno.test("fresh work in the same Session receives new background results after completion", async () => {

@@ -84,6 +84,15 @@ type RuntimeWorkflowsDependency = Pick<
     "continueEpicAfterValidation" | "runSemanticRepairSegmentHandoff"
 >;
 
+// Only a runtime that owns a Session can have queued background steering for it.
+const backgroundSteeringOwners = new WeakMap<import("../hosted-session.js").HostedSession, RuntimeTurns>();
+
+export async function clearBackgroundSteeringForCompletion(
+    session: import("../hosted-session.js").HostedSession,
+): Promise<void> {
+    await backgroundSteeringOwners.get(session)?.clearBackgroundSteering(session);
+}
+
 export class RuntimeTurns {
     private events!: RuntimeEventsDependency;
     private lifecycle!: RuntimeLifecycleDependency;
@@ -132,7 +141,7 @@ export class RuntimeTurns {
     >();
     private steeringCleanup = new Map<string, Promise<void>>();
 
-    private clearBackgroundSteering(session: import("../hosted-session.js").HostedSession): Promise<void> {
+    clearBackgroundSteering(session: import("../hosted-session.js").HostedSession): Promise<void> {
         const existing = this.steeringCleanup.get(session.id);
         if (existing) return existing;
         const cleanup = (async () => {
@@ -156,7 +165,7 @@ export class RuntimeTurns {
     registerBackgroundDelivery(sessionId: string): void {
         const session = this.services.sessionHost.getSession(sessionId);
         if (!session) return;
-        session.setBackgroundResultCleanup(() => this.clearBackgroundSteering(session));
+        backgroundSteeringOwners.set(session, this);
         session.backgroundTasks.setCompletionHandler((status) => {
             this.events.emitSessionEvent(sessionId, {
                 type: RuntimeEventTypes.BACKGROUND_TASK_SETTLED,
@@ -868,6 +877,10 @@ export class RuntimeTurns {
             result = { ok: true, turns };
             return result;
         } catch (error) {
+            if (options.generatedTaskId && error instanceof Error && error.message === "background_result_cancelled") {
+                result = { ok: false, turns, error: "background_result_cancelled" };
+                return result;
+            }
             this.events.emitSessionEvent(hostedSession.id, {
                 type: RuntimeEventTypes.TERMINAL_ERROR,
                 turnId,

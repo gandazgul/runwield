@@ -18,7 +18,7 @@ createdAt: "2026-09-28"
 origin: "internal"
 userVerifiedAt: null
 targetBranch: "main"
-status: "implemented"
+status: "validated_reviewer"
 ---
 
 # Stop Background Results After Task Completion

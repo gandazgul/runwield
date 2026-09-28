@@ -22,6 +22,7 @@ import {
 import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runtime-events.js";
 import { clearPairCheckpoint } from "./pair-checkpoint-session.ts";
 import { BackgroundTasks } from "./background-tasks.ts";
+import { clearBackgroundSteeringForCompletion } from "./runtime/turns.ts";
 import { PlanReviewConversationOwner } from "./plan-review-conversation.ts";
 
 /**
@@ -223,8 +224,6 @@ export class HostedSession {
         this.backgroundTasks = new BackgroundTasks(this);
         /** @type {string | null} */
         this.backgroundCompletionWarning = null;
-        /** @type {(() => Promise<void>) | null} */
-        this.backgroundResultCleanup = null;
 
         /** @type {AgentInfoRecord[]} */
         this.agentInfoStack = [];
@@ -1144,16 +1143,11 @@ export class HostedSession {
         this.backgroundCompletionWarning = null;
     }
 
-    /** @param {() => Promise<void>} cleanup */
-    setBackgroundResultCleanup(cleanup) {
-        this.backgroundResultCleanup = cleanup;
-    }
-
     async settleBackgroundTasksForCompletion() {
         // Suppress synchronously before any result can enter a new turn.
         const settlement = this.backgroundTasks.cancelAllAndSuppress();
         try {
-            await this.backgroundResultCleanup?.();
+            await clearBackgroundSteeringForCompletion(this);
         } finally {
             await settlement;
         }
