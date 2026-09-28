@@ -45,11 +45,12 @@ The owner chose this scope: native forms stay preferred; only `user_interview` g
 exact label selects a choice. Any other meaningful reply becomes Other with the user's text. The model decides what it
 means or whether to ask a further question. The parser must not repeatedly ask for a reformatted answer.
 
-Owning [ACP negotiation and interactions](../../prd/runwield-acp-protocol-prd.md#protocol-negotiation-and-interactions)
+Owning
+[ACP negotiation and interactions](../../../prd/runwield-acp-protocol-prd.md#protocol-negotiation-and-interactions)
 requirement, **Negotiate capabilities and settle interactions truthfully**: change the no-form interview fallback from
 local browser to ordinary chat. Preserve native forms, cancellation settlement, multiple-choice labels, Other text, and
 explicit handling of unsupported non-interview interactions. Update affected references in
-[reference-client portability](../../prd/runwield-acp-protocol-prd.md#reference-client-portability) and the chat
+[reference-client portability](../../../prd/runwield-acp-protocol-prd.md#reference-client-portability) and the chat
 journey: this interview path no longer needs an OpenAB contribution branch. Do not claim the whole Telegram workflow,
 remote review access, or full ACP conformance is proven by this feature.
 
