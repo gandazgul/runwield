@@ -139,6 +139,13 @@ const activePlanReviewConversations = new Map<
     string,
     { server: ReviewSurfaceServer<ReviewDecisionValue>; pageUrl: string }
 >();
+export async function stopPlanReviewConversationSurface(id: string): Promise<void> {
+    const entry = activePlanReviewConversations.get(id);
+    if (!entry) return;
+    activePlanReviewConversations.delete(id);
+    await entry.server.stop();
+}
+
 const activeCodeReviewConversations = new Map<
     string,
     { server: ReviewSurfaceServer<ReviewDecisionValue>; pageUrl: string }
@@ -335,8 +342,7 @@ export async function startPlanReviewSurface<TDecision = ReviewDecisionValue>({
             opened: false,
             waitForDecision: () => existing.server.waitForDecision() as Promise<TDecision>,
             stop: async () => {
-                activePlanReviewConversations.delete(conversationId);
-                await existing.server.stop();
+                await stopPlanReviewConversationSurface(conversationId);
             },
         };
     }
@@ -364,8 +370,8 @@ export async function startPlanReviewSurface<TDecision = ReviewDecisionValue>({
         url,
         opened,
         stop: async () => {
-            if (reviewConversation) activePlanReviewConversations.delete(reviewConversation.id);
-            await server.stop();
+            if (reviewConversation) await stopPlanReviewConversationSurface(reviewConversation.id);
+            else await server.stop();
         },
     };
 }

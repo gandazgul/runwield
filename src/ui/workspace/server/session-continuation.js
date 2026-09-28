@@ -1959,7 +1959,11 @@ export class WorkspaceSessionContinuationService {
                 );
                 runtimeResponse = {
                     outcome: "accepted",
-                    _meta: { ...actionResult, ...(images.length > 0 && { images }) },
+                    _meta: {
+                        ...actionResult,
+                        ...(decision.conversationTurn === true && { conversationTurn: true }),
+                        ...(images.length > 0 && { images }),
+                    },
                 };
             }
             await operation.answer.resolve(runtimeResponse);

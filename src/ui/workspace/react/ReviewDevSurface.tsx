@@ -858,6 +858,14 @@ export function ReviewDevSurface({ surface, presentation = "standalone", variant
             agentLabel: "Architect",
             classification: "PROJECT",
             frontmatter: { classification: "PROJECT" },
+            plannerConversation: {
+                enabled: true,
+                revisedPlan: PROJECT_PLAN_FIXTURE.replace(
+                    "Old Plan links open the renamed Plan, and new links use the new name.",
+                    "Old Plan links open the renamed Plan, and the Epic identifies which saved links need checking.",
+                ),
+                reply: "I clarified the saved-link checks in the Epic.",
+            },
             reviewNotice: planNotice,
         }
         : {

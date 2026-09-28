@@ -22,6 +22,7 @@ import {
 import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runtime-events.js";
 import { clearPairCheckpoint } from "./pair-checkpoint-session.ts";
 import { BackgroundTasks } from "./background-tasks.ts";
+import { PlanReviewConversationOwner } from "./plan-review-conversation.ts";
 
 /**
  * @typedef {Object} AgentInfo
@@ -237,6 +238,7 @@ export class HostedSession {
         this.eventSink = options.eventSink || null;
         /** @type {Set<(event: HostedRuntimeEventObservation) => void>} */
         this.eventObservers = new Set();
+        this.planReviewConversations = new PlanReviewConversationOwner();
         /** @type {import('./session-runtime-interactions.js').RuntimeInteractionAdapter | null} */
         this.interactionAdapter = options.interactionAdapter || null;
         /** @type {Map<string, ActiveInteractionRecord>} */
@@ -521,8 +523,15 @@ export class HostedSession {
         return () => this.eventObservers.delete(observer);
     }
 
+    /** @param {{ planId: string, planningAgentName: string }} review */
+    getPlanReviewConversation(review) {
+        this.assertActive();
+        return this.planReviewConversations.select(review.planId, review.planningAgentName);
+    }
+
     /** @param {HostedRuntimeEventObservation} event */
     publishRuntimeEvent(event) {
+        this.planReviewConversations.capture(event);
         for (const observer of this.eventObservers) {
             try {
                 observer(event);
@@ -1163,6 +1172,7 @@ export class HostedSession {
     async dispose() {
         if (this.disposed) return;
         await this.backgroundTasks.cancelAllAndSuppress();
+        await this.planReviewConversations.dispose();
         const pendingDisposals = [
             disposeIfPresentAsync(this.rootAgentSession),
             ...Array.from(this.subAgentSessions, (session) => disposeIfPresentAsync(session)),

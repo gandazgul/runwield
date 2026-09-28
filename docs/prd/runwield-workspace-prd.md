@@ -808,6 +808,13 @@ journeys.
 The owner can review, give feedback, approve for later, or approve and run the current Plan from Workspace. Opening a
 Plan or its associated Session does not give that screen permanent control of the work.
 
+**Requirement: Keep Architect Epic review chat in the shared review.**
+
+Workspace Plan Review keeps the Architect discussion on the page across review rounds and permits another message and
+reply while the Epic remains in review. It follows [Core Epic review chat semantics](runwield-core-prd.md#plan-review):
+opening a saved review starts no model turn, and chat does not replace explicit feedback, cancellation, or approval
+actions.
+
 Plan and Code Review replace the entire Workspace shell with the full-window review layout. Each uses its own toolbar
 and Contents/Files and Annotations sidebars; the Workspace Project/Session sidebar and its restore control are absent.
 Returning to a Session restores the normal Workspace shell. The right sidebar places its Annotations/chat tabs and
@@ -872,6 +879,10 @@ internal repair procedures.
 
 **Acceptance scenarios:**
 
+- Given a saved Epic opened or reopened for review in Workspace or standalone Plan Review, two message-and-reply rounds
+  with Architect remain visible on the active page. Opening the review starts no model turn. The owner can still use
+  separate Send Annotations, Cancel, Approve for Later, and Approve & Slice actions; chat alone does not authorize
+  decomposition.
 - Opening either review through a direct link or Workspace navigation shows one review toolbar and only review sidebars
   on desktop and mobile. Read-only artifacts likewise omit Workspace navigation and show a single Contents header.
   Returning to the Session restores Project/Session navigation.

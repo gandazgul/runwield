@@ -248,6 +248,15 @@ execution or decomposition; a Plan needing repair explains what prevents it from
 while review is open, including YAML normalization, prose wrapping, and table padding, do not invalidate the decision.
 Changes to Plan meaning, code, execution policy, or workflow evidence still require reviewing the current Plan.
 
+**Requirement: Discuss an Epic with Architect during Plan review.**
+
+While an Epic is open for review, the user can send Architect a chat message and receive a reply in that review without
+submitting feedback or ending the review. The discussion stays on the review page across chat rounds in the same live
+Session, whether the Epic was first written by Architect or opened from a saved Plan in standalone or Workspace Plan
+Review. Opening or reopening a saved Plan for review does not itself start a model turn; sending a message does.
+Architect can revise the Epic and publish the next review round on the same page. Chat does not approve or authorize
+decomposition. Send Annotations, cancellation, Approve for Later, and Approve & Slice remain explicit decisions.
+
 **Requirement: Open saved Plans directly for review.**
 
 Loading a draft, feedback, approved, or ready-for-work Plan with a valid execution policy offers direct Plan Review,
@@ -270,6 +279,11 @@ slower to accept their decision. Terminal progress animations pause during human
 
 **Acceptance scenarios:**
 
+- Given an Epic open for review, when the user sends a chat message, Architect replies in the review; the user can send
+  a second message and receive a second reply without submitting feedback or closing the review.
+- Given a saved Epic opened directly or reopened for review in a live Session, when the user exchanges two messages with
+  Architect, both rounds stay visible on that review page. Opening the review starts no model turn. Only an explicit
+  review action can approve, cancel, or submit final feedback; chat alone does not start decomposition.
 - Given a saved Plan, when the user submits feedback, the planning conversation receives it and can revise the Plan
   before execution.
 - When the user approves for later, work does not start; when they approve and run, readiness is checked before the

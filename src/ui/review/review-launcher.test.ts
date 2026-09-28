@@ -1,5 +1,6 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import type { BrowserPort } from "../../shared/browser-port.ts";
+import { HostedSession } from "../../shared/session/hosted-session.js";
 import { defineCommittedGitFixture } from "../../shared/git-test-fixture.ts";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import { createTuiInteractionAdapter } from "../tui/runtime-interaction-adapter.js";
@@ -228,6 +229,28 @@ reviewLauncherTest("standalone Plan conversation reuses one token page across ag
     const revisedDecision = revised.waitForDecision();
     await revised.stop();
     assertEquals(await revisedDecision, { approved: false, feedback: "", exit: true, canceled: true });
+});
+
+reviewLauncherTest("disposing a Session closes its retained standalone Plan review", async (projectRoot) => {
+    const session = new HostedSession({ id: crypto.randomUUID(), cwd: projectRoot });
+    const first = await startPlanReviewSurface<PlanDecision>({
+        cwd: projectRoot,
+        plan: "# Epic\n",
+        reviewConversation: session.getPlanReviewConversation({ planId: "epic-id", planningAgentName: "architect" }),
+        browser: recordingBrowser(false),
+    });
+    const token = new URL(first.url).searchParams.get("token") || "";
+    const decision = first.waitForDecision();
+    const response = await fetch(`${new URL(first.url).origin}/api/review/deny?token=${encodeURIComponent(token)}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-runwield-review-token": token },
+        body: JSON.stringify({ approved: false, conversationTurn: true, feedback: "Revise this Epic." }),
+    });
+    assertEquals(response.status, 200);
+    await decision;
+    await session.dispose();
+    const closed = await fetch(first.url).catch(() => null);
+    assertEquals(closed?.ok, undefined);
 });
 
 reviewLauncherTest(
