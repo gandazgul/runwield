@@ -1,5 +1,5 @@
 import { assertEquals, assertNotStrictEquals } from "@std/assert";
-import { getSessionKeyboardHelp } from "./session-help.js";
+import { getSessionKeyboardHelp } from "./session-help.ts";
 
 Deno.test("Session keyboard help preserves current shortcut order and copy", () => {
     assertEquals(getSessionKeyboardHelp(), {

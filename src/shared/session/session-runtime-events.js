@@ -227,7 +227,7 @@ export const RuntimeEventTypes = Object.freeze({
  */
 
 /**
- * @typedef {import('./session-help.js').SessionHelpItem} RuntimeKeyboardHelpItem
+ * @typedef {import('./session-help.ts').SessionHelpItem} RuntimeKeyboardHelpItem
  */
 
 /**
