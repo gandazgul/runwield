@@ -33,14 +33,28 @@ function formatCodeBatchHeaderArgs(args) {
 }
 
 /**
+ * @typedef {Object} ToolFileTitleArgs
+ * @property {string} [path]
+ * @property {string} [file_path]
+ * @property {string} [AbsolutePath]
+ * @property {string} [TargetFile]
+ * @property {Array<{ path?: string, file_path?: string }>} [edits]
+ */
+
+/**
  * @param {string} toolName
- * @param {{ path?: string, file_path?: string, edits?: Array<{ path?: string, file_path?: string }> }} args
+ * @param {ToolFileTitleArgs} args
  * @returns {string | null}
  */
 function getFilePathForTool(toolName, args) {
     if (!args) return null;
 
     switch (toolName) {
+        case "view_file":
+            return typeof args.AbsolutePath === "string" ? args.AbsolutePath : null;
+        case "write_to_file":
+        case "replace_file_content":
+            return typeof args.TargetFile === "string" ? args.TargetFile : null;
         case "read":
         case "edit":
         case "write":
@@ -82,6 +96,8 @@ function formatToolEventTitle(toolName, args) {
     let headerArgs = "";
     if (filePath) headerArgs = filePath;
     else if (toolName === "bash") headerArgs = args?.command || "";
+    else if (toolName === "run_command") headerArgs = args?.CommandLine || "";
+    else if (toolName === "manage_task") headerArgs = [args?.Action, args?.TaskId].filter(Boolean).join(" ");
     else if (toolName === "grep") {
         const path = Array.isArray(args?.path) ? args.path.join(" ") : args?.path || ".";
         headerArgs = `${args?.pattern} in ${path}`;
@@ -177,9 +193,10 @@ function formatToolEventTitle(toolName, args) {
 export function describeRuntimeTool(toolName, args) {
     /** @type {RuntimeToolKind} */
     let kind = "other";
-    if (toolName === "read" || toolName === "ls") kind = "read";
+    if (toolName === "read" || toolName === "ls" || toolName === "view_file") kind = "read";
     else if (
-        toolName === "edit" || toolName === "write" || toolName === "multi_file_edit" ||
+        toolName === "edit" || toolName === "write" || toolName === "write_to_file" ||
+        toolName === "replace_file_content" || toolName === "multi_file_edit" ||
         toolName === "edit_docs" || toolName === "write_docs"
     ) kind = "edit";
     else if (
@@ -194,7 +211,7 @@ export function describeRuntimeTool(toolName, args) {
         else kind = args?.action === "delete" ? "delete" : "edit";
     } else if (toolName === "memory_write") kind = args?.action === "delete" ? "delete" : "edit";
     else if (toolName === "work_record_read") kind = "read";
-    else if (toolName === "bash") kind = "execute";
+    else if (toolName === "bash" || toolName === "run_command") kind = "execute";
     else if (toolName === "web_fetch") kind = "fetch";
     else if (toolName === "code_investigate" || toolName === "delegate_agent") kind = "think";
     return { toolName, title: formatToolEventTitle(toolName, args), kind };

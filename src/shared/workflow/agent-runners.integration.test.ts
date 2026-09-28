@@ -5,7 +5,8 @@ import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fix
 import { loadPlan, savePlan } from "../../plan-store.js";
 import { HostedSession } from "../session/hosted-session.js";
 import type { RuntimeInteractionRequest, RuntimeInteractionResponse } from "../session/session-runtime-interactions.js";
-import { runEngineerWithPlan } from "./engineer-runner.ts";
+import { AgyCliBackendError } from "../session/backends/agy-cli/failure.ts";
+import { buildEngineerPausedMessage, runEngineerWithPlan } from "./engineer-runner.ts";
 import { runPlanningAgent } from "./planning-agent.ts";
 import { recordPlanEvent } from "./plan-lifecycle.js";
 
@@ -94,6 +95,19 @@ Deno.test("planning runs the real plan_written machinery with the supplied triag
             fixture.hostedSession.dispose();
         }
     });
+});
+
+Deno.test("Plan pause does not repeat an Antigravity denial already shown by the backend", () => {
+    const denial = new AgyCliBackendError("permission_denied", {
+        message: "Blocked: view_file: [redacted-home]/.gemini/antigravity-cli/settings.json",
+    });
+    const paused = buildEngineerPausedMessage(denial, undefined);
+    assertEquals(paused.includes("Reason:"), false);
+    assertEquals(paused.includes('Say "continue"'), true);
+    assertEquals(
+        buildEngineerPausedMessage(new Error("other failure"), undefined).includes("Reason: other failure"),
+        true,
+    );
 });
 
 Deno.test("Engineer completion is derived from the real task_completed tool result", async () => {

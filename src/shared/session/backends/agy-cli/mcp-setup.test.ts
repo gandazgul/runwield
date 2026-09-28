@@ -107,6 +107,40 @@ Deno.test("Agy MCP setup repairs persistent turn data on the runwield server ent
     });
 });
 
+Deno.test("Agy MCP setup accepts an existing standalone wld when switching binaries", async () => {
+    await withSetupHome(async (home) => {
+        const configPath = join(home, ".gemini", "config", "mcp_config.json");
+        const oldCommand = join(home, ".local", "bin", "wld");
+        await Deno.mkdir(join(home, ".local", "bin"), { recursive: true });
+        await Deno.writeFile(oldCommand, new Uint8Array([0x7f, 0x45, 0x4c, 0x46, 0x00]));
+        await Deno.chmod(oldCommand, 0o755);
+        await Deno.mkdir(join(home, ".gemini", "config"), { recursive: true });
+        await Deno.writeTextFile(
+            configPath,
+            JSON.stringify({
+                mcpServers: {
+                    runwield: { command: oldCommand, args: [...AGY_MCP_ARGS] },
+                    other: { command: "other", args: ["x"] },
+                },
+            }),
+        );
+        await Deno.mkdir(join(home, ".gemini", "antigravity-cli"), { recursive: true });
+        await Deno.writeTextFile(
+            join(home, ".gemini", "antigravity-cli", "settings.json"),
+            JSON.stringify({ permissions: { allow: [AGY_MCP_PERMISSION] } }),
+        );
+
+        const status = await inspectAgyCliMcpSetup();
+        assertEquals(status.ok, true);
+        assertEquals(status.repairable, true);
+        await installAgyCliMcpSetup();
+        const servers = (await readJson(configPath)).mcpServers;
+        assertEquals(servers.runwield, { command: oldCommand, args: [...AGY_MCP_ARGS] });
+        assertEquals(servers.other, { command: "other", args: ["x"] });
+        assertEquals((await inspectAgyCliMcpSetup()).ok, true);
+    });
+});
+
 Deno.test("Agy MCP setup refuses foreign runwield servers and contradictory permissions", async () => {
     await withSetupHome(async (home) => {
         const configPath = join(home, ".gemini", "config", "mcp_config.json");
@@ -115,6 +149,18 @@ Deno.test("Agy MCP setup refuses foreign runwield servers and contradictory perm
         await Deno.mkdir(join(home, ".gemini", "antigravity-cli"), { recursive: true });
         await Deno.writeTextFile(configPath, JSON.stringify({ mcpServers: { runwield: { command: "/tmp/other" } } }));
         await Deno.writeTextFile(settingsPath, JSON.stringify({ permissions: { allow: [] } }));
+        await assertRejects(() => installAgyCliMcpSetup(), Error, "mcpServers.runwield");
+
+        const otherWld = join(home, "other", "wld");
+        await Deno.mkdir(join(home, "other"));
+        await Deno.writeFile(otherWld, new Uint8Array([0x7f, 0x45, 0x4c, 0x46, 0x00]));
+        await Deno.chmod(otherWld, 0o755);
+        await Deno.writeTextFile(
+            configPath,
+            JSON.stringify({
+                mcpServers: { runwield: { command: otherWld, args: [...AGY_MCP_ARGS], env: { TOKEN: "other" } } },
+            }),
+        );
         await assertRejects(() => installAgyCliMcpSetup(), Error, "mcpServers.runwield");
 
         await Deno.writeTextFile(configPath, JSON.stringify({ mcpServers: {} }));

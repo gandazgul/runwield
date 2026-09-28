@@ -1,4 +1,5 @@
 import { createSessionRuntime } from "./session-runtime.ts";
+import { RuntimeEventTypes } from "./session-runtime-events.js";
 import type { SessionRuntimeEvent } from "./session-runtime-events.js";
 import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
@@ -9,6 +10,7 @@ import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js"
 import { HostedSession } from "./hosted-session.js";
 import { installAgyCliMcpSetup } from "./backends/agy-cli/mcp-setup.ts";
 import { getRootSessionBranchEntries } from "./root-session.js";
+import { createReplayEvents } from "./session-transcript-projection.js";
 import { runActiveAgentTurn } from "./agent-switching.js";
 import { listPendingWorkflowToolEvents } from "../workflow/workflow-tool-events.ts";
 import { createValidationSessionPort } from "../workflow/validation-session-adapter.ts";
@@ -35,6 +37,10 @@ interface RuntimeEventRecord {
     type?: string;
     agentName?: string;
     delta?: string;
+    toolName?: string;
+    title?: string;
+    output?: string;
+    isError?: boolean;
 }
 
 interface AgyRootRef {
@@ -266,7 +272,7 @@ async function main(): Promise<void> {
         console.error("missing model or effort");
         Deno.exit(2);
     }
-    if (Deno.realPathSync(readArg(args, "--add-dir")) !== Deno.realPathSync(Deno.cwd()) || !hasArg(args, "--disable-slash-commands") || readArg(args, "--print-timeout") !== "24h" || hasArg(args, "--conversation") || hasArg(args, "--continue") || hasArg(args, "--dangerously-skip-permissions")) {
+    if (Deno.realPathSync(readArg(args, "--add-dir")) !== Deno.realPathSync(Deno.cwd()) || !hasArg(args, "--disable-slash-commands") || readArg(args, "--print-timeout") !== "24h" || hasArg(args, "--conversation") || hasArg(args, "--continue") || !hasArg(args, "--dangerously-skip-permissions")) {
         console.error("bad flags");
         Deno.exit(2);
     }
@@ -312,6 +318,36 @@ async function main(): Promise<void> {
     if (Deno.env.get("RUNWIELD_AGY_PERMISSION_RESULT") === "1") {
         emit({ event: "init", conversation_id: "conversation-" + crypto.randomUUID(), init: { agent, model: reportedModel } });
         emit({ event: "result", result: { response: "permission result", status: "blocked", error: "permission denied by Antigravity", usage: { input_tokens: 1, output_tokens: 2 } } });
+        return;
+    }
+
+    if (prompt.includes("fixture-native-tool-steps")) {
+        emit({ event: "init", conversation_id: "native-tools", init: { agent, model: reportedModel } });
+        emit({ event: "step_update", step_update: { step_index: 2, step_type: "tool", state: "ACTIVE",
+            tool_name: "run_command", tool_info: { name: "run_command", parameters: { CommandLine: "pwd" } } } });
+        const release = joinPath(readArg(args, "--add-dir"), "native-tool-continue");
+        for (let attempt = 0; attempt < 500 && !(await fileExists(release)); attempt++) {
+            await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        if (!(await fileExists(release))) throw new Error("native tool start was not observed before completion");
+        emit({ event: "step_update", step_update: { step_index: 2, step_type: "tool", state: "DONE",
+            tool_name: "run_command", duration_seconds: 0.05,
+            tool_info: { name: "run_command", parameters: { CommandLine: "pwd" }, output: "project-root" } } });
+        emit({ event: "step_update", step_update: { step_index: 2, step_type: "tool", state: "DONE",
+            tool_name: "run_command", tool_info: { name: "run_command", output: "project-root" } } });
+        emit({ event: "step_update", step_update: { step_index: 3, step_type: "tool", state: "ACTIVE",
+            tool_name: "view_file", tool_info: { name: "view_file", parameters: { AbsolutePath: "README.md" } } } });
+        emit({ event: "step_update", step_update: { step_index: 4, step_type: "tool", state: "ACTIVE",
+            tool_name: "write_to_file", tool_info: { name: "write_to_file", parameters: { TargetFile: "new.txt" } } } });
+        emit({ event: "step_update", step_update: { step_index: 4, step_type: "tool", state: "ERROR",
+            tool_name: "write_to_file", tool_info: { name: "write_to_file", output: "permission denied" } } });
+        emit({ event: "step_update", step_update: { step_index: 5, step_type: "tool", state: "ACTIVE",
+            tool_name: "manage_task", tool_info: { name: "manage_task", parameters: { Action: "status", TaskId: "task-1" } } } });
+        emit({ event: "step_update", step_update: { step_index: 5, step_type: "tool", state: "DONE",
+            tool_name: "manage_task", tool_info: { name: "manage_task" } } });
+        emit({ event: "step_update", step_update: { step_index: 6, step_type: "tool", state: "ACTIVE",
+            tool_name: "call_mcp_tool", tool_info: { name: "call_mcp_tool" } } });
+        emit({ event: "result", result: { response: "done", usage: { input_tokens: 17, output_tokens: 19 } } });
         return;
     }
 
@@ -588,6 +624,93 @@ Deno.test("Agy CLI prompt replay preserves RunWield tool history", async () => {
         assertStringIncludes(calls[0].prompt, "Tool result task_completed");
         assertStringIncludes(calls[0].prompt, "tool-result-marker");
         await root.session.dispose();
+    });
+});
+
+Deno.test("Agy native tool steps reach the live Session and transcript without completing an unfinished tool", async () => {
+    await withAgyExecutionFixture(async (_home, cwd) => {
+        const manager = SessionManager.inMemory(cwd);
+        const events: RuntimeEventRecord[] = [];
+        const hostedSession = createHostedSession(cwd, manager, events);
+        const root = await ensureRootAgentSession({ hostedSession, agentName: AGENTS.GUIDE }) as never as AgyRootRef;
+        try {
+            const turn = runRootTurn({
+                hostedSession,
+                agentName: AGENTS.GUIDE,
+                userRequest: "fixture-native-tool-steps",
+            });
+            try {
+                for (
+                    let attempt = 0;
+                    attempt < 500 &&
+                    !events.some((event) =>
+                        event.type === RuntimeEventTypes.TOOL_START && event.toolName === "run_command"
+                    );
+                    attempt++
+                ) await new Promise((resolve) => setTimeout(resolve, 10));
+                assertEquals(
+                    events.some((event) =>
+                        event.type === RuntimeEventTypes.TOOL_START && event.toolName === "run_command"
+                    ),
+                    true,
+                );
+                assertEquals(events.some((event) => event.type === RuntimeEventTypes.TOOL_END), false);
+            } finally {
+                await Deno.writeTextFile(join(cwd, "native-tool-continue"), "continue");
+            }
+            await turn;
+            const native = events.filter((event) =>
+                event.type === RuntimeEventTypes.TOOL_START || event.type === RuntimeEventTypes.TOOL_END
+            );
+            assertEquals(native.map((event) => [event.type, event.toolName, event.output]), [
+                [RuntimeEventTypes.TOOL_START, "run_command", undefined],
+                [RuntimeEventTypes.TOOL_END, "run_command", "project-root"],
+                [RuntimeEventTypes.TOOL_START, "view_file", undefined],
+                [RuntimeEventTypes.TOOL_START, "write_to_file", undefined],
+                [RuntimeEventTypes.TOOL_END, "write_to_file", "permission denied"],
+                [RuntimeEventTypes.TOOL_START, "manage_task", undefined],
+                [RuntimeEventTypes.TOOL_END, "manage_task", ""],
+            ]);
+            assertEquals(events.filter((event) => event.toolName === "run_command").map((event) => event.title), [
+                "run_command pwd",
+                "run_command pwd",
+            ]);
+            assertEquals(events.filter((event) => event.toolName === "view_file").map((event) => event.title), [
+                "view_file README.md",
+            ]);
+            assertEquals(events.filter((event) => event.toolName === "write_to_file").map((event) => event.title), [
+                "write_to_file new.txt",
+                "write_to_file new.txt",
+            ]);
+            assertEquals(events.filter((event) => event.toolName === "manage_task").map((event) => event.title), [
+                "manage_task status task-1",
+                "manage_task status task-1",
+            ]);
+            assertEquals(
+                events.find((event) =>
+                    event.toolName === "write_to_file" &&
+                    event.type === RuntimeEventTypes.TOOL_END
+                )?.isError,
+                true,
+            );
+            const entries = getRootSessionBranchEntries(manager);
+            const branch = JSON.stringify(entries);
+            assertStringIncludes(branch, "project-root");
+            assertEquals(branch.includes('"name":"view_file"'), false);
+            assertEquals(branch.includes('"name":"call_mcp_tool"'), false);
+            const replay = createReplayEvents("fixture-session", entries);
+            assertEquals(
+                replay.filter((event) => event.type === RuntimeEventTypes.TOOL_START).map((event) => event.title),
+                [
+                    "run_command pwd",
+                    "write_to_file new.txt",
+                    "manage_task status task-1",
+                ],
+            );
+            assertEquals(replay.some((event) => event.toolName === "view_file"), false);
+        } finally {
+            await root.session.dispose();
+        }
     });
 });
 
@@ -1264,6 +1387,55 @@ Deno.test("Agy CLI root replacement disposes only the owned Agy root", async () 
         assertEquals(previousPlainRootDisposed, false);
         await root.session.dispose();
         await assertNoTemporaryAgents(home);
+    });
+});
+
+Deno.test("Agy Engineer custom agent declares native file and shell tools", async () => {
+    await withAgyExecutionFixture(async (home, cwd) => {
+        const manager = SessionManager.inMemory(cwd);
+        const hostedSession = createHostedSession(cwd, manager);
+        const root = await ensureRootAgentSession({ hostedSession, agentName: AGENTS.ENGINEER }) as never as AgyRootRef;
+        try {
+            const agentsRoot = join(home, ".gemini", "config", "agents");
+            const names: string[] = [];
+            for await (const entry of Deno.readDir(agentsRoot)) {
+                if (entry.name.startsWith("runwield-engineer-")) names.push(entry.name);
+            }
+            assertEquals(names.length, 1);
+            const definition = await Deno.readTextFile(join(agentsRoot, names[0], "agent.md"));
+            assertStringIncludes(definition, "tools:\n");
+            assertStringIncludes(definition, "  - run_command\n");
+            assertStringIncludes(definition, "  - write_to_file\n");
+            assertStringIncludes(definition, "  - replace_file_content\n");
+            assertStringIncludes(definition, "  - view_file\n");
+        } finally {
+            await root.session.dispose();
+        }
+    });
+});
+
+Deno.test("Agy Recorder custom agent restricts native tools to read-only", async () => {
+    await withAgyExecutionFixture(async (home, cwd) => {
+        const manager = SessionManager.inMemory(cwd);
+        const hostedSession = createHostedSession(cwd, manager);
+        const root = await ensureRootAgentSession({ hostedSession, agentName: AGENTS.RECORDER }) as never as AgyRootRef;
+        try {
+            const agentsRoot = join(home, ".gemini", "config", "agents");
+            const names: string[] = [];
+            for await (const entry of Deno.readDir(agentsRoot)) {
+                if (entry.name.startsWith("runwield-recorder-")) names.push(entry.name);
+            }
+            assertEquals(names.length, 1);
+            const definition = await Deno.readTextFile(join(agentsRoot, names[0], "agent.md"));
+            const frontmatter = definition.split("---")[1] || "";
+            assertStringIncludes(frontmatter, "tools:\n");
+            assertStringIncludes(frontmatter, "  - view_file\n");
+            assertEquals(frontmatter.includes("run_command"), false);
+            assertEquals(frontmatter.includes("write_to_file"), false);
+            assertEquals(frontmatter.includes("replace_file_content"), false);
+        } finally {
+            await root.session.dispose();
+        }
     });
 });
 

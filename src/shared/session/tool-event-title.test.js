@@ -7,6 +7,28 @@ Deno.test("Runtime provides one stable tool descriptor for live, replay, TUI, AC
         title: "$ git status",
         kind: "execute",
     });
+    assertEquals(
+        describeRuntimeTool("manage_task", { Action: "status", TaskId: "task-1" }).title,
+        "manage_task status task-1",
+    );
+    assertEquals(describeRuntimeTool("run_command", { CommandLine: "git status" }), {
+        toolName: "run_command",
+        title: "run_command git status",
+        kind: "execute",
+    });
+    assertEquals(
+        describeRuntimeTool("view_file", { AbsolutePath: "/project/README.md" }).title,
+        "view_file /project/README.md",
+    );
+    assertEquals(describeRuntimeTool("write_to_file", { TargetFile: "/project/new.txt" }), {
+        toolName: "write_to_file",
+        title: "write_to_file /project/new.txt",
+        kind: "edit",
+    });
+    assertEquals(
+        describeRuntimeTool("replace_file_content", { TargetFile: "/project/README.md" }).title,
+        "replace_file_content /project/README.md",
+    );
     assertEquals(describeRuntimeTool("read", { path: "README.md" }), {
         toolName: "read",
         title: "read README.md",

@@ -101,19 +101,24 @@ function expectedPermissionShape(): string {
     return JSON.stringify({ permissions: { allow: [AGY_MCP_PERMISSION] } });
 }
 
-function isExactRunWieldServer(value: JsonValue | undefined, wldPath: string): boolean {
+async function isUsableRunWieldServer(value: JsonValue | undefined, wldPath: string): Promise<boolean> {
     if (!isJsonMap(value)) return false;
     const keys = Object.keys(value).sort();
-    return keys.length === 2 && keys[0] === "args" && keys[1] === "command" && value.command === wldPath &&
-        JSON.stringify(value.args) === JSON.stringify([...AGY_MCP_ARGS]);
+    if (
+        keys.length !== 2 || keys[0] !== "args" || keys[1] !== "command" ||
+        JSON.stringify(value.args) !== JSON.stringify([...AGY_MCP_ARGS])
+    ) return false;
+    // Another installed wld can serve the same stable stdio bridge. Keep its config
+    // rather than making two installations repeatedly replace each other's path.
+    return value.command === wldPath || (typeof value.command === "string" &&
+        resolve(value.command) === value.command && basename(value.command) === CLI_BIN &&
+        await pathIsStandaloneExecutableFile(value.command));
 }
 
-function isRepairableRunWieldServer(value: JsonValue | undefined, wldPath: string): boolean {
-    if (value === undefined) return true;
-    if (!isJsonMap(value)) return false;
-    if (value.command !== wldPath) return false;
-    const args = JSON.stringify(value.args || []);
-    return args === "[]" || args === JSON.stringify([...AGY_MCP_ARGS]);
+async function isRepairableRunWieldServer(value: JsonValue | undefined, wldPath: string): Promise<boolean> {
+    if (value === undefined || await isUsableRunWieldServer(value, wldPath)) return true;
+    return isJsonMap(value) && value.command === wldPath &&
+        (JSON.stringify(value.args || []) === "[]" || JSON.stringify(value.args) === JSON.stringify([...AGY_MCP_ARGS]));
 }
 
 function settingsPermissionShapeError(settings: JsonMap, settingsPath: string): string | undefined {
@@ -213,7 +218,7 @@ export async function inspectAgyCliMcpSetup(): Promise<SetupStatus> {
             };
         }
         const server = isJsonMap(servers) ? servers[AGY_MCP_SERVER_NAME] : undefined;
-        if (!isRepairableRunWieldServer(server, command)) {
+        if (!await isRepairableRunWieldServer(server, command)) {
             return {
                 ok: false,
                 repairable: false,
@@ -239,7 +244,7 @@ export async function inspectAgyCliMcpSetup(): Promise<SetupStatus> {
                 command,
             };
         }
-        const ok = isExactRunWieldServer(server, command) && settingsHavePermission(settings);
+        const ok = await isUsableRunWieldServer(server, command) && settingsHavePermission(settings);
         return {
             ok,
             repairable: true,

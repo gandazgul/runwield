@@ -31,8 +31,18 @@ export interface AgyCliAssistantDelta {
     text: string;
 }
 
+export interface AgyCliToolStep {
+    stepIndex: number;
+    state: "ACTIVE" | "DONE" | "ERROR";
+    name: string;
+    parameters?: JsonRecord;
+    output?: string;
+    durationMs?: number;
+}
+
 export interface AgyCliStreamCallbacks {
     onDelta?: (delta: AgyCliAssistantDelta) => void;
+    onTool?: (tool: AgyCliToolStep) => void;
 }
 
 type JsonScalar = string | number | boolean | null;
@@ -45,7 +55,7 @@ type JsonValue = JsonScalar | JsonArray | JsonRecord;
 type AgyCliStreamEvent =
     | { kind: "init"; agent?: string; model?: string; sessionId?: string }
     | { kind: "text_delta"; text: string }
-    | { kind: "tool_info"; permissionDetail?: string }
+    | { kind: "tool_info"; permissionDetail?: string; tool?: AgyCliToolStep }
     | {
         kind: "result";
         text: string;
@@ -142,6 +152,29 @@ function readDeniedActionNames(record: JsonRecord, result: JsonRecord): string[]
     return [...names];
 }
 
+function readToolStep(update: JsonRecord): AgyCliToolStep | undefined {
+    if (
+        update.step_type !== "tool" || typeof update.step_index !== "number" ||
+        !Number.isSafeInteger(update.step_index) || update.step_index < 0
+    ) return undefined;
+    const state = asString(update.state);
+    if (state !== "ACTIVE" && state !== "DONE" && state !== "ERROR") return undefined;
+    const info = isJsonRecord(update.tool_info) ? update.tool_info : undefined;
+    const name = asString(update.tool_name) || asString(info?.name);
+    if (!/^[a-z][a-z0-9_]{0,63}$/i.test(name)) return undefined;
+    const duration = update.duration_seconds;
+    return {
+        stepIndex: update.step_index,
+        state,
+        name,
+        ...(isJsonRecord(info?.parameters) ? { parameters: info.parameters } : {}),
+        ...(typeof info?.output === "string" ? { output: info.output } : {}),
+        ...(typeof duration === "number" && Number.isFinite(duration) && duration >= 0
+            ? { durationMs: Math.round(duration * 1000) }
+            : {}),
+    };
+}
+
 function readToolPermissionDetail(update: JsonRecord): string | undefined {
     const info = isJsonRecord(update.tool_info) ? update.tool_info : undefined;
     const error = info && isJsonRecord(info.error) ? info.error : undefined;
@@ -190,7 +223,11 @@ export function parseAgyCliJsonLine(line: string): AgyCliStreamEvent | null {
         const nested = isJsonRecord(parsed.step_update) ? parsed.step_update : undefined;
         if (nested) {
             if (isJsonRecord(nested.tool_info)) {
-                return { kind: "tool_info", permissionDetail: readToolPermissionDetail(nested) };
+                return {
+                    kind: "tool_info",
+                    permissionDetail: readToolPermissionDetail(nested),
+                    tool: readToolStep(nested),
+                };
             }
             const nestedType = asString(nested.type) || asString(nested.update_type) || asString(nested.kind);
             if (nestedType === "text_delta" || asString(nested.step_type) === "agent_response") {
@@ -257,6 +294,7 @@ export async function parseAgyCliStream(
         }
         if (event.kind === "tool_info") {
             toolInfoCount += 1;
+            if (event.tool) callbacks.onTool?.(event.tool);
             if (event.permissionDetail && toolPermissionDetails.size < 5) {
                 toolPermissionDetails.add(event.permissionDetail);
             }

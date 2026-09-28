@@ -30,6 +30,7 @@ export function prepareAgyCliStreamCommand(request: AgyCliRunRequest): PreparedA
     args.push(
         "--add-dir",
         request.cwd,
+        "--dangerously-skip-permissions",
         "--agent",
         request.agentName,
         "--output-format",

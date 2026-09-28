@@ -2568,7 +2568,7 @@ export async function buildExecutionSession(opts) {
             },
         );
     const backendPrompt = backend === "agy-cli"
-        ? finalSystemPrompt + buildBridgedToolPromptAppendix(finalCustomTools, "Antigravity CLI")
+        ? finalSystemPrompt + buildBridgedToolPromptAppendix(finalCustomTools, "Antigravity CLI", rebuildToolNames)
         : finalSystemPrompt;
     const promptState = {
         text: backendPrompt,
@@ -2602,6 +2602,7 @@ export async function buildExecutionSession(opts) {
             bridgedTools: finalCustomTools,
             thinkingLevel: backendThinking,
             persistModelChange: opts.persistModelChange !== false,
+            declaredTools: rebuildToolNames,
         });
     await recordWorkflowMetric({
         category: "model_selection",

@@ -2,6 +2,7 @@
 import { AGENTS } from "../../constants.js";
 import { getAgentDisplayName } from "../session/agents.js";
 import { emitSystemStatus } from "../session/session-runtime-events.js";
+import { AgyCliBackendError } from "../session/backends/agy-cli/failure.ts";
 import { runActiveAgentTurn } from "../session/agent-switching.js";
 import { createPairCheckpointTool } from "../../tools/pair-checkpoint.ts";
 import { createPlanDeviationTool } from "../../tools/plan-deviation.ts";
@@ -53,7 +54,7 @@ export async function runEngineerWithPlan(
         const rootMessages = hostedRootSession?.agent?.state?.messages || [];
         emitSystemStatus(
             hostedSession,
-            buildEngineerPausedMessage(errorMessage, projectRoot || hostedSession?.cwd, runtimeAgent),
+            buildEngineerPausedMessage(error, projectRoot || hostedSession?.cwd, runtimeAgent),
             { level: "error", header: "RunWield" },
         );
         return { completed: false, messages: rootMessages, error: errorMessage };
@@ -94,14 +95,17 @@ export async function runEngineerWithPlan(
 }
 
 /**
- * @param {string} [reason]
+ * @param {Error|string} [reason]
  * @param {string} [projectRoot]
  */
 export function buildEngineerPausedMessage(reason, projectRoot, executionAgent = AGENTS.ENGINEER) {
     const base = `${
         getAgentDisplayName(executionAgent, projectRoot)
     } stopped before reporting the task complete, so the work is unfinished and the Plan stays In Progress. Say "continue" to resume with the execution owner.`;
-    return reason ? `${base}\nReason: ${reason}` : base;
+    // The Antigravity backend already emitted its sanitized failure as a status event.
+    return reason && !(reason instanceof AgyCliBackendError)
+        ? `${base}\nReason: ${reason instanceof Error ? reason.message : reason}`
+        : base;
 }
 
 /**
@@ -150,7 +154,7 @@ export async function runEngineerWithSegmentHandoff({ continuation, sessionManag
         emitSystemStatus(
             hostedSession,
             buildEngineerPausedMessage(
-                errorMessage,
+                error,
                 workflow?.projectRoot || hostedSession?.cwd,
                 runtimeAgent,
             ),

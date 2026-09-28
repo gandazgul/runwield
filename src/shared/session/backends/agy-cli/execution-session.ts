@@ -2,7 +2,12 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { SessionManager, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { RunWieldModel } from "../../../models/model-registry.ts";
 import type { HostedSession } from "../../hosted-session.js";
-import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "../../session-runtime-events.js";
+import {
+    emitHostedSessionRuntimeEvent,
+    normalizeRuntimeToolResult,
+    RuntimeEventTypes,
+} from "../../session-runtime-events.js";
+import { describeRuntimeTool } from "../../tool-event-title.js";
 import {
     cleanupAgyCustomAgent,
     materializeAgyCustomAgent,
@@ -29,7 +34,7 @@ import {
 } from "../../bridged-tools/mcp-bridge.ts";
 import { RUNWIELD_MCP_BRIDGE_TOKEN_ENV, RUNWIELD_MCP_BRIDGE_URL_ENV } from "../../bridged-tools/stdio-transport.ts";
 import { AgyCliStreamError, parseAgyCliStream } from "./stream-parser.ts";
-import type { AgyCliParseResult, AgyCliUsage } from "./stream-parser.ts";
+import type { AgyCliParseResult, AgyCliToolStep, AgyCliUsage } from "./stream-parser.ts";
 import { readExternalCliConversation, serializeExternalCliConversation } from "../../external-cli-conversation.ts";
 
 type SessionAppendMessage = Parameters<SessionManager["appendMessage"]>[0];
@@ -45,6 +50,7 @@ export interface AgyCliExecutionSessionOptions {
     bridgedTools?: ToolDefinition[];
     thinkingLevel?: string;
     persistModelChange?: boolean;
+    declaredTools?: string[];
 }
 
 export interface AgyCliRunOptions {
@@ -105,10 +111,12 @@ export class AgyCliExecutionSession {
 
     static async create(options: AgyCliExecutionSessionOptions): Promise<AgyCliExecutionSession> {
         const selector = makeTemporaryAgentSelector(options.agentName);
+        const nativeTools = resolveAgyNativeTools(options.declaredTools);
         const definition = formatAgyCustomAgentDefinition(
             selector,
             options.finalSystemPrompt,
             options.agentDisplayName,
+            nativeTools,
         );
         const paths = resolveAgyCustomAgentPaths(selector);
         const pendingOwnership: AgyCustomAgentOwnership = {
@@ -300,7 +308,73 @@ export class AgyCliExecutionSession {
             });
 
             const messageId = `agy-cli-assistant:${crypto.randomUUID()}`;
+            const nativeTools = new Map<
+                number,
+                { name: string; startedAt: number; parameters?: AgyCliToolStep["parameters"] }
+            >();
+            const completedTools = new Set<number>();
+            const onTool = (step: AgyCliToolStep): void => {
+                // The MCP bridge already records and emits its own calls.
+                if (step.name === "call_mcp_tool" || completedTools.has(step.stepIndex)) return;
+                const toolCallId = `${messageId}:tool:${step.stepIndex}`;
+                const previous = nativeTools.get(step.stepIndex);
+                const parameters = step.parameters || previous?.parameters;
+                const tool = describeRuntimeTool(step.name, parameters);
+                if (!previous) {
+                    nativeTools.set(step.stepIndex, { name: step.name, startedAt: Date.now(), parameters });
+                    emitHostedSessionRuntimeEvent(this.hostedSession, {
+                        type: RuntimeEventTypes.TOOL_START,
+                        toolCallId,
+                        ...tool,
+                        ...(parameters ? { args: parameters } : {}),
+                    });
+                }
+                if (step.state === "ACTIVE") return;
+                const started = nativeTools.get(step.stepIndex);
+                if (started?.name !== step.name) return;
+                completedTools.add(step.stepIndex);
+                // Commit only observed completions: replay must not show an unfinished
+                // native tool as still running after its CLI process has exited.
+                const call = {
+                    role: "assistant",
+                    timestamp: started.startedAt,
+                    content: [{
+                        type: "toolCall",
+                        id: toolCallId,
+                        name: step.name,
+                        arguments: parameters || {},
+                    }],
+                    api: this.model.api,
+                    provider: this.model.provider,
+                    model: this.model.id,
+                    usage: toPiUsage(zeroUsage()),
+                    stopReason: "toolUse",
+                } as SessionAppendMessage;
+                this.sessionManager.appendMessage(call);
+                this.messages.push(call as AgentMessage);
+                const output = step.output || "";
+                const isError = step.state === "ERROR";
+                const result = {
+                    role: "toolResult",
+                    timestamp: Date.now(),
+                    toolCallId,
+                    toolName: step.name,
+                    content: [{ type: "text", text: output }],
+                    isError,
+                } as SessionAppendMessage;
+                this.sessionManager.appendMessage(result);
+                this.messages.push(result as AgentMessage);
+                emitHostedSessionRuntimeEvent(this.hostedSession, {
+                    type: RuntimeEventTypes.TOOL_END,
+                    toolCallId,
+                    ...tool,
+                    ...normalizeRuntimeToolResult(output),
+                    isError,
+                    durationMs: step.durationMs ?? Math.max(0, Date.now() - started.startedAt),
+                });
+            };
             const parseOutcomePromise = parseAgyCliStream(process.stdout, {
+                onTool,
                 onDelta: (delta) => {
                     emitHostedSessionRuntimeEvent(this.hostedSession, {
                         type: RuntimeEventTypes.ASSISTANT_TEXT_DELTA,
@@ -569,16 +643,52 @@ function getErrorText(error: Error | string): string {
     return error instanceof Error ? error.message : String(error);
 }
 
-function formatAgyCustomAgentDefinition(selector: string, systemPrompt: string, displayName: string): string {
-    return [
+export function resolveAgyNativeTools(declaredTools?: string[]): string[] {
+    if (!declaredTools) {
+        return ["run_command", "write_to_file", "replace_file_content", "view_file"];
+    }
+    const declared = new Set(declaredTools);
+    const nativeTools: string[] = [];
+    if (declared.has("bash") || declared.has("run_command")) {
+        nativeTools.push("run_command");
+    }
+    if (declared.has("write") || declared.has("write_docs") || declared.has("write_to_file")) {
+        nativeTools.push("write_to_file");
+    }
+    if (
+        declared.has("edit") || declared.has("edit_docs") || declared.has("multi_file_edit") ||
+        declared.has("replace_file_content")
+    ) {
+        nativeTools.push("replace_file_content");
+    }
+    if (declared.has("read") || declared.has("view") || declared.has("view_file")) {
+        nativeTools.push("view_file");
+    }
+    if (nativeTools.length === 0) {
+        nativeTools.push("view_file");
+    }
+    return nativeTools;
+}
+
+function formatAgyCustomAgentDefinition(
+    selector: string,
+    systemPrompt: string,
+    displayName: string,
+    tools: string[] = ["run_command", "write_to_file", "replace_file_content", "view_file"],
+): string {
+    const lines = [
         "---",
         `name: ${selector}`,
         `description: Temporary RunWield ${displayName} execution agent`,
-        "---",
-        "",
-        systemPrompt.trim(),
-        "",
-    ].join("\n");
+    ];
+    if (tools.length > 0) {
+        lines.push("tools:");
+        for (const tool of tools) {
+            lines.push(`  - ${tool}`);
+        }
+    }
+    lines.push("---", "", systemPrompt.trim(), "");
+    return lines.join("\n");
 }
 
 function makeTemporaryAgentSelector(agentName: string): string {
