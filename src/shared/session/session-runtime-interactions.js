@@ -317,10 +317,10 @@ export async function requestHostedSessionInteraction(hostedSession, request, si
             message: response.message,
         });
         if (
-            reviewContainerPlanId && response._meta?.conversationTurn !== true &&
-            (response.outcome === RuntimeInteractionOutcomes.SELECTED ||
-                response.outcome === RuntimeInteractionOutcomes.ACCEPTED ||
-                response.outcome === RuntimeInteractionOutcomes.CANCELED)
+            reviewContainerPlanId &&
+            (response.outcome === RuntimeInteractionOutcomes.CANCELED ||
+                (response.outcome === RuntimeInteractionOutcomes.ACCEPTED &&
+                    response._meta?.approved === true && response._meta?.conversationTurn !== true))
         ) hostedSession.planReviewConversations.stopCapture(reviewContainerPlanId);
         return response;
     } catch (error) {

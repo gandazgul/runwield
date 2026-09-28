@@ -7,6 +7,7 @@ import { submitPlanForReview } from "./plan-review.ts";
 import { createScriptedReviewBrowser, type ReviewDecisionBody } from "./review-test-fixture.ts";
 import { addEntry as addRegistryEntry, findById as findRegistryEntryById } from "../../shared/worktree-registry.js";
 import { defineCommittedGitFixture, git } from "../../shared/git-test-fixture.ts";
+import { prepareSequenceReview } from "../../shared/workflow/sequence-review.ts";
 
 interface PlanReviewFixture {
     dir: string;
@@ -72,6 +73,42 @@ function decisionBrowserAfter(
         },
     };
 }
+
+Deno.test("grouped Sequence chat preserves intermediate-round intent with its decision", async () => {
+    const dir = await Deno.makeTempDir({ prefix: "runwield-sequence-chat-" });
+    try {
+        await savePlan(dir, "sequence", "# Sequence\n", {
+            classification: "PROJECT",
+            type: "sequence",
+            status: "draft",
+        });
+        await savePlan(dir, "sequence/child", "# Child\n", {
+            classification: "PLANNED_CHANGE",
+            status: "draft",
+            parentPlan: "sequence",
+            order: 1,
+        });
+        const documents = await prepareSequenceReview(dir, "sequence");
+        const scripted = createScriptedReviewBrowser("deny", {
+            approved: false,
+            feedback: "Revise the group.",
+            conversationTurn: true,
+            documents: documents.map((doc) => ({ planId: doc.planId, plan: doc.plan })),
+        });
+        const result = await submitPlanForReview({
+            cwd: dir,
+            planName: "sequence",
+            planPath: getStoredPlanPath(dir, "sequence"),
+            sequenceDocuments: documents,
+            browser: scripted.browser,
+        });
+        assertEquals(result.conversationTurn, true);
+        assertEquals(result.sequenceDecision?.feedback, "Revise the group.");
+        assertEquals((await loadPlan(dir, "sequence"))?.attrs.status, "draft");
+    } finally {
+        await Deno.remove(dir, { recursive: true });
+    }
+});
 
 Deno.test("submitPlanForReview serves a real review and records approval metadata", async () => {
     const { dir, planPath } = await makePlanFile();

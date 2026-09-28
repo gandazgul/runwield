@@ -861,6 +861,35 @@ Deno.test("owner Workspace reviews a complete Sequence and rejects stale sibling
             documents.map((doc) => doc.planId),
         );
         assertEquals((await loadPlan(root, "sequence"))?.attrs.status, "draft", "the workflow owns the grouped commit");
+        service.operations.set("sequence-review", {
+            ...service.operations.get("sequence-review"),
+            liveInteraction: {
+                interactionId: "sequence-chat",
+                request: {
+                    type: "plan_review",
+                    planReview: { planName: "sequence", sequenceDocuments: documents },
+                },
+            },
+            answer: {
+                resolve: (answer) => {
+                    answers.push(answer);
+                },
+                reject: () => {},
+            },
+        });
+        await service.answerInteraction({
+            ...request,
+            interactionId: "sequence-chat",
+            requestId: "sequence-chat",
+            response: {
+                approved: false,
+                feedback: "Clarify the group.",
+                conversationTurn: true,
+                documents: documents.map((doc) => ({ planId: doc.planId, plan: doc.plan })),
+            },
+        });
+        assertEquals(answers[1]._meta.conversationTurn, true);
+        assertEquals(answers[1]._meta.sequenceDecision.feedback, "Clarify the group.");
     } finally {
         store.close();
         await Deno.remove(dir, { recursive: true });

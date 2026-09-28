@@ -1891,6 +1891,7 @@ export class WorkspaceSessionContinuationService {
                         approvalAction: decision.approvalAction,
                         feedback: decision.feedback,
                         sequenceDecision: decision,
+                        ...(decision.conversationTurn === true && { conversationTurn: true }),
                     },
                 };
             } else if (request?.type === "plan_review" && planReview) {

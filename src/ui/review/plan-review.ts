@@ -222,6 +222,7 @@ export async function submitPlanForReview({
                 approvalAction: decision.approvalAction,
                 feedback: decision.feedback,
                 sequenceDecision: decision,
+                ...(decision.conversationTurn === true && { conversationTurn: true }),
             };
         }
         const actionResult = await applySharedPlanReviewDecision({
