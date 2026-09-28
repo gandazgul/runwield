@@ -324,6 +324,23 @@ export class WorkspaceSessionContinuationService {
         this.retainedSessions = new Map();
         this.closingRetainedSessions = new Map();
         this.openingContinuations = new Map();
+        /** @type {Set<Promise<void>>} */
+        this.backgroundOperations = new Set();
+    }
+
+    /** @param {() => Promise<void>} work */
+    runBackgroundOperation(work) {
+        const operation = Promise.resolve().then(work);
+        this.backgroundOperations.add(operation);
+        // Attach both handlers now so a failure cannot become an unhandled rejection
+        // while shutdown waits for all in-flight operations to settle.
+        void operation.then(
+            () => this.backgroundOperations.delete(operation),
+            (error) => {
+                this.backgroundOperations.delete(operation);
+                console.error("[Workspace] Background operation failed:", error);
+            },
+        );
     }
 
     close() {
@@ -336,7 +353,11 @@ export class WorkspaceSessionContinuationService {
         }
         this.remoteNotificationStreams.clear();
         this.codeReviewRefreshContexts.clear();
-        return Promise.all(this.closingRetainedSessions.values()).then(() => this.runtime.closeAllSessionsWhenIdle());
+        return (async () => {
+            while (this.backgroundOperations.size) await Promise.all(this.backgroundOperations);
+            await Promise.all(this.closingRetainedSessions.values());
+            await this.runtime.closeAllSessionsWhenIdle();
+        })();
     }
 
     /** @param {string} operationId */
@@ -1314,7 +1335,7 @@ export class WorkspaceSessionContinuationService {
                 events: [],
                 runwieldSessionId: null,
             });
-            queueMicrotask(async () => {
+            this.runBackgroundOperation(async () => {
                 let sessionId = preparedSessionId;
                 let unsubscribe = () => {};
                 try {
@@ -1488,7 +1509,7 @@ export class WorkspaceSessionContinuationService {
             runwieldSessionId: options.runwieldSessionId,
             expectedGeneration: recoveredGeneration,
         });
-        queueMicrotask(async () => {
+        this.runBackgroundOperation(async () => {
             let runtimeSessionId = "";
             let unsubscribe = () => {};
             try {
@@ -1753,7 +1774,7 @@ export class WorkspaceSessionContinuationService {
                 this.createInteractionAdapter({ operationId: receipt.operationId }),
             );
             this.retainContinuationSession(options.runwieldSessionId, adopted.sessionId, receipt.operationId);
-            queueMicrotask(async () => {
+            this.runBackgroundOperation(async () => {
                 try {
                     const result = await this.runtime.promptUserTurn(adopted.sessionId, {
                         initialRequest: options.text,
@@ -2262,7 +2283,7 @@ export class WorkspaceSessionContinuationService {
             adopted.sessionId,
             (event) => this.appendOperationEvent(operationId, event),
         );
-        queueMicrotask(async () => {
+        this.runBackgroundOperation(async () => {
             let error;
             try {
                 const status = String(options.triageMeta?.status || "");
