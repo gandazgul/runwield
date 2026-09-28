@@ -420,6 +420,66 @@ export class RuntimeQueues {
         return publicMessage;
     }
 
+    /** Remove only undelivered background steering; keep user input and its images in order. */
+    async removeBackgroundSteering(
+        hostedSession: import(".././hosted-session.js").HostedSession,
+        sourceSession: RuntimeAgentSession,
+        queueIndex: number,
+    ): Promise<void> {
+        if (typeof sourceSession.clearQueue !== "function" || !sourceSession.getSteeringMessages) {
+            throw new Error("Background steering queue is not mutable");
+        }
+        const snapshot = [...sourceSession.getSteeringMessages()];
+        const queued = (this.queuedMessages.get(hostedSession.id) || [])
+            .filter((message) => message.sourceSession === sourceSession);
+        this.removeQueueSourceSubscription(hostedSession.id, sourceSession);
+        const cleared = sourceSession.clearQueue();
+        try {
+            for (const [position, entry] of (cleared?.steering ?? snapshot).entries()) {
+                if (position === queueIndex) continue;
+                const index = queued.findIndex((message) => message.text === entry);
+                const tracked = index < 0 ? null : queued.splice(index, 1)[0];
+                const restored = await steerAgentSessionWithTarget(sourceSession, entry, tracked?.images);
+                if (!restored) {
+                    // A stopped stream cannot accept steering; retain user input for the next turn.
+                    if (tracked) this.transitionQueuedMessage(hostedSession, tracked, "dequeued", "background_cleanup");
+                    this.queueNextTurnMessage(hostedSession.id, entry, tracked?.images || [], {
+                        inputSurface: tracked?.inputSurface,
+                    });
+                }
+            }
+            for (const entry of cleared?.followUp || []) {
+                const index = queued.findIndex((message) => message.text === entry);
+                const tracked = index < 0 ? null : queued.splice(index, 1)[0];
+                if (sourceSession.isStreaming) {
+                    const prepared = await this.images.prepareSteeringInputForAgentSession(
+                        hostedSession,
+                        entry,
+                        tracked?.images || [],
+                        sourceSession,
+                    );
+                    if (!prepared.ok) throw new Error(prepared.message);
+                    await (sourceSession as import("@earendil-works/pi-coding-agent").AgentSession).followUp(
+                        prepared.text,
+                        prepared.images,
+                    );
+                } else {
+                    if (tracked) this.transitionQueuedMessage(hostedSession, tracked, "dequeued", "background_cleanup");
+                    this.queueNextTurnMessage(hostedSession.id, entry, tracked?.images || [], {
+                        inputSurface: tracked?.inputSurface,
+                    });
+                }
+            }
+        } finally {
+            if (
+                queued.length ||
+                (this.queuedMessages.get(hostedSession.id) || []).some((message) =>
+                    message.sourceSession === sourceSession
+                )
+            ) this.ensureQueueSourceSubscription(hostedSession, sourceSession);
+        }
+    }
+
     async dequeueLastQueuedMessage(sessionId: string) {
         const hostedSession = this.services.sessionHost.getSession(sessionId);
         if (!hostedSession) return { ok: false, message: null, error: "not_found" };

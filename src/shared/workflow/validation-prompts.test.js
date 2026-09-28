@@ -226,5 +226,5 @@ Deno.test("bundled reviewer-feedback engineer stops in prose on an unreachable f
     assertStringIncludes(prompt, "do not route around them");
     assertStringIncludes(prompt, "Do not call `task_completed`");
     assertStringIncludes(prompt, "end your turn in plain text");
-    assertStringIncludes(prompt, "When every supplied item is settled, call `task_completed`");
+    assertStringIncludes(prompt, "When every supplied item is settled, get one accepted `task_completed` call");
 });

@@ -562,8 +562,9 @@ not. _Avoid_: Context-free session, Task worker, workflow handoff
 without blocking the parent Agent. Its task ID permits status and cancellation in that same live Session owner. Core
 sends its finished result to the parent Agent through steering or a later generated turn, not as a user Steering Message
 or workflow Task Completion. Up to five may be active per Session in one process. A task may outlive a normal Agent turn
-but does not survive process exit or replay on Session resume. _Avoid_: Durable job, workflow Task Completion, user
-Steering Message, detached `bash` command
+but does not survive process exit or replay on Session resume. Accepted Task Completion suppresses pending and queued
+results; normal turn end does not. _Avoid_: Durable job, workflow Task Completion, user Steering Message, detached
+`bash` command, validation evidence from cancellation
 
 **Delegated Agent Role**: An optional specialization a parent selects on `delegate_agent`, composing a prompt overlay
 onto the base delegated prompt and declaring an authority ceiling that can reduce the requested delegation mode.
@@ -591,8 +592,12 @@ _Avoid_: Child FEATURE Plan, subtask, ticket, DAG node
 Artifact is `docs/plans/<epic>/manual-qa.md`. It is ordinary user-owned Markdown, has no Plan Lifecycle, and has no
 verification, dependency, delivery, or Epic completion authority. _Avoid_: QA tracker, child Plan, artifact lifecycle
 
-**Task Completion**: The `task_completed` signal an execution Agent emits when its assigned work is complete. An Agent
-that is blocked ends its turn in plain text instead, and the workflow pauses. _Avoid_: Done message, final response
+**Task Completion**: The `task_completed` signal an execution Agent emits when its assigned work is complete. The first
+eligible call with running Background Tasks is rejected with their IDs and kinds; the next eligible call cancels any
+remaining tasks and accepts completion. Every accepted call suppresses pending and queued Background Task results, even
+with no running tasks. Cancellation is not successful test evidence; later work may start new tasks. An Agent that is
+blocked ends its turn in plain text instead, and the workflow pauses. _Avoid_: Done message, final response, Background
+Task result, cancelled task as passing test evidence
 
 **Scope Escalation**: A conversational boundary where the active Agent states a concrete role or tool limit and offers
 the user explicit options, such as a suitable `/agent <name>`, an in-role alternative, or returning to the prior

@@ -71,6 +71,187 @@ Deno.test("task_completed emits one semantic assistant message and terminates", 
     });
 });
 
+Deno.test("task_completed warns once for running work and cancels it before publishing acceptance", async () => {
+    await withWorkflowMetricsFixture(async ({ projectRoot, readMetrics }) => {
+        /** @type {any[]} */
+        const events = [];
+        const session = new HostedSession({ id: `completion-warning-${crypto.randomUUID()}`, cwd: projectRoot });
+        session.setEventSink({ emit: (/** @type {any} */ event) => events.push(event) });
+        try {
+            const task = session.backgroundTasks.startShell({ command: "sleep 8", cwd: projectRoot });
+            const first =
+                await /** @type {any} */ (createTaskCompletedTool({ hostedSession: session, agentName: "engineer" })
+                    .execute)("first", { message: "- Done." });
+            assertEquals(first.details, { outcome: "rejected", reason: "background_tasks_pending" });
+            assertEquals(first.terminate, false);
+            assertStringIncludes(/** @type {{type:"text",text:string}} */ (first.content[0]).text, task.task_id);
+            assertStringIncludes(/** @type {{type:"text",text:string}} */ (first.content[0]).text, "shell");
+            assertEquals(session.backgroundTasks.status(task.task_id).state, "running");
+            assertEquals(session.consumePendingTaskCompletion(null), null);
+            assertEquals(events, []);
+            assertEquals((await readMetrics()).length, 0);
+            const second =
+                await /** @type {any} */ (createTaskCompletedTool({ hostedSession: session, agentName: "engineer" })
+                    .execute)("retry", { message: "- Done." });
+            assertEquals(second.details.outcome, "task_completed");
+            assertEquals(session.backgroundTasks.activeCount, 0);
+            assertEquals(session.backgroundTasks.pendingCompletions(), []);
+            assertEquals(session.backgroundTasks.status(task.task_id).state, "cancelled");
+            let startError = "";
+            try {
+                session.backgroundTasks.startShell({ command: "printf 'too late'", cwd: projectRoot });
+            } catch (error) {
+                startError = String(error);
+            }
+            assertStringIncludes(startError, "Background tasks are stopping");
+            assertEquals((await readMetrics()).length, 1);
+        } finally {
+            await session.dispose();
+        }
+    });
+});
+
+Deno.test("workflow metadata refresh preserves the warning but a new assignment gets its own warning", async () => {
+    const session = new HostedSession({ id: `completion-workflow-${crypto.randomUUID()}`, cwd: TASK_PROJECT_ROOT });
+    /** @type {import("../../shared/session/hosted-session.js").ActiveExecutionWorkflow} */
+    const workflow = {
+        planName: "first-plan",
+        triageMeta: { classification: "PLANNED_CHANGE" },
+        executionAgent: "engineer",
+        executionAttemptStartedAtMs: 1234,
+    };
+    session.setActiveExecutionWorkflow(workflow);
+    try {
+        session.backgroundTasks.startShell({ command: "sleep 8", cwd: TASK_PROJECT_ROOT });
+        const finish = createTaskCompletedTool({ hostedSession: session, agentName: "Plan Engineer" });
+        assertEquals(
+            (await /** @type {any} */ (finish.execute)("first", { message: "- Done." })).details.reason,
+            "background_tasks_pending",
+        );
+        session.setActiveExecutionWorkflow({ ...workflow, pairCheckpointCount: 2 });
+        const refreshed = await /** @type {any} */ (finish.execute)("second", { message: "- Done." });
+        assertEquals(refreshed.details.outcome, "task_completed");
+        session.backgroundTasks.resumeDelivery();
+        session.backgroundTasks.startShell({ command: "sleep 8", cwd: TASK_PROJECT_ROOT });
+        session.setActiveExecutionWorkflow({ ...workflow, planName: "second-plan" });
+        const newAssignment = await /** @type {any} */ (finish.execute)("third", { message: "- Done." });
+        assertEquals(newAssignment.details.reason, "background_tasks_pending");
+    } finally {
+        await session.dispose();
+    }
+});
+
+Deno.test("later completion cycle warns again for new tasks", async () => {
+    const session = new HostedSession({ id: `completion-cycle-${crypto.randomUUID()}`, cwd: TASK_PROJECT_ROOT });
+    try {
+        const firstTask = session.backgroundTasks.startShell({ command: "sleep 8", cwd: TASK_PROJECT_ROOT });
+        const firstWarning =
+            await /** @type {any} */ (createTaskCompletedTool({ hostedSession: session, agentName: "engineer" })
+                .execute)("first", { message: "- Done." });
+        assertEquals(firstWarning.details.reason, "background_tasks_pending");
+        const accepted =
+            await /** @type {any} */ (createTaskCompletedTool({ hostedSession: session, agentName: "engineer" })
+                .execute)("retry", { message: "- Done." });
+        assertEquals(accepted.details.outcome, "task_completed");
+        assertEquals(session.backgroundTasks.status(firstTask.task_id).state, "cancelled");
+        session.backgroundTasks.resumeDelivery();
+        const secondTask = session.backgroundTasks.startShell({ command: "sleep 8", cwd: TASK_PROJECT_ROOT });
+        const nextWarning =
+            await /** @type {any} */ (createTaskCompletedTool({ hostedSession: session, agentName: "engineer" })
+                .execute)("new-cycle", { message: "- New work done." });
+        assertEquals(nextWarning.details.reason, "background_tasks_pending");
+        assertEquals(session.backgroundTasks.status(secondTask.task_id).state, "running");
+    } finally {
+        await session.dispose();
+    }
+});
+
+Deno.test("a finished task after the first warning does not require another warning", async () => {
+    const session = new HostedSession({ id: `completion-finish-${crypto.randomUUID()}`, cwd: TASK_PROJECT_ROOT });
+    try {
+        const task = session.backgroundTasks.startShell({
+            command: "sleep 0.1; printf 'done'",
+            cwd: TASK_PROJECT_ROOT,
+        });
+        const first =
+            await /** @type {any} */ (createTaskCompletedTool({ hostedSession: session, agentName: "engineer" })
+                .execute)("first", { message: "- Done." });
+        assertEquals(first.details, { outcome: "rejected", reason: "background_tasks_pending" });
+        await session.backgroundTasks.wait(task.task_id);
+        const second =
+            await /** @type {any} */ (createTaskCompletedTool({ hostedSession: session, agentName: "engineer" })
+                .execute)("second", { message: "- Verified result." });
+        assertEquals(second.details.outcome, "task_completed");
+        assertEquals(session.backgroundTasks.pendingCompletions(), []);
+    } finally {
+        await session.dispose();
+    }
+});
+
+Deno.test("wrong owner does not consume the background completion warning", async () => {
+    const session = new HostedSession({ id: `completion-owner-${crypto.randomUUID()}`, cwd: TASK_PROJECT_ROOT });
+    session.setActiveExecutionWorkflow({
+        planName: "owner-plan",
+        triageMeta: { classification: "PLANNED_CHANGE" },
+        executionAgent: "engineer",
+    });
+    try {
+        const task = session.backgroundTasks.startShell({ command: "sleep 8", cwd: TASK_PROJECT_ROOT });
+        const invalid = await /** @type {any} */ (createTaskCompletedTool({
+            hostedSession: session,
+            agentName: "Frontend Engineer",
+        }).execute)("invalid", { message: "- Done.", browserPreflightOutcome: "succeeded" });
+        assertEquals(invalid.details, { outcome: "rejected", reason: "wrong_execution_owner" });
+        const valid =
+            await /** @type {any} */ (createTaskCompletedTool({ hostedSession: session, agentName: "Plan Engineer" })
+                .execute)("valid", { message: "- Done." });
+        assertEquals(valid.details, { outcome: "rejected", reason: "background_tasks_pending" });
+        assertEquals(session.backgroundTasks.status(task.task_id).state, "running");
+    } finally {
+        await session.dispose();
+    }
+});
+
+Deno.test("completion does not suppress another Session's background result", async () => {
+    const first = new HostedSession({ id: `completion-isolation-${crypto.randomUUID()}`, cwd: TASK_PROJECT_ROOT });
+    const second = new HostedSession({ id: `other-isolation-${crypto.randomUUID()}`, cwd: TASK_PROJECT_ROOT });
+    try {
+        const other = second.backgroundTasks.startShell({ command: "printf 'other result'", cwd: TASK_PROJECT_ROOT });
+        const finished =
+            await /** @type {any} */ (createTaskCompletedTool({ hostedSession: first, agentName: "engineer" }).execute)(
+                "first",
+                { message: "- Done." },
+            );
+        assertEquals(finished.details.outcome, "task_completed");
+        await second.backgroundTasks.wait(other.task_id);
+        assertEquals(second.backgroundTasks.pendingCompletions().map((task) => task.task_id), [other.task_id]);
+    } finally {
+        await first.dispose();
+        await second.dispose();
+    }
+});
+
+Deno.test("task_completed suppresses a finished undelivered result and allows new work", async () => {
+    const session = new HostedSession({ id: `completion-pending-${crypto.randomUUID()}`, cwd: TASK_PROJECT_ROOT });
+    try {
+        const task = session.backgroundTasks.startShell({ command: "printf 'finished'", cwd: TASK_PROJECT_ROOT });
+        await session.backgroundTasks.wait(task.task_id);
+        assertEquals(session.backgroundTasks.pendingCompletions().length, 1);
+        const accepted =
+            await /** @type {any} */ (createTaskCompletedTool({ hostedSession: session, agentName: "engineer" })
+                .execute)("accept", { message: "- Done." });
+        assertEquals(accepted.details.outcome, "task_completed");
+        assertEquals(session.backgroundTasks.pendingCompletions(), []);
+        session.backgroundTasks.resumeDelivery();
+        const next = session.backgroundTasks.startShell({ command: "printf 'new'", cwd: TASK_PROJECT_ROOT });
+        await session.backgroundTasks.wait(next.task_id);
+        assertEquals(session.backgroundTasks.pendingCompletions().map((item) => item.task_id), [next.task_id]);
+        assertEquals(session.backgroundTasks.canDeliver(task.task_id), false);
+    } finally {
+        await session.dispose();
+    }
+});
+
 Deno.test("task_completed description uses planned-change workflow terminology", () => {
     const hostedSession = new HostedSession({ id: "task-completed-description", cwd: TASK_PROJECT_ROOT });
     const tool = createTaskCompletedTool({ hostedSession, agentName: "engineer" });
@@ -208,12 +389,14 @@ Deno.test("task_completed records a final Pair checkpoint before accepting compl
     assertEquals(checkpoint?.report.report.final, true);
     assertEquals(hostedSession.consumePendingTaskCompletion(null), null);
 
+    const task = hostedSession.backgroundTasks.startShell({ command: "sleep 8", cwd: TASK_PROJECT_ROOT });
     beginRequest(hostedSession, sessionManager);
     const stillPending = await /** @type {any} */ (completionTool.execute)("early-call", {
         message: "- Final page is ready.",
         browserPreflightOutcome: "succeeded",
     });
     assertEquals(stillPending.details, { outcome: "rejected", reason: "pair_final_checkpoint_pending" });
+    assertEquals(hostedSession.backgroundTasks.status(task.task_id).state, "running");
 
     const pairTool = createPairCheckpointTool({ hostedSession });
     const accepted = await /** @type {any} */ (pairTool.execute)("resolve-final", {
@@ -223,6 +406,11 @@ Deno.test("task_completed records a final Pair checkpoint before accepting compl
     });
     assertEquals(accepted.details.decision, "continue");
 
+    const warned = await /** @type {any} */ (completionTool.execute)("warn-call", {
+        message: "- Final page is ready.",
+        browserPreflightOutcome: "succeeded",
+    });
+    assertEquals(warned.details, { outcome: "rejected", reason: "background_tasks_pending" });
     const completed = await /** @type {any} */ (completionTool.execute)("accepted-call", {
         message: "- Final page is ready.",
         browserPreflightOutcome: "succeeded",

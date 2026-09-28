@@ -66,7 +66,10 @@ type RuntimeManagedOperationsDependency = Pick<
     RuntimeManagedOperations,
     "currentCapability" | "hasOperation" | "runManagedOperation"
 >;
-type RuntimeQueuesDependency = Pick<RuntimeQueues, "clearQueuedMessagesInternal" | "reconcileQueuedMessageSources">;
+type RuntimeQueuesDependency = Pick<
+    RuntimeQueues,
+    "clearQueuedMessagesInternal" | "reconcileQueuedMessageSources" | "removeBackgroundSteering"
+>;
 type RuntimeImagesDependency = Pick<
     RuntimeImages,
     "persistPendingPromptImages" | "preflightSessionImages" | "preflightUserTurnImages"
@@ -80,6 +83,15 @@ type RuntimeWorkflowsDependency = Pick<
     RuntimeWorkflows,
     "continueEpicAfterValidation" | "runSemanticRepairSegmentHandoff"
 >;
+
+// Only a runtime that owns a Session can have queued background steering for it.
+const backgroundSteeringOwners = new WeakMap<import("../hosted-session.js").HostedSession, RuntimeTurns>();
+
+export async function clearBackgroundSteeringForCompletion(
+    session: import("../hosted-session.js").HostedSession,
+): Promise<void> {
+    await backgroundSteeringOwners.get(session)?.clearBackgroundSteering(session);
+}
 
 export class RuntimeTurns {
     private events!: RuntimeEventsDependency;
@@ -115,12 +127,45 @@ export class RuntimeTurns {
     private turnSettlements = new Map<string, Promise<void>>();
     private resultDrains = new Map<string, Promise<void>>();
     private resultAcquisitions = new Set<string>();
-    private steeringResults = new Map<string, { taskId: string; text: string; unsubscribe: () => void }>();
+    private steeringResults = new Map<string, {
+        taskId: string;
+        text: string;
+        target: import("@earendil-works/pi-coding-agent").AgentSession;
+        queueIndex: number | null;
+        queueLength: number;
+        unsubscribe: () => void;
+    }>();
+    private steeringInFlight = new Map<
+        string,
+        Promise<import("@earendil-works/pi-coding-agent").AgentSession | null>
+    >();
+    private steeringCleanup = new Map<string, Promise<void>>();
+
+    clearBackgroundSteering(session: import("../hosted-session.js").HostedSession): Promise<void> {
+        const existing = this.steeringCleanup.get(session.id);
+        if (existing) return existing;
+        const cleanup = (async () => {
+            await this.steeringInFlight.get(session.id)?.catch(() => null);
+            const steering = this.steeringResults.get(session.id);
+            if (!steering) return;
+            steering.unsubscribe();
+            if (steering.queueIndex !== null && steering.queueIndex >= 0) {
+                await this.queues.removeBackgroundSteering(session, steering.target, steering.queueIndex);
+            }
+            this.steeringResults.delete(session.id);
+        })();
+        this.steeringCleanup.set(session.id, cleanup);
+        void cleanup.finally(() => {
+            if (this.steeringCleanup.get(session.id) === cleanup) this.steeringCleanup.delete(session.id);
+        }).catch(() => {});
+        return cleanup;
+    }
 
     /** Register once on the owning HostedSession; it remains registered after root dehydrate. */
     registerBackgroundDelivery(sessionId: string): void {
         const session = this.services.sessionHost.getSession(sessionId);
         if (!session) return;
+        backgroundSteeringOwners.set(session, this);
         session.backgroundTasks.setCompletionHandler((status) => {
             this.events.emitSessionEvent(sessionId, {
                 type: RuntimeEventTypes.BACKGROUND_TASK_SETTLED,
@@ -152,7 +197,7 @@ export class RuntimeTurns {
                 : Array.isArray(entry.message.content) &&
                     entry.message.content.some((block) => block.type === "text" && block.text === steering.text))
         );
-        if (recorded) {
+        if (recorded && steering.queueIndex !== null && steering.queueIndex < 0) {
             session.backgroundTasks.acknowledge(steering.taskId);
             steering.unsubscribe();
             this.steeringResults.delete(session.id);
@@ -170,14 +215,34 @@ export class RuntimeTurns {
                 const root = getRuntimeRootAgentSession(session);
                 if (root?.isStreaming && !this.steeringResults.has(sessionId)) {
                     const text = formatBackgroundTaskCompletion(result);
-                    const target = await steerRootSessionWithTarget(session, text, undefined, (steeringTarget) => {
+                    const delivery = steerRootSessionWithTarget(session, text, undefined, (steeringTarget) => {
                         const manager = session.getRootSessionManager();
                         manager?.appendCustomEntry?.("runwield.background_task_steering", { taskId: id, text });
+                        const initialLength = steeringTarget.getSteeringMessages().length;
                         const unsubscribe = steeringTarget.subscribe((event) => {
-                            if (event.type === "queue_update") this.reconcileBackgroundResultConsumption(session);
+                            if (event.type !== "queue_update") return;
+                            const steering = this.steeringResults.get(sessionId);
+                            if (!steering || !event.steering) return;
+                            if (steering.queueIndex === null && event.steering.length > steering.queueLength) {
+                                steering.queueIndex = event.steering.length - 1;
+                            } else if (steering.queueIndex !== null && event.steering.length < steering.queueLength) {
+                                steering.queueIndex -= steering.queueLength - event.steering.length;
+                            }
+                            steering.queueLength = event.steering.length;
+                            this.reconcileBackgroundResultConsumption(session);
                         });
-                        this.steeringResults.set(sessionId, { taskId: id, text, unsubscribe });
+                        this.steeringResults.set(sessionId, {
+                            taskId: id,
+                            text,
+                            target: steeringTarget,
+                            queueIndex: null,
+                            queueLength: initialLength,
+                            unsubscribe,
+                        });
                     }).catch(() => null);
+                    this.steeringInFlight.set(sessionId, delivery);
+                    const target = await delivery;
+                    if (this.steeringInFlight.get(sessionId) === delivery) this.steeringInFlight.delete(sessionId);
                     // Consumption may complete inside steer(), before it returns or emits a queue update.
                     this.reconcileBackgroundResultConsumption(session);
                     if (!target) {
@@ -189,8 +254,7 @@ export class RuntimeTurns {
                 continue;
             }
             this.reconcileBackgroundResultConsumption(session);
-            this.steeringResults.get(sessionId)?.unsubscribe();
-            this.steeringResults.delete(sessionId);
+            await this.clearBackgroundSteering(session);
             if (!tasks.pendingCompletions().some((pending) => pending.task_id === id)) continue;
             const managed = session.getManagedMetadata();
             if (!managed) return;
@@ -224,7 +288,6 @@ export class RuntimeTurns {
     async promptUserTurn(sessionId: string, options: PromptSessionOptions): Promise<UserPromptResult> {
         const hostedSession = this.services.sessionHost.getSession(sessionId);
         if (!hostedSession) throw new Error("SessionRuntime.promptUserTurn: session not found");
-        hostedSession.backgroundTasks.resumeDelivery();
         const namedInvocation = await resolveNamedInvocation({
             cwd: hostedSession.cwd,
             text: options.initialRequest,
@@ -572,6 +635,7 @@ export class RuntimeTurns {
         const hasBackgroundWork = session.backgroundTasks.activeCount > 0 ||
             session.backgroundTasks.pendingCompletions().length > 0;
         void session.backgroundTasks.cancelAllAndSuppress();
+        session.resetBackgroundCompletionWarning();
         this.steeringResults.get(session.id)?.unsubscribe();
         this.steeringResults.delete(session.id);
         const currentOperation = this.managedOperations.currentCapability(session.id);
@@ -692,7 +756,11 @@ export class RuntimeTurns {
         const turnId = options.turnId || crypto.randomUUID();
         const emitInitialEvents = options.emitInitialEvents !== false;
         await this.settings.alignActiveExecutionWorkflowOwner(hostedSession);
+        if (options.generatedTaskId && !hostedSession.backgroundTasks.isPending(options.generatedTaskId)) {
+            return { ok: false, turns: 0, error: "background_result_cancelled" };
+        }
         if (!hostedSession.beginTurn(turnId)) throw new SessionTurnInProgressError(hostedSession.id);
+        if (!options.generatedTaskId) hostedSession.backgroundTasks.resumeDelivery();
         options.onGeneratedTurnAccepted?.();
         this.registerBackgroundDelivery(sessionId);
         let cleanupTurn = () => {};
@@ -785,6 +853,10 @@ export class RuntimeTurns {
                 throw new Error("Runtime session manager is unavailable.");
             }
             options.signal?.throwIfAborted();
+            if (options.generatedTaskId && !hostedSession.backgroundTasks.canDeliver(options.generatedTaskId)) {
+                result = { ok: false, turns, error: "background_result_cancelled" };
+                return result;
+            }
             const runHandler = async () =>
                 await handler(
                     modelRequest,
@@ -805,6 +877,10 @@ export class RuntimeTurns {
             result = { ok: true, turns };
             return result;
         } catch (error) {
+            if (options.generatedTaskId && error instanceof Error && error.message === "background_result_cancelled") {
+                result = { ok: false, turns, error: "background_result_cancelled" };
+                return result;
+            }
             this.events.emitSessionEvent(hostedSession.id, {
                 type: RuntimeEventTypes.TERMINAL_ERROR,
                 turnId,

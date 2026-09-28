@@ -339,6 +339,8 @@ async function runIsolatedRequest(
         ? request.sessionManager as unknown as SessionManager
         : getPendingRepairManager(hostedSession, request.cwd, request.userRequest);
     await prepareRepairInvocation(hostedSession, request.cwd);
+    // An automatic repair is fresh non-generated work, not a continuation of the completed task.
+    hostedSession.backgroundTasks.resumeDelivery();
     const { event } = await runValidationAgentUntilEvent(isolatedSessions, {
         hostedSession,
         agentName: request.agentName,
@@ -480,6 +482,7 @@ export function createValidationSessionPort(
                     hostedSession.setActiveExecutionWorkflow({ ...workflow, validationRepairGeneration: undefined });
                 }
             }
+            hostedSession.backgroundTasks.resumeDelivery();
             const { event } = await runValidationAgentUntilEvent(isolatedSessions, {
                 hostedSession,
                 agentName,
@@ -530,6 +533,7 @@ export function createValidationSessionPort(
                 lastRepairSessions.set(hostedSession, repair);
             }
             await prepareRepairInvocation(hostedSession, repair.cwd);
+            hostedSession.backgroundTasks.resumeDelivery();
             const { event } = await runValidationAgentUntilEvent(isolatedSessions, {
                 hostedSession,
                 agentName: repair.agentName,

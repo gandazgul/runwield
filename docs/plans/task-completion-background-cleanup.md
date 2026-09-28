@@ -16,8 +16,15 @@ executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-09-28"
 origin: "internal"
-status: "ready_for_work"
 userVerifiedAt: null
+targetBranch: "main"
+status: "validated"
+validatedCommit: "5be1259b7142d27873e80d5d60cdb7c5c110b4ec"
+workRecord:
+    status: "generated"
+    recordId: "3307f365-4b4b-4dee-ba39-49fb7d3f7f06"
+    path: "docs/work-records/2026-09-28-stopped-background-results-after-task-completion.md"
+    lastAttemptAt: "2026-09-28T23:02:58.893Z"
 ---
 
 # Stop Background Results After Task Completion

@@ -42,9 +42,13 @@ resolve the checkpoint or answer an interaction.
 
 The Hosted Session owns a bounded, process-local Background Task registry independently of a disposable root Agent turn.
 SessionRuntime schedules completed results through root-targeted steering or managed generated turns; adapters show
-those turns in the existing conversation. ACP may emit updates after an earlier prompt response, without extending that
-response or fabricating a client request. Workspace can keep its Session owner while tasks remain after a browser tab
-closes. Neither adapter takes over task control from another process.
+those turns in the existing conversation. The shared runtime rejects the first eligible `task_completed` call while
+Background Tasks run and reports their IDs and kinds. It explains that the next eligible call cancels remaining tasks
+and accepts completion. Every accepted completion suppresses pending and queued task results, even when no tasks run;
+normal turn settlement still permits result delivery. Cancellation is not successful test evidence, and later work may
+start new tasks. ACP may emit updates after an earlier prompt response, without extending that response or fabricating a
+client request. Workspace can keep its Session owner while tasks remain after a browser tab closes. Neither adapter
+takes over task control from another process.
 
 Each Hosted Session carries an absolute project root. Shared catalogs, layered settings, Plans, workflow metrics, memory
 commands, validation, and Worktree operations resolve from that root rather than the server process cwd. A Hosted

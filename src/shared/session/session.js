@@ -3583,6 +3583,12 @@ export async function runPrompt({
             if (transitionId) hostedSession.completeAgentTransition(transitionId);
             break;
         }
+        if (
+            hostedSession?.generatedTaskTurnId &&
+            !hostedSession.backgroundTasks.canDeliver(hostedSession.generatedTaskTurnId)
+        ) {
+            throw new Error("background_result_cancelled");
+        }
         await session.prompt(preparedImages.text, requestOptions);
         signal?.throwIfAborted();
         await session.agent.waitForIdle();
@@ -4070,6 +4076,12 @@ export async function runRootTurn({
             transitionSteeringConsumed = true;
             const transitionId = targetHostedSession.getAgentTransitionId?.();
             if (transitionId) targetHostedSession.completeAgentTransition(transitionId);
+            if (
+                targetHostedSession.generatedTaskTurnId &&
+                !targetHostedSession.backgroundTasks.canDeliver(targetHostedSession.generatedTaskTurnId)
+            ) {
+                throw new Error("background_result_cancelled");
+            }
             messages = await session.session.runTurn({
                 userRequest: finalRequest,
                 images: effectiveImages,

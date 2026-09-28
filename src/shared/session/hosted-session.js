@@ -22,6 +22,7 @@ import {
 import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runtime-events.js";
 import { clearPairCheckpoint } from "./pair-checkpoint-session.ts";
 import { BackgroundTasks } from "./background-tasks.ts";
+import { clearBackgroundSteeringForCompletion } from "./runtime/turns.ts";
 import { PlanReviewConversationOwner } from "./plan-review-conversation.ts";
 
 /**
@@ -221,6 +222,8 @@ export class HostedSession {
         this.disposed = false;
         /** Session-owned tasks are independent of disposable root and turn state. */
         this.backgroundTasks = new BackgroundTasks(this);
+        /** @type {string | null} */
+        this.backgroundCompletionWarning = null;
 
         /** @type {AgentInfoRecord[]} */
         this.agentInfoStack = [];
@@ -1127,6 +1130,27 @@ export class HostedSession {
 
     getActiveExecutionWorkflow() {
         return this.activeExecutionWorkflow;
+    }
+
+    /** @param {string} cycle */
+    warnBackgroundCompletion(cycle) {
+        if (this.backgroundCompletionWarning === cycle) return false;
+        this.backgroundCompletionWarning = cycle;
+        return true;
+    }
+
+    resetBackgroundCompletionWarning() {
+        this.backgroundCompletionWarning = null;
+    }
+
+    async settleBackgroundTasksForCompletion() {
+        // Suppress synchronously before any result can enter a new turn.
+        const settlement = this.backgroundTasks.cancelAllAndSuppress();
+        try {
+            await clearBackgroundSteeringForCompletion(this);
+        } finally {
+            await settlement;
+        }
     }
 
     /** @param {string} cwd */
