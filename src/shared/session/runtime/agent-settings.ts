@@ -9,7 +9,7 @@ import { assertModelExecutionBackendSupported } from "../../models/model-executi
 import { getModelRegistry } from "../../models/model-registry.ts";
 import { parseProviderModel } from "../../models/model-validation.ts";
 import { getSettingsManager, setGlobalCompactionSetting } from "../../settings.js";
-import { getSessionKeyboardHelp } from ".././session-help.js";
+import { getSessionKeyboardHelp } from ".././session-help.ts";
 import { resolveMcpConfig } from "../../mcp/config.ts";
 import { startMcpToolPool } from "../../mcp/pool.ts";
 import { ensureAgyCliMcpSetup } from ".././backends/agy-cli/mcp-setup.ts";
