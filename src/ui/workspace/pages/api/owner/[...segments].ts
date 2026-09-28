@@ -1,6 +1,7 @@
 import {
     DEV_OWNER_DEVICE,
     DEV_OWNER_PROJECT,
+    DEV_OWNER_SECOND_PROJECT,
     DEV_OWNER_WORKFLOW_PLAN,
     devOwnerPlanProgress,
     devOwnerSessionOptions,
@@ -79,7 +80,7 @@ export const GET = ({ request, params }: { request: Request; params: { segments?
             states: [{ projectId: DEV_OWNER_PROJECT.projectId, state: "ready" }],
         });
     }
-    if (segments.join("/") === "projects") return json({ projects: [DEV_OWNER_PROJECT] });
+    if (segments.join("/") === "projects") return json({ projects: [DEV_OWNER_PROJECT, DEV_OWNER_SECOND_PROJECT] });
     if (segments.join("/") === "devices") {
         return json({ devices: [DEV_OWNER_DEVICE], currentDeviceId: DEV_OWNER_DEVICE.deviceId });
     }
@@ -92,13 +93,28 @@ export const GET = ({ request, params }: { request: Request; params: { segments?
         return json(snapshot);
     }
 
-    if (segments[0] === "projects" && segments[1] === DEV_OWNER_PROJECT.projectId) {
+    if (
+        segments[0] === "projects" &&
+        [DEV_OWNER_PROJECT.projectId, DEV_OWNER_SECOND_PROJECT.projectId].includes(segments[1])
+    ) {
         if (segments[2] === "plans" && segments[3] === DEV_OWNER_WORKFLOW_PLAN.planId && segments[4] === "progress") {
             return json(devOwnerPlanProgress());
         }
-        if (segments[2] === "session-options") return json(devOwnerSessionOptions());
+        if (segments[2] === "session-options") return json(devOwnerSessionOptions(segments[1]));
         if (segments[2] === "sessions" && segments.length === 3) {
-            return json(devOwnerSessionPage(pageValue(url, "page", 0), pageValue(url, "pageSize", 30)));
+            return json(
+                segments[1] === DEV_OWNER_SECOND_PROJECT.projectId
+                    ? {
+                        sessions: [],
+                        diagnostics: [],
+                        page: 0,
+                        pageSize: pageValue(url, "pageSize", 30),
+                        total: 0,
+                        hasNext: false,
+                        hasPrevious: false,
+                    }
+                    : devOwnerSessionPage(pageValue(url, "page", 0), pageValue(url, "pageSize", 30)),
+            );
         }
         if (segments[2] === "sessions" && segments[4] === "timeline") {
             return json(devOwnerTimeline(segments[3] || ""));

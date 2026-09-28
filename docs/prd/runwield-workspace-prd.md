@@ -640,6 +640,14 @@ and selected Agent and model across TUI and browser. The primary timeline repres
 
 Terminal-byte streaming is not the primary Session UI.
 
+**Requirement: Choose a Project before the first message.** New Session shows its route Project above the composer. The
+owner can choose another available registered Project only while the draft has no text or images and no create request
+is unresolved. The browser uses the current enabled Project, then the last-opened enabled Project in this browser, then
+the first enabled Project for the New Session link. An explicit Project route stays explicit. A Project change opens
+that Project's New Session route and restores its own draft and Agent/model defaults; it does not move the old draft.
+After acceptance, and in existing Sessions, there is no Project choice. Project availability follows
+[Project access and navigation](#project-access-and-navigation).
+
 Session lists use the saved title, then the first user message. Commands are valid first messages. A Session with
 neither is omitted from lists. The owner can attach, paste, view, and send images from the browser, including while the
 same Session is open in the TUI; unsent text and images survive a refresh and remain available after a failed send.
@@ -669,6 +677,14 @@ expose TUI-only process controls.
 
 **Acceptance scenarios:**
 
+- From New Session, the owner sees the route Project above the collapsed composer on desktop and phone. With an empty
+  draft, choosing another enabled Project opens its New Session route and loads its saved draft and settings before Send
+  is available. A disabled or unavailable Project cannot be chosen. A failed Project read offers Retry; when no Projects
+  are available, the owner can open Projects.
+- Typing any text, including whitespace, or attaching an image locks the Project choice. A restored draft does the same.
+  Clearing unsent input unlocks it unless a create request remains unresolved. A network-error retry stays with its
+  original Project; an HTTP 422 rejection keeps its editable draft. Acceptance hides the choice even when only an
+  operation ID exists; a Session detail page has no Project choice.
 - When the owner starts a Session with a command, it can use that first message as its list title; an empty Session with
   no title or message does not appear.
 - Given a typed message and image attachments, when sending fails or the browser refreshes, the draft and previews

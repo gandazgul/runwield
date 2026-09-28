@@ -648,3 +648,23 @@ Deno.test("Workspace sidebar keeps controls when Projects fail to load", async (
         globalThis.fetch = originalFetch;
     }
 });
+
+Deno.test("New Session link prefers current enabled Project, then remembered enabled Project", () => {
+    const { document } = installFakeBrowser("/projects/project-a/sessions/new");
+    const projects = [
+        { projectId: "project-a", displayName: "A", enabled: true, sessions: [] },
+        { projectId: "project-b", displayName: "B", enabled: true, sessions: [] },
+    ];
+    let remembered = "project-b";
+    globalThis.localStorage = { getItem: () => JSON.stringify({ projectId: remembered }), setItem() {} };
+    const link = () => document.querySelector(".workspace-sidebar-new").href;
+    renderSidebar({ projects }, { kind: "project", projectId: "project-a" });
+    assertEquals(link(), "/projects/project-a/sessions/new");
+    renderSidebar({ projects }, { kind: "home" });
+    assertEquals(link(), "/projects/project-b/sessions/new");
+    remembered = "removed";
+    renderSidebar({ projects }, { kind: "home" });
+    assertEquals(link(), "/projects/project-a/sessions/new");
+    renderSidebar({ projects: projects.map((project) => ({ ...project, enabled: false })) }, { kind: "home" });
+    assertEquals(link(), "/projects");
+});

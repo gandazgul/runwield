@@ -1533,3 +1533,129 @@ Deno.test("mobile Answer agent reveals the waiting question", async () => {
         await browser.happyDOM.close();
     }
 });
+
+Deno.test("New Session selects a registered Project by route and creates only with destination defaults", async () => {
+    const browser = new Window({ url: "http://localhost/projects/project-a/sessions/new" });
+    const globals = [
+        "window",
+        "document",
+        "location",
+        "localStorage",
+        "sessionStorage",
+        "HTMLElement",
+        "CustomEvent",
+        "matchMedia",
+    ];
+    const previous = new Map(globals.map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+    const previousFetch = globalThis.fetch;
+    const previousEventSource = globalThis.EventSource;
+    const previousActFlag = globalThis.IS_REACT_ACT_ENVIRONMENT;
+    const posts = [];
+    const navigations = [];
+    let failNavigation = true;
+    let renderer;
+    const { createElement, act } = await import("react");
+    const { create } = await import("react-test-renderer");
+    try {
+        for (const key of globals) {
+            Object.defineProperty(globalThis, key, {
+                configurable: true,
+                writable: true,
+                value: key === "window"
+                    ? browser
+                    : key === "matchMedia"
+                    ? browser.matchMedia.bind(browser)
+                    : browser[key],
+            });
+        }
+        globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+        globalThis.EventSource = class {
+            close() {}
+            addEventListener() {}
+        };
+        document.addEventListener("runwield:workspace-navigate", (event) => {
+            event.preventDefault();
+            navigations.push(event.detail.href);
+            event.detail.onComplete?.(failNavigation ? new Error("Navigation failed") : undefined);
+        });
+        globalThis.fetch = async (url, options = {}) => {
+            const path = String(url);
+            if (options.method === "POST") {
+                posts.push({ path, body: JSON.parse(options.body) });
+                return Response.json({ operationId: "accepted-b", status: "running" }, { status: 202 });
+            }
+            if (path === "/api/owner/projects") {
+                return Response.json({
+                    projects: [
+                        { projectId: "project-a", displayName: "A", enabled: true },
+                        { projectId: "project-b", displayName: "B", enabled: true },
+                        { projectId: "disabled", displayName: "Disabled", enabled: false },
+                    ],
+                });
+            }
+            if (path.includes("session-options")) {
+                return Response.json({
+                    agents: [{ name: path.includes("project-b") ? "guide" : "router", displayName: "Agent" }],
+                    models: [],
+                    thinkingLevels: [],
+                    defaults: { agentName: path.includes("project-b") ? "guide" : "router" },
+                });
+            }
+            if (path.includes("session-operations")) return Response.json({ status: "running", events: [] });
+            throw new Error(`Unexpected request: ${path}`);
+        };
+        await act(() => {
+            renderer = create(createElement(SessionSurface, { projectId: "project-a", mode: "new" }));
+        });
+        const choice = () => renderer.root.findByProps({ id: "new-session-project" });
+        const composer = () => renderer.root.findByType(SessionComposer);
+        assertEquals(choice().props.value, "project-a");
+        assertEquals(
+            choice().props.children.flat(Infinity).some((option) => option?.props?.value === "disabled"),
+            false,
+        );
+        assertEquals(composer().props.disabled, false);
+        await act(() => choice().props.onChange({ currentTarget: { value: "project-b" } }));
+        assertEquals(choice().props.value, "project-a");
+        assertEquals(composer().props.disabled, false);
+        failNavigation = false;
+        await act(() => choice().props.onChange({ currentTarget: { value: "project-b" } }));
+        assertEquals(navigations, ["/projects/project-b/sessions/new", "/projects/project-b/sessions/new"]);
+        assertEquals(composer().props.disabled, true);
+        await act(() => renderer.unmount());
+        sessionStorage.setItem(newSessionDraftInstanceStorageKey("project-b"), "draft-b");
+        await saveSessionDraft(sessionDraftKey("project-b", "draft-b"), "saved B");
+        await act(() => {
+            renderer = create(createElement(SessionSurface, { projectId: "project-b", mode: "new" }));
+        });
+        assertEquals(choice().props.value, "project-b");
+        assertEquals(composer().props.agentValue, "guide");
+        assertEquals(composer().props.draft, "saved B");
+        assertEquals(choice().props.disabled, true);
+        await act(() => choice().props.onChange({ currentTarget: { value: "project-a" } }));
+        assertEquals(navigations.length, 2);
+        await act(() => composer().props.onDraftChange("  "));
+        assertEquals(choice().props.disabled, true);
+        await act(() => composer().props.onDraftChange(""));
+        assertEquals(choice().props.disabled, false);
+        await act(() => composer().props.onDraftChange("Send in B"));
+        await act(async () => {
+            await composer().props.onSubmit();
+        });
+        assertEquals(posts.map((item) => item.path), ["/api/owner/projects/project-b/sessions"]);
+        assertEquals(posts[0].body.agentName, "guide");
+        assertEquals(posts[0].body.model, "");
+        assertEquals(renderer.root.findAllByProps({ id: "new-session-project" }).length, 0);
+    } finally {
+        if (renderer) await act(() => renderer.unmount());
+        globalThis.EventSource = previousEventSource;
+        globalThis.fetch = previousFetch;
+        for (const [key, descriptor] of previous) {
+            if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+            else Reflect.deleteProperty(globalThis, key);
+        }
+        if (previousActFlag === undefined) delete globalThis.IS_REACT_ACT_ENVIRONMENT;
+        else globalThis.IS_REACT_ACT_ENVIRONMENT = previousActFlag;
+        await browser.happyDOM.close();
+    }
+});
