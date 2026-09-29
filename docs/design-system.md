@@ -152,6 +152,10 @@ Primitive visual components such as buttons, cards, badges, notices, tabs, input
 RunWield-owned without a headless interaction dependency unless they require non-trivial keyboard, focus, portal, or
 ARIA behavior.
 
+Plan and Code Review share `ReviewCompletion` for successful decisions. Workspace reviews return to the originating
+Session in the same tab; standalone reviews retain the completion overlay and its auto-close preference. Workspace must
+never mount the standalone auto-close behavior.
+
 ### Shared Markdown artifact reader
 
 `ArtifactReadSurface` is the single read-only Markdown reader for Plans, PRDs, ADRs, Work Records, Epic artifacts, and

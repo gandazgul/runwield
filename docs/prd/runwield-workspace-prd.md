@@ -532,7 +532,10 @@ Acceptance:
 Workspace home opens the Attention Dashboard. Logo links return directly to the last visited Session. Navigation
 preserves the mounted sidebar and its loaded data; its viewport height stays stable while destination content loads. The
 sidebar reads only enough Session names to fill its recent list and determine whether more exist, without waiting for
-names from every older conversation. Session contents load independently of the sidebar.
+names from every older conversation. **Show more** loads the next five most recent unseen Sessions, excluding Sessions
+already nested under visible Plans. It filters identities before reading names and stops after five results plus one
+lookahead, without counting or scanning all older transcripts. Loaded rows remain usable during the request and after a
+failure; another click retries without duplicating rows. Session contents load independently of the sidebar.
 
 **Requirement: Keep global actions and Session context in consistent headers.**
 
@@ -651,7 +654,8 @@ Several Sessions may run across several Projects. Closing a browser tab or losin
 including Background Tasks owned by the Workspace host process. Task results can start a turn after the original user
 turn ends and appear in the same conversation without a new browser message. On reconnection, Workspace shows the latest
 saved conversation and current work. The user can continue when the Session is ready for input without a separate
-takeover or preparation step. Task ownership and limits follow
+takeover or preparation step. Replaying saved Background Task results never creates a running operation or keeps the
+composer busy after current work settles. Task ownership and limits follow
 [Core Session continuity](runwield-core-prd.md#session-continuity), not browser tab lifetime; the browser does not offer
 a separate task dashboard or recover process-lost tasks.
 
@@ -692,6 +696,9 @@ expose TUI-only process controls.
 - When Core becomes busy after a message, the live end of the conversation immediately shows the shared dots loader and
   “Thinking...”, including before any assistant text arrives. It clears when Core is idle or the live operation ends,
   and pauses while a human answer is needed. Reopening saved history does not show an old busy indicator.
+- Given a Workspace Session with multiple completed Background Task result turns, when a later user request ends with
+  `task_completed`, the Session returns to idle and accepts another message without restarting Workspace. Replaying the
+  earlier results during continuation does not reopen their operations.
 - When a workflow tool finishes, its full report and outcome remain readable in live and saved history and its block
   stops showing Running. All special tool blocks, including completion and QA reports, have square corners and mint
   titles and left rails identifying RunWield, distinct from blue user messages. Failure status remains visibly red.
@@ -823,6 +830,11 @@ that same underline-tab treatment for Contents/Versions and Files/Changes, with 
 artifact views use the same full-window shell with their own logo/title header and Back to Session action. Contents has
 one header and collapse control, without a second tab row.
 
+After a successful Plan or Code Review decision in Workspace, return to the originating Session in the same tab. This
+includes approval for later, approval to run or decompose, and submitted feedback. Failed or recovery-required decisions
+keep the review open. Workspace never applies the standalone auto-close preference; standalone reviews continue to offer
+closing the tab or close automatically according to that preference.
+
 Linked source files open with compact, consistent line spacing. Short files must not stretch their rows to fill the
 dialog; long files scroll within the reader.
 
@@ -879,6 +891,9 @@ internal repair procedures.
 
 **Acceptance scenarios:**
 
+- Given a Workspace Plan or Code Review, submitting approval or feedback returns to its Session in the same tab, even
+  when standalone auto-close is enabled. A failed decision stays in review. Standalone reviews still close automatically
+  when configured, or offer closing the tab when auto-close is off.
 - Given a saved Epic opened or reopened for review in Workspace or standalone Plan Review, two message-and-reply rounds
   with Architect remain visible on the active page. Opening the review starts no model turn. The owner can still use
   separate Send Annotations, Cancel, Approve for Later, and Approve & Slice actions; chat alone does not authorize
