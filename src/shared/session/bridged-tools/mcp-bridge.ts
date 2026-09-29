@@ -417,12 +417,14 @@ export async function startRunWieldMcpBridge(
                 content: executed.content,
                 details: executed.details as JsonObject | null | undefined,
                 terminate: executed.terminate === true,
+                isError: (executed as { isError?: boolean }).isError === true,
             };
         } catch (error) {
             const reason = error instanceof Error ? error.message : String(error);
+            const isAborted = callSignal?.aborted === true;
             result = {
                 content: [{ type: "text", text: `runwield ${entry.kind} call failed: ${reason}` }],
-                details: { reason: "execution_error" },
+                details: { reason: isAborted ? "aborted" : "execution_error" },
                 isError: true,
             };
         }

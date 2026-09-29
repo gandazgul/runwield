@@ -1704,6 +1704,51 @@ retain delivery evidence. Scenarios guide verification but do not claim executab
 - Given an unimplemented proposal, when an Agent revises its PRD, the behavior stays labeled target rather than being
   presented as shipped.
 
+### Local workflow metrics
+
+<a id="local-workflow-metrics"></a>
+
+**Scope and maturity:** Current local recording is opt-in and stays on the device. The target v2 observation layer adds
+linked execution, usage, and command records. Reporting, dashboards, and export remain deferred.
+
+**Requirement: Record structured workflow observations locally with explicit opt-in, project isolation, and zero
+sensitive content leakage.**
+
+When `workflowMetrics` is enabled, RunWield records ordered tool usage, model token usage, monetary cost, context
+snapshots, compaction events, retries, response latency, and slash commands. Recording stays disabled by default.
+Observations write exclusively to local JSONL files in
+`~/.wld/workflow-metrics/<encoded-primary-project-root>/metrics.jsonl`. Linked worktrees share their primary Project
+metrics file.
+
+Records contain no prompts, no source code diffs, no tool results, no file contents, and no credentials. Bash command
+lines are normalized into coarse binary and subcommand labels. Memory tool calls record only the operation action and
+scope. Model usage records preserve exact numeric token counts, cache reads and writes, and cost values. Every execution
+emits an exposure inventory of available tools to permit accurate denominator analysis. Background tasks and delegated
+agents maintain explicit parent linkage without altering execution dispatch.
+
+**Acceptance scenarios:**
+
+- Given `workflowMetrics` disabled or unset, when turns, tool calls, or slash commands run, RunWield writes no metrics
+  records to disk.
+- Given `workflowMetrics` enabled in project or global settings, when an agent turn executes, RunWield records ordered
+  events with monotonic sequences, tool exposures, tool durations, model usage, and latency.
+- Given a bash command with flags, arguments, or pipelines, when recorded, RunWield stores only coarse safe command
+  labels and excludes all raw paths and arguments.
+- Given an execution with more than 40 tools, RunWield records individual tool exposure events without array truncation.
+- Given background delegated work, RunWield preserves parent tool call identity, parent execution identity, and task
+  identity across all recorded observation records.
+- Given an execution that calls no tools, RunWield records its effective tool inventory and a zero call count.
+- Given a returned tool error, rejection, cancellation, or incomplete call, RunWield records the observed outcome or
+  missing end without turning it into a success. A failed turn keeps usage that its provider already reported.
+- Given absent usage, cost, truncation, or context occupancy measurements, RunWield marks each unavailable or partial;
+  it does not replace missing values with zero or add overlapping turn and request costs.
+- Given a template or Skill command that starts Agent work, its one invocation ID links to the execution. A command
+  picker writes an `opened` observation, then a `dispatched` observation only when a choice starts work. Its final
+  result is succeeded, failed, canceled, or rejected under the same invocation ID. Closing a picker without a choice
+  records cancellation, not a completed model change.
+- Given manual `/compact` outside an Agent turn, RunWield records its observed compaction and context under the Session
+  and command without assigning a fictitious execution ID.
+
 <a id="4-current-local-workspace-surface"></a>
 <a id="5-current-collaborative-planning-surface"></a>
 

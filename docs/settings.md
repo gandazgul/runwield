@@ -386,12 +386,70 @@ unless this setting is `true` or an object with `enabled: true`:
 When enabled, RunWield appends JSONL records to `~/.wld/workflow-metrics/<encoded-project-root>/metrics.jsonl`, where
 `<encoded-project-root>` uses the same project-directory encoding as persisted sessions. Linked execution worktrees
 write to the primary project's metrics file. Records cover routing, planning, execution, validation, recovery,
-model-selection, and tool-usage counter events. Metrics are record-only in this release; there is no reporting UI,
-analytics sync, or CLI summary command.
+model-selection, ordered tool usage, tool exposures and token denominators, model token usage and costs, context
+snapshots, compaction, retries, response latency, and slash commands. Metrics are record-only in this release; there is
+no reporting UI, analytics sync, or CLI summary command.
 
 Metrics records intentionally do not include prompts, user request text, plan markdown, diffs, CI output, review
-feedback, raw tool arguments/results, file contents, secrets, full auth configuration, shell commands, search queries,
-or absolute worktree paths.
+feedback, raw tool arguments/results, file contents, secrets, full auth configuration, raw shell command arguments,
+search queries, or absolute worktree paths. Shell command lines are normalized to coarse safe command labels.
+
+#### Record versions and accounting
+
+Existing version-1 rows remain in the same file. They do not have version-2 execution links, sequence numbers, or
+coverage. Do not fill these fields from adjacent rows. Version-2 rows include `eventId`, `recorderId`, `seq`,
+`category`, `event`, `ts`, and `cwdHash`. An execution can link `managedSessionId`, `sessionId` (backend transcript),
+`segmentId`, `requestId`, `attemptId`, `turnId`, `commandId`, `parentExecutionId`, `parentToolCallId`, and `taskId`. A
+`null` link means that the source did not supply it. Order rows by `recorderId` and `seq`; file order is not a
+cross-execution timeline.
+
+`tool_exposure_summary` supplies the tool count and total token estimates; each `tool_exposure` row has an index and
+separate schema-only and resident-context estimates. These estimates use the local characters-per-four estimator, not
+provider billing. `tool_call_started` and `tool_call_finished` share a call ID within an execution. Manual `/compact`
+outside an Agent turn links its before/after context and compaction rows to the Session and command, with no invented
+execution ID. A command picker writes one `command_started` row with phase `opened`. A selection writes
+`command_dispatched` with phase `dispatched` before the actual command outcome is known; `command_finished` reports
+`succeeded`, `failed`, `canceled`, or `rejected`. Closing a picker without choosing writes `canceled` and no dispatch or
+model change. All rows in that command lifecycle share a `commandId`. `tool_operation` keeps only the index and a finite
+Memory, shell, or batch label. A missing end does not imply success. `resultBytes` counts UTF-8 bytes of text;
+`resultTokens` is a text estimate. Image count does not estimate image tokens. Millisecond fields are elapsed durations
+or epoch timestamps as indicated by their names.
+
+`model_usage` identifies its transcript entry or source observation with `sourceId`. Token fields are counts; `null`
+means no measurement, not zero. `inputCacheBasis` states whether input includes cache tokens; do not add cache tokens
+when the basis is `includes_cache` or `unknown`. `aggregationBasis` distinguishes turn totals from per-request
+observations. Claude CLI request and per-model details use `alternative`: they can overlap the turn total and each
+other. For a turn with a reported total, sum only the `turn` row; use alternative rows to inspect detail or when no turn
+total exists. Do not add a turn total to its details. `costAmount` is in `costCurrency` (currently USD); `costSource`
+distinguishes provider-reported cost from rate-calculated cost and unavailable cost. This is measurement, not an
+invoice. `coverage` and per-measurement `availability` use `complete`, `partial`, or `unavailable`; a partial bridge
+inventory is not a complete CLI tool inventory.
+
+Rows are best effort. Writes may be lost on interruption, I/O failure, or when an opt-out takes effect. There is no
+metrics-specific retention period or cleanup job: files stay until the owner deletes them. No upload or backfill occurs.
+The Owner HTTP command endpoint requires a registered Project and an authorized browser; it does not accept arbitrary
+Session links or unknown submitted command text.
+
+#### Backend observation limits
+
+Pi reconciles only new transcript entries for the current operation, including standalone usage, compaction, summary,
+and usage-bearing tool results. Missing provider usage remains unavailable. Claude CLI parser tests use synthetic
+stream-json lines in `src/shared/session/backends/claude-cli/claude-cli-backend.test.ts`. A separate captured Claude
+Code 2.1.284 print-mode `Read` tool turn is replayed from
+`src/shared/session/backends/claude-cli/fixtures/claude-2.1.284-read-tool-stream.jsonl`. Captured on 2026-09-29 with
+`--tools Read --allowedTools Read` against a disposable `readme.txt`, the fixture keeps event sequence, native
+call/result pairing, and reported numeric usage. Session/message/call IDs, paths, thinking, tool output, and response
+text were replaced. This fixture verifies that release's captured shape, not every Claude CLI release. The Antigravity
+parser replays `src/shared/session/backends/agy-cli/fixtures/agy-1.2.12-tool-stream.jsonl`: captured from an
+authenticated Antigravity CLI 1.2.12 print-mode, plan-mode turn on 2026-09-29 that read a disposable `readme.txt`. A
+second capture with explicit `--model gemini-3.8-flash --effort low`, saved as
+`src/shared/session/backends/agy-cli/fixtures/agy-1.2.12-model-read-tool-stream.jsonl`, also passes through the
+execution owner. Both retain event sequence, tool-progress shape, and reported numeric usage; they replace the
+conversation ID, directory, parameters, tool output, and response text with harmless values. Earlier Antigravity
+1.1-shaped parser tests are synthetic, not a captured version guarantee. A `tool_info` progress event does not imply a
+complete call. Both CLI backends expose only the RunWield bridge inventory as partial; native schema/context costs,
+missing cache measurements, and usage absent on truncated streams remain unavailable. Do not interpret an absent row as
+measured zero.
 
 ### `codereview`
 

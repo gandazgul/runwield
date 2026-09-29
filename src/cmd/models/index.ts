@@ -51,7 +51,10 @@ async function activateModel(
     return result;
 }
 
-export async function runModelsCommand(argv: string[], options: ModelsCommandOptions = {}): Promise<void> {
+export async function runModelsCommand(
+    argv: string[],
+    options: ModelsCommandOptions = {},
+): Promise<"succeeded" | "failed" | "canceled" | void> {
     const { uiAPI, editor } = options;
     const firstArg = argv[0]?.trim();
 
@@ -72,8 +75,10 @@ export async function runModelsCommand(argv: string[], options: ModelsCommandOpt
         }
 
         const available = await listUserModelOptions();
+        let outcome: "succeeded" | "failed" | "canceled" = "canceled";
         if (available.length === 0) {
             uiAPI.appendSystemMessage("No models available.");
+            outcome = "failed";
         } else {
             const selection = await uiAPI.promptSelect(
                 "Select model",
@@ -91,33 +96,33 @@ export async function runModelsCommand(argv: string[], options: ModelsCommandOpt
                     if (!activation) {
                         await setDefaultModelSelection(getCwd(), parsed.model, parsed.provider);
                         uiAPI.appendSystemMessage(`Set default model to ${parsed.provider}/${parsed.model}`);
-                        editor?.setText("");
-                        if (editor) editor.disableSubmit = false;
-                        return;
-                    }
-                    if (!activation.ok) {
+                        outcome = "succeeded";
+                    } else if (!activation.ok) {
                         uiAPI.appendSystemMessage(
                             `Could not switch model to ${parsed.provider}/${parsed.model}: ${activation.error}. The active model did not change.`,
                             true,
                         );
+                        outcome = "failed";
                     } else {
                         uiAPI.appendSystemMessage(`Switched model to ${activation.provider}/${activation.model}`);
+                        outcome = "succeeded";
                     }
                 } catch (error) {
                     uiAPI.appendSystemMessage(error instanceof Error ? error.message : String(error), true);
+                    outcome = "failed";
                 }
             }
         }
         editor?.setText("");
         if (editor) editor.disableSubmit = false;
-        return;
+        return outcome;
     }
 
     const parsedArgs = parseProviderModel(firstArg);
     if (!parsedArgs.ok) {
         if (uiAPI) uiAPI.appendSystemMessage("Invalid model format. Use /model to switch.", true);
         else console.log("Invalid model format. Use provider/id.");
-        return;
+        return "failed";
     }
 
     const targetModel = modelRegistry.find(parsedArgs.provider, parsedArgs.id);
@@ -127,7 +132,7 @@ export async function runModelsCommand(argv: string[], options: ModelsCommandOpt
             : `Unknown model: ${firstArg}. Use /model to switch.`;
         if (uiAPI) uiAPI.appendSystemMessage(message, true);
         else console.log(parsedArgs.provider === "agy-cli" ? message : `Unknown model: ${firstArg}`);
-        return;
+        return "failed";
     }
 
     const activation = await activateModel(options, targetModel.id, targetModel.provider);
@@ -142,4 +147,5 @@ export async function runModelsCommand(argv: string[], options: ModelsCommandOpt
         : `Could not switch model to ${targetModel.provider}/${targetModel.id}: ${activation.error}. The active model did not change.`;
     if (uiAPI) uiAPI.appendSystemMessage(message, !activation.ok);
     else console.log(message);
+    return activation.ok ? "succeeded" : "failed";
 }

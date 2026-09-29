@@ -1,10 +1,13 @@
 import { assert, assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
-import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { defineTool, SessionManager } from "@earendil-works/pi-coding-agent";
+import { Type } from "@earendil-works/pi-ai";
 import { withProcessGlobalTestLock } from "../../../../testing/process-global-lock.js";
 import { getModelRegistry } from "../../../models/model-registry.ts";
 import { createTaskCompletedTool } from "../../../../tools/task-completed.ts";
 import { HostedSession } from "../../hosted-session.js";
+import { setCustomSetting } from "../../../settings.js";
+import { drainWorkflowMetrics, getWorkflowMetricsFilePath } from "../../../workflow/metrics.js";
 import { readLatestTaskCompletedOutcome } from "../../../workflow/workflow-results.js";
 import { prepareClaudeCliCommand, removeClaudeCliPromptFile } from "./command.ts";
 import { ClaudeCliExecutionSession } from "./execution-session.ts";
@@ -37,6 +40,7 @@ async function withClaudeFixture(callback: (root: string, logPath: string) => Pr
         const previousPath = Deno.env.get("PATH");
         const previousLog = Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_LOG");
         const previousOutput = Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_OUTPUT");
+        const previousStreamFile = Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_STREAM_FILE");
         const previousCalls = Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_MCP_CALLS");
         const previousExitCode = Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_EXIT_CODE");
         const previousStderr = Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_STDERR");
@@ -59,6 +63,8 @@ async function withClaudeFixture(callback: (root: string, logPath: string) => Pr
                 else Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_LOG", previousLog);
                 if (previousOutput === undefined) Deno.env.delete("RUNWIELD_CLAUDE_FIXTURE_OUTPUT");
                 else Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_OUTPUT", previousOutput);
+                if (previousStreamFile === undefined) Deno.env.delete("RUNWIELD_CLAUDE_FIXTURE_STREAM_FILE");
+                else Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_STREAM_FILE", previousStreamFile);
                 if (previousCalls === undefined) Deno.env.delete("RUNWIELD_CLAUDE_FIXTURE_MCP_CALLS");
                 else Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_MCP_CALLS", previousCalls);
                 if (previousExitCode === undefined) Deno.env.delete("RUNWIELD_CLAUDE_FIXTURE_EXIT_CODE");
@@ -190,6 +196,28 @@ Deno.test("Claude CLI parser emits assistant text and ignores internal events", 
     assertEquals(result.metadata.usage.inputTokens, 3);
 });
 
+Deno.test("Claude Code 2.1.284 captured Read stream pairs native tool progress with terminal usage", async () => {
+    const captured = await Deno.readTextFile(
+        new URL("./fixtures/claude-2.1.284-read-tool-stream.jsonl", import.meta.url),
+    );
+    const calls: string[] = [];
+    const sources: string[] = [];
+    const result = await parseClaudeCliStream(streamFromText(captured), {
+        onDelta: () => {},
+        onNativeToolStart: (call) => calls.push(`start:${call.callId}:${call.toolName}`),
+        onNativeToolResult: (call) => calls.push(`finish:${call.callId}:${call.isError}`),
+        onUsage: (observation) => sources.push(observation.sourceId),
+    });
+    assertEquals(calls, ["start:call_fixture_1:Read", "finish:call_fixture_1:false"]);
+    assertEquals(result.metadata.externalSessionId, "session_fixture_1");
+    assertEquals(result.metadata.usage.inputTokens, 4);
+    assertEquals(result.metadata.usage.outputTokens, 507);
+    assertEquals(result.metadata.isError, false);
+    assertEquals(result.text, "Checking file.\nmint");
+    assertEquals(sources.filter((source) => source === "message_fixture_1").length, 3);
+    assert(sources.includes("claude_turn_total"));
+});
+
 Deno.test("Claude CLI parser preserves a structured error result", async () => {
     const message = "You've hit your monthly spend limit · raise it in Claude settings";
     const result = await parseClaudeCliStream(
@@ -211,7 +239,7 @@ Deno.test("Claude CLI parser preserves plain stdout diagnostics as assistant tex
     );
     assertEquals(deltas, ["visible reply", "I'm requesting permission to call runwield_plan_written."]);
     assertEquals(result.text, "visible replyI'm requesting permission to call runwield_plan_written.");
-    assertEquals(result.metadata.usage.inputTokens, 0);
+    assertEquals(result.metadata.usage.inputTokens, null);
 });
 
 Deno.test("Claude CLI parser preserves line breaks in plain assistant stdout", async () => {
@@ -380,6 +408,80 @@ Deno.test("Claude CLI execution session appends RunWield transcript entries and 
     });
 });
 
+Deno.test("captured Claude Code 2.1.284 Read stream reaches the execution owner's JSONL", async () => {
+    await withClaudeFixture(async (root) => {
+        await setCustomSetting("workflowMetrics", true, "project", root);
+        Deno.env.set(
+            "RUNWIELD_CLAUDE_FIXTURE_STREAM_FILE",
+            new URL("./fixtures/claude-2.1.284-read-tool-stream.jsonl", import.meta.url).pathname,
+        );
+        const model = getModelRegistry().find("claude-cli", "sonnet");
+        if (!model) throw new Error("missing claude model");
+        const manager = SessionManager.inMemory(root);
+        const session = new ClaudeCliExecutionSession({
+            cwd: root,
+            agentName: "Guide",
+            finalSystemPrompt: "system",
+            model,
+            sessionManager: manager,
+        });
+        await session.runTurn({ userRequest: "Read the disposable file." });
+        await drainWorkflowMetrics();
+        const rows = (await Deno.readTextFile(getWorkflowMetricsFilePath(root))).trim().split("\n")
+            .map((line) => JSON.parse(line));
+        const native = rows.filter((row) => row.callId === "call_fixture_1");
+        assertEquals(native.map((row) => row.event), ["tool_call_started", "tool_call_finished"]);
+        assertEquals(native[0].toolName, "Read");
+        assertEquals(native[1].outcome, "success");
+        assertEquals(
+            rows.some((row) =>
+                row.event === "model_usage" && row.inputTokens === 4 &&
+                row.outputTokens === 507
+            ),
+            true,
+        );
+        const latency = rows.find((row) => row.event === "response_latency");
+        assertEquals(typeof latency?.firstResponseAt, "number");
+        assertEquals(latency.firstResponseAt <= latency.firstVisibleTextAt, true);
+        assertEquals(JSON.stringify(rows).includes("/fixture/readme.txt"), false);
+    });
+});
+
+Deno.test("truncated Claude stream preserves observed assistant usage on failure", async () => {
+    await withClaudeFixture(async (root) => {
+        await setCustomSetting("workflowMetrics", true, "project", root);
+        const streamPath = join(root, "truncated-stream.jsonl");
+        await Deno.writeTextFile(
+            streamPath,
+            JSON.stringify({
+                type: "assistant",
+                message: {
+                    id: "message-truncated",
+                    model: "sonnet",
+                    usage: { input_tokens: 22, output_tokens: 0 },
+                    content: [{ type: "text", text: "partial" }],
+                },
+            }) + "\n{bad json}\n",
+        );
+        Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_STREAM_FILE", streamPath);
+        const model = getModelRegistry().find("claude-cli", "sonnet");
+        if (!model) throw new Error("missing claude model");
+        const session = new ClaudeCliExecutionSession({
+            cwd: root,
+            agentName: "Guide",
+            finalSystemPrompt: "system",
+            model,
+            sessionManager: SessionManager.inMemory(root),
+        });
+        await assertRejects(() => session.runTurn({ userRequest: "truncated" }));
+        await drainWorkflowMetrics();
+        const rows = (await Deno.readTextFile(getWorkflowMetricsFilePath(root))).trim().split("\n")
+            .map((line) => JSON.parse(line));
+        assertEquals(rows.find((row) => row.event === "execution_finished")?.outcome, "failed");
+        assertEquals(rows.find((row) => row.event === "model_usage")?.inputTokens, 22);
+    });
+});
+
 Deno.test("Claude CLI execution session streams thinking and text runtime events live", async () => {
     await withClaudeFixture(async (root) => {
         Deno.env.set(
@@ -460,6 +562,7 @@ Deno.test("Claude CLI execution metadata is sanitized", async () => {
 
 Deno.test("^Claude CLI MCP config is additive authenticated and ephemeral$", async () => {
     await withClaudeFixture(async (root, logPath) => {
+        await setCustomSetting("workflowMetrics", true, "project", root);
         const model = getModelRegistry().find("claude-cli", "sonnet");
         if (!model) throw new Error("missing claude model");
         const manager = SessionManager.inMemory(root);
@@ -494,6 +597,13 @@ Deno.test("^Claude CLI MCP config is additive authenticated and ephemeral$", asy
             bridgedTools: [taskTool],
         });
         const messages = await session.runTurn({ userRequest: "execute" });
+        await drainWorkflowMetrics();
+        const metricRows = (await Deno.readTextFile(getWorkflowMetricsFilePath(root))).trim().split("\n")
+            .map((line) => JSON.parse(line));
+        const bridgeCalls = metricRows.filter((row) => ["tool_call_started", "tool_call_finished"].includes(row.event));
+        assertEquals(bridgeCalls.map((row) => row.event), ["tool_call_started", "tool_call_finished"]);
+        assertEquals(bridgeCalls[0].callId, bridgeCalls[1].callId);
+        assertEquals(bridgeCalls[1].outcome, "success");
 
         const lines = (await Deno.readTextFile(logPath)).trim().split("\n").map((line) => JSON.parse(line));
         const argvLine = lines[0];
@@ -754,5 +864,152 @@ Deno.test("^Claude CLI abort cancels the subprocess and preserves active workflo
         );
         const log = await Deno.readTextFile(logPath);
         assert(log.includes("SIGTERM") || log.includes("slow"));
+    });
+});
+
+Deno.test("Claude stream exposes native tool results and alternative per-model usage", async () => {
+    const calls: string[] = [];
+    const usage: Array<{ sourceId: string; aggregationBasis: string; inputTokens: number | null }> = [];
+    await parseClaudeCliStream(
+        streamFromText([
+            JSON.stringify({
+                type: "assistant",
+                message: {
+                    id: "msg_1",
+                    model: "claude-sonnet",
+                    usage: { input_tokens: 0, output_tokens: 3 },
+                    content: [{ type: "tool_use", id: "toolu_1", name: "Read", input: { file_path: "/private" } }, {
+                        type: "text",
+                        text: "done",
+                    }],
+                },
+            }),
+            JSON.stringify({
+                type: "user",
+                message: {
+                    content: [
+                        { type: "tool_result", tool_use_id: "toolu_1", content: "private result", is_error: false },
+                    ],
+                },
+            }),
+            JSON.stringify({
+                type: "result",
+                result: "done",
+                total_cost_usd: 0.1,
+                usage: { input_tokens: 10, output_tokens: 5 },
+                modelUsage: { "claude-sonnet": { inputTokens: 8, outputTokens: 5, costUSD: 0.08 } },
+            }),
+        ].join("\n")),
+        {
+            onDelta: () => {},
+            onNativeToolStart: (call) => calls.push(`start:${call.callId}`),
+            onNativeToolResult: (result) => calls.push(`end:${result.callId}`),
+            onUsage: (observation) =>
+                usage.push({
+                    sourceId: observation.sourceId,
+                    aggregationBasis: observation.aggregationBasis,
+                    inputTokens: observation.usage.inputTokens,
+                }),
+        },
+    );
+    assertEquals(calls, ["start:toolu_1", "end:toolu_1"]);
+    assertEquals(usage.map((entry) => [entry.aggregationBasis, entry.inputTokens]), [["alternative", 0], ["turn", 10], [
+        "alternative",
+        8,
+    ]]);
+});
+
+Deno.test("Claude full thinking content precedes visible text as first response", async () => {
+    const events: string[] = [];
+    await parseClaudeCliStream(
+        streamFromText(
+            [
+                JSON.stringify({ type: "assistant", message: { content: [{ type: "thinking", thinking: "hidden" }] } }),
+                JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "visible" }] } }),
+                JSON.stringify({ type: "result", result: "visible" }),
+            ].join("\n") + "\n",
+        ),
+        {
+            onThinkingObserved: () => events.push("response"),
+            onDelta: () => events.push("text"),
+        },
+    );
+    assertEquals(events, ["response", "text"]);
+});
+
+Deno.test("Claude owner counts an MCP bridge call once when its alias also appears in native stream", async () => {
+    await withClaudeFixture(async (root) => {
+        await setCustomSetting("workflowMetrics", true, "project", root);
+        const callsPath = join(root, "calls.json");
+        await Deno.writeTextFile(
+            callsPath,
+            JSON.stringify([{ name: "read_fixture", arguments: { value: "PRIVATE-ARG" } }]),
+        );
+        Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_MCP_CALLS", callsPath);
+        const streamPath = join(root, "overlap.jsonl");
+        await Deno.writeTextFile(
+            streamPath,
+            [
+                {
+                    type: "assistant",
+                    message: {
+                        content: [
+                            {
+                                type: "tool_use",
+                                id: "stream-alias",
+                                name: "mcp__runwield__read_fixture",
+                                input: { value: "PRIVATE-ARG" },
+                            },
+                            {
+                                type: "tool_use",
+                                id: "native-read",
+                                name: "Read",
+                                input: { file_path: "/private/file" },
+                            },
+                        ],
+                    },
+                },
+                {
+                    type: "user",
+                    message: {
+                        content: [
+                            { type: "tool_result", tool_use_id: "stream-alias", content: "PRIVATE-RESULT" },
+                            { type: "tool_result", tool_use_id: "native-read", content: "PRIVATE-RESULT" },
+                        ],
+                    },
+                },
+                { type: "assistant", message: { content: [{ type: "text", text: "done" }] } },
+                { type: "result", result: "done", usage: { input_tokens: 2, output_tokens: 1 } },
+            ].map((line) => JSON.stringify(line)).join("\n") + "\n",
+        );
+        Deno.env.set("RUNWIELD_CLAUDE_FIXTURE_STREAM_FILE", streamPath);
+        const model = getModelRegistry().find("claude-cli", "sonnet");
+        if (!model) throw new Error("missing claude model");
+        const tool = defineTool({
+            name: "read_fixture",
+            label: "Read Fixture",
+            description: "Read fixture",
+            parameters: Type.Object({ value: Type.String() }),
+            execute: () =>
+                Promise.resolve({ content: [{ type: "text" as const, text: "PRIVATE-RESULT" }], details: {} }),
+        });
+        const session = new ClaudeCliExecutionSession({
+            cwd: root,
+            agentName: "Guide",
+            finalSystemPrompt: "system",
+            model,
+            sessionManager: SessionManager.inMemory(root),
+            bridgedTools: [tool],
+        });
+        await session.runTurn({ userRequest: "Read fixture." });
+        await drainWorkflowMetrics();
+        const rows = (await Deno.readTextFile(getWorkflowMetricsFilePath(root))).trim().split("\n")
+            .map((line) => JSON.parse(line));
+        const started = rows.filter((row) => row.event === "tool_call_started");
+        assertEquals(started.map((row) => row.toolName).sort(), ["Read", "read_fixture"]);
+        assertEquals(rows.filter((row) => row.event === "tool_call_finished").length, 2);
+        assertEquals(rows.find((row) => row.event === "execution_finished")?.callCount, 2);
+        assertEquals(rows.some((row) => row.callId === "stream-alias"), false);
+        assertEquals(JSON.stringify(rows).includes("PRIVATE-"), false);
     });
 });

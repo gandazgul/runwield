@@ -1,6 +1,6 @@
 import { join } from "@std/path";
 import { setCustomSetting } from "../shared/settings.js";
-import { getWorkflowMetricsFilePath } from "../shared/workflow/metrics.js";
+import { drainWorkflowMetrics, getWorkflowMetricsFilePath } from "../shared/workflow/metrics.js";
 import { withProcessGlobalTestLock } from "./process-global-lock.js";
 
 export type WorkflowMetricFixtureValue =
@@ -12,7 +12,7 @@ export type WorkflowMetricFixtureValue =
     | { [key: string]: WorkflowMetricFixtureValue };
 
 export interface WorkflowMetricFixtureRecord {
-    v: 1;
+    v: 1 | 2;
     ts: string;
     category: string;
     event: string;
@@ -20,6 +20,7 @@ export interface WorkflowMetricFixtureRecord {
     planName?: string;
     cwdHash: string;
     details?: { [key: string]: WorkflowMetricFixtureValue };
+    [key: string]: unknown;
 }
 
 export interface WorkflowMetricsFixture {
@@ -60,6 +61,7 @@ export async function withWorkflowMetricsFixture(
                 homeDir,
                 projectRoot,
                 async readMetrics() {
+                    await drainWorkflowMetrics();
                     try {
                         const contents = await Deno.readTextFile(getWorkflowMetricsFilePath(projectRoot));
                         return contents.trim().split("\n").map((line) => JSON.parse(line));

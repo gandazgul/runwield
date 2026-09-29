@@ -27,6 +27,7 @@ import {
 } from "./mcp-bridge.ts";
 import { buildBridgedToolPromptAppendix } from "../../bridged-tools/prompt.ts";
 import { readExternalCliConversation, serializeExternalCliConversation } from "../../external-cli-conversation.ts";
+import { ExecutionMetricsRecorder } from "../../../workflow/execution-metrics.ts";
 
 type SessionAppendMessage = Parameters<SessionManager["appendMessage"]>[0];
 
@@ -49,6 +50,13 @@ export interface ClaudeCliRunOptions {
     signal?: AbortSignal;
     requestId?: string;
     attemptId?: string;
+    dispatchKind?: string;
+    executionKind?: "root" | "isolated" | "delegated";
+    mode?: "foreground" | "background";
+    parentExecutionId?: string;
+    parentToolCallId?: string;
+    taskId?: string;
+    sourceSurface?: string;
 }
 
 interface ClaudeCliQueueUpdateEvent {
@@ -210,9 +218,46 @@ export class ClaudeCliExecutionSession {
             );
         };
 
+        const recorder = new ExecutionMetricsRecorder({
+            projectRoot: this.cwd,
+            commandId: this.hostedSession?.activeCommandInvocationId || undefined,
+            sessionId: this.sessionManager.getSessionId(),
+            managedSessionId: this.hostedSession?.getManagedMetadata()?.runwieldSessionId,
+            segmentId: options.executionKind === "root"
+                ? this.hostedSession?.getManagedMetadata()?.currentSegmentId
+                : undefined,
+            agent: this.agentName,
+            provider: this.model.provider,
+            model: this.model.id,
+            backend: "claude-cli",
+            requestId: options.requestId,
+            attemptId: options.attemptId,
+            dispatchKind: options.dispatchKind,
+            executionKind: options.executionKind || "root",
+            mode: options.mode || "foreground",
+            parentExecutionId: options.parentExecutionId,
+            parentToolCallId: options.parentToolCallId,
+            taskId: options.taskId,
+            sourceSurface: options.sourceSurface || "cli",
+        });
+        await recorder.recordExecutionStart();
+        await recorder.recordToolExposure(this.bridgedTools, "partial");
+        const pendingObservations = new Set<Promise<void>>();
+        const observe = (pending: Promise<void>) => {
+            pendingObservations.add(pending);
+            void pending.then(() => pendingObservations.delete(pending), () => pendingObservations.delete(pending));
+        };
+        observe(recorder.recordResponseLatency("turn_start"));
+        let executionOutcome: import("../../../workflow/execution-metrics.ts").ExecutionOutcome = "succeeded";
+        let failureKind: string | undefined;
+
         let flushRuntimeDeltas = () => {};
+        const eligibleAliases = this.bridgedTools.map((tool) => mcpAliasFor(tool.name));
+        const eligibleAliasesSet = new Set(eligibleAliases);
+        const nativeCallIds = new Set<string>();
+        let firstTextDeltaRecorded = false;
+        let parsed: Awaited<ReturnType<typeof parseClaudeCliStream>> | null = null;
         try {
-            const eligibleAliases = this.bridgedTools.map((tool) => mcpAliasFor(tool.name));
             if (this.bridgedTools.length > 0) {
                 try {
                     bridge = await startRunWieldMcpBridge({
@@ -222,6 +267,16 @@ export class ClaudeCliExecutionSession {
                         sessionManager: this.sessionManager,
                         onMessage: (message) => {
                             this.messages.push(message);
+                            if (message.role === "assistant") {
+                                for (const part of message.content) {
+                                    if (part.type === "toolCall") {
+                                        this.hostedSession?.recordToolExecution(part.id, recorder.executionId);
+                                    }
+                                }
+                            } else if (message.role === "toolResult") {
+                                this.hostedSession?.forgetToolExecution(message.toolCallId);
+                            }
+                            observe(recorder.recordBridgeMessage(message));
                         },
                         signal: combinedSignal,
                         assistantBase: {
@@ -238,6 +293,8 @@ export class ClaudeCliExecutionSession {
                         onTerminalAccepted: () => process?.kill(),
                     });
                 } catch {
+                    executionOutcome = "failed";
+                    failureKind = "bridge_startup_failed";
                     emitFailure("bridge_startup_failed", null);
                     throw new ClaudeCliBackendError("bridge_startup_failed");
                 }
@@ -253,7 +310,9 @@ export class ClaudeCliExecutionSession {
             try {
                 process = processPort.run(command, stdinText, this.cwd, combinedSignal);
             } catch (error) {
+                executionOutcome = "failed";
                 if (error instanceof ClaudeCliBackendError) {
+                    failureKind = error.kind;
                     emitFailure(error.kind, error.exitCode);
                 }
                 throw error;
@@ -294,13 +353,18 @@ export class ClaudeCliExecutionSession {
                 thinkingDeltas.flush();
                 textDeltas.flush();
             };
-            let parsed: Awaited<ReturnType<typeof parseClaudeCliStream>>;
             try {
                 parsed = await parseClaudeCliStream(process.stdout, {
                     onDelta: (delta) => {
+                        if (!firstTextDeltaRecorded && delta.text) {
+                            firstTextDeltaRecorded = true;
+                            observe(recorder.recordResponseLatency("first_text"));
+                        }
                         textDeltas.push(delta.text);
                     },
+                    onThinkingObserved: () => observe(recorder.recordResponseLatency("first_response")),
                     onThinkingDelta: (delta) => {
+                        observe(recorder.recordResponseLatency("first_response"));
                         thinkingDeltas.push(delta.text);
                     },
                     onThinkingEnd: () => {
@@ -311,9 +375,41 @@ export class ClaudeCliExecutionSession {
                             agentName: this.agentName,
                         });
                     },
+                    onUsage: (observation) => {
+                        observe(recorder.recordModelUsage({
+                            sourceId: observation.sourceId,
+                            inputTokens: observation.usage.inputTokens,
+                            outputTokens: observation.usage.outputTokens,
+                            cacheReadTokens: observation.usage.cacheReadTokens,
+                            cacheWriteTokens: observation.usage.cacheWriteTokens,
+                            costUsd: observation.usage.costUsd,
+                            costSource: observation.usage.costUsd === null ? "unavailable" : "reported",
+                            inputCacheBasis: "unknown",
+                            aggregationBasis: observation.aggregationBasis,
+                            usageKind: observation.aggregationBasis === "alternative" ? "request" : "turn",
+                            model: observation.model || this.model.id,
+                        }));
+                    },
+                    onNativeToolStart: (call) => {
+                        observe(recorder.recordResponseLatency("first_response"));
+                        if (!isBridgedTool(call.toolName, eligibleAliasesSet)) {
+                            nativeCallIds.add(call.callId);
+                            observe(recorder.recordToolStart(call.callId, call.toolName, call.args));
+                        }
+                    },
+                    onNativeToolResult: (res) => {
+                        if (nativeCallIds.has(res.callId)) {
+                            nativeCallIds.delete(res.callId);
+                            observe(recorder.recordToolFinish(res.callId, "", {
+                                isError: res.isError,
+                                result: res.resultText,
+                            }));
+                        }
+                    },
                     isTerminalAccepted: () => bridge?.acceptedTerminal === true,
                 });
             } catch (error) {
+                executionOutcome = combinedSignal.aborted ? "canceled" : "failed";
                 process.kill();
                 if (!combinedSignal.aborted && error instanceof Error && error.message.includes("terminal result")) {
                     try {
@@ -321,6 +417,7 @@ export class ClaudeCliExecutionSession {
                         if (!status.success) {
                             const stderr = await process.stderrText;
                             const kind = isAuthFailure(stderr) ? "auth_failed" : "non_zero_exit";
+                            failureKind = kind;
                             emitFailure(kind, status.code);
                             const excerpt = sanitizeStderrForDisplay(stderr);
                             const base = buildBackendStatusEntry(kind, { exitCode: status.code }).message;
@@ -334,6 +431,7 @@ export class ClaudeCliExecutionSession {
                     }
                 }
                 const kind = combinedSignal.aborted ? "canceled" : "malformed_stream";
+                failureKind = kind;
                 emitFailure(kind, null);
                 throw error instanceof ClaudeCliBackendError ? error : new ClaudeCliBackendError(kind);
             }
@@ -344,11 +442,15 @@ export class ClaudeCliExecutionSession {
                 status = await process.completed;
             } catch {
                 const kind = combinedSignal.aborted ? "canceled" : "non_zero_exit";
+                executionOutcome = combinedSignal.aborted ? "canceled" : "failed";
+                failureKind = kind;
                 emitFailure(kind, null);
                 throw new ClaudeCliBackendError(kind);
             }
             if (combinedSignal.aborted) {
                 process.kill();
+                executionOutcome = "canceled";
+                failureKind = "canceled";
                 emitFailure("canceled", status.code);
                 throw new ClaudeCliBackendError("canceled", { exitCode: status.code });
             }
@@ -358,6 +460,8 @@ export class ClaudeCliExecutionSession {
                 const claudeMessage = parsed.metadata.isError ? sanitizeStderrForDisplay(parsed.text) : "";
                 const detail = claudeMessage || excerpt;
                 const kind = isAuthFailure(detail) ? "auth_failed" : "non_zero_exit";
+                executionOutcome = "failed";
+                failureKind = kind;
                 const base = buildBackendStatusEntry(kind, { exitCode: status.code }).message;
                 const message = detail || base;
                 emitFailure(kind, status.code, message);
@@ -382,7 +486,7 @@ export class ClaudeCliExecutionSession {
             this.messages.push(assistantMessage as AgentMessage);
             emitHostedSessionRuntimeEvent(this.hostedSession, {
                 type: RuntimeEventTypes.USAGE,
-                usage: parsed.metadata.usage,
+                usage: toRuntimeUsage(parsed.metadata.usage),
             });
             return this.getMessages();
         } finally {
@@ -394,6 +498,10 @@ export class ClaudeCliExecutionSession {
                 await removeClaudeCliMcpConfigFile(command);
             }
             if (bridge) await bridge.close();
+            observe(recorder.recordResponseLatency("turn_finish"));
+            await Promise.allSettled([...pendingObservations]);
+            await recorder.settleExecution(executionOutcome, failureKind);
+            this.hostedSession?.forgetExecutionToolCalls(recorder.executionId);
         }
     }
 
@@ -437,23 +545,44 @@ function zeroUsage(): ClaudeCliUsage {
     };
 }
 
-function toPiUsage(usage: ClaudeCliUsage) {
+function toRuntimeUsage(usage: ClaudeCliUsage) {
     return {
-        input: usage.inputTokens,
-        output: usage.outputTokens,
-        cacheRead: usage.cacheReadTokens,
-        cacheWrite: usage.cacheWriteTokens,
-        totalTokens: usage.inputTokens + usage.outputTokens + usage.cacheReadTokens + usage.cacheWriteTokens,
+        inputTokens: usage.inputTokens ?? 0,
+        outputTokens: usage.outputTokens ?? 0,
+        cacheReadTokens: usage.cacheReadTokens ?? 0,
+        cacheWriteTokens: usage.cacheWriteTokens ?? 0,
+        costUsd: usage.costUsd ?? 0,
+    };
+}
+
+function toPiUsage(usage: ClaudeCliUsage) {
+    const cacheRead = usage.cacheReadTokens ?? 0;
+    const cacheWrite = usage.cacheWriteTokens ?? 0;
+    return {
+        input: usage.inputTokens ?? 0,
+        output: usage.outputTokens ?? 0,
+        cacheRead,
+        cacheWrite,
+        totalTokens: (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0) + cacheRead + cacheWrite,
         cost: {
             input: 0,
             output: 0,
             cacheRead: 0,
             cacheWrite: 0,
-            total: usage.costUsd,
+            total: usage.costUsd ?? 0,
         },
     };
 }
 
 function isAuthFailure(stderr: string): boolean {
     return /authenticate|not signed in|oauth|api key|login|expired/i.test(stderr);
+}
+
+function isBridgedTool(toolName: string, eligibleAliases: Set<string>): boolean {
+    if (!toolName) return false;
+    if (toolName.startsWith("mcp__runwield__")) return true;
+    if (eligibleAliases.has(toolName)) return true;
+    const stripped = toolName.replace(/^mcp__[^_]+__/, "");
+    if (eligibleAliases.has(stripped)) return true;
+    return false;
 }

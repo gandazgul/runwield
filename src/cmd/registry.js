@@ -102,6 +102,7 @@ function requireInteractiveCommandContext(options) {
  * @property {string} [sessionId]
  * @property {import('../shared/session/session-runtime.ts').SessionRuntime} [sessionRuntime]
  * @property {string} [sessionStartedAt]
+ * @property {string} [commandInvocationId]
  * @property {import('../ui/tui/types.js').TuiAPI} [tui]
  * @property {(data: string) => void | Promise<void>} [originalHandleInput]
  * @property {"new" | "continue"} [sessionStartMode]
@@ -113,7 +114,7 @@ function requireInteractiveCommandContext(options) {
  */
 
 /**
- * @typedef {(argv: string[], options?: CommandContext) => Promise<void>} CommandHandler
+ * @typedef {(argv: string[], options?: CommandContext) => Promise<void | "succeeded" | "failed" | "canceled" | "rejected">} CommandHandler
  */
 
 /**
@@ -255,7 +256,7 @@ export const commandRegistry = {
                 import("./agents/index.ts"),
                 import("../ui/tui/interactive-session-port.ts"),
             ]);
-            await runAgentsCommand(argv, { ...options, sessionPort: SYSTEM_INTERACTIVE_SESSION_PORT });
+            return await runAgentsCommand(argv, { ...options, sessionPort: SYSTEM_INTERACTIVE_SESSION_PORT });
         },
         surfaces: ["cli", "slash"],
         slashSurfaces: ["tui", "acp", "workspace"],

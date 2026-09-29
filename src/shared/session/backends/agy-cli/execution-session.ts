@@ -29,6 +29,7 @@ import {
 } from "./failure.ts";
 import {
     AGY_CLI_MCP_PROVENANCE,
+    mcpAliasFor,
     type RunWieldMcpBridgeHandle,
     startRunWieldMcpBridge,
 } from "../../bridged-tools/mcp-bridge.ts";
@@ -36,6 +37,7 @@ import { RUNWIELD_MCP_BRIDGE_TOKEN_ENV, RUNWIELD_MCP_BRIDGE_URL_ENV } from "../.
 import { AgyCliStreamError, parseAgyCliStream } from "./stream-parser.ts";
 import type { AgyCliParseResult, AgyCliToolStep, AgyCliUsage } from "./stream-parser.ts";
 import { readExternalCliConversation, serializeExternalCliConversation } from "../../external-cli-conversation.ts";
+import { ExecutionMetricsRecorder } from "../../../workflow/execution-metrics.ts";
 
 type SessionAppendMessage = Parameters<SessionManager["appendMessage"]>[0];
 
@@ -59,6 +61,13 @@ export interface AgyCliRunOptions {
     signal?: AbortSignal;
     requestId?: string;
     attemptId?: string;
+    dispatchKind?: string;
+    executionKind?: "root" | "isolated" | "delegated";
+    mode?: "foreground" | "background";
+    parentExecutionId?: string;
+    parentToolCallId?: string;
+    taskId?: string;
+    sourceSurface?: string;
 }
 
 interface ClassifiedFailure {
@@ -218,6 +227,39 @@ export class AgyCliExecutionSession {
             );
         };
 
+        const recorder = new ExecutionMetricsRecorder({
+            projectRoot: this.cwd,
+            commandId: this.hostedSession?.activeCommandInvocationId || undefined,
+            sessionId: this.sessionManager.getSessionId(),
+            managedSessionId: this.hostedSession?.getManagedMetadata()?.runwieldSessionId,
+            segmentId: options.executionKind === "root"
+                ? this.hostedSession?.getManagedMetadata()?.currentSegmentId
+                : undefined,
+            agent: this.ownership.name,
+            provider: this.model.provider,
+            model: this.model.id,
+            backend: "agy-cli",
+            requestId: options.requestId,
+            attemptId: options.attemptId,
+            dispatchKind: options.dispatchKind,
+            executionKind: options.executionKind || "root",
+            mode: options.mode || "foreground",
+            parentExecutionId: options.parentExecutionId,
+            parentToolCallId: options.parentToolCallId,
+            taskId: options.taskId,
+            sourceSurface: options.sourceSurface || "cli",
+        });
+        await recorder.recordExecutionStart();
+        await recorder.recordToolExposure(this.bridgedTools, "partial");
+        const pendingObservations = new Set<Promise<void>>();
+        const observe = (pending: Promise<void>) => {
+            pendingObservations.add(pending);
+            void pending.then(() => pendingObservations.delete(pending), () => pendingObservations.delete(pending));
+        };
+        observe(recorder.recordResponseLatency("turn_start"));
+        let executionOutcome: import("../../../workflow/execution-metrics.ts").ExecutionOutcome = "succeeded";
+        let failureKind: string | undefined;
+
         let bridge: RunWieldMcpBridgeHandle | null = null;
         let process: AgyCliProcessResult | null = null;
         let bridgeDisconnected = false;
@@ -227,11 +269,16 @@ export class AgyCliExecutionSession {
             : this.turnAbortController.signal;
         this.isStreaming = true;
 
+        let firstTextDeltaRecorded = false;
+        let parsed: AgyCliParseResult | null = null;
+        let observedUsage: AgyCliUsage | null = null;
         try {
             try {
                 await this.verifyCustomAgentReady(combinedSignal);
             } catch (error) {
                 const failure = classifySetupFailure(error instanceof Error ? error : String(error));
+                executionOutcome = failure.kind === "canceled" || combinedSignal.aborted ? "canceled" : "failed";
+                failureKind = failure.kind;
                 emitFailure(failure, false);
                 throw new AgyCliBackendError(failure.kind, { exitCode: failure.exitCode, message: failure.message });
             }
@@ -245,6 +292,16 @@ export class AgyCliExecutionSession {
                         sessionManager: this.sessionManager,
                         onMessage: (message) => {
                             this.messages.push(message);
+                            if (message.role === "assistant") {
+                                for (const part of message.content) {
+                                    if (part.type === "toolCall") {
+                                        this.hostedSession?.recordToolExecution(part.id, recorder.executionId);
+                                    }
+                                }
+                            } else if (message.role === "toolResult") {
+                                this.hostedSession?.forgetToolExecution(message.toolCallId);
+                            }
+                            observe(recorder.recordBridgeMessage(message));
                         },
                         signal: combinedSignal,
                         assistantBase: {
@@ -259,6 +316,8 @@ export class AgyCliExecutionSession {
                         onTerminalAccepted: () => process?.kill(),
                     });
                 } catch (error) {
+                    executionOutcome = "failed";
+                    failureKind = "bridge_startup_failed";
                     const failure: ClassifiedFailure = {
                         kind: "bridge_startup_failed",
                         exitCode: null,
@@ -287,12 +346,16 @@ export class AgyCliExecutionSession {
                 process = processPort.run(command, this.cwd, combinedSignal);
                 this.activeProcess = process;
                 if (process.pid === null) {
+                    executionOutcome = "canceled";
+                    failureKind = "canceled";
                     const failure: ClassifiedFailure = { kind: "canceled", exitCode: null };
                     emitFailure(failure, false);
                     throw new AgyCliBackendError(failure.kind, { exitCode: failure.exitCode });
                 }
             } catch (error) {
                 const failure = classifySetupFailure(error instanceof Error ? error : String(error));
+                executionOutcome = failure.kind === "canceled" || combinedSignal.aborted ? "canceled" : "failed";
+                failureKind = failure.kind;
                 emitFailure(failure, false);
                 throw new AgyCliBackendError(failure.kind, { exitCode: failure.exitCode, message: failure.message });
             }
@@ -375,7 +438,27 @@ export class AgyCliExecutionSession {
             };
             const parseOutcomePromise = parseAgyCliStream(process.stdout, {
                 onTool,
+                onUsage: (usage) => {
+                    observedUsage = usage;
+                },
+                onToolInfo: (observation) => {
+                    observe(recorder.recordResponseLatency("first_response"));
+                    if (
+                        !observation.toolName?.startsWith("mcp__runwield__") &&
+                        !this.bridgedTools.some((tool) =>
+                            observation.toolName === tool.name ||
+                            observation.toolName === mcpAliasFor(tool.name)
+                        )
+                    ) {
+                        observe(recorder.recordNativeToolInfo(observation));
+                    }
+                },
                 onDelta: (delta) => {
+                    observe(recorder.recordResponseLatency("first_response"));
+                    if (!firstTextDeltaRecorded && delta.text) {
+                        firstTextDeltaRecorded = true;
+                        observe(recorder.recordResponseLatency("first_text"));
+                    }
                     emitHostedSessionRuntimeEvent(this.hostedSession, {
                         type: RuntimeEventTypes.ASSISTANT_TEXT_DELTA,
                         messageId,
@@ -393,7 +476,11 @@ export class AgyCliExecutionSession {
             );
             const status = await waitForAgyProcessExit(process, parseOutcomePromise);
             process.kill();
-            const [{ parsed, parseError }, stderrText] = await Promise.all([parseOutcomePromise, process.stderrText]);
+            const [{ parsed: streamParsed, parseError }, stderrText] = await Promise.all([
+                parseOutcomePromise,
+                process.stderrText,
+            ]);
+            parsed = streamParsed;
             const acceptedTerminal = bridge?.acceptedTerminal === true;
             const failure = classifyTurnFailure({
                 parsed,
@@ -419,6 +506,8 @@ export class AgyCliExecutionSession {
             if (acceptedTerminal) return this.getMessages();
             if (failure) {
                 process.kill();
+                executionOutcome = combinedSignal.aborted ? "canceled" : "failed";
+                failureKind = failure.kind;
                 emitFailure(failure, false);
                 throw new AgyCliBackendError(failure.kind, {
                     exitCode: failure.exitCode,
@@ -426,6 +515,8 @@ export class AgyCliExecutionSession {
                 });
             }
             if (!parsed) {
+                executionOutcome = "failed";
+                failureKind = "empty_result";
                 const fallback = { kind: "empty_result", exitCode: status.code } satisfies ClassifiedFailure;
                 emitFailure(fallback, false);
                 throw new AgyCliBackendError(fallback.kind, { exitCode: fallback.exitCode });
@@ -447,6 +538,28 @@ export class AgyCliExecutionSession {
             this.activeProcess = null;
             this.isStreaming = false;
             this.turnAbortController = null;
+            const usage = parsed?.metadata?.usage ?? observedUsage;
+            if (usage) {
+                await recorder.recordModelUsage({
+                    inputTokens: usage.inputTokens,
+                    outputTokens: usage.outputTokens,
+                    cacheReadTokens: usage.cacheReadTokens,
+                    cacheWriteTokens: usage.cacheWriteTokens,
+                    costUsd: null,
+                    costSource: "unavailable",
+                    measurementAvailability: usage.inputTokens !== null &&
+                            usage.outputTokens !== null
+                        ? "partial"
+                        : "unavailable",
+                    inputCacheBasis: "unknown",
+                    model: this.model.id,
+                    provider: this.model.provider,
+                });
+            }
+            observe(recorder.recordResponseLatency("turn_finish"));
+            await Promise.allSettled([...pendingObservations]);
+            await recorder.settleExecution(executionOutcome, failureKind);
+            this.hostedSession?.forgetExecutionToolCalls(recorder.executionId);
         }
     }
 
@@ -772,24 +885,24 @@ function makeAssistantMessage(text: string, model: RunWieldModel, usage: AgyCliU
 }
 
 function zeroUsage(): AgyCliUsage {
-    return { inputTokens: 0, outputTokens: 0 };
+    return { inputTokens: 0, outputTokens: 0, cacheReadTokens: null, cacheWriteTokens: null };
 }
 
 function toPiUsage(usage: AgyCliUsage) {
     return {
-        input: usage.inputTokens,
-        output: usage.outputTokens,
+        input: usage.inputTokens ?? 0,
+        output: usage.outputTokens ?? 0,
         cacheRead: 0,
         cacheWrite: 0,
-        totalTokens: usage.inputTokens + usage.outputTokens,
+        totalTokens: (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0),
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
     };
 }
 
 function toRuntimeUsage(usage: AgyCliUsage) {
     return {
-        inputTokens: usage.inputTokens,
-        outputTokens: usage.outputTokens,
+        inputTokens: usage.inputTokens ?? 0,
+        outputTokens: usage.outputTokens ?? 0,
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
         costUsd: 0,

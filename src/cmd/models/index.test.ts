@@ -49,7 +49,7 @@ function makeUi(selection: string | null = null): ModelsUiFixture {
     };
 }
 
-async function captureLogs(run: () => Promise<void>): Promise<string[]> {
+async function captureLogs(run: () => Promise<unknown>): Promise<string[]> {
     const originalLog = console.log;
     const logs: string[] = [];
     console.log = (message = "") => logs.push(String(message));
@@ -353,6 +353,25 @@ Deno.test("runModelsCommand rejects unsupported Agy CLI model selection for the 
                     "Unsupported Antigravity CLI model: agy-cli/fixture-model. Select agy-cli/gemini-3.8-flash or agy-cli/gemini-3.1-pro.",
                 isError: true,
             }]);
+        } finally {
+            runtime.closeAllSessions();
+        }
+    });
+});
+
+Deno.test("runModelsCommand reports canceled selection and failed explicit selection without changing command effects", async () => {
+    await withRuntimeCommandFixture("runwield-model-command-", async ({ projectRoot }) => {
+        const ui = makeUi();
+        const runtime = createSessionRuntime();
+        try {
+            const { sessionId } = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
+            assertEquals(await runModelsCommand([], { ...ui, sessionId, sessionRuntime: runtime }), "canceled");
+            assertEquals(ui.editor.disableSubmit, false);
+            assertEquals(
+                await runModelsCommand(["invalid-model"], { ...ui, sessionId, sessionRuntime: runtime }),
+                "failed",
+            );
+            assertEquals(ui.messages.at(-1)?.isError, true);
         } finally {
             runtime.closeAllSessions();
         }

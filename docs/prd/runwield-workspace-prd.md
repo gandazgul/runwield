@@ -673,10 +673,11 @@ Natural-language revision, continuation, autonomous switching, and Stop messages
 and committed through the typed checkpoint tool. Reloading the page preserves the pending checkpoint.
 
 Shared behavior: [Core TUI conversation](runwield-core-prd.md#tui-conversation),
-[models and providers](runwield-core-prd.md#models-and-providers), and
-[Session continuity](runwield-core-prd.md#session-continuity). Browser command controls use the shared command catalog
-and follow the same Agent defaults and override rules; switching Agents resets model and thinking choices to that
-Agent’s settings. Workspace hides `/theme`, `/quit`, and `/exit`, keeps existing navigation commands, and does not
+[models and providers](runwield-core-prd.md#models-and-providers),
+[Session continuity](runwield-core-prd.md#session-continuity), and
+[local workflow metrics](runwield-core-prd.md#local-workflow-metrics). Browser command controls use the shared command
+catalog and follow the same Agent defaults and override rules; switching Agents resets model and thinking choices to
+that Agent’s settings. Workspace hides `/theme`, `/quit`, and `/exit`, keeps existing navigation commands, and does not
 expose TUI-only process controls.
 
 **Acceptance scenarios:**
@@ -739,6 +740,8 @@ expose TUI-only process controls.
 - Given a Background Task started in a Workspace-hosted Session, when its browser tab closes before the task finishes,
   its host continues the task. The result appears in the same conversation on reconnection, even if the original turn
   has ended; it does not submit a user command, clear a draft, or resolve a pending human interaction.
+- Given a slash command executed in Workspace with `workflowMetrics` enabled, Workspace records command start and finish
+  observations under the primary project metrics file with duration and outcome.
 
 **Requirement: Read Session artifacts comfortably on desktop and phone.**
 

@@ -1,0 +1,12 @@
+{"type":"system","subtype":"init","claude_code_version":"2.1.284","tools":["Read"]}
+{"type":"system","subtype":"thinking_tokens","estimated_tokens":50,"estimated_tokens_delta":50}
+{"type":"system","subtype":"thinking_tokens","estimated_tokens":100,"estimated_tokens_delta":50}
+{"type":"system","subtype":"thinking_tokens","estimated_tokens":267,"estimated_tokens_delta":167}
+{"type":"assistant","message":{"id":"message_fixture_1","model":"claude-opus-5-5","role":"assistant","content":[{"type":"thinking","thinking":"[removed]"}],"usage":{"input_tokens":2,"output_tokens":8,"cache_read_input_tokens":1448,"cache_creation_input_tokens":2430}}}
+{"type":"assistant","message":{"id":"message_fixture_1","model":"claude-opus-5-5","role":"assistant","content":[{"type":"text","text":"Checking file."}],"usage":{"input_tokens":2,"output_tokens":8,"cache_read_input_tokens":1448,"cache_creation_input_tokens":2430}}}
+{"type":"assistant","message":{"id":"message_fixture_1","model":"claude-opus-5-5","role":"assistant","content":[{"type":"tool_use","id":"call_fixture_1","name":"Read","input":{"file_path":"/fixture/readme.txt"}}],"usage":{"input_tokens":2,"output_tokens":8,"cache_read_input_tokens":1448,"cache_creation_input_tokens":2430}}}
+{"type":"rate_limit_event"}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"call_fixture_1","content":"mint\n"}]}}
+{"type":"assistant","message":{"id":"message_fixture_2","model":"claude-opus-5-5","role":"assistant","content":[{"type":"thinking","thinking":"[removed]"}],"usage":{"input_tokens":2,"output_tokens":2,"cache_read_input_tokens":3878,"cache_creation_input_tokens":3604}}}
+{"type":"assistant","message":{"id":"message_fixture_2","model":"claude-opus-5-5","role":"assistant","content":[{"type":"text","text":"mint"}],"usage":{"input_tokens":2,"output_tokens":2,"cache_read_input_tokens":3878,"cache_creation_input_tokens":3604}}}
+{"type":"result","subtype":"success","session_id":"session_fixture_1","is_error":false,"result":"mint","total_cost_usd":0.0594932,"usage":{"input_tokens":4,"output_tokens":507,"cache_read_input_tokens":5326,"cache_creation_input_tokens":6034},"modelUsage":{"claude-opus-5-5":{"costUSD":0.0594932}}}

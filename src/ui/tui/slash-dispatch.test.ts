@@ -4,6 +4,8 @@ import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fix
 import { RuntimeEventTypes } from "../../shared/session/session-runtime-events.js";
 import { createSessionRuntime, type SessionRuntime } from "../../shared/session/session-runtime.ts";
 import { createGenerationGuard } from "./generation-guard.js";
+import { drainWorkflowMetrics, getWorkflowMetricsFilePath } from "../../shared/workflow/metrics.js";
+import { setCustomSetting } from "../../shared/settings.js";
 import {
     handleSlashCommand,
     isImmediateBuiltinSlashCommandWhileStreaming,
@@ -23,6 +25,7 @@ interface SlashFixtureOptions {
     promptTemplate?: boolean;
     initPromptTemplate?: boolean;
     skill?: boolean;
+    selectedAgent?: string;
 }
 
 async function writeCatalogFixtures(projectRoot: string, options: SlashFixtureOptions): Promise<void> {
@@ -90,7 +93,7 @@ async function withSlashFixture(
                 appendSystemMessage: (message) => messages.push(message),
                 appendAgentMessageStart: () => ({ appendText: () => {} }),
                 requestRender: () => {},
-                promptSelect: () => Promise.resolve(null),
+                promptSelect: () => Promise.resolve(options.selectedAgent ?? null),
                 promptText: () => Promise.resolve(null),
                 showModelSelector: () => {},
             };
@@ -136,6 +139,53 @@ async function withSlashFixture(
         },
     );
 }
+
+Deno.test("TUI picker cancellation and unavailable init persist truthful command lifecycles", async () => {
+    await withSlashFixture({}, async ({ context }, projectRoot) => {
+        await setCustomSetting("workflowMetrics", true, "project", projectRoot);
+        assertEquals(await handleSlashCommand(context("/agent")), true);
+        const unavailable = context("/init");
+        unavailable.initCommandAvailable = false;
+        assertEquals(await handleSlashCommand(unavailable), true);
+        await drainWorkflowMetrics();
+        const rows = (await Deno.readTextFile(getWorkflowMetricsFilePath(projectRoot))).trim().split("\n")
+            .map((line) => JSON.parse(line)).filter((row) => row.category === "command");
+        assertEquals(rows.map((row) => [row.command, row.event, row.phase, row.outcome]), [
+            ["agent", "command_started", "opened", undefined],
+            ["agent", "command_finished", "finish", "canceled"],
+            ["init", "command_started", "start", undefined],
+            ["init", "command_finished", "rejected", "rejected"],
+        ]);
+        assertEquals(rows[0].commandId, rows[1].commandId);
+        assertEquals(rows[2].commandId, rows[3].commandId);
+    });
+});
+
+Deno.test("TUI picker selection records failure after dispatch when Agent cannot switch", async () => {
+    await withSlashFixture({ selectedAgent: "not-an-agent" }, async ({ context }, projectRoot) => {
+        await setCustomSetting("workflowMetrics", true, "project", projectRoot);
+        assertEquals(await handleSlashCommand(context("/agent")), true);
+        await drainWorkflowMetrics();
+        const rows = (await Deno.readTextFile(getWorkflowMetricsFilePath(projectRoot))).trim().split("\n")
+            .map((line) => JSON.parse(line)).filter((row) => row.category === "command");
+        assertEquals(rows.map((row) => [row.event, row.phase, row.outcome]), [
+            ["command_started", "opened", undefined],
+            ["command_dispatched", "dispatched", undefined],
+            ["command_finished", "finish", "failed"],
+        ]);
+        assertEquals(new Set(rows.map((row) => row.commandId)).size, 1);
+    });
+});
+
+Deno.test("TUI caught export write error settles the built-in as failed", async () => {
+    await withSlashFixture({}, async ({ context }, projectRoot) => {
+        await setCustomSetting("workflowMetrics", true, "project", projectRoot);
+        await handleSlashCommand(context("/export /nonexistent-runwield-directory/session.jsonl"));
+        const rows = (await Deno.readTextFile(getWorkflowMetricsFilePath(projectRoot))).trim().split("\n")
+            .map((line) => JSON.parse(line));
+        assertEquals(rows.find((row) => row.event === "command_finished")?.outcome, "failed");
+    });
+});
 
 Deno.test("isImmediateBuiltinSlashCommandWhileStreaming recognizes safe one-shot built-ins only", () => {
     assertEquals(isImmediateBuiltinSlashCommandWhileStreaming("/name Project Session"), true);
@@ -207,9 +257,17 @@ Deno.test("handleSlashCommand keeps hidden init reserved instead of dispatching 
 });
 
 Deno.test("handleSlashCommand shows expanded prompt template text from the Core runtime", async () => {
-    await withSlashFixture({ promptTemplate: true }, async ({ context, submittedRequests }) => {
+    await withSlashFixture({ promptTemplate: true }, async ({ context, submittedRequests }, projectRoot) => {
+        await setCustomSetting("workflowMetrics", true, "project", projectRoot);
         assertEquals(await handleSlashCommand(context("/review focus on tests")), true);
         assertEquals(submittedRequests, ["Review the fixture carefully.\n\nfocus on tests"]);
+        await drainWorkflowMetrics();
+        const rows = (await Deno.readTextFile(getWorkflowMetricsFilePath(projectRoot))).trim().split("\n")
+            .map((line) => JSON.parse(line)).filter((row) => row.category === "command" && row.command === "review");
+        assertEquals(rows.map((row) => row.event), ["command_started", "command_finished"]);
+        assertEquals(new Set(rows.map((row) => row.commandId)).size, 1);
+        assertEquals(rows[0].sourceSurface, "tui");
+        assertEquals(JSON.stringify(rows).includes("focus on tests"), false);
     });
 });
 
@@ -228,11 +286,20 @@ Deno.test("handleSlashCommand does not read prompt-template files in the TUI", a
 });
 
 Deno.test("handleSlashCommand submits skill slash text through the active runtime", async () => {
-    await withSlashFixture({ skill: true }, async ({ context, runtime, sessionId, submittedRequests }) => {
+    await withSlashFixture({ skill: true }, async ({ context, runtime, sessionId, submittedRequests }, projectRoot) => {
+        await setCustomSetting("workflowMetrics", true, "project", projectRoot);
         await runtime.switchAgent(sessionId, { agentName: "operator" });
 
         assertEquals(await handleSlashCommand(context("/skill:diagnose-fixture inspect the failure")), true);
         assertEquals(submittedRequests, ["/skill:diagnose-fixture inspect the failure"]);
+        await drainWorkflowMetrics();
+        const rows = (await Deno.readTextFile(getWorkflowMetricsFilePath(projectRoot))).trim().split("\n")
+            .map((line) => JSON.parse(line)).filter((row) =>
+                row.category === "command" && row.command === "diagnose-fixture"
+            );
+        assertEquals(rows.map((row) => row.event), ["command_started", "command_finished"]);
+        assertEquals(new Set(rows.map((row) => row.commandId)).size, 1);
+        assertEquals(JSON.stringify(rows).includes("inspect the failure"), false);
     });
 });
 

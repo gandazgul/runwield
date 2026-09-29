@@ -35,7 +35,7 @@ Deno.test("runExportCommand exports through SessionRuntime", async () => {
 
 Deno.test("runExportCommand reports Runtime export errors", async () => {
     const fixture = makeContext(() => Promise.reject(new Error("export failed")));
-    await runExportCommand([], fixture.context);
+    assertEquals(await runExportCommand([], fixture.context), "failed");
 
     assertEquals(fixture.messages, ["", "Failed to export session: export failed"]);
     assertEquals(fixture.wasCleared(), true);

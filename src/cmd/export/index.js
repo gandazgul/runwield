@@ -32,7 +32,7 @@ function buildDefaultExportPath(projectRoot, sessionStartIso) {
 export async function runExportCommand(argv, options = {}) {
     const { uiAPI, editor, sessionRuntime, sessionId, sessionStartedAt } = options;
     if (!uiAPI || !sessionRuntime || !sessionId) {
-        return;
+        return "failed";
     }
 
     uiAPI.appendSystemMessage("");
@@ -55,6 +55,7 @@ export async function runExportCommand(argv, options = {}) {
             `Failed to export session: ${error instanceof Error ? error.message : "Unknown error"}`,
             true,
         );
+        return "failed";
     } finally {
         if (editor) {
             editor.setText("");

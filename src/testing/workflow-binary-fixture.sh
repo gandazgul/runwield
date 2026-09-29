@@ -32,6 +32,8 @@ cymbal)
 case "$*" in
   --help) echo 'Usage: cymbal <command>'; exit 0 ;;
   'index .') exit 0 ;;
+  '--no-federate show FixtureSymbol') echo 'Fixture symbol'; exit 0 ;;
+  '--no-federate outline readme.txt') echo 'Fixture outline'; exit 0 ;;
 esac
 if [ "$1" = "--no-federate" ] && [ "$2" = "hook" ] && [ "$3" = "nudge" ] && [ "$4" = "--format=text" ] && [ "$5" = "--" ]; then
   exit 0

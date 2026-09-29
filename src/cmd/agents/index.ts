@@ -73,7 +73,7 @@ async function runAgentsCommandCli(
 async function runAgentsCommandTUI(
     agentName: string,
     options: AgentsTuiOptions,
-): Promise<void> {
+): Promise<"succeeded" | "failed" | "canceled"> {
     const { tui, uiAPI, editor, sessionId, sessionRuntime } = options;
     const projectRoot = sessionId && sessionRuntime ? sessionRuntime.getSessionSnapshot(sessionId)?.cwd : undefined;
     editor?.setText("");
@@ -90,13 +90,13 @@ async function runAgentsCommandTUI(
             }));
 
         const selected = await uiAPI.promptSelect("Switch agent:", agentOptions, { persistResult: false });
-        if (!selected) return;
+        if (!selected) return "canceled";
         chosenAgent = selected;
     }
 
     if (!sessionId || !sessionRuntime) {
         uiAPI.appendSystemMessage("Agent switching requires an interactive RunWield session.", true);
-        return;
+        return "failed";
     }
 
     const switchResult = await applyUserAgentSelection(sessionRuntime, sessionId, chosenAgent);
@@ -106,17 +106,18 @@ async function runAgentsCommandTUI(
             true,
         );
         if (tui && editor) tui.setFocus(editor as import("../../ui/tui/types.js").EditorAPI & Component);
-        return;
+        return "failed";
     }
     if (!sessionRuntime.getSessionSnapshot(sessionId)?.name) setTerminalTitleForName(undefined);
 
     if (tui && editor) tui.setFocus(editor as import("../../ui/tui/types.js").EditorAPI & Component);
+    return "succeeded";
 }
 
 export async function runAgentsCommand(
     argv: string[],
     options: AgentsCommandOptions,
-): Promise<void> {
+): Promise<void | "succeeded" | "failed" | "canceled"> {
     const [agentName = ""] = argv;
 
     if (agentName === "help" || agentName === "--help" || agentName === "-h") {
@@ -127,14 +128,13 @@ export async function runAgentsCommand(
     }
 
     if (options.uiAPI && options.editor && options.tui) {
-        await runAgentsCommandTUI(agentName, {
+        return await runAgentsCommandTUI(agentName, {
             uiAPI: options.uiAPI,
             editor: options.editor,
             tui: options.tui,
             sessionId: options.sessionId,
             sessionRuntime: options.sessionRuntime,
         });
-        return;
     }
 
     await runAgentsCommandCli(agentName, argv.slice(1), options.sessionPort);

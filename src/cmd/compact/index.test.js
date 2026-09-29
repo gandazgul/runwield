@@ -38,7 +38,7 @@ function makeRuntimeContext(options = {}) {
 Deno.test("runCompactCommand requires a Runtime session id", async () => {
     const { uiAPI, messages } = makeUi();
     const { notifyRunWieldEvent, notifications } = makeNotifier();
-    await runCompactCommand([], { uiAPI, notifyRunWieldEvent });
+    assertEquals(await runCompactCommand([], { uiAPI, notifyRunWieldEvent }), "failed");
     assertEquals(messages, ["Error: No active agent session."]);
     assertEquals(notifications, []);
 });
@@ -54,12 +54,13 @@ Deno.test("runCompactCommand delegates compaction to SessionRuntime and notifies
         },
     });
 
-    await runCompactCommand(["keep", "decisions"], {
+    const outcome = await runCompactCommand(["keep", "decisions"], {
         uiAPI,
         ...context,
         notifyRunWieldEvent,
     });
 
+    assertEquals(outcome, "succeeded");
     assertEquals(instructions, "keep decisions");
     assertEquals(messages.some((message) => message.includes("Session compacted.")), true);
     assertEquals(messages.includes("short summary"), true);
@@ -79,11 +80,12 @@ Deno.test("runCompactCommand reports Runtime compaction outcomes and notifies", 
     ) {
         const { uiAPI, messages } = makeUi();
         const { notifyRunWieldEvent, notifications } = makeNotifier();
-        await runCompactCommand([], {
+        const outcome = await runCompactCommand([], {
             uiAPI,
             ...makeRuntimeContext({ compact: () => Promise.reject(new Error(errorMessage)) }),
             notifyRunWieldEvent,
         });
+        assertEquals(outcome, errorMessage === "Compaction cancelled" ? "canceled" : "failed");
         assertEquals(messages.at(-1), expected);
         assertEquals(notifications, [{
             eventName: "compactionFinished",
@@ -96,11 +98,14 @@ Deno.test("runCompactCommand treats an incomplete Runtime compaction result as e
     const { uiAPI, messages } = makeUi();
     const { notifications, notifyRunWieldEvent } = makeNotifier();
 
-    await runCompactCommand([], {
-        uiAPI,
-        ...makeRuntimeContext({ compact: () => Promise.resolve({}) }),
-        notifyRunWieldEvent,
-    });
+    assertEquals(
+        await runCompactCommand([], {
+            uiAPI,
+            ...makeRuntimeContext({ compact: () => Promise.resolve({}) }),
+            notifyRunWieldEvent,
+        }),
+        "failed",
+    );
 
     assertEquals(messages.length, 2);
     assertEquals(messages[0].includes("Compacting context..."), true);

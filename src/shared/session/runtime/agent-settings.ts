@@ -3,7 +3,12 @@ import { recordManualModelSelection } from ".././active-agent-session.js";
 import { resolveActiveWorkflowRuntimeAgent } from "../../workflow/execution-agent.ts";
 import { getAgentDisplayName } from ".././agents.js";
 import { switchActiveAgent } from ".././agent-switching.js";
-import { getConfiguredAgentModel, getRootSessionRebuildOptions, runIsolatedAgentSession } from ".././session.js";
+import {
+    drainSessionCompactionMetrics,
+    getConfiguredAgentModel,
+    getRootSessionRebuildOptions,
+    runIsolatedAgentSession,
+} from ".././session.js";
 import { emitSystemStatus, RuntimeEventTypes } from ".././session-runtime-events.js";
 import { assertModelExecutionBackendSupported } from "../../models/model-execution.ts";
 import { getModelRegistry } from "../../models/model-registry.ts";
@@ -401,6 +406,7 @@ export class RuntimeAgentSettings {
     async compactSession(
         sessionId: string,
         instructions?: string,
+        commandInvocationId?: string,
     ): Promise<RuntimeCompactionResult | ManagedOperationFailure> {
         return await this.managedOperations.runManagedStandaloneMutation(
             sessionId,
@@ -410,12 +416,19 @@ export class RuntimeAgentSettings {
                 const compact = rootAgentSession?.compact;
                 if (!compact) throw new Error("Runtime session cannot be compacted.");
                 const checkpoint = readCurrentPairCheckpoint(session);
-                const compacted = await this.events.runBusyOperation(
-                    session.id,
-                    () => compact.call(rootAgentSession, instructions),
-                );
-                if (checkpoint) recordPairCheckpointSnapshot(session, checkpoint);
-                return compacted;
+                const previousCommandId = session.activeCommandInvocationId;
+                if (commandInvocationId) session.activeCommandInvocationId = commandInvocationId;
+                try {
+                    const compacted = await this.events.runBusyOperation(
+                        session.id,
+                        () => compact.call(rootAgentSession, instructions),
+                    );
+                    if (checkpoint) recordPairCheckpointSnapshot(session, checkpoint);
+                    return compacted;
+                } finally {
+                    await drainSessionCompactionMetrics(rootAgentSession);
+                    session.activeCommandInvocationId = previousCommandId;
+                }
             },
             { activateAgent: true },
         );

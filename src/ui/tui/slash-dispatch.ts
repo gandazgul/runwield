@@ -109,6 +109,7 @@ export async function handleSlashCommand(ctx: SlashContext): Promise<boolean> {
     const builtinCommand = registryModule.getSlashCommandDefinition(command);
 
     if (builtinCommand?.name === "init" && !ctx.initCommandAvailable) {
+        await recordRejectedBuiltin(ctx, "init", "unavailable");
         ctx.uiAPI.appendSystemMessage(
             "The /init command is unavailable because RunWield is already initialized for this project.",
         );
@@ -117,11 +118,19 @@ export async function handleSlashCommand(ctx: SlashContext): Promise<boolean> {
 
     if (builtinCommand) {
         maybeUpdateTitleForSlashCommand(ctx.sessionRuntime, ctx.sessionId);
-        await dispatchBuiltin(ctx, builtinCommand.name, args, registryModule.commandRegistry, thisGen);
+        await dispatchBuiltin(
+            ctx,
+            builtinCommand.name,
+            args,
+            registryModule.commandRegistry,
+            thisGen,
+            command === builtinCommand.name ? undefined : command,
+        );
         return true;
     }
 
     if (registryModule.getCommandDefinition(command)) {
+        await recordRejectedBuiltin(ctx, command, "unavailable");
         ctx.uiAPI.appendSystemMessage(`Command /${command} is not available in this surface.`);
         return true;
     }
@@ -143,8 +152,29 @@ export async function handleSlashCommand(ctx: SlashContext): Promise<boolean> {
         }
     }
 
+    await recordRejectedBuiltin(ctx);
     ctx.uiAPI.appendSystemMessage(`Unknown command: /${command}`);
     return true;
+}
+
+import { SlashCommandMetricsTracker } from "../../shared/workflow/command-metrics.ts";
+
+async function recordRejectedBuiltin(
+    ctx: SlashContext,
+    command = "unknown",
+    reason = "unknown_command",
+): Promise<void> {
+    const root = ctx.sessionRuntime.getSessionSnapshot(ctx.sessionId)?.cwd;
+    if (!root) return;
+    const tracker = new SlashCommandMetricsTracker({
+        command,
+        kind: "builtin",
+        surface: "tui",
+        projectRoot: root,
+        sessionId: ctx.sessionId,
+    });
+    await tracker.recordStart();
+    await tracker.recordFinish({ outcome: "rejected", errorReason: reason });
 }
 
 async function dispatchBuiltin(
@@ -153,18 +183,46 @@ async function dispatchBuiltin(
     args: string[],
     commandRegistry: CommandRegistry,
     thisGen: number,
+    alias?: string,
 ): Promise<void> {
+    const projectRoot = ctx.sessionRuntime.getSessionSnapshot?.(ctx.sessionId)?.cwd;
+    const tracker = projectRoot
+        ? new SlashCommandMetricsTracker({
+            command,
+            alias,
+            kind: "builtin",
+            surface: "tui",
+            projectRoot,
+            sessionId: ctx.sessionId,
+        })
+        : null;
+    const picker = (command === "agent" || command === "model") && args.length === 0;
+    await tracker?.recordStart(picker ? "opened" : "start");
+    if (!picker) await tracker?.recordDispatched();
+    const commandUiAPI: SlashContext["uiAPI"] = picker
+        ? {
+            ...ctx.uiAPI,
+            async promptSelect(...selectionArgs) {
+                const selection = await ctx.uiAPI.promptSelect(...selectionArgs);
+                if (selection) await tracker?.recordDispatched();
+                return selection;
+            },
+        }
+        : ctx.uiAPI;
+    let outcome: "succeeded" | "failed" | "canceled" | "rejected" = "succeeded";
+    let errorReason: string | null = null;
     try {
         const notifyRunWieldEvent = ctx.notifyRunWieldEvent || ((eventName: string, options?: NotificationOptions) => {
             if (!isNotificationEventName(eventName)) return;
             return notifyRunWieldEventQuietly(eventName, options);
         });
-        await commandRegistry[command].execute(args, {
-            uiAPI: ctx.uiAPI,
+        const result = await commandRegistry[command].execute(args, {
+            uiAPI: commandUiAPI,
             editor: ctx.editor,
             sessionId: ctx.sessionId,
             sessionRuntime: ctx.sessionRuntime,
             sessionStartedAt: ctx.sessionStartedAt,
+            commandInvocationId: tracker?.invocationId,
             tui: ctx.tui,
             originalHandleInput: ctx.originalHandleInput,
             replaceRuntimeSession: ctx.replaceRuntimeSession,
@@ -172,10 +230,18 @@ async function dispatchBuiltin(
             beginOnboarding: ctx.beginOnboarding,
             slashSurface: "tui",
         });
+        if (result === "failed" || result === "canceled" || result === "rejected") outcome = result;
     } catch (error) {
+        outcome = "failed";
+        errorReason = error instanceof Error ? error.message : String(error);
         if (ctx.generationGuard.isCurrent(thisGen)) {
-            ctx.uiAPI.appendSystemMessage(`Error: ${error instanceof Error ? error.message : String(error)}`);
+            ctx.uiAPI.appendSystemMessage(`Error: ${errorReason}`);
         }
+    } finally {
+        await tracker?.recordFinish({
+            outcome,
+            errorReason: outcome === "failed" ? "failed" : outcome === "rejected" ? "rejected" : null,
+        });
     }
 }
 

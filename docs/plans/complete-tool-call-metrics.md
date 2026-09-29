@@ -21,8 +21,15 @@ executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-08-08T01:08:52-04:00"
 origin: "internal"
-status: "ready_for_work"
 userVerifiedAt: null
+targetBranch: "main"
+status: "validated"
+validatedCommit: "357bbaf1f1be7e07eb607330e6df141f818678cc"
+workRecord:
+    status: "generated"
+    recordId: "e24fc4b5-cf6e-488e-a977-b5f90016d8a2"
+    path: "docs/work-records/2026-09-29-opt-in-local-workflow-metrics-across-execution-surfaces.md"
+    lastAttemptAt: "2026-09-29T21:51:38.721Z"
 ---
 
 # Complete Tool-Call Metrics

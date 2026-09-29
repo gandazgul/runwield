@@ -41,7 +41,7 @@ export const SYSTEM_GITHUB_CLI_PORT: GitHubCliPort = { run: runGitHubCli };
 /**
  * Run the share command.
  */
-export async function runShareCommand(_argv: string[], options: ShareCommandOptions): Promise<void> {
+export async function runShareCommand(_argv: string[], options: ShareCommandOptions): Promise<void | "failed"> {
     const { uiAPI, sessionRuntime, sessionId: runtimeSessionId } = options;
 
     if (!uiAPI) {
@@ -50,7 +50,7 @@ export async function runShareCommand(_argv: string[], options: ShareCommandOpti
 
     if (!sessionRuntime || !runtimeSessionId || !sessionRuntime.getSessionSnapshot(runtimeSessionId)) {
         uiAPI.appendSystemMessage("Error: No active session found.", true);
-        return;
+        return "failed";
     }
 
     let tmpFile = "";
@@ -60,14 +60,14 @@ export async function runShareCommand(_argv: string[], options: ShareCommandOpti
         const ghVersion = await githubCli.run(["--version"]);
         if (!ghVersion.success) {
             uiAPI.appendSystemMessage("Error: GitHub CLI ('gh') is not installed. Please install it first.", true);
-            return;
+            return "failed";
         }
 
         // 2. Check if gh is authenticated
         const ghAuth = await githubCli.run(["auth", "status"]);
         if (!ghAuth.success) {
             uiAPI.appendSystemMessage("Error: GitHub CLI is not authenticated. Please run 'gh auth login'.", true);
-            return;
+            return "failed";
         }
 
         // 3. Export the currently persisted session shape to a temporary JSONL file.
@@ -89,6 +89,7 @@ export async function runShareCommand(_argv: string[], options: ShareCommandOpti
     } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
         uiAPI.appendSystemMessage(`Unexpected error while sharing session: ${msg}`, true);
+        return "failed";
     } finally {
         if (tmpFile) await Deno.remove(tmpFile).catch(() => {});
     }

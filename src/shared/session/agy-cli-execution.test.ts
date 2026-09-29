@@ -8,6 +8,8 @@ import { AGENTS, SUBAGENTS } from "../../constants.js";
 import { loadPlan } from "../../plan-store.js";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import { HostedSession } from "./hosted-session.js";
+import { setCustomSetting } from "../settings.js";
+import { drainWorkflowMetrics, getWorkflowMetricsFilePath } from "../workflow/metrics.js";
 import { installAgyCliMcpSetup } from "./backends/agy-cli/mcp-setup.ts";
 import { getRootSessionBranchEntries } from "./root-session.js";
 import { createReplayEvents } from "./session-transcript-projection.js";
@@ -287,6 +289,11 @@ async function main(): Promise<void> {
     if (Deno.env.get("RUNWIELD_AGY_FAIL_TURN") === "1") Deno.exit(4);
     await runConfiguredMcp(home);
     if (Deno.env.get("RUNWIELD_AGY_FAIL_AFTER_MCP") === "1") Deno.exit(5);
+    const capturedStream = Deno.env.get("RUNWIELD_AGY_CAPTURED_STREAM");
+    if (capturedStream) {
+        await Deno.stdout.write(new TextEncoder().encode(await Deno.readTextFile(capturedStream)));
+        return;
+    }
     if (Deno.env.get("RUNWIELD_AGY_MALFORMED_FAIL_WITH_STDERR") === "1") {
         console.log("{not json}");
         console.error("authentication failed for private account");
@@ -394,6 +401,7 @@ async function withAgyExecutionFixture(
         const previousDescendantPid = Deno.env.get("RUNWIELD_AGY_DESCENDANT_PID");
         const previousDescendantHoldsPipes = Deno.env.get("RUNWIELD_AGY_DESCENDANT_HOLDS_PIPES");
         const previousMcpCalls = Deno.env.get("RUNWIELD_AGY_EXECUTION_MCP_CALLS");
+        const previousCapturedStream = Deno.env.get("RUNWIELD_AGY_CAPTURED_STREAM");
         const home = await Deno.makeTempDir({ prefix: "runwield-agy-exec-home-" });
         const cwd = join(home, "project");
         const binDir = join(home, "bin");
@@ -418,6 +426,7 @@ async function withAgyExecutionFixture(
             Deno.env.delete("RUNWIELD_AGY_DESCENDANT_PID");
             Deno.env.delete("RUNWIELD_AGY_DESCENDANT_HOLDS_PIPES");
             Deno.env.delete("RUNWIELD_AGY_EXECUTION_MCP_CALLS");
+            Deno.env.delete("RUNWIELD_AGY_CAPTURED_STREAM");
             await installAgyCliMcpSetup();
             await callback(home, cwd, logPath);
         } finally {
@@ -457,6 +466,8 @@ async function withAgyExecutionFixture(
             else Deno.env.set("RUNWIELD_AGY_DESCENDANT_HOLDS_PIPES", previousDescendantHoldsPipes);
             if (previousMcpCalls === undefined) Deno.env.delete("RUNWIELD_AGY_EXECUTION_MCP_CALLS");
             else Deno.env.set("RUNWIELD_AGY_EXECUTION_MCP_CALLS", previousMcpCalls);
+            if (previousCapturedStream === undefined) Deno.env.delete("RUNWIELD_AGY_CAPTURED_STREAM");
+            else Deno.env.set("RUNWIELD_AGY_CAPTURED_STREAM", previousCapturedStream);
             await removeTempDir(home);
         }
     });
@@ -714,6 +725,83 @@ Deno.test("Agy native tool steps reach the live Session and transcript without c
     });
 });
 
+Deno.test("captured Antigravity CLI 1.2.12 tool stream reaches the execution owner's JSONL", async () => {
+    await withAgyExecutionFixture(async (_home, cwd) => {
+        await setCustomSetting("workflowMetrics", true, "project", cwd);
+        Deno.env.set(
+            "RUNWIELD_AGY_CAPTURED_STREAM",
+            new URL("./backends/agy-cli/fixtures/agy-1.2.12-model-read-tool-stream.jsonl", import.meta.url).pathname,
+        );
+        const manager = SessionManager.inMemory(cwd);
+        const hostedSession = createHostedSession(cwd, manager);
+        try {
+            await ensureRootAgentSession({ hostedSession, agentName: AGENTS.GUIDE });
+            await runRootTurn({
+                hostedSession,
+                agentName: AGENTS.GUIDE,
+                userRequest: "Read the disposable file.",
+                dispatchKind: "quick_fix",
+            });
+            await drainWorkflowMetrics();
+            const rows = (await Deno.readTextFile(getWorkflowMetricsFilePath(cwd))).trim().split("\n")
+                .map((line) => JSON.parse(line));
+            assertEquals(rows.find((row) => row.event === "execution_started")?.dispatchKind, "quick_fix");
+            const native = rows.filter((row) => row.event === "native_tool_observed");
+            assertEquals(native.map((row) => [row.toolName, row.stepIndex]), [["view_file", 2]]);
+            assertEquals(
+                rows.some((row) =>
+                    row.event === "model_usage" && row.inputTokens === 31817 &&
+                    row.outputTokens === 320
+                ),
+                true,
+            );
+            assertEquals(JSON.stringify(rows).includes("readme.txt"), false);
+        } finally {
+            hostedSession.dispose();
+        }
+    });
+});
+
+Deno.test("Agy failed stream keeps observed terminal cache usage in execution metrics", async () => {
+    await withAgyExecutionFixture(async (_home, cwd) => {
+        await setCustomSetting("workflowMetrics", true, "project", cwd);
+        const streamPath = join(cwd, "bad-terminal.jsonl");
+        await Deno.writeTextFile(
+            streamPath,
+            [
+                JSON.stringify({
+                    event: "step_update",
+                    step_update: { step_type: "agent_response", text_delta: "original" },
+                }),
+                JSON.stringify({
+                    event: "result",
+                    result: {
+                        status: "SUCCESS",
+                        response: "different",
+                        usage: { input_tokens: 19, output_tokens: 0, cache_read_tokens: 7 },
+                    },
+                }),
+            ].join("\n") + "\n",
+        );
+        Deno.env.set("RUNWIELD_AGY_CAPTURED_STREAM", streamPath);
+        const manager = SessionManager.inMemory(cwd);
+        const hostedSession = createHostedSession(cwd, manager);
+        try {
+            await ensureRootAgentSession({ hostedSession, agentName: AGENTS.GUIDE });
+            await assertRejects(() =>
+                runRootTurn({ hostedSession, agentName: AGENTS.GUIDE, userRequest: "Check failed usage." })
+            );
+            await drainWorkflowMetrics();
+            const rows = (await Deno.readTextFile(getWorkflowMetricsFilePath(cwd))).trim().split("\n")
+                .map((line) => JSON.parse(line));
+            assertEquals(rows.find((row) => row.event === "execution_finished")?.outcome, "failed");
+            assertEquals(rows.find((row) => row.event === "model_usage")?.cacheReadTokens, 7);
+        } finally {
+            hostedSession.dispose();
+        }
+    });
+});
+
 Deno.test("Agy CLI selected root turn dispatches through agy and rebuilds RunWield transcript history", async () => {
     await withAgyExecutionFixture(async (home, cwd, logPath) => {
         const manager = SessionManager.inMemory(cwd);
@@ -937,6 +1025,7 @@ Deno.test("Agy CLI rejects custom-agent drift before the next root turn commits 
 Deno.test("Agy abort stops the custom-agent preflight before committing the request", async () => {
     if (Deno.build.os === "windows") return;
     await withAgyExecutionFixture(async (_home, cwd) => {
+        await setCustomSetting("workflowMetrics", true, "project", cwd);
         const manager = SessionManager.inMemory(cwd);
         const hostedSession = createHostedSession(cwd, manager);
         const root = await ensureRootAgentSession({ hostedSession, agentName: AGENTS.GUIDE }) as never as AgyRootRef;
@@ -963,6 +1052,10 @@ Deno.test("Agy abort stops the custom-agent preflight before committing the requ
         controller.abort();
         await assertRejects(() => turn, Error, "Antigravity CLI turn canceled");
         assertEquals(await waitForProcessDeath(preflightPid), true);
+        await drainWorkflowMetrics();
+        const rows = (await Deno.readTextFile(getWorkflowMetricsFilePath(cwd))).trim().split("\n")
+            .map((line) => JSON.parse(line));
+        assertEquals(rows.find((row) => row.event === "execution_finished")?.outcome, "canceled");
         const branch = getRootSessionBranchEntries(manager) as BranchEntryRecord[];
         assertEquals(
             branch.filter((entry) => entry.type === "message" && entry.message?.role === "user").length,

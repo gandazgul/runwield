@@ -363,6 +363,8 @@ export class BackgroundTasks {
                     ...options,
                     background: true,
                     signal: record.controller.signal,
+                    taskId: record.status.task_id,
+                    parentToolCallId: options.parentToolCallId,
                 });
                 if (record.controller.signal.aborted) {
                     finalState = "cancelled";

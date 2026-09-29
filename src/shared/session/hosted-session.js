@@ -286,6 +286,11 @@ export class HostedSession {
         this.agentStoppedAttentionTurnId = null;
         /** @type {string | null} */
         this.activeTurnId = null;
+        /** Opaque ID for a named invocation while its resulting work runs. */
+        /** @type {string | null} */
+        this.activeCommandInvocationId = null;
+        /** @type {Map<string, string>} Active call IDs to their owning execution IDs. */
+        this.toolExecutionIds = new Map();
         /** @type {string | null} */
         this.generatedTaskTurnId = null;
         /** @type {ManagedSessionMetadata | null} */
@@ -298,6 +303,28 @@ export class HostedSession {
         this.mcpToolPool = null;
         /** @type {import('../mcp/config.ts').McpServerDefinition[]} */
         this.mcpRequestServers = [];
+    }
+
+    /** @param {string} callId @param {string} executionId */
+    recordToolExecution(callId, executionId) {
+        this.toolExecutionIds.set(callId, executionId);
+    }
+
+    /** @param {string} callId */
+    getToolExecutionId(callId) {
+        return this.toolExecutionIds.get(callId);
+    }
+
+    /** @param {string} callId */
+    forgetToolExecution(callId) {
+        this.toolExecutionIds.delete(callId);
+    }
+
+    /** @param {string} executionId */
+    forgetExecutionToolCalls(executionId) {
+        for (const [callId, owner] of this.toolExecutionIds) {
+            if (owner === executionId) this.toolExecutionIds.delete(callId);
+        }
     }
 
     assertActive() {
@@ -1214,6 +1241,7 @@ export class HostedSession {
         this.interactionAdapter?.cancelAll?.();
         this.interactionAdapter = null;
         this.activeInteractions.clear();
+        this.toolExecutionIds.clear();
         this.rootAgentSession = null;
         this.rootAgentName = null;
         this.subAgentSessions.clear();

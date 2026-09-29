@@ -31,13 +31,13 @@ function notifyCompactionFinished(options) {
 export async function runCompactCommand(argv, options = {}) {
     if (!options?.uiAPI) {
         console.error("The /compact command is only available inside an interactive session.");
-        return;
+        return "failed";
     }
 
     const { uiAPI, sessionRuntime, sessionId } = options;
     if (!sessionRuntime || !sessionId) {
         uiAPI.appendSystemMessage("Error: No active agent session.");
-        return;
+        return "failed";
     }
 
     const customInstructions = argv.join(" ").trim() || undefined;
@@ -46,7 +46,7 @@ export async function runCompactCommand(argv, options = {}) {
     uiAPI.appendSystemMessage(`Compacting context... ${theme.fg("dim", "(Esc to cancel)")}${instructionsNote}`);
 
     try {
-        const result = await sessionRuntime.compactSession(sessionId, customInstructions);
+        const result = await sessionRuntime.compactSession(sessionId, customInstructions, options.commandInvocationId);
         if (!result || typeof result.tokensBefore !== "number" || !Number.isFinite(result.tokensBefore)) {
             throw new Error("Nothing to compact");
         }
@@ -61,17 +61,20 @@ export async function runCompactCommand(argv, options = {}) {
         if (result.summary) {
             uiAPI.appendSystemMessage(result.summary);
         }
+        return "succeeded";
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         const isCancelled = message === "Compaction cancelled" || message.includes("cancelled");
 
         if (isCancelled) {
             uiAPI.appendSystemMessage("Compaction cancelled.");
+            return "canceled";
         } else if (message.includes("Nothing to compact")) {
             uiAPI.appendSystemMessage("Nothing to compact — the session doesn't have enough messages yet.");
         } else {
             uiAPI.appendSystemMessage(`Compaction failed: ${message}`);
         }
+        return "failed";
     } finally {
         notifyCompactionFinished(options);
     }
