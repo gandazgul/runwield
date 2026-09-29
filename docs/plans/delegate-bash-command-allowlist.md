@@ -26,7 +26,13 @@ createdAt: "2026-09-28T17:49:57-04:00"
 origin: "internal"
 userVerifiedAt: null
 targetBranch: "main"
-status: "validated_reviewer"
+status: "validated"
+validatedCommit: "0cb4f95c44c1f292670cb7fe8d77acaf577850a9"
+workRecord:
+    status: "generated"
+    recordId: "79c918ba-6012-4c58-a0ba-a1c568279c53"
+    path: "docs/work-records/2026-09-29-configurable-bash-allowlists-for-guide-and-delegates.md"
+    lastAttemptAt: "2026-09-29T03:38:32.549Z"
 ---
 
 # Configurable Bash Command Allowlists for Guide and Delegates
