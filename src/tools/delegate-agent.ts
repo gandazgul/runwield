@@ -25,6 +25,7 @@ import type {
 } from "../shared/session/subagent-definitions.ts";
 import type { HostedSession } from "../shared/session/hosted-session.js";
 import type { AgentDefinition } from "../shared/session/types.js";
+import type { BashAllowedCommands } from "../shared/bash-command-policy.ts";
 import { extractAssistantOutput } from "../shared/workflow/workflow-results.js";
 
 type DelegationMode = "read" | "write";
@@ -55,10 +56,11 @@ export interface DelegatedAgentSessionOptions {
     userRequest: string;
     cwd: string;
     subAgentDefinition: {
-        id: typeof SUBAGENTS.DELEGATED;
+        id: typeof SUBAGENTS.DELEGATED | typeof SUBAGENTS.DELEGATED_READ;
         options: { delegatedRole: DelegatedRoleId };
     };
     toolNames: string[];
+    inheritedBashAllowedCommands?: BashAllowedCommands;
     includeEditFallback: boolean;
     modelOverride?: string;
     thinkingLevelOverride?: ThinkingLevel;
@@ -73,6 +75,7 @@ interface DelegateAgentToolOptions {
     hostedSession: HostedSession;
     cwd: string;
     parentTools: string[];
+    bashAllowedCommands?: BashAllowedCommands;
     runIsolatedAgentSession: RunIsolatedAgentSession;
     modelOverride?: string;
     thinkingLevelOverride?: ThinkingLevel;
@@ -135,8 +138,11 @@ export function resolveDelegatedToolNames(parentTools: string[], mode: Delegatio
  */
 export async function loadDelegatedAgentPrompt(
     role: DelegatedRoleId = DELEGATED_ROLE_GENERAL,
+    mode: DelegationMode = "write",
 ): Promise<AgentDefinition> {
-    return await loadSubAgentDefinition(SUBAGENTS.DELEGATED, { delegatedRole: role });
+    return await loadSubAgentDefinition(mode === "read" ? SUBAGENTS.DELEGATED_READ : SUBAGENTS.DELEGATED, {
+        delegatedRole: role,
+    });
 }
 
 /**
@@ -390,6 +396,7 @@ export function createDelegateAgentTool(opts: DelegateAgentToolOptions) {
 
             const mode = resolveEffectiveDelegationMode(requestedMode, role.authorityCeiling);
             const childTools = resolveDelegatedToolNames(opts.parentTools, mode);
+            const definitionId = mode === "read" ? SUBAGENTS.DELEGATED_READ : SUBAGENTS.DELEGATED;
             const userRequest = [
                 `Delegation mode: ${mode}`,
                 ...roleRequestLines(role, requestedMode, mode),
@@ -412,8 +419,9 @@ export function createDelegateAgentTool(opts: DelegateAgentToolOptions) {
                         agentName: AGENTS.DELEGATED,
                         userRequest,
                         cwd: opts.cwd,
-                        subAgentDefinition: { id: SUBAGENTS.DELEGATED, options: { delegatedRole: role.id } },
+                        subAgentDefinition: { id: definitionId, options: { delegatedRole: role.id } },
                         toolNames: childTools,
+                        inheritedBashAllowedCommands: opts.bashAllowedCommands,
                         includeEditFallback: false,
                         modelOverride,
                         thinkingLevelOverride,
@@ -444,10 +452,11 @@ export function createDelegateAgentTool(opts: DelegateAgentToolOptions) {
                     userRequest,
                     cwd: opts.cwd,
                     subAgentDefinition: {
-                        id: SUBAGENTS.DELEGATED,
+                        id: definitionId,
                         options: { delegatedRole: role.id },
                     },
                     toolNames: childTools,
+                    inheritedBashAllowedCommands: opts.bashAllowedCommands,
                     includeEditFallback: mode === "write",
                     modelOverride,
                     thinkingLevelOverride,

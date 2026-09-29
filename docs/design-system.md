@@ -623,7 +623,10 @@ disabled state. Use it for toolbar actions that open side panels, switch helper 
 one-off local button styles for those actions.
 
 Use `.rw-toolbar-select` for native dropdowns alongside toolbar buttons. It shares the toolbar surface and text tokens,
-with explicit hover, keyboard focus, and disabled states.
+with explicit hover, keyboard focus, and disabled states. On New Session, use the labeled native Project select above
+the composer. Match the composer's width and keep it visible when the composer collapses. Use the compact select style
+on desktop and a 44px touch target on phones; long Project names must not widen the page. Disable it while a draft or
+create request locks Project choice.
 
 Use `.rw-segmented-toggle` for compact toolbar choices such as `Changes` / `Files`, `Side by side` / `Unified`, Plan
 mode choices, and settings choices. Each option must include an icon, a label in a `<span>`, and a `title` that matches

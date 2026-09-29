@@ -191,10 +191,10 @@ function errorMessage(error) {
 }
 
 /** @param {string} href @param {"push" | "replace"} [history] */
-function workspaceNavigate(href, history = "push") {
+function workspaceNavigate(href, history = "push", onComplete) {
     const event = new CustomEvent("runwield:workspace-navigate", {
         cancelable: true,
-        detail: { href, history },
+        detail: { href, history, onComplete },
     });
     if (document.dispatchEvent(event)) {
         if (history === "replace") globalThis.location.replace(href);
@@ -862,6 +862,36 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     useEffect(() => setLiveThinkingLevel(""), [timeline?.snapshot?.activeAgent, timeline?.snapshot?.thinkingLevel]);
     const [sessionOptions, setSessionOptions] = useState(/** @type {any} */ (null));
     const [optionsError, setOptionsError] = useState("");
+    const [projects, setProjects] = useState(null);
+    const [projectsError, setProjectsError] = useState("");
+    const [navigationPending, setNavigationPending] = useState(false);
+    const navigationInFlight = useRef(false);
+    const [requestUnresolved, setRequestUnresolved] = useState(false);
+    const [creationAccepted, setCreationAccepted] = useState(false);
+    const loadGeneration = useRef(0);
+    const optionsGeneration = useRef(0);
+    const surfaceCurrent = useRef(true);
+    useEffect(() => {
+        surfaceCurrent.current = true;
+        return () => {
+            surfaceCurrent.current = false;
+            loadGeneration.current++;
+            optionsGeneration.current++;
+        };
+    }, []);
+    async function loadProjects() {
+        const generation = ++loadGeneration.current;
+        setProjects(null);
+        setProjectsError("");
+        try {
+            const payload = await ownerFetch("/api/owner/projects");
+            if (surfaceCurrent.current && generation === loadGeneration.current) {
+                setProjects(Array.isArray(payload.projects) ? payload.projects : []);
+            }
+        } catch (error) {
+            if (surfaceCurrent.current && generation === loadGeneration.current) setProjectsError(errorMessage(error));
+        }
+    }
     const [selectedAgent, setSelectedAgent] = useState("router");
     const [selectedModelKey, setSelectedModelKey] = useState("");
     const [selectedThinking, setSelectedThinking] = useState("default");
@@ -935,12 +965,15 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     }
 
     async function loadSessionOptions() {
+        const generation = ++optionsGeneration.current;
+        setSessionOptions(null);
         setOptionsError("");
         try {
             const payload = await ownerFetch(
                 `/api/owner/projects/${encodeURIComponent(projectId)}/session-options`,
                 { method: "GET" },
             );
+            if (!surfaceCurrent.current || generation !== optionsGeneration.current) return;
             setSessionOptions(payload);
             const defaults = asRecord(payload.defaults);
             const defaultProvider = typeof defaults.provider === "string" ? defaults.provider : "";
@@ -957,7 +990,9 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             setModelExplicitlySelected(false);
             setThinkingExplicitlySelected(false);
         } catch (error) {
-            setOptionsError(errorMessage(error));
+            if (surfaceCurrent.current && generation === optionsGeneration.current) {
+                setOptionsError(errorMessage(error));
+            }
         }
     }
 
@@ -1199,7 +1234,12 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             setDetailError("");
             setLoadingDetail(false);
             loadSessionOptions();
+            loadProjects();
         }
+        return () => {
+            optionsGeneration.current++;
+            loadGeneration.current++;
+        };
     }, [mode, projectId, runwieldSessionId, listPage, planId]);
 
     useEffect(() => {
@@ -1214,6 +1254,11 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             setImageAttachments(Array.isArray(storedAttachments) ? storedAttachments : []);
             setOperation(null);
             const storedRequest = asRecord(readStored(requestKey));
+            setRequestUnresolved(
+                storedRequest.status === "network-error" || storedRequest.status === "pending" ||
+                    Boolean(storedRequest.operationId),
+            );
+            setCreationAccepted(Boolean(storedRequest.responseAccepted));
             if (storedRequest.operationId) {
                 setOperation({
                     operationId: String(storedRequest.operationId),
@@ -1278,10 +1323,13 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     async function createSession() {
         const text = draft;
         if (
-            (!text.trim() && !imageAttachments.length) || submitting || attachingImages || loadedDraftKey !== draftKey
+            (!text.trim() && !imageAttachments.length) || submitting || attachingImages || navigationPending ||
+            !sessionOptions || !projects?.some((project) => project.projectId === projectId && project.enabled) ||
+            loadedDraftKey !== draftKey
         ) return;
         scrollToLiveEdge();
         setSubmitting(true);
+        setRequestUnresolved(true);
         setMessage("");
         const [selectedProvider, selectedModel] = selectedModelKey ? selectedModelKey.split("\u001f") : ["", ""];
         const existing = asRecord(readStored(requestKey));
@@ -1318,6 +1366,8 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                     thinkingLevel: envelope.thinkingLevel,
                 }),
             });
+            if (!surfaceCurrent.current) return;
+            setCreationAccepted(true);
             setDraft("");
             setImageAttachments([]);
             const stored = {
@@ -1327,9 +1377,11 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                 responseAccepted: true,
             };
             await saveSessionDraft(requestKey, JSON.stringify(stored));
+            if (!surfaceCurrent.current) return;
             if (payload.runwieldSessionId) {
                 await saveSessionDraft(sessionRequestKey(projectId, payload.runwieldSessionId), JSON.stringify(stored));
                 await saveSessionDraft(requestKey, null);
+                if (!surfaceCurrent.current) return;
                 workspaceNavigate(
                     `/projects/${encodeURIComponent(projectId)}/sessions/${
                         encodeURIComponent(payload.runwieldSessionId)
@@ -1348,6 +1400,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                 setMessage("");
             }
         } catch (error) {
+            if (!surfaceCurrent.current) return;
             setPendingUserMessages([]);
             const errorRecord = asRecord(error);
             const status = Number(errorRecord.status || 0);
@@ -1358,9 +1411,10 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                     status: status === 422 ? "validation-error" : "network-error",
                 }),
             );
+            setRequestUnresolved(status !== 422);
             setMessage(errorMessage(error));
         } finally {
-            setSubmitting(false);
+            if (surfaceCurrent.current) setSubmitting(false);
         }
     }
 
@@ -2052,19 +2106,42 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             ),
             ...(interruptedOperation ? [{ kind: "interruption", key: "interruption:lost-workspace-operation" }] : []),
         ];
-        const canSendNew = !submitting && !attachingImages && loadedDraftKey === draftKey && !operation?.operationId;
+        const availableProjects = projects?.filter((project) => project.enabled && project.projectId);
+        const currentProject = availableProjects?.find((project) => project.projectId === projectId);
+        const canChangeProject = Boolean(
+            availableProjects && loadedDraftKey === draftKey && !draft.length &&
+                !imageAttachments.length && !attachingImages && !navigationPending && !submitting &&
+                !requestUnresolved && !operation?.operationId,
+        );
+        const canSendNew = !submitting && !attachingImages && !navigationPending && !creationAccepted &&
+            loadedDraftKey === draftKey && Boolean(currentProject) && Boolean(sessionOptions) &&
+            !operation?.operationId;
+        const changeProject = (event) => {
+            const nextId = event.currentTarget.value;
+            if (
+                !canChangeProject || navigationInFlight.current || nextId === projectId ||
+                !availableProjects.some((project) => project.projectId === nextId)
+            ) return;
+            navigationInFlight.current = true;
+            setNavigationPending(true);
+            workspaceNavigate(`/projects/${encodeURIComponent(nextId)}/sessions/new`, "push", (error) => {
+                if (!error || !surfaceCurrent.current) return;
+                navigationInFlight.current = false;
+                setNavigationPending(false);
+                setMessage("Project could not open. Try again.");
+            });
+        };
         const agents = Array.isArray(sessionOptions?.agents) ? sessionOptions.agents : [];
         const models = Array.isArray(sessionOptions?.models) ? sessionOptions.models : [];
         const thinkingLevels = Array.isArray(sessionOptions?.thinkingLevels) ? sessionOptions.thinkingLevels : [];
         return (
             <section className="session-surface session-surface-detail" aria-label="RunWield Session chat">
-                {optionsError
-                    ? (
-                        <p className="rw-plan-review-dev-notice session-dev-shell-bar" role="status">
-                            {optionsError}
-                        </p>
-                    )
-                    : null}
+                {optionsError && (
+                    <p className="rw-plan-review-dev-notice session-dev-shell-bar" role="status">
+                        Session settings could not load: {optionsError}{" "}
+                        <button type="button" onClick={loadSessionOptions}>Retry</button>
+                    </p>
+                )}
                 <div className="session-detail-layout session-detail-layout--chat-only">
                     <main className="session-stream-panel" aria-label="Session stream">
                         <div
@@ -2076,6 +2153,50 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                             <SessionTimeline items={newSessionItems} emptyMessage="" />
                             <div ref={timelineEndRef} aria-hidden="true" />
                         </div>
+                        {!creationAccepted && (
+                            <div className="session-project-choice">
+                                <label htmlFor="new-session-project">Project</label>
+                                {projectsError
+                                    ? (
+                                        <span role="alert">
+                                            Projects could not load: {projectsError}{" "}
+                                            <button type="button" onClick={loadProjects}>Retry</button>
+                                        </span>
+                                    )
+                                    : availableProjects?.length === 0
+                                    ? (
+                                        <span>
+                                            No available Projects. <a href="/projects">View Projects</a>
+                                        </span>
+                                    )
+                                    : (
+                                        <select
+                                            id="new-session-project"
+                                            className="rw-toolbar-select"
+                                            value={currentProject ? projectId : ""}
+                                            title={currentProject?.displayName || "Project unavailable"}
+                                            disabled={!canChangeProject || availableProjects?.length === 0}
+                                            onChange={changeProject}
+                                        >
+                                            {!currentProject && (
+                                                <option value="">
+                                                    {projects ? "Project unavailable" : "Loading Projects"}
+                                                </option>
+                                            )}
+                                            {availableProjects?.map((project) => (
+                                                <option key={project.projectId} value={project.projectId}>
+                                                    {project.displayName}
+                                                    {availableProjects.filter((entry) =>
+                                                                    entry.displayName === project.displayName
+                                                                ).length > 1 && project.rootLabel
+                                                        ? ` · ${project.rootLabel}`
+                                                        : ""}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    )}
+                            </div>
+                        )}
                         <SessionComposer
                             id="new-session-request-text"
                             onResizeStart={captureHistoryViewport}

@@ -96,3 +96,44 @@ Deno.test("background_task denies shell start without effective bash authority b
         await Deno.remove(cwd, { recursive: true });
     }
 });
+
+Deno.test("restricted background starts share the foreground command policy without blocking controls", async () => {
+    const cwd = await Deno.makeTempDir({ prefix: "runwield-bg-restricted-" });
+    const session = new HostedSession({ id: crypto.randomUUID(), cwd });
+    const tool = createBackgroundTaskTool({
+        hostedSession: session,
+        cwd,
+        allowShellStart: true,
+        allowedCommands: ["pwd"],
+    });
+    const call = (action: "start" | "status", command?: string, task_id?: string) =>
+        tool.execute("task", { action, command, task_id }, new AbortController().signal, () => {}, {} as never);
+    try {
+        const denied = await call("start", "pwd && touch sentinel");
+        assertEquals(denied.details, null);
+        if (denied.content[0].type !== "text") throw new Error("Expected policy error");
+        assertStringIncludes(denied.content[0].text, "report a blocker");
+        assertEquals(await Deno.stat(`${cwd}/sentinel`).then(() => true, () => false), false);
+        const started = await call("start", "pwd");
+        const id = started.details?.task_id ?? "";
+        await session.backgroundTasks.wait(id);
+        assertStringIncludes((await call("status", undefined, id)).details?.output ?? "", cwd);
+        const deniedAll = createBackgroundTaskTool({
+            hostedSession: session,
+            cwd,
+            allowShellStart: true,
+            allowedCommands: [],
+        });
+        const control = await deniedAll.execute(
+            "control",
+            { action: "status", task_id: id },
+            new AbortController().signal,
+            () => {},
+            {} as never,
+        );
+        assertEquals(control.details?.state, "completed");
+    } finally {
+        await session.backgroundTasks.cancelAllAndSuppress();
+        await Deno.remove(cwd, { recursive: true });
+    }
+});

@@ -61,7 +61,10 @@ function linkWithToken(path: string) {
                 document.addEventListener("runwield:workspace-navigate", (event) => {
                     if (!(event instanceof CustomEvent)) return;
                     event.preventDefault();
-                    navigate(event.detail.href, { history: event.detail.history });
+                    void navigate(event.detail.href, { history: event.detail.history }).then(
+                        () => event.detail.onComplete?.(),
+                        (error) => event.detail.onComplete?.(error),
+                    );
                 });
             </script>
         )}
