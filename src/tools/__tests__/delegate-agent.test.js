@@ -110,6 +110,7 @@ Deno.test("resolveDelegatedToolNames intersects parent tools with mode policy", 
 
     assertEquals(resolveDelegatedToolNames(parentTools, "read"), [
         "read",
+        "bash",
         "web_search",
         "web_fetch",
         "web_code_search",
@@ -166,20 +167,23 @@ Deno.test("delegated agent prompt includes inherited repository context placehol
         "delegated-agent-prompt.md",
     );
     const prompt = await Deno.readTextFile(promptPath);
+    const delegated = await loadSubAgentDefinition(SUBAGENTS.DELEGATED);
+    const readDelegate = await loadSubAgentDefinition(SUBAGENTS.DELEGATED_READ);
 
-    assertStringIncludes(prompt, "{{GLOBAL_AGENTSMD}}");
-    assertStringIncludes(prompt, "{{PROJECT_AGENTSMD}}");
-    assertStringIncludes(prompt, "{{PROJECT_STATE_CONTEXT}}");
-    assertStringIncludes(prompt, "{{MEMORIES}}");
-    assertStringIncludes(prompt, "Treat core memories as background context");
-    assertStringIncludes(prompt, "Leave all changes uncommitted");
+    assertStringIncludes(delegated.systemPrompt, "{{GLOBAL_AGENTSMD}}");
+    assertStringIncludes(delegated.systemPrompt, "{{PROJECT_AGENTSMD}}");
+    assertStringIncludes(delegated.systemPrompt, "{{PROJECT_STATE_CONTEXT}}");
+    assertStringIncludes(delegated.systemPrompt, "{{MEMORIES}}");
+    assertStringIncludes(readDelegate.systemPrompt, "Treat core memories as background context");
+    assertStringIncludes(readDelegate.systemPrompt, "Leave all changes uncommitted");
     // The prompt must not declare `tools:` at all. barePrompt subagents take their
     // ceiling from the allowedTools registry entry, so a field here would be ignored
     // while reading as authoritative — this file once claimed `tools: []` while the
     // delegate actually received write access.
     assertEquals(/^tools:/m.test(prompt), false);
-    const delegated = await loadSubAgentDefinition(SUBAGENTS.DELEGATED);
     assertEquals(delegated.tools.includes("write"), true);
+    assertEquals(readDelegate.tools.includes("bash"), true);
+    assertEquals(readDelegate.tools.includes("write"), false);
     assertEquals(delegated.tools.includes("web_search"), true);
     assertEquals(delegated.tools.includes("web_fetch"), true);
     assertEquals(delegated.tools.includes("web_code_search"), true);
@@ -211,9 +215,9 @@ Deno.test("delegate_agent returns child output without inheriting workflow tools
     const result = await execute(tool, { mode: "read", brief: "Inspect src/foo.js" });
 
     assertEquals(result.details.ok, true);
-    assertEquals(result.details.tools, ["read", "web_search", "web_fetch", "web_docs_search"]);
+    assertEquals(result.details.tools, ["read", "web_search", "web_fetch", "web_docs_search", "bash"]);
     assertEquals(result.content[0].text, "done");
-    assertEquals(calls[0].toolNames, ["read", "web_search", "web_fetch", "web_docs_search"]);
+    assertEquals(calls[0].toolNames, ["read", "web_search", "web_fetch", "web_docs_search", "bash"]);
     assertStringIncludes(String(calls[0].userRequest || ""), "Inspect src/foo.js");
     // Omitting role resolves to the unspecialized default and changes nothing about the request.
     assertEquals(result.details.role, "general");
@@ -268,7 +272,7 @@ Deno.test("delegate_agent applies verification-adversary read-only role ceiling"
 
     // The role ceiling wins over the requested mode: read lease, read tools, no write machinery.
     assertEquals(leaseStates[0], { readers: 1, writer: false });
-    assertEquals(calls[0].toolNames, ["read", "grep", "web_search", "web_fetch", "web_docs_search"]);
+    assertEquals(calls[0].toolNames, ["read", "grep", "web_search", "web_fetch", "web_docs_search", "bash"]);
     assertEquals(calls[0].includeEditFallback, false);
     assertEquals(result.details.changedPaths, undefined);
     assertEquals(result.details.changeAttributionComplete, undefined);
@@ -284,7 +288,7 @@ Deno.test("delegate_agent applies verification-adversary read-only role ceiling"
     assertStringIncludes(String(calls[0].userRequest || ""), "so this session runs as read");
     // Session machinery receives a canonical registry selection, not a replaceable definition.
     assertEquals(calls[0].subAgentDefinition, {
-        id: "delegated",
+        id: "delegated-read",
         options: { delegatedRole: "verification-adversary" },
     });
     assertEquals(hostedSession.getDelegatedAgentLeaseState(), { readers: 0, writer: false });

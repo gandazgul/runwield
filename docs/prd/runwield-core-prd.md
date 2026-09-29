@@ -1108,6 +1108,30 @@ Users can customize Agent tools, while required workflow capabilities remain ava
 planning or validation. Guide may save ordinary Markdown documents when explicitly requested in the conversation; this
 does not grant authority to change workflow-owned Plans, ADRs, or Work Records.
 
+Optional Agent and delegated-definition `bashAllowedCommands` front matter limits RunWield-managed shell starts without
+granting the bash tool. Omission inherits a lower definition layer; absent from all layers means unrestricted bash. A
+list replaces the lower list, `[]` denies every command, and `null` resets the definition's inherited list to
+unrestricted. The child delegate's effective list intersects its parent's limit, so neither omission nor `null` can
+remove a parent's restriction. Guide and read delegates have inspection defaults; write delegates and other Agents
+without a list retain unrestricted bash unless a definition or parent restricts them. Effective role authority selects
+the read definition when a write request is reduced to read. The same best-effort, single-command check applies to
+RunWield-owned foreground bash and background shell starts; denied calls state the reason, allowed commands, and how to
+report a blocker rather than work around the restriction. It is not a security boundary and does not control external
+CLI Execution Backends' native shells. See [customization](../customization.md#agents) for selector syntax and limits.
+
+**Acceptance scenarios:**
+
+- Given layered Agent definitions, when a higher layer omits `bashAllowedCommands`, its lower list remains; when it
+  supplies a list it replaces the lower list, `[]` denies all commands, and `null` resets the definition to unrestricted
+  bash. Invalid values fail with source-specific guidance instead of removing a limit silently.
+- Given Guide or a read-only delegate with effective bash access, when it runs an allowed Git or file inspection
+  command, it can inspect the repository; an unapproved or compound command does not start and the denial lists allowed
+  commands and asks for a final-handoff blocker if they are insufficient. Guide can still preserve an ordinary Markdown
+  answer only when explicitly asked, through its docs-only tools.
+- Given a restricted parent, when it delegates in foreground or background, the child's shell policy is the intersection
+  with its read or write definition; an absent or `null` child list cannot restore commands the parent disallows. A role
+  that reduces write to read uses the read definition. A parent without bash cannot grant child bash.
+
 **Skills and integrations.**
 
 Core uses one Skill catalog for listing, model advertising, and invocation. It selects skills in this order:
@@ -1573,15 +1597,17 @@ create additional product restrictions on which screen the owner may use.
 When its tool policy offers `background_task`, an Agent with effective shell authority can start an independent command,
 check its status, or cancel it by task ID without waiting for the command to finish. Where available, `delegate_agent`
 can start an isolated read-only Background Task with `background: true`; write-mode delegation cannot run in the
-background. Ordinary `bash` and synchronous delegation keep their existing behavior. Background shell starts do not
-grant shell authority to an Agent or child that lacks it. Up to five tasks can run per Session in the starting host
-process. A sixth start fails promptly; an unknown or foreign task ID cannot control another Session's work. Completed
-status includes the outcome; short output is inline and larger output is available through a local log path. Controls
-and limits are process-local: there is no cross-process task lookup, saved job queue, restart recovery, or replay after
-process exit. On the first eligible `task_completed` call while Background Tasks run, Core rejects completion and lists
-the running task IDs and kinds. It explains that the next eligible call cancels the remaining tasks and accepts
-completion. The Agent can wait for results, cancel tasks, or make that next call. Cancellation does not prove a test
-passed. Later work can start new Background Tasks.
+background. Ordinary `bash` and synchronous delegation keep their existing behavior, subject to the effective
+[bash command policy](#agent-and-skill-customization) where configured. RunWield-managed background shell starts obey
+that same policy before task reservation or process creation; status and cancel remain available. This does not filter
+an external CLI Execution Backend's native shell. Background shell starts do not grant shell authority to an Agent or
+child that lacks it. Up to five tasks can run per Session in the starting host process. A sixth start fails promptly; an
+unknown or foreign task ID cannot control another Session's work. Completed status includes the outcome; short output is
+inline and larger output is available through a local log path. Controls and limits are process-local: there is no
+cross-process task lookup, saved job queue, restart recovery, or replay after process exit. On the first eligible
+`task_completed` call while Background Tasks run, Core rejects completion and lists the running task IDs and kinds. It
+explains that the next eligible call cancels the remaining tasks and accepts completion. The Agent can wait for results,
+cancel tasks, or make that next call. Cancellation does not prove a test passed. Later work can start new Background Tasks.
 
 **Requirement: Receive task results without another user message.**
 
@@ -1628,6 +1654,9 @@ surface.
 - Given a shell-authorized Agent, when it starts a long command with `background_task`, it can continue immediately;
   status reports progress and the final outcome, and cancel targets only that Session's task. Starting a sixth active
   task fails without queuing it. A read-only Agent without effective shell authority cannot gain shell-start authority.
+- Given Guide or another Agent with an effective bash command list, when it starts a background shell task, the same
+  single-command policy as foreground bash rejects disallowed commands before starting a task, with allowed-command and
+  blocker guidance. Status and cancel still work for permitted tasks; external native-shell commands are not filtered.
 - Given a read-only background delegate, when its parent turn ends, the child can finish and report its result without
   becoming the foreground Agent. A request for a background write delegation fails before launch.
 - Given running Background Tasks, when an execution Agent first calls `task_completed` while eligible to finish, Core

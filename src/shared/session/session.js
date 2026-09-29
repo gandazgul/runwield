@@ -26,6 +26,8 @@ import { createEditDocsToolDefinition, createWriteDocsToolDefinition } from "../
 import { wrapPlanSafeFileTool } from "../../tools/plan-safe-file-tools.ts";
 import { createRunWieldGrepToolDefinition } from "../../tools/grep.js";
 import { createRunWieldReadToolDefinition } from "../../tools/read.js";
+import { createRunWieldBashToolDefinition } from "../../tools/bash.ts";
+import { intersectBashAllowedCommands } from "../bash-command-policy.ts";
 import { extractYaml, test as hasFrontMatter } from "@std/front-matter";
 import { basename, dirname, isAbsolute, join, relative } from "@std/path";
 import { AGENTS, getCwd, getHomeDir, PROMPT_TEMPLATES_DIR } from "../../constants.js";
@@ -1928,6 +1930,7 @@ function repairNamedInvocationContextEdits(sessionManager) {
  * @param {import('./hosted-session.js').HostedSession} [opts.hostedSession]
  * @param {string} opts.agentName
  * @param {string[]} [opts.toolNames]
+ * @param {import('../bash-command-policy.ts').BashAllowedCommands} [opts.inheritedBashAllowedCommands]
  * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [opts.customTools]
  * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [opts.mcpRootTools]
  * @param {string} [opts.modelOverride]
@@ -1962,6 +1965,7 @@ export async function buildAgentSession({
     hostedSession,
     agentName,
     toolNames,
+    inheritedBashAllowedCommands,
     customTools,
     mcpRootTools,
     modelOverride,
@@ -2009,11 +2013,19 @@ export async function buildAgentSession({
     const effectiveSessionManager = sessionManager || SessionManager.inMemory(sessionCwd);
     repairNamedInvocationContextEdits(effectiveSessionManager);
 
+    const allowedCommands = intersectBashAllowedCommands(inheritedBashAllowedCommands, agentDef.bashAllowedCommands);
     const customToolNames = (customTools || []).map((t) => t.name);
     const parentDelegableTools = resolveEffectiveSessionToolNames(agentDef.tools, toolNames, []);
     let tools = resolveEffectiveSessionToolNames(agentDef.tools, toolNames, customToolNames);
 
     const finalCustomTools = [...(customTools || [])];
+    const settingsManager = getSettingsManager(sessionCwd);
+    if (tools.includes("bash") && !finalCustomTools.some((t) => t.name === "bash")) {
+        finalCustomTools.push(createRunWieldBashToolDefinition(sessionCwd, allowedCommands, {
+            shellPath: settingsManager.getShellPath(),
+            commandPrefix: settingsManager.getShellCommandPrefix(),
+        }));
+    }
     const effectiveMcpRootTools = mcpRootTools || targetHostedSession?.getMcpRootTools?.() || [];
     for (const tool of effectiveMcpRootTools) {
         if (!finalCustomTools.find((existing) => existing.name === tool.name)) finalCustomTools.push(tool);
@@ -2068,6 +2080,7 @@ export async function buildAgentSession({
             hostedSession: targetHostedSession,
             cwd: sessionCwd,
             allowShellStart: tools.includes("bash"),
+            allowedCommands,
         }));
     }
 
@@ -2119,6 +2132,7 @@ export async function buildAgentSession({
             hostedSession: targetHostedSession,
             cwd: sessionCwd,
             parentTools: parentDelegableTools,
+            bashAllowedCommands: allowedCommands,
             runIsolatedAgentSession,
         }));
     }
@@ -2197,7 +2211,7 @@ export async function buildAgentSession({
         (/** @type {import('@earendil-works/pi-coding-agent').ExtensionAPI} */ pi) =>
             reAnchorExtension(pi, { agentName, hostedSession: targetHostedSession }),
     ];
-    if (await hasSnipBinary()) {
+    if (allowedCommands === undefined && await hasSnipBinary()) {
         extensionFactories.push((pi) => snipExtension(pi));
     }
 
@@ -2229,7 +2243,7 @@ export async function buildAgentSession({
         cwd: sessionCwd,
         agentDir: getSettingsDir("global"),
         modelRuntime,
-        settingsManager: getSettingsManager(sessionCwd),
+        settingsManager,
         tools,
         customTools: finalCustomTools,
         resourceLoader: loader,
@@ -2337,6 +2351,7 @@ export async function buildAgentSession({
  *
  * @param {{
  *   agentDef: import('./types.js').AgentDefinition,
+ *   inheritedBashAllowedCommands?: import('../bash-command-policy.ts').BashAllowedCommands,
  *   agentName: string,
  *   hostedSession: import('./hosted-session.js').HostedSession | null,
  *   triageMeta: import('../../tools/plan-written.ts').TriageMeta | undefined,
@@ -2348,6 +2363,7 @@ export async function buildAgentSession({
  */
 export async function composeClaudeCliBridgedTools({
     agentDef,
+    inheritedBashAllowedCommands,
     agentName,
     hostedSession,
     triageMeta,
@@ -2428,6 +2444,7 @@ export async function composeClaudeCliBridgedTools({
             hostedSession,
             cwd,
             allowShellStart: declared.has("bash"),
+            allowedCommands: intersectBashAllowedCommands(inheritedBashAllowedCommands, agentDef.bashAllowedCommands),
         }));
     }
     const effectiveMcpRootTools = mcpRootTools || hostedSession?.getMcpRootTools?.() || [];
@@ -2444,6 +2461,7 @@ export async function composeClaudeCliBridgedTools({
  *
  * @param {{
  *   agentDef: import('./types.js').AgentDefinition,
+ *   inheritedBashAllowedCommands?: import('../bash-command-policy.ts').BashAllowedCommands,
  *   agentName: string,
  *   hostedSession: import('./hosted-session.js').HostedSession | null,
  *   triageMeta: import('../../tools/plan-written.ts').TriageMeta | undefined,
@@ -2534,6 +2552,7 @@ export async function buildExecutionSession(opts) {
     const finalCustomTools = backend === "claude-cli"
         ? await composeClaudeCliBridgedTools({
             agentDef,
+            inheritedBashAllowedCommands: opts.inheritedBashAllowedCommands,
             agentName: opts.agentName,
             hostedSession: targetHostedSession,
             triageMeta: opts.triageMeta,
@@ -2543,6 +2562,7 @@ export async function buildExecutionSession(opts) {
         })
         : await composeAgyCliBridgedTools({
             agentDef,
+            inheritedBashAllowedCommands: opts.inheritedBashAllowedCommands,
             agentName: opts.agentName,
             hostedSession: targetHostedSession,
             triageMeta: opts.triageMeta,
@@ -3654,7 +3674,7 @@ export function applyAttentionNudge(agentName, userRequest, rootTurnCount) {
     ].join("\n");
 }
 
-/** @type {WeakMap<import('@earendil-works/pi-coding-agent').AgentSession, { agentDef: import('./types.js').AgentDefinition, subAgentDefinition?: { id: import('./subagent-definitions.ts').SubAgentDefinitionId, options?: import('./subagent-definitions.ts').LoadSubAgentDefinitionOptions }, promptState: { text: string }, subscriberState: SubscriberState, agentName: string, tools: string[], finalCustomTools: import('@earendil-works/pi-coding-agent').ToolDefinition[], mcpToolNames?: string[], rootTurnCount: number, projectStateContext: string, cwd: string, model?: string, contextProjection?: import('./session-context-report.js').SessionContextProjection, imageMode?: string, visionFallbackModelRef?: string, steeringTargetId?: string }>} */
+/** @type {WeakMap<import('@earendil-works/pi-coding-agent').AgentSession, { agentDef: import('./types.js').AgentDefinition, subAgentDefinition?: { id: import('./subagent-definitions.ts').SubAgentDefinitionId, options?: import('./subagent-definitions.ts').LoadSubAgentDefinitionOptions }, promptState: { text: string }, subscriberState: SubscriberState, agentName: string, tools: string[], finalCustomTools: import('@earendil-works/pi-coding-agent').ToolDefinition[], callerCustomTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[], mcpToolNames?: string[], rootTurnCount: number, projectStateContext: string, cwd: string, model?: string, contextProjection?: import('./session-context-report.js').SessionContextProjection, imageMode?: string, visionFallbackModelRef?: string, steeringTargetId?: string }>} */
 const rootSessionMetadata = new WeakMap();
 
 /** @type {WeakMap<import('./hosted-session.js').HostedSession, { agentName: string, debugLogPath?: string }>} */
@@ -3716,7 +3736,7 @@ export function getRootSessionRebuildOptions(hostedSession) {
     return {
         cwd: meta.cwd,
         subAgentDefinition: meta.subAgentDefinition,
-        customTools: (meta.finalCustomTools || []).filter((tool) => !mcpToolNames.has(tool.name)),
+        customTools: (meta.callerCustomTools || []).filter((tool) => !mcpToolNames.has(tool.name)),
         toolNames: (meta.tools || []).filter((name) => !mcpToolNames.has(name)),
         projectStateContext: meta.projectStateContext,
     };
@@ -3917,6 +3937,7 @@ export async function ensureRootAgentSession(opts) {
         agentName: opts.agentName,
         tools,
         finalCustomTools,
+        callerCustomTools: opts.customTools || [],
         mcpToolNames: (opts.mcpRootTools || hostedSession.getMcpRootTools?.() || []).map((tool) => tool.name),
         rootTurnCount: 0,
         projectStateContext: rootProjectStateContext,
@@ -4207,6 +4228,7 @@ export async function runNonInteractiveAgentPrompt({
  * @param {import('./hosted-session.js').HostedSession} [opts.hostedSession]
  * @param {string} opts.agentName
  * @param {string[]} [opts.toolNames] - Optional explicit tool override; defaults to agent frontmatter tools.
+ * @param {import('../bash-command-policy.ts').BashAllowedCommands} [opts.inheritedBashAllowedCommands]
  * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [opts.customTools]
  * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [opts.mcpRootTools]
  * @param {string} [opts.modelOverride] - Optional explicit model override in provider/id format.

@@ -22,6 +22,7 @@
  * @property {string} description - One-line description from merged frontmatter
  * @property {"quick-fix"|"plan-execution"|"frontend-plan-execution"|"validation-repair"} [contextContract] - Declared execution context contract from merged frontmatter; metadata only, never runtime authority
  * @property {string[]} tools - Allowed tool names from merged frontmatter
+ * @property {readonly string[]} [bashAllowedCommands] - Restricted RunWield shell selectors; absent means unrestricted
  * @property {boolean} [workflowOnly] - True when merged frontmatter marks the Agent as workflow-activated only, so it is hidden from `/agent` listings and manual selection
  * @property {string} [thinkingLevel] - Thinking/reasoning level from frontmatter ("off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max")
  * @property {number} [temperature] - Provider temperature from frontmatter, between 0 and 2

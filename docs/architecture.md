@@ -587,7 +587,15 @@ flowchart LR
 Agent definitions are loaded from bundled defaults, then home overrides, then project overrides. Higher layers replace
 scalar front matter. Prompt bodies append unless a higher layer sets `promptOverride: true`. A higher-layer `tools`
 array replaces the lower one, but protected workflow/code/memory tools present in the lowest existing definition are
-re-added so an override cannot silently remove a Core invariant.
+re-added so an override cannot silently remove a Core invariant. Optional `bashAllowedCommands` front matter follows its
+own layered rule: omission inherits the lower layer, a list replaces it, `[]` denies all commands, and `null` resets
+that definition's inherited list to unrestricted. No list at any layer means unrestricted bash. The field never grants
+bash access. A Delegated Agent Session intersects its definition policy with its effective parent's limit; neither an
+omitted child list nor `null` can remove a parent limit. Role ceilings select the read definition when write authority
+is reduced to read. RunWield uses the same best-effort single-command check for Pi bash and RunWield-owned background
+shell starts, including delegated Sessions. Denials give the effective list and blocker guidance. This is not a sandbox;
+it does not restrict external CLI Execution Backends' native shells. Restricted Pi Sessions omit Snip's shell-rewriting
+extension. See [Agent customization](customization.md#agents) for examples and limits.
 
 At invocation time:
 
@@ -609,8 +617,8 @@ presets, provider defaults, thinking levels, temperatures, and a vision fallback
 the hosted session for adapters, while Pi owns the active model on each `AgentSession`.
 
 Mnemoteca and Cymbal are hard preflight requirements for agent construction. Snip is optional and its extension is
-registered only when available. The resource loader disables Pi's implicit context/prompt discovery so RunWield can
-apply its own explicit precedence and policy.
+registered only when available and Pi bash is unrestricted. The resource loader disables Pi's implicit context/prompt
+discovery so RunWield can apply its own explicit precedence and policy.
 
 ## Workflow orchestration
 

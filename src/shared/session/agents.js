@@ -14,6 +14,7 @@ import {
     PersonalResourcePathError,
 } from "../remote/personal-resources.ts";
 import { PROTECTED_TOOL_NAMES, UNIVERSAL_AGENT_TOOL_NAMES } from "../../tools/registry.js";
+import { normalizeBashAllowedCommands } from "../bash-command-policy.ts";
 
 /** @returns {string | null} */
 function homeAgentDefsDir() {
@@ -525,6 +526,9 @@ async function loadAgentDefFromPaths(agentName, filePaths, projectRoot) {
         }
 
         const { attrs, body } = extractYaml(raw);
+        if (Object.hasOwn(attrs, "bashAllowedCommands")) {
+            attrs.bashAllowedCommands = normalizeBashAllowedCommands(attrs.bashAllowedCommands, filePath);
+        }
         found = true;
 
         if (Object.prototype.hasOwnProperty.call(attrs, "tools")) {
@@ -567,6 +571,10 @@ async function loadAgentDefFromPaths(agentName, filePaths, projectRoot) {
     // or unhide a bundled one. The flag controls discoverability only; workflow
     // dispatch loads and activates the exact Agent identity either way.
     const workflowOnly = mergedAttrs.workflowOnly === true;
+    const bashAllowedCommands = normalizeBashAllowedCommands(
+        /** @type {string[] | null | undefined} */ (mergedAttrs.bashAllowedCommands),
+        `Agent definition "${agentName}"`,
+    );
 
     const sharedPracticePrompt = await composeSharedPracticePrompt(mergedAttrs.sharedPractice, agentName, projectRoot);
     if (sharedPracticePrompt) promptSegments.push(sharedPracticePrompt);
@@ -592,6 +600,7 @@ async function loadAgentDefFromPaths(agentName, filePaths, projectRoot) {
         thinkingLevel,
         temperature,
         tools,
+        bashAllowedCommands,
         workflowOnly,
         systemPrompt,
     };

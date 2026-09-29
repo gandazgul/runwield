@@ -1,9 +1,9 @@
-import { assert, assertEquals } from "@std/assert";
+import { assert, assertEquals, assertRejects } from "@std/assert";
 import { fromFileUrl, join } from "@std/path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { withProcessGlobalTestLock } from "../../../testing/process-global-lock.js";
 import { AGENTS, SUBAGENTS } from "../../../constants.js";
-import { __resetSettingsForTests } from "../../settings.js";
+import { __resetSettingsForTests, getSettingsManager } from "../../settings.js";
 import { loadAgentDef, resolveSessionToolNames } from "../agents.js";
 import { HostedSession } from "../hosted-session.js";
 import { loadSubAgentDefinition, REVIEWER_SUBAGENT_TOOLS } from "../subagent-definitions.ts";
@@ -1314,4 +1314,290 @@ Deno.test("buildAgentSession auto-wires Work Record tools with role access modes
             await removeTempDir(tempHome);
         }
     });
+});
+
+Deno.test("Guide bash policy reaches Pi and background tools and refreshes after root rebuild", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const originalHome = Deno.env.get("HOME");
+        const cwd = await Deno.makeTempDir({ prefix: "runwield-guide-bash-policy-" });
+        const { ensureRootAgentSession, getRootSessionRebuildOptions, __getRootSessionMetadataForTests } = await import(
+            "../session.js"
+        );
+        const overrideDir = join(cwd, ".wld", "agents");
+        const overridePath = join(overrideDir, "guide.md");
+        const hostedSession = new HostedSession({ id: "guide-bash-policy", cwd });
+        /** @param {string} value */
+        const setPolicy = async (value) => {
+            await Deno.mkdir(overrideDir, { recursive: true });
+            await Deno.writeTextFile(overridePath, `---\nbashAllowedCommands: ${value}\n---\n`);
+        };
+        /** @param {string} name */
+        const findTool = (name) => {
+            const metadata = __getRootSessionMetadataForTests(/** @type {any} */ (hostedSession.getRootAgentSession()));
+            return /** @type {import("@earendil-works/pi-coding-agent").ToolDefinition[]} */ (metadata
+                ?.finalCustomTools || []).find((tool) => tool.name === name);
+        };
+        try {
+            Deno.env.set("HOME", cwd);
+            __resetSettingsForTests();
+            await writeVisionModelConfig(cwd);
+            const init = await new Deno.Command("git", {
+                cwd,
+                args: ["init", "-b", "main"],
+                stdout: "piped",
+                stderr: "piped",
+            }).output();
+            assert(init.success);
+            await Deno.writeTextFile(join(cwd, "dirty.txt"), "visible in status\n");
+            await setPolicy("[pwd]");
+            getSettingsManager(cwd).setShellPath("/bin/sh");
+            getSettingsManager(cwd).setShellCommandPrefix("printf 'configured shell' > shell-prefix.txt; ");
+            await ensureRootAgentSession({ hostedSession, agentName: AGENTS.GUIDE, modelOverride: "test/text" });
+            /** @param {import("@earendil-works/pi-coding-agent").ToolDefinition | undefined} tool
+             * @param {{ action?: string, command?: string, task_id?: string }} params */
+            const execute = (tool, params) => {
+                assert(tool);
+                return tool.execute(
+                    "call",
+                    params,
+                    new AbortController().signal,
+                    () => {},
+                    /** @type {any} */ ({ sessionManager: SessionManager.inMemory(cwd) }),
+                );
+            };
+            assertEquals(
+                (await execute(findTool("bash"), { command: "pwd" })).content.some((item) =>
+                    item.type === "text" && item.text.includes(cwd)
+                ),
+                true,
+            );
+            assertEquals(await Deno.readTextFile(join(cwd, "shell-prefix.txt")), "configured shell");
+            await assertRejects(() => execute(findTool("bash"), { command: "git status" }), Error, "report a blocker");
+            const denied = await execute(findTool("background_task"), { action: "start", command: "git status" });
+            assert(denied.content.some((item) => item.type === "text" && item.text.includes("pwd")));
+            assertEquals(
+                getRootSessionRebuildOptions(hostedSession).customTools?.some((tool) => tool.name === "bash"),
+                false,
+            );
+            assert(findTool("bash")?.description.includes("pwd"));
+            assert(
+                __getRootSessionMetadataForTests(/** @type {any} */ (hostedSession.getRootAgentSession()))?.promptState
+                    .text.includes("Allowed commands: pwd"),
+            );
+            await setPolicy("[git status]");
+            await ensureRootAgentSession({
+                hostedSession,
+                agentName: AGENTS.GUIDE,
+                modelOverride: "test/text",
+                ...getRootSessionRebuildOptions(hostedSession),
+            });
+            await assertRejects(() => execute(findTool("bash"), { command: "pwd" }), Error, "git status");
+            const started = await execute(findTool("background_task"), {
+                action: "start",
+                command: "git status --short",
+            });
+            const taskId = started.details?.task_id;
+            assert(taskId);
+            await hostedSession.backgroundTasks.wait(taskId);
+            assert(
+                (await execute(findTool("background_task"), { action: "status", task_id: taskId })).details?.output
+                    .includes("dirty.txt"),
+            );
+            assert(
+                (await execute(findTool("background_task"), { action: "start", command: "pwd" })).content.some((item) =>
+                    item.type === "text" && item.text.includes("git status")
+                ),
+            );
+            await setPolicy("[]");
+            await ensureRootAgentSession({
+                hostedSession,
+                agentName: AGENTS.GUIDE,
+                modelOverride: "test/text",
+                ...getRootSessionRebuildOptions(hostedSession),
+            });
+            await assertRejects(() => execute(findTool("bash"), { command: "pwd" }), Error, "(none)");
+            await setPolicy("null");
+            await ensureRootAgentSession({
+                hostedSession,
+                agentName: AGENTS.GUIDE,
+                modelOverride: "test/text",
+                ...getRootSessionRebuildOptions(hostedSession),
+            });
+            await execute(findTool("bash"), { command: "touch unrestricted-file" });
+            assertEquals((await Deno.stat(join(cwd, "unrestricted-file"))).isFile, true);
+        } finally {
+            hostedSession.getRootAgentSession()?.dispose?.();
+            if (originalHome === undefined) Deno.env.delete("HOME");
+            else Deno.env.set("HOME", originalHome);
+            __resetSettingsForTests();
+            await removeTempDir(cwd);
+        }
+    });
+});
+
+Deno.test("read and write delegated Pi sessions inherit only the parent's available bash authority", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const originalHome = Deno.env.get("HOME");
+        const cwd = await Deno.makeTempDir({ prefix: "runwield-delegate-bash-policy-" });
+        /** @type {import('@earendil-works/pi-coding-agent').AgentSession[]} */
+        const sessions = [];
+        try {
+            Deno.env.set("HOME", cwd);
+            __resetSettingsForTests();
+            await writeVisionModelConfig(cwd);
+            const hostedSession = new HostedSession({ id: "read-delegate-bash-policy", cwd });
+            /** @param {string} id
+             * @param {string[]} toolNames
+             * @param {readonly string[] | undefined} inheritedBashAllowedCommands */
+            const build = async (id, toolNames, inheritedBashAllowedCommands) => {
+                const built = await buildAgentSession({
+                    hostedSession,
+                    agentName: AGENTS.DELEGATED,
+                    subAgentDefinition: { id },
+                    toolNames,
+                    inheritedBashAllowedCommands,
+                    modelOverride: "test/text",
+                });
+                sessions.push(built.session);
+                return built;
+            };
+            const read = await build(SUBAGENTS.DELEGATED_READ, ["bash", "read"], ["git status"]);
+            const readBash = read.finalCustomTools.find((tool) => tool.name === "bash");
+            assert(readBash);
+            await assertRejects(
+                () =>
+                    readBash.execute(
+                        "call",
+                        { command: "git log" },
+                        new AbortController().signal,
+                        () => {},
+                        /** @type {any} */ ({ sessionManager: SessionManager.inMemory(cwd) }),
+                    ),
+                Error,
+                "git status",
+            );
+            assertEquals(read.tools.includes("background_task"), false);
+            const write = await build(SUBAGENTS.DELEGATED, ["bash", "read"], ["pwd"]);
+            const writeBash = write.finalCustomTools.find((tool) => tool.name === "bash");
+            assert(writeBash);
+            await assertRejects(
+                () =>
+                    writeBash.execute(
+                        "call",
+                        { command: "git status" },
+                        new AbortController().signal,
+                        () => {},
+                        /** @type {any} */ ({ sessionManager: SessionManager.inMemory(cwd) }),
+                    ),
+                Error,
+                "pwd",
+            );
+            const noBash = await build(SUBAGENTS.DELEGATED_READ, ["read"], undefined);
+            assertEquals(noBash.tools.includes("bash"), false);
+            assertEquals(noBash.finalCustomTools.some((tool) => tool.name === "bash"), false);
+            const unrestrictedWrite = await build(SUBAGENTS.DELEGATED, ["bash", "read"], undefined);
+            const unrestrictedBash = unrestrictedWrite.finalCustomTools.find((tool) => tool.name === "bash");
+            assert(unrestrictedBash);
+            await unrestrictedBash.execute(
+                "call",
+                { command: "touch write-delegate-file" },
+                new AbortController().signal,
+                () => {},
+                /** @type {any} */ ({ sessionManager: SessionManager.inMemory(cwd) }),
+            );
+            assertEquals((await Deno.stat(join(cwd, "write-delegate-file"))).isFile, true);
+            const defaultRead = await build(SUBAGENTS.DELEGATED_READ, ["bash", "read"], undefined);
+            const defaultReadBash = defaultRead.finalCustomTools.find((tool) => tool.name === "bash");
+            assert(defaultReadBash);
+            const restrictedInput = { command: "cat 'write-delegate-file'" };
+            await defaultRead.session.extensionRunner.emitToolCall({
+                type: "tool_call",
+                toolName: "bash",
+                toolCallId: "restricted",
+                input: restrictedInput,
+            });
+            assertEquals(restrictedInput.command, "cat 'write-delegate-file'");
+            const unrestrictedInput = { command: "cat 'write-delegate-file'" };
+            await unrestrictedWrite.session.extensionRunner.emitToolCall({
+                type: "tool_call",
+                toolName: "bash",
+                toolCallId: "unrestricted",
+                input: unrestrictedInput,
+            });
+            assert(unrestrictedInput.command.includes("snip run --"));
+            await assertRejects(
+                () =>
+                    defaultReadBash.execute(
+                        "call",
+                        { command: "touch forbidden" },
+                        new AbortController().signal,
+                        () => {},
+                        /** @type {any} */ ({ sessionManager: SessionManager.inMemory(cwd) }),
+                    ),
+                Error,
+                "report a blocker",
+            );
+            assertEquals(await Deno.stat(join(cwd, "forbidden")).then(() => true, () => false), false);
+        } finally {
+            for (const session of sessions) session.dispose();
+            if (originalHome === undefined) Deno.env.delete("HOME");
+            else Deno.env.set("HOME", originalHome);
+            __resetSettingsForTests();
+            await removeTempDir(cwd);
+        }
+    });
+});
+
+Deno.test("Agent command front matter replaces, clears, and validates layered defaults", async () => {
+    const cwd = await Deno.makeTempDir({ prefix: "runwield-bash-frontmatter-" });
+    const directory = join(cwd, ".wld", "agents");
+    const overridePath = join(directory, "guide.md");
+    try {
+        await Deno.mkdir(directory, { recursive: true });
+        const initial = await loadAgentDef(AGENTS.GUIDE, cwd);
+        assert(initial.bashAllowedCommands?.includes("git status"));
+        await Deno.writeTextFile(overridePath, "---\nname: Guide\n---\n");
+        assertEquals((await loadAgentDef(AGENTS.GUIDE, cwd)).bashAllowedCommands, initial.bashAllowedCommands);
+        await Deno.writeTextFile(overridePath, "---\nbashAllowedCommands: [pwd]\n---\n");
+        assertEquals((await loadAgentDef(AGENTS.GUIDE, cwd)).bashAllowedCommands, ["pwd"]);
+        await Deno.writeTextFile(overridePath, "---\nbashAllowedCommands: []\n---\n");
+        assertEquals((await loadAgentDef(AGENTS.GUIDE, cwd)).bashAllowedCommands, []);
+        await Deno.writeTextFile(overridePath, "---\nbashAllowedCommands: null\n---\n");
+        assertEquals((await loadAgentDef(AGENTS.GUIDE, cwd)).bashAllowedCommands, undefined);
+        for (const invalid of ["false", "[pwd, 3]", "['']", "['git status && touch x']"]) {
+            await Deno.writeTextFile(overridePath, `---\nbashAllowedCommands: ${invalid}\n---\n`);
+            await assertRejects(() => loadAgentDef(AGENTS.GUIDE, cwd), Error, "bashAllowedCommands");
+        }
+    } finally {
+        await removeTempDir(cwd);
+    }
+});
+
+Deno.test("external CLI bridge filters RunWield background starts but not native host commands", async () => {
+    const cwd = await Deno.makeTempDir({ prefix: "runwield-bridge-bash-policy-" });
+    const hostedSession = new HostedSession({ id: "bridge-bash-policy", cwd });
+    try {
+        const agentDef = await loadAgentDef(AGENTS.GUIDE, cwd);
+        const bridged = await composeClaudeCliBridgedTools({
+            agentDef,
+            agentName: AGENTS.GUIDE,
+            hostedSession,
+            cwd,
+            triageMeta: undefined,
+        });
+        const background = bridged.find((tool) => tool.name === "background_task");
+        assert(background);
+        const result = await background.execute(
+            "call",
+            { action: "start", command: "touch bridge-sentinel" },
+            new AbortController().signal,
+            () => {},
+            /** @type {any} */ ({}),
+        );
+        assert(result.content.some((item) => item.type === "text" && item.text.includes("report a blocker")));
+        assertEquals(await Deno.stat(join(cwd, "bridge-sentinel")).then(() => true, () => false), false);
+    } finally {
+        await hostedSession.backgroundTasks.cancelAllAndSuppress();
+        await removeTempDir(cwd);
+    }
 });
