@@ -1,29 +1,43 @@
-/**
- * @module ui/tui/session-snapshot-window
- * Each frame used to rebuild the session snapshot, even keystrokes that
- * changed nothing. Frames inside a short TTL window now share one snapshot,
- * and callers invalidate it the moment real state changes.
- */
+/** A short-lived read projection owned by one real Session runtime. */
+import type { SessionRuntime } from "../../shared/session/session-runtime.ts";
 
-export interface SnapshotWindowRuntime<TSnapshot> {
-    getSessionSnapshot(sessionId: string): TSnapshot | null;
-}
+type SessionSnapshot = ReturnType<SessionRuntime["getSessionSnapshot"]>;
 
-export interface SessionSnapshotWindow<TSnapshot> {
-    read(): TSnapshot | null;
+export interface SessionSnapshotWindow {
+    read(): SessionSnapshot;
     invalidate(): void;
+    rebind(): void;
+    dispose(): void;
 }
 
-export function createSessionSnapshotWindow<TSnapshot>(
-    runtime: SnapshotWindowRuntime<TSnapshot>,
+export function createSessionSnapshotWindow(
+    runtime: SessionRuntime,
     getSessionId: () => string,
     ttlMs = 500,
-): SessionSnapshotWindow<TSnapshot> {
+): SessionSnapshotWindow {
     let cachedAt = 0;
-    let cached: TSnapshot | null = null;
+    let cached: SessionSnapshot = null;
     let hasCached = false;
+    let sessionId: string | null = null;
+    let unsubscribe = () => {};
+    let disposed = false;
+    function invalidate(): void {
+        cached = null;
+        hasCached = false;
+    }
+    function rebind(): void {
+        if (disposed) return;
+        const nextId = getSessionId();
+        if (sessionId === nextId) return;
+        unsubscribe();
+        sessionId = nextId;
+        invalidate();
+        unsubscribe = runtime.subscribeSessionEvents(nextId, invalidate);
+    }
+    rebind();
     return {
-        read(): TSnapshot | null {
+        read(): SessionSnapshot {
+            rebind();
             const now = Date.now();
             if (hasCached && now - cachedAt < ttlMs) return cached;
             cached = runtime.getSessionSnapshot(getSessionId());
@@ -31,9 +45,11 @@ export function createSessionSnapshotWindow<TSnapshot>(
             hasCached = true;
             return cached;
         },
-        invalidate(): void {
-            cached = null;
-            hasCached = false;
+        invalidate,
+        rebind,
+        dispose(): void {
+            disposed = true;
+            unsubscribe();
         },
     };
 }

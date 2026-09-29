@@ -1,3 +1,4 @@
+import type { SessionRuntime } from "../../shared/session/session-runtime.ts";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { theme } from "../theme/theme.js";
 import { AGENTS, getCwd, getHomeDir, RUNWIELD_DIR_NAME } from "../../constants.js";
@@ -39,10 +40,6 @@ export interface FooterRuntimeUsage {
     cacheWrite: number;
     cost: number;
 }
-export interface ChatFooterRuntime {
-    getSessionSnapshot(sessionId: string): FooterRuntimeSnapshot | null;
-    subscribeSessionEvents(sessionId: string, listener: (event: FooterRuntimeEvent) => void): () => void;
-}
 export interface FooterRuntimeSnapshot extends FooterLocationSnapshot {
     activeModel: { model?: string; provider?: string };
     thinkingLevel: string;
@@ -71,7 +68,7 @@ export interface ChatFooterController {
     dispose(): void;
 }
 export interface CreateChatFooterControllerOptions {
-    runtime: ChatFooterRuntime;
+    runtime: SessionRuntime;
     getSessionId(): string;
     requestRender(): void;
 }
@@ -290,9 +287,6 @@ export function createChatFooterController(options: CreateChatFooterControllerOp
         runtimeUsage.cacheWrite = 0;
         runtimeUsage.cost = 0;
         unsubscribeRuntimeTelemetry = options.runtime.subscribeSessionEvents(sessionId, (event) => {
-            // Any session event means state may have changed; refresh on the
-            // next frame instead of serving the window's stale snapshot.
-            snapshotWindow.invalidate();
             if (!isUsageEvent(event)) return;
             runtimeUsage.input += event.usage.inputTokens;
             runtimeUsage.output += event.usage.outputTokens;
@@ -388,10 +382,12 @@ export function createChatFooterController(options: CreateChatFooterControllerOp
             return ctrlCPendingExit;
         },
         rebindSession(sessionId: string) {
+            snapshotWindow.rebind();
             snapshotWindow.invalidate();
             attachRuntimeTelemetry(sessionId);
         },
         dispose() {
+            snapshotWindow.dispose();
             unsubscribeRuntimeTelemetry();
             if (ctrlCPendingTimer) clearTimeout(ctrlCPendingTimer);
             ctrlCPendingTimer = null;

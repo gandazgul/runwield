@@ -151,7 +151,9 @@ output lines. For longer output, it keeps the start and end and shows how many m
 
 The TUI must not reformat unchanged retained conversation blocks for each live update. Local terminal scroll input must
 move the conversation viewport without adding terminal control text to the draft or interrupting the active Agent turn.
-A deliberate Escape key remains available to interrupt the turn.
+A deliberate Escape key remains available to interrupt the turn. Repeated idle frames may reuse Session read state, but
+live Session events must refresh it on the next frame. Replacing the Session must move that observation to the new
+Session; events from the previous Session must no longer affect the view.
 
 **Acceptance scenarios:**
 
@@ -175,6 +177,9 @@ A deliberate Escape key remains available to interrupt the turn.
 - Given a long local conversation while an Agent turn is active, when the user scrolls and types a draft, the viewport
   moves without terminal control text in the draft or interruption of the Agent turn; a deliberate Escape still
   interrupts it.
+- Given an open TUI whose Session is replaced, when the replacement emits a workflow event after its first frame, the
+  next frame shows the new state without waiting for an idle refresh. The previous Session no longer invalidates the
+  current view, and closing the view removes its event observation.
 - Given tool groups above and inside the current viewport, when the user presses Ctrl+O, only the intersecting groups
   toggle. A tool result longer than 500 lines keeps its first and last lines and identifies the omitted middle lines.
 
