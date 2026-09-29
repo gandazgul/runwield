@@ -116,7 +116,7 @@ async function main(): Promise<void> {
     const [firstPositional] = parsed._.map(String);
 
     if (parsed.version) {
-        const { runVersionCommand } = await import("./cmd/version/index.js");
+        const { runVersionCommand } = await import("./cmd/version/index.ts");
         await runVersionCommand();
         return;
     }
@@ -164,7 +164,7 @@ async function main(): Promise<void> {
             await commandRegistry[COMMAND_NAMES.LOGIN].execute(acpModeCommandArgs.slice(1));
             return;
         }
-        const { runAcpCommand } = await import("./cmd/acp/index.js");
+        const { runAcpCommand } = await import("./cmd/acp/index.ts");
         await runAcpCommand([]);
         return;
     }
