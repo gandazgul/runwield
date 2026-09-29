@@ -150,8 +150,16 @@ Deno.test("Core session surfaces do not open or import the Workspace database", 
 
 Deno.test("TUI, ACP, Workspace, commands, and scripts use the public Runtime surface only", async () => {
     const violations = await findViolations(["src/ui/tui", "src/acp", "src/ui/workspace", "src/cmd", "scripts"], [
-        { label: "HostedSession reference", pattern: /HostedSession|hosted-session/ },
-        { label: "SessionHost reference", pattern: /SessionHost|session-host/ },
+        {
+            label: "HostedSession reference",
+            pattern: /HostedSession|hosted-session/,
+            allowPath: (path) => path === "src/ui/tui/testing/session-view-fixture.ts",
+        },
+        {
+            label: "SessionHost reference",
+            pattern: /SessionHost|session-host/,
+            allowPath: (path) => path === "src/ui/tui/testing/session-view-fixture.ts",
+        },
         {
             label: "root-session internal access",
             pattern: /getRootAgentSession|getRootSessionManager|createRootSessionManager|openPersistedRootSession/,
@@ -161,6 +169,7 @@ Deno.test("TUI, ACP, Workspace, commands, and scripts use the public Runtime sur
             label: "session internal import",
             pattern: /shared\/session\/(?:agent-handler|agent-switching|root-session|hosted-session|session-host)\.js/,
             sourceForRule: sourceWithoutApprovedWorkspaceRootSessionDirImport,
+            allowPath: (path) => path === "src/ui/tui/testing/session-view-fixture.ts",
         },
         { label: "Runtime host escape", pattern: /\.sessionHost\b|\.getSession\s*\(/ },
         { label: "Runtime event producer escape", pattern: /\.emitSessionEvent\s*\(/ },
