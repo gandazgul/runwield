@@ -39,6 +39,39 @@ Agent definitions are Markdown files. RunWield looks for them in:
 
 Use agent overrides when you want to change prompts, role behavior, or tool access for a project or user.
 
+Agent front matter can also set the optional `bashAllowedCommands` list:
+
+```yaml
+bashAllowedCommands:
+    - git status
+    - git diff
+    - ls
+```
+
+Each selector is a literal sequence of complete command tokens, not a shell pattern: `git status` permits arguments to
+`git status`, not `git status-other`. The field limits use of `bash`; it does not grant the tool. Bundled Guide and
+read-only delegated definitions supply inspection-command lists. Write delegates have no default list; other Agents
+without a list keep ordinary bash behavior. Role ceilings can reduce a requested write delegate to the read definition.
+A delegate must also inherit bash tool access from its parent; read delegation does not grant `background_task` to the
+child.
+
+For layered Agent definitions, an omitted field inherits the lower layer (and no list at any layer means unrestricted
+bash). A list **replaces** the lower list, not adds to it. `bashAllowedCommands: []` denies all shell commands;
+`bashAllowedCommands: null` clears that definition's inherited list and restores unrestricted bash unless a parent
+Delegated Agent Session imposes a limit. Parent and child lists intersect: a parent `git` selector and child
+`git status` permit `git status`, while disjoint lists permit nothing. An absent or `null` child list cannot clear a
+parent's limit. Invalid field values and selectors fail configuration loading with a source-specific error.
+
+RunWield checks restricted `bash` calls and RunWield-managed `background_task` shell starts before execution, including
+foreground and background delegated Sessions. The filter accepts one command with ordinary arguments, quotes, paths, and
+globs; it rejects shell compounds, pipelines, redirects, expansions, wrappers, and known write or execution options. Git
+`-C <path>` and `--no-pager` are supported before approved inspection subcommands. This is a best-effort convenience
+filter, **not a sandbox**: shell startup, executable lookup, repository configuration, and incomplete option coverage
+can still have effects. External CLI Execution Backends retain their native shell permissions; this list does not filter
+their native shell commands. A denied RunWield call reports the reason and effective command list and tells the Agent to
+use allowed commands or report a blocker, not work around the restriction. Guide's explicit, docs-only Markdown
+preservation remains available through `write_docs` and `edit_docs`.
+
 ## Prompt templates
 
 Prompt templates can become slash commands when they do not collide with built-in commands. RunWield Core resolves and

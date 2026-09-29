@@ -198,6 +198,8 @@ Deno.test("every bundled fragment is claimed by at least one agent", async () =>
     // the loadAgentDef listing above; it claims engineering-practice on its own.
     claimed.add("engineering-practice");
     claimed.add("working-tree-safety");
+    // Both delegated subagent definitions claim this fragment outside the top-level listing.
+    claimed.add("delegated-session");
 
     for await (const entry of Deno.readDir(SHARED_PRACTICE_DIR)) {
         if (!entry.isFile || !entry.name.endsWith(".md")) continue;

@@ -1,6 +1,8 @@
 import { StringEnum, Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import type { HostedSession } from "../shared/session/hosted-session.js";
+import { checkBashCommand, describeBashAllowedCommands } from "../shared/bash-command-policy.ts";
+import type { BashAllowedCommands } from "../shared/bash-command-policy.ts";
 
 const PARAMETERS = Type.Object({
     action: StringEnum(["start", "status", "cancel"]),
@@ -11,13 +13,19 @@ const PARAMETERS = Type.Object({
 
 /** Shell start requires the caller's effective bash authority. Controls do not. */
 export function createBackgroundTaskTool(
-    options: { hostedSession: HostedSession; cwd: string; allowShellStart: boolean },
+    options: {
+        hostedSession: HostedSession;
+        cwd: string;
+        allowShellStart: boolean;
+        allowedCommands?: BashAllowedCommands;
+    },
 ) {
     return defineTool({
         name: "background_task",
         label: "Background Task",
         description:
-            "Start an independent shell command, or check or cancel a Session background task. A start is not a passed test; inspect the final result.",
+            "Start an independent shell command, or check or cancel a Session background task. A start is not a passed test; inspect the final result. " +
+            describeBashAllowedCommands(options.allowedCommands),
         parameters: PARAMETERS,
         async execute(_toolCallId, params) {
             try {
@@ -33,6 +41,7 @@ export function createBackgroundTaskTool(
                     ) {
                         throw new Error("Timeout must be a positive finite number of seconds.");
                     }
+                    checkBashCommand(command, options.allowedCommands);
                     const status = options.hostedSession.backgroundTasks.startShell({
                         command,
                         cwd: options.cwd,

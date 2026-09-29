@@ -511,7 +511,10 @@ _Avoid_: Frontend mode, UI Engineer, Engineer with frontend Skill
 bug-finding. _Avoid_: Unit test writer, test framework specialist
 
 **Agent Definition**: A markdown file with YAML front matter defining an Agent's display name, model, tools, and system
-prompt. _Avoid_: Agent def, agent prompt, agent config
+prompt. An optional `bashAllowedCommands` list limits RunWield-managed bash and background shell starts without granting
+bash. Layered definitions inherit an omitted field, replace with a list, deny all with `[]`, or reset the definition's
+inherited list with `null`; an absent list means unrestricted bash. This best-effort filter is not a sandbox and does
+not limit external CLI native shells. _Avoid_: Agent def, agent prompt, agent config
 
 **Skill**: A reusable instruction package an Agent can load for a specialized technique without changing work owner or
 Agent Session. _Avoid_: Agent, workflow role, sub-agent
@@ -555,8 +558,12 @@ Session. _Avoid_: Router, dispatcher agent
 changing Plan Status. _Avoid_: Workflow Outcome, status update, lifecycle event
 
 **Delegated Agent Session**: A disposable context-isolated Agent Session that receives a bounded brief from a parent
-Agent Session and returns only its result. A read-only delegation may run as a Background Task; a write delegation may
-not. _Avoid_: Context-free session, Task worker, workflow handoff
+Agent Session and returns only its result. Its bash tool access is narrowed by the parent and its effective read or
+write role; any command list is the intersection of parent and child limits. Neither omitted nor `null` child policy
+clears a parent limit. Read delegates default to inspection commands, while write delegates have no default command
+list. A read-only delegation may run as a Background Task; a write delegation may not. Guide's explicitly requested
+ordinary Markdown writing is a separate docs-only capability, not delegated shell authority. _Avoid_: Context-free
+session, Task worker, workflow handoff
 
 **Background Task**: A Session-local, host-process-owned shell command or read-only Delegated Agent Session started
 without blocking the parent Agent. Its task ID permits status and cancellation in that same live Session owner. Core
