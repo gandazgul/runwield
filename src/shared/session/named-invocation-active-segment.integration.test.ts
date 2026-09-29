@@ -8,6 +8,8 @@ import {
     type TranscriptContext,
 } from "@earendil-works/pi-ai";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
+import { setCustomSetting } from "../settings.js";
+import { drainWorkflowMetrics, getWorkflowMetricsFilePath } from "../workflow/metrics.js";
 import { SessionRuntime } from "./session-runtime.ts";
 import { SessionHost } from "./session-host.js";
 import { openFileSessionStore } from "./file-session-store.ts";
@@ -146,6 +148,7 @@ Deno.test("Prompt Template invocation sends active Segment history plus the exac
     await withRuntimeCommandFixture(
         "named-invocation-active-segment-",
         async ({ projectRoot, setModelResponseFactories }) => {
+            await setCustomSetting("workflowMetrics", true, "project", projectRoot);
             const promptDir = join(projectRoot, ".wld", "prompts");
             await Deno.mkdir(promptDir, { recursive: true });
             await Deno.writeTextFile(
@@ -212,6 +215,34 @@ Deno.test("Prompt Template invocation sends active Segment history plus the exac
                     initialImages: [],
                 });
                 assertEquals(second.ok, true);
+                await drainWorkflowMetrics();
+                const metrics = (await Deno.readTextFile(getWorkflowMetricsFilePath(projectRoot))).trim()
+                    .split("\n").map((line) => JSON.parse(line));
+                const invocation = metrics.filter((row) =>
+                    row.event === "command_started" && row.command === "use-active-fact"
+                );
+                assertEquals(invocation.length, 1);
+                assertEquals(
+                    metrics.filter((row) =>
+                        row.event === "command_finished" &&
+                        row.commandId === invocation[0].commandId
+                    ).length,
+                    1,
+                );
+                assertEquals(
+                    metrics.filter((row) =>
+                        row.event === "execution_started" &&
+                        row.commandId === invocation[0].commandId
+                    ).length > 0,
+                    true,
+                );
+                assertEquals(
+                    metrics.filter((row) =>
+                        row.event === "execution_started" &&
+                        row.commandId !== null && row.commandId !== invocation[0].commandId
+                    ).length,
+                    0,
+                );
                 assertEquals(runtime.getSessionSnapshot(sessionId)?.activeAgent, "operator");
                 assertEquals(modelRequests.length, 4);
 

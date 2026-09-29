@@ -430,6 +430,8 @@ export function SessionComposer({
     queuedMessages = [],
     commands = [],
     onCommand = undefined,
+    onCommandPickerOpen = undefined,
+    onCommandPickerCancel = undefined,
 }) {
     const textareaRef = useRef(null);
     const fileInputRef = useRef(null);
@@ -495,6 +497,9 @@ export function SessionComposer({
     }, [commandListId, selectedCommandIndex, draft]);
     async function pickCommand(suggestion) {
         if (suggestion.kind === "command") {
+            if (["/agent ", "/model "].includes(suggestion.value)) {
+                onCommandPickerOpen?.(suggestion.value.trim().slice(1));
+            }
             onDraftChange(suggestion.value);
         } else {
             if (controlsDisabled) return;
@@ -518,7 +523,10 @@ export function SessionComposer({
                 if (!event.target.classList.contains("session-composer-summary")) setComposerExpanded(true);
             }}
             onBlurCapture={(event) => {
-                if (!event.currentTarget.contains(event.relatedTarget)) setComposerExpanded(false);
+                if (!event.currentTarget.contains(event.relatedTarget)) {
+                    setComposerExpanded(false);
+                    onCommandPickerCancel?.();
+                }
             }}
             onDragOver={(event) => {
                 if (event.dataTransfer.types.includes("Files")) event.preventDefault();
@@ -610,6 +618,7 @@ export function SessionComposer({
                         if (event.key === "Escape") {
                             event.preventDefault();
                             setDismissedCommandDraft(draft);
+                            onCommandPickerCancel?.();
                             return;
                         }
                         if (event.key === "ArrowDown" || event.key === "ArrowUp") {
@@ -983,19 +992,67 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         setThinkingExplicitlySelected(thinkingLevel !== "default");
     }
 
-    function reportClientCommandMetric(commandName, outcome = "succeeded", errorReason) {
-        if (!projectId) return;
-        ownerFetch(`/api/owner/projects/${encodeURIComponent(projectId)}/command-metrics`, {
-            method: "POST",
-            body: JSON.stringify({
-                command: commandName,
-                kind: "builtin",
-                sessionId: runwieldSessionId || undefined,
-                phase: "finish",
-                outcome,
-                errorReason,
-            }),
-        }).catch(() => {});
+    const pendingPicker = useRef(null);
+    useEffect(() => {
+        const pending = pendingPicker.current;
+        if (pending && !draft.startsWith(`/${pending.name}`)) {
+            pendingPicker.current = null;
+            pending.finish("canceled");
+        }
+    }, [draft]);
+
+    function cancelCommandPicker() {
+        const pending = pendingPicker.current;
+        pendingPicker.current = null;
+        pending?.finish("canceled");
+    }
+
+    function openCommandPicker(name, alias) {
+        if (pendingPicker.current?.name === name) return;
+        if (pendingPicker.current) pendingPicker.current.finish("canceled");
+        pendingPicker.current = { name, finish: beginClientCommandMetric(name, "opened", alias) };
+    }
+
+    function finishCommandPicker(name, succeeded, selected = true) {
+        const pending = pendingPicker.current;
+        pendingPicker.current = null;
+        if (pending?.name !== name) {
+            if (!selected) beginClientCommandMetric(name)("rejected");
+            return;
+        }
+        if (selected) pending.finish.dispatch();
+        pending.finish(succeeded ? "succeeded" : selected ? "failed" : "rejected");
+    }
+
+    function beginClientCommandMetric(commandName, startPhase = "start", alias) {
+        const invocationId = `cmd_${crypto.randomUUID()}`;
+        const startedAt = Date.now();
+        let dispatched = false;
+        const post = (phase, outcome) => {
+            if (!projectId) return;
+            void ownerFetch(`/api/owner/projects/${encodeURIComponent(projectId)}/command-metrics`, {
+                method: "POST",
+                body: JSON.stringify({
+                    invocationId,
+                    command: commandName,
+                    alias,
+                    kind: "builtin",
+                    sessionId: runwieldSessionId || undefined,
+                    phase,
+                    ...(phase === "finish"
+                        ? { outcome, dispatched, durationMs: Math.max(0, Date.now() - startedAt) }
+                        : {}),
+                }),
+            }).catch(() => {});
+        };
+        post(startPhase);
+        const finish = (outcome = "succeeded") => post("finish", outcome);
+        finish.dispatch = () => {
+            if (dispatched) return;
+            dispatched = true;
+            post("dispatched");
+        };
+        return finish;
     }
 
     function handleComposerCommand(text) {
@@ -1004,50 +1061,59 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         const command = sessionOptions?.commands?.find((item) => item.name === name);
         if (command?.kind === "prompt") return false;
         if (!command) {
-            reportClientCommandMetric(name, "failed", "unknown_command");
+            beginClientCommandMetric(name)("rejected");
             setMessage(`Unknown command: /${name}. Type / to see available commands.`);
             return true;
         }
         const argument = args.join(" ");
         if (name === "plan-review") {
             if (argument || mode === "new") {
-                reportClientCommandMetric("plan-review", "rejected", "invalid_argument");
+                beginClientCommandMetric("plan-review")("rejected");
                 setMessage(mode === "new" ? "Open a Session before reviewing a Plan." : "Usage: /plan-review");
                 return true;
             }
-            reportClientCommandMetric("plan-review", "succeeded");
+            const finish = beginClientCommandMetric("plan-review");
             setDraft("");
-            void openPlanReview();
+            finish.dispatch();
+            void openPlanReview().then((opened) => finish(opened ? "succeeded" : "failed"));
             return true;
         }
         if (["agent", "model"].includes(name)) {
             if (!argument) {
+                openCommandPicker(name, rawName === name ? undefined : rawName);
                 setDraft(`/${name} `);
                 return true;
             }
             const agent = sessionOptions.agents.find((item) => item.name === argument || item.displayName === argument);
             const model = sessionOptions.models.find((item) => sessionModelLabel(item) === argument);
             if ((name === "agent" && !agent) || (name === "model" && !model)) {
-                reportClientCommandMetric(name, "rejected", `no_matching_${name}`);
+                finishCommandPicker(name, false, false);
                 setMessage(`No matching ${name}. Choose an available option from the command picker.`);
                 return true;
             }
-            reportClientCommandMetric(name, "succeeded");
+            const finish = pendingPicker.current?.name === name
+                ? pendingPicker.current.finish
+                : beginClientCommandMetric(name, "start", rawName === name ? undefined : rawName);
+            pendingPicker.current = null;
+            finish.dispatch();
             if (mode === "new") {
                 if (name === "agent") selectNewAgent(agent.name);
                 if (name === "model") selectNewModel(`${model.provider}\u001f${model.id}`);
                 setDraft("");
+                finish();
             } else {
                 const change = name === "agent"
                     ? { agentName: agent.name }
                     : { provider: model.provider, model: model.id };
                 void configureSession(change).then((applied) => {
                     if (applied) setDraft("");
-                });
+                    finish(applied ? "succeeded" : "failed");
+                }).catch(() => finish("failed"));
             }
             return true;
         }
-        reportClientCommandMetric(name, "succeeded");
+        const finish = beginClientCommandMetric(name);
+        finish.dispatch();
         const projectPath = `/projects/${encodeURIComponent(projectId)}`;
         const destination = {
             new: `${projectPath}/sessions/new`,
@@ -1057,13 +1123,18 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         }[name];
         if (destination) {
             setDraft("");
-            void saveSessionDraft(draftKey, null).then(() => workspaceNavigate(destination));
+            void saveSessionDraft(draftKey, null).then(() => {
+                finish();
+                workspaceNavigate(destination);
+            }).catch(() => finish("failed"));
         } else if (name === "help") {
             setDraft("/");
+            finish();
         } else {
             setContextCollapsed(false);
             setSessionSidebarTab("session");
             setDraft("");
+            finish();
         }
         return true;
     }
@@ -1083,7 +1154,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                 )).generation;
             if (!Number.isInteger(generation)) {
                 setMessage("Wait for this Session to become available.");
-                return;
+                return false;
             }
             const message = await requestWorkspacePlanReview(
                 projectId,
@@ -1092,8 +1163,10 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                 () => sessionIdentityRef.current === sessionId,
             );
             if (message && sessionIdentityRef.current === sessionId) setMessage(message);
+            return !message;
         } catch (error) {
             if (sessionIdentityRef.current === sessionId) setMessage(errorMessage(error));
+            return false;
         }
     }
 
@@ -2118,11 +2191,20 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                             agentValue={selectedAgent}
                             modelValue={selectedModelKey}
                             thinkingValue={selectedThinking}
-                            onAgentChange={selectNewAgent}
-                            onModelChange={selectNewModel}
+                            onAgentChange={(agentName) => {
+                                const applied = selectNewAgent(agentName);
+                                finishCommandPicker("agent", applied);
+                                return applied;
+                            }}
+                            onModelChange={(modelKey) => {
+                                selectNewModel(modelKey);
+                                finishCommandPicker("model", true);
+                            }}
                             onThinkingChange={selectNewThinking}
                             commands={sessionOptions?.commands || []}
                             onCommand={handleComposerCommand}
+                            onCommandPickerOpen={openCommandPicker}
+                            onCommandPickerCancel={cancelCommandPicker}
                             agentFallback={agents.length ? null : <option value="router">Router</option>}
                             modelFallback={<option value="">Project default</option>}
                             thinkingFallback={<option value="default">Default</option>}
@@ -2466,15 +2548,22 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                                 })}
                                 modelValue={stagedModelKey}
                                 thinkingValue={displayedThinking}
-                                onAgentChange={(agentName) => configureSession({ agentName })}
-                                onModelChange={(value) => {
+                                onAgentChange={async (agentName) => {
+                                    const applied = await configureSession({ agentName });
+                                    finishCommandPicker("agent", applied);
+                                    return applied;
+                                }}
+                                onModelChange={async (value) => {
                                     const [provider, model] = value ? value.split("\u001f") : ["", ""];
-                                    if (model) return configureSession({ provider, model });
-                                    return false;
+                                    const applied = model ? await configureSession({ provider, model }) : false;
+                                    finishCommandPicker("model", applied);
+                                    return applied;
                                 }}
                                 onThinkingChange={(thinkingLevel) => configureSession({ thinkingLevel })}
                                 commands={sessionOptions?.commands || []}
                                 onCommand={handleComposerCommand}
+                                onCommandPickerOpen={openCommandPicker}
+                                onCommandPickerCancel={cancelCommandPicker}
                                 agentFallback={agents.some((agent) => agent.name === timeline.snapshot?.activeAgent)
                                     ? null
                                     : (

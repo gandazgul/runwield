@@ -3,6 +3,7 @@ import { join } from "@std/path";
 import { fauxAssistantMessage, type FauxResponseFactory, fauxText } from "@earendil-works/pi-ai";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { setCustomSetting } from "../settings.js";
+import { drainWorkflowMetrics, getWorkflowMetricsFilePath } from "../workflow/metrics.js";
 import { SessionRuntime } from "./session-runtime.ts";
 import { SessionHost } from "./session-host.js";
 import { openFileSessionStore } from "./file-session-store.ts";
@@ -130,6 +131,7 @@ Deno.test("template settings override manual selections and survive resume", asy
 Deno.test("a conflicting template can be canceled without changing planning or sending its body", async () => {
     await withRuntimeCommandFixture("template-planning-cancel-", async ({ projectRoot, setModelResponseFactories }) => {
         await writeTemplate(projectRoot, ["agent: engineer"]);
+        await setCustomSetting("workflowMetrics", true, "project", projectRoot);
         const requests: string[] = [];
         setModelResponseFactories(Array.from({ length: 8 }, (): FauxResponseFactory => (context) => {
             requests.push(JSON.stringify(context.messages));
@@ -155,6 +157,14 @@ Deno.test("a conflicting template can be canceled without changing planning or s
             assertStringIncludes(questions[0].prompt, "unfinished planning");
             assertEquals(questions[0].options?.map((choice) => choice.label), ["Open in new session", "Cancel"]);
             assertEquals(requests.length, 1);
+            await drainWorkflowMetrics();
+            const commandRows = (await Deno.readTextFile(getWorkflowMetricsFilePath(projectRoot))).trim()
+                .split("\n").map((line) => JSON.parse(line))
+                .filter((row) => row.category === "command" && row.command === "fixture");
+            assertEquals(commandRows.map((row) => [row.event, row.outcome]), [["command_started", undefined], [
+                "command_finished",
+                "canceled",
+            ]]);
             const after = runtime.getSessionSnapshot(id);
             assertEquals(after?.activeAgent, before?.activeAgent);
             assertEquals(after?.activeModel, before?.activeModel);
@@ -168,6 +178,7 @@ Deno.test("a conflicting template can be canceled without changing planning or s
 Deno.test("a conflicting template opens an ordinary new Session and preserves planning for resume", async () => {
     await withRuntimeCommandFixture("template-planning-new-", async ({ projectRoot, setModelResponseFactories }) => {
         await writeTemplate(projectRoot, ["agent: engineer"]);
+        await setCustomSetting("workflowMetrics", true, "project", projectRoot);
         const requests: string[] = [];
         setModelResponseFactories(Array.from({ length: 8 }, (): FauxResponseFactory => (context) => {
             requests.push(JSON.stringify(context.messages));
@@ -208,6 +219,19 @@ Deno.test("a conflicting template opens an ordinary new Session and preserves pl
             assertEquals(runtime.getSessionSnapshot(id)?.activeAgent, "planner");
             assertEquals(runtime.getSessionSnapshot(id)?.workflowContext, before?.workflowContext);
             assertEquals(runtime.getSessionSnapshot(result.replacementSessionId)?.activeAgent, "engineer");
+            await drainWorkflowMetrics();
+            const metrics = (await Deno.readTextFile(getWorkflowMetricsFilePath(projectRoot))).trim()
+                .split("\n").map((line) => JSON.parse(line));
+            const commands = metrics.filter((row) => row.category === "command" && row.command === "fixture");
+            assertEquals(commands.map((row) => row.event), ["command_started", "command_finished"]);
+            assertEquals(commands[0].commandId, commands[1].commandId);
+            assertEquals(
+                metrics.some((row) =>
+                    row.event === "execution_started" &&
+                    row.commandId === commands[0].commandId
+                ),
+                true,
+            );
             assertStringIncludes(requests[1], "TEMPLATE BODY");
             assert(!requests[1].includes("PLANNING-SENTINEL"));
             await runtime.promptUserTurn(result.replacementSessionId, { initialRequest: "follow-up" });

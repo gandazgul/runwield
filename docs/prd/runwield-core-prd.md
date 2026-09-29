@@ -1634,8 +1634,8 @@ retain delivery evidence. Scenarios guide verification but do not claim executab
 
 <a id="local-workflow-metrics"></a>
 
-**Scope and maturity:** Target capability. Implemented local observation layer for local workflow recording. Reporting,
-dashboards, and export remain deferred.
+**Scope and maturity:** Current local recording is opt-in and stays on the device. The target v2 observation layer adds
+linked execution, usage, and command records. Reporting, dashboards, and export remain deferred.
 
 **Requirement: Record structured workflow observations locally with explicit opt-in, project isolation, and zero
 sensitive content leakage.**
@@ -1663,6 +1663,17 @@ agents maintain explicit parent linkage without altering execution dispatch.
 - Given an execution with more than 40 tools, RunWield records individual tool exposure events without array truncation.
 - Given background delegated work, RunWield preserves parent tool call identity, parent execution identity, and task
   identity across all recorded observation records.
+- Given an execution that calls no tools, RunWield records its effective tool inventory and a zero call count.
+- Given a returned tool error, rejection, cancellation, or incomplete call, RunWield records the observed outcome or
+  missing end without turning it into a success. A failed turn keeps usage that its provider already reported.
+- Given absent usage, cost, truncation, or context occupancy measurements, RunWield marks each unavailable or partial;
+  it does not replace missing values with zero or add overlapping turn and request costs.
+- Given a template or Skill command that starts Agent work, its one invocation ID links to the execution. A command
+  picker writes an `opened` observation, then a `dispatched` observation only when a choice starts work. Its final
+  result is succeeded, failed, canceled, or rejected under the same invocation ID. Closing a picker without a choice
+  records cancellation, not a completed model change.
+- Given manual `/compact` outside an Agent turn, RunWield records its observed compaction and context under the Session
+  and command without assigning a fictitious execution ID.
 
 <a id="4-current-local-workspace-surface"></a>
 <a id="5-current-collaborative-planning-surface"></a>

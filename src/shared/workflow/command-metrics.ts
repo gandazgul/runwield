@@ -3,11 +3,11 @@
  * Records structured observation events for slash commands across TUI, ACP, and Workspace.
  */
 
-import { recordWorkflowMetric } from "./metrics.js";
+import { drainWorkflowMetrics, recordWorkflowMetric } from "./metrics.js";
 
 export type SlashCommandKind = "builtin" | "template" | "skill";
 export type SlashCommandSurface = "tui" | "workspace" | "acp";
-export type SlashCommandOutcome = "succeeded" | "failed" | "canceled";
+export type SlashCommandOutcome = "succeeded" | "failed" | "canceled" | "rejected";
 
 export interface SlashCommandStartOptions {
     invocationId?: string;
@@ -48,6 +48,7 @@ export class SlashCommandMetricsTracker {
     readonly executionId?: string;
     private startedAt: number;
     private finished = false;
+    private dispatched = false;
 
     constructor(options: SlashCommandStartOptions) {
         this.invocationId = options.invocationId || `cmd_${crypto.randomUUID()}`;
@@ -62,13 +63,16 @@ export class SlashCommandMetricsTracker {
         this.startedAt = Date.now();
     }
 
-    async recordStart(): Promise<void> {
+    async recordStart(phase: "start" | "opened" = "start"): Promise<void> {
         this.startedAt = Date.now();
         await recordWorkflowMetric(
             {
                 v: 2,
                 category: "command",
                 event: "command_started",
+                recorderId: this.invocationId,
+                seq: 0,
+                phase,
                 commandId: this.invocationId,
                 command: this.command,
                 ...(this.alias ? { alias: this.alias } : {}),
@@ -80,6 +84,27 @@ export class SlashCommandMetricsTracker {
             },
             this.projectRoot,
         );
+    }
+
+    async recordDispatched(): Promise<void> {
+        if (this.finished || this.dispatched) return;
+        this.dispatched = true;
+        await recordWorkflowMetric({
+            v: 2,
+            category: "command",
+            event: "command_dispatched",
+            recorderId: this.invocationId,
+            seq: 1,
+            phase: "dispatched",
+            commandId: this.invocationId,
+            command: this.command,
+            ...(this.alias ? { alias: this.alias } : {}),
+            kind: this.kind,
+            sourceSurface: this.surface,
+            ...(this.sessionId ? { sessionId: this.sessionId } : {}),
+            ...(this.requestId ? { requestId: this.requestId } : {}),
+            ...(this.executionId ? { executionId: this.executionId } : {}),
+        }, this.projectRoot);
     }
 
     async recordFinish(options: {
@@ -95,6 +120,9 @@ export class SlashCommandMetricsTracker {
                 v: 2,
                 category: "command",
                 event: "command_finished",
+                recorderId: this.invocationId,
+                seq: this.dispatched ? 2 : 1,
+                phase: options.outcome === "rejected" ? "rejected" : "finish",
                 commandId: this.invocationId,
                 command: this.command,
                 ...(this.alias ? { alias: this.alias } : {}),
@@ -109,24 +137,29 @@ export class SlashCommandMetricsTracker {
             },
             this.projectRoot,
         );
+        await drainWorkflowMetrics(100);
     }
 }
 
 export async function recordSlashCommandMetric(
     event: SlashCommandStartOptions & {
-        phase: "start" | "finish";
+        phase: "start" | "opened" | "dispatched" | "finish";
         outcome?: SlashCommandOutcome;
         durationMs?: number;
+        dispatched?: boolean;
         errorReason?: string | null;
     },
 ): Promise<void> {
     const invocationId = event.invocationId || `cmd_${crypto.randomUUID()}`;
-    if (event.phase === "start") {
+    if (event.phase !== "finish") {
         await recordWorkflowMetric(
             {
                 v: 2,
                 category: "command",
-                event: "command_started",
+                event: event.phase === "dispatched" ? "command_dispatched" : "command_started",
+                recorderId: invocationId,
+                seq: event.phase === "dispatched" ? 1 : 0,
+                phase: event.phase,
                 commandId: invocationId,
                 command: event.command,
                 ...(event.alias ? { alias: event.alias } : {}),
@@ -144,6 +177,9 @@ export async function recordSlashCommandMetric(
                 v: 2,
                 category: "command",
                 event: "command_finished",
+                recorderId: invocationId,
+                seq: event.dispatched ? 2 : 1,
+                phase: event.outcome === "rejected" ? "rejected" : "finish",
                 commandId: invocationId,
                 command: event.command,
                 ...(event.alias ? { alias: event.alias } : {}),
@@ -159,4 +195,5 @@ export async function recordSlashCommandMetric(
             event.projectRoot,
         );
     }
+    if (event.phase === "finish") await drainWorkflowMetrics(100);
 }

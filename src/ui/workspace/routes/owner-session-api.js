@@ -6,7 +6,8 @@ import { ImageSubmissionValidationError } from "../server/session-continuation.j
 import { ownerErrorJson, ownerJson, sanitizeOwnerError } from "./owner-api.js";
 import { ownerSecurityHeaders } from "../server/owner-origin.js";
 import { findPlanEvidenceById } from "../../../plan-store.js";
-import { requireOwnerProjectRoot } from "../server/owner-projects.js";
+import { requireOwnerProjectRoot, sessionBelongsToOwnerProject } from "../server/owner-projects.js";
+import { getSlashCommandDefinition } from "../../../cmd/registry.js";
 
 const MAX_JSON_BYTES = 12 * 1024 * 1024;
 
@@ -556,28 +557,84 @@ export function ownerNotificationsStreamApi(ctx) {
 }
 
 /**
+ * @typedef {Object} OwnerCommandMetricsContext
+ * @property {Request} req
+ * @property {{ projectId: string }} params
+ * @property {{ store: import('../../../shared/owner-coordination/index.js').OwnerCoordinationStore }} state
+ */
+
+/**
  * Record slash command metric from Workspace client.
- * @param {{ req: Request, params: { projectId: string } }} ctx
+ * @param {OwnerCommandMetricsContext} ctx
  */
 export async function ownerProjectCommandMetricsApi(ctx) {
     try {
-        const root = ctx.state?.store
-            ? requireOwnerProjectRoot(ctx.state.store, ctx.params.projectId)
-            : decodeURIComponent(ctx.params.projectId);
-        const payload = await readJson(ctx.req);
+        const root = requireOwnerProjectRoot(ctx.state.store, ctx.params.projectId);
+        const raw = await ctx.req.text();
+        if (raw.length > 2048) throw new Error("Command observation is too large.");
+        const payload = JSON.parse(raw);
+        if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+            throw new Error("Invalid command observation.");
+        }
+        const id = requireBoundedString(payload.invocationId, "invocationId", 128);
+        if (!/^[A-Za-z0-9][A-Za-z0-9_.:-]*$/.test(id)) throw new Error("Invalid invocationId.");
+        if (payload.kind !== "builtin" || !["start", "opened", "dispatched", "finish"].includes(payload.phase)) {
+            throw new Error("Invalid command observation.");
+        }
+        if (
+            payload.phase !== "finish" &&
+            (payload.outcome !== undefined || payload.durationMs !== undefined || payload.dispatched !== undefined)
+        ) {
+            throw new Error("Invalid command phase details.");
+        }
+        if (
+            payload.phase === "finish" &&
+            (!["succeeded", "failed", "canceled", "rejected"].includes(payload.outcome) ||
+                (payload.dispatched !== undefined && typeof payload.dispatched !== "boolean") ||
+                !Number.isSafeInteger(payload.durationMs) || payload.durationMs < 0 || payload.durationMs > 86_400_000)
+        ) {
+            throw new Error("Invalid command outcome or duration.");
+        }
+        const submittedName = requireBoundedString(payload.command, "command", 128);
+        const definition = getSlashCommandDefinition(submittedName, "workspace");
+        const command = definition?.name || "unknown";
+        if (
+            !definition && !(["start", "finish"].includes(payload.phase) &&
+                (payload.phase !== "finish" || payload.outcome === "rejected"))
+        ) {
+            throw new Error("Unknown command observation must be rejected.");
+        }
+        if (payload.sessionId !== undefined) {
+            const sessionId = requireBoundedString(payload.sessionId, "sessionId", 128);
+            const session = ctx.state.store.getSessionById(sessionId);
+            if (!session || !sessionBelongsToOwnerProject(ctx.state.store, session, ctx.params.projectId)) {
+                throw new Error("Session does not belong to this Project.");
+            }
+        }
         const { recordSlashCommandMetric } = await import("../../../shared/workflow/command-metrics.ts");
+        const submittedAlias = typeof payload.alias === "string" &&
+                getSlashCommandDefinition(payload.alias, "workspace")?.name === command && payload.alias !== command
+            ? payload.alias
+            : undefined;
         await recordSlashCommandMetric({
-            invocationId: payload.invocationId,
-            command: payload.command,
-            alias: payload.alias,
-            kind: payload.kind || "builtin",
+            invocationId: id,
+            command,
+            alias: submittedAlias || (definition && submittedName !== command ? submittedName : undefined),
+            kind: "builtin",
             surface: "workspace",
             projectRoot: root,
             sessionId: payload.sessionId,
-            phase: payload.phase || "finish",
-            outcome: payload.outcome || "succeeded",
-            durationMs: payload.durationMs,
-            errorReason: payload.errorReason,
+            phase: payload.phase,
+            outcome: payload.phase === "finish" ? payload.outcome : undefined,
+            durationMs: payload.phase === "finish" ? payload.durationMs : undefined,
+            dispatched: payload.phase === "finish" ? payload.dispatched : undefined,
+            errorReason: !definition
+                ? "unknown_command"
+                : payload.phase === "finish" && payload.outcome === "rejected"
+                ? "rejected"
+                : payload.phase === "finish" && payload.outcome === "failed"
+                ? "failed"
+                : null,
         });
         return ownerJson({ ok: true });
     } catch (error) {

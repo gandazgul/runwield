@@ -46,22 +46,23 @@ track that TODO. Do not add the setting or its UI in this change.
 
 Owning Core requirements and preserved scenarios:
 
-- [Models and providers](../prd/runwield-core-prd.md#models-and-providers): **Change models without losing Session or
+- [Models and providers](../../prd/runwield-core-prd.md#models-and-providers): **Change models without losing Session or
   workflow context.** Preserve selection, authentication, custom providers, and Agent-specific options.
-- [Agent and skill customization](../prd/runwield-core-prd.md#agent-and-skill-customization): **Respect user
+- [Agent and skill customization](../../prd/runwield-core-prd.md#agent-and-skill-customization): **Respect user
   customization while retaining workflow capabilities.** Skill instructions must reach the model; required tools and
   precedence stay intact.
-- [Session continuity](../prd/runwield-core-prd.md#session-continuity): **Continue the same saved work across clients.**
-  Preserve saved history, Agent/model choices, and continuation without replaying earlier actions.
-- [Compaction and image context](../prd/runwield-core-prd.md#compaction-and-image-context): **Retain useful conversation
-  and attachment context.** Preserve instructions and images through compaction and resume, including compiled releases.
-- [Execution, validation, and recovery](../prd/runwield-core-prd.md#execution-validation-and-recovery): preserve
+- [Session continuity](../../prd/runwield-core-prd.md#session-continuity): **Continue the same saved work across
+  clients.** Preserve saved history, Agent/model choices, and continuation without replaying earlier actions.
+- [Compaction and image context](../../prd/runwield-core-prd.md#compaction-and-image-context): **Retain useful
+  conversation and attachment context.** Preserve instructions and images through compaction and resume, including
+  compiled releases.
+- [Execution, validation, and recovery](../../prd/runwield-core-prd.md#execution-validation-and-recovery): preserve
   accepted workflow decisions and recovery behavior. Transcript output remains evidence, not transition authority.
 
 Proposed product addition: under Models and providers, state that automatic prompt-cache warming is disabled in Core;
 this upgrade must not add warming requests or charges. No existing requirement is removed. Other changes implement
 compatibility, not new user workflows. Preserve the current meanings of Session, Session Transcript, Named Invocation,
-Prompt Template, Skill, and Workflow Tool Event in [domain language](../domain-language.md).
+Prompt Template, Skill, and Workflow Tool Event in [domain language](../../domain-language.md).
 
 Evidence: upstream
 [coding-agent changelog](https://github.com/earendil-works/pi/blob/v0.87.0/packages/coding-agent/CHANGELOG.md),
@@ -126,9 +127,9 @@ Respect existing applicable edits, including omissions and later replacements. D
 or borrow edits from sibling branches. Reopening the same Session must not append duplicates. Do not mutate Sessions
 while listing or rendering history.
 
-This follows [ADR-015](../adr/015-file-authoritative-session-bundles.md): Pi files remain authoritative, and all writes
-use the existing Session Writer Lock. A request-only rewrite was set aside because compaction also needs the exact saved
-expansion; maintaining two restoration paths would risk divergence.
+This follows [ADR-015](../../adr/015-file-authoritative-session-bundles.md): Pi files remain authoritative, and all
+writes use the existing Session Writer Lock. A request-only rewrite was set aside because compaction also needs the
+exact saved expansion; maintaining two restoration paths would risk divergence.
 
 ### Result types and warming policy
 

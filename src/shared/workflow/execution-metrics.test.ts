@@ -1,11 +1,15 @@
 import { assert, assertEquals } from "@std/assert";
 import { withWorkflowMetricsFixture } from "../../testing/workflow-metrics-fixture.ts";
+import { recordWorkflowMetric } from "./metrics.js";
+import { setCustomSetting } from "../settings.js";
+import { SlashCommandMetricsTracker } from "./command-metrics.ts";
 import {
     classifyMemoryOperation,
     estimateToolSchemaTokens,
     ExecutionMetricsRecorder,
     extractCodeBatchOperations,
     normalizeBashCommand,
+    SessionContextMetricsRecorder,
 } from "./execution-metrics.ts";
 
 Deno.test("normalizeBashCommand normalizes simple and subcommand structures", () => {
@@ -42,6 +46,7 @@ Deno.test("normalizeBashCommand handles pipelines, logical chains, and redirects
 
 Deno.test("normalizeBashCommand classifies command substitution and unbalanced quotes as unknown", () => {
     assertEquals(normalizeBashCommand("echo $(whoami)"), ["unknown"]);
+    assertEquals(normalizeBashCommand("env sh -c 'git status'"), ["unknown"]);
     assertEquals(normalizeBashCommand("cat `pwd`/file"), ["unknown"]);
     assertEquals(normalizeBashCommand("echo 'unterminated quote"), ["unknown"]);
     assertEquals(normalizeBashCommand('echo "unterminated double quote'), ["unknown"]);
@@ -79,15 +84,18 @@ Deno.test("classifyMemoryOperation identifies action and scope", () => {
 Deno.test("extractCodeBatchOperations parses show and outline child operations", () => {
     const rawArgs = {
         operations: [
-            { type: "show", symbol: "MyClass", path: "src/index.ts" },
-            { type: "outline", path: "src/utils.ts" },
+            { op: "show", target: "MyClass" },
+            { op: "outline", file: "src/utils.ts" },
         ],
     };
     const rawResult = {
-        results: [
-            { status: "success", truncated: false },
-            { status: "error", error: "file not found" },
-        ],
+        content: [{ type: "text", text: "batch result" }],
+        details: {
+            results: [
+                { status: "success", truncated: false },
+                { status: "error", error: "file not found" },
+            ],
+        },
     };
     const ops = extractCodeBatchOperations(rawArgs, rawResult);
     assertEquals(ops.length, 2);
@@ -99,7 +107,47 @@ Deno.test("extractCodeBatchOperations parses show and outline child operations",
     assertEquals(ops[1], {
         batchKind: "outline",
         status: "error",
-        truncated: false,
+        truncated: null,
+    });
+});
+
+Deno.test("interrupted code_batch preserves known child results and marks unobserved children unavailable", async () => {
+    await withWorkflowMetricsFixture(async ({ projectRoot, readMetrics }) => {
+        const recorder = new ExecutionMetricsRecorder({
+            projectRoot,
+            sessionId: "batch-session",
+            executionId: "batch-execution",
+            agentName: "engineer",
+            provider: "anthropic",
+            model: "claude-sonnet",
+            backend: "pi",
+            sourceSurface: "tui",
+            executionKind: "root",
+            mode: "foreground",
+        });
+        const args = {
+            operations: [{ op: "show", target: "Example" }, { op: "outline", file: "example.ts" }, {
+                op: "show",
+                target: "Example",
+            }],
+        };
+        await recorder.recordToolStart("batch-interrupted", "code_batch", args);
+        await recorder.recordToolFinish("batch-interrupted", "code_batch", {
+            outcome: "canceled",
+            result: { details: { results: [{ status: "success" }] } },
+        });
+        await recorder.settleExecution("canceled");
+        const rows = await readMetrics();
+        assertEquals(
+            rows.filter((row) => row.event === "tool_operation")
+                .map((row) => [row.parentCallId, row.operationIndex, row.batchKind, row.status]),
+            [
+                ["batch-interrupted", 0, "show", "success"],
+                ["batch-interrupted", 1, "outline", "unavailable"],
+                ["batch-interrupted", 2, "show", "unavailable"],
+            ],
+        );
+        assertEquals(rows.find((row) => row.event === "tool_call_finished")?.outcome, "canceled");
     });
 });
 
@@ -107,7 +155,7 @@ Deno.test("estimateToolSchemaTokens calculates non-zero schema and resident toke
     const tool = {
         name: "test_tool",
         description: "A test tool for demonstration purposes",
-        inputSchema: {
+        parameters: {
             type: "object",
             properties: {
                 arg1: { type: "string", description: "First argument description" },
@@ -206,7 +254,7 @@ Deno.test("ExecutionMetricsRecorder writes exposure, tool start/finish, usage, s
         // Verify individual tool exposure
         const exposureBash = records.find((r) => r.event === "tool_exposure" && r.toolName === "bash");
         assert(exposureBash, "tool_exposure for bash must exist");
-        assert((exposureBash.schemaTokens as number) > 0);
+        assertEquals(exposureBash.schemaTokens, 0);
 
         // Verify tool start & operations
         const startRecord = records.find((r) => r.event === "tool_call_started");
@@ -275,5 +323,318 @@ Deno.test("ExecutionMetricsRecorder handles >40 tools with individual exposure r
 
         const individualExposures = records.filter((r) => r.event === "tool_exposure");
         assertEquals(individualExposures.length, 45, "All 45 tool exposures must be recorded without truncation");
+    });
+});
+
+Deno.test("duplicate tool observations leave one start and one terminal record", async () => {
+    await withWorkflowMetricsFixture(async ({ projectRoot, readMetrics }) => {
+        const recorder = new ExecutionMetricsRecorder({ projectRoot });
+        await recorder.recordToolStart("one", "read");
+        await recorder.recordToolStart("one", "read");
+        await recorder.recordToolFinish("one", "read", { result: "ok" });
+        await recorder.recordToolFinish("one", "read", { result: "private duplicate" });
+        await recorder.recordToolFinish("orphan", "read", { result: "private orphan" });
+        await recorder.settleExecution();
+        const records = await readMetrics();
+        assertEquals(records.filter((record) => record.event === "tool_call_started").length, 1);
+        assertEquals(records.filter((record) => record.event === "tool_call_finished").length, 1);
+        assertEquals(records.find((record) => record.event === "execution_finished")?.callCount, 1);
+    });
+});
+
+Deno.test("Pi usage reconciliation excludes history and deduplicates entry IDs", async () => {
+    await withWorkflowMetricsFixture(async ({ projectRoot, readMetrics }) => {
+        const recorder = new ExecutionMetricsRecorder({ projectRoot });
+        const usage = {
+            input: 7,
+            output: 2,
+            cacheRead: 3,
+            cacheWrite: 0,
+            totalTokens: 12,
+            cost: { input: 0.1, output: 0.2, cacheRead: 0, cacheWrite: 0, total: 0.3 },
+        };
+        const entries = [
+            { id: "old", type: "usage", usage, kind: "cache_warm", provider: "anthropic", model: "claude" },
+            { id: "new", type: "compaction", usage },
+            { id: "summary", type: "branch_summary", usage },
+            { id: "standalone", type: "usage", usage, kind: "cache_warm", provider: "anthropic", model: "claude" },
+        ] as Parameters<typeof recorder.reconcilePiEntries>[0];
+        await recorder.reconcilePiEntries(entries, new Set(["old"]));
+        await recorder.reconcilePiEntries(entries, new Set(["old"]));
+        await recorder.settleExecution("failed", "failed");
+        const records = (await readMetrics()).filter((record) => record.event === "model_usage");
+        assertEquals(records.map((record) => record.sourceId), ["new", "summary", "standalone"]);
+        assertEquals(records.map((record) => record.usageKind), ["compaction", "summary", "standalone"]);
+        assertEquals(records.every((record) => record.inputTokens === 7 && record.costSource === "calculated"), true);
+    });
+});
+
+Deno.test("parallel v2 observations leave complete JSONL rows with unique observation identities", async () => {
+    await withWorkflowMetricsFixture(async ({ projectRoot, readMetrics }) => {
+        const recorder = new ExecutionMetricsRecorder({ projectRoot });
+        await Promise.all(
+            Array.from(
+                { length: 32 },
+                (_, index) => recorder.recordToolStart(`call-${index}`, "read", { path: `/private/${index}` }),
+            ),
+        );
+        await recorder.settleExecution();
+        const records = await readMetrics();
+        assertEquals(records.filter((record) => record.event === "tool_call_started").length, 32);
+        assertEquals(new Set(records.map((record) => record.eventId)).size, records.length);
+        assertEquals(new Set(records.map((record) => record.seq)).size, records.length);
+        assertEquals(JSON.stringify(records).includes("/private/"), false);
+    });
+});
+
+Deno.test("v2 writer excludes private content in errors, links, and nested measurements", async () => {
+    await withWorkflowMetricsFixture(async ({ projectRoot, readMetrics }) => {
+        const secret = "PRIVATE-PROVIDER-ERROR /private/repo/file";
+        await recordWorkflowMetric({
+            v: 2,
+            category: "execution",
+            event: "execution_finished",
+            recorderId: "rec-1",
+            seq: 0,
+            executionId: secret,
+            reason: secret,
+            outcome: "failed",
+            agent: secret,
+            coverage: { tools: "complete", usage: secret, private: secret },
+            staticCategoryCounts: { systemTokens: secret },
+            details: { secret },
+        }, projectRoot);
+        const records = await readMetrics();
+        assertEquals(records.length, 1);
+        assertEquals(JSON.stringify(records).includes(secret), false);
+        assertEquals(records[0].reason, undefined);
+        assertEquals(records[0].coverage, { tools: "complete" });
+    });
+});
+
+Deno.test("CLI detail usage remains explicitly non-additive and repeated sources do not change coverage", async () => {
+    await withWorkflowMetricsFixture(async ({ projectRoot, readMetrics }) => {
+        const recorder = new ExecutionMetricsRecorder({ projectRoot });
+        const detail = {
+            sourceId: "msg_1",
+            usageKind: "request" as const,
+            aggregationBasis: "alternative" as const,
+            inputTokens: 8,
+            outputTokens: 2,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            costAmount: 0.08,
+            costSource: "reported" as const,
+        };
+        await recorder.recordModelUsage(detail);
+        await recorder.recordModelUsage({ ...detail, outputTokens: null });
+        await recorder.recordModelUsage({
+            ...detail,
+            sourceId: "claude_turn_total",
+            usageKind: "turn",
+            aggregationBasis: "turn",
+            inputTokens: 10,
+            costAmount: 0.10,
+        });
+        await recorder.settleExecution();
+        const records = await readMetrics();
+        assertEquals(
+            records.filter((record) => record.event === "model_usage").map((record) => record.aggregationBasis),
+            ["alternative", "turn"],
+        );
+        assertEquals(
+            (records.find((record) => record.event === "execution_finished")?.coverage as { usage: string }).usage,
+            "complete",
+        );
+    });
+});
+
+Deno.test("shell normalization rejects dynamic arithmetic and unfinished chains", () => {
+    assertEquals(normalizeBashCommand("echo $[1+1]"), ["unknown"]);
+    assertEquals(normalizeBashCommand("git status |"), ["unknown"]);
+    assertEquals(normalizeBashCommand("git status && ; echo done"), ["unknown"]);
+});
+
+Deno.test("unified Memory recall and absent batch truncation preserve unknown measurements", () => {
+    assertEquals(classifyMemoryOperation("memory", { action: "recall", scope: "project" }), {
+        action: "recall",
+        scope: "unified",
+    });
+    assertEquals(extractCodeBatchOperations({ operations: [{ op: "show" }] })[0].truncated, null);
+});
+
+Deno.test("reconciled Pi tool-result usage retains zero cost and observed turn identity", async () => {
+    await withWorkflowMetricsFixture(async ({ projectRoot, readMetrics }) => {
+        const recorder = new ExecutionMetricsRecorder({ projectRoot, sessionId: "pi-usage" });
+        await recorder.recordResponseLatency("turn_start");
+        const usage = {
+            input: 30,
+            output: 4,
+            cacheRead: 2,
+            cacheWrite: 0,
+            totalTokens: 36,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+        };
+        const entry = {
+            id: "tool-usage",
+            parentId: null,
+            timestamp: new Date().toISOString(),
+            type: "message" as const,
+            message: {
+                role: "toolResult",
+                toolCallId: "call-1",
+                toolName: "read",
+                content: [],
+                isError: true,
+                timestamp: Date.now(),
+                usage,
+            },
+        };
+        recorder.associatePiTurnEntries(
+            [entry as Parameters<typeof recorder.reconcilePiEntries>[0][number]],
+            new Set(),
+        );
+        await recorder.reconcilePiEntries(
+            [entry as Parameters<typeof recorder.reconcilePiEntries>[0][number]],
+            new Set(),
+        );
+        await recorder.settleExecution("failed");
+        const row = (await readMetrics()).find((record) => record.event === "model_usage");
+        assert(row);
+        assertEquals([row.usageKind, row.costAmount, row.costSource, row.inputCacheBasis], [
+            "request",
+            0,
+            "calculated",
+            "excludes_cache",
+        ]);
+        assertEquals(typeof row.turnId, "string");
+    });
+});
+
+Deno.test("native duplicate source and bridge rejections keep one safe observation and truthful reason", async () => {
+    await withWorkflowMetricsFixture(async ({ projectRoot, readMetrics }) => {
+        const recorder = new ExecutionMetricsRecorder({ projectRoot });
+        await recorder.recordNativeToolInfo({ toolName: "view_file", stepIndex: 2 });
+        await recorder.recordNativeToolInfo({ toolName: "view_file", stepIndex: 2, status: "success" });
+        await recorder.recordToolStart("bridge-call", "read");
+        await recorder.recordNativeToolInfo({ toolName: "read", callId: "bridge-call" });
+        await recorder.recordBridgeMessage({
+            role: "toolResult",
+            toolCallId: "bridge-call",
+            toolName: "read",
+            content: [],
+            details: { reason: "invalid arguments for read: secret path" },
+            isError: true,
+            timestamp: Date.now(),
+        });
+        await recorder.recordToolStart("closed-call", "read");
+        await recorder.recordBridgeMessage({
+            role: "toolResult",
+            toolCallId: "closed-call",
+            toolName: "read",
+            content: [],
+            details: { reason: "an accepted terminal lifecycle call already closed the gate for this turn" },
+            isError: true,
+            timestamp: Date.now(),
+        });
+        await recorder.settleExecution("failed");
+        const rows = await readMetrics();
+        assertEquals(rows.filter((row) => row.event === "native_tool_observed").length, 1);
+        assertEquals(rows.find((row) => row.event === "native_tool_observed")?.stepIndex, 2);
+        assertEquals(rows.find((row) => row.event === "tool_call_finished")?.reason, "invalid_arguments");
+        assertEquals(
+            rows.find((row) => row.callId === "closed-call" && row.event === "tool_call_finished")?.reason,
+            "gate_closed",
+        );
+        assertEquals(JSON.stringify(rows).includes("secret path"), false);
+    });
+});
+
+Deno.test("each new metric family obeys opt-out and omits private tool and command content", async () => {
+    await withWorkflowMetricsFixture(async ({ projectRoot, readMetrics }) => {
+        await setCustomSetting("workflowMetrics", false, "project", projectRoot);
+        const emit = async () => {
+            const recorder = new ExecutionMetricsRecorder({ projectRoot, sessionId: "privacy-session" });
+            await recorder.recordExecutionStart();
+            await recorder.recordToolExposure([{
+                name: "bash",
+                description: "PRIVATE-TEXT",
+                parameters: { description: "PRIVATE-TEXT" },
+            }]);
+            await recorder.recordNativeToolInfo({ toolName: "Read", callId: "native-privacy", status: "success" });
+            await recorder.recordToolStart("call-privacy", "bash", { command: "echo PRIVATE-TEXT" });
+            await recorder.recordToolFinish("call-privacy", "bash", {
+                result: { content: [{ type: "text", text: "PRIVATE-TEXT" }] },
+            });
+            await recorder.recordModelUsage({ inputTokens: 3, outputTokens: 0 });
+            await recorder.recordContextSnapshot({ samplingPoint: "turn_end", capacity: 1024, currentUsage: 3 });
+            await recorder.recordCompaction({ reason: "threshold", phase: "start" });
+            await recorder.recordCompaction({ reason: "threshold", phase: "end", outcome: "success" });
+            await recorder.recordRetryStart({
+                retrySource: "summarization_retry",
+                attempt: 1,
+                maxAttempts: 3,
+                delayMs: 4,
+            });
+            await recorder.settleExecution();
+            const command = new SlashCommandMetricsTracker({
+                projectRoot,
+                command: "export",
+                kind: "builtin",
+                surface: "tui",
+            });
+            await command.recordStart();
+            await command.recordFinish({ outcome: "failed", errorReason: "failed" });
+        };
+        await emit();
+        assertEquals(await readMetrics(), []);
+        await setCustomSetting("workflowMetrics", true, "project", projectRoot);
+        await emit();
+        const rows = await readMetrics();
+        assertEquals(
+            new Set(rows.map((row) => row.category)),
+            new Set(["execution", "tool_usage", "model_usage", "context", "command"]),
+        );
+        for (
+            const event of [
+                "tool_exposure_summary",
+                "tool_exposure",
+                "native_tool_observed",
+                "compaction_started",
+                "compaction_finished",
+            ]
+        ) {
+            assertEquals(rows.some((row) => row.event === event), true, `${event} must honor opt-in`);
+        }
+        assertEquals(JSON.stringify(rows).includes("PRIVATE-TEXT"), false);
+    });
+});
+
+Deno.test("known package-task labels survive the writer", async () => {
+    await withWorkflowMetricsFixture(async ({ projectRoot, readMetrics }) => {
+        const recorder = new ExecutionMetricsRecorder({ projectRoot });
+        await recorder.recordToolStart("npm-call", "bash", { command: "npm run build && pnpm run lint" });
+        await recorder.recordToolFinish("npm-call", "bash");
+        await recorder.settleExecution();
+        assertEquals(
+            (await readMetrics()).filter((row) => row.operationKind === "bash_command")
+                .map((row) => row.commandLabel),
+            ["npm run build", "pnpm run lint"],
+        );
+    });
+});
+
+Deno.test("standalone summary retry retains source, index, delay and settled outcome", async () => {
+    await withWorkflowMetricsFixture(async ({ projectRoot, readMetrics }) => {
+        const recorder = new SessionContextMetricsRecorder(projectRoot, "summary-session", null);
+        await recorder.retryStart(2, 3, 250);
+        await recorder.retryFinish(2, "failed");
+        const rows = await readMetrics();
+        assertEquals(rows.map((row) => [row.event, row.retrySource, row.attempt]), [
+            ["retry_started", "summarization_retry", 2],
+            ["retry_finished", "summarization_retry", 2],
+        ]);
+        assertEquals([rows[0].delayMs, rows[1].outcome], [250, "failed"]);
+        assertEquals(rows.every((row) => row.executionId === undefined), true);
     });
 });

@@ -555,6 +555,19 @@ async function dispatchAcpBuiltinCommand(options) {
     };
     try {
         if (!definition) {
+            const root = options.runtime.getSessionSnapshot?.(runtimeSessionId)?.cwd;
+            if (root) {
+                const rejected = new SlashCommandMetricsTracker({
+                    command: "unknown",
+                    kind: "builtin",
+                    surface: "acp",
+                    projectRoot: root,
+                    sessionId: runtimeSessionId,
+                    requestId: options.requestId,
+                });
+                await rejected.recordStart();
+                await rejected.recordFinish({ outcome: "rejected", errorReason: "unknown_command" });
+            }
             const reserved = getCommandDefinition(options.commandName);
             sendMessage(
                 reserved
@@ -565,8 +578,22 @@ async function dispatchAcpBuiltinCommand(options) {
             return { stopReason: "end_turn" };
         }
         if (["help", "--help", "-h"].includes(options.args[0] || "")) {
+            const root = options.runtime.getSessionSnapshot?.(runtimeSessionId)?.cwd;
+            const helpTracker = root
+                ? new SlashCommandMetricsTracker({
+                    command: definition.name,
+                    kind: "builtin",
+                    surface: "acp",
+                    projectRoot: root,
+                    sessionId: runtimeSessionId,
+                    requestId: options.requestId,
+                })
+                : null;
+            await helpTracker?.recordStart();
+            await helpTracker?.recordDispatched();
             const { formatCommandHelp } = await import("../cmd/help/index.js");
             sendMessage(formatCommandHelp(definition.name) || `No help is available for /${definition.name}.`);
+            await helpTracker?.recordFinish({ outcome: "succeeded" });
             await Promise.allSettled(pendingNotifications);
             return { stopReason: "end_turn" };
         }
@@ -646,26 +673,39 @@ async function dispatchAcpBuiltinCommand(options) {
         };
         const commandTui = { requestRender: () => {}, setFocus: () => {} };
         const snapshot = options.runtime.getSessionSnapshot?.(runtimeSessionId);
-        const tracker = new SlashCommandMetricsTracker({
-            command: definition.name,
-            alias: options.commandName !== definition.name ? options.commandName : undefined,
-            kind: "builtin",
-            surface: "acp",
-            projectRoot: snapshot?.cwd || Deno.cwd(),
-            sessionId: runtimeSessionId,
-            requestId: options.requestId,
-        });
-        await tracker.recordStart();
+        const tracker = snapshot?.cwd
+            ? new SlashCommandMetricsTracker({
+                command: definition.name,
+                alias: options.commandName !== definition.name ? options.commandName : undefined,
+                kind: "builtin",
+                surface: "acp",
+                projectRoot: snapshot.cwd,
+                sessionId: runtimeSessionId,
+                requestId: options.requestId,
+            })
+            : null;
+        const picker = (definition.name === "agent" || definition.name === "model") && options.args.length === 0;
+        await tracker?.recordStart(picker ? "opened" : "start");
+        if (!picker) await tracker?.recordDispatched();
+        if (picker) {
+            const select = commandUiAPI.promptSelect;
+            commandUiAPI.promptSelect = async (...args) => {
+                const selected = await select(...args);
+                if (selected) await tracker?.recordDispatched();
+                return selected;
+            };
+        }
         let outcome = "succeeded";
         let errorReason = null;
         try {
-            await definition.execute(options.args, {
+            const result = await definition.execute(options.args, {
                 uiAPI: commandUiAPI,
                 editor: commandEditor,
                 tui: commandTui,
                 sessionRuntime: options.runtime,
                 sessionId: runtimeSessionId,
                 slashSurface: "acp",
+                commandInvocationId: tracker?.invocationId,
                 replaceRuntimeSession: (nextSessionId) => {
                     const replacementSnapshot = options.runtime.getSessionSnapshot(nextSessionId);
                     options.sessionMap.replaceRuntimeSession(options.acpSessionId, {
@@ -675,13 +715,14 @@ async function dispatchAcpBuiltinCommand(options) {
                     runtimeSessionId = nextSessionId;
                 },
             });
+            if (result === "failed" || result === "canceled" || result === "rejected") outcome = result;
         } catch (execError) {
             outcome = prompt.cancelled ? "canceled" : "failed";
-            errorReason = execError instanceof Error ? execError.message : String(execError);
+            errorReason = "failed";
             throw execError;
         } finally {
             if (prompt.cancelled && outcome !== "failed") outcome = "canceled";
-            await tracker.recordFinish({
+            await tracker?.recordFinish({
                 outcome: /** @type {import('../shared/workflow/command-metrics.ts').SlashCommandOutcome} */ (outcome),
                 errorReason,
             });
@@ -1447,8 +1488,26 @@ function createRunWieldAcpServer(context) {
         const requestedCommand = extractAcpBuiltinCommand(request.prompt);
         if (requestedCommand?.name === "plan-review" && requestedCommand.args.length === 0) {
             const snapshot = runtime.getSessionSnapshot(runtimeSessionId);
+            const planReviewTracker = snapshot?.cwd
+                ? new SlashCommandMetricsTracker({
+                    command: "plan-review",
+                    kind: "builtin",
+                    surface: "acp",
+                    projectRoot: snapshot.cwd,
+                    sessionId: runtimeSessionId,
+                })
+                : null;
             if (snapshot?.livePlanReview) {
-                const result = await runtime.reopenPlanReview(runtimeSessionId);
+                await planReviewTracker?.recordStart();
+                await planReviewTracker?.recordDispatched();
+                let result;
+                try {
+                    result = await runtime.reopenPlanReview(runtimeSessionId);
+                    await planReviewTracker?.recordFinish({ outcome: result.url ? "succeeded" : "failed" });
+                } catch (error) {
+                    await planReviewTracker?.recordFinish({ outcome: "failed", errorReason: "failed" });
+                    throw error;
+                }
                 await notifyClient(context, methods.client.session.update, {
                     sessionId: acpSessionId,
                     update: {
@@ -1463,6 +1522,8 @@ function createRunWieldAcpServer(context) {
                 return { stopReason: "end_turn" };
             }
             if (sessionMap.getRecord(acpSessionId)?.activePrompt || operations.has(acpSessionId)) {
+                await planReviewTracker?.recordStart();
+                await planReviewTracker?.recordFinish({ outcome: "rejected", errorReason: "unavailable" });
                 await notifyClient(context, methods.client.session.update, {
                     sessionId: acpSessionId,
                     update: {

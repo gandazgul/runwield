@@ -80,7 +80,7 @@ function makeTuiHarness(): AgentTuiHarness {
     return { editor, terminal, tui, uiAPI };
 }
 
-async function captureLogs(run: () => void | Promise<void>): Promise<string[]> {
+async function captureLogs(run: () => void | Promise<unknown>): Promise<string[]> {
     const logs: string[] = [];
     const original = console.log;
     console.log = (message = "") => logs.push(String(message));

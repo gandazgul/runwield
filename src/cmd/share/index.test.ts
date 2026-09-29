@@ -90,12 +90,15 @@ Deno.test("share reports GitHub CLI preflight failures before exporting the real
         try {
             const missing = createGitHubFixture({ failAt: "version" });
             const missingUi = createUi();
-            await runShareCommand([], {
-                sessionId: created.sessionId,
-                sessionRuntime: runtime,
-                uiAPI: missingUi.uiAPI,
-                githubCli: missing.port,
-            });
+            assertEquals(
+                await runShareCommand([], {
+                    sessionId: created.sessionId,
+                    sessionRuntime: runtime,
+                    uiAPI: missingUi.uiAPI,
+                    githubCli: missing.port,
+                }),
+                "failed",
+            );
             assertEquals(missing.invocations.length, 1);
             assertStringIncludes(missingUi.messages[0].message, "not installed");
 

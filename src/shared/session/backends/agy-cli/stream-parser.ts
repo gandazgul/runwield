@@ -2,8 +2,10 @@ import type { AgyCliBackendStatusKind } from "./failure.ts";
 import { isAgyAuthFailure, isAgyMcpUnavailable, isAgyPermissionDenied, sanitizeAgyStatusMessage } from "./failure.ts";
 
 export interface AgyCliUsage {
-    inputTokens: number;
-    outputTokens: number;
+    inputTokens: number | null;
+    outputTokens: number | null;
+    cacheReadTokens: number | null;
+    cacheWriteTokens: number | null;
 }
 
 export interface AgyCliMetadata {
@@ -31,9 +33,17 @@ export interface AgyCliAssistantDelta {
     text: string;
 }
 
+export interface AgyCliToolInfoObservation {
+    toolName?: string;
+    callId?: string;
+    stepIndex?: number;
+    status?: "success" | "error";
+}
+
 export interface AgyCliStreamCallbacks {
     onDelta?: (delta: AgyCliAssistantDelta) => void;
-    onToolInfo?: () => void;
+    onToolInfo?: (observation: AgyCliToolInfoObservation) => void;
+    onUsage?: (usage: AgyCliUsage) => void;
 }
 
 type JsonScalar = string | number | boolean | null;
@@ -46,7 +56,7 @@ type JsonValue = JsonScalar | JsonArray | JsonRecord;
 type AgyCliStreamEvent =
     | { kind: "init"; agent?: string; model?: string; sessionId?: string }
     | { kind: "text_delta"; text: string }
-    | { kind: "tool_info"; permissionDetail?: string }
+    | { kind: "tool_info"; permissionDetail?: string; observation: AgyCliToolInfoObservation }
     | {
         kind: "result";
         text: string;
@@ -59,7 +69,12 @@ type AgyCliStreamEvent =
         permissionDetails: string[];
     };
 
-const emptyUsage: AgyCliUsage = { inputTokens: 0, outputTokens: 0 };
+const emptyUsage: AgyCliUsage = {
+    inputTokens: null,
+    outputTokens: null,
+    cacheReadTokens: null,
+    cacheWriteTokens: null,
+};
 
 export class AgyCliStreamError extends Error {
     readonly kind: Extract<AgyCliBackendStatusKind, "malformed_stream" | "empty_result" | "result_mismatch">;
@@ -79,15 +94,19 @@ function asString(value: JsonValue | undefined): string {
     return typeof value === "string" ? value : "";
 }
 
-function asNumber(value: JsonValue | undefined): number {
-    return typeof value === "number" && Number.isFinite(value) ? value : 0;
+function asNullableNumber(value: JsonValue | undefined): number | null {
+    return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function readUsage(value: JsonValue | undefined): AgyCliUsage {
     const usage = isJsonRecord(value) ? value : {};
     return {
-        inputTokens: asNumber(usage.input_tokens) || asNumber(usage.inputTokens) || asNumber(usage.input),
-        outputTokens: asNumber(usage.output_tokens) || asNumber(usage.outputTokens) || asNumber(usage.output),
+        inputTokens: asNullableNumber(usage.input_tokens) ?? asNullableNumber(usage.inputTokens) ??
+            asNullableNumber(usage.input),
+        outputTokens: asNullableNumber(usage.output_tokens) ?? asNullableNumber(usage.outputTokens) ??
+            asNullableNumber(usage.output),
+        cacheReadTokens: asNullableNumber(usage.cache_read_tokens) ?? asNullableNumber(usage.cacheReadTokens),
+        cacheWriteTokens: asNullableNumber(usage.cache_write_tokens) ?? asNullableNumber(usage.cacheWriteTokens),
     };
 }
 
@@ -143,6 +162,25 @@ function readDeniedActionNames(record: JsonRecord, result: JsonRecord): string[]
     return [...names];
 }
 
+function readToolInfo(update: JsonRecord): AgyCliToolInfoObservation {
+    const info = isJsonRecord(update.tool_info) ? update.tool_info : undefined;
+    const name = asString(info?.name) || asString(update.tool_name);
+    const id = asString(info?.id) || asString(update.tool_call_id);
+    const state = asString(update.state).toLowerCase();
+    return {
+        ...(name && /^[A-Za-z][A-Za-z0-9_.-]{0,79}$/.test(name) ? { toolName: name } : {}),
+        ...(id && /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(id) ? { callId: id } : {}),
+        ...(typeof update.step_index === "number" && Number.isSafeInteger(update.step_index) && update.step_index >= 0
+            ? { stepIndex: update.step_index }
+            : {}),
+        ...(state === "error"
+            ? { status: "error" as const }
+            : state === "success"
+            ? { status: "success" as const }
+            : {}),
+    };
+}
+
 function readToolPermissionDetail(update: JsonRecord): string | undefined {
     const info = isJsonRecord(update.tool_info) ? update.tool_info : undefined;
     const error = info && isJsonRecord(info.error) ? info.error : undefined;
@@ -187,18 +225,22 @@ export function parseAgyCliJsonLine(line: string): AgyCliStreamEvent | null {
             const text = readTextDelta(parsed);
             return text ? { kind: "text_delta", text } : null;
         }
-        if (updateType === "tool_info") return { kind: "tool_info" };
+        if (updateType === "tool_info") return { kind: "tool_info", observation: readToolInfo(parsed) };
         const nested = isJsonRecord(parsed.step_update) ? parsed.step_update : undefined;
         if (nested) {
             if (isJsonRecord(nested.tool_info)) {
-                return { kind: "tool_info", permissionDetail: readToolPermissionDetail(nested) };
+                return {
+                    kind: "tool_info",
+                    permissionDetail: readToolPermissionDetail(nested),
+                    observation: readToolInfo(nested),
+                };
             }
             const nestedType = asString(nested.type) || asString(nested.update_type) || asString(nested.kind);
             if (nestedType === "text_delta" || asString(nested.step_type) === "agent_response") {
                 const text = readTextDelta(nested);
                 return text ? { kind: "text_delta", text } : null;
             }
-            if (nestedType === "tool_info") return { kind: "tool_info" };
+            if (nestedType === "tool_info") return { kind: "tool_info", observation: readToolInfo(nested) };
         }
         return null;
     }
@@ -261,12 +303,13 @@ export async function parseAgyCliStream(
             if (event.permissionDetail && toolPermissionDetails.size < 5) {
                 toolPermissionDetails.add(event.permissionDetail);
             }
-            callbacks.onToolInfo?.();
+            callbacks.onToolInfo?.(event.observation);
             return;
         }
         sawResult = true;
         rawResultText = event.text;
         usage = event.usage;
+        callbacks.onUsage?.(usage);
         status = event.status;
         errorText = event.errorText;
         deniedActions = event.deniedActions;

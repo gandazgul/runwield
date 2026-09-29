@@ -1,6 +1,7 @@
 import { assert, assertEquals } from "@std/assert";
 import { withWorkflowMetricsFixture } from "../../testing/workflow-metrics-fixture.ts";
 import { recordSlashCommandMetric, SlashCommandMetricsTracker } from "./command-metrics.ts";
+import { getWorkflowMetricsFilePath } from "./metrics.js";
 
 Deno.test("recordSlashCommandMetric records direct start and finish observations", async () => {
     await withWorkflowMetricsFixture(async ({ projectRoot, readMetrics }) => {
@@ -117,5 +118,30 @@ Deno.test("SlashCommandMetricsTracker records failures with reason codes", async
         assertEquals(finish.event, "command_finished");
         assertEquals(finish.outcome, "failed");
         assertEquals(finish.errorReason, "unknown_command");
+    });
+});
+
+Deno.test("both command finish APIs drain writes before returning", async () => {
+    await withWorkflowMetricsFixture(async ({ projectRoot }) => {
+        const tracker = new SlashCommandMetricsTracker({
+            projectRoot,
+            command: "share",
+            kind: "builtin",
+            surface: "tui",
+        });
+        await tracker.recordStart();
+        await tracker.recordFinish({ outcome: "failed" });
+        await recordSlashCommandMetric({
+            projectRoot,
+            invocationId: "direct-drain",
+            command: "export",
+            kind: "builtin",
+            surface: "acp",
+            phase: "finish",
+            outcome: "failed",
+        });
+        const lines = (await Deno.readTextFile(getWorkflowMetricsFilePath(projectRoot))).trim().split("\n")
+            .map((line) => JSON.parse(line));
+        assertEquals(lines.filter((line) => line.event === "command_finished").length, 2);
     });
 });

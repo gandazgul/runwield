@@ -17,9 +17,90 @@ export type ExecutionOutcome = "succeeded" | "failed" | "canceled" | "rejected" 
 export type UsageKind = "turn" | "request" | "compaction" | "summary" | "standalone";
 export type MeasurementAvailability = "complete" | "partial" | "unavailable";
 
+/** Session-local context operations are not Agent executions. */
+export class SessionContextMetricsRecorder {
+    private readonly recorderId = `rec_${crypto.randomUUID()}`;
+    private readonly startedAt = Date.now();
+    private seq = 0;
+    private readonly usageRecorder: ExecutionMetricsRecorder;
+
+    constructor(
+        private readonly projectRoot: string,
+        private readonly sessionId: string | null,
+        private readonly commandId: string | null,
+    ) {
+        this.usageRecorder = new ExecutionMetricsRecorder({
+            projectRoot,
+            sessionId: sessionId ?? undefined,
+            commandId: commandId ?? undefined,
+        });
+    }
+
+    private async record(
+        event: string,
+        fields: Record<string, string | number | ContextSnapshotObservation["staticCategoryCounts"] | null>,
+    ): Promise<void> {
+        await recordWorkflowMetric({
+            v: 2,
+            category: event.startsWith("retry_") ? "execution" : "context",
+            event,
+            recorderId: this.recorderId,
+            seq: this.seq++,
+            sessionId: this.sessionId,
+            commandId: this.commandId,
+            ...fields,
+        }, this.projectRoot);
+    }
+
+    async start(snapshot: ContextSnapshotObservation): Promise<void> {
+        await this.record("context_snapshot", {
+            samplingPoint: "before_compaction",
+            capacity: snapshot.capacity ?? null,
+            currentUsage: snapshot.currentUsage ?? null,
+            staticCategoryCounts: snapshot.staticCategoryCounts ?? null,
+            usageState: snapshot.usageState ?? "estimated",
+        });
+        await this.record("compaction_started", { reason: "manual", beforeTokens: snapshot.currentUsage ?? null });
+    }
+
+    async retryStart(attempt: number, maxAttempts: number, delayMs: number): Promise<void> {
+        await this.record("retry_started", { retrySource: "summarization_retry", attempt, maxAttempts, delayMs });
+    }
+
+    async retryFinish(attempt: number, outcome: "succeeded" | "failed" | "canceled"): Promise<void> {
+        await this.record("retry_finished", { retrySource: "summarization_retry", attempt, outcome });
+        await drainWorkflowMetrics(100);
+    }
+
+    async finish(
+        outcome: "success" | "error" | "canceled",
+        before: number | null,
+        after: number | null,
+        capacity: number | null,
+        entries: import("@earendil-works/pi-coding-agent").SessionEntry[],
+        priorIds: Set<string>,
+    ): Promise<void> {
+        await this.usageRecorder.reconcilePiEntries(entries, priorIds);
+        await this.record("context_snapshot", {
+            samplingPoint: "after_compaction",
+            capacity,
+            currentUsage: null,
+            usageState: "unknown_after_compaction",
+        });
+        await this.record("compaction_finished", {
+            outcome,
+            beforeTokens: before,
+            afterTokens: after,
+            durationMs: Math.max(0, Date.now() - this.startedAt),
+        });
+        await drainWorkflowMetrics(100);
+    }
+}
+
 export interface ExecutionRecorderOptions {
     projectRoot: string;
     sessionId?: string;
+    managedSessionId?: string;
     segmentId?: string;
     executionId?: string;
     requestId?: string;
@@ -29,19 +110,20 @@ export interface ExecutionRecorderOptions {
     parentExecutionId?: string;
     parentToolCallId?: string;
     taskId?: string;
-    agent: string;
+    agent?: string;
+    agentName?: string;
     provider?: string;
     model?: string;
     backend?: string;
-    dispatchKind?: "named" | "interactive";
+    dispatchKind?: import("../session/request-dispatch.ts").RequestDispatchKind | "named" | string;
     executionKind?: ExecutionKind;
     mode?: ExecutionMode;
     sourceSurface?: string;
 }
 
 export interface ModelUsageObservation {
-    sourceId: string;
-    usageKind: UsageKind;
+    sourceId?: string;
+    usageKind?: UsageKind;
     provider?: string;
     model?: string;
     inputTokens: number | null;
@@ -49,12 +131,14 @@ export interface ModelUsageObservation {
     cacheReadTokens?: number | null;
     cacheWriteTokens?: number | null;
     costAmount?: number | null;
+    costUsd?: number | null;
     costCurrency?: "USD";
     costSource?: "calculated" | "reported" | "unavailable";
     measurementAvailability?: MeasurementAvailability;
     unavailableReason?: string | null;
-    aggregationBasis?: "turn" | "request";
-    turnId?: string;
+    aggregationBasis?: "turn" | "request" | "alternative";
+    inputCacheBasis?: "includes_cache" | "excludes_cache" | "unknown";
+    turnId?: string | null;
     requestId?: string;
 }
 
@@ -66,7 +150,15 @@ export interface ContextSnapshotObservation {
         toolsTokens?: number;
         messagesTokens?: number;
     } | null;
-    usageState: "estimated" | "reported" | "unknown_after_compaction";
+    usageState?:
+        | "estimated"
+        | "reported"
+        | "unknown_after_compaction"
+        | "normal"
+        | "approaching_limit"
+        | "clean"
+        | "overflow"
+        | string;
     samplingPoint:
         | "execution_start"
         | "execution_end"
@@ -172,7 +264,8 @@ export function normalizeBashCommand(command: string): string[] {
 
     // Detect dynamic expressions, command substitutions, expansions, and backticks.
     if (
-        /`|\$\(|\$\{|\$\(\(|\$[A-Za-z_]|<[<(]|\(/.test(trimmed) ||
+        /`|\$\(|\$\{|\$\(\(|\$\[|\$[A-Za-z_0-9@*?#$!-]|<[<(]|<<|[\r\n]|\(/.test(trimmed) ||
+        /\b(?:sh|bash|zsh|dash)\s+-c\b|(?:^|[;&|]\s*)\b(?:sh|bash|zsh|dash)\b/.test(trimmed) ||
         !isBalancedQuoting(trimmed)
     ) {
         return ["unknown"];
@@ -180,6 +273,7 @@ export function normalizeBashCommand(command: string): string[] {
 
     // Split safely by shell pipeline/chain operators: |, &&, ||, ;, &
     const segments = splitShellSegments(trimmed);
+    if (!segments) return ["unknown"];
     const labels: string[] = [];
 
     for (const segment of segments) {
@@ -205,7 +299,7 @@ function isBalancedQuoting(input: string): boolean {
     return !singleOpen && !doubleOpen;
 }
 
-function splitShellSegments(input: string): string[] {
+function splitShellSegments(input: string): string[] | null {
     const segments: string[] = [];
     let current = "";
     let singleOpen = false;
@@ -229,14 +323,16 @@ function splitShellSegments(input: string): string[] {
                 } else if (char === "&" && input[i + 1] === "&") {
                     i++;
                 }
-                if (current.trim()) segments.push(current.trim());
+                if (!current.trim()) return null;
+                segments.push(current.trim());
                 current = "";
                 continue;
             }
         }
         current += char;
     }
-    if (current.trim()) segments.push(current.trim());
+    if (!current.trim()) return null;
+    segments.push(current.trim());
     return segments;
 }
 
@@ -397,9 +493,7 @@ export function classifyMemoryOperation(
 
     let scope: "project" | "global" | "unified" = "project";
     if (action === "recall") {
-        if (toolName.endsWith("_global") || record.scope === "global") scope = "global";
-        else if (record.scope === "project") scope = "project";
-        else scope = "unified";
+        scope = "unified";
     } else {
         if (toolName.endsWith("_global") || record.scope === "global") scope = "global";
         else scope = "project";
@@ -417,8 +511,8 @@ export function extractCodeBatchOperations(
     result?: unknown,
 ): Array<{
     batchKind: "show" | "outline";
-    status: "success" | "error" | "truncated";
-    truncated: boolean;
+    status: "success" | "error" | "truncated" | "unavailable";
+    truncated: boolean | null;
 }> {
     const record = args && typeof args === "object" ? (args as Record<string, unknown>) : {};
     const operations = Array.isArray(record.operations) ? record.operations : [];
@@ -427,12 +521,15 @@ export function extractCodeBatchOperations(
     let resultItems: Array<Record<string, unknown>> = [];
     if (result && typeof result === "object") {
         const resObj = result as Record<string, unknown>;
+        const details = resObj.details && typeof resObj.details === "object"
+            ? (resObj.details as Record<string, unknown>)
+            : null;
         if (Array.isArray(resObj.results)) {
             resultItems = resObj.results.filter((item): item is Record<string, unknown> =>
                 Boolean(item && typeof item === "object")
             );
-        } else if (Array.isArray(resObj.details?.results)) {
-            resultItems = (resObj.details as { results: unknown[] }).results.filter(
+        } else if (details && Array.isArray(details.results)) {
+            resultItems = details.results.filter(
                 (item): item is Record<string, unknown> => Boolean(item && typeof item === "object"),
             );
         }
@@ -440,16 +537,24 @@ export function extractCodeBatchOperations(
 
     return operations.map((op, index) => {
         const opObj = op && typeof op === "object" ? (op as Record<string, unknown>) : {};
-        const opKind = typeof opObj.kind === "string" ? opObj.kind : typeof opObj.type === "string" ? opObj.type : "";
+        const opKind = typeof opObj.op === "string"
+            ? opObj.op
+            : typeof opObj.kind === "string"
+            ? opObj.kind
+            : typeof opObj.type === "string"
+            ? opObj.type
+            : "";
         const batchKind: "show" | "outline" = opKind === "outline" ? "outline" : "show";
 
         const resItem = resultItems[index];
-        let status: "success" | "error" | "truncated" = "success";
-        let truncated = false;
+        let status: "success" | "error" | "truncated" | "unavailable" = "unavailable";
+        let truncated: boolean | null = null;
 
         if (resItem) {
-            if (resItem.isError === true || resItem.error) status = "error";
-            else if (resItem.truncated === true) {
+            if (typeof resItem.truncated === "boolean") truncated = resItem.truncated;
+            if (resItem.status === "success") status = "success";
+            if (resItem.status === "error" || resItem.isError === true || resItem.error) status = "error";
+            else if (resItem.status === "truncated" || resItem.truncated === true) {
                 status = "truncated";
                 truncated = true;
             }
@@ -466,11 +571,12 @@ export function estimateToolSchemaTokens(definition: {
     name: string;
     description?: string;
     parameters?: unknown;
+    residentTokens?: number;
 }): { schemaTokens: number; residentTokens: number } {
-    const schemaString = definition.parameters ? JSON.stringify(definition.parameters) : "{}";
-    const schemaTokens = estimateContextTextTokens(`${definition.name} ${schemaString}`);
-    const residentTokens = estimateContextTextTokens(
-        `${definition.name} ${definition.description || ""} ${schemaString}`,
+    const schemaString = definition.parameters ? JSON.stringify(definition.parameters) : "";
+    const schemaTokens = estimateContextTextTokens(schemaString);
+    const residentTokens = definition.residentTokens ?? estimateContextTextTokens(
+        `Tool: ${definition.name}\nDescription: ${definition.description || ""}\nParameters schema: ${schemaString}`,
     );
     return { schemaTokens, residentTokens };
 }
@@ -482,6 +588,7 @@ interface OpenToolCall {
     startedAt: number;
     seq: number;
     exposureId?: string;
+    args?: unknown;
 }
 
 /**
@@ -492,6 +599,7 @@ export class ExecutionMetricsRecorder {
     readonly executionId: string;
     readonly projectRoot: string;
     readonly sessionId?: string;
+    readonly managedSessionId?: string;
     readonly segmentId?: string;
     readonly requestId?: string;
     readonly attemptId?: string;
@@ -512,13 +620,22 @@ export class ExecutionMetricsRecorder {
     private seq = 0;
     private startedAt: number;
     private requestStartedAt?: number;
+    private currentTurnId?: string;
     private firstResponseAt?: number;
     private firstVisibleTextAt?: number;
     private completedAt?: number;
     private activeExposureId?: string;
     private observedCallCount = 0;
+    private missingToolEnds = false;
+    private observedContext = false;
+    private usageCoverage: MeasurementAvailability = "unavailable";
+    private usageIncomplete = false;
+    private inventoryCoverage: MeasurementAvailability = "unavailable";
     private openToolCalls = new Map<string, OpenToolCall>();
+    private completedToolCallIds = new Set<string>();
+    private nativeObservationIds = new Set<string>();
     private reconciledUsageEntryIds = new Set<string>();
+    private piEntryTurnIds = new Map<string, string>();
     private settled = false;
 
     constructor(options: ExecutionRecorderOptions) {
@@ -526,6 +643,7 @@ export class ExecutionMetricsRecorder {
         this.executionId = options.executionId || `exec_${crypto.randomUUID()}`;
         this.projectRoot = options.projectRoot;
         this.sessionId = options.sessionId;
+        this.managedSessionId = options.managedSessionId;
         this.segmentId = options.segmentId;
         this.requestId = options.requestId;
         this.attemptId = options.attemptId;
@@ -534,7 +652,7 @@ export class ExecutionMetricsRecorder {
         this.parentExecutionId = options.parentExecutionId;
         this.parentToolCallId = options.parentToolCallId;
         this.taskId = options.taskId;
-        this.agent = options.agent || "unknown";
+        this.agent = options.agent || options.agentName || "unknown";
         this.provider = options.provider;
         this.model = options.model;
         this.backend = options.backend || "pi";
@@ -554,15 +672,16 @@ export class ExecutionMetricsRecorder {
             v: 2,
             recorderId: this.recorderId,
             executionId: this.executionId,
-            ...(this.sessionId ? { sessionId: this.sessionId } : {}),
-            ...(this.segmentId ? { segmentId: this.segmentId } : {}),
-            ...(this.requestId ? { requestId: this.requestId } : {}),
-            ...(this.attemptId ? { attemptId: this.attemptId } : {}),
-            ...(this.turnId ? { turnId: this.turnId } : {}),
-            ...(this.commandId ? { commandId: this.commandId } : {}),
-            ...(this.parentExecutionId ? { parentExecutionId: this.parentExecutionId } : {}),
-            ...(this.parentToolCallId ? { parentToolCallId: this.parentToolCallId } : {}),
-            ...(this.taskId ? { taskId: this.taskId } : {}),
+            sessionId: this.sessionId ?? null,
+            managedSessionId: this.managedSessionId ?? null,
+            segmentId: this.segmentId ?? null,
+            requestId: this.requestId ?? null,
+            attemptId: this.attemptId ?? null,
+            turnId: this.currentTurnId ?? this.turnId ?? null,
+            commandId: this.commandId ?? null,
+            parentExecutionId: this.parentExecutionId ?? null,
+            parentToolCallId: this.parentToolCallId ?? null,
+            taskId: this.taskId ?? null,
             agent: this.agent,
             ...(this.provider ? { provider: this.provider } : {}),
             ...(this.model ? { model: this.model } : {}),
@@ -588,10 +707,12 @@ export class ExecutionMetricsRecorder {
     }
 
     async recordToolExposure(
-        tools: Array<{ name: string; description?: string; parameters?: unknown }>,
+        tools: Array<{ name: string; description?: string; parameters?: unknown; residentTokens?: number }>,
+        inventoryCoverage: MeasurementAvailability = "complete",
     ): Promise<string> {
         const exposureId = `exp_${crypto.randomUUID()}`;
         this.activeExposureId = exposureId;
+        this.inventoryCoverage = inventoryCoverage;
         const totalCount = tools.length;
         let totalSchemaTokens = 0;
         let totalResidentTokens = 0;
@@ -608,31 +729,32 @@ export class ExecutionMetricsRecorder {
             };
         });
 
-        // 1. Record exposure summary
+        const summarySeq = this.nextSeq();
+        const itemSeqs = evaluatedTools.map(() => this.nextSeq());
         await recordWorkflowMetric(
             {
                 ...this.baseLinks(),
                 category: "tool_usage",
                 event: "tool_exposure_summary",
-                seq: this.nextSeq(),
+                seq: summarySeq,
                 exposureId,
                 toolCount: totalCount,
                 estimatorVersion: "1",
-                inventoryCoverage: "complete",
+                inventoryCoverage,
                 totalSchemaTokens,
                 totalResidentTokens,
             },
             this.projectRoot,
         );
 
-        // 2. Record individual exposure items to safely support >40 tools without array truncation
-        for (const item of evaluatedTools) {
+        // One row per tool keeps inventories larger than 40 complete.
+        for (const [index, item] of evaluatedTools.entries()) {
             await recordWorkflowMetric(
                 {
                     ...this.baseLinks(),
                     category: "tool_usage",
                     event: "tool_exposure",
-                    seq: this.nextSeq(),
+                    seq: itemSeqs[index],
                     exposureId,
                     toolIndex: item.toolIndex,
                     toolName: item.toolName,
@@ -647,8 +769,69 @@ export class ExecutionMetricsRecorder {
         return exposureId;
     }
 
+    /** The bridge's committed messages are its authoritative call observations. */
+    async recordBridgeMessage(
+        message: import("@earendil-works/pi-coding-agent").SessionMessageEntry["message"],
+    ): Promise<void> {
+        if (message.role === "assistant") {
+            for (const part of message.content) {
+                if (part.type === "toolCall") await this.recordToolStart(part.id, part.name, part.arguments);
+            }
+        } else if (message.role === "toolResult") {
+            const reason = message.details && typeof message.details === "object" && "reason" in message.details &&
+                    typeof message.details.reason === "string"
+                ? message.details.reason
+                : null;
+            const outcome = reason === "aborted"
+                ? "canceled"
+                : reason && reason !== "execution_error"
+                ? "rejected"
+                : message.isError
+                ? "error"
+                : "success";
+            await this.recordToolFinish(message.toolCallId, message.toolName, {
+                outcome,
+                isError: message.isError,
+                reason: reason === "aborted"
+                    ? "aborted"
+                    : reason === "execution_error"
+                    ? "execution_error"
+                    : reason?.startsWith("invalid arguments")
+                    ? "invalid_arguments"
+                    : reason?.includes("closed the gate")
+                    ? "gate_closed"
+                    : reason
+                    ? "rejected"
+                    : undefined,
+                result: message,
+            });
+        }
+    }
+
+    async recordNativeToolInfo(
+        observation: { toolName?: string; callId?: string; stepIndex?: number; status?: "success" | "error" },
+    ): Promise<void> {
+        const identity = observation.callId ??
+            (observation.stepIndex !== undefined ? `step_${observation.stepIndex}` : null);
+        if (
+            identity && (this.nativeObservationIds.has(identity) || this.openToolCalls.has(identity) ||
+                this.completedToolCallIds.has(identity))
+        ) return;
+        if (identity) this.nativeObservationIds.add(identity);
+        await recordWorkflowMetric({
+            ...this.baseLinks(),
+            category: "tool_usage",
+            event: "native_tool_observed",
+            seq: this.nextSeq(),
+            callId: observation.callId ?? null,
+            stepIndex: observation.stepIndex ?? null,
+            toolName: observation.toolName ?? "unknown",
+            status: observation.status ?? null,
+        }, this.projectRoot);
+    }
+
     async recordToolStart(callId: string, toolName: string, args?: unknown): Promise<void> {
-        if (!callId) return;
+        if (!callId || this.settled || this.openToolCalls.has(callId) || this.completedToolCallIds.has(callId)) return;
         const subUsage = classifyToolSubUsage(toolName, args);
         const seq = this.nextSeq();
         const exposureId = this.activeExposureId;
@@ -660,8 +843,18 @@ export class ExecutionMetricsRecorder {
             startedAt: Date.now(),
             seq,
             exposureId,
+            args,
         });
         this.observedCallCount++;
+
+        // Capture child observations before any asynchronous write can interleave with this call.
+        const command = toolName === "bash" && args && typeof args === "object" &&
+                typeof (args as { command?: unknown }).command === "string"
+            ? (args as { command: string }).command
+            : "";
+        const labels = toolName === "bash" ? normalizeBashCommand(command) : [];
+        const memoryOp = toolName.startsWith("memory") ? classifyMemoryOperation(toolName, args) : null;
+        const operationSeqs = Array.from({ length: labels.length + (memoryOp ? 1 : 0) }, () => this.nextSeq());
 
         await recordWorkflowMetric(
             {
@@ -677,20 +870,14 @@ export class ExecutionMetricsRecorder {
             this.projectRoot,
         );
 
-        // Record tool operations if applicable
         if (toolName === "bash") {
-            const command =
-                args && typeof args === "object" && typeof (args as { command?: unknown }).command === "string"
-                    ? (args as { command: string }).command
-                    : "";
-            const labels = normalizeBashCommand(command);
             for (let i = 0; i < labels.length; i++) {
                 await recordWorkflowMetric(
                     {
                         ...this.baseLinks(),
                         category: "tool_usage",
                         event: "tool_operation",
-                        seq: this.nextSeq(),
+                        seq: operationSeqs[i],
                         parentCallId: callId,
                         operationIndex: i,
                         operationKind: "bash_command",
@@ -699,24 +886,21 @@ export class ExecutionMetricsRecorder {
                     this.projectRoot,
                 );
             }
-        } else if (toolName.startsWith("memory")) {
-            const memoryOp = classifyMemoryOperation(toolName, args);
-            if (memoryOp) {
-                await recordWorkflowMetric(
-                    {
-                        ...this.baseLinks(),
-                        category: "tool_usage",
-                        event: "tool_operation",
-                        seq: this.nextSeq(),
-                        parentCallId: callId,
-                        operationIndex: 0,
-                        operationKind: "memory",
-                        action: memoryOp.action,
-                        scope: memoryOp.scope,
-                    },
-                    this.projectRoot,
-                );
-            }
+        } else if (memoryOp) {
+            await recordWorkflowMetric(
+                {
+                    ...this.baseLinks(),
+                    category: "tool_usage",
+                    event: "tool_operation",
+                    seq: operationSeqs[0],
+                    parentCallId: callId,
+                    operationIndex: 0,
+                    operationKind: "memory",
+                    action: memoryOp.action,
+                    scope: memoryOp.scope,
+                },
+                this.projectRoot,
+            );
         }
     }
 
@@ -733,9 +917,11 @@ export class ExecutionMetricsRecorder {
             args?: unknown;
         } = {},
     ): Promise<void> {
-        if (!callId) return;
+        if (!callId || this.settled || this.completedToolCallIds.has(callId)) return;
         const open = this.openToolCalls.get(callId);
+        if (!open) return;
         this.openToolCalls.delete(callId);
+        this.completedToolCallIds.add(callId);
 
         const now = Date.now();
         const durationMs = options.durationMs !== undefined
@@ -760,9 +946,12 @@ export class ExecutionMetricsRecorder {
             options.truncated,
         );
 
-        // If code_batch, record child operations
-        if (effectiveToolName === "code_batch") {
-            const batchOps = extractCodeBatchOperations(options.args, options.result);
+        const batchOps = effectiveToolName === "code_batch"
+            ? extractCodeBatchOperations(options.args ?? open.args, options.result)
+            : [];
+        const operationSeqs = batchOps.map(() => this.nextSeq());
+        const finishSeq = this.nextSeq();
+        if (batchOps.length > 0) {
             for (let i = 0; i < batchOps.length; i++) {
                 const op = batchOps[i];
                 await recordWorkflowMetric(
@@ -770,7 +959,7 @@ export class ExecutionMetricsRecorder {
                         ...this.baseLinks(),
                         category: "tool_usage",
                         event: "tool_operation",
-                        seq: this.nextSeq(),
+                        seq: operationSeqs[i],
                         parentCallId: callId,
                         operationIndex: i,
                         operationKind: "code_batch",
@@ -788,7 +977,7 @@ export class ExecutionMetricsRecorder {
                 ...this.baseLinks(),
                 category: "tool_usage",
                 event: "tool_call_finished",
-                seq: this.nextSeq(),
+                seq: finishSeq,
                 callId,
                 exposureId,
                 toolName: effectiveToolName,
@@ -806,32 +995,104 @@ export class ExecutionMetricsRecorder {
         );
     }
 
-    async recordModelUsage(usage: ModelUsageObservation): Promise<void> {
-        if (this.reconciledUsageEntryIds.has(usage.sourceId)) return;
-        this.reconciledUsageEntryIds.add(usage.sourceId);
+    /** Associate persisted Pi entries with the turn that produced them before settlement. */
+    associatePiTurnEntries(
+        entries: import("@earendil-works/pi-coding-agent").SessionEntry[],
+        priorIds: Set<string>,
+    ): void {
+        if (!this.currentTurnId) return;
+        for (const entry of entries) {
+            if (!priorIds.has(entry.id)) this.piEntryTurnIds.set(entry.id, this.currentTurnId);
+        }
+    }
 
+    /** Reconcile only entries appended during this operation, including failed turns. */
+    async reconcilePiEntries(
+        entries: import("@earendil-works/pi-coding-agent").SessionEntry[],
+        priorIds: Set<string>,
+    ): Promise<void> {
+        for (const entry of entries) {
+            if (priorIds.has(entry.id)) continue;
+            let usage: import("@earendil-works/pi-ai").Usage | undefined;
+            let usageKind: UsageKind = "turn";
+            let provider = this.provider;
+            let model = this.model;
+            if (entry.type === "usage") {
+                usage = entry.usage;
+                usageKind = "standalone";
+                provider = entry.provider;
+                model = entry.model;
+            } else if (entry.type === "compaction" || entry.type === "branch_summary") {
+                usage = entry.usage;
+                usageKind = entry.type === "compaction" ? "compaction" : "summary";
+            } else if (
+                entry.type === "message" &&
+                (entry.message.role === "assistant" || entry.message.role === "toolResult")
+            ) {
+                usage = entry.message.usage;
+                usageKind = entry.message.role === "assistant" ? "turn" : "request";
+                if (entry.message.role === "assistant") {
+                    provider = entry.message.provider;
+                    model = entry.message.model;
+                }
+            }
+            if (!usage) continue;
+            await this.recordModelUsage({
+                sourceId: entry.id,
+                usageKind,
+                provider,
+                model,
+                inputTokens: typeof usage.input === "number" ? usage.input : null,
+                outputTokens: typeof usage.output === "number" ? usage.output : null,
+                cacheReadTokens: typeof usage.cacheRead === "number" ? usage.cacheRead : null,
+                cacheWriteTokens: typeof usage.cacheWrite === "number" ? usage.cacheWrite : null,
+                costAmount: typeof usage.cost?.total === "number" ? usage.cost.total : null,
+                costSource: typeof usage.cost?.total === "number" ? "calculated" : "unavailable",
+                inputCacheBasis: "excludes_cache",
+                aggregationBasis: usageKind === "request" ? "request" : "turn",
+                turnId: this.piEntryTurnIds.get(entry.id) ?? null,
+            });
+        }
+    }
+
+    async recordModelUsage(usage: ModelUsageObservation): Promise<void> {
+        const sourceId = usage.sourceId || `usage_${crypto.randomUUID()}`;
+        const availability = usage.measurementAvailability ||
+            (usage.inputTokens === null && usage.outputTokens === null
+                ? "unavailable"
+                : usage.inputTokens === null || usage.outputTokens === null ||
+                        usage.cacheReadTokens == null || usage.cacheWriteTokens == null
+                ? "partial"
+                : "complete");
+        if (this.reconciledUsageEntryIds.has(sourceId)) return;
+        this.reconciledUsageEntryIds.add(sourceId);
+        if (availability !== "complete") this.usageIncomplete = true;
+        if (availability !== "unavailable") this.usageCoverage = this.usageIncomplete ? "partial" : "complete";
+        else if (this.usageCoverage === "complete") this.usageCoverage = "partial";
+
+        const costAmount = usage.costAmount ?? usage.costUsd ?? null;
         await recordWorkflowMetric(
             {
                 ...this.baseLinks(),
                 category: "model_usage",
                 event: "model_usage",
                 seq: this.nextSeq(),
-                sourceId: usage.sourceId,
-                usageKind: usage.usageKind,
+                sourceId,
+                usageKind: usage.usageKind || "turn",
                 provider: usage.provider || this.provider,
                 model: usage.model || this.model,
                 inputTokens: usage.inputTokens,
                 outputTokens: usage.outputTokens,
                 cacheReadTokens: usage.cacheReadTokens ?? null,
                 cacheWriteTokens: usage.cacheWriteTokens ?? null,
-                costAmount: usage.costAmount ?? null,
+                costAmount,
                 costCurrency: usage.costCurrency || "USD",
-                costSource: usage.costSource || (usage.costAmount != null ? "calculated" : "unavailable"),
-                measurementAvailability: usage.measurementAvailability ||
-                    (usage.inputTokens != null ? "complete" : "unavailable"),
+                costSource: usage.costSource || (costAmount != null ? "calculated" : "unavailable"),
+                measurementAvailability: availability,
                 unavailableReason: usage.unavailableReason ?? null,
                 aggregationBasis: usage.aggregationBasis || "turn",
-                turnId: usage.turnId || this.turnId,
+                inputCacheBasis: usage.inputCacheBasis || "unknown",
+                turnId: usage.turnId !== undefined ? usage.turnId : this.currentTurnId ?? this.turnId ?? null,
                 requestId: usage.requestId || this.requestId,
             },
             this.projectRoot,
@@ -841,6 +1102,8 @@ export class ExecutionMetricsRecorder {
     async recordContextSnapshot(
         samplingPointOrSnapshot:
             | ContextSnapshotObservation
+            | "execution_start"
+            | "execution_end"
             | "turn_start"
             | "turn_end"
             | "before_compaction"
@@ -854,7 +1117,13 @@ export class ExecutionMetricsRecorder {
             staticCategoryCounts?: Record<string, number> | null;
         },
     ): Promise<void> {
-        let samplingPoint: "turn_start" | "turn_end" | "before_compaction" | "after_compaction" = "turn_end";
+        let samplingPoint:
+            | "execution_start"
+            | "execution_end"
+            | "turn_start"
+            | "turn_end"
+            | "before_compaction"
+            | "after_compaction" = "turn_end";
         let capacity: number | null = null;
         let currentUsage: number | null = null;
         let usageState = "normal";
@@ -877,6 +1146,7 @@ export class ExecutionMetricsRecorder {
             staticCategoryCounts = snap.staticCategoryCounts ?? null;
         }
 
+        if (currentUsage !== null && capacity !== null) this.observedContext = true;
         await recordWorkflowMetric(
             {
                 ...this.baseLinks(),
@@ -914,7 +1184,7 @@ export class ExecutionMetricsRecorder {
         outcome: "succeeded" | "failed" | "canceled";
         beforeTokens?: number | null;
         afterTokens?: number | null;
-        durationMs?: number;
+        durationMs?: number | null;
     }): Promise<void> {
         await recordWorkflowMetric(
             {
@@ -925,7 +1195,7 @@ export class ExecutionMetricsRecorder {
                 outcome: options.outcome,
                 beforeTokens: options.beforeTokens ?? null,
                 afterTokens: options.afterTokens ?? null,
-                durationMs: options.durationMs ?? 0,
+                durationMs: options.durationMs ?? null,
             },
             this.projectRoot,
         );
@@ -958,7 +1228,7 @@ export class ExecutionMetricsRecorder {
             outcome,
             beforeTokens: options.tokensBefore ?? options.beforeTokens ?? null,
             afterTokens: options.tokensAfter ?? options.afterTokens ?? null,
-            durationMs: options.durationMs ?? 0,
+            durationMs: options.durationMs ?? null,
         });
     }
 
@@ -1015,7 +1285,11 @@ export class ExecutionMetricsRecorder {
     }): Promise<void> {
         const source = options.retrySource === "summarization_retry" ? "summarization_retry" : "auto_retry";
         if (options.outcome) {
-            const outcome = options.outcome === "success" || options.outcome === "succeeded" ? "succeeded" : "failed";
+            const outcome = options.outcome === "canceled"
+                ? "canceled"
+                : options.outcome === "success" || options.outcome === "succeeded"
+                ? "succeeded"
+                : "failed";
             await this.recordRetryFinish({
                 retrySource: source,
                 attempt: options.attempt,
@@ -1038,7 +1312,11 @@ export class ExecutionMetricsRecorder {
         if (typeof latencyOrPhase === "string") {
             const now = Date.now();
             if (latencyOrPhase === "turn_start") {
+                this.currentTurnId = this.turnId ?? `turn_${crypto.randomUUID()}`;
                 this.requestStartedAt = now;
+                this.firstResponseAt = undefined;
+                this.firstVisibleTextAt = undefined;
+                this.completedAt = undefined;
                 return;
             }
             if (latencyOrPhase === "first_response") {
@@ -1053,15 +1331,18 @@ export class ExecutionMetricsRecorder {
             if (latencyOrPhase === "turn_finish") {
                 this.completedAt = now;
                 const started = this.requestStartedAt || this.startedAt;
-                const firstResp = this.firstResponseAt || this.firstVisibleTextAt || now;
-                const firstText = this.firstVisibleTextAt || now;
-                const firstResponseLatencyMs = Math.max(0, firstResp - started);
-                const firstVisibleTextLatencyMs = Math.max(0, firstText - started);
+                const firstResp = this.firstResponseAt ?? null;
+                const firstText = this.firstVisibleTextAt ?? null;
+                const firstResponseLatencyMs = firstResp === null ? null : Math.max(0, firstResp - started);
+                const firstVisibleTextLatencyMs = firstText === null ? null : Math.max(0, firstText - started);
                 const totalLatencyMs = Math.max(0, now - started);
+                // Retire this turn before the asynchronous write; a subsequent turn may start meanwhile.
+                const links = this.baseLinks();
+                this.currentTurnId = undefined;
 
                 await recordWorkflowMetric(
                     {
-                        ...this.baseLinks(),
+                        ...links,
                         category: "execution",
                         event: "response_latency",
                         seq: this.nextSeq(),
@@ -1073,7 +1354,7 @@ export class ExecutionMetricsRecorder {
                         firstVisibleTextLatencyMs,
                         totalLatencyMs,
                         basis: "backend_turn",
-                        availability: "complete",
+                        availability: firstResp !== null && firstText !== null ? "complete" : "partial",
                     },
                     this.projectRoot,
                 );
@@ -1110,7 +1391,9 @@ export class ExecutionMetricsRecorder {
         this.settled = true;
 
         // Settle any unclosed tool calls as canceled or incomplete
+        this.missingToolEnds = this.openToolCalls.size > 0;
         for (const [callId, open] of this.openToolCalls.entries()) {
+            this.completedToolCallIds.add(callId);
             await recordWorkflowMetric(
                 {
                     ...this.baseLinks(),
@@ -1147,9 +1430,13 @@ export class ExecutionMetricsRecorder {
                 elapsedMs,
                 callCount: this.observedCallCount,
                 coverage: {
-                    tools: "complete",
-                    usage: this.reconciledUsageEntryIds.size > 0 ? "complete" : "unavailable",
-                    context: "complete",
+                    tools: this.inventoryCoverage === "unavailable" && this.observedCallCount === 0
+                        ? "unavailable"
+                        : this.missingToolEnds || this.inventoryCoverage !== "complete"
+                        ? "partial"
+                        : "complete",
+                    usage: this.usageCoverage,
+                    context: this.observedContext ? "partial" : "unavailable",
                 },
             },
             this.projectRoot,

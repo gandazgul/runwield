@@ -222,7 +222,15 @@ export class RuntimeTurns {
         await this.turnSettlements.get(sessionId);
     }
 
-    async promptUserTurn(sessionId: string, options: PromptSessionOptions): Promise<UserPromptResult> {
+    promptUserTurn(sessionId: string, options: PromptSessionOptions): Promise<UserPromptResult> {
+        return this.promptUserTurnWithCommand(sessionId, options, null);
+    }
+
+    private async promptUserTurnWithCommand(
+        sessionId: string,
+        options: PromptSessionOptions,
+        parentCommandTracker: SlashCommandMetricsTracker | null,
+    ): Promise<UserPromptResult> {
         const hostedSession = this.services.sessionHost.getSession(sessionId);
         if (!hostedSession) throw new Error("SessionRuntime.promptUserTurn: session not found");
         hostedSession.backgroundTasks.resumeDelivery();
@@ -336,14 +344,12 @@ export class RuntimeTurns {
         const expectedGenerationSource = managed.acknowledgedGeneration ?? managed.generation;
         const expectedGeneration = Number.isSafeInteger(expectedGenerationSource) ? expectedGenerationSource : null;
         let commandTracker: SlashCommandMetricsTracker | null = null;
-        if (namedInvocation.kind === "prompt_template" || namedInvocation.kind === "skill") {
+        if (!parentCommandTracker && (namedInvocation.kind === "prompt_template" || namedInvocation.kind === "skill")) {
             const rawSurface = options.inputSurface || this.services.ownerProcessKind || "cli";
-            const surface = rawSurface === "acp"
-                ? "acp"
-                : (rawSurface === "browser" || rawSurface === "workspace" ? "workspace" : "tui");
+            const surface = rawSurface === "acp" ? "acp" : (rawSurface === "workspace" ? "workspace" : "tui");
             commandTracker = new SlashCommandMetricsTracker({
                 command: namedInvocation.name,
-                alias: namedInvocation.kind === "skill" && namedInvocation.alias ? namedInvocation.alias : undefined,
+                alias: (namedInvocation as { alias?: string }).alias || undefined,
                 kind: namedInvocation.kind === "prompt_template" ? "template" : "skill",
                 surface,
                 projectRoot: hostedSession.cwd,
@@ -351,6 +357,8 @@ export class RuntimeTurns {
             });
             await commandTracker.recordStart();
         }
+        const invocationId = (commandTracker || parentCommandTracker)?.invocationId || null;
+        if (invocationId) hostedSession.activeCommandInvocationId = invocationId;
         let commandOutcome: "succeeded" | "failed" | "canceled" = "succeeded";
         let commandErrorReason: string | null = null;
         try {
@@ -366,8 +374,8 @@ export class RuntimeTurns {
                     : {}),
             });
             if (!result.ok) {
-                commandOutcome = "failed";
-                commandErrorReason = result.error ? String(result.error) : "failed";
+                commandOutcome = result.error === "Prompt canceled." ? "canceled" : "failed";
+                commandErrorReason = commandOutcome;
             }
             if (result.templateNewSession && namedInvocation.kind === "prompt_template") {
                 const created = await this.lifecycle.createInteractiveSession({
@@ -387,20 +395,27 @@ export class RuntimeTurns {
                     reason: "prompt_template",
                     templateName: namedInvocation.name,
                 });
-                const nextResult = await this.promptUserTurn(next.id, {
+                const nextResult = await this.promptUserTurnWithCommand(next.id, {
                     initialRequest: submittedRequest,
                     initialImages: options.initialImages,
                     inputSurface: options.inputSurface,
-                });
+                }, commandTracker);
+                if (!nextResult.ok) {
+                    commandOutcome = nextResult.error === "Prompt canceled." ? "canceled" : "failed";
+                    commandErrorReason = commandOutcome;
+                }
                 return { ...nextResult, replacementSessionId: next.id };
             }
             return buildResult(result);
         } catch (error) {
             commandOutcome = "failed";
-            commandErrorReason = error instanceof Error ? error.message : String(error);
+            commandErrorReason = "failed";
             throw error;
         } finally {
-            if (commandTracker) {
+            if (invocationId && hostedSession.activeCommandInvocationId === invocationId) {
+                hostedSession.activeCommandInvocationId = null;
+            }
+            if (commandTracker && !parentCommandTracker) {
                 await commandTracker.recordFinish({
                     outcome: commandOutcome,
                     errorReason: commandErrorReason,

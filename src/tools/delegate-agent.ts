@@ -422,6 +422,7 @@ export function createDelegateAgentTool(opts: DelegateAgentToolOptions) {
                         thinkingLevelOverride,
                         projectStateContext: opts.hostedSession.getProjectStateContext(),
                         parentToolCallId: toolCallId,
+                        parentExecutionId: opts.hostedSession.getToolExecutionId(toolCallId),
                     });
                     return {
                         content: [{ type: "text" as const, text: JSON.stringify(status) }],
@@ -458,6 +459,7 @@ export function createDelegateAgentTool(opts: DelegateAgentToolOptions) {
                     projectStateContext: opts.hostedSession.getProjectStateContext(),
                     signal,
                     parentToolCallId: toolCallId,
+                    parentExecutionId: opts.hostedSession.getToolExecutionId(toolCallId),
                 });
                 const output = truncateToolText(
                     extractAssistantOutput(messages) || "(Delegated Agent returned no text.)",

@@ -200,6 +200,11 @@ async function main(): Promise<void> {
         return;
     }
 
+    const capturedStream = Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_STREAM_FILE");
+    if (capturedStream) {
+        await Deno.stdout.write(new TextEncoder().encode(await Deno.readTextFile(capturedStream)));
+        return;
+    }
     const output = Deno.env.get("RUNWIELD_CLAUDE_FIXTURE_OUTPUT") || "";
     const parsedOutput = output ? JSON.parse(output) as FixtureOutput : null;
     const text = parsedOutput

@@ -59,16 +59,16 @@ Approved decisions:
 
 Owning requirements and proposed changes:
 
-- [Core Session continuity](../prd/runwield-core-prd.md#session-continuity): add named requirements **Run bounded
+- [Core Session continuity](../../prd/runwield-core-prd.md#session-continuity): add named requirements **Run bounded
   background work** and **Receive task results without another user message**, with scenarios below. Preserve **Continue
   the same saved work across clients** and **Route attention to the latest user-input surface**. Generated completion
   input must not change the notification destination.
-- [Core TUI conversation](../prd/runwield-core-prd.md#tui-conversation): preserve **Keep follow-ups with their active
+- [Core TUI conversation](../../prd/runwield-core-prd.md#tui-conversation): preserve **Keep follow-ups with their active
   specialist**, user drafts, and command meanings. Automatic results are not user commands.
-- [Workspace Browser Sessions](../prd/runwield-workspace-prd.md#browser-sessions): extend **Preserve conversation,
+- [Workspace Browser Sessions](../../prd/runwield-workspace-prd.md#browser-sessions): extend **Preserve conversation,
   drafts, and controls in the browser** to automatic result turns and tab closure, linking Core for task rules.
-- [ACP Session access](../prd/runwield-acp-protocol-prd.md#acp-session-access) and
-  [Protocol negotiation and interactions](../prd/runwield-acp-protocol-prd.md#protocol-negotiation-and-interactions):
+- [ACP Session access](../../prd/runwield-acp-protocol-prd.md#acp-session-access) and
+  [Protocol negotiation and interactions](../../prd/runwield-acp-protocol-prd.md#protocol-negotiation-and-interactions):
   add result-driven activity after an earlier prompt response, preserving truthful cancellation, event delivery, and
   interactions.
 

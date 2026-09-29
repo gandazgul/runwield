@@ -9,7 +9,7 @@ import { resolvePrimaryCheckoutRoot } from "../primary-checkout.ts";
 import { encodeCwdForSessionDir } from "../session/root-session.js";
 
 /**
- * @typedef {"routing"|"planning"|"execution"|"validation"|"recovery"|"model_selection"|"tool_usage"} WorkflowMetricCategory
+ * @typedef {"routing"|"planning"|"execution"|"validation"|"recovery"|"model_selection"|"tool_usage"|"command"|"model_usage"|"context"} WorkflowMetricCategory
  */
 
 /**
@@ -262,166 +262,14 @@ function sanitizeDedicatedFrontendMetricDetails(event, details) {
     return Object.keys(output).length ? output : undefined;
 }
 
-/**
- * @param {Object} metric
- * @param {WorkflowMetricCategory} metric.category
- * @param {string} metric.event
- * @param {string} [metric.sessionId]
- * @param {string} [metric.planName]
- * @param {string} [metric.agentName]
- * @param {unknown} [metric.details]
- * @param {string} cwd
- * @returns {Promise<WorkflowMetricRecord | null>}
- */
-const V2_CATEGORIES = new Set(["execution", "tool_usage", "model_usage", "context", "command"]);
-let metricsWriteQueue = Promise.resolve();
-
-/**
- * Await pending metrics file writes up to timeoutMs.
- * @param {number} [timeoutMs]
- * @returns {Promise<void>}
- */
-export function drainWorkflowMetrics(timeoutMs = 5000) {
-    return Promise.race([
-        metricsWriteQueue,
-        new Promise((resolve) => setTimeout(resolve, timeoutMs)),
-    ]);
-}
-
-/**
- * Sanitizes a v2 metric observation record against an explicit typed allowlist.
- * @param {Record<string, unknown>} metric
- * @param {string} cwdHash
- * @returns {Record<string, unknown>}
- */
-function sanitizeV2MetricRecord(metric, cwdHash) {
-    const record = {
-        v: 2,
-        ts: typeof metric.ts === "string" ? metric.ts : new Date().toISOString(),
-        eventId: typeof metric.eventId === "string" ? metric.eventId : crypto.randomUUID(),
-        recorderId: typeof metric.recorderId === "string" ? metric.recorderId : "rec",
-        seq: allowNonNegativeInteger(metric.seq) ?? 0,
-        category: allowEnum(metric.category, V2_CATEGORIES) || "execution",
-        event: typeof metric.event === "string" ? metric.event : "unknown",
-        cwdHash,
-    };
-
-    const linkKeys = [
-        "sessionId",
-        "segmentId",
-        "executionId",
-        "requestId",
-        "attemptId",
-        "turnId",
-        "modelRequestId",
-        "commandId",
-        "invocationId",
-        "parentExecutionId",
-        "parentToolCallId",
-        "taskId",
-        "exposureId",
-        "callId",
-        "parentCallId",
-        "sourceId",
-    ];
-    for (const key of linkKeys) {
-        if (typeof metric[key] === "string" && metric[key].length > 0 && metric[key].length <= MAX_STRING_LENGTH) {
-            record[key] = metric[key];
-        }
-    }
-
-    const metaKeys = [
-        "agent",
-        "provider",
-        "model",
-        "backend",
-        "dispatchKind",
-        "executionKind",
-        "mode",
-        "sourceSurface",
-        "outcome",
-        "reason",
-        "toolName",
-        "subUsage",
-        "estimatorVersion",
-        "inventoryCoverage",
-        "operationKind",
-        "commandLabel",
-        "action",
-        "scope",
-        "batchKind",
-        "status",
-        "usageKind",
-        "costCurrency",
-        "costSource",
-        "measurementAvailability",
-        "aggregationBasis",
-        "usageState",
-        "samplingPoint",
-        "retrySource",
-        "basis",
-        "availability",
-        "commandName",
-        "commandKind",
-        "command",
-        "alias",
-        "kind",
-        "errorReason",
-        "surface",
-        "phase",
-    ];
-    for (const key of metaKeys) {
-        if (typeof metric[key] === "string" && metric[key].length > 0 && metric[key].length <= MAX_STRING_LENGTH) {
-            record[key] = metric[key];
-        }
-    }
-
-    if (
-        metric.rawAlias === null || (typeof metric.rawAlias === "string" && metric.rawAlias.length <= MAX_STRING_LENGTH)
-    ) {
-        record.rawAlias = metric.rawAlias;
-    }
-    if (
-        metric.unavailableReason === null ||
-        (typeof metric.unavailableReason === "string" && metric.unavailableReason.length <= MAX_STRING_LENGTH)
-    ) {
-        record.unavailableReason = metric.unavailableReason;
-    }
-
-    const integerKeys = [
-        "elapsedMs",
-        "callCount",
-        "toolCount",
-        "totalCount",
-        "toolIndex",
-        "schemaTokens",
-        "residentTokens",
-        "totalSchemaTokens",
-        "totalResidentTokens",
-        "durationMs",
-        "resultBytes",
-        "resultTokens",
-        "imageCount",
-        "operationIndex",
-        "attempt",
-        "maxAttempts",
-        "delayMs",
-    ];
-    for (const key of integerKeys) {
-        const val = allowNonNegativeInteger(metric[key]);
-        if (val !== undefined) record[key] = val;
-    }
-
-    const nullableNumberKeys = [
-        "inputTokens",
-        "outputTokens",
-        "cacheReadTokens",
-        "cacheWriteTokens",
-        "costAmount",
-        "capacity",
-        "currentUsage",
-        "beforeTokens",
-        "afterTokens",
+// Each event owns its fields. Nothing from an unrecognized event is persisted.
+/** @type {Record<string, string[]>} */
+const V2_EVENTS = {
+    execution_started: ["sourceSurface"],
+    execution_finished: ["outcome", "reason", "elapsedMs", "callCount", "coverage"],
+    retry_started: ["retrySource", "attempt", "maxAttempts", "delayMs"],
+    retry_finished: ["retrySource", "attempt", "outcome", "reason"],
+    response_latency: [
         "requestStartedAt",
         "firstResponseAt",
         "firstVisibleTextAt",
@@ -429,39 +277,461 @@ function sanitizeV2MetricRecord(metric, cwdHash) {
         "firstResponseLatencyMs",
         "firstVisibleTextLatencyMs",
         "totalLatencyMs",
+        "basis",
+        "availability",
+    ],
+    tool_exposure_summary: [
+        "exposureId",
+        "toolCount",
+        "estimatorVersion",
+        "inventoryCoverage",
+        "totalSchemaTokens",
+        "totalResidentTokens",
+    ],
+    tool_exposure: ["exposureId", "toolIndex", "toolName", "schemaTokens", "residentTokens", "totalCount"],
+    tool_call_started: ["callId", "exposureId", "toolName", "subUsage"],
+    tool_call_finished: [
+        "callId",
+        "exposureId",
+        "toolName",
+        "subUsage",
+        "outcome",
+        "reason",
+        "durationMs",
+        "resultBytes",
+        "resultTokens",
+        "imageCount",
+        "truncated",
+        "isError",
+    ],
+    tool_operation: [
+        "parentCallId",
+        "operationIndex",
+        "operationKind",
+        "commandLabel",
+        "action",
+        "scope",
+        "batchKind",
+        "status",
+        "truncated",
+    ],
+    native_tool_observed: ["callId", "stepIndex", "toolName", "status"],
+    model_usage: [
+        "sourceId",
+        "usageKind",
+        "provider",
+        "model",
+        "inputTokens",
+        "outputTokens",
+        "cacheReadTokens",
+        "cacheWriteTokens",
+        "costAmount",
+        "costCurrency",
+        "costSource",
+        "measurementAvailability",
+        "unavailableReason",
+        "aggregationBasis",
+        "inputCacheBasis",
+        "turnId",
+        "requestId",
+    ],
+    context_snapshot: ["capacity", "currentUsage", "staticCategoryCounts", "usageState", "samplingPoint"],
+    compaction_started: ["reason", "beforeTokens"],
+    compaction_finished: ["outcome", "beforeTokens", "afterTokens", "durationMs"],
+    command_started: [
+        "commandId",
+        "command",
+        "alias",
+        "kind",
+        "sourceSurface",
+        "sessionId",
+        "requestId",
+        "executionId",
+        "phase",
+    ],
+    command_dispatched: [
+        "commandId",
+        "command",
+        "alias",
+        "kind",
+        "sourceSurface",
+        "sessionId",
+        "requestId",
+        "executionId",
+        "phase",
+    ],
+    command_finished: [
+        "commandId",
+        "command",
+        "alias",
+        "kind",
+        "sourceSurface",
+        "sessionId",
+        "requestId",
+        "executionId",
+        "outcome",
+        "durationMs",
+        "errorReason",
+        "phase",
+    ],
+};
+/** @type {Record<string, string>} */
+const V2_EVENT_CATEGORIES = {
+    execution_started: "execution",
+    execution_finished: "execution",
+    retry_started: "execution",
+    retry_finished: "execution",
+    response_latency: "execution",
+    tool_exposure_summary: "tool_usage",
+    tool_exposure: "tool_usage",
+    tool_call_started: "tool_usage",
+    tool_call_finished: "tool_usage",
+    tool_operation: "tool_usage",
+    native_tool_observed: "tool_usage",
+    model_usage: "model_usage",
+    context_snapshot: "context",
+    compaction_started: "context",
+    compaction_finished: "context",
+    command_started: "command",
+    command_dispatched: "command",
+    command_finished: "command",
+};
+/** @type {Record<string, Set<string>>} */
+const V2_ENUMS = {
+    outcome: new Set(["succeeded", "failed", "canceled", "rejected", "interrupted", "success", "error", "incomplete"]),
+    reason: new Set([
+        "completed",
+        "returned_error",
+        "execution_error",
+        "execution_canceled",
+        "execution_settled",
+        "canceled",
+        "failed",
+        "aborted",
+        "rejected",
+        "unknown",
+        "manual",
+        "threshold",
+        "overflow",
+        "auth_failed",
+        "non_zero_exit",
+        "malformed_stream",
+        "bridge_startup_failed",
+        "empty_result",
+        "invalid_arguments",
+        "gate_closed",
+        "unavailable",
+        "not_found",
+    ]),
+    errorReason: new Set(["failed", "canceled", "rejected", "unknown", "unavailable", "unknown_command"]),
+    executionKind: new Set(["root", "isolated", "delegated"]),
+    mode: new Set(["foreground", "background"]),
+    inventoryCoverage: new Set(["complete", "partial", "unavailable"]),
+    operationKind: new Set(["bash_command", "memory", "code_batch"]),
+    commandLabel: new Set([
+        "unknown",
+        "other",
+        "git other",
+        "deno other",
+        "deno task other",
+        "npm other",
+        "npm run other",
+        "pnpm other",
+        "pnpm run other",
+        "yarn other",
+        "yarn run other",
+        "bun other",
+        "bun run other",
+        "cargo other",
+        "go other",
+        "python other",
+        "pytest",
+        "git status",
+        "git diff",
+        "git log",
+        "git show",
+        "git add",
+        "git commit",
+        "git checkout",
+        "git switch",
+        "git branch",
+        "git worktree",
+        "git fetch",
+        "git pull",
+        "git push",
+        "git stash",
+        "git rebase",
+        "git merge",
+        "git reset",
+        "git restore",
+        "git remote",
+        "git rev-parse",
+        "git tag",
+        "git clean",
+        "git rm",
+        "deno task test",
+        "deno task check",
+        "deno task lint",
+        "deno task fmt",
+        "deno task ci",
+        "deno task seams:check",
+        "deno task build",
+        "deno test",
+        "deno check",
+        "deno lint",
+        "deno fmt",
+        "deno run",
+        "deno compile",
+        "npm test",
+        "npm ci",
+        "npm install",
+        "npm build",
+        "pnpm test",
+        "pnpm ci",
+        "pnpm install",
+        "pnpm build",
+        "yarn test",
+        "yarn ci",
+        "yarn install",
+        "yarn build",
+        "bun test",
+        "bun ci",
+        "bun install",
+        "bun build",
+        "cargo test",
+        "cargo check",
+        "cargo build",
+        "cargo clippy",
+        "go test",
+        "go build",
+        "go vet",
+        "ls",
+        "find",
+        "grep",
+        "rg",
+        "cat",
+        "head",
+        "tail",
+        "sed",
+        "awk",
+        "pwd",
+        "cd",
+        "mkdir",
+        "rm",
+        "cp",
+        "mv",
+        "touch",
+        "chmod",
+        "wc",
+        "diff",
+        "curl",
+        "jq",
+        "sleep",
+        "echo",
+        "cmake",
+    ]),
+    action: new Set(["recall", "store", "delete"]),
+    scope: new Set(["project", "global", "unified"]),
+    batchKind: new Set(["show", "outline"]),
+    status: new Set(["success", "error", "truncated", "unavailable"]),
+    usageKind: new Set(["turn", "request", "compaction", "summary", "standalone"]),
+    costCurrency: new Set(["USD"]),
+    costSource: new Set(["calculated", "reported", "unavailable"]),
+    measurementAvailability: new Set(["complete", "partial", "unavailable"]),
+    aggregationBasis: new Set(["turn", "request", "alternative"]),
+    inputCacheBasis: new Set(["includes_cache", "excludes_cache", "unknown"]),
+    usageState: new Set([
+        "estimated",
+        "reported",
+        "unknown_after_compaction",
+        "normal",
+        "approaching_limit",
+        "clean",
+        "overflow",
+    ]),
+    samplingPoint: new Set([
+        "execution_start",
+        "execution_end",
+        "turn_start",
+        "turn_end",
+        "before_compaction",
+        "after_compaction",
+    ]),
+    retrySource: new Set(["auto_retry", "summarization_retry"]),
+    basis: new Set(["backend_turn", "model_request"]),
+    availability: new Set(["complete", "partial", "unavailable"]),
+    kind: new Set(["builtin", "template", "skill"]),
+    phase: new Set(["start", "finish", "opened", "dispatched", "rejected"]),
+    sourceSurface: new Set(["tui", "workspace", "acp", "cli", "headless"]),
+};
+for (const manager of ["npm", "pnpm", "yarn", "bun"]) {
+    for (const task of ["test", "check", "lint", "fmt", "ci", "build"]) {
+        V2_ENUMS.commandLabel.add(`${manager} run ${task}`);
+    }
+}
+const V2_LINKS = new Set([
+    "sessionId",
+    "managedSessionId",
+    "segmentId",
+    "executionId",
+    "requestId",
+    "attemptId",
+    "turnId",
+    "modelRequestId",
+    "commandId",
+    "parentExecutionId",
+    "parentToolCallId",
+    "taskId",
+    "exposureId",
+    "callId",
+    "parentCallId",
+    "sourceId",
+]);
+const V2_NUMBERS = new Set([
+    "elapsedMs",
+    "callCount",
+    "toolCount",
+    "totalCount",
+    "toolIndex",
+    "schemaTokens",
+    "residentTokens",
+    "totalSchemaTokens",
+    "totalResidentTokens",
+    "durationMs",
+    "resultBytes",
+    "resultTokens",
+    "imageCount",
+    "operationIndex",
+    "stepIndex",
+    "attempt",
+    "maxAttempts",
+    "delayMs",
+    "inputTokens",
+    "outputTokens",
+    "cacheReadTokens",
+    "cacheWriteTokens",
+    "capacity",
+    "currentUsage",
+    "beforeTokens",
+    "afterTokens",
+    "requestStartedAt",
+    "firstResponseAt",
+    "firstVisibleTextAt",
+    "completedAt",
+    "firstResponseLatencyMs",
+    "firstVisibleTextLatencyMs",
+    "totalLatencyMs",
+]);
+const V2_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
+const V2_NAME = /^[A-Za-z][A-Za-z0-9_.:/-]{0,127}$/;
+let metricsWriteQueue = Promise.resolve();
+
+/**
+ * @param {Promise<unknown>} pending
+ * @param {number} timeoutMs
+ * @returns {Promise<void>}
+ */
+function waitForMetrics(pending, timeoutMs) {
+    return new Promise((resolve) => {
+        const timer = setTimeout(resolve, timeoutMs);
+        void pending.then(() => {
+            clearTimeout(timer);
+            resolve();
+        }, () => {
+            clearTimeout(timer);
+            resolve();
+        });
+    });
+}
+
+/** @param {number} [timeoutMs] */
+export function drainWorkflowMetrics(timeoutMs = 5000) {
+    return waitForMetrics(metricsWriteQueue, timeoutMs);
+}
+
+/**
+ * @param {Record<string, unknown>} metric
+ * @param {string} cwdHash
+ * @returns {Record<string, unknown> | null}
+ */
+function sanitizeV2MetricRecord(metric, cwdHash) {
+    const event = typeof metric.event === "string" ? metric.event : "";
+    if (!Object.hasOwn(V2_EVENTS, event) || metric.category !== V2_EVENT_CATEGORIES[event]) return null;
+    if (typeof metric.recorderId !== "string" || !V2_IDENTIFIER.test(metric.recorderId)) return null;
+    const seq = allowNonNegativeInteger(metric.seq);
+    if (seq === undefined) return null;
+    /** @type {Record<string, unknown>} */
+    const record = {
+        v: 2,
+        ts: new Date().toISOString(),
+        eventId: crypto.randomUUID(),
+        recorderId: metric.recorderId,
+        seq,
+        event,
+        category: metric.category,
+        cwdHash,
+    };
+    const fields = [
+        ...V2_EVENTS[event],
+        ...V2_LINKS,
+        "agent",
+        "provider",
+        "model",
+        "backend",
+        "dispatchKind",
+        "executionKind",
+        "mode",
     ];
-    for (const key of nullableNumberKeys) {
-        if (typeof metric[key] === "number" && Number.isFinite(metric[key])) {
-            record[key] = metric[key];
-        } else if (metric[key] === null) {
-            record[key] = null;
+    for (const key of fields) {
+        const value = metric[key];
+        if (V2_LINKS.has(key)) {
+            if (typeof value === "string" && V2_IDENTIFIER.test(value)) record[key] = value;
+            else if (value === null) record[key] = null;
+        } else if (Object.hasOwn(V2_ENUMS, key)) {
+            const allowed = V2_ENUMS[key];
+            if (typeof value === "string" && allowed.has(value)) record[key] = value;
+            else if (value === null) record[key] = null;
+        } else if (V2_NUMBERS.has(key)) {
+            if (value === null) record[key] = null;
+            else if (key === "costAmount" && typeof value === "number" && Number.isFinite(value) && value >= 0) {
+                record[key] = value;
+            } else {
+                const number = allowNonNegativeInteger(value);
+                if (number !== undefined) record[key] = number;
+            }
+        } else if (key === "costAmount") {
+            if (value === null) record[key] = null;
+            else if (typeof value === "number" && Number.isFinite(value) && value >= 0) record[key] = value;
+        } else if (key === "isError" || key === "truncated") {
+            if (typeof value === "boolean" || value === null) record[key] = value;
+        } else if (key === "coverage" && isPlainObject(value)) {
+            record.coverage = Object.fromEntries(
+                ["tools", "usage", "context"].filter((part) =>
+                    typeof value[part] === "string" && V2_ENUMS.availability.has(value[part])
+                ).map((part) => [part, value[part]]),
+            );
+        } else if (key === "staticCategoryCounts" && isPlainObject(value)) {
+            record.staticCategoryCounts = Object.fromEntries(
+                ["systemTokens", "toolsTokens", "messagesTokens"].filter((part) =>
+                    allowNonNegativeInteger(value[part]) !== undefined
+                ).map((part) => [part, value[part]]),
+            );
+        } else if (key === "unavailableReason") {
+            if (value === null || value === "not_reported" || value === "source_unavailable") record[key] = value;
+        } else if (key === "estimatorVersion") {
+            if (value === "1") record[key] = value;
+        } else if (key === "command" || key === "alias") {
+            if (typeof value === "string" && V2_NAME.test(value)) record[key] = value;
+            else if (value !== undefined) record[key] = "unknown";
+        } else if (["agent", "provider", "model", "backend", "dispatchKind", "toolName", "subUsage"].includes(key)) {
+            if (typeof value === "string" && V2_NAME.test(value)) record[key] = value;
         }
     }
-
-    if (typeof metric.truncated === "boolean") record.truncated = metric.truncated;
-    else if (metric.truncated === null) record.truncated = null;
-
-    if (typeof metric.isError === "boolean") record.isError = metric.isError;
-
-    if (Array.isArray(metric.linkedExecutionIds)) {
-        record.linkedExecutionIds = metric.linkedExecutionIds.filter(
-            (id) => typeof id === "string" && id.length <= MAX_STRING_LENGTH,
-        );
-    }
-    if (isPlainObject(metric.coverage)) record.coverage = metric.coverage;
-    if (isPlainObject(metric.staticCategoryCounts)) record.staticCategoryCounts = metric.staticCategoryCounts;
-
     return record;
 }
 
 /**
- * @param {Object} metric
- * @param {WorkflowMetricCategory} [metric.category]
- * @param {string} [metric.event]
- * @param {string} [metric.sessionId]
- * @param {string} [metric.planName]
- * @param {string} [metric.agentName]
- * @param {unknown} [metric.details]
+ * @param {Record<string, unknown>} metric
  * @param {string} cwd
  * @returns {Promise<WorkflowMetricRecord | Record<string, unknown> | null>}
  */
@@ -480,22 +750,27 @@ export async function recordWorkflowMetric(metric, cwd) {
 
         let record;
         if (metric.v === 2) {
-            record = sanitizeV2MetricRecord(/** @type {Record<string, unknown>} */ (metric), cwdHash);
+            record = sanitizeV2MetricRecord(metric, cwdHash);
+            if (!record) return null;
         } else {
-            const dedicatedFrontendEvent = DEDICATED_FRONTEND_EVENTS.has(metric.event);
+            const eventName = typeof metric.event === "string" ? metric.event : "";
+            const categoryName = typeof metric.category === "string"
+                ? /** @type {WorkflowMetricCategory} */ (metric.category)
+                : "execution";
+            const dedicatedFrontendEvent = DEDICATED_FRONTEND_EVENTS.has(eventName);
             const dedicatedDetails = dedicatedFrontendEvent
-                ? sanitizeDedicatedFrontendMetricDetails(metric.event, metric.details)
+                ? sanitizeDedicatedFrontendMetricDetails(eventName, metric.details)
                 : undefined;
             /** @type {WorkflowMetricRecord} */
             record = {
                 v: 1,
                 ts: new Date().toISOString(),
-                category: metric.category,
-                event: metric.event,
+                category: categoryName,
+                event: eventName,
                 cwdHash,
-                ...(!dedicatedFrontendEvent && metric.sessionId ? { sessionId: metric.sessionId } : {}),
-                ...(!dedicatedFrontendEvent && metric.planName ? { planName: metric.planName } : {}),
-                ...(!dedicatedFrontendEvent && metric.agentName ? { agentName: metric.agentName } : {}),
+                ...(!dedicatedFrontendEvent && metric.sessionId ? { sessionId: String(metric.sessionId) } : {}),
+                ...(!dedicatedFrontendEvent && metric.planName ? { planName: String(metric.planName) } : {}),
+                ...(!dedicatedFrontendEvent && metric.agentName ? { agentName: String(metric.agentName) } : {}),
                 ...(dedicatedFrontendEvent
                     ? dedicatedDetails !== undefined ? { details: dedicatedDetails } : {}
                     : metric.details !== undefined
@@ -514,7 +789,8 @@ export async function recordWorkflowMetric(metric, cwd) {
             }
         }).catch(() => {});
 
-        await metricsWriteQueue;
+        // v2 observations do not wait for a blocked disk write. Settlement uses the bounded drain.
+        if (metric.v !== 2) await waitForMetrics(metricsWriteQueue, 100);
         return record;
     } catch {
         return null;
@@ -591,7 +867,7 @@ export function classifyToolSubUsage(toolName, args = undefined) {
  * @param {unknown} args
  * @param {string} cwd
  * @param {string} [agentName]
- * @returns {Promise<WorkflowMetricRecord | null>}
+ * @returns {Promise<WorkflowMetricRecord | Record<string, unknown> | null>}
  */
 export function recordToolCallStarted(toolCallId, toolName, args, cwd, agentName) {
     const subUsage = classifyToolSubUsage(toolName, args);
@@ -610,7 +886,7 @@ export function recordToolCallStarted(toolCallId, toolName, args, cwd, agentName
  * @param {boolean} isError
  * @param {string} cwd
  * @param {string} [agentName]
- * @returns {Promise<WorkflowMetricRecord | null>}
+ * @returns {Promise<WorkflowMetricRecord | Record<string, unknown> | null>}
  */
 export function recordToolCallFinished(toolCallId, toolName, isError, cwd, agentName) {
     const started = activeToolCalls.get(toolCallId);

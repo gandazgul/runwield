@@ -24,6 +24,7 @@ import {
 } from "./failure.ts";
 import {
     AGY_CLI_MCP_PROVENANCE,
+    mcpAliasFor,
     type RunWieldMcpBridgeHandle,
     startRunWieldMcpBridge,
 } from "../../bridged-tools/mcp-bridge.ts";
@@ -54,6 +55,7 @@ export interface AgyCliRunOptions {
     signal?: AbortSignal;
     requestId?: string;
     attemptId?: string;
+    dispatchKind?: string;
     executionKind?: "root" | "isolated" | "delegated";
     mode?: "foreground" | "background";
     parentExecutionId?: string;
@@ -219,12 +221,19 @@ export class AgyCliExecutionSession {
 
         const recorder = new ExecutionMetricsRecorder({
             projectRoot: this.cwd,
+            commandId: this.hostedSession?.activeCommandInvocationId || undefined,
+            sessionId: this.sessionManager.getSessionId(),
+            managedSessionId: this.hostedSession?.getManagedMetadata()?.runwieldSessionId,
+            segmentId: options.executionKind === "root"
+                ? this.hostedSession?.getManagedMetadata()?.currentSegmentId
+                : undefined,
             agent: this.ownership.name,
             provider: this.model.provider,
             model: this.model.id,
             backend: "agy-cli",
             requestId: options.requestId,
             attemptId: options.attemptId,
+            dispatchKind: options.dispatchKind,
             executionKind: options.executionKind || "root",
             mode: options.mode || "foreground",
             parentExecutionId: options.parentExecutionId,
@@ -233,11 +242,14 @@ export class AgyCliExecutionSession {
             sourceSurface: options.sourceSurface || "cli",
         });
         await recorder.recordExecutionStart();
-        if (this.bridgedTools.length > 0) {
-            await recorder.recordToolExposure(this.bridgedTools);
-        }
-        void recorder.recordResponseLatency("turn_start");
-        let executionOutcome: "success" | "error" | "canceled" = "success";
+        await recorder.recordToolExposure(this.bridgedTools, "partial");
+        const pendingObservations = new Set<Promise<void>>();
+        const observe = (pending: Promise<void>) => {
+            pendingObservations.add(pending);
+            void pending.then(() => pendingObservations.delete(pending), () => pendingObservations.delete(pending));
+        };
+        observe(recorder.recordResponseLatency("turn_start"));
+        let executionOutcome: import("../../../workflow/execution-metrics.ts").ExecutionOutcome = "succeeded";
         let failureKind: string | undefined;
 
         let bridge: RunWieldMcpBridgeHandle | null = null;
@@ -251,12 +263,13 @@ export class AgyCliExecutionSession {
 
         let firstTextDeltaRecorded = false;
         let parsed: AgyCliParseResult | null = null;
+        let observedUsage: AgyCliUsage | null = null;
         try {
             try {
                 await this.verifyCustomAgentReady(combinedSignal);
             } catch (error) {
-                executionOutcome = "error";
                 const failure = classifySetupFailure(error instanceof Error ? error : String(error));
+                executionOutcome = failure.kind === "canceled" || combinedSignal.aborted ? "canceled" : "failed";
                 failureKind = failure.kind;
                 emitFailure(failure, false);
                 throw new AgyCliBackendError(failure.kind, { exitCode: failure.exitCode, message: failure.message });
@@ -271,6 +284,16 @@ export class AgyCliExecutionSession {
                         sessionManager: this.sessionManager,
                         onMessage: (message) => {
                             this.messages.push(message);
+                            if (message.role === "assistant") {
+                                for (const part of message.content) {
+                                    if (part.type === "toolCall") {
+                                        this.hostedSession?.recordToolExecution(part.id, recorder.executionId);
+                                    }
+                                }
+                            } else if (message.role === "toolResult") {
+                                this.hostedSession?.forgetToolExecution(message.toolCallId);
+                            }
+                            observe(recorder.recordBridgeMessage(message));
                         },
                         signal: combinedSignal,
                         assistantBase: {
@@ -283,10 +306,9 @@ export class AgyCliExecutionSession {
                             bridgeDisconnected = true;
                         },
                         onTerminalAccepted: () => process?.kill(),
-                        recorder,
                     });
                 } catch (error) {
-                    executionOutcome = "error";
+                    executionOutcome = "failed";
                     failureKind = "bridge_startup_failed";
                     const failure: ClassifiedFailure = {
                         kind: "bridge_startup_failed",
@@ -323,8 +345,8 @@ export class AgyCliExecutionSession {
                     throw new AgyCliBackendError(failure.kind, { exitCode: failure.exitCode });
                 }
             } catch (error) {
-                executionOutcome = "error";
                 const failure = classifySetupFailure(error instanceof Error ? error : String(error));
+                executionOutcome = failure.kind === "canceled" || combinedSignal.aborted ? "canceled" : "failed";
                 failureKind = failure.kind;
                 emitFailure(failure, false);
                 throw new AgyCliBackendError(failure.kind, { exitCode: failure.exitCode, message: failure.message });
@@ -342,10 +364,26 @@ export class AgyCliExecutionSession {
 
             const messageId = `agy-cli-assistant:${crypto.randomUUID()}`;
             const parseOutcomePromise = parseAgyCliStream(process.stdout, {
+                onUsage: (usage) => {
+                    observedUsage = usage;
+                },
+                onToolInfo: (observation) => {
+                    observe(recorder.recordResponseLatency("first_response"));
+                    if (
+                        !observation.toolName?.startsWith("mcp__runwield__") &&
+                        !this.bridgedTools.some((tool) =>
+                            observation.toolName === tool.name ||
+                            observation.toolName === mcpAliasFor(tool.name)
+                        )
+                    ) {
+                        observe(recorder.recordNativeToolInfo(observation));
+                    }
+                },
                 onDelta: (delta) => {
+                    observe(recorder.recordResponseLatency("first_response"));
                     if (!firstTextDeltaRecorded && delta.text) {
                         firstTextDeltaRecorded = true;
-                        void recorder.recordResponseLatency("first_text");
+                        observe(recorder.recordResponseLatency("first_text"));
                     }
                     emitHostedSessionRuntimeEvent(this.hostedSession, {
                         type: RuntimeEventTypes.ASSISTANT_TEXT_DELTA,
@@ -394,7 +432,7 @@ export class AgyCliExecutionSession {
             if (acceptedTerminal) return this.getMessages();
             if (failure) {
                 process.kill();
-                executionOutcome = combinedSignal.aborted ? "canceled" : "error";
+                executionOutcome = combinedSignal.aborted ? "canceled" : "failed";
                 failureKind = failure.kind;
                 emitFailure(failure, false);
                 throw new AgyCliBackendError(failure.kind, {
@@ -403,7 +441,7 @@ export class AgyCliExecutionSession {
                 });
             }
             if (!parsed) {
-                executionOutcome = "error";
+                executionOutcome = "failed";
                 failureKind = "empty_result";
                 const fallback = { kind: "empty_result", exitCode: status.code } satisfies ClassifiedFailure;
                 emitFailure(fallback, false);
@@ -426,19 +464,28 @@ export class AgyCliExecutionSession {
             this.activeProcess = null;
             this.isStreaming = false;
             this.turnAbortController = null;
-            if (parsed?.metadata?.usage) {
+            const usage = parsed?.metadata?.usage ?? observedUsage;
+            if (usage) {
                 await recorder.recordModelUsage({
-                    inputTokens: parsed.metadata.usage.inputTokens,
-                    outputTokens: parsed.metadata.usage.outputTokens,
-                    cacheReadTokens: null,
-                    cacheWriteTokens: null,
+                    inputTokens: usage.inputTokens,
+                    outputTokens: usage.outputTokens,
+                    cacheReadTokens: usage.cacheReadTokens,
+                    cacheWriteTokens: usage.cacheWriteTokens,
                     costUsd: null,
+                    costSource: "unavailable",
+                    measurementAvailability: usage.inputTokens !== null &&
+                            usage.outputTokens !== null
+                        ? "partial"
+                        : "unavailable",
+                    inputCacheBasis: "unknown",
                     model: this.model.id,
                     provider: this.model.provider,
                 });
             }
-            void recorder.recordResponseLatency("turn_finish");
+            observe(recorder.recordResponseLatency("turn_finish"));
+            await Promise.allSettled([...pendingObservations]);
             await recorder.settleExecution(executionOutcome, failureKind);
+            this.hostedSession?.forgetExecutionToolCalls(recorder.executionId);
         }
     }
 
@@ -728,24 +775,24 @@ function makeAssistantMessage(text: string, model: RunWieldModel, usage: AgyCliU
 }
 
 function zeroUsage(): AgyCliUsage {
-    return { inputTokens: 0, outputTokens: 0 };
+    return { inputTokens: 0, outputTokens: 0, cacheReadTokens: null, cacheWriteTokens: null };
 }
 
 function toPiUsage(usage: AgyCliUsage) {
     return {
-        input: usage.inputTokens,
-        output: usage.outputTokens,
+        input: usage.inputTokens ?? 0,
+        output: usage.outputTokens ?? 0,
         cacheRead: 0,
         cacheWrite: 0,
-        totalTokens: usage.inputTokens + usage.outputTokens,
+        totalTokens: (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0),
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
     };
 }
 
 function toRuntimeUsage(usage: AgyCliUsage) {
     return {
-        inputTokens: usage.inputTokens,
-        outputTokens: usage.outputTokens,
+        inputTokens: usage.inputTokens ?? 0,
+        outputTokens: usage.outputTokens ?? 0,
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
         costUsd: 0,

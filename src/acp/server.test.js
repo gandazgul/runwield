@@ -9,7 +9,8 @@ import { dirname, fromFileUrl, join, resolve } from "@std/path";
 import { withRuntimeCommandFixture } from "../cmd/testing/runtime-command-fixture.ts";
 import { savePlan } from "../plan-store.js";
 import { openFileSessionStore } from "../shared/session/file-session-store.ts";
-import { __resetSettingsForTests } from "../shared/settings.js";
+import { __resetSettingsForTests, setCustomSetting } from "../shared/settings.js";
+import { drainWorkflowMetrics, getWorkflowMetricsFilePath } from "../shared/workflow/metrics.js";
 import { createRootSessionManager, resolveCreatedRootSessionPath } from "../shared/session/root-session.js";
 import { VERSION } from "../shared/version.js";
 import { mapRuntimeEventToAcpUpdate } from "./event-mapper.js";
@@ -1368,6 +1369,7 @@ Deno.test("ACP /session reports real Runtime totals", async () => {
 
 Deno.test("ACP /plan-review reports when this Session has no saved review", async () => {
     await withRuntimeCommandFixture("runwield-acp-plan-review-", async (fixture) => {
+        await setCustomSetting("workflowMetrics", true, "project", fixture.projectRoot);
         const handle = startTestServer();
         try {
             const { sessionId } = await createSession(handle, fixture.projectRoot);
@@ -1380,6 +1382,17 @@ Deno.test("ACP /plan-review reports when this Session has no saved review", asyn
             const result = await readThroughResponse(handle, "plan-review-command");
             assertStringIncludes(joinedAgentText(result.messages), "no previous Plan review");
             assertEquals(result.response.result.stopReason, "end_turn");
+            await drainWorkflowMetrics();
+            const rows = (await Deno.readTextFile(getWorkflowMetricsFilePath(fixture.projectRoot))).trim().split("\n")
+                .map((line) => JSON.parse(line)).filter((row) =>
+                    row.category === "command" && row.command === "plan-review"
+                );
+            assertEquals(rows.map((row) => [row.event, row.phase, row.outcome]), [
+                ["command_started", "start", undefined],
+                ["command_dispatched", "dispatched", undefined],
+                ["command_finished", "finish", "failed"],
+            ]);
+            assertEquals(new Set(rows.map((row) => row.commandId)).size, 1);
         } finally {
             await closeTestServer(handle);
         }
@@ -1388,6 +1401,7 @@ Deno.test("ACP /plan-review reports when this Session has no saved review", asyn
 
 Deno.test("ACP /plan-review returns the live Plan Review URL while the original prompt remains pending", async () => {
     await withRuntimeCommandFixture("runwield-acp-live-plan-review-", async (fixture) => {
+        await setCustomSetting("workflowMetrics", true, "project", fixture.projectRoot);
         await savePlan(fixture.projectRoot, "acp-review", "# ACP review\n\nReview this Plan.\n", {
             classification: "PLANNED_CHANGE",
             status: "draft",
@@ -1471,6 +1485,19 @@ Deno.test("ACP /plan-review returns the live Plan Review URL while the original 
             const original = await readThroughResponse(handle, "original-review-turn");
             assertEquals(original.response.result.stopReason, "end_turn");
             assertEquals(modelTurns, 1);
+            await drainWorkflowMetrics();
+            const commandRows = (await Deno.readTextFile(getWorkflowMetricsFilePath(fixture.projectRoot))).trim().split(
+                "\n",
+            )
+                .map((line) => JSON.parse(line)).filter((row) =>
+                    row.category === "command" && row.command === "plan-review"
+                );
+            assertEquals(commandRows.map((row) => [row.event, row.outcome]), [
+                ["command_started", undefined],
+                ["command_dispatched", undefined],
+                ["command_finished", "succeeded"],
+            ]);
+            assertEquals(new Set(commandRows.map((row) => row.commandId)).size, 1);
         } finally {
             if (reviewUrl) {
                 const url = new URL(reviewUrl);
@@ -1490,6 +1517,7 @@ Deno.test("ACP /plan-review returns the live Plan Review URL while the original 
 
 Deno.test("ACP /plan-review does not replace a prompt whose response is still pending", async () => {
     await withRuntimeCommandFixture("runwield-acp-plan-review-busy-", async (fixture) => {
+        await setCustomSetting("workflowMetrics", true, "project", fixture.projectRoot);
         fixture.setModelResponse("Original turn complete.");
         const handle = startTestServer({ holdResponseId: "original-turn" });
         try {
@@ -1512,6 +1540,17 @@ Deno.test("ACP /plan-review does not replace a prompt whose response is still pe
             assertStringIncludes(joinedAgentText(result.messages), "busy with other work");
             assertEquals(result.response.result.stopReason, "end_turn");
             assert(result.messages.some((message) => message.id === "original-turn"), "Original prompt must finish.");
+            await drainWorkflowMetrics();
+            const commandRows = (await Deno.readTextFile(getWorkflowMetricsFilePath(fixture.projectRoot))).trim().split(
+                "\n",
+            )
+                .map((line) => JSON.parse(line)).filter((row) =>
+                    row.category === "command" && row.command === "plan-review"
+                );
+            assertEquals(commandRows.map((row) => [row.event, row.phase, row.outcome]), [
+                ["command_started", "start", undefined],
+                ["command_finished", "rejected", "rejected"],
+            ]);
         } finally {
             handle.releaseHeldResponse?.();
             await closeTestServer(handle);

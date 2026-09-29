@@ -326,6 +326,19 @@ Deno.test("Agy parser handles real Antigravity 1.1 stream-json shape", async () 
     assertEquals(result.metadata.usage.inputTokens, 5);
 });
 
+Deno.test("Agy 1.2.12 captured tool stream reports available tool progress and usage", async () => {
+    const captured = await Deno.readTextFile(new URL("./fixtures/agy-1.2.12-tool-stream.jsonl", import.meta.url));
+    const toolNames: string[] = [];
+    const result = await parseAgyCliStream(streamFromText(captured), {
+        onToolInfo: (observation) => toolNames.push(observation.toolName || "unknown"),
+    });
+    assertEquals(toolNames, ["view_file", "view_file"]);
+    assertEquals(result.metadata.toolInfoCount, 2);
+    assertEquals(result.metadata.usage.inputTokens, 19529);
+    assertEquals(result.metadata.usage.outputTokens, 155);
+    assertEquals(result.rawResultText, "mint\n");
+});
+
 Deno.test("Agy parser rejects malformed, empty, missing-result, and mismatched streams", async () => {
     await assertRejects(() => parseAgyCliStream(streamFromText("{not json}\n")), AgyCliStreamError, "malformed");
     let pulledChunks = 0;
@@ -641,4 +654,35 @@ Deno.test("Agy CLI supported base models are selectable and executable through b
     assertEquals(registry.find("agy-cli", "runwield-spike-test-agent"), undefined);
     assertEquals(model.executionBackend, "agy-cli");
     assertModelExecutionBackendSupported(model);
+});
+
+Deno.test("Agy terminal usage remains observable after malformed or mismatched stream", async () => {
+    const result = JSON.stringify({
+        event: "result",
+        result: {
+            status: "SUCCESS",
+            response: "different",
+            usage: { input_tokens: 9, output_tokens: 0, cache_read_tokens: 7 },
+        },
+    });
+    for (
+        const prefix of [
+            "{bad json}\n",
+            JSON.stringify({
+                event: "step_update",
+                step_update: {
+                    step_type: "agent_response",
+                    text_delta: "original",
+                },
+            }) + "\n",
+        ]
+    ) {
+        const observations: Array<{ inputTokens: number | null; cacheReadTokens: number | null }> = [];
+        await assertRejects(() =>
+            parseAgyCliStream(streamFromText(prefix + result + "\n"), {
+                onUsage: (usage) => observations.push(usage),
+            }), AgyCliStreamError);
+        assertEquals(observations.at(-1)?.inputTokens, 9);
+        assertEquals(observations.at(-1)?.cacheReadTokens, 7);
+    }
 });

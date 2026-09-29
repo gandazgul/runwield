@@ -120,7 +120,7 @@ import { expandSkill, listSkills } from "./skill-catalog.ts";
 import { getPackagePromptTemplatePaths, resolveInstalledPackagePromptResources } from "../package-resources.js";
 import { getWldExtensionPaths, resolveInstalledWldExtensionResources } from "../extensions/wld-extension-manifest.js";
 import { recordToolCallFinished, recordToolCallStarted, recordWorkflowMetric } from "../workflow/metrics.js";
-import { ExecutionMetricsRecorder } from "../workflow/execution-metrics.ts";
+import { ExecutionMetricsRecorder, SessionContextMetricsRecorder } from "../workflow/execution-metrics.ts";
 import { describeRuntimeTool } from "./tool-event-title.js";
 import { createSessionContextProjection, estimateContextTextTokens } from "./session-context-report.js";
 import { installEarlySteeringInterruption } from "./early-steering.js";
@@ -1543,7 +1543,7 @@ async function readGlobalInstructionFile(homeDir) {
  * @param {string | undefined} cwd
  * @param {string} [projectStateContext]
  * @param {SystemPromptContextProjectionOptions} [options]
- * @returns {Promise<{ prompt: string, projection: import('./session-context-report.js').SessionContextProjection }>}
+ * @returns {Promise<{ prompt: string, projection: import('./session-context-report.js').SessionContextProjection, effectiveToolDefinitions: import('@earendil-works/pi-coding-agent').ToolDefinition[] }>}
  */
 export async function assembleFinalSystemPromptWithContextProjection(
     agentDef,
@@ -1786,7 +1786,14 @@ export async function assembleFinalSystemPromptWithContextProjection(
         },
     ]);
 
-    return { prompt: finalSystemPrompt, projection };
+    return {
+        prompt: finalSystemPrompt,
+        projection,
+        effectiveToolDefinitions: tools.flatMap((name) => {
+            const definition = effectiveToolMap.get(name);
+            return definition ? [definition] : [];
+        }),
+    };
 }
 
 /**
@@ -1951,6 +1958,7 @@ function repairNamedInvocationContextEdits(sessionManager) {
  *   promptState: { text: string },
  *   tools: string[],
  *   finalCustomTools: import('@earendil-works/pi-coding-agent').ToolDefinition[],
+ *   effectiveToolDefinitions: import('@earendil-works/pi-coding-agent').ToolDefinition[],
  *   resolvedModel: any,
  *   resolvedThinkingLevel: string | undefined,
  *   resolvedTemperature: number | undefined,
@@ -2163,7 +2171,7 @@ export async function buildAgentSession({
     }
 
     // Resolve system prompt placeholders
-    const { prompt: finalSystemPrompt, projection: contextProjection } =
+    const { prompt: finalSystemPrompt, projection: contextProjection, effectiveToolDefinitions } =
         await assembleFinalSystemPromptWithContextProjection(
             agentDef,
             tools,
@@ -2320,6 +2328,7 @@ export async function buildAgentSession({
         promptState,
         tools,
         finalCustomTools,
+        effectiveToolDefinitions,
         resolvedModel,
         resolvedThinkingLevel,
         resolvedTemperature,
@@ -2482,6 +2491,7 @@ function assertAgyCliImageInputSupported(images) {
  *   promptState: { text: string },
  *   tools: string[],
  *   finalCustomTools: import('@earendil-works/pi-coding-agent').ToolDefinition[],
+ *   effectiveToolDefinitions: import('@earendil-works/pi-coding-agent').ToolDefinition[],
  *   resolvedModel: any,
  *   resolvedThinkingLevel: string | undefined,
  *   resolvedTemperature: number | undefined,
@@ -2556,7 +2566,7 @@ export async function buildExecutionSession(opts) {
         opts.toolNames,
         finalCustomTools.map((tool) => tool.name),
     );
-    const { prompt: finalSystemPrompt, projection: contextProjection } =
+    const { prompt: finalSystemPrompt, projection: contextProjection, effectiveToolDefinitions } =
         await assembleFinalSystemPromptWithContextProjection(
             agentDef,
             rebuildToolNames,
@@ -2633,6 +2643,7 @@ export async function buildExecutionSession(opts) {
         promptState,
         tools: rebuildToolNames,
         finalCustomTools,
+        effectiveToolDefinitions,
         resolvedModel,
         resolvedThinkingLevel: backendThinking,
         resolvedTemperature: undefined,
@@ -2650,8 +2661,6 @@ export async function buildExecutionSession(opts) {
  * @property {() => string[]} drainInvokedToolNames  Snapshot of tools used this turn; clears the list.
  * @property {() => void} endThinking  End any in-progress thinking stream (defensive cleanup).
  * @property {() => void} unsubscribe  Detach the subscription.
- * @property {(recorder: ExecutionMetricsRecorder | null) => void} [setRecorder]
- * @property {() => ExecutionMetricsRecorder | null} [getRecorder]
  */
 
 /**
@@ -2974,6 +2983,225 @@ async function compactBeforePromptIfNeeded(session, prepared, agentName) {
     return compacted;
 }
 
+// Execution observation belongs to the Agent Session, not its foreground display subscriber.
+/** @type {WeakMap<object, Promise<void>>} */
+const pendingManualCompactionMetrics = new WeakMap();
+
+/** @param {object} session */
+export async function drainSessionCompactionMetrics(session) {
+    await pendingManualCompactionMetrics.get(session);
+    pendingManualCompactionMetrics.delete(session);
+}
+
+/**
+ * @param {import('@earendil-works/pi-coding-agent').AgentSession} session
+ * @param {import('./hosted-session.js').HostedSession} hostedSession
+ * @param {import('./session-context-report.js').SessionContextProjection | undefined} projection
+ */
+function attachSessionMetricsObserver(session, hostedSession, projection) {
+    const toolStartedAt = new Map();
+    const toolArgs = new Map();
+    /** @type {Set<string>} */
+    let turnPriorEntryIds = new Set();
+    /** @type {SessionContextMetricsRecorder | null} */
+    let manualCompaction = null;
+    let manualPriorIds = new Set();
+    /** @type {SessionContextMetricsRecorder | null} */
+    let branchSummaryRetries = null;
+    /** @type {number | null} */
+    let summarizationRetryAttempt = null;
+    /** @param {ExecutionMetricsRecorder} recorder
+     * @param {"turn_start" | "turn_end" | "before_compaction"} point */
+    const snapshot = (recorder, point) => recordPiExecutionContext(recorder, session, projection, point);
+    return session.subscribe((event) => {
+        const recorder = executionMetricsForSession.get(session);
+        if (!recorder && event.type === "compaction_start" && event.reason === "manual") {
+            manualPriorIds = new Set(session.sessionManager.getEntries().map((entry) => entry.id));
+            manualCompaction = new SessionContextMetricsRecorder(
+                hostedSession.cwd,
+                session.sessionManager.getSessionId(),
+                hostedSession.activeCommandInvocationId,
+            );
+            void manualCompaction.start(piContextSnapshot(session, projection, "before_compaction"));
+            return;
+        }
+        if (!recorder && event.type === "compaction_end" && event.reason === "manual") {
+            const pending = manualCompaction;
+            manualCompaction = null;
+            if (pending) {
+                if (summarizationRetryAttempt !== null) {
+                    void pending.retryFinish(
+                        summarizationRetryAttempt,
+                        event.aborted ? "canceled" : event.errorMessage ? "failed" : "succeeded",
+                    );
+                    summarizationRetryAttempt = null;
+                }
+                pendingManualCompactionMetrics.set(
+                    session,
+                    pending.finish(
+                        event.aborted ? "canceled" : event.errorMessage ? "error" : "success",
+                        event.result?.tokensBefore ?? null,
+                        event.result?.estimatedTokensAfter ?? null,
+                        session.model?.contextWindow ?? null,
+                        session.sessionManager.getEntries(),
+                        manualPriorIds,
+                    ),
+                );
+            }
+            return;
+        }
+        if (!recorder && manualCompaction && event.type === "summarization_retry_scheduled") {
+            if (summarizationRetryAttempt !== null) {
+                void manualCompaction.retryFinish(summarizationRetryAttempt, "failed");
+            }
+            summarizationRetryAttempt = event.attempt;
+            void manualCompaction.retryStart(event.attempt, event.maxAttempts, event.delayMs);
+            return;
+        }
+        if (!recorder && event.type === "summarization_retry_scheduled") {
+            branchSummaryRetries ??= new SessionContextMetricsRecorder(
+                hostedSession.cwd,
+                session.sessionManager.getSessionId(),
+                hostedSession.activeCommandInvocationId,
+            );
+            if (summarizationRetryAttempt !== null) {
+                void branchSummaryRetries.retryFinish(summarizationRetryAttempt, "failed");
+            }
+            summarizationRetryAttempt = event.attempt;
+            void branchSummaryRetries.retryStart(event.attempt, event.maxAttempts, event.delayMs);
+            return;
+        }
+        if (
+            !recorder && event.type === "entry_appended" && event.entry.type === "branch_summary" &&
+            branchSummaryRetries && summarizationRetryAttempt !== null
+        ) {
+            void branchSummaryRetries.retryFinish(summarizationRetryAttempt, "succeeded");
+            summarizationRetryAttempt = null;
+            branchSummaryRetries = null;
+        }
+        if (!recorder) return;
+        switch (event.type) {
+            case "entry_appended":
+                if (event.entry.type === "branch_summary" && summarizationRetryAttempt !== null) {
+                    void recorder.recordRetryFinish({
+                        retrySource: "summarization_retry",
+                        attempt: summarizationRetryAttempt,
+                        outcome: "succeeded",
+                    });
+                    summarizationRetryAttempt = null;
+                }
+                break;
+            case "message_update":
+                void recorder.recordResponseLatency("first_response");
+                if (event.assistantMessageEvent.type === "text_delta") {
+                    void recorder.recordResponseLatency("first_text");
+                }
+                break;
+            case "summarization_retry_scheduled":
+                if (summarizationRetryAttempt !== null) {
+                    void recorder.recordRetryFinish({
+                        retrySource: "summarization_retry",
+                        attempt: summarizationRetryAttempt,
+                        outcome: "failed",
+                    });
+                }
+                summarizationRetryAttempt = event.attempt;
+                void recorder.recordRetryStart({
+                    retrySource: "summarization_retry",
+                    attempt: event.attempt,
+                    maxAttempts: event.maxAttempts,
+                    delayMs: event.delayMs,
+                });
+                break;
+            case "summarization_retry_finished":
+                // Pi emits no outcome here. The compaction end event carries the result.
+                break;
+            case "auto_retry_start":
+                void recorder.recordRetry({
+                    retrySource: "model",
+                    attempt: event.attempt,
+                    maxAttempts: event.maxAttempts,
+                    delayMs: event.delayMs,
+                    reason: "failed",
+                });
+                break;
+            case "auto_retry_end":
+                void recorder.recordRetry({
+                    retrySource: "model",
+                    attempt: event.attempt,
+                    outcome: (event.success || /** @type {any} */ (event).outcome === "success" ||
+                            /** @type {any} */ (event).outcome === "succeeded")
+                        ? "success"
+                        : event.finalError === "Retry cancelled"
+                        ? "canceled"
+                        : "failed",
+                    finalError: event.finalError ? "failed" : null,
+                });
+                break;
+            case "tool_execution_start": {
+                const callId = event.toolCallId;
+                toolStartedAt.set(callId, Date.now());
+                toolArgs.set(callId, event.args);
+                hostedSession.recordToolExecution(callId, recorder.executionId);
+                void recorder.recordToolStart(callId, event.toolName, event.args);
+                break;
+            }
+            case "tool_execution_end": {
+                const callId = event.toolCallId;
+                void recorder.recordToolFinish(callId, event.toolName, {
+                    outcome: event.isError ? "error" : "success",
+                    isError: Boolean(event.isError),
+                    result: event.result,
+                    args: toolArgs.get(callId),
+                    durationMs: toolStartedAt.has(callId) ? Date.now() - toolStartedAt.get(callId) : null,
+                });
+                toolStartedAt.delete(callId);
+                toolArgs.delete(callId);
+                hostedSession.forgetToolExecution(callId);
+                break;
+            }
+            case "turn_start":
+            case "turn_end": {
+                const point = event.type === "turn_start" ? "turn_start" : "turn_end";
+                if (event.type === "turn_start") {
+                    turnPriorEntryIds = new Set(session.sessionManager.getEntries().map((entry) => entry.id));
+                } else {
+                    recorder.associatePiTurnEntries(session.sessionManager.getEntries(), turnPriorEntryIds);
+                }
+                void recorder.recordResponseLatency(event.type === "turn_start" ? "turn_start" : "turn_finish");
+                void snapshot(recorder, point);
+                break;
+            }
+            case "compaction_start":
+                void snapshot(recorder, "before_compaction");
+                void recorder.recordCompaction({ reason: event.reason, phase: "start" });
+                break;
+            case "compaction_end":
+                if (summarizationRetryAttempt !== null) {
+                    void recorder.recordRetryFinish({
+                        retrySource: "summarization_retry",
+                        attempt: summarizationRetryAttempt,
+                        outcome: event.aborted ? "canceled" : event.errorMessage ? "failed" : "succeeded",
+                    });
+                    summarizationRetryAttempt = null;
+                }
+                void recorder.recordContextSnapshot("after_compaction", {
+                    capacityTokens: session.model?.contextWindow ?? null,
+                    currentTokens: null,
+                    usageState: "unknown_after_compaction",
+                });
+                void recorder.recordCompaction({
+                    reason: event.reason,
+                    phase: "end",
+                    outcome: event.aborted ? "canceled" : event.errorMessage ? "error" : "success",
+                    tokensBefore: event.result?.tokensBefore,
+                    tokensAfter: event.result?.estimatedTokensAfter,
+                });
+                break;
+        }
+    });
+}
+
 /**
  * Attach semantic event subscribers to an AgentSession. Called once per AgentSession lifetime
  * (whether root or transient). Returns lifecycle handles for the caller to reset turn-scoped
@@ -2994,8 +3222,6 @@ export function attachSessionEventSubscribers(
     hostedSession = undefined,
     cancellationSignal = undefined,
 ) {
-    /** @type {ExecutionMetricsRecorder | null} */
-    let currentRecorder = null;
     /** @type {string[]} */
     let invokedToolNames = [];
     let thinkingActive = false;
@@ -3008,6 +3234,7 @@ export function attachSessionEventSubscribers(
     let currentThinkingMessageId = null;
     /** @type {Map<string, number>} */
     const toolStartedAt = new Map();
+    /** @type {Map<string, unknown>} */
     /** @type {Map<string, ReturnType<typeof describeRuntimeTool>>} */
     const runtimeTools = new Map();
     const runtimeAgentName = agentDef.displayName || agentDef.name;
@@ -3097,9 +3324,6 @@ export function attachSessionEventSubscribers(
                 }
 
                 if (event.assistantMessageEvent.type === "text_delta") {
-                    if (currentRecorder) {
-                        void currentRecorder.recordResponseLatency("first_text");
-                    }
                     currentAssistantMessageId = currentAssistantMessageId || nextAssistantMessageId();
                     endThinking();
                     emitRuntimeEvent({
@@ -3152,17 +3376,6 @@ export function attachSessionEventSubscribers(
                         type: RuntimeEventTypes.USAGE,
                         usage: norm,
                     });
-                    if (currentRecorder) {
-                        void currentRecorder.recordModelUsage({
-                            inputTokens: norm.inputTokens || 0,
-                            outputTokens: norm.outputTokens || 0,
-                            cacheReadTokens: norm.cacheReadTokens ?? null,
-                            cacheWriteTokens: norm.cacheWriteTokens ?? null,
-                            costUsd: norm.costUsd ?? (endedMessage.usage.cost?.total ?? null),
-                            model: session.model?.id,
-                            provider: session.model?.provider,
-                        });
-                    }
                 }
 
                 if (
@@ -3180,15 +3393,6 @@ export function attachSessionEventSubscribers(
                 break;
             }
             case "auto_retry_start": {
-                if (currentRecorder) {
-                    void currentRecorder.recordRetry({
-                        retrySource: "model",
-                        attempt: event.attempt,
-                        maxAttempts: event.maxAttempts,
-                        delayMs: event.delayMs,
-                        reason: event.errorMessage,
-                    });
-                }
                 if (cancellationSignal?.aborted) break;
                 const seconds = event.delayMs / 1000;
                 const message = `${formatProviderError(event.errorMessage)} Retrying in ${seconds} ${
@@ -3202,16 +3406,6 @@ export function attachSessionEventSubscribers(
                 break;
             }
             case "auto_retry_end": {
-                if (currentRecorder) {
-                    void currentRecorder.recordRetry({
-                        retrySource: "model",
-                        attempt: event.attempt,
-                        outcome: (event.success || event.outcome === "success" || event.outcome === "succeeded")
-                            ? "success"
-                            : "failed",
-                        finalError: event.finalError,
-                    });
-                }
                 if (!event.success && !cancellationSignal?.aborted && event.finalError !== "Retry cancelled") {
                     const message = formatProviderRetryExhaustion(event.finalError, event.attempt);
                     emitRuntimeEvent({
@@ -3239,12 +3433,9 @@ export function attachSessionEventSubscribers(
                 // Pi reports summary progress without a success/failure outcome here.
                 break;
             case "tool_execution_start": {
-                const callId = event.toolCallId || event.callId;
+                const callId = event.toolCallId || /** @type {any} */ (event).callId;
                 invokedToolNames.push(event.toolName);
                 toolStartedAt.set(callId, Date.now());
-                if (currentRecorder) {
-                    void currentRecorder.recordToolStart(callId, event.toolName, event.args);
-                }
                 const runtimeTool = describeRuntimeTool(event.toolName, event.args);
                 runtimeTools.set(event.toolCallId, runtimeTool);
                 if (hostedSession?.cwd) {
@@ -3317,18 +3508,10 @@ export function attachSessionEventSubscribers(
                 break;
             }
             case "tool_execution_end": {
-                const callId = event.toolCallId || event.callId;
+                const callId = event.toolCallId || /** @type {any} */ (event).callId;
                 const durationMs = toolStartedAt.has(callId)
                     ? Date.now() - /** @type {number} */ (toolStartedAt.get(callId))
                     : null;
-                if (currentRecorder) {
-                    void currentRecorder.recordToolFinish(callId, event.toolName, {
-                        outcome: event.isError ? "error" : "success",
-                        isError: Boolean(event.isError),
-                        result: event.result,
-                        durationMs,
-                    });
-                }
                 if (hostedSession?.cwd) {
                     void recordToolCallFinished(
                         callId,
@@ -3371,49 +3554,16 @@ export function attachSessionEventSubscribers(
                 thinkingMessageSequence = 0;
                 currentAssistantMessageId = null;
                 currentThinkingMessageId = null;
-                if (currentRecorder) {
-                    void currentRecorder.recordResponseLatency("turn_start");
-                    const contextWindow = session.model?.contextWindow || 128000;
-                    const currentTokens = estimateAgentMessagesTokens(session.agent?.state?.messages || []);
-                    void currentRecorder.recordContextSnapshot("turn_start", {
-                        capacityTokens: contextWindow,
-                        currentTokens,
-                        usageState: "clean",
-                    });
-                }
                 emitRuntimeEvent({ type: RuntimeEventTypes.TURN_START, turnId: currentRuntimeTurnId });
                 break;
             }
             case "turn_end": {
-                if (currentRecorder) {
-                    void currentRecorder.recordResponseLatency("turn_finish");
-                    const contextWindow = session.model?.contextWindow || 128000;
-                    const currentTokens = estimateAgentMessagesTokens(session.agent?.state?.messages || []);
-                    void currentRecorder.recordContextSnapshot("turn_end", {
-                        capacityTokens: contextWindow,
-                        currentTokens,
-                        usageState: "clean",
-                    });
-                }
                 emitRuntimeEvent({ type: RuntimeEventTypes.TURN_END, turnId: currentRuntimeTurnId, ok: true });
                 currentAssistantMessageId = null;
                 currentThinkingMessageId = null;
                 break;
             }
             case "compaction_start": {
-                if (currentRecorder) {
-                    const contextWindow = session.model?.contextWindow || 128000;
-                    const currentTokens = estimateAgentMessagesTokens(session.agent?.state?.messages || []);
-                    void currentRecorder.recordContextSnapshot("before_compaction", {
-                        capacityTokens: contextWindow,
-                        currentTokens,
-                        usageState: "clean",
-                    });
-                    void currentRecorder.recordCompaction({
-                        reason: event.reason,
-                        phase: "start",
-                    });
-                }
                 // Manual /compact has its own UI in cmd/compact/index.js — avoid duplicate status.
                 if (event.reason !== "manual") {
                     const label = event.reason === "overflow"
@@ -3428,22 +3578,6 @@ export function attachSessionEventSubscribers(
                 break;
             }
             case "compaction_end": {
-                if (currentRecorder) {
-                    const contextWindow = session.model?.contextWindow || 128000;
-                    const currentTokens = estimateAgentMessagesTokens(session.agent?.state?.messages || []);
-                    void currentRecorder.recordContextSnapshot("after_compaction", {
-                        capacityTokens: contextWindow,
-                        currentTokens,
-                        usageState: "clean",
-                    });
-                    void currentRecorder.recordCompaction({
-                        reason: event.reason,
-                        phase: "end",
-                        outcome: event.aborted ? "canceled" : (event.errorMessage ? "error" : "success"),
-                        tokensBefore: event.result?.tokensBefore ?? event.tokensBefore ?? event.beforeTokens,
-                        tokensAfter: event.result?.tokensAfter ?? event.tokensAfter ?? event.afterTokens,
-                    });
-                }
                 // Manual /compact's success/failure is reported by the slash command itself
                 // (which awaits session.compact()). Only emit a UI message for auto runs.
                 if (event.reason !== "manual") {
@@ -3485,10 +3619,6 @@ export function attachSessionEventSubscribers(
         },
         endThinking,
         unsubscribe,
-        setRecorder: (recorder) => {
-            currentRecorder = recorder;
-        },
-        getRecorder: () => currentRecorder,
     };
 }
 
@@ -3753,7 +3883,10 @@ export function applyAttentionNudge(agentName, userRequest, rootTurnCount) {
     ].join("\n");
 }
 
-/** @type {WeakMap<import('@earendil-works/pi-coding-agent').AgentSession, { agentDef: import('./types.js').AgentDefinition, subAgentDefinition?: { id: import('./subagent-definitions.ts').SubAgentDefinitionId, options?: import('./subagent-definitions.ts').LoadSubAgentDefinitionOptions }, promptState: { text: string }, subscriberState: SubscriberState, agentName: string, tools: string[], finalCustomTools: import('@earendil-works/pi-coding-agent').ToolDefinition[], mcpToolNames?: string[], rootTurnCount: number, projectStateContext: string, cwd: string, model?: string, contextProjection?: import('./session-context-report.js').SessionContextProjection, imageMode?: string, visionFallbackModelRef?: string, steeringTargetId?: string }>} */
+/** @type {WeakMap<import('@earendil-works/pi-coding-agent').AgentSession, ExecutionMetricsRecorder>} */
+const executionMetricsForSession = new WeakMap();
+
+/** @type {WeakMap<import('@earendil-works/pi-coding-agent').AgentSession, { agentDef: import('./types.js').AgentDefinition, subAgentDefinition?: { id: import('./subagent-definitions.ts').SubAgentDefinitionId, options?: import('./subagent-definitions.ts').LoadSubAgentDefinitionOptions }, promptState: { text: string }, subscriberState: SubscriberState, unsubscribeMetrics: () => void, agentName: string, tools: string[], finalCustomTools: import('@earendil-works/pi-coding-agent').ToolDefinition[], effectiveToolDefinitions: import('@earendil-works/pi-coding-agent').ToolDefinition[], mcpToolNames?: string[], rootTurnCount: number, projectStateContext: string, cwd: string, model?: string, resolvedModel?: import('../models/model-registry.ts').RunWieldModel, contextProjection?: import('./session-context-report.js').SessionContextProjection, imageMode?: string, visionFallbackModelRef?: string, steeringTargetId?: string }>} */
 const rootSessionMetadata = new WeakMap();
 
 /** @type {WeakMap<import('./hosted-session.js').HostedSession, { agentName: string, debugLogPath?: string }>} */
@@ -3871,6 +4004,7 @@ export function disposeRootAgentSessionForNewSession(hostedSession) {
         const meta = rootSessionMetadata.get(existing);
         try {
             meta?.subscriberState.unsubscribe();
+            meta?.unsubscribeMetrics();
         } catch (_e) { /* ignore */ }
         try {
             if (meta?.steeringTargetId) targetHostedSession.popSteeringTargetSession(meta.steeringTargetId);
@@ -3929,6 +4063,7 @@ export async function ensureRootAgentSession(opts) {
         promptState,
         tools,
         finalCustomTools,
+        effectiveToolDefinitions,
         resolvedModel,
         contextProjection,
         imageMode,
@@ -3947,6 +4082,9 @@ export async function ensureRootAgentSession(opts) {
         throw error;
     }
 
+    const unsubscribeMetrics = executionSession && executionSession.kind !== "pi"
+        ? () => {}
+        : attachSessionMetricsObserver(session, hostedSession, contextProjection);
     const subscriberState = executionSession && executionSession.kind !== "pi"
         ? {
             resetTurn: () => {},
@@ -3959,6 +4097,7 @@ export async function ensureRootAgentSession(opts) {
     if (existing) {
         try {
             existingMeta?.subscriberState.unsubscribe();
+            existingMeta?.unsubscribeMetrics();
         } catch (_e) { /* ignore */ }
         try {
             if (existingMeta?.steeringTargetId) hostedSession.popSteeringTargetSession(existingMeta.steeringTargetId);
@@ -4013,14 +4152,17 @@ export async function ensureRootAgentSession(opts) {
         subAgentDefinition: opts.subAgentDefinition,
         promptState,
         subscriberState,
+        unsubscribeMetrics,
         agentName: opts.agentName,
         tools,
         finalCustomTools,
+        effectiveToolDefinitions,
         mcpToolNames: (opts.mcpRootTools || hostedSession.getMcpRootTools?.() || []).map((tool) => tool.name),
         rootTurnCount: 0,
         projectStateContext: rootProjectStateContext,
         cwd: opts.cwd || hostedSession.cwd,
         model: finalModelForUi,
+        resolvedModel,
         contextProjection,
         imageMode,
         visionFallbackModelRef,
@@ -4068,33 +4210,65 @@ function publishTransitionSteeringCancellation(hostedSession, transitionSteering
 }
 
 /**
- * @param {string[]} [toolNames]
- * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [customTools]
- * @returns {Array<{ name: string, description?: string, parameters?: unknown }>}
+ * @param {string[]} toolNames
+ * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} definitions
+ * @param {import('./session-context-report.js').SessionContextProjection | undefined} projection
+ * @returns {Array<{ name: string, description?: string, parameters?: unknown, residentTokens?: number }>}
  */
-function assembleToolExposureDefinitions(toolNames, customTools = []) {
-    const result = [];
-    const seen = new Set();
-    for (const tool of (customTools || [])) {
-        if (tool && tool.name && !seen.has(tool.name)) {
-            seen.add(tool.name);
-            result.push({
-                name: tool.name,
-                description: tool.description,
-                parameters: tool.parameters,
-            });
-        }
-    }
-    for (const name of (toolNames || [])) {
-        if (name && !seen.has(name)) {
-            seen.add(name);
-            result.push({
-                name,
-                description: `Built-in tool ${name}`,
-            });
-        }
-    }
-    return result;
+function assembleToolExposureDefinitions(toolNames, definitions, projection) {
+    const byName = new Map(definitions.map((tool) => [tool.name, tool]));
+    const projected = new Map(
+        projection?.categories.find((category) => category.id === "tools")?.items?.map((
+            item,
+        ) => [item.name, item.tokens]) || [],
+    );
+    return toolNames.map((name) => {
+        const definition = byName.get(name);
+        return {
+            name,
+            ...(definition?.description ? { description: definition.description } : {}),
+            ...(definition?.parameters ? { parameters: definition.parameters } : {}),
+            ...(projected.has(name) ? { residentTokens: projected.get(name) } : {}),
+        };
+    });
+}
+
+/**
+ * Record actual projection and current-context state without retaining prompt text.
+ * @param {import('@earendil-works/pi-coding-agent').AgentSession} session
+ * @param {import('./session-context-report.js').SessionContextProjection | undefined} projection
+ * @param {import('../workflow/execution-metrics.ts').ContextSnapshotObservation['samplingPoint']} samplingPoint
+ * @returns {import('../workflow/execution-metrics.ts').ContextSnapshotObservation}
+ */
+function piContextSnapshot(session, projection, samplingPoint) {
+    const categories = projection?.categories || [];
+    const toolTokens = categories.find((category) => category.id === "tools")?.tokens ?? 0;
+    const staticTokens = projection?.staticTokens ?? 0;
+    const messages = session.sessionManager?.buildSessionContext?.().messages || [];
+    const messageTokens = estimateAgentMessagesTokens(messages);
+    const contextUsage = session.getContextUsage?.();
+    const unknown = contextUsage?.tokens === null;
+    const estimate = staticTokens + messageTokens;
+    const reported = typeof contextUsage?.tokens === "number" && contextUsage.tokens >= estimate;
+    return {
+        samplingPoint,
+        capacity: session.model?.contextWindow ?? null,
+        currentUsage: unknown ? null : reported ? contextUsage.tokens : estimate,
+        staticCategoryCounts: {
+            systemTokens: Math.max(0, staticTokens - toolTokens),
+            toolsTokens: toolTokens,
+            messagesTokens: messageTokens,
+        },
+        usageState: unknown ? "unknown_after_compaction" : reported ? "reported" : "estimated",
+    };
+}
+
+/** @param {ExecutionMetricsRecorder} recorder
+ * @param {import('@earendil-works/pi-coding-agent').AgentSession} session
+ * @param {import('./session-context-report.js').SessionContextProjection | undefined} projection
+ * @param {import('../workflow/execution-metrics.ts').ContextSnapshotObservation['samplingPoint']} samplingPoint */
+function recordPiExecutionContext(recorder, session, projection, samplingPoint) {
+    return recorder.recordContextSnapshot(piContextSnapshot(session, projection, samplingPoint));
 }
 
 /**
@@ -4211,18 +4385,23 @@ export async function runRootTurn({
                 signal,
                 requestId: dispatch.requestId,
                 attemptId: dispatch.attemptId,
+                dispatchKind: targetHostedSession.generatedTaskTurnId ? "background_task_result" : dispatchKind,
                 executionKind: "root",
                 mode: "foreground",
-                sourceSurface: targetHostedSession.sourceSurface || "cli",
-                taskId: targetHostedSession.generatedTaskTurnId,
+                sourceSurface: targetHostedSession.localInputSurface || targetHostedSession.notificationSurface ||
+                    "cli",
+                taskId: targetHostedSession.generatedTaskTurnId || undefined,
             });
         } else {
             const piSession = isExecutionSession(session) ? session.session : session;
             const recorder = new ExecutionMetricsRecorder({
                 projectRoot: meta.cwd || targetHostedSession.cwd,
                 sessionId: sessionManager.getSessionId?.(),
+                managedSessionId: targetHostedSession.getManagedMetadata()?.runwieldSessionId,
+                segmentId: targetHostedSession.getManagedMetadata()?.currentSegmentId,
                 requestId: dispatch.requestId,
                 attemptId: dispatch.attemptId,
+                commandId: targetHostedSession.activeCommandInvocationId || undefined,
                 agent: agentName,
                 provider: meta.resolvedModel?.provider || piSession.model?.provider,
                 model: meta.resolvedModel?.id || piSession.model?.id,
@@ -4230,15 +4409,24 @@ export async function runRootTurn({
                 dispatchKind: targetHostedSession.generatedTaskTurnId ? "background_task_result" : dispatchKind,
                 executionKind: "root",
                 mode: "foreground",
-                sourceSurface: targetHostedSession.sourceSurface || "cli",
-                taskId: targetHostedSession.generatedTaskTurnId,
+                sourceSurface: targetHostedSession.localInputSurface || targetHostedSession.notificationSurface ||
+                    "cli",
+                taskId: targetHostedSession.generatedTaskTurnId || undefined,
             });
             await recorder.recordExecutionStart();
-            const exposureTools = assembleToolExposureDefinitions(meta.tools, meta.finalCustomTools);
-            if (exposureTools.length > 0) {
-                await recorder.recordToolExposure(exposureTools);
-            }
-            meta.subscriberState.setRecorder(recorder);
+            const exposureTools = assembleToolExposureDefinitions(
+                meta.tools,
+                meta.effectiveToolDefinitions,
+                meta.contextProjection,
+            );
+            await recorder.recordToolExposure(exposureTools);
+            await recordPiExecutionContext(recorder, piSession, meta.contextProjection, "execution_start");
+            const priorEntryIds = new Set(
+                sessionManager.getEntries().map((
+                    /** @type {import('@earendil-works/pi-coding-agent').SessionEntry} */ entry,
+                ) => entry.id),
+            );
+            executionMetricsForSession.set(piSession, recorder);
             let piOutcome = "succeeded";
             let piReason = "completed";
             try {
@@ -4259,15 +4447,22 @@ export async function runRootTurn({
                     },
                 });
             } catch (err) {
-                piOutcome = signal?.aborted ? "canceled" : "error";
-                piReason = signal?.aborted ? "canceled" : (err instanceof Error ? err.message : String(err));
+                piOutcome = signal?.reason instanceof WorkflowStepCompleted
+                    ? "succeeded"
+                    : signal?.aborted
+                    ? "canceled"
+                    : "failed";
+                piReason = piOutcome === "succeeded" ? "completed" : piOutcome;
                 throw err;
             } finally {
-                meta.subscriberState.setRecorder(null);
+                executionMetricsForSession.delete(piSession);
+                await recorder.reconcilePiEntries(sessionManager.getEntries(), priorEntryIds);
+                await recordPiExecutionContext(recorder, piSession, meta.contextProjection, "execution_end");
                 await recorder.settleExecution(
                     /** @type {import('../workflow/execution-metrics.ts').ExecutionOutcome} */ (piOutcome),
                     piReason,
                 );
+                hostedSession?.forgetExecutionToolCalls(recorder.executionId);
             }
         }
         completeRequestDispatch(sessionManager, dispatch);
@@ -4413,12 +4608,22 @@ export async function runIsolatedAgentSession(opts) {
         projectStateContext,
         mcpRootTools: [],
     });
-    const { session, agentDef, promptState, tools, finalCustomTools, resolvedModel, resolvedThinkingLevel } = built;
+    const {
+        session,
+        agentDef,
+        promptState,
+        tools,
+        effectiveToolDefinitions,
+        contextProjection,
+        resolvedModel,
+        resolvedThinkingLevel,
+    } = built;
     const executionSession = built.executionSession || null;
     const executionRoot = executionSession || session;
     const steeringTarget = executionSession ? getExecutionSteeringTarget(executionSession) : session;
     /** @type {SubscriberState | undefined} */
     let subscriberState;
+    let unsubscribeMetrics = () => {};
     let agentInfoId = "";
     let steeringTargetId = "";
     let registeredSubAgent = false;
@@ -4430,14 +4635,15 @@ export async function runIsolatedAgentSession(opts) {
 
     try {
         opts.signal?.throwIfAborted();
+        unsubscribeMetrics = executionSession && executionSession.kind !== "pi"
+            ? () => {}
+            : attachSessionMetricsObserver(session, hostedSession, contextProjection);
         subscriberState = executionSession && executionSession.kind !== "pi"
             ? {
                 resetTurn: () => {},
                 drainInvokedToolNames: () => [],
                 endThinking: () => {},
                 unsubscribe: () => {},
-                setRecorder: () => {},
-                getRecorder: () => null,
             }
             : attachSessionEventSubscribers(
                 session,
@@ -4488,12 +4694,14 @@ export async function runIsolatedAgentSession(opts) {
                             signal: opts.signal,
                             requestId: dispatch.requestId,
                             attemptId: dispatch.attemptId,
+                            dispatchKind: opts.dispatchKind || "interactive",
                             executionKind,
                             mode,
                             parentExecutionId: opts.parentExecutionId,
                             parentToolCallId: opts.parentToolCallId,
                             taskId: opts.taskId,
-                            sourceSurface: hostedSession.sourceSurface || "cli",
+                            sourceSurface: hostedSession.localInputSurface || hostedSession.notificationSurface ||
+                                "cli",
                         }),
                 );
             } else {
@@ -4501,8 +4709,10 @@ export async function runIsolatedAgentSession(opts) {
                 const recorder = new ExecutionMetricsRecorder({
                     projectRoot: opts.cwd || hostedSession.cwd,
                     sessionId: session.sessionManager?.getSessionId?.(),
+                    managedSessionId: hostedSession.getManagedMetadata()?.runwieldSessionId,
                     requestId: dispatch.requestId,
                     attemptId: dispatch.attemptId,
+                    commandId: hostedSession.activeCommandInvocationId || undefined,
                     parentExecutionId: opts.parentExecutionId,
                     parentToolCallId: opts.parentToolCallId,
                     taskId: opts.taskId,
@@ -4513,14 +4723,22 @@ export async function runIsolatedAgentSession(opts) {
                     dispatchKind: opts.dispatchKind || "interactive",
                     executionKind,
                     mode,
-                    sourceSurface: hostedSession.sourceSurface || "cli",
+                    sourceSurface: hostedSession.localInputSurface || hostedSession.notificationSurface || "cli",
                 });
                 await recorder.recordExecutionStart();
-                const exposureTools = assembleToolExposureDefinitions(tools, finalCustomTools);
-                if (exposureTools.length > 0) {
-                    await recorder.recordToolExposure(exposureTools);
-                }
-                turnSubscribers?.setRecorder(recorder);
+                const exposureTools = assembleToolExposureDefinitions(
+                    tools,
+                    effectiveToolDefinitions,
+                    contextProjection,
+                );
+                await recorder.recordToolExposure(exposureTools);
+                await recordPiExecutionContext(recorder, session, contextProjection, "execution_start");
+                const priorEntryIds = new Set(
+                    session.sessionManager.getEntries().map((
+                        /** @type {import('@earendil-works/pi-coding-agent').SessionEntry} */ entry,
+                    ) => entry.id),
+                );
+                executionMetricsForSession.set(session, recorder);
                 let piOutcome = "succeeded";
                 let piReason = "completed";
                 try {
@@ -4541,15 +4759,22 @@ export async function runIsolatedAgentSession(opts) {
                             disableAutoCompaction: opts.disableAutoCompaction === true,
                         }));
                 } catch (err) {
-                    piOutcome = opts.signal?.aborted ? "canceled" : "error";
-                    piReason = opts.signal?.aborted ? "canceled" : (err instanceof Error ? err.message : String(err));
+                    piOutcome = opts.signal?.reason instanceof WorkflowStepCompleted
+                        ? "succeeded"
+                        : opts.signal?.aborted
+                        ? "canceled"
+                        : "failed";
+                    piReason = piOutcome === "succeeded" ? "completed" : piOutcome;
                     throw err;
                 } finally {
-                    turnSubscribers?.setRecorder(null);
+                    executionMetricsForSession.delete(session);
+                    await recorder.reconcilePiEntries(session.sessionManager.getEntries(), priorEntryIds);
+                    await recordPiExecutionContext(recorder, session, contextProjection, "execution_end");
                     await recorder.settleExecution(
                         /** @type {import('../workflow/execution-metrics.ts').ExecutionOutcome} */ (piOutcome),
                         piReason,
                     );
+                    hostedSession?.forgetExecutionToolCalls(recorder.executionId);
                 }
             }
             completeRequestDispatch(session.sessionManager, dispatch);
@@ -4585,6 +4810,7 @@ export async function runIsolatedAgentSession(opts) {
         }
         try {
             subscriberState?.unsubscribe();
+            unsubscribeMetrics();
         } catch (_e) { /* ignore */ }
         try {
             if (isExecutionSession(executionRoot)) await disposeExecutionSession(executionRoot);
