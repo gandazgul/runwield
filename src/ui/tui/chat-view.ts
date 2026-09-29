@@ -1,3 +1,5 @@
+import { getSettingsManager } from "../../shared/settings.js";
+import type { SessionRuntime } from "../../shared/session/session-runtime.ts";
 import {
     CombinedAutocompleteProvider,
     Container,
@@ -63,19 +65,26 @@ export interface ChatViewSessionSnapshot extends TuiSessionSidebarSnapshot {
     activeModel: { model?: string | null; provider?: string | null };
 }
 
-export interface ChatViewRuntime {
-    getSessionSnapshot(sessionId: string): ChatViewSessionSnapshot | null;
-    subscribeSessionEvents?(sessionId: string, listener: (event: { type: string }) => void): () => void;
-}
-export interface ChatViewOptions {
+interface ChatViewSharedOptions {
     tui: TUI;
-    sessionRuntime: ChatViewRuntime;
     getSessionId(): string;
     suppressStartupHeader: boolean;
     setActiveModel(model: string, provider?: string): Promise<{ status: "active" | "deferred"; message?: string }>;
     configureUiAPI?: (uiAPI: UiAPI) => void;
     onWorkflowAction?: (action: WorkflowPresentationAction, snapshot: ChatViewSessionSnapshot) => void | Promise<void>;
 }
+interface ChatSessionViewOptions extends ChatViewSharedOptions {
+    sessionRuntime: SessionRuntime;
+}
+
+/** Login has no Session or Session store; model setup reads project settings. */
+interface ChatSetupViewOptions extends ChatViewSharedOptions {
+    sessionRuntime: null;
+    projectRoot: string;
+}
+
+export type ChatViewOptions = ChatSessionViewOptions | ChatSetupViewOptions;
+
 interface RenderedChildLayout {
     component: Component;
     height: number;
@@ -326,7 +335,7 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
     const mascot = new TuiAgentMascot(() => tui.requestRender());
     let mascotAnswering = false;
     const renderMascot = (width: number, compact: boolean) => {
-        const snapshot = options.sessionRuntime.getSessionSnapshot(options.getSessionId());
+        const snapshot = options.sessionRuntime?.getSessionSnapshot(options.getSessionId());
         return mascot.render(width, compact, {
             agentName: snapshot?.activeAgentInfo?.agentName || snapshot?.activeAgent || "",
             parentAgentName: snapshot?.activeAgent || undefined,
@@ -337,15 +346,11 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
     let liveValidationProgress: TuiSessionSidebarSnapshot["validationProgress"] = null;
     const sessionSidebar = new TuiSessionSidebar(
         options.getSessionId,
-        () => options.sessionRuntime.getSessionSnapshot(options.getSessionId()),
+        () => options.sessionRuntime?.getSessionSnapshot(options.getSessionId()) ?? null,
     );
-    const snapshotWindow = createSessionSnapshotWindow(options.sessionRuntime, options.getSessionId);
-    const unsubscribeSessionEvents = options.sessionRuntime.subscribeSessionEvents?.(
-        options.getSessionId(),
-        // Any session event means state may have changed; refresh on the next
-        // frame instead of serving the window's stale snapshot.
-        () => snapshotWindow.invalidate(),
-    );
+    const snapshotWindow = options.sessionRuntime
+        ? createSessionSnapshotWindow(options.sessionRuntime, options.getSessionId)
+        : null;
     const bottomDock: Component = {
         invalidate: () => {
             composerContainer.invalidate();
@@ -367,7 +372,7 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
         },
         render: (w: number) => {
             const availableWidth = Math.max(10, w - 2);
-            const snapshot = snapshotWindow.read();
+            const snapshot = snapshotWindow?.read();
             if (w < MASCOT_RAIL_MIN_WIDTH) return container.render(availableWidth);
             const showSidebar = snapshot?.managed && availableWidth >= SESSION_SIDEBAR_MIN_WIDTH;
             const sidebarWidth = showSidebar ? 34 : 22;
@@ -407,7 +412,7 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
         const sidebarArea: Component = {
             invalidate: () => sessionSidebar.invalidate(),
             render: (width: number) => {
-                const snapshot = snapshotWindow.read();
+                const snapshot = snapshotWindow?.read();
                 return snapshot?.managed
                     ? sessionSidebar.render(width, { ...snapshot, validationProgress: liveValidationProgress })
                     : [];
@@ -462,7 +467,7 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
     let disposed = false;
     async function openSessionArtifact() {
         if (selectingArtifact || activeInteractionContainer.children.length > 0) return;
-        const snapshot = options.sessionRuntime.getSessionSnapshot(options.getSessionId());
+        const snapshot = options.sessionRuntime?.getSessionSnapshot(options.getSessionId());
         if (!snapshot?.artifacts?.length) return;
         selectingArtifact = true;
         try {
@@ -564,7 +569,7 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
     };
     const removeSidebarActionListener = tui.addInputListener((data) => {
         if (!isSessionSidebarActionKey(data)) return undefined;
-        const snapshot = options.sessionRuntime.getSessionSnapshot(options.getSessionId());
+        const snapshot = options.sessionRuntime?.getSessionSnapshot(options.getSessionId());
         const action = sessionSidebar.currentAction(snapshot || undefined);
         if (!snapshot || !action) return undefined;
         void Promise.resolve(options.onWorkflowAction?.(action, snapshot)).catch((error) => {
@@ -583,13 +588,18 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
         editor,
         container: composerContainer,
         getProjectRoot: () => {
-            const snapshot = options.sessionRuntime.getSessionSnapshot(options.getSessionId());
+            if (options.sessionRuntime === null) return options.projectRoot;
+            const snapshot = options.sessionRuntime?.getSessionSnapshot(options.getSessionId());
             if (!snapshot) throw new Error("Active runtime session is missing.");
             return snapshot.cwd;
         },
         setActiveModel: options.setActiveModel,
         getActiveModelState: () => {
-            const snapshot = options.sessionRuntime.getSessionSnapshot(options.getSessionId());
+            if (options.sessionRuntime === null) {
+                const settings = getSettingsManager(options.projectRoot);
+                return { model: settings.getDefaultModel() || "", provider: settings.getDefaultProvider() || "" };
+            }
+            const snapshot = options.sessionRuntime?.getSessionSnapshot(options.getSessionId());
             if (!snapshot) throw new Error("Active runtime session is missing.");
             return { model: snapshot.activeModel.model || "", provider: snapshot.activeModel.provider || "" };
         },
@@ -683,7 +693,8 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
             mascotAnswering = false;
             pastedImages.length = 0;
             previewImages.clear();
-            snapshotWindow.invalidate();
+            snapshotWindow?.rebind();
+            snapshotWindow?.invalidate();
             uiAPI.hideKeyboardHelp?.();
             uiAPI.clearValidationPanel?.();
             uiAPI.clearMessages?.();
@@ -702,7 +713,7 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
             mascot.dispose();
             for (const surface of artifactReaders) void Promise.resolve(surface.stop()).catch(() => {});
             artifactReaders.clear();
-            unsubscribeSessionEvents?.();
+            snapshotWindow?.dispose();
             removeSidebarKeyListener();
             removeSidebarActionListener();
             clearInterval(clipboardPollingInterval);

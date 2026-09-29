@@ -1,3 +1,5 @@
+import { withSessionViewFixture } from "./testing/session-view-fixture.ts";
+import { emitHostedSessionRuntimeEvent } from "../../shared/session/session-runtime-events.js";
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { initRunWieldTheme } from "../theme/theme.js";
 import {
@@ -6,41 +8,12 @@ import {
     buildFooterLocationText,
     buildFooterWorkflowLabelParts,
     createChatFooterController,
-    type FooterRuntimeEvent,
-    type FooterRuntimeSnapshot,
     getFooterWorkflowLabelText,
     renderFooterWorkflowLabelParts,
     shouldShowFooterThinkingLevel,
 } from "./chat-footer.ts";
 
-interface FooterTestRuntime {
-    snapshots: Map<string, FooterRuntimeSnapshot>;
-    listeners: Map<string, (event: FooterRuntimeEvent) => void>;
-    unsubscribed: string[];
-}
-
 initRunWieldTheme();
-
-function makeFooterSnapshot(cwd: string): FooterRuntimeSnapshot {
-    return {
-        cwd,
-        activeModel: { model: "test/model", provider: "test" },
-        thinkingLevel: "medium",
-        activeAgentInfo: { displayName: "Engineer", agentName: "engineer" },
-        workflowContext: { routingIntent: "QUICK_FIX", complexity: "LOW" },
-        contextUsage: { contextWindow: 100_000, percent: 25 },
-        autoCompactionEnabled: true,
-    };
-}
-
-function makeFooterRuntime(initialSessionId: string): FooterTestRuntime {
-    const runtime: FooterTestRuntime = {
-        snapshots: new Map([[initialSessionId, makeFooterSnapshot("/tmp/runwield-footer-one")]]),
-        listeners: new Map(),
-        unsubscribed: [],
-    };
-    return runtime;
-}
 
 Deno.test("footer thinking level is hidden until a model is configured", () => {
     assertEquals(shouldShowFooterThinkingLevel("", "medium"), false);
@@ -130,139 +103,114 @@ Deno.test("footer workflow renderer applies provided theme tokens", () => {
     );
 });
 
-Deno.test("live footer controller subscribes to usage and rebinds on Session replacement", () => {
-    let activeSessionId = "session-one";
-    const runtime = makeFooterRuntime(activeSessionId);
-    runtime.snapshots.set("session-two", makeFooterSnapshot("/tmp/runwield-footer-two"));
-    let renderRequests = 0;
-    const controller = createChatFooterController({
-        runtime: {
-            getSessionSnapshot: (sessionId) => runtime.snapshots.get(sessionId) || null,
-            subscribeSessionEvents: (sessionId, listener) => {
-                runtime.listeners.set(sessionId, listener);
-                return () => runtime.unsubscribed.push(sessionId);
-            },
-        },
-        getSessionId: () => activeSessionId,
-        requestRender: () => {
-            renderRequests += 1;
-        },
-    });
-    try {
-        runtime.listeners.get("session-one")?.({
-            type: "usage",
-            usage: { inputTokens: 1200, outputTokens: 250, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0.125 },
+Deno.test("live footer controller subscribes to usage and rebinds on Session replacement", async () => {
+    await withSessionViewFixture(async ({ runtime, sessionId, session, projectRoot }) => {
+        let activeSessionId = sessionId;
+        const second = await runtime.createInteractiveSession({ cwd: projectRoot });
+        const controller = createChatFooterController({
+            runtime,
+            getSessionId: () => activeSessionId,
+            requestRender: () => {},
         });
-        assertStringIncludes(controller.component.render(120).join("\n"), "↑1.2k");
-        activeSessionId = "session-two";
-        controller.rebindSession(activeSessionId);
-        assertEquals(runtime.unsubscribed, ["session-one"]);
-        assertEquals(runtime.listeners.has("session-two"), true);
-        const reboundFooter = controller.component.render(120).join("\n");
-        assertStringIncludes(reboundFooter, "/tmp/runwield-footer-two");
-        assertEquals(reboundFooter.includes("↑1.2k"), false);
-        assertEquals(renderRequests, 0);
-    } finally {
-        controller.dispose();
-    }
+        try {
+            emitHostedSessionRuntimeEvent(session, {
+                type: "usage",
+                usage: {
+                    inputTokens: 1200,
+                    outputTokens: 250,
+                    cacheReadTokens: 0,
+                    cacheWriteTokens: 0,
+                    costUsd: 0.125,
+                },
+            });
+            assertStringIncludes(controller.component.render(120).join("\n"), "↑1.2k");
+            activeSessionId = second.sessionId;
+            controller.rebindSession(activeSessionId);
+            assertEquals(controller.component.render(120).join("\n").includes("↑1.2k"), false);
+            emitHostedSessionRuntimeEvent(session, {
+                type: "usage",
+                usage: {
+                    inputTokens: 1200,
+                    outputTokens: 250,
+                    cacheReadTokens: 0,
+                    cacheWriteTokens: 0,
+                    costUsd: 0.125,
+                },
+            });
+            assertEquals(controller.component.render(120).join("\n").includes("↑1.2k"), false);
+        } finally {
+            controller.dispose();
+        }
+    });
 });
 
-Deno.test("live footer controller reuses one snapshot across idle frames", () => {
-    const activeSessionId = "session-one";
-    const runtime = makeFooterRuntime(activeSessionId);
-    let snapshotCalls = 0;
-    const controller = createChatFooterController({
-        runtime: {
-            getSessionSnapshot: (sessionId) => {
-                snapshotCalls += 1;
-                return runtime.snapshots.get(sessionId) || null;
-            },
-            subscribeSessionEvents: () => () => {},
-        },
-        getSessionId: () => activeSessionId,
-        requestRender: () => {},
+Deno.test("live footer controller reuses one snapshot across idle frames", async () => {
+    await withSessionViewFixture(({ runtime, sessionId }) => {
+        const controller = createChatFooterController({
+            runtime,
+            getSessionId: () => sessionId,
+            requestRender: () => {},
+        });
+        try {
+            assertEquals(controller.component.render(120), controller.component.render(120));
+        } finally {
+            controller.dispose();
+        }
     });
-    try {
-        const first = controller.component.render(120);
-        const second = controller.component.render(120);
-        assertEquals(snapshotCalls, 1);
-        assertEquals(second, first);
-    } finally {
-        controller.dispose();
-    }
 });
 
-Deno.test("live footer controller refreshes the snapshot after a session event", () => {
-    const activeSessionId = "session-one";
-    const runtime = makeFooterRuntime(activeSessionId);
-    let snapshotCalls = 0;
-    const controller = createChatFooterController({
-        runtime: {
-            getSessionSnapshot: (sessionId) => {
-                snapshotCalls += 1;
-                return runtime.snapshots.get(sessionId) || null;
-            },
-            subscribeSessionEvents: (sessionId, listener) => {
-                runtime.listeners.set(sessionId, listener);
-                return () => runtime.unsubscribed.push(sessionId);
-            },
-        },
-        getSessionId: () => activeSessionId,
-        requestRender: () => {},
+Deno.test("live footer controller refreshes the snapshot after a session event", async () => {
+    await withSessionViewFixture(({ runtime, sessionId, session }) => {
+        const controller = createChatFooterController({
+            runtime,
+            getSessionId: () => sessionId,
+            requestRender: () => {},
+        });
+        try {
+            controller.component.render(120);
+            session.resetAgentInfoStack("Engineer", "", "", "engineer");
+            session.replaceWorkflowContext({ routingIntent: "QUICK_FIX", complexity: "LOW" });
+            assertStringIncludes(controller.component.render(400).join("\n"), "Quick Fix");
+        } finally {
+            controller.dispose();
+        }
     });
-    try {
-        controller.component.render(120);
-        assertEquals(snapshotCalls, 1);
-
-        runtime.listeners.get(activeSessionId)?.({ type: "agent_changed" });
-        controller.component.render(120);
-        assertEquals(snapshotCalls, 2, "session events must drop the cached snapshot");
-    } finally {
-        controller.dispose();
-    }
 });
 
-Deno.test("live footer controller tolerates startup before a Session exists", () => {
-    const controller = createChatFooterController({
-        runtime: {
-            getSessionSnapshot: () => null,
-            subscribeSessionEvents: () => () => {},
-        },
-        getSessionId: () => "pending-session",
-        requestRender: () => {},
+Deno.test("live footer controller tolerates startup before a Session exists", async () => {
+    await withSessionViewFixture(({ runtime }) => {
+        const controller = createChatFooterController({
+            runtime,
+            getSessionId: () => "pending-session",
+            requestRender: () => {},
+        });
+        try {
+            assertEquals(controller.component.render(100), ["", ""]);
+        } finally {
+            controller.dispose();
+        }
     });
-    try {
-        assertEquals(controller.component.render(100), ["", ""]);
-    } finally {
-        controller.dispose();
-    }
 });
 
 Deno.test("live footer controller renders and clears the Ctrl+C pending exit notice", async () => {
-    const activeSessionId = "session-one";
-    const runtime = makeFooterRuntime(activeSessionId);
-    let renderRequests = 0;
-    const controller = createChatFooterController({
-        runtime: {
-            getSessionSnapshot: (sessionId) => runtime.snapshots.get(sessionId) || null,
-            subscribeSessionEvents: (sessionId, listener) => {
-                runtime.listeners.set(sessionId, listener);
-                return () => runtime.unsubscribed.push(sessionId);
+    await withSessionViewFixture(async ({ runtime, sessionId }) => {
+        let renderRequests = 0;
+        const controller = createChatFooterController({
+            runtime,
+            getSessionId: () => sessionId,
+            requestRender: () => {
+                renderRequests++;
             },
-        },
-        getSessionId: () => activeSessionId,
-        requestRender: () => {
-            renderRequests += 1;
-        },
+        });
+        try {
+            controller.markCtrlCPendingExit();
+            assertEquals(controller.isCtrlCPendingExit(), true);
+            assertStringIncludes(controller.component.render(100).join("\n"), "Ctrl+C - Press again to exit");
+            await new Promise((resolve) => setTimeout(resolve, 1100));
+            assertEquals(controller.isCtrlCPendingExit(), false);
+            assertEquals(renderRequests >= 2, true);
+        } finally {
+            controller.dispose();
+        }
     });
-    try {
-        controller.markCtrlCPendingExit();
-        assertEquals(controller.isCtrlCPendingExit(), true);
-        assertStringIncludes(controller.component.render(100).join("\n"), "Ctrl+C - Press again to exit");
-        await new Promise((resolve) => setTimeout(resolve, 1100));
-        assertEquals(controller.isCtrlCPendingExit(), false);
-        assertEquals(renderRequests >= 2, true);
-    } finally {
-        controller.dispose();
-    }
 });

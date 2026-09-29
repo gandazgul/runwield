@@ -5,7 +5,6 @@
 
 import { getCwd } from "../../constants.js";
 import { setDefaultModelSelection } from "../../shared/session/model-selection.ts";
-import { getSettingsManager } from "../../shared/settings.js";
 import { type ChatView, createChatView } from "./chat-view.ts";
 import { runSharedModelSetup } from "./model-setup.ts";
 import { initTUI, stopTUI } from "./tui.ts";
@@ -15,14 +14,6 @@ export type TerminalAuthSetupStatus = "ready" | "canceled" | "failed";
 export interface TerminalAuthSetupResult {
     status: TerminalAuthSetupStatus;
     message: string;
-}
-
-function getActiveDefaultModel(projectRoot: string): { model: string; provider?: string } {
-    const settings = getSettingsManager(projectRoot);
-    return {
-        model: settings.getDefaultModel?.() || "",
-        provider: settings.getDefaultProvider?.() || "",
-    };
 }
 
 /**
@@ -35,13 +26,8 @@ export async function runTerminalAuthSetup(argv: string[] = []): Promise<Termina
     try {
         view = await createChatView({
             tui,
-            sessionRuntime: {
-                getSessionSnapshot: () => ({
-                    name: "Login",
-                    cwd: projectRoot,
-                    activeModel: getActiveDefaultModel(projectRoot),
-                }),
-            },
+            sessionRuntime: null,
+            projectRoot,
             getSessionId: () => "terminal-auth-setup",
             suppressStartupHeader: false,
             setActiveModel: async (model, provider) => {
