@@ -13,7 +13,7 @@
 
 import { getOwnerCoordinationDatabaseEpoch, openOwnerCoordinationDatabase } from "./database.js";
 import { openFileSessionStore } from "../session/file-session-store.ts";
-import { getOwnerCoordinationDatabasePath, OWNER_COORDINATION_DB_FILENAME } from "./paths.js";
+import { getOwnerCoordinationDatabasePath, OWNER_COORDINATION_DB_FILENAME } from "./paths.ts";
 import { OWNER_COORDINATION_SCHEMA_VERSION } from "./schema.js";
 import {
     getProjectById,

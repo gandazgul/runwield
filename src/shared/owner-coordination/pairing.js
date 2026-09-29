@@ -4,7 +4,7 @@
  */
 
 import { createPairedDevice } from "./devices.js";
-import { hashSecret, normalizePairingCode, randomBase64Url, randomHumanCode, timingSafeSecretEqual } from "./crypto.js";
+import { hashSecret, normalizePairingCode, randomBase64Url, randomHumanCode, timingSafeSecretEqual } from "./crypto.ts";
 
 export const PAIRING_REQUEST_TTL_MS = 5 * 60 * 1000;
 export const PAIRING_TERMINAL_PRUNE_MS = 24 * 60 * 60 * 1000;
