@@ -184,7 +184,7 @@ Deno.test("update installs latest RC only after confirmation", async () => {
         const previousPrompt = globalThis.prompt;
         globalThis.prompt = (message = "") => {
             prompts.push(message);
-            return "INSTALL";
+            return "y";
         };
         try {
             const network = createNetworkFixture(
@@ -204,7 +204,7 @@ Deno.test("update installs latest RC only after confirmation", async () => {
             ]);
             assertEquals(installer.invocations[0].releaseTag, "v999.0.0-rc.2");
             assertEquals(prompts, [
-                `RunWield will install from ${VERSION} to v999.0.0-rc.2.\nType INSTALL to continue:`,
+                `RunWield will install from ${VERSION} to v999.0.0-rc.2.\nContinue? [Y/n] `,
             ]);
         } finally {
             globalThis.prompt = previousPrompt;
@@ -212,10 +212,10 @@ Deno.test("update installs latest RC only after confirmation", async () => {
     });
 });
 
-Deno.test("update cancels RC installation when confirmation is not exact", async () => {
+Deno.test("update cancels RC installation when user answers no", async () => {
     await withProcessGlobalTestLock(async () => {
         const previousPrompt = globalThis.prompt;
-        globalThis.prompt = () => "yes";
+        globalThis.prompt = () => "n";
         try {
             const network = createNetworkFixture(
                 new Response(JSON.stringify([{ tag_name: "v999.0.0-rc.2", prerelease: true, draft: false }])),
@@ -229,6 +229,51 @@ Deno.test("update cancels RC installation when confirmation is not exact", async
                 })
             );
 
+            assertEquals(output.logs, ["RunWield update cancelled."]);
+            assertEquals(installer.invocations, []);
+        } finally {
+            globalThis.prompt = previousPrompt;
+        }
+    });
+});
+
+Deno.test("update accepts Enter as Yes for an RC", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const previousPrompt = globalThis.prompt;
+        globalThis.prompt = () => "";
+        try {
+            const network = createNetworkFixture(
+                new Response(JSON.stringify([{ tag_name: "v999.0.0-rc.2", prerelease: true, draft: false }])),
+            );
+            const installer = createInstallerFixture();
+            await runUpdateCommand(["--rc"], {
+                networkPort: network.port,
+                installerPort: installer.port,
+                exitPort: createExitFixture().port,
+            });
+            assertEquals(installer.invocations[0].releaseTag, "v999.0.0-rc.2");
+        } finally {
+            globalThis.prompt = previousPrompt;
+        }
+    });
+});
+
+Deno.test("update cancels RC installation when prompt is dismissed", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const previousPrompt = globalThis.prompt;
+        globalThis.prompt = () => null;
+        try {
+            const network = createNetworkFixture(
+                new Response(JSON.stringify([{ tag_name: "v999.0.0-rc.2", prerelease: true, draft: false }])),
+            );
+            const installer = createInstallerFixture();
+            const output = await captureConsole(() =>
+                runUpdateCommand(["--rc"], {
+                    networkPort: network.port,
+                    installerPort: installer.port,
+                    exitPort: createExitFixture().port,
+                })
+            );
             assertEquals(output.logs, ["RunWield update cancelled."]);
             assertEquals(installer.invocations, []);
         } finally {

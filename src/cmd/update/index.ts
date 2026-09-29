@@ -84,7 +84,11 @@ function parseUpdateArgs(argv: string[]): ParsedUpdateArgs | null {
     return parsed;
 }
 
-function confirmUpgrade(message: string): boolean {
+function confirmUpgrade(message: string, rc: boolean): boolean {
+    if (rc) {
+        const answer = globalThis.prompt(`${message}\nContinue? [Y/n] `);
+        return answer !== null && (answer.trim() === "" || /^y(es)?$/i.test(answer.trim()));
+    }
     const answer = globalThis.prompt(`${message}\nType INSTALL to continue:`) || "";
     return answer.trim() === "INSTALL";
 }
@@ -170,7 +174,7 @@ export async function runUpdateCommand(argv: string[], options: UpdateCommandOpt
         const needsConfirmation = !parsedArgs.yes && (parsedArgs.rc || !targetVersion.stable || isDowngrade);
         if (needsConfirmation) {
             const direction = isDowngrade ? "downgrade" : "install";
-            if (!confirmUpgrade(`RunWield will ${direction} from ${VERSION} to ${release.version}.`)) {
+            if (!confirmUpgrade(`RunWield will ${direction} from ${VERSION} to ${release.version}.`, parsedArgs.rc)) {
                 console.log("RunWield update cancelled.");
                 return;
             }
