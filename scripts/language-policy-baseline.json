@@ -11,8 +11,6 @@
     "src/cmd/copy/index.js",
     "src/cmd/export/index.js",
     "src/cmd/help/index.js",
-    "src/cmd/load-plan/getArgumentCompletions.js",
-    "src/cmd/models/getArgumentCompletions.js",
     "src/cmd/registry.js",
     "src/cmd/reload/index.js",
     "src/cmd/session/index.js",

@@ -70,7 +70,7 @@ import { findPlanAssociatedSessions, verifyPlanAssociatedSession } from "../../s
 import { preparePlanningWorktreeForPlan } from "../../shared/workflow/planning-worktree.ts";
 import { isPublicationCleanupPending } from "../../shared/workflow/publication-attempt.ts";
 
-export { getLoadPlanCompletions } from "./getArgumentCompletions.js";
+export { getLoadPlanCompletions } from "./getArgumentCompletions.ts";
 
 type TransitionRecoveryRecord = Awaited<ReturnType<typeof healSettledTransitionRecords>>["remaining"][number];
 
