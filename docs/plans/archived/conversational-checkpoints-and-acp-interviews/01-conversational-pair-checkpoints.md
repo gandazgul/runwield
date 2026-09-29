@@ -50,15 +50,15 @@ good, continue” advances work. No exact phrase, button, or feedback box is req
 
 Owning requirements and proposed changes:
 
-- [Core Pair Execution](../../prd/runwield-core-prd.md#frontend-engineering-and-pair-execution), **Let the user steer
+- [Core Pair Execution](../../../prd/runwield-core-prd.md#frontend-engineering-and-pair-execution), **Let the user steer
   visible increments without bypassing validation**: replace blocking forms with conversational checkpoints. Describe
   both existing execution owners, Plan Engineer and Frontend Engineer; keep visual-work ownership unchanged.
-- [Core Session continuity](../../prd/runwield-core-prd.md#session-continuity): a settled checkpoint can continue
+- [Core Session continuity](../../../prd/runwield-core-prd.md#session-continuity): a settled checkpoint can continue
   through another screen or a reloaded Session with the same Plan, worktree, and checkpoint context.
-- [Workspace Browser Sessions](../../prd/runwield-workspace-prd.md#browser-sessions), **Preserve conversation, drafts,
-  and controls in the browser**: use the normal composer and history for Pair discussion.
-- [ACP interactions](../../prd/runwield-acp-protocol-prd.md#protocol-negotiation-and-interactions): add conversational
-  Pair without requiring form elicitation. Native interview forms are unchanged in this child.
+- [Workspace Browser Sessions](../../../prd/runwield-workspace-prd.md#browser-sessions), **Preserve conversation,
+  drafts, and controls in the browser**: use the normal composer and history for Pair discussion.
+- [ACP interactions](../../../prd/runwield-acp-protocol-prd.md#protocol-negotiation-and-interactions): add
+  conversational Pair without requiring form elicitation. Native interview forms are unchanged in this child.
 
 Preserve typed workflow authority, work-preserving Stop, autonomous execution, and independent validation. This replaces
 the four-button direction in the older draft `docs/plans/fix-workspace-pair-checkpoint-decisions.md`; do not implement

@@ -45,7 +45,7 @@ should appear while other Projects load. Loading, empty, and error states must b
 `projectPayload` waits for Plan, Session, readiness, live-connection, and registry evidence before returning. Concurrent
 dashboard/sidebar calls already share an in-progress read, and later reads are fresh.
 
-[Workspace: Attention dashboard](../prd/runwield-workspace-prd.md#attention-dashboard) owns this behavior. Extend
+[Workspace: Attention dashboard](../../prd/runwield-workspace-prd.md#attention-dashboard) owns this behavior. Extend
 **Bound navigation reads and share concurrent refreshes** and add a named requirement for immediate cards and
 progressive results. Preserve **Surface the owner’s next consequential action**, classification rules, five-row
 defaults, sort/expansion preferences, current evidence, and independent sidebar navigation. No requirements are removed.

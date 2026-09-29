@@ -1366,6 +1366,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                     thinkingLevel: envelope.thinkingLevel,
                 }),
             });
+            if (!surfaceCurrent.current) return;
             setCreationAccepted(true);
             setDraft("");
             setImageAttachments([]);
@@ -1376,9 +1377,11 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                 responseAccepted: true,
             };
             await saveSessionDraft(requestKey, JSON.stringify(stored));
+            if (!surfaceCurrent.current) return;
             if (payload.runwieldSessionId) {
                 await saveSessionDraft(sessionRequestKey(projectId, payload.runwieldSessionId), JSON.stringify(stored));
                 await saveSessionDraft(requestKey, null);
+                if (!surfaceCurrent.current) return;
                 workspaceNavigate(
                     `/projects/${encodeURIComponent(projectId)}/sessions/${
                         encodeURIComponent(payload.runwieldSessionId)
@@ -1397,6 +1400,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                 setMessage("");
             }
         } catch (error) {
+            if (!surfaceCurrent.current) return;
             setPendingUserMessages([]);
             const errorRecord = asRecord(error);
             const status = Number(errorRecord.status || 0);
@@ -1410,7 +1414,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             setRequestUnresolved(status !== 422);
             setMessage(errorMessage(error));
         } finally {
-            setSubmitting(false);
+            if (surfaceCurrent.current) setSubmitting(false);
         }
     }
 
@@ -2112,7 +2116,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         const canSendNew = !submitting && !attachingImages && !navigationPending && !creationAccepted &&
             loadedDraftKey === draftKey && Boolean(currentProject) && Boolean(sessionOptions) &&
             !operation?.operationId;
-        function changeProject(event) {
+        const changeProject = (event) => {
             const nextId = event.currentTarget.value;
             if (
                 !canChangeProject || navigationInFlight.current || nextId === projectId ||
@@ -2126,7 +2130,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                 setNavigationPending(false);
                 setMessage("Project could not open. Try again.");
             });
-        }
+        };
         const agents = Array.isArray(sessionOptions?.agents) ? sessionOptions.agents : [];
         const models = Array.isArray(sessionOptions?.models) ? sessionOptions.models : [];
         const thinkingLevels = Array.isArray(sessionOptions?.thinkingLevels) ? sessionOptions.thinkingLevels : [];

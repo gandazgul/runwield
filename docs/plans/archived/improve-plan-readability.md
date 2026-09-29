@@ -45,12 +45,12 @@ explain better than prose. Implementation and verification instructions must ret
 
 This Plan proposes additions to these existing capabilities:
 
-- [Core Plan authoring](../prd/runwield-core-prd.md#plan-authoring-and-external-adoption): readable generated Plans,
+- [Core Plan authoring](../../prd/runwield-core-prd.md#plan-authoring-and-external-adoption): readable generated Plans,
   without imposing a new body format on user-authored Plans.
-- [Workspace browser appearance](../prd/runwield-workspace-prd.md#browser-appearance-and-themes): callouts that use the
-  existing browser colors.
-- [Workspace artifact reading](../prd/runwield-workspace-prd.md#browser-sessions): readable callouts on desktop, phone,
-  and paper through the shared reader.
+- [Workspace browser appearance](../../prd/runwield-workspace-prd.md#browser-appearance-and-themes): callouts that use
+  the existing browser colors.
+- [Workspace artifact reading](../../prd/runwield-workspace-prd.md#browser-sessions): readable callouts on desktop,
+  phone, and paper through the shared reader.
 
 User ownership of Plan text, review annotations, explicit saves, and existing lifecycle behavior must remain unchanged.
 These additions are proposed, not shipped.

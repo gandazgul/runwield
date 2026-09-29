@@ -20,7 +20,7 @@ createdAt: "2026-09-27"
 origin: "internal"
 userVerifiedAt: null
 targetBranch: "main"
-status: "implemented"
+status: "validated_reviewer"
 ---
 
 # New Session Project Selector

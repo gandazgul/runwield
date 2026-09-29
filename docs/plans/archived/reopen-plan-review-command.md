@@ -48,12 +48,14 @@ The owner confirmed that this must work after quitting, resuming, or a crash, in
 Client Protocol (ACP) clients. After restart, reopen the latest saved Plan, not the exact old page, review chat, or
 unsent browser edits.
 
-The owning requirements are [Core Plan review](../prd/runwield-core-prd.md#plan-review) and
-[Session continuity](../prd/runwield-core-prd.md#session-continuity). Add a named requirement and acceptance scenarios
-for reopening the last review without a model call. Preserve direct saved-Plan review, decision handling, responsive
-waits, and [execution recovery](../prd/runwield-core-prd.md#execution-validation-and-recovery). Add surface-specific
-scenarios and links under [Workspace Browser Sessions](../prd/runwield-workspace-prd.md#browser-sessions) and
-[ACP Session access](../prd/runwield-acp-protocol-prd.md#acp-session-access). These additions are proposed, not shipped.
+The owning requirements are [Core Plan review](../../prd/runwield-core-prd.md#plan-review) and
+[Session continuity](../../prd/runwield-core-prd.md#session-continuity). Add a named requirement and acceptance
+scenarios for reopening the last review without a model call. Preserve direct saved-Plan review, decision handling,
+responsive waits, and [execution recovery](../../prd/runwield-core-prd.md#execution-validation-and-recovery). Add
+surface-specific scenarios and links under
+[Workspace Browser Sessions](../../prd/runwield-workspace-prd.md#browser-sessions) and
+[ACP Session access](../../prd/runwield-acp-protocol-prd.md#acp-session-access). These additions are proposed, not
+shipped.
 
 ## Objective
 
@@ -93,9 +95,9 @@ Sequence decision functions so the complete saved Sequence can open without a mo
 or Architect; Approve & Run may start execution. The zero-model guarantee applies to opening, not those explicit
 decisions.
 
-This follows [ADR-015](../adr/015-file-authoritative-session-bundles.md). A small clarification will distinguish a saved
-review reference from a durable pending interaction. A separate storage service, replay of unfinished tool calls, and
-browser-state snapshots are out of scope.
+This follows [ADR-015](../../adr/015-file-authoritative-session-bundles.md). A small clarification will distinguish a
+saved review reference from a durable pending interaction. A separate storage service, replay of unfinished tool calls,
+and browser-state snapshots are out of scope.
 
 ## Expected Change Surface
 

@@ -44,10 +44,10 @@ The agreed scope is two ordered changes. Pair becomes conversational in TUI, Wor
 checkpoint. ACP interviews keep native forms where supported; otherwise numbers/labels select choices and other
 meaningful text reaches the model as Other. Command menus, workflow decisions, and browser reviews are not converted.
 
-Owning capabilities: [Core Pair Execution](../prd/runwield-core-prd.md#frontend-engineering-and-pair-execution),
-[Core Session continuity](../prd/runwield-core-prd.md#session-continuity),
-[Workspace Browser Sessions](../prd/runwield-workspace-prd.md#browser-sessions), and
-[ACP interactions](../prd/runwield-acp-protocol-prd.md#protocol-negotiation-and-interactions). Each child updates its
+Owning capabilities: [Core Pair Execution](../../prd/runwield-core-prd.md#frontend-engineering-and-pair-execution),
+[Core Session continuity](../../prd/runwield-core-prd.md#session-continuity),
+[Workspace Browser Sessions](../../prd/runwield-workspace-prd.md#browser-sessions), and
+[ACP interactions](../../prd/runwield-acp-protocol-prd.md#protocol-negotiation-and-interactions). Each child updates its
 requirements, scenarios, glossary, and affected architectural references with the implementation. These are proposed
 changes, not delivery claims.
 

@@ -48,7 +48,7 @@ Deno.test("wld release policy distinguishes repository-specific policy from gene
     assertStringIncludes(policy, "`release/vMAJOR.MINOR.PATCH` as its Release Branch");
     assertStringIncludes(policy, "Later Candidates resolve the live pushed Release Branch from `origin`");
     assertStringIncludes(policy, "Never merge `main` into an active Release Branch");
-    assertStringIncludes(policy, "explicitly forward-port the fix to `main`");
+    assertStringIncludes(policy.replace(/\s+/g, " "), "explicitly forward-port the fix to `main`");
     assertStringIncludes(policy, "This fixed list does not grow automatically");
 });
 
