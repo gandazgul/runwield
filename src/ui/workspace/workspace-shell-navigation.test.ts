@@ -8,6 +8,7 @@ import {
     installSidebarResize,
     installWorkspaceShellBrowser,
     LAST_SESSION_KEY,
+    loadMoreSidebarSessions,
     refreshSidebarForPage,
     renderSidebar,
     shouldApplySidebarRefresh,
@@ -115,6 +116,10 @@ class FakeElement {
                 );
                 return true;
             },
+            deleteProperty: (_target, key) => {
+                this.removeAttribute(`data-${String(key).replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`);
+                return true;
+            },
             get: (_target, key) =>
                 this.getAttribute(`data-${String(key).replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`),
         });
@@ -183,6 +188,7 @@ class FakeElement {
         parent.children.splice(index, 0, ...nodes);
     }
     replaceChildren(...nodes) {
+        this._textContent = "";
         this.children.forEach((child) => child.parentElement = null);
         this.children = [];
         this.append(...nodes);
@@ -206,6 +212,9 @@ class FakeElement {
     removeAttribute(name) {
         if (name === "class") this.className = "";
         else this.attributes.delete(name);
+    }
+    closest(selector) {
+        return this._matches(selector) ? this : this.parentElement?.closest(selector) || null;
     }
     querySelector(selector) {
         return this.querySelectorAll(selector)[0] || null;
@@ -644,6 +653,77 @@ Deno.test("Workspace sidebar keeps controls when Projects fail to load", async (
         assertEquals(sidebar.querySelector(".workspace-sidebar-new").href, "/projects/project-a/sessions/new");
         assert(document.querySelector("[data-workspace-sidebar-restore]"));
         assertStringIncludes(sidebar.textContent, "Projects failed to load.");
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+Deno.test("Show more loads five unseen Sessions, survives refresh and failure, and keeps paging", async () => {
+    const { sidebar } = installFakeBrowser("/projects/project-a/sessions/s1");
+    const sessions = Array.from(
+        { length: 5 },
+        (_, i) => ({ runwieldSessionId: `s${i + 1}`, displayName: `Session ${i + 1}` }),
+    );
+    const payload = {
+        projects: [{
+            projectId: "project-a",
+            displayName: "A",
+            enabled: true,
+            hasMoreSessions: true,
+            sessions,
+            plans: [{ planId: "nested", title: "Nested", status: "ready_for_work", sessions: [] }],
+        }],
+    };
+    const current = currentRouteFromUrl(globalThis.location.href);
+    renderSidebar(payload, current);
+    const button = sidebar.querySelector("[data-show-more-sessions]");
+    const originalFetch = globalThis.fetch;
+    const pending = Promise.withResolvers();
+    const urls = [];
+    try {
+        globalThis.fetch = (url) => {
+            urls.push(new URL(url, "http://workspace.local"));
+            return pending.promise;
+        };
+        const first = loadMoreSidebarSessions(button);
+        await loadMoreSidebarSessions(button);
+        assertEquals(urls.length, 1);
+        assertEquals(urls[0].searchParams.get("pageSize"), "5");
+        assertEquals(urls[0].searchParams.get("includeTotal"), "false");
+        assertEquals(urls[0].searchParams.getAll("excludeSession"), ["s1", "s2", "s3", "s4", "s5"]);
+        assertEquals(urls[0].searchParams.getAll("nestedPlan"), ["nested"]);
+        renderSidebar(payload, current);
+        assertEquals(button.getAttribute("disabled"), "true");
+        assertStringIncludes(button.textContent, "Loading");
+        pending.resolve(
+            Response.json({
+                sessions: Array.from(
+                    { length: 5 },
+                    (_, i) => ({ runwieldSessionId: `s${i + 6}`, displayName: `Session ${i + 6}` }),
+                ),
+                hasNext: true,
+            }),
+        );
+        await first;
+        assertEquals(sidebar.querySelectorAll("[data-sidebar-session]").length, 10);
+        assertEquals(button.hidden, false);
+        globalThis.fetch = () => Promise.resolve(Response.json({ error: "Workspace unavailable" }, { status: 503 }));
+        await loadMoreSidebarSessions(button);
+        assertEquals(sidebar.querySelectorAll("[data-sidebar-session]").length, 10);
+        assertEquals(button.textContent, "Retry loading Sessions");
+        globalThis.fetch = (url) => {
+            assertEquals(new URL(url, "http://workspace.local").searchParams.getAll("excludeSession").length, 10);
+            return Promise.resolve(
+                Response.json({
+                    sessions: [{ runwieldSessionId: "s11", displayName: "Last Session" }],
+                    hasNext: false,
+                }),
+            );
+        };
+        await loadMoreSidebarSessions(button);
+        renderSidebar(payload, current);
+        assertEquals(sidebar.querySelectorAll("[data-sidebar-session]").length, 11);
+        assertEquals(button.hidden, true);
     } finally {
         globalThis.fetch = originalFetch;
     }

@@ -726,8 +726,14 @@ function reconcileSessionRows(container, existingProject, project, current) {
     const showMore = container.querySelector("[data-show-more-sessions]") || makeShowMoreButton(project.projectId);
     if (project.enabled && project.hasMoreSessions) {
         showMore.dataset.showMoreSessions = project.projectId;
-        showMore.removeAttribute("disabled");
-        showMore.textContent = "Show more...";
+        if (project.sessions?.some((session) => !byId.has(session.runwieldSessionId))) {
+            delete showMore.dataset.sidebarExhausted;
+        }
+        showMore.hidden = showMore.dataset.sidebarExhausted === "true";
+        if (showMore.dataset.sidebarLoading !== "true") {
+            showMore.removeAttribute("disabled");
+            showMore.textContent = "Show more...";
+        }
         nodes.push(showMore);
     } else {
         showMore.remove();
@@ -827,6 +833,60 @@ function installRestoreDelegation() {
     });
 }
 
+/** Load one small page; existing rows stay usable while the request is pending. */
+export async function loadMoreSidebarSessions(button) {
+    if (button.dataset.sidebarLoading === "true") return;
+    const projectId = button.getAttribute("data-show-more-sessions") || "";
+    const project = button.closest("[data-sidebar-project]");
+    const parent = button.closest(".workspace-sidebar-sessions");
+    if (!parent) return;
+    button.dataset.sidebarLoading = "true";
+    button.setAttribute("disabled", "true");
+    button.setAttribute("aria-busy", "true");
+    button.replaceChildren();
+    const loading = document.createElement("span");
+    loading.className = "rw-thinking-glyph";
+    loading.setAttribute("aria-hidden", "true");
+    const label = document.createElement("span");
+    label.textContent = " Loading";
+    button.append(loading, label);
+    try {
+        const query = new URLSearchParams({ pageSize: "5", includeTotal: "false", excludeAssociated: "true" });
+        for (const plan of project?.querySelectorAll("[data-sidebar-plan]") || []) {
+            const planId = plan.getAttribute("data-sidebar-plan") || "";
+            if (planId) query.append("nestedPlan", planId);
+        }
+        for (const row of parent.querySelectorAll("[data-sidebar-session]")) {
+            query.append("excludeSession", row.getAttribute("data-sidebar-session"));
+        }
+        const data = await ownerJson(`/api/owner/projects/${encodeURIComponent(projectId)}/sessions?${query}`);
+        // A refresh may have added a row while the request was pending.
+        const known = new Set(
+            Array.from(parent.querySelectorAll("[data-sidebar-session]"))
+                .map((row) => row.getAttribute("data-sidebar-session")),
+        );
+        const rows = (Array.isArray(data.sessions) ? data.sessions : [])
+            .filter((session) => session?.runwieldSessionId && !known.has(session.runwieldSessionId))
+            .map((session) => {
+                const row = makeSessionRow(projectId, session, currentRoute(), " workspace-sidebar-session-extra");
+                row.dataset.sidebarLoaded = "true";
+                return row;
+            });
+        button.before(...rows);
+        button.dataset.sidebarExhausted = data.hasNext ? "false" : "true";
+        button.hidden = !data.hasNext;
+        button.textContent = "Show more...";
+        button.removeAttribute("title");
+    } catch (error) {
+        button.textContent = "Retry loading Sessions";
+        button.title = error instanceof Error ? error.message : "Could not load Sessions.";
+    } finally {
+        delete button.dataset.sidebarLoading;
+        button.removeAttribute("disabled");
+        button.removeAttribute("aria-busy");
+    }
+}
+
 function installSidebarDelegation() {
     if (sidebarDelegationInstalled) return;
     sidebarDelegationInstalled = true;
@@ -857,47 +917,7 @@ function installSidebarDelegation() {
         }
         const showMore = target.closest("[data-show-more-sessions]");
         if (showMore) {
-            const button = showMore;
-            const projectId = button.getAttribute("data-show-more-sessions") || "";
-            button.setAttribute("disabled", "true");
-            button.replaceChildren();
-            const loading = document.createElement("span");
-            loading.className = "rw-thinking-glyph";
-            loading.setAttribute("aria-hidden", "true");
-            const label = document.createElement("span");
-            label.textContent = " Loading";
-            button.append(loading, label);
-            try {
-                const query = new URLSearchParams({ page: "0", pageSize: "100", excludeAssociated: "true" });
-                const project = button.closest("[data-sidebar-project]");
-                for (const plan of project?.querySelectorAll("[data-sidebar-plan]") || []) {
-                    const planId = plan.getAttribute("data-sidebar-plan") || "";
-                    if (planId) query.append("nestedPlan", planId);
-                }
-                const data = await ownerJson(
-                    `/api/owner/projects/${encodeURIComponent(projectId)}/sessions?${query}`,
-                );
-                const parent = button.closest(".workspace-sidebar-sessions");
-                const current = currentRoute();
-                const known = new Set(
-                    Array.from(parent?.querySelectorAll("[data-sidebar-session]") || []).map((link) =>
-                        link.getAttribute("data-sidebar-session")
-                    ),
-                );
-                const rows = (Array.isArray(data.sessions) ? data.sessions : [])
-                    .filter((session) => session?.runwieldSessionId && !known.has(session.runwieldSessionId))
-                    .map((session) => {
-                        const row = makeSessionRow(projectId, session, current, " workspace-sidebar-session-extra");
-                        row.dataset.sidebarLoaded = "true";
-                        return row;
-                    });
-                if (rows.length) button.before(...rows);
-                else button.before(makeEmpty("No more Sessions."));
-                button.remove();
-            } catch (error) {
-                button.removeAttribute("disabled");
-                button.textContent = error instanceof Error ? error.message : "Show more failed";
-            }
+            await loadMoreSidebarSessions(showMore);
         }
     });
 }

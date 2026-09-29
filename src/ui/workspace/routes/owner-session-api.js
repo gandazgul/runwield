@@ -165,6 +165,15 @@ export async function ownerProjectSessionsApi(ctx) {
         const planId = ctx.url.searchParams.get("plan") || "";
         const excludeAssociated = ctx.url.searchParams.get("excludeAssociated") === "true";
         const nestedPlanIds = ctx.url.searchParams.getAll("nestedPlan").filter(Boolean);
+        if (!listOptions.includeTotal) {
+            const result = await ctx.state.sessionContinuation.listSessions(ctx.params.projectId, {
+                ...listOptions,
+                planId,
+                excludedPlanIds: excludeAssociated ? nestedPlanIds : [],
+                excludedSessionIds: ctx.url.searchParams.getAll("excludeSession").filter(Boolean),
+            });
+            return ownerJson({ ...result, diagnostics: (result.diagnostics || []).map(safeDiagnostic) });
+        }
         const result = planId || excludeAssociated
             ? await listAllSessionsForFilter(ctx.state.sessionContinuation, ctx.params.projectId, listOptions)
             : await ctx.state.sessionContinuation.listSessions(ctx.params.projectId, listOptions);

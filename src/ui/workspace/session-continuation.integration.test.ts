@@ -1351,3 +1351,108 @@ Deno.test("Workspace image rejection returns 422 before accepting new or resumed
         },
     );
 });
+
+Deno.test("sidebar expansion reads only five unseen matching Session names plus lookahead", async () => {
+    const fixture = await makeManagedSessionFixture();
+    const store = fixture.openStore();
+    const service = new WorkspaceSessionContinuationService({ store });
+    const ids = new Map();
+    const readTextFile = Deno.readTextFile;
+    try {
+        for (let i = 1; i <= 20; i++) {
+            const timestamp = `2026-09-${String(i).padStart(2, "0")}T00:00:00.000Z`;
+            const transcriptPath = `${fixture.sessionDir}/${timestamp.replace(/[:.]/g, "-")}_expand-${i}.jsonl`;
+            const entries = [{ type: "session", id: `expand-${i}`, cwd: fixture.projectRoot, timestamp }, {
+                type: "session_info",
+                id: `name-${i}`,
+                name: `Recent ${i}`,
+            }];
+            await Deno.writeTextFile(transcriptPath, entries.map((entry) => JSON.stringify(entry)).join("\n") + "\n");
+            const session = await store.ensureSessionCatalogRecord({
+                projectId: fixture.project.projectId,
+                piSessionId: `expand-${i}`,
+                transcriptPath,
+                transcriptCwd: fixture.projectRoot,
+                source: "catalog",
+            });
+            ids.set(i, session.runwieldSessionId);
+            if (i === 15) {
+                const segmentId = store.getCurrentSessionSegment(session.runwieldSessionId).segmentId;
+                await Deno.writeTextFile(
+                    transcriptPath,
+                    JSON.stringify({
+                        type: "custom",
+                        id: "association",
+                        customType: "runwield.plan_association",
+                        data: {
+                            planId: "nested-plan",
+                            planName: "Nested",
+                            purpose: "planning",
+                            segmentId,
+                            segmentKind: "session",
+                            recordedAt: timestamp,
+                        },
+                    }) + "\n",
+                    { append: true },
+                );
+                let proof = store.acquireSessionActivation({
+                    runwieldSessionId: session.runwieldSessionId,
+                    projectId: fixture.project.projectId,
+                    ownerInstanceId: "test",
+                    ownerProcessKind: "test",
+                    expectedGeneration: null,
+                    phase: "bootstrap",
+                });
+                store.stagePlanAssociation(proof, {
+                    planId: "nested-plan",
+                    planName: "Nested",
+                    purpose: "planning",
+                    segmentId,
+                    segmentKind: "session",
+                    recordedAt: timestamp,
+                });
+                proof = store.changeSessionActivationPhase(proof, "checkpointing");
+                store.publishGenerationAndRelease(proof, {
+                    generation: 0,
+                    currentSegmentId: segmentId,
+                    ...await readTranscriptEvidence(transcriptPath),
+                });
+            }
+        }
+        const reads = [];
+        Deno.readTextFile = (path, options) => {
+            if (String(path).endsWith(".jsonl")) reads.push(String(path));
+            return readTextFile(path, options);
+        };
+        const query = new URLSearchParams({
+            pageSize: "5",
+            includeTotal: "false",
+            excludeAssociated: "true",
+            nestedPlan: "nested-plan",
+        });
+        for (let i = 16; i <= 20; i++) query.append("excludeSession", ids.get(i));
+        const response = await ownerProjectSessionsApi({
+            params: { projectId: fixture.project.projectId },
+            url: new URL(`http://workspace.local/sessions?${query}`),
+            state: { store, sessionContinuation: service },
+        });
+        assertEquals(response.status, 200);
+        const result = await response.json();
+        assertEquals(result.sessions.map((session) => session.displayName), [
+            "Recent 14",
+            "Recent 13",
+            "Recent 12",
+            "Recent 11",
+            "Recent 10",
+        ]);
+        assertEquals(result.hasNext, true);
+        assertEquals(result.total, null);
+        assertEquals(reads.length, 6);
+        assertEquals(reads.some((path) => path.endsWith("expand-15.jsonl")), false);
+    } finally {
+        Deno.readTextFile = readTextFile;
+        service.close();
+        store.close();
+        await fixture.cleanup();
+    }
+});
