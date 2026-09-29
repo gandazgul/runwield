@@ -14,7 +14,7 @@ import { renderMarkdownProse } from "@plannotator/guide-viewer/renderMarkdownPro
 import { ThemeProvider } from "@plannotator/ui/components/ThemeProvider.tsx";
 import { TooltipProvider } from "@plannotator/ui/components/Tooltip.tsx";
 import { ApproveButton, FeedbackButton } from "@plannotator/ui/components/ToolbarButtons.tsx";
-import { CompletionOverlay } from "@plannotator/ui/components/CompletionOverlay.tsx";
+import { ReviewCompletion } from "./ReviewCompletion.tsx";
 import { CommentPopover } from "@plannotator/ui/components/CommentPopover.tsx";
 import { configStore, setReviewPanelView, useConfigValue } from "@plannotator/ui/config/index.ts";
 import { AllFilesCodeView } from "../../../../third_party/plannotator/packages/review-editor/components/AllFilesCodeView.tsx";
@@ -590,7 +590,7 @@ export function CodeReviewSurface({ payload, presentation = "standalone" }) {
         setSubmitting("approve");
         try {
             await submit("feedback", { approved: true, ...buildReviewPayload() });
-            completeReview("approved");
+            setSubmitted("approved");
         } catch {
             // submit() owns the visible error state.
         } finally {
@@ -602,25 +602,12 @@ export function CodeReviewSurface({ payload, presentation = "standalone" }) {
         setSubmitting("feedback");
         try {
             await submit("feedback", { approved: false, ...buildReviewPayload() });
-            completeReview("feedback");
+            setSubmitted("feedback");
         } catch {
             // submit() owns the visible error state.
         } finally {
             setSubmitting(null);
         }
-    }
-
-    function completeReview(result) {
-        const sessionHref = initialPayload.reviewContext?.sessionHref;
-        if (initialPayload.mode === "workspace" && sessionHref) {
-            const event = new CustomEvent("runwield:workspace-navigate", {
-                cancelable: true,
-                detail: { href: sessionHref, history: "replace" },
-            });
-            if (document.dispatchEvent(event)) globalThis.location.replace(sessionHref);
-            return;
-        }
-        setSubmitted(result);
     }
 
     function attachReviewContextToConversation() {
@@ -1239,7 +1226,8 @@ export function CodeReviewSurface({ payload, presentation = "standalone" }) {
                         open={settingsOpen}
                         onClose={() => setSettingsOpen(false)}
                     />
-                    <CompletionOverlay
+                    <ReviewCompletion
+                        payload={initialPayload}
                         submitted={submitted}
                         title={submitted === "approved" ? "Changes approved" : "Feedback sent"}
                         subtitle="You can return to RunWield."

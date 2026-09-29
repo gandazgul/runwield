@@ -94,7 +94,7 @@ Deno.test("Plan Review fixtures show every callout kind next to a dense comparis
     assertStringIncludes(catalog, 'id: "dense"');
 });
 
-Deno.test("Approve and Run opens stable Plan progress without changing other review outcomes", async () => {
+Deno.test("Plan approval outcomes use shared completion routing", async () => {
     const route = await Deno.readTextFile(ROUTE_PATH);
     const surface = await Deno.readTextFile(SURFACE_PATH);
 
@@ -102,7 +102,8 @@ Deno.test("Approve and Run opens stable Plan progress without changing other rev
     assertStringIncludes(route, "progressUrl");
     assertStringIncludes(surface, "Approve & Run");
     assertStringIncludes(surface, "PLAN_APPROVAL_ACTIONS.RUN");
-    assertStringIncludes(surface, "workspaceNavigate(initialPayload.progressUrl)");
+    assertStringIncludes(surface, "<ReviewCompletion");
+    assertStringIncludes(surface, "payload={initialPayload}");
     assertStringIncludes(surface, 'document.addEventListener?.("astro:before-preparation", persistBeforeClose)');
     assertStringIncludes(surface, "Later");
     assertStringIncludes(surface, "approved-later");

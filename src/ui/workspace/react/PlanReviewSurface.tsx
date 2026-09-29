@@ -18,7 +18,7 @@ import { ArtifactConversationSidebar } from "./ArtifactConversationSidebar.tsx";
 import { WorkspaceHeaderActionsPortal } from "./WorkspaceHeaderActionsPortal.tsx";
 import { FeedbackButton } from "@plannotator/ui/components/ToolbarButtons.tsx";
 import { PlanDiffViewer } from "@plannotator/ui/components/plan-diff/PlanDiffViewer.tsx";
-import { CompletionOverlay } from "@plannotator/ui/components/CompletionOverlay.tsx";
+import { ReviewCompletion } from "./ReviewCompletion.tsx";
 import { CodeFilePopout } from "@plannotator/ui/components/CodeFilePopout.tsx";
 import { ExportModal } from "@plannotator/ui/components/ExportModal.tsx";
 import { ActionMenu, ActionMenuItem } from "@plannotator/ui/components/ActionMenu.tsx";
@@ -58,17 +58,6 @@ import { buildArtifactConversationFeedback, collectArtifactConversationReply } f
 import "./plannotator.css";
 
 const DEFAULT_PLAN_PAYLOAD = { plan: "", token: "", mode: "dev" };
-
-function workspaceNavigate(href, history = "push") {
-    const event = new CustomEvent("runwield:workspace-navigate", {
-        cancelable: true,
-        detail: { href, history },
-    });
-    if (document.dispatchEvent(event)) {
-        if (history === "replace") globalThis.location.replace(href);
-        else globalThis.location.assign(href);
-    }
-}
 
 function isStaleReviewError(message) {
     return /Review is out of date|Plan changed while review was open|stale/i.test(message || "");
@@ -436,9 +425,6 @@ function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup,
             complete(
                 approvalAction === PLAN_APPROVAL_ACTIONS.LATER ? "approved-later" : `approved-${approvalAction}`,
             );
-            if (approvalAction === PLAN_APPROVAL_ACTIONS.RUN && initialPayload.progressUrl) {
-                workspaceNavigate(initialPayload.progressUrl);
-            }
         } catch {
             // submit() owns the visible error state.
         } finally {
@@ -1548,12 +1534,15 @@ function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup,
                             }}
                         />
                     )}
-                    <CompletionOverlay
-                        submitted={submitted}
-                        title={outcomeCopy.title}
-                        subtitle={outcomeCopy.subtitle}
-                        agentLabel="RunWield"
-                    />
+                    {active && (
+                        <ReviewCompletion
+                            payload={initialPayload}
+                            submitted={submitted}
+                            title={outcomeCopy.title}
+                            subtitle={outcomeCopy.subtitle}
+                            agentLabel="RunWield"
+                        />
+                    )}
                 </div>
             </TooltipProvider>
         </ThemeProvider>
