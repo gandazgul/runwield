@@ -384,3 +384,33 @@
         align-self: center;
     }
 }
+
+.session-project-choice {
+    box-sizing: border-box;
+    width: min(52rem, calc(100% - 2rem));
+    margin: 0 auto;
+    padding: 0.5rem 0.65rem;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    min-width: 0;
+    background: var(--rw-surface);
+    color: var(--rw-text-muted);
+    font-size: 0.8rem;
+}
+
+.session-project-choice .rw-toolbar-select {
+    flex: 1;
+    min-width: 0;
+    max-width: 24rem;
+}
+
+@media (max-width: 720px) {
+    .session-project-choice {
+        width: 100%;
+    }
+    .session-project-choice .rw-toolbar-select {
+        min-height: 44px;
+        max-width: none;
+    }
+}

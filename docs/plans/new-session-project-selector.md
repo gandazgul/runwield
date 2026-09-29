@@ -18,8 +18,15 @@ devServerUrl: "http://127.0.0.1:5173"
 devServerHmr: true
 createdAt: "2026-09-27"
 origin: "internal"
-status: "ready_for_work"
 userVerifiedAt: null
+targetBranch: "main"
+status: "validated"
+validatedCommit: "f8b300539d690c9d4cb34099ce846693da0edfa2"
+workRecord:
+    status: "generated"
+    recordId: "862cc044-f349-400f-afd8-e308036dd965"
+    path: "docs/work-records/2026-09-29-new-session-project-selector-delivered.md"
+    lastAttemptAt: "2026-09-29T03:41:04.244Z"
 ---
 
 # New Session Project Selector

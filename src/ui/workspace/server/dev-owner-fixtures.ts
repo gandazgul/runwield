@@ -10,6 +10,13 @@ export const DEV_OWNER_PROJECT = {
     enabled: true,
 };
 
+export const DEV_OWNER_SECOND_PROJECT = {
+    ...DEV_OWNER_PROJECT,
+    projectId: "dev-project-b",
+    displayName: "RunWield Dev Project B with a long descriptive Project name",
+    rootLabel: "second dev checkout",
+};
+
 export const DEV_OWNER_SESSIONS = [
     {
         runwieldSessionId: "agy-cli-gemini-flash",
@@ -106,7 +113,7 @@ export const DEV_OWNER_DEVICE = {
 };
 
 export function devOwnerProjects() {
-    return [DEV_OWNER_PROJECT];
+    return [DEV_OWNER_PROJECT, DEV_OWNER_SECOND_PROJECT];
 }
 
 export function devOwnerSessionPage(page = 0, pageSize = 30) {
@@ -129,6 +136,10 @@ export function devOwnerSidebar() {
             ...DEV_OWNER_PROJECT,
             sessions: DEV_OWNER_SESSIONS.slice(0, 5),
             hasMoreSessions: DEV_OWNER_SESSIONS.length > 5,
+        }, {
+            ...DEV_OWNER_SECOND_PROJECT,
+            sessions: [],
+            hasMoreSessions: false,
         }],
     };
 }
@@ -754,9 +765,11 @@ export function devOwnerTimeline(runwieldSessionId: string) {
     };
 }
 
-export function devOwnerSessionOptions() {
+export function devOwnerSessionOptions(projectId = DEV_OWNER_PROJECT.projectId) {
     return {
-        defaults: { agentName: "router", provider: "fixture", model: "dev-model", thinkingLevel: "medium" },
+        defaults: projectId === DEV_OWNER_SECOND_PROJECT.projectId
+            ? { agentName: "planner", provider: "fixture", model: "dev-model", thinkingLevel: "high" }
+            : { agentName: "router", provider: "fixture", model: "dev-model", thinkingLevel: "medium" },
         agents: [
             {
                 name: "router",

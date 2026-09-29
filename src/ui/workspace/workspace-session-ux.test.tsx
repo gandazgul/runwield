@@ -1533,3 +1533,437 @@ Deno.test("mobile Answer agent reveals the waiting question", async () => {
         await browser.happyDOM.close();
     }
 });
+
+Deno.test("New Session selects a registered Project by route and creates only with destination defaults", async () => {
+    const browser = new Window({ url: "http://localhost/projects/project-a/sessions/new" });
+    const globals = [
+        "window",
+        "document",
+        "location",
+        "localStorage",
+        "sessionStorage",
+        "HTMLElement",
+        "CustomEvent",
+        "matchMedia",
+    ];
+    const previous = new Map(globals.map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+    const previousFetch = globalThis.fetch;
+    const previousEventSource = globalThis.EventSource;
+    const previousActFlag = globalThis.IS_REACT_ACT_ENVIRONMENT;
+    const posts = [];
+    const navigations = [];
+    let failNavigation = true;
+    let renderer;
+    const { createElement, act } = await import("react");
+    const { create } = await import("react-test-renderer");
+    try {
+        for (const key of globals) {
+            Object.defineProperty(globalThis, key, {
+                configurable: true,
+                writable: true,
+                value: key === "window"
+                    ? browser
+                    : key === "matchMedia"
+                    ? browser.matchMedia.bind(browser)
+                    : browser[key],
+            });
+        }
+        globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+        globalThis.EventSource = class {
+            close() {}
+            addEventListener() {}
+        };
+        document.addEventListener("runwield:workspace-navigate", (event) => {
+            event.preventDefault();
+            navigations.push(event.detail.href);
+            event.detail.onComplete?.(failNavigation ? new Error("Navigation failed") : undefined);
+        });
+        globalThis.fetch = (url, options = {}) => {
+            const path = String(url);
+            if (options.method === "POST") {
+                posts.push({ path, body: JSON.parse(options.body) });
+                return Promise.resolve(
+                    Response.json({ operationId: "accepted-b", status: "running" }, { status: 202 }),
+                );
+            }
+            if (path === "/api/owner/projects") {
+                return Promise.resolve(Response.json({
+                    projects: [
+                        { projectId: "project-a", displayName: "A", enabled: true },
+                        { projectId: "project-b", displayName: "B", enabled: true },
+                        { projectId: "disabled", displayName: "Disabled", enabled: false },
+                    ],
+                }));
+            }
+            if (path.includes("session-options")) {
+                return Promise.resolve(Response.json({
+                    agents: [{ name: path.includes("project-b") ? "guide" : "router", displayName: "Agent" }],
+                    models: [],
+                    thinkingLevels: [],
+                    defaults: { agentName: path.includes("project-b") ? "guide" : "router" },
+                }));
+            }
+            if (path.includes("session-operations")) {
+                return Promise.resolve(Response.json({ status: "running", events: [] }));
+            }
+            throw new Error(`Unexpected request: ${path}`);
+        };
+        await act(() => {
+            renderer = create(createElement(SessionSurface, { projectId: "project-a", mode: "new" }));
+        });
+        const choice = () => renderer.root.findByProps({ id: "new-session-project" });
+        const composer = () => renderer.root.findByType(SessionComposer);
+        assertEquals(choice().props.value, "project-a");
+        assertEquals(
+            choice().props.children.flat(Infinity).some((option) => option?.props?.value === "disabled"),
+            false,
+        );
+        assertEquals(composer().props.disabled, false);
+        await act(() => choice().props.onChange({ currentTarget: { value: "project-b" } }));
+        assertEquals(choice().props.value, "project-a");
+        assertEquals(composer().props.disabled, false);
+        failNavigation = false;
+        await act(() => choice().props.onChange({ currentTarget: { value: "project-b" } }));
+        assertEquals(navigations, ["/projects/project-b/sessions/new", "/projects/project-b/sessions/new"]);
+        assertEquals(composer().props.disabled, true);
+        await act(() => renderer.unmount());
+        sessionStorage.setItem(newSessionDraftInstanceStorageKey("project-b"), "draft-b");
+        await saveSessionDraft(sessionDraftKey("project-b", "draft-b"), "saved B");
+        await act(() => {
+            renderer = create(createElement(SessionSurface, { projectId: "project-b", mode: "new" }));
+        });
+        assertEquals(choice().props.value, "project-b");
+        assertEquals(composer().props.agentValue, "guide");
+        assertEquals(composer().props.draft, "saved B");
+        assertEquals(choice().props.disabled, true);
+        await act(() => choice().props.onChange({ currentTarget: { value: "project-a" } }));
+        assertEquals(navigations.length, 2);
+        await act(() => composer().props.onDraftChange("  "));
+        assertEquals(choice().props.disabled, true);
+        await act(() => composer().props.onDraftChange(""));
+        assertEquals(choice().props.disabled, false);
+        await act(() => composer().props.onDraftChange("Send in B"));
+        await act(async () => {
+            await composer().props.onSubmit();
+        });
+        assertEquals(posts.map((item) => item.path), ["/api/owner/projects/project-b/sessions"]);
+        assertEquals(posts[0].body.agentName, "guide");
+        assertEquals(posts[0].body.model, "");
+        assertEquals(renderer.root.findAllByProps({ id: "new-session-project" }).length, 0);
+    } finally {
+        if (renderer) await act(() => renderer.unmount());
+        globalThis.EventSource = previousEventSource;
+        globalThis.fetch = previousFetch;
+        for (const [key, descriptor] of previous) {
+            if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+            else Reflect.deleteProperty(globalThis, key);
+        }
+        if (previousActFlag === undefined) delete globalThis.IS_REACT_ACT_ENVIRONMENT;
+        else globalThis.IS_REACT_ACT_ENVIRONMENT = previousActFlag;
+        await browser.happyDOM.close();
+    }
+});
+
+// Exercise the New Session UI with a real mounted surface and only the browser/network boundaries replaced.
+async function withNewSessionSurface(run, fetchResponse = defaultNewSessionResponse) {
+    const browser = new Window({ url: "http://localhost/projects/project-a/sessions/new" });
+    const keys = [
+        "window",
+        "document",
+        "location",
+        "localStorage",
+        "sessionStorage",
+        "HTMLElement",
+        "CustomEvent",
+        "matchMedia",
+        "FileReader",
+        "EventSource",
+    ];
+    const previous = new Map(keys.map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+    const previousFetch = globalThis.fetch;
+    const previousActFlag = globalThis.IS_REACT_ACT_ENVIRONMENT;
+    const { createElement, act } = await import("react");
+    const { create } = await import("react-test-renderer");
+    let renderer;
+    try {
+        for (const key of keys) {
+            Object.defineProperty(globalThis, key, {
+                configurable: true,
+                writable: true,
+                value: key === "window"
+                    ? browser
+                    : key === "matchMedia"
+                    ? browser.matchMedia.bind(browser)
+                    : browser[key],
+            });
+        }
+        globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+        globalThis.EventSource = class {
+            close() {}
+            addEventListener() {}
+        };
+        globalThis.fetch = (url, options = {}) => Promise.resolve().then(() => fetchResponse(String(url), options));
+        const mount = async (projectId = "project-a", mode = "new") => {
+            if (renderer) await act(() => renderer.unmount());
+            await act(() => {
+                renderer = create(createElement(SessionSurface, { projectId, mode }));
+            });
+        };
+        const choice = () => renderer.root.findAllByProps({ id: "new-session-project" })[0];
+        const composer = () => renderer.root.findByType(SessionComposer);
+        await run({
+            browser,
+            mount,
+            choice,
+            composer,
+            act,
+            get renderer() {
+                return renderer;
+            },
+        });
+    } finally {
+        if (renderer) await act(() => renderer.unmount());
+        globalThis.fetch = previousFetch;
+        for (const [key, descriptor] of previous) {
+            if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+            else Reflect.deleteProperty(globalThis, key);
+        }
+        if (previousActFlag === undefined) delete globalThis.IS_REACT_ACT_ENVIRONMENT;
+        else globalThis.IS_REACT_ACT_ENVIRONMENT = previousActFlag;
+        await browser.happyDOM.close();
+    }
+}
+
+function deferredResponse() {
+    let resolve;
+    let reject;
+    const promise = new Promise((accept, decline) => {
+        resolve = accept;
+        reject = decline;
+    });
+    return { promise, resolve, reject };
+}
+
+Deno.test("New Session ignores a late create response after opening another surface", async () => {
+    const pending = deferredResponse();
+    const navigations = [];
+    await withNewSessionSurface(async ({ mount, composer, act }) => {
+        document.addEventListener("runwield:workspace-navigate", (event) => {
+            event.preventDefault();
+            navigations.push(event.detail.href);
+        });
+        await mount();
+        await act(() => composer().props.onDraftChange("Start A"));
+        let send;
+        await act(() => {
+            send = composer().props.onSubmit();
+        });
+        await mount("project-b"); // Sidebar navigation unmounts A before its POST settles.
+        await act(async () => {
+            pending.resolve(Response.json({ runwieldSessionId: "a-session" }, { status: 202 }));
+            await send;
+        });
+        assertEquals(navigations, []);
+        assertEquals(composer().props.disabled, false);
+    }, (url, options) => options.method === "POST" ? pending.promise : defaultNewSessionResponse(url));
+});
+
+function defaultNewSessionResponse(url) {
+    if (url === "/api/owner/projects") {
+        return Response.json({
+            projects: [
+                { projectId: "project-a", displayName: "A", enabled: true },
+                { projectId: "project-b", displayName: "B", enabled: true },
+            ],
+        });
+    }
+    if (url.includes("session-options")) return Response.json({ agents: [], models: [], defaults: {} });
+    if (url.includes("session-operations")) return Response.json({ status: "running", events: [] });
+    throw new Error(`Unexpected request: ${url}`);
+}
+
+Deno.test("New Session locks Project while an image is read and after it is attached or restored", async () => {
+    await withNewSessionSurface(async ({ browser, mount, choice, composer, act }) => {
+        await mount();
+        let reader;
+        globalThis.FileReader = class {
+            readAsDataURL() {
+                reader = this;
+            }
+        };
+        let reading;
+        await act(() => {
+            reading = composer().props.onFiles([{ type: "image/png", size: 3, name: "shot.png" }]);
+        });
+        assertEquals(choice().props.disabled, true);
+        await act(async () => {
+            reader.result = "data:image/png;base64,aW1n";
+            reader.onload();
+            await reading;
+        });
+        assertEquals(composer().props.imageAttachments.length, 1);
+        assertEquals(choice().props.disabled, true);
+        await act(() => composer().props.onRemoveImage(composer().props.imageAttachments[0].id));
+        assertEquals(choice().props.disabled, false);
+        const storageId = "saved-b";
+        browser.sessionStorage.setItem(newSessionDraftInstanceStorageKey("project-b"), storageId);
+        await saveSessionDraft(sessionDraftKey("project-b", storageId), "");
+        await saveSessionDraft(
+            sessionAttachmentsKey("project-b", storageId),
+            JSON.stringify([{ id: "restored", name: "old.png", mimeType: "image/png", base64: "aW1n" }]),
+        );
+        await mount("project-b");
+        assertEquals(composer().props.imageAttachments.length, 1);
+        assertEquals(choice().props.disabled, true);
+    });
+});
+
+Deno.test("New Session waits for reads and ignores stale Project options", async () => {
+    const projects = deferredResponse();
+    const optionsA = deferredResponse();
+    const optionsB = deferredResponse();
+    let projectReads = 0;
+    await withNewSessionSurface(
+        async ({ mount, choice, composer, act }) => {
+            await mount();
+            assertEquals(choice().props.disabled, true);
+            assertEquals(composer().props.disabled, true);
+            await act(() => projects.resolve(defaultNewSessionResponse("/api/owner/projects")));
+            assertEquals(composer().props.disabled, true);
+            await mount("project-b");
+            await act(() =>
+                optionsB.resolve(Response.json({ agents: [{ name: "guide" }], defaults: { agentName: "guide" } }))
+            );
+            assertEquals(composer().props.agentValue, "guide");
+            assertEquals(composer().props.disabled, false);
+            await act(() =>
+                optionsA.resolve(Response.json({ agents: [{ name: "old" }], defaults: { agentName: "old" } }))
+            );
+            assertEquals(composer().props.agentValue, "guide");
+        },
+        (url) =>
+            url === "/api/owner/projects"
+                ? ++projectReads === 1 ? projects.promise : defaultNewSessionResponse(url)
+                : url.includes("project-a/session-options")
+                ? optionsA.promise
+                : url.includes("project-b/session-options")
+                ? optionsB.promise
+                : defaultNewSessionResponse(url),
+    );
+});
+
+Deno.test("New Session read failures offer Retry without sending or losing a draft", async () => {
+    let projectsFails = true;
+    let optionsFails = true;
+    await withNewSessionSurface(
+        async (surface) => {
+            const { mount, choice, composer, act } = surface;
+            await mount();
+            await act(() => composer().props.onDraftChange("keep me"));
+            assertEquals(choice(), undefined);
+            assertEquals(composer().props.disabled, true);
+            assertStringIncludes(JSON.stringify(surface.renderer.toJSON()), "Projects could not load");
+            projectsFails = false;
+            const retryProjects = surface.renderer.root.findAllByType("button").find((button) =>
+                button.props.children === "Retry" && button.parent?.props.role === "alert"
+            );
+            await act(() => retryProjects.props.onClick());
+            assertEquals(choice().props.disabled, true);
+            assertStringIncludes(JSON.stringify(surface.renderer.toJSON()), "Session settings could not load");
+            optionsFails = false;
+            const retryOptions = surface.renderer.root.findAllByType("button").find((button) =>
+                button.props.children === "Retry"
+            );
+            await act(() => retryOptions.props.onClick());
+            assertEquals(composer().props.draft, "keep me");
+            assertEquals(composer().props.disabled, false);
+        },
+        (url) =>
+            url === "/api/owner/projects" && projectsFails
+                ? Promise.reject(new Error("offline"))
+                : url.includes("session-options") && optionsFails
+                ? Promise.reject(new Error("offline"))
+                : defaultNewSessionResponse(url),
+    );
+});
+
+Deno.test("New Session pending and network-error retry stay bound to the original Project", async () => {
+    const pending = deferredResponse();
+    const posts = [];
+    await withNewSessionSurface(async ({ mount, choice, composer, act }) => {
+        await mount("project-b");
+        await act(() => composer().props.onDraftChange("Retry B"));
+        let send;
+        await act(() => {
+            send = composer().props.onSubmit();
+        });
+        assertEquals(choice().props.disabled, true);
+        assertEquals(composer().props.disabled, true);
+        await act(async () => {
+            pending.reject(new Error("network lost"));
+            await send;
+        });
+        assertEquals(choice().props.disabled, true);
+        assertEquals(composer().props.draft, "Retry B");
+        await act(() => composer().props.onDraftChange(""));
+        assertEquals(choice().props.disabled, true);
+        await act(() => composer().props.onDraftChange("Retry B"));
+        await act(() => composer().props.onSubmit());
+        assertEquals(posts.length, 2);
+        assertEquals(posts[0].url, "/api/owner/projects/project-b/sessions");
+        assertEquals(posts[1].url, posts[0].url);
+        assertEquals(posts[1].body.requestId, posts[0].body.requestId);
+        assertEquals(choice(), undefined);
+    }, (url, options) => {
+        if (options.method !== "POST") return defaultNewSessionResponse(url);
+        posts.push({ url, body: JSON.parse(options.body) });
+        return posts.length === 1
+            ? pending.promise
+            : Response.json({ operationId: "accepted-b", status: "running" }, { status: 202 });
+    });
+});
+
+Deno.test("New Session HTTP 422 preserves the editable draft and Project", async () => {
+    await withNewSessionSurface(
+        async ({ mount, choice, composer, act }) => {
+            await mount("project-b");
+            await act(() => composer().props.onDraftChange("Fix this"));
+            await act(() => composer().props.onSubmit());
+            assertEquals(composer().props.draft, "Fix this");
+            assertEquals(choice().props.value, "project-b");
+            assertEquals(choice().props.disabled, true);
+            await act(() => composer().props.onDraftChange(""));
+            assertEquals(choice().props.disabled, false);
+        },
+        (url, options) =>
+            options.method === "POST"
+                ? Response.json({ error: "Invalid request" }, { status: 422 })
+                : defaultNewSessionResponse(url),
+    );
+});
+
+Deno.test("New Session ignores late Project choices from an unmounted surface", async () => {
+    const oldProjects = deferredResponse();
+    let projectReads = 0;
+    await withNewSessionSurface(
+        async ({ mount, choice, composer, act }) => {
+            await mount();
+            assertEquals(composer().props.disabled, true);
+            await mount("project-b");
+            assertEquals(choice().props.value, "project-b");
+            await act(() =>
+                oldProjects.resolve(Response.json({
+                    projects: [
+                        { projectId: "project-a", displayName: "A", enabled: true },
+                    ],
+                }))
+            );
+            assertEquals(choice().props.value, "project-b");
+            assertEquals(composer().props.disabled, false);
+        },
+        (url) =>
+            url === "/api/owner/projects" && ++projectReads === 1
+                ? oldProjects.promise
+                : defaultNewSessionResponse(url),
+    );
+});
