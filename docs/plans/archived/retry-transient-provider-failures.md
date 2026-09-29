@@ -24,6 +24,9 @@ workRecord:
     recordId: "942e23d4-63cc-4125-9c28-0e075c3cf5bf"
     path: "docs/work-records/2026-09-24-retry-transient-provider-failures-with-clear-notices.md"
     lastAttemptAt: "2026-09-24T20:25:20.579Z"
+archivedAt: "2026-09-29T21:49:31.429Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/retry-transient-provider-failures.md"
 ---
 
 # Retry transient provider failures with clear messages
