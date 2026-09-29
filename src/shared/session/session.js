@@ -2019,8 +2019,12 @@ export async function buildAgentSession({
     let tools = resolveEffectiveSessionToolNames(agentDef.tools, toolNames, customToolNames);
 
     const finalCustomTools = [...(customTools || [])];
+    const settingsManager = getSettingsManager(sessionCwd);
     if (tools.includes("bash") && !finalCustomTools.some((t) => t.name === "bash")) {
-        finalCustomTools.push(createRunWieldBashToolDefinition(sessionCwd, allowedCommands));
+        finalCustomTools.push(createRunWieldBashToolDefinition(sessionCwd, allowedCommands, {
+            shellPath: settingsManager.getShellPath(),
+            commandPrefix: settingsManager.getShellCommandPrefix(),
+        }));
     }
     const effectiveMcpRootTools = mcpRootTools || targetHostedSession?.getMcpRootTools?.() || [];
     for (const tool of effectiveMcpRootTools) {
@@ -2239,7 +2243,7 @@ export async function buildAgentSession({
         cwd: sessionCwd,
         agentDir: getSettingsDir("global"),
         modelRuntime,
-        settingsManager: getSettingsManager(sessionCwd),
+        settingsManager,
         tools,
         customTools: finalCustomTools,
         resourceLoader: loader,

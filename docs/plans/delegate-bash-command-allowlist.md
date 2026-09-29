@@ -26,7 +26,7 @@ createdAt: "2026-09-28T17:49:57-04:00"
 origin: "internal"
 userVerifiedAt: null
 targetBranch: "main"
-status: "implemented"
+status: "validated_reviewer"
 ---
 
 # Configurable Bash Command Allowlists for Guide and Delegates

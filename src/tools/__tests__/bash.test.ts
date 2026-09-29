@@ -110,6 +110,27 @@ Deno.test("restricted Pi bash executes inspection and rejects mutations before s
     }
 });
 
+Deno.test("custom bash retains configured shell path and command prefix when unrestricted", async () => {
+    const cwd = await Deno.makeTempDir({ prefix: "runwield-bash-settings-" });
+    try {
+        const tool = createRunWieldBashToolDefinition(cwd, undefined, {
+            shellPath: "/bin/sh",
+            commandPrefix: "printf 'prefix marker' > prefix.txt; ",
+        });
+        await tool.execute(
+            "call",
+            { command: "printf 'command marker' > command.txt" },
+            new AbortController().signal,
+            () => {},
+            { sessionManager: SessionManager.inMemory(cwd) } as never,
+        );
+        assertEquals(await Deno.readTextFile(join(cwd, "prefix.txt")), "prefix marker");
+        assertEquals(await Deno.readTextFile(join(cwd, "command.txt")), "command marker");
+    } finally {
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
+
 Deno.test("empty policy denies all while absent policy retains Pi shell", async () => {
     const cwd = await Deno.makeTempDir({ prefix: "runwield-bash-policy-empty-" });
     try {

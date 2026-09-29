@@ -90,6 +90,49 @@ Deno.test("single-command filter rejects shell starts that could bypass inspecti
     }
 });
 
+Deno.test("parent Git selector loads and intersects with a child subcommand", () => {
+    const parent = normalizeBashAllowedCommands(["git"], "parent");
+    const child = normalizeBashAllowedCommands(["git status"], "child");
+    assertEquals(intersectBashAllowedCommands(parent, child), ["git status"]);
+    checkBashCommand("git status --short", intersectBashAllowedCommands(parent, child));
+    assertThrows(() => checkBashCommand("git log", intersectBashAllowedCommands(parent, child)));
+});
+
+Deno.test("listing forms reject unbounded options and accept supported inspection options", () => {
+    const allowed = ["git branch --list", "git remote -v", "git worktree list"];
+    for (const command of ["git branch --list -a", "git remote -v", "git worktree list --porcelain"]) {
+        checkBashCommand(command, allowed);
+    }
+    for (
+        const command of [
+            "git branch --list --set-upstream-to=origin/main",
+            "git branch --list --format=%(refname)",
+            "git remote -v --foo",
+            "git worktree list --foo",
+        ]
+    ) assertThrows(() => checkBashCommand(command, allowed), Error, "Allowed commands:");
+});
+
+Deno.test("combined short options and configured executable wrappers are denied", () => {
+    for (const command of ["git grep -nOvi pattern", "file -bC -m rules"]) {
+        assertThrows(() => checkBashCommand(command, ["git grep", "file"]), Error, "Allowed commands:");
+    }
+    for (const wrapper of ["env", "sudo", "command", "exec", "nohup", "nice", "time", "snip"]) {
+        assertThrows(() => normalizeBashAllowedCommands([wrapper], "fixture"), Error, "bashAllowedCommands");
+        assertThrows(
+            () => checkBashCommand(`${wrapper} sh -c 'touch sentinel'`, [wrapper]),
+            Error,
+            "Allowed commands:",
+        );
+    }
+    assertThrows(() => normalizeBashAllowedCommands(["snip run"], "fixture"), Error, "bashAllowedCommands");
+    assertThrows(
+        () => checkBashCommand("snip run -- sh -c 'touch sentinel'", ["snip run"]),
+        Error,
+        "Allowed commands:",
+    );
+});
+
 Deno.test("metadata reset and delegation intersection retain parent authority", () => {
     assertEquals(normalizeBashAllowedCommands(null, "test"), undefined);
     assertEquals(normalizeBashAllowedCommands([], "test"), []);

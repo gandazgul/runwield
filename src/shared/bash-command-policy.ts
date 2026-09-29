@@ -67,7 +67,11 @@ function tokens(input: string): Token[] {
 function commandWords(input: string): string[] {
     const parsed = tokens(input.trim());
     if (!parsed.length) throw new Error("Command is empty");
-    if (parsed[0].quoted || parsed[0].text.includes("/") || /^[A-Za-z_][A-Za-z_0-9]*=/.test(parsed[0].text)) {
+    if (
+        parsed[0].quoted || parsed[0].text.includes("/") ||
+        ["env", "sudo", "command", "exec", "nohup", "nice", "time", "snip"].includes(parsed[0].text) ||
+        /^[A-Za-z_][A-Za-z_0-9]*=/.test(parsed[0].text)
+    ) {
         throw new Error("Executable paths, wrappers, and environment assignments are not allowed");
     }
     const words = parsed.map((token) => token.text);
@@ -81,7 +85,7 @@ function commandWords(input: string): string[] {
                 index += 2;
             } else index++;
         }
-        if (!words[index] || words[index].startsWith("-")) throw new Error("Unsupported Git global option");
+        if (words[index]?.startsWith("-")) throw new Error("Unsupported Git global option");
         return ["git", ...words.slice(index)];
     }
     return words;
@@ -144,15 +148,20 @@ function deniedOption(words: string[]): string | undefined {
         }
         if (
             subcommand === "grep" &&
-            args.some((arg) => arg === "-O" || arg.startsWith("-O") || arg.startsWith("--open-files-in-pager"))
+            args.some((arg) => /^-[a-zA-Z]*O/.test(arg) || arg.startsWith("--open-files-in-pager"))
         ) return "Git pager execution option";
         if (
             subcommand === "branch" &&
-            (!args.includes("--list") ||
-                args.some((arg) => /^(-[dDmMcCf]|--(?:delete|move|copy|force|edit-description))/.test(arg)))
-        ) return "Git branch must use --list without mutation options";
+            (!args.includes("--list") || args.some((arg) =>
+                arg.startsWith("-") &&
+                !["--list", "-a", "--all", "-r", "--remotes", "-v", "--verbose", "--no-color"].includes(arg)
+            ))
+        ) return "Git branch requires bounded --list options";
         if (subcommand === "remote" && (args[0] !== "-v" || args.length !== 1)) return "Git remote requires -v";
-        if (subcommand === "worktree" && args[0] !== "list") return "Git worktree requires list";
+        if (
+            subcommand === "worktree" &&
+            (args[0] !== "list" || args.slice(1).some((arg) => !["--porcelain", "-z", "-v", "--verbose"].includes(arg)))
+        ) return "Git worktree requires bounded list options";
     }
     if (
         exe === "find" &&
@@ -161,7 +170,7 @@ function deniedOption(words: string[]): string | undefined {
     if (exe === "rg" && words.slice(1).some((arg) => /^--(?:pre|hostname-bin)(?:=|$)/.test(arg))) {
         return "ripgrep external execution option";
     }
-    if (exe === "file" && words.slice(1).some((arg) => arg === "-C" || arg.startsWith("--compile"))) {
+    if (exe === "file" && words.slice(1).some((arg) => /^-[a-zA-Z]*C/.test(arg) || arg.startsWith("--compile"))) {
         return "file compilation option";
     }
     return undefined;

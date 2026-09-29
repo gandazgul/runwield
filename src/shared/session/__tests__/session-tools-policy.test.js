@@ -3,7 +3,7 @@ import { fromFileUrl, join } from "@std/path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { withProcessGlobalTestLock } from "../../../testing/process-global-lock.js";
 import { AGENTS, SUBAGENTS } from "../../../constants.js";
-import { __resetSettingsForTests } from "../../settings.js";
+import { __resetSettingsForTests, getSettingsManager } from "../../settings.js";
 import { loadAgentDef, resolveSessionToolNames } from "../agents.js";
 import { HostedSession } from "../hosted-session.js";
 import { loadSubAgentDefinition, REVIEWER_SUBAGENT_TOOLS } from "../subagent-definitions.ts";
@@ -1350,6 +1350,8 @@ Deno.test("Guide bash policy reaches Pi and background tools and refreshes after
             assert(init.success);
             await Deno.writeTextFile(join(cwd, "dirty.txt"), "visible in status\n");
             await setPolicy("[pwd]");
+            getSettingsManager(cwd).setShellPath("/bin/sh");
+            getSettingsManager(cwd).setShellCommandPrefix("printf 'configured shell' > shell-prefix.txt; ");
             await ensureRootAgentSession({ hostedSession, agentName: AGENTS.GUIDE, modelOverride: "test/text" });
             /** @param {import("@earendil-works/pi-coding-agent").ToolDefinition | undefined} tool
              * @param {{ action?: string, command?: string, task_id?: string }} params */
@@ -1369,6 +1371,7 @@ Deno.test("Guide bash policy reaches Pi and background tools and refreshes after
                 ),
                 true,
             );
+            assertEquals(await Deno.readTextFile(join(cwd, "shell-prefix.txt")), "configured shell");
             await assertRejects(() => execute(findTool("bash"), { command: "git status" }), Error, "report a blocker");
             const denied = await execute(findTool("background_task"), { action: "start", command: "git status" });
             assert(denied.content.some((item) => item.type === "text" && item.text.includes("pwd")));
