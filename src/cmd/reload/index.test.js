@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import { runReloadCommand } from "./index.js";
+import { runReloadCommand } from "./index.ts";
 
 Deno.test("runReloadCommand reloads only through SessionRuntime", async () => {
     const messages = /** @type {string[]} */ ([]);

@@ -17,8 +17,8 @@ import { runInstallCommand } from "./install/index.ts";
 import { runRemoveCommand } from "./remove/index.ts";
 import { runCompactCommand } from "./compact/index.js";
 import { runCopyCommand } from "./copy/index.js";
-import { runReloadCommand } from "./reload/index.js";
-import { runVersionCommand } from "./version/index.js";
+import { runReloadCommand } from "./reload/index.ts";
+import { runVersionCommand } from "./version/index.ts";
 import { runPlanReviewCommand } from "./plan-review/index.ts";
 import { runTerminalAuthSetup } from "../ui/tui/terminal-auth-setup.ts";
 import {
@@ -213,7 +213,7 @@ export const commandRegistry = {
             "CLI only: stdout is reserved for ACP JSON-RPC protocol frames.",
             "Handles initialize, session new/load/prompt/close, and session cancellation; other ACP methods return structured unimplemented errors.",
         ],
-        execute: async (argv) => await (await import("./acp/index.js")).runAcpCommand(argv),
+        execute: async (argv) => await (await import("./acp/index.ts")).runAcpCommand(argv),
         surfaces: ["cli"],
     },
     [COMMAND_NAMES.MCP]: {

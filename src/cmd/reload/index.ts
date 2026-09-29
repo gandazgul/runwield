@@ -5,13 +5,12 @@
 
 import { discoverAndRegisterThemes, setTheme } from "../../ui/theme/theme.js";
 import { getSettingsManager } from "../../shared/settings.js";
+import type { CommandContext } from "../registry.js";
 
 /**
  * Executed when /reload is called.
- * @param {string[]} _argv
- * @param {import('../../cmd/registry.js').CommandContext} options
  */
-export async function runReloadCommand(_argv, options = {}) {
+export async function runReloadCommand(_argv: string[], options: CommandContext = {}): Promise<void> {
     if (!options.uiAPI) {
         console.log("The /reload command is only available in the interactive session.");
         return;

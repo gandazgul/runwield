@@ -37,7 +37,7 @@ The implementation evidence comes from these source files:
 
 - `src/cli.ts`
 - `src/cmd/registry.js`
-- `src/cmd/acp/index.js`
+- `src/cmd/acp/index.ts`
 - `src/acp/server.js`
 - `src/acp/session-map.js`
 - `src/acp/event-mapper.js`
@@ -89,7 +89,7 @@ wld --mode acp
 
 `src/cli.ts` routes `--mode acp` before normal command/TUI dispatch so stdout can remain protocol-pure. The command
 registry describes the ACP command as CLI-only and notes that stdout is reserved for ACP JSON-RPC frames. The command
-implementation in `src/cmd/acp/index.js` starts `startRunWieldAcpServer(Deno.stdin.readable, Deno.stdout.writable)` and
+implementation in `src/cmd/acp/index.ts` starts `startRunWieldAcpServer(Deno.stdin.readable, Deno.stdout.writable)` and
 writes diagnostics to stderr with a `[RunWield ACP]` prefix.
 
 The server in `src/acp/server.js` uses the ACP SDK's `ndJsonStream`, so the wire transport is newline-delimited UTF-8
