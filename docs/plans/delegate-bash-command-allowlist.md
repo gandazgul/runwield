@@ -25,8 +25,8 @@ collaborationRecommendation: "autonomous"
 createdAt: "2026-09-28T17:49:57-04:00"
 origin: "internal"
 userVerifiedAt: null
-status: "in_progress"
 targetBranch: "main"
+status: "implemented"
 ---
 
 # Configurable Bash Command Allowlists for Guide and Delegates

@@ -10,10 +10,12 @@ import { AGENT_DEFS_DIR, AGENTS, SUBAGENTS } from "../../constants.js";
 import { ensureBundledAgentDefFile } from "./agent-assets.js";
 import { composeSharedPracticePrompt, loadAgentDefFromPath } from "./agents.js";
 import type { AgentDefinition } from "./types.js";
+import { normalizeBashAllowedCommands } from "../bash-command-policy.ts";
 
 const SUBAGENT_DEFINITIONS_DIR = "subagent-definitions";
 const DELEGATED_ROLES_DIR = "roles";
 const DELEGATED_PROMPT_FILE = "delegated-agent-prompt.md";
+const DELEGATED_READ_PROMPT_FILE = "delegated-read-agent-prompt.md";
 const INIT_PROMPT_FILE = "init-agent-prompt.md";
 const MANUAL_QA_PROMPT_FILE = "manual-qa-prompt.md";
 const REVIEWER_FEEDBACK_ENGINEER_FILE = "reviewer-feedback-engineer.md";
@@ -72,6 +74,7 @@ export const DELEGATED_READ_TOOLS = Object.freeze([
     "grep",
     "find",
     "ls",
+    "bash",
     "code_search",
     "code_show",
     "code_outline",
@@ -91,7 +94,6 @@ export const DELEGATED_READ_TOOLS = Object.freeze([
 
 export const DELEGATED_WRITE_TOOLS = Object.freeze([
     ...DELEGATED_READ_TOOLS,
-    "bash",
     "edit",
     "write",
     "multi_file_edit",
@@ -115,6 +117,14 @@ export const SUBAGENT_DEFINITIONS: Readonly<Record<SubAgentDefinitionId, SubAgen
         loadMode: "barePrompt",
         file: DELEGATED_PROMPT_FILE,
         allowedTools: DELEGATED_WRITE_TOOLS,
+    }),
+    [SUBAGENTS.DELEGATED_READ]: Object.freeze({
+        id: SUBAGENTS.DELEGATED_READ,
+        agentName: AGENTS.DELEGATED,
+        displayNameFallback: "Delegated Agent",
+        loadMode: "barePrompt",
+        file: DELEGATED_READ_PROMPT_FILE,
+        allowedTools: DELEGATED_READ_TOOLS,
     }),
     [SUBAGENTS.INIT]: Object.freeze({
         id: SUBAGENTS.INIT,
@@ -221,7 +231,11 @@ async function readBundledPromptFrontMatter(
             const promptPath = await ensureBundledAgentDefFile(relativePath);
             const raw = await Deno.readTextFile(promptPath);
             if (!raw.trim()) throw new TypeError("Prompt file was empty during bundled prompt load");
-            return normalizeBundledPromptFrontMatter(extractYaml<PromptFrontMatterAttrs>(raw));
+            const parsed = extractYaml<PromptFrontMatterAttrs>(raw);
+            if (Object.hasOwn(parsed.attrs, "bashAllowedCommands")) {
+                normalizeBashAllowedCommands(parsed.attrs.bashAllowedCommands as string[] | null, promptPath);
+            }
+            return normalizeBundledPromptFrontMatter(parsed);
         } catch (error) {
             if (!(error instanceof Error)) throw error;
             lastError = error;
@@ -230,9 +244,12 @@ async function readBundledPromptFrontMatter(
         }
     }
     if (!isRecoverableBundledPromptReadError(lastError)) throw lastError;
-    return normalizeBundledPromptFrontMatter(
-        extractYaml<PromptFrontMatterAttrs>(await Deno.readTextFile(join(AGENT_DEFS_DIR, relativePath))),
-    );
+    const fallbackPath = join(AGENT_DEFS_DIR, relativePath);
+    const parsed = extractYaml<PromptFrontMatterAttrs>(await Deno.readTextFile(fallbackPath));
+    if (Object.hasOwn(parsed.attrs, "bashAllowedCommands")) {
+        normalizeBashAllowedCommands(parsed.attrs.bashAllowedCommands as string[] | null, fallbackPath);
+    }
+    return normalizeBundledPromptFrontMatter(parsed);
 }
 
 /**
@@ -282,6 +299,10 @@ export async function loadBarePromptDefinition(
         model: "",
         description,
         tools: [...(definition.allowedTools || [])],
+        bashAllowedCommands: normalizeBashAllowedCommands(
+            attrs.bashAllowedCommands as string[] | null | undefined,
+            relativePath,
+        ),
         systemPrompt: [body.trim(), sharedPracticePrompt].filter(Boolean).join("\n\n"),
     };
 }
@@ -329,7 +350,7 @@ export async function loadSubAgentDefinition(
     }
 
     const agentDef = await loadBarePromptDefinition(definition, relativePath);
-    if (id !== SUBAGENTS.DELEGATED) return agentDef;
+    if (id !== SUBAGENTS.DELEGATED && id !== SUBAGENTS.DELEGATED_READ) return agentDef;
 
     const role = getDelegatedRole(options.delegatedRole);
     if (!role) {

@@ -58,6 +58,24 @@ Concretely:
 - Users CAN add core tools to agents that don't have them by default (e.g., adding `triage_report` to a custom Agent or
   adding `memory_list` to a custom Agent).
 
+### Bash command policy within Agent tools
+
+`bash` remains an Agent tool: a `bashAllowedCommands` front matter field limits its use but never adds it to a toolset.
+Bundled Guide and read-delegate definitions list permitted inspection commands; write delegates have no default list.
+For layered Agent definitions, omission inherits, a list replaces, `[]` denies all, and `null` resets the definition's
+inherited list to unrestricted. An absent list means unrestricted bash. Delegated Sessions intersect the effective
+parent's list with the child's definition list after role authority is resolved. A child's omission or `null` cannot
+remove a parent restriction; without parent bash, the child does not gain bash. These limits apply to RunWield-managed
+foreground Pi bash and background shell starts, not to external CLI Execution Backends' native shells.
+
+The command check permits single commands with approved literal token prefixes and ordinary arguments, while rejecting
+shell composition, expansion, wrappers, and known write or execution options. Denial explains the effective commands and
+asks the Agent to report a blocker if they are insufficient. It is best-effort convenience filtering, **not a sandbox**:
+shell startup, Git configuration, executable lookup, and incomplete option coverage can still have effects. Restricted
+Pi Sessions omit Snip because its rewrites require compounds and temporary files. Guide's explicitly requested docs-only
+Markdown writing remains separate from the shell limit. See [customization](../customization.md#agents) for syntax and
+[Core customization](../prd/runwield-core-prd.md#agent-and-skill-customization) for the user contract.
+
 ### Escape Hatch
 
 If a user truly wants to replace a core tool's behavior (e.g., with a custom search extension), extensions that register

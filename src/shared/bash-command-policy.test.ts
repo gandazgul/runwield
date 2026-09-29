@@ -1,0 +1,105 @@
+import { assertEquals, assertStringIncludes, assertThrows } from "@std/assert";
+import {
+    checkBashCommand,
+    describeBashAllowedCommands,
+    intersectBashAllowedCommands,
+    normalizeBashAllowedCommands,
+} from "./bash-command-policy.ts";
+
+const inspection = [
+    "git status",
+    "git diff",
+    "git log",
+    "git show",
+    "git blame",
+    "git grep",
+    "git ls-files",
+    "git ls-tree",
+    "git rev-parse",
+    "git rev-list",
+    "git show-ref",
+    "git branch --list",
+    "git remote -v",
+    "git worktree list",
+    "ls",
+    "pwd",
+    "cat",
+    "head",
+    "tail",
+    "wc",
+    "grep",
+    "rg",
+    "find",
+    "stat",
+    "file",
+    "du",
+    "readlink",
+];
+
+Deno.test("inspection selectors match whole command tokens and execute forms", () => {
+    for (const selector of inspection) checkBashCommand(selector, inspection);
+    checkBashCommand("git -C 'directory with spaces' --no-pager status --short", inspection);
+    checkBashCommand("grep 'literal ; && $HOME # comment' *.md", inspection);
+    checkBashCommand("cat 'a file.txt'", inspection);
+    for (
+        const command of [
+            "git status-other",
+            "list",
+            "git branch unwanted",
+            "git add .",
+            "git remote add origin path",
+            "git worktree add x",
+            "env git status",
+            "/bin/git status",
+        ]
+    ) {
+        assertThrows(() => checkBashCommand(command, inspection), Error, "Allowed commands:");
+    }
+});
+
+Deno.test("single-command filter rejects shell starts that could bypass inspection", () => {
+    for (
+        const command of [
+            "ls | cat",
+            "git status && touch sentinel",
+            "ls; pwd",
+            "ls > sentinel",
+            "ls &",
+            "ls # ignored second command",
+            "ls\npwd",
+            "ls $(touch sentinel)",
+            "ls `pwd`",
+            "ls $HOME",
+            "X=1 ls",
+            "git -c alias.status='!touch sentinel' status",
+            "ls 'unfinished",
+            "git status --output=sentinel",
+            "git diff --output sentinel",
+            "git diff --ext-diff",
+            "git show --textconv",
+            "git grep -Ovi pattern",
+            "find . -delete",
+            "find . -exec touch sentinel \\;",
+            "rg --pre=touch x",
+            "rg --hostname-bin touch",
+            "file -C x",
+            "file --compile x",
+        ]
+    ) {
+        assertThrows(() => checkBashCommand(command, inspection), Error, "Allowed commands:", command);
+    }
+});
+
+Deno.test("metadata reset and delegation intersection retain parent authority", () => {
+    assertEquals(normalizeBashAllowedCommands(null, "test"), undefined);
+    assertEquals(normalizeBashAllowedCommands([], "test"), []);
+    assertEquals(intersectBashAllowedCommands(["git"], ["git status"]), ["git status"]);
+    assertEquals(intersectBashAllowedCommands(["git status"], ["git"]), ["git status"]);
+    assertEquals(intersectBashAllowedCommands(["pwd"], ["git status"]), []);
+    assertEquals(intersectBashAllowedCommands(["pwd"], undefined), ["pwd"]);
+    assertEquals(intersectBashAllowedCommands([], undefined), []);
+    assertStringIncludes(describeBashAllowedCommands([]), "report a blocker");
+    for (const value of [42, "pwd", ["pwd", 3], [""], ["git status && touch x"], ["git *"]]) {
+        assertThrows(() => normalizeBashAllowedCommands(value as string[], "fixture.md"), Error, "bashAllowedCommands");
+    }
+});

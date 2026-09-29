@@ -13,6 +13,7 @@ import {
 
 const EXPECTED_PROMPT_FILES = [
     "delegated-agent-prompt.md",
+    "delegated-read-agent-prompt.md",
     "init-agent-prompt.md",
     "manual-qa-prompt.md",
     "reviewer-feedback-engineer.md",
@@ -95,6 +96,7 @@ Deno.test("bare-prompt subagents receive canonical tool ceilings without the sha
         "grep",
         "find",
         "ls",
+        "bash",
         "code_search",
         "code_show",
         "code_outline",
@@ -110,7 +112,6 @@ Deno.test("bare-prompt subagents receive canonical tool ceilings without the sha
         "web_fetch",
         "web_code_search",
         "web_docs_search",
-        "bash",
         "edit",
         "write",
         "multi_file_edit",
