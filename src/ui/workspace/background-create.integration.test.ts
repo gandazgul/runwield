@@ -51,3 +51,98 @@ Deno.test("Workspace retains a newly created Session until its task result is sa
         },
     );
 });
+
+Deno.test("Workspace history replay does not revive completed background operations after task_completed", async () => {
+    await withRuntimeCommandFixture(
+        "workspace-background-replay-",
+        async ({ homeDir, projectRoot, setModelResponseFactories }) => {
+            const fixture = await makeManagedSessionFixture({ home: homeDir, projectRoot });
+            const service = new WorkspaceSessionContinuationService({ store: fixture.openStore() });
+            const gates = [1, 2].map((index) => `${projectRoot}/release-task-${index}`);
+            const waitForCompletion = async (operationId: string) => {
+                let operation = service.getOperation(operationId);
+                for (let index = 0; index < 600 && operation.status !== "completed"; index++) {
+                    await new Promise((resolve) => setTimeout(resolve, 10));
+                    operation = service.getOperation(operationId);
+                }
+                assertEquals(operation.status, "completed", JSON.stringify(operation));
+                return operation;
+            };
+            try {
+                setModelResponseFactories([
+                    ...gates.map((gate) => () =>
+                        fauxAssistantMessage(fauxToolCall("background_task", {
+                            action: "start",
+                            command: `while [ ! -f '${gate}' ]; do sleep 0.02; done; printf 'review finished\\n'`,
+                        }))
+                    ),
+                    () => fauxAssistantMessage(fauxText("Reviews started.")),
+                    () => fauxAssistantMessage(fauxText("First review received.")),
+                    () => fauxAssistantMessage(fauxText("Second review received.")),
+                    () => fauxAssistantMessage(fauxToolCall("task_completed", { message: "Operation complete." })),
+                    () => fauxAssistantMessage(fauxText("Follow-up received.")),
+                ]);
+                const created = await service.createSession({
+                    projectId: fixture.project.projectId,
+                    requestId: "create-with-two-tasks",
+                    text: "Start two independent reviews.",
+                    agentName: "operator",
+                });
+                const initial = await waitForCompletion(created.operationId);
+                const id = initial.runwieldSessionId;
+                assert(id);
+                const taskIds = [
+                    ...new Set(
+                        [...JSON.stringify(initial.events).matchAll(/"task_id"\s*:\s*"([0-9a-f-]+)"/g)]
+                            .map((match) => match[1]),
+                    ),
+                ];
+                assertEquals(taskIds.length, 2);
+                const generatedIds = taskIds.map((taskId) => `background:${id}:${taskId}`);
+                for (const [index, gate] of gates.entries()) {
+                    await Deno.writeTextFile(gate, "ready");
+                    await waitForCompletion(generatedIds[index]);
+                }
+                // Wait for real runtime disposal so continuation reloads the saved history.
+                for (
+                    let index = 0;
+                    index < 600 &&
+                    service.runtime.listSessions().some((entry) => entry.managed?.runwieldSessionId === id);
+                    index++
+                ) {
+                    await new Promise((resolve) => setTimeout(resolve, 10));
+                }
+                assertEquals(
+                    service.runtime.listSessions().some((entry) => entry.managed?.runwieldSessionId === id),
+                    false,
+                );
+                const continueSession = async (requestId: string, text: string) => {
+                    const generation = service.store.inspectSessionActivation(id).generation?.generation;
+                    assert(typeof generation === "number");
+                    const started = await service.startContinuation({
+                        projectId: fixture.project.projectId,
+                        runwieldSessionId: id,
+                        expectedGeneration: generation,
+                        requestId,
+                        text,
+                    });
+                    return await waitForCompletion(started.operationId);
+                };
+                const completed = await continueSession("complete-operation", "Finish the operation.");
+                for (const operationId of generatedIds) {
+                    assertEquals(service.getOperation(operationId).status, "completed");
+                }
+                assert(JSON.stringify(completed.events).includes("Operation complete."));
+                const live = await service.liveSession(fixture.project.projectId, id);
+                assertEquals(live.state, "idle");
+                assertEquals(live.operation, null);
+                const followUp = await continueSession("follow-up", "Continue this conversation.");
+                assert(JSON.stringify(followUp.events).includes("Follow-up received."));
+            } finally {
+                await service.close();
+                service.store.close();
+                await fixture.cleanup();
+            }
+        },
+    );
+});
