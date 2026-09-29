@@ -8,13 +8,16 @@ import { getHomeDir } from "../../constants.js";
 
 export const OWNER_COORDINATION_DB_FILENAME = "owner-coordination.sqlite3";
 
+export interface OwnerCoordinationPathOptions {
+    home?: string;
+}
+
 /**
  * Resolve the default owner database path at call time.
  *
- * @param {{ home?: string }} [options]
- * @returns {string}
+ * @param options
  */
-export function getOwnerCoordinationDatabasePath(options = {}) {
+export function getOwnerCoordinationDatabasePath(options: OwnerCoordinationPathOptions = {}) {
     const home = options.home || getHomeDir() || "~";
     return join(home, ".wld", OWNER_COORDINATION_DB_FILENAME);
 }
@@ -22,9 +25,9 @@ export function getOwnerCoordinationDatabasePath(options = {}) {
 /**
  * Ensure the parent directory for an on-disk owner database exists.
  *
- * @param {string} dbPath
+ * @param dbPath
  */
-export function ensureOwnerDatabaseDirectory(dbPath) {
+export function ensureOwnerDatabaseDirectory(dbPath: string) {
     if (!dbPath || dbPath === ":memory:") return;
     Deno.mkdirSync(dirname(dbPath), { recursive: true, mode: 0o700 });
     try {

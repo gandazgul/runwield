@@ -3,7 +3,7 @@
  * Revocable paired browser device credentials for owner Workspace.
  */
 
-import { hashSecret, randomBase64Url, timingSafeSecretEqual } from "./crypto.js";
+import { hashSecret, randomBase64Url, timingSafeSecretEqual } from "./crypto.ts";
 
 export const OWNER_DEVICE_COOKIE = "rw_owner_device";
 export const OWNER_CSRF_COOKIE = "rw_owner_csrf";

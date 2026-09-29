@@ -1,6 +1,6 @@
 import { assert, assertEquals, assertMatch, assertThrows } from "@std/assert";
 import { openOwnerCoordinationDatabase } from "./database.js";
-import { hashSecret, randomHumanCode } from "./crypto.js";
+import { hashSecret, randomHumanCode } from "./crypto.ts";
 import {
     approvePairingRequest,
     claimPairingRequest,

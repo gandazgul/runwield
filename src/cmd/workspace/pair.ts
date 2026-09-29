@@ -2,7 +2,7 @@
 
 import { CLI_BIN } from "../../constants.js";
 import { openOwnerCoordinationStore } from "../../shared/owner-coordination/index.js";
-import { normalizePairingCode } from "../../shared/owner-coordination/crypto.js";
+import { normalizePairingCode } from "../../shared/owner-coordination/crypto.ts";
 import { stripTerminalControlCharacters } from "../../shared/owner-coordination/pairing.js";
 
 export function printWorkspacePairHelp(): void {

@@ -6,7 +6,7 @@
 import { deleteProjectRegistration } from "./project-removal.ts";
 import { DatabaseSync } from "node:sqlite";
 import { dirname, extname } from "@std/path";
-import { ensureOwnerDatabaseDirectory, getOwnerCoordinationDatabasePath } from "./paths.js";
+import { ensureOwnerDatabaseDirectory, getOwnerCoordinationDatabasePath } from "./paths.ts";
 import {
     OWNER_COORDINATION_SCHEMA_V10_SQL,
     OWNER_COORDINATION_SCHEMA_V1_SQL,

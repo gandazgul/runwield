@@ -7,21 +7,19 @@ import { createHash, randomBytes, timingSafeEqual as nodeTimingSafeEqual } from 
 
 const HUMAN_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
-/** @param {Uint8Array} bytes */
-export function base64Url(bytes) {
+export function base64Url(bytes: Uint8Array) {
     return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 }
 
-/** @param {number} byteLength */
-export function randomBase64Url(byteLength) {
+export function randomBase64Url(byteLength: number) {
     return base64Url(randomBytes(byteLength));
 }
 
 /**
- * @param {number} length
- * @param {() => number} [random]
+ * @param length
+ * @param random
  */
-export function randomHumanCode(length = 6, random) {
+export function randomHumanCode(length = 6, random?: () => number) {
     if (random) {
         let code = "";
         for (let i = 0; i < length; i += 1) {
@@ -41,20 +39,17 @@ export function randomHumanCode(length = 6, random) {
     return code;
 }
 
-/** @param {string} value */
-export function hashSecret(value) {
+export function hashSecret(value: string) {
     return `sha256:${createHash("sha256").update(value).digest("base64url")}`;
 }
 
-/** @param {string} a @param {string} b */
-export function timingSafeSecretEqual(a, b) {
+export function timingSafeSecretEqual(a: string, b: string) {
     const left = new TextEncoder().encode(a);
     const right = new TextEncoder().encode(b);
     if (left.byteLength !== right.byteLength) return false;
     return nodeTimingSafeEqual(left, right);
 }
 
-/** @param {string} value */
-export function normalizePairingCode(value) {
+export function normalizePairingCode(value: string) {
     return String(value || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
 }
