@@ -1967,3 +1967,100 @@ Deno.test("New Session ignores late Project choices from an unmounted surface", 
                 : defaultNewSessionResponse(url),
     );
 });
+
+async function startObservedNewSession(surface) {
+    await surface.mount();
+    await surface.act(() => surface.composer().props.onDraftChange("Start observation"));
+    await surface.act(() => surface.composer().props.onSubmit());
+}
+
+Deno.test("New Session fallback does not overlap a slow operation read", async () => {
+    const pending = deferredResponse();
+    const reads = [];
+    let stream;
+    await withNewSessionSurface(async (surface) => {
+        globalThis.EventSource = class {
+            constructor() {
+                stream = this;
+            }
+            close() {}
+        };
+        await startObservedNewSession(surface);
+        // A broken stream switches the mounted surface to the HTTP fallback.
+        await surface.act(() => stream.onerror());
+        assertEquals(reads.length, 1);
+        await new Promise((resolve) => setTimeout(resolve, 1650));
+        assertEquals(reads.length, 1);
+        await surface.act(() => pending.resolve(Response.json({ status: "running", events: [] })));
+        await new Promise((resolve) => setTimeout(resolve, 1650));
+        assertEquals(reads.length >= 2, true);
+    }, (url, options) => {
+        if (options.method === "POST") {
+            return Response.json({ operationId: "slow-operation", status: "running" }, { status: 202 });
+        }
+        if (url === "/api/owner/session-operations/slow-operation") {
+            reads.push(options.signal);
+            return reads.length === 1 ? pending.promise : Response.json({ status: "running", events: [] });
+        }
+        return defaultNewSessionResponse(url);
+    });
+});
+
+Deno.test("New Session abandons an old fallback read on navigation and unmount", async () => {
+    const pending = deferredResponse();
+    const reads = [];
+    let stream;
+    await withNewSessionSurface(async (surface) => {
+        globalThis.EventSource = class {
+            constructor() {
+                stream = this;
+            }
+            close() {}
+        };
+        await startObservedNewSession(surface);
+        await surface.act(() => stream.onerror());
+        assertEquals(reads.length, 1);
+        await surface.mount("project-b");
+        assertEquals(reads[0].aborted, true);
+        await surface.act(() => pending.resolve(Response.json({ status: "unknown", events: [] })));
+        assertEquals(surface.composer().props.disabled, false);
+        assertEquals(JSON.stringify(surface.renderer.toJSON()).includes("interrupted"), false);
+    }, (url, options) => {
+        if (options.method === "POST") {
+            return Response.json({ operationId: "old-operation", status: "running" }, { status: 202 });
+        }
+        if (url === "/api/owner/session-operations/old-operation") {
+            reads.push(options.signal);
+            return pending.promise;
+        }
+        return defaultNewSessionResponse(url);
+    });
+});
+
+Deno.test("New Session terminal stream message followed by error does not report an interruption", async () => {
+    const streams = [];
+    const reads = [];
+    await withNewSessionSurface(async (surface) => {
+        globalThis.EventSource = class {
+            constructor() {
+                streams.push(this);
+            }
+            close() {}
+        };
+        await startObservedNewSession(surface);
+        assertEquals(streams.length, 1);
+        await surface.act(() => {
+            streams[0].onmessage({ data: JSON.stringify({ status: "completed", events: [] }) });
+            streams[0].onerror();
+        });
+        await new Promise((resolve) => setTimeout(resolve, 1650));
+        assertEquals(reads, []);
+        assertEquals(JSON.stringify(surface.renderer.toJSON()).includes("interrupted"), false);
+    }, (url, options) => {
+        if (options.method === "POST") {
+            return Response.json({ operationId: "finished-operation", status: "running" }, { status: 202 });
+        }
+        if (url.includes("session-operations")) reads.push(url);
+        return defaultNewSessionResponse(url);
+    });
+});

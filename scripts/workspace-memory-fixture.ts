@@ -1,5 +1,5 @@
-// Disposable real Workspace page handlers. This file is also the entry point of
-// the standalone diagnostic executable. Do not import application modules until
+// Disposable real Workspace page and saved-operation handlers. This file is
+// also the entry point of the standalone diagnostic executable. Do not import application modules until
 // HOME and MNEMOTECA_DB_PATH have been set by the parent process.
 import { join } from "@std/path";
 
@@ -16,7 +16,9 @@ let responses = 0;
 
 function guard(): void {
     if (Deno.memoryUsage().rss >= rssLimit) throw new Error("INCOMPLETE: 1 GiB RSS guard reached");
-    if (performance.now() - started > 180_000) throw new Error("INCOMPLETE: fixture timeout (180 seconds)");
+    if (!Deno.args.includes("--serve") && performance.now() - started > 180_000) {
+        throw new Error("INCOMPLETE: fixture timeout (180 seconds)");
+    }
 }
 
 export async function createRendererFixture(root: string, origin: string): Promise<Fixture> {
@@ -49,9 +51,10 @@ export async function createRendererFixture(root: string, origin: string): Promi
         status: "draft",
         summary: "Memory plan body 1",
     });
+    const sessionBaseDir = join(Deno.env.get("HOME")!, ".wld", "sessions");
     const store = openOwnerCoordinationStore({
         dbPath: join(root, "owner.sqlite3"),
-        sessionBaseDir: join(root, "sessions"),
+        sessionBaseDir,
     });
     const pairing = store.createPairingRequest({ codeFactory: () => "MEM123", proofFactory: () => "memory-proof" });
     store.approvePairingRequest(pairing.code);
@@ -69,7 +72,7 @@ export async function createRendererFixture(root: string, origin: string): Promi
         const piSessionId = `memory-session-${index}`;
         const timestamp = `2026-01-0${index + 1}T00:00:00.000Z`;
         const transcriptPath = await writeBareSessionTranscript(
-            join(root, "sessions"),
+            sessionBaseDir,
             projects[0],
             piSessionId,
             timestamp,
@@ -83,6 +86,13 @@ export async function createRendererFixture(root: string, origin: string): Promi
         });
         sessionIds.push(session.runwieldSessionId);
     }
+    const { makeManagedSessionFixture } = await import("../src/testing/managed-session-fixture.ts");
+    const managed = await makeManagedSessionFixture({
+        home: Deno.env.get("HOME")!,
+        projectRoot: projects[0],
+        dbPath: join(root, "owner.sqlite3"),
+    });
+    sessionIds.push(managed.session.runwieldSessionId);
     const owner = createOwnerWorkspaceApp({ mode: "owner", publicOrigin: origin, store });
     const local = createWorkspaceApp({ cwd: projects[0], token, mnemotecaPort: createWorkRecordMnemotecaFixture() });
     const reviews = ["plan", "code"].map((reviewType) =>
@@ -183,11 +193,178 @@ export async function createRendererFixture(root: string, origin: string): Promi
                 new Promise((resolve) => setTimeout(resolve, 2000)),
             ]);
             store.close();
+            await managed.cleanup();
         },
     };
 }
 
-async function sample(label: string, forceGc: boolean): Promise<void> {
+async function configureModelFixture(home: string) {
+    const { registerFauxProvider } = await import("@earendil-works/pi-ai/compat");
+    const config = join(home, ".wld");
+    await Deno.mkdir(config, { recursive: true });
+    const provider = "memory-fixture-provider";
+    const api = "memory-fixture-api";
+    const model = "memory-fixture-model";
+    await Deno.writeTextFile(
+        join(config, "models.json"),
+        JSON.stringify({
+            providers: {
+                [provider]: {
+                    name: "Memory fixture",
+                    baseUrl: "http://127.0.0.1:0",
+                    apiKey: "fixture-key",
+                    api,
+                    models: [{
+                        id: model,
+                        name: "Memory fixture model",
+                        api,
+                        input: ["text", "image"],
+                        contextWindow: 128000,
+                        maxTokens: 4096,
+                    }],
+                },
+            },
+        }),
+    );
+    await Deno.writeTextFile(
+        join(config, "auth.json"),
+        JSON.stringify({
+            [provider]: { type: "api_key", key: "fixture-key" },
+        }),
+    );
+    await Deno.writeTextFile(
+        join(config, "settings.json"),
+        JSON.stringify({
+            defaultProvider: provider,
+            defaultModel: model,
+            notifications: { enabled: false },
+            onboardingTutorialOfferHandled: true,
+        }),
+    );
+    const modelBoundary = registerFauxProvider({
+        api,
+        provider,
+        tokensPerSecond: 0,
+        models: [{ id: model, name: "Memory fixture model", input: ["text", "image"] }],
+    });
+    return modelBoundary;
+}
+
+// Exercise saved Session turns and the real owner operation SSE route. The
+// scripted model is the only external boundary; the owner, receipts and files
+// remain production implementations.
+async function runOperationWorkload(root: string, combined: boolean, forceGc: boolean): Promise<void> {
+    const { fauxAssistantMessage, fauxText } = await import("@earendil-works/pi-ai");
+    const { makeManagedSessionFixture } = await import("../src/testing/managed-session-fixture.ts");
+    const { WorkspaceSessionContinuationService } = await import("../src/ui/workspace/server/session-continuation.js");
+    const { ownerSessionOperationStatusApi, ownerSessionOperationStreamApi } = await import(
+        "../src/ui/workspace/routes/owner-session-api.js"
+    );
+    const { createOwnerConnectionRegistry } = await import("../src/ui/workspace/server/owner-connections.js");
+    const home = Deno.env.get("HOME")!;
+    const projectRoot = join(root, "operation-project");
+    await Deno.mkdir(projectRoot, { recursive: true });
+    const modelBoundary = await configureModelFixture(home);
+    try {
+        const saved = await makeManagedSessionFixture({ home, projectRoot });
+        const service = new WorkspaceSessionContinuationService({ store: saved.openStore() });
+        const connections = createOwnerConnectionRegistry();
+        const page = combined ? await createRendererFixture(root, "http://127.0.0.1") : undefined;
+        let completed = 0;
+        let pages = 0;
+        const routes = page?.routes ?? [];
+        const visit = async () => {
+            if (!page) return;
+            for (const route of routes) {
+                await checkedRequest(page, route);
+                pages++;
+            }
+        };
+        try {
+            // Warm both the saved history reader and the page renderers before baseline.
+            await service.timeline(saved.session.runwieldSessionId, { projectId: saved.project.projectId, limit: 20 });
+            await visit();
+            await sample("baseline", forceGc, { scenario: combined ? "combined" : "operations", completed, pages });
+            for (let batch = 1; batch <= 2; batch++) {
+                for (let index = 0; index < 10; index++) {
+                    guard();
+                    const ordinal = (batch - 1) * 10 + index;
+                    const marker = `Memory saved operation ${ordinal}`;
+                    modelBoundary.setResponses([() => fauxAssistantMessage(fauxText(marker))]);
+                    const generation = service.store.inspectSessionActivation(saved.session.runwieldSessionId)
+                        .generation?.generation;
+                    if (generation === undefined) throw new Error("INCOMPLETE: missing saved generation");
+                    const started = await service.startContinuation({
+                        projectId: saved.project.projectId,
+                        runwieldSessionId: saved.session.runwieldSessionId,
+                        expectedGeneration: generation,
+                        deviceId: "memory-device",
+                        requestId: `memory-turn-${ordinal}`,
+                        text: `Save operation ${ordinal}`,
+                    });
+                    const ctx = {
+                        req: new Request("http://127.0.0.1/api/owner/session-operations/stream"),
+                        params: { operationId: started.operationId },
+                        state: {
+                            sessionContinuation: service,
+                            ownerConnections: connections,
+                            ownerDevice: { deviceId: "memory-device" },
+                        },
+                    };
+                    // Leave a slow SSE reader attached while the operation runs, then
+                    // cancel its body. A separate fast status read verifies completion.
+                    const slow = ownerSessionOperationStreamApi(ctx);
+                    let result = service.getOperation(started.operationId);
+                    for (let poll = 0; poll < 1200 && result.status === "running"; poll++) {
+                        guard();
+                        await new Promise((resolve) => setTimeout(resolve, 10));
+                        result = service.getOperation(started.operationId);
+                    }
+                    await slow.body?.cancel();
+                    const status = await ownerSessionOperationStatusApi(ctx);
+                    const terminal = await status.json();
+                    if (
+                        terminal.status !== "completed" ||
+                        terminal.runwieldSessionId !== saved.session.runwieldSessionId
+                    ) {
+                        throw new Error(
+                            `INCOMPLETE: operation ${ordinal} did not complete: ${JSON.stringify(terminal)}`,
+                        );
+                    }
+                    const history = await service.timeline(saved.session.runwieldSessionId, {
+                        projectId: saved.project.projectId,
+                        latest: true,
+                        limit: 80,
+                    });
+                    if (!JSON.stringify(history.events).includes(marker)) {
+                        throw new Error(`INCOMPLETE: operation ${ordinal} missing from saved history`);
+                    }
+                    completed++;
+                    await visit();
+                }
+                await sample(`batch-${batch}`, forceGc, {
+                    scenario: combined ? "combined" : "operations",
+                    completed,
+                    pages,
+                });
+            }
+        } finally {
+            connections.closeAll();
+            if (page) await page.close();
+            await service.close();
+            service.store.close();
+            await saved.cleanup();
+        }
+    } finally {
+        modelBoundary.unregister?.();
+    }
+}
+
+async function sample(
+    label: string,
+    forceGc: boolean,
+    counts?: { scenario: string; completed: number; pages: number },
+): Promise<void> {
     if (forceGc) {
         const gc = Reflect.get(globalThis, "gc");
         if (typeof gc !== "function") throw new Error("INCOMPLETE: GC not exposed");
@@ -203,6 +380,7 @@ async function sample(label: string, forceGc: boolean): Promise<void> {
             label,
             ...Deno.memoryUsage(),
             responses,
+            ...counts,
             elapsedMs: Math.round(performance.now() - started),
             standalone: Deno.build.standalone,
         }),
@@ -254,7 +432,16 @@ async function main(): Promise<void> {
                 guard();
                 return result;
             });
+            let modelBoundary: Awaited<ReturnType<typeof configureModelFixture>> | undefined;
             try {
+                modelBoundary = await configureModelFixture(Deno.env.get("HOME")!);
+                const { fauxAssistantMessage, fauxText } = await import("@earendil-works/pi-ai");
+                modelBoundary.setResponses(
+                    Array.from(
+                        { length: 30 },
+                        (_, index) => () => fauxAssistantMessage(fauxText(`Browser fixture answer ${index}`)),
+                    ),
+                );
                 f = await createRendererFixture(root, origin);
                 ready.resolve(f);
                 console.log(JSON.stringify({ type: "listening", url: origin, routes: f.routes }));
@@ -263,7 +450,11 @@ async function main(): Promise<void> {
                 ready.reject(error);
                 await server.shutdown();
                 throw error;
+            } finally {
+                modelBoundary?.unregister?.();
             }
+        } else if (Deno.args.includes("--operations") || Deno.args.includes("--combined")) {
+            await runOperationWorkload(root, Deno.args.includes("--combined"), Deno.args.includes("--gc"));
         } else {
             f = await createRendererFixture(root, "http://127.0.0.1");
             const forceGc = Deno.args.includes("--gc");

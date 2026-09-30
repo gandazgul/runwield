@@ -100,9 +100,12 @@ for (const status of ["validated_reviewer", "ready_for_decomposition"]) {
                     const operation = service.getOperation(started.operationId);
                     assertEquals(operation.status, "completed", JSON.stringify(operation));
                     assertEquals(turns, 1);
+                    const timeline = await service.timeline(managed.runwieldSessionId, {
+                        projectId: project.projectId,
+                    });
                     assertEquals(
-                        operation.events.some((event) =>
-                            event.type === "agent_changed" && event.agentName === "slicer"
+                        timeline.events.some((event) =>
+                            event.type === "system_status" && event.message === "Agent switched to Slicer"
                         ),
                         true,
                     );

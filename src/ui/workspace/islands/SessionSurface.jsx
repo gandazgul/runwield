@@ -1837,6 +1837,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
     useEffect(() => {
         if (!operation?.operationId) return undefined;
         let cancelled = false;
+        let receivedTerminal = false;
         const observeSnapshot = async (current, payload) => {
             if (
                 !shouldApplyOperationPoll({
@@ -1860,15 +1861,18 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                 const current = operationRef.current;
                 if (!current || cancelled) return;
                 try {
-                    void observeSnapshot(current, JSON.parse(event.data)).catch((error) =>
-                        setMessage(errorMessage(error))
-                    );
+                    const payload = JSON.parse(event.data);
+                    if (["completed", "failed", "unknown"].includes(payload.status)) {
+                        receivedTerminal = true;
+                        source.close();
+                    }
+                    void observeSnapshot(current, payload).catch((error) => setMessage(errorMessage(error)));
                 } catch (error) {
                     setMessage(`Observation interrupted: ${errorMessage(error)}.`);
                 }
             };
             source.onerror = () => {
-                if (cancelled) return;
+                if (cancelled || receivedTerminal) return;
                 setMessage("");
                 setOperationStreamFailed(true);
                 source.close();
@@ -1878,28 +1882,34 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                 source.close();
             };
         }
+        let pending = false;
+        const controller = new AbortController();
         const tick = async () => {
             const current = operationRef.current;
-            if (!current || cancelled) return;
+            if (!current || cancelled || pending) return;
+            pending = true;
             try {
                 const payload = await ownerFetch(
                     `/api/owner/session-operations/${encodeURIComponent(current.operationId)}`,
-                    { method: "GET" },
+                    { method: "GET", signal: controller.signal },
                 );
                 await observeSnapshot(current, payload);
             } catch (error) {
-                if (!cancelled) {
+                if (!cancelled && !controller.signal.aborted) {
                     setMessage(
                         `Observation interrupted: ${errorMessage(error)}. The server-owned operation was not canceled.`,
                     );
                 }
+            } finally {
+                pending = false;
             }
         };
         const id = setInterval(tick, POLL_INTERVAL_MS);
-        tick();
+        void tick();
         return () => {
             cancelled = true;
             clearInterval(id);
+            controller.abort();
         };
     }, [
         operation?.operationId,

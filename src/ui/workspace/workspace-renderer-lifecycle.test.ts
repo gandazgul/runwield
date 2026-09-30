@@ -110,8 +110,8 @@ Deno.test("shared renderer serves concurrent pages with independent current Plan
                 const response = await fixture.request(path);
                 return { status: response.status, body: await response.text(), marker };
             }));
-            for (const { status, body, marker } of responses) {
-                assertEquals(status, 200);
+            for (const [index, { status, body, marker }] of responses.entries()) {
+                assertEquals(status, 200, `${routes[index][0]}: ${body}`);
                 assertStringIncludes(body, marker);
             }
         }

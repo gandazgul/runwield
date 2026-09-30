@@ -1,4 +1,4 @@
-// Run the isolated source and real standalone owner/local/review/question workload.
+// Run isolated source and standalone renderer, saved-operation, and combined workloads.
 import { join, resolve } from "@std/path";
 import { buildCompileArgs } from "./compile.js";
 import { sha256File } from "./build-metadata.js";
@@ -11,6 +11,9 @@ interface Sample {
     rss: number;
     responses: number;
     standalone: boolean;
+    scenario?: string;
+    completed?: number;
+    pages?: number;
 }
 
 interface Result {
@@ -85,7 +88,7 @@ async function compiledBinary(root: string, gc = false): Promise<string> {
     return output;
 }
 
-function assertSamples(result: Result, gc: boolean, standalone: boolean): void {
+function assertSamples(result: Result, gc: boolean, standalone: boolean, scenario: string): void {
     const samples = result.samples;
     if (samples.length !== 3 || samples.map((s) => s.label).join(",") !== "baseline,batch-1,batch-2") {
         throw new Error(`INCOMPLETE: expected baseline and two complete batches: ${result.stdout}`);
@@ -93,16 +96,27 @@ function assertSamples(result: Result, gc: boolean, standalone: boolean): void {
     if (samples.some((s) => s.standalone !== standalone || s.rss >= 1024 ** 3)) {
         throw new Error(`INCOMPLETE: wrong runtime or RSS guard: ${result.stdout}`);
     }
-    const batchSize = samples[1].responses - samples[0].responses;
-    if (batchSize < 70 || samples[2].responses - samples[1].responses !== batchSize) {
-        throw new Error(`INCOMPLETE: request counts differ: ${result.stdout}`);
+    if (scenario === "renderer") {
+        const batchSize = samples[1].responses - samples[0].responses;
+        if (batchSize < 70 || samples[2].responses - samples[1].responses !== batchSize) {
+            throw new Error(`INCOMPLETE: request counts differ: ${result.stdout}`);
+        }
+    } else if (
+        samples.some((s) => s.scenario !== scenario) ||
+        samples.map((s) => s.completed).join(",") !== "0,10,20" ||
+        samples.map((s) => s.pages).join(",") !== (scenario === "combined" ? "12,132,252" : "0,0,0")
+    ) {
+        throw new Error(`INCOMPLETE: fixed operation/page batches differ: ${result.stdout}`);
     }
-    if (gc && standalone && samples[2].heapUsed - samples[1].heapUsed > 10 * 1024 ** 2) {
-        throw new Error(`Retained standalone heap grew more than 10 MiB: ${result.stdout}`);
+    if (gc && samples[2].external - samples[1].external > 4 * 1024 ** 2) {
+        throw new Error(`Retained external buffers grew more than 4 MiB: ${result.stdout}`);
+    }
+    if (gc && samples[2].heapUsed - samples[1].heapUsed > 10 * 1024 ** 2) {
+        throw new Error(`Retained heap grew more than 10 MiB: ${result.stdout}`);
     }
 }
 
-async function measure(): Promise<void> {
+async function measure(scenario: "renderer" | "operations" | "combined"): Promise<void> {
     await Deno.stat(sourcePath);
     await Deno.stat(artifactPath);
     const { root } = await isolatedRoot();
@@ -126,22 +140,27 @@ async function measure(): Promise<void> {
             ] as const
         ) {
             for (const gc of [true, false]) {
-                const args = standalone ? ["--measure", ...(gc ? ["--gc"] : [])] : [
+                const workload = scenario === "renderer"
+                    ? []
+                    : [scenario === "combined" ? "--combined" : "--operations"];
+                const args = standalone ? ["--measure", ...workload, ...(gc ? ["--gc"] : [])] : [
                     "run",
                     "-A",
                     ...(gc ? ["--v8-flags=--expose-gc"] : []),
                     "--unstable-no-legacy-abort",
                     fixturePath,
                     "--measure",
+                    ...workload,
                     ...(gc ? ["--gc"] : []),
                 ];
                 const isolated = await isolatedRoot();
                 try {
                     const result = await run(standalone && gc ? binaryGc : command, args, isolated.env);
-                    assertSamples(result, gc, standalone);
+                    assertSamples(result, gc, standalone, scenario);
                     console.log(
                         JSON.stringify({
                             type: "outcome",
+                            scenario,
                             mode: label,
                             flags: gc ? "forced-gc" : "production-default",
                             samples: result.samples,
@@ -198,7 +217,8 @@ async function serve(): Promise<void> {
 
 if (import.meta.main) {
     const arg = Deno.args.join(" ");
-    if (arg === "--scenario renderer") await measure();
-    else if (arg === "--serve-fixture") await serve();
-    else throw new Error("Usage: --scenario renderer | --serve-fixture");
+    if (arg === "--scenario renderer" || arg === "--scenario operations" || arg === "--scenario combined") {
+        await measure(arg.split(" ")[1] as "renderer" | "operations" | "combined");
+    } else if (arg === "--serve-fixture") await serve();
+    else throw new Error("Usage: --scenario renderer|operations|combined | --serve-fixture");
 }

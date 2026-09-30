@@ -499,20 +499,77 @@ export async function ownerSessionOperationStatusApi(ctx) {
 /** @param {any} ctx */
 export function ownerSessionOperationStreamApi(ctx) {
     const encoder = new TextEncoder();
+    const service = ctx.state.sessionContinuation;
+    const operationId = ctx.params.operationId;
     let unsubscribe = () => {};
+    let unregister = () => {};
+    let closed = false;
+    let dirty = true;
+    let terminal = false;
+    /** @type {Record<string, unknown> | null} */
+    let finalResult = null;
+    /** @type {ReadableStreamDefaultController<Uint8Array> | null} */
+    let streamController = null;
+    const detach = () => {
+        unsubscribe();
+        unregister();
+        ctx.req.signal.removeEventListener("abort", close);
+    };
+    const close = () => {
+        if (closed) return;
+        closed = true;
+        detach();
+        finalResult = null;
+        try {
+            streamController?.close();
+        } catch { /* canceled or already closed */ }
+    };
+    const emit = () => {
+        const controller = streamController;
+        if (!controller || closed || !dirty || controller.desiredSize === null || controller.desiredSize <= 0) return;
+        const result = terminal ? finalResult : service.getOperation(operationId);
+        if (!result) {
+            close();
+            return;
+        }
+        dirty = false;
+        const events = Array.isArray(result.events) ? result.events : [];
+        try {
+            controller.enqueue(
+                encoder.encode(`data: ${JSON.stringify({ ...result, events: events.map(safeEvent) })}\n\n`),
+            );
+            if (terminal) close();
+        } catch {
+            close();
+        }
+    };
     const body = new ReadableStream({
         start(controller) {
-            unsubscribe = ctx.state.sessionContinuation.subscribeOperation(ctx.params.operationId, (
-                /** @type {Record<string, unknown>} */ result,
-            ) => {
-                const events = Array.isArray(result.events) ? result.events : [];
-                const safe = { ...result, events: events.map(safeEvent) };
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify(safe)}\n\n`));
+            streamController = controller;
+            if (ctx.req.signal.aborted) {
+                close();
+                return;
+            }
+            ctx.req.signal.addEventListener("abort", close, { once: true });
+            unregister = ctx.state.ownerConnections.register(ctx.state.ownerDevice.deviceId, { close });
+            // A synchronous initial callback may finish before subscribeOperation returns.
+            const stop = service.subscribeOperationChanges(operationId, (/** @type {string} */ status) => {
+                if (closed) return;
+                dirty = true;
+                if (["completed", "failed", "unknown"].includes(status)) {
+                    terminal = true;
+                    finalResult = service.getOperation(operationId);
+                    unsubscribe();
+                }
+                emit();
             });
+            unsubscribe = stop;
+            if (terminal || closed) unsubscribe();
         },
-        cancel() {
-            unsubscribe();
+        pull() {
+            emit();
         },
+        cancel: close,
     });
     const headers = ownerSecurityHeaders(new Headers());
     headers.set("content-type", "text/event-stream");

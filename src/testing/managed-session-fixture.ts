@@ -105,7 +105,7 @@ export async function makeManagedSessionFixture(options: ManagedSessionFixtureOp
         transcriptPath,
         transcriptCwd: projectRoot,
         source: "catalog",
-        idFactory: idFactory("session"),
+        idFactory: idFactory(`session-${crypto.randomUUID()}`),
         now: () => "t1",
     });
     let proof = store["acquireSessionActivation"]({
