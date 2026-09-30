@@ -2,7 +2,7 @@
 import { DEFAULT_REMOTE_MAX_REQUEST_BYTES, registerRemoteApiRoutes } from "../routes/remote-api.js";
 import { openRemoteWorkspaceAdapter } from "./remote-adapter.js";
 import { isRemoteDevelopmentModeEnabled } from "./remote-mode.js";
-import { isAstroDevelopmentMode } from "./astro-dev-mode.js";
+import { isAstroDevelopmentMode } from "./astro-dev-mode.ts";
 
 const REMOTE_DEV_APP_KEY = Symbol.for("runwield.workspace.remote-dev-app");
 const REMOTE_DEV_DB_PATH_KEY = Symbol.for("runwield.workspace.remote-dev-db-path");

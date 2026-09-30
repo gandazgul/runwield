@@ -10,7 +10,7 @@ import { currentWorkspaceCwd } from "./cwd.js";
 import { listOwnerProjects, requireOwnerProjectRoot, sessionBelongsToOwnerProject } from "./owner-projects.js";
 import { loadCanonicalBoard, loadCanonicalWorkspaceDetail } from "./astro-canonical-data.js";
 import { readSessionArtifact } from "../../../shared/session/read-session-artifact.ts";
-import { isAstroDevelopmentMode } from "./astro-dev-mode.js";
+import { isAstroDevelopmentMode } from "./astro-dev-mode.ts";
 
 const BUNDLED_PLAN_ADAPTER_KEY = Symbol.for("runwield.workspace.plan-adapter-module");
 // Production needs the bundled adapter; dev uses the canonical loader's native
