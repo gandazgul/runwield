@@ -758,9 +758,11 @@ jobs:
 
             - name: Validate Homebrew tap
               run: |
-                  # Hosted runners can retain an openssl@1.1 link that blocks Homebrew from linking openssl@3.
-                  if brew list --versions openssl@1.1 | grep -q .; then
-                    brew unlink openssl@1.1
+                  # Hosted runners can retain an orphaned openssl@1.1 link that brew unlink does not remove.
+                  brew_prefix="$(brew --prefix)"
+                  openssl_link="$brew_prefix/bin/openssl"
+                  if [[ -L "$openssl_link" && "$(readlink "$openssl_link")" == "$brew_prefix/opt/openssl@1.1/bin/openssl" ]]; then
+                    unlink "$openssl_link"
                   fi
                   deno task package:homebrew:check --tap homebrew-tap
 
