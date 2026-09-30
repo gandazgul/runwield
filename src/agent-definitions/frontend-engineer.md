@@ -18,6 +18,7 @@ tools:
     - write
     - multi_file_edit
     - bash
+    - record_plan_deviation
     - task_completed
     - memory
     - code_search

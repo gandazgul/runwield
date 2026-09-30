@@ -184,6 +184,13 @@ Deno.test("declared context contracts and prompt boundaries", async () => {
     }
 });
 
+Deno.test("Plan execution agents declare the Plan Deviation tool", async () => {
+    for (const name of ["plan-engineer", "frontend-engineer"]) {
+        const definition = await loadAgentDef(name);
+        assertEquals(definition.tools.includes("record_plan_deviation"), true, `${name} needs Plan Deviation access`);
+    }
+});
+
 Deno.test("project overrides may not silently invent a context contract", async () => {
     const projectRoot = await Deno.makeTempDir({ prefix: "runwield-agent-contracts-" });
     try {
