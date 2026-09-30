@@ -1,6 +1,7 @@
 import { assertEquals } from "@std/assert";
 import { join } from "@std/path";
 import {
+    buildWorkspaceRuntime,
     getOpaqueWorkspaceAssetName,
     getServerEntryImportPaths,
     normalizeCompiledNodeChildProcessImports,
@@ -99,6 +100,27 @@ Deno.test("normalizeCompiledNodeChildProcessImports replaces dynamic child_proce
         normalizeCompiledNodeChildProcessImports(source),
         'var a=({exec:__rwNodeChildProcessExec,spawn:sp,spawnSync:ss});import{exec as __rwNodeChildProcessExec,spawn as sp,spawnSync as ss}from"node:child_process";var b=({exec:__rwNodeChildProcessExec,spawn:sp,spawnSync:ss});',
     );
+});
+
+Deno.test("standalone Workspace bundle omits runner environment without changing build flags", async () => {
+    const root = await Deno.makeTempDir({ prefix: "wld-workspace-build-env-" });
+    const serverEntry = join(root, "entry.mjs");
+    const clientDir = join(root, "client");
+    const runtimeDir = join(root, "runtime");
+    const serverOutput = join(runtimeDir, "server.mjs");
+    const flags = '{ASSETS_PREFIX:void 0,BASE_URL:"/",DEV:!1,MODE:"production",PROD:!0,SITE:void 0,SSR:!0}';
+    const snapshot = `Object.assign(${flags},{PATH:\"/runner/bin\",TOKEN:\"private-{build}-value\"})`;
+    try {
+        await Deno.writeTextFile(serverEntry, "export default true;\n");
+        await Deno.mkdir(clientDir);
+        await Deno.writeTextFile(join(clientDir, "client.css"), "body{}\n");
+        await buildWorkspaceRuntime({ serverEntry, clientDir, runtimeDir }, {
+            run: async () => Deno.writeTextFile(serverOutput, `const mode=${snapshot}?.PROD;\n`),
+        });
+        assertEquals(await Deno.readTextFile(serverOutput), `const mode=Object.assign(${flags},{})?.PROD;\n`);
+    } finally {
+        await Deno.remove(root, { recursive: true });
+    }
 });
 
 Deno.test("unrefBundledMessageChannels prevents renderer ports from keeping the executable alive", () => {

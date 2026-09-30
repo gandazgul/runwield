@@ -280,6 +280,26 @@ export function unrefBundledMessageChannels(source) {
 }
 
 /**
+ * Astro's server bundle can expand optional import.meta.env access into a
+ * snapshot of the build runner's environment. Keep Vite's production flags,
+ * but do not embed runner-specific values or secrets in release binaries.
+ * Fail closed if the generated shape changes instead of publishing those values.
+ * @param {string} source
+ * @returns {string}
+ */
+function removeBundledBuildEnvironment(source) {
+    const snapshot = /Object\.assign\(\{ASSETS_PREFIX:[^{}]*SSR:!0\},\{(?:[^"{}]|"(?:\\.|[^"\\])*")*\}\)/g;
+    const result = source.replace(snapshot, (match) => match.slice(0, match.indexOf("},{") + 3) + "})");
+    if (
+        result.replace(/Object\.assign\(\{ASSETS_PREFIX:[^{}]*SSR:!0\},\{\}\)/g, "")
+            .includes("Object.assign({ASSETS_PREFIX:")
+    ) {
+        throw new Error("Workspace server bundle contains an unrecognized build environment snapshot");
+    }
+    return result;
+}
+
+/**
  * Astro can return before all generated server chunks are immediately visible to
  * a follow-up subprocess on every filesystem. Wait for entrypoint imports before
  * invoking `deno bundle`, so release builds do not race the server output.
@@ -367,9 +387,9 @@ export async function buildWorkspaceRuntime(options, port) {
     await waitForFile(serverOutput);
     await Deno.writeTextFile(
         serverOutput,
-        unrefBundledMessageChannels(
+        removeBundledBuildEnvironment(unrefBundledMessageChannels(
             normalizeCompiledNodeChildProcessImports(await Deno.readTextFile(serverOutput)),
-        ),
+        )),
     );
     await waitForStableWorkspaceClientAssets(clientDir);
     await copyOpaqueAssets(clientDir, join(runtimeDir, "client"));
