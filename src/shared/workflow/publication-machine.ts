@@ -75,11 +75,7 @@ async function resolveRemoteTarget(
     if (remote === ".") return null;
     const url = await git(projectRoot, ["remote", "get-url", remote]);
     if (url.code !== 0 || !url.stdout) return null;
-    const configuredMerge = await git(projectRoot, ["config", "--get", `branch.${targetBranch}.merge`]);
-    const branch = configuredMerge.code === 0 && configuredMerge.stdout.startsWith("refs/heads/")
-        ? configuredMerge.stdout.slice("refs/heads/".length)
-        : targetBranch;
-    return { remote, branch, url: url.stdout };
+    return { remote, branch: targetBranch, url: url.stdout };
 }
 
 async function integratedEvidence(

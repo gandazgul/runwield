@@ -143,15 +143,11 @@ async function resolveUpstream(projectRoot: string, targetBranch: string): Promi
     if (remote === ".") {
         return null;
     }
-    const configuredMerge = await runGitResult(projectRoot, ["config", "--get", `branch.${targetBranch}.merge`]);
-    const branch = configuredMerge.code === 0 && configuredMerge.stdout.startsWith("refs/heads/")
-        ? configuredMerge.stdout.slice("refs/heads/".length)
-        : targetBranch;
     const remoteUrl = await runGitResult(projectRoot, ["remote", "get-url", remote]);
     if (remoteUrl.code !== 0 || !remoteUrl.stdout) {
         return null;
     }
-    return { remote, branch, url: remoteUrl.stdout };
+    return { remote, branch: targetBranch, url: remoteUrl.stdout };
 }
 
 async function remoteHead(cwd: string, remote: string, branch: string): Promise<string | null> {
