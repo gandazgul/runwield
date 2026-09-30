@@ -1,20 +1,19 @@
 ---
-classification: PROJECT
-type: sequence
-complexity: HIGH
-affectedPaths:
-    - src/ui/workspace/server.js
-    - src/ui/workspace/server/session-continuation.js
-    - src/ui/workspace/routes/owner-session-api.js
-    - src/ui/workspace/islands/SessionSurface.jsx
-    - scripts/workspace-memory-check.ts
-    - docs/prd/runwield-workspace-prd.md
-devServerCommand: null
-devServerUrl: null
-devServerHmr: null
-createdAt: 2026-09-29
-status: draft
 planId: "1765fe4a-1520-4106-9f4c-3cd833a38c91"
+classification: "PROJECT"
+type: "sequence"
+complexity: "HIGH"
+affectedPaths:
+    - "src/ui/workspace/server.js"
+    - "src/ui/workspace/server/session-continuation.js"
+    - "src/ui/workspace/routes/owner-session-api.js"
+    - "src/ui/workspace/islands/SessionSurface.jsx"
+    - "scripts/workspace-memory-check.ts"
+    - "docs/prd/runwield-workspace-prd.md"
+status: "ready_for_work"
+origin: "internal"
+userVerifiedAt: null
+userVerificationNote: null
 ---
 
 # Workspace Memory Footprint
