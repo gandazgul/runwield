@@ -2,6 +2,7 @@
 import { DEFAULT_REMOTE_MAX_REQUEST_BYTES, registerRemoteApiRoutes } from "../routes/remote-api.js";
 import { openRemoteWorkspaceAdapter } from "./remote-adapter.js";
 import { isRemoteDevelopmentModeEnabled } from "./remote-mode.js";
+import { isAstroDevelopmentMode } from "./astro-dev-mode.js";
 
 const REMOTE_DEV_APP_KEY = Symbol.for("runwield.workspace.remote-dev-app");
 const REMOTE_DEV_DB_PATH_KEY = Symbol.for("runwield.workspace.remote-dev-db-path");
@@ -11,7 +12,7 @@ const REMOTE_DEV_CONFIG_KEY = Symbol.for("runwield.workspace.remote-dev-config")
 export async function handleRemoteSpaceApi(context) {
     if (
         !isRemoteDevelopmentModeEnabled({
-            isDevelopment: Boolean(import.meta.env?.DEV),
+            isDevelopment: isAstroDevelopmentMode(),
             workspaceMode: Deno.env.get("RUNWIELD_WORKSPACE_MODE"),
         })
     ) {

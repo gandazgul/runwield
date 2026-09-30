@@ -10,13 +10,14 @@ import { currentWorkspaceCwd } from "./cwd.js";
 import { listOwnerProjects, requireOwnerProjectRoot, sessionBelongsToOwnerProject } from "./owner-projects.js";
 import { loadCanonicalBoard, loadCanonicalWorkspaceDetail } from "./astro-canonical-data.js";
 import { readSessionArtifact } from "../../../shared/session/read-session-artifact.ts";
+import { isAstroDevelopmentMode } from "./astro-dev-mode.js";
 
 const BUNDLED_PLAN_ADAPTER_KEY = Symbol.for("runwield.workspace.plan-adapter-module");
 // Production needs the bundled adapter; dev uses the canonical loader's native
 // Deno import so Vite does not try to resolve Core's JSR imports through Node.
 /** @type {Promise<typeof import("./project-artifacts.ts")> | undefined} */
 let bundledProjectArtifacts;
-if (!import.meta.env?.DEV) {
+if (!isAstroDevelopmentMode()) {
     Reflect.set(globalThis, BUNDLED_PLAN_ADAPTER_KEY, import("./plan-adapter.js"));
     bundledProjectArtifacts = import("./project-artifacts.ts");
 }
@@ -46,7 +47,7 @@ export function getAstroOwnerWorkspaceSessionContinuation() {
 
 export async function loadOwnerProjects() {
     const store = getAstroOwnerWorkspaceStore();
-    if (!store && import.meta.env?.DEV) return devOwnerProjects();
+    if (!store && isAstroDevelopmentMode()) return devOwnerProjects();
     if (!store) throw new Error("Owner Workspace store is not available.");
     return await listOwnerProjects(store);
 }
@@ -54,7 +55,7 @@ export async function loadOwnerProjects() {
 /** @param {string} projectId */
 export async function loadOwnerProjectBoard(projectId) {
     const store = getAstroOwnerWorkspaceStore();
-    if (!store && import.meta.env?.DEV) {
+    if (!store && isAstroDevelopmentMode()) {
         return await loadCanonicalBoard(currentWorkspaceCwd());
     }
     if (!store) throw new Error("Owner Workspace store is not available.");
@@ -65,7 +66,7 @@ export async function loadOwnerProjectBoard(projectId) {
 /** @param {string} projectId @param {string} planId @param {import('./plan-adapter.js').WorkspacePlanDetailOptions} [options] */
 export async function loadOwnerProjectPlanDetail(projectId, planId, options = {}) {
     const store = getAstroOwnerWorkspaceStore();
-    if (!store && import.meta.env?.DEV) {
+    if (!store && isAstroDevelopmentMode()) {
         return await loadCanonicalWorkspaceDetail(currentWorkspaceCwd(), planId, options);
     }
     if (!store) throw new Error("Owner Workspace store is not available.");
@@ -77,7 +78,7 @@ export async function loadOwnerProjectPlanDetail(projectId, planId, options = {}
 export async function loadOwnerProjectPlanProgress(projectId, planId, runwieldSessionId = null) {
     const store = getAstroOwnerWorkspaceStore();
     if (
-        !store && import.meta.env?.DEV && projectId === DEV_OWNER_PROJECT.projectId &&
+        !store && isAstroDevelopmentMode() && projectId === DEV_OWNER_PROJECT.projectId &&
         planId === DEV_OWNER_WORKFLOW_PLAN.planId
     ) {
         return devOwnerPlanProgress();
@@ -92,7 +93,7 @@ export async function loadOwnerProjectArtifact(projectId, artifactType, sourceId
     const store = getAstroOwnerWorkspaceStore();
     if (!store) throw new Error("Owner Workspace store is not available.");
     const root = requireOwnerProjectRoot(store, projectId);
-    const module = import.meta.env?.DEV
+    const module = isAstroDevelopmentMode()
         ? await Function("specifier", "return import(specifier)")(
             new URL("./project-artifacts.ts", import.meta.url).href,
         )
