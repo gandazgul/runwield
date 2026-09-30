@@ -86,8 +86,6 @@ export function getLoginProviderOptions(
     authType: "oauth" | "api_key",
 ): AuthProviderOption[] {
     const oauthProviders = getOAuthProviders(registry);
-    const oauthProviderIds = new Set(oauthProviders.map((provider) => provider.id));
-
     if (authType === "oauth") {
         return oauthProviders
             .map((provider) => ({ id: provider.id, name: provider.name, authType }))
@@ -96,7 +94,7 @@ export function getLoginProviderOptions(
 
     const providerIds = new Set(registry.getAll().map((model) => model.provider));
     return Array.from(providerIds)
-        .filter((providerId) => !isExternalCliProvider(providerId) && !oauthProviderIds.has(providerId))
+        .filter((providerId) => !isExternalCliProvider(providerId))
         .map((providerId) => ({ id: providerId, name: getProviderDisplayName(registry, providerId), authType }))
         .sort((a, b) => a.name.localeCompare(b.name));
 }
