@@ -70,7 +70,6 @@
     "src/shared/work-records/auto-generation.js",
     "src/shared/work-records/generation.js",
     "src/shared/work-records/index-adapter.js",
-    "src/shared/work-records/lifecycle.js",
     "src/shared/work-records/list.js",
     "src/shared/work-records/markdown.js",
     "src/shared/work-records/schema.js",
