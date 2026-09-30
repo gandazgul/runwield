@@ -387,7 +387,7 @@ export function openFileSessionStore(options: OpenFileSessionStoreOptions = {}):
                 );
             const start = page * pageSize;
             return {
-                sessions: sessions.slice(start, start + pageSize),
+                sessions: sessionOptions.all ? sessions : sessions.slice(start, start + pageSize),
                 diagnostics,
                 page,
                 pageSize,

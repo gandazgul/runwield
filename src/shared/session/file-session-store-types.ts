@@ -198,6 +198,8 @@ export interface CatalogDiagnostic {
 }
 
 export interface ListSessionOptions {
+    /** Return the entire sorted catalog for a caller that filters its own visible page. */
+    all?: boolean;
     catalog?: boolean;
     fullRescan?: boolean;
     page?: number;

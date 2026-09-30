@@ -286,6 +286,23 @@ Deno.test("one Project streams a finished row and registry failure before its un
         } finally {
             clearTimeout(timeout);
         }
+        // The navigation response must not wait for dashboard-only live evidence.
+        const sidebar = await Promise.race([
+            app(new Request(url.replace("/dashboard/stream", "/sidebar"), { headers })),
+            new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error("Sidebar waited for dashboard live connection")), 2500)
+            ),
+        ]);
+        assertEquals(sidebar.status, 200);
+        const sidebarProjects = (await sidebar.json()).projects;
+        assertEquals(sidebarProjects[0].plans.some((plan: { planId: string }) => plan.planId === "blocked-plan"), true);
+        assertEquals(
+            sidebarProjects[0].plans.find((plan: { planId: string }) => plan.planId === "blocked-plan")
+                .sessions.some((listed: { runwieldSessionId: string }) =>
+                    listed.runwieldSessionId === session.runwieldSessionId
+                ),
+            true,
+        );
         // A subscriber joining mid-read receives the most recent verified row immediately.
         const late = await app(new Request(url, { headers }));
         lateReader = late.body!.getReader();

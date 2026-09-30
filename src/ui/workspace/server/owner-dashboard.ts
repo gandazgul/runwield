@@ -793,6 +793,145 @@ async function projectPayload(
     };
 }
 
+// Navigation reads only saved Plan and Session evidence. Dashboard classification,
+// readiness checks and live connections must not delay the sidebar response.
+export async function loadOwnerSidebar(
+    store: OwnerStore,
+    continuation: SessionContinuation,
+): Promise<SidebarProject[]> {
+    return await withProjectRuntimeReadScope(async () => {
+        const records = store.listProjects();
+        const projects: SidebarProject[] = new Array(records.length);
+        let next = 0;
+        await Promise.all(Array.from({ length: Math.min(4, records.length) }, async () => {
+            while (next < records.length) {
+                const index = next++;
+                const record = records[index];
+                const project = serializeOwnerProject(
+                    record,
+                    store.getProjectHealth(record.projectId),
+                ) as SidebarProject;
+                const diagnostics: Diagnostic[] = [];
+                let root = "";
+                try {
+                    root = requireOwnerProjectRoot(store, record.projectId);
+                } catch (error) {
+                    if (record.lifecycle === "enabled") {
+                        diagnostics.push({
+                            source: "project-reader",
+                            message: diagnosticMessage(error instanceof Error ? error : new Error(String(error))),
+                            repairHref: settingsHref(record.projectId),
+                            repairLabel: "Open Project settings",
+                        });
+                    }
+                }
+                const plansRead = (async (): Promise<OwnerPlan[]> => {
+                    if (!root) return [];
+                    try {
+                        return (await loadPlanSummaries(root)) as OwnerPlan[];
+                    } catch (error) {
+                        diagnostics.push({
+                            source: "plans-reader",
+                            message: diagnosticMessage(error instanceof Error ? error : new Error(String(error))),
+                            repairHref: settingsHref(record.projectId),
+                            repairLabel: "Open Project settings",
+                        });
+                        return [];
+                    }
+                })();
+                const sessionsRead = (async () => {
+                    try {
+                        const result = await continuation.listSessions(record.projectId, {
+                            page: 0,
+                            pageSize: 100,
+                            includeTotal: false,
+                        });
+                        for (const diagnostic of result.diagnostics || []) {
+                            diagnostics.push({
+                                source: safeText(diagnostic.source || diagnostic.code || "sessions-reader"),
+                                message: scrubLocalPaths(
+                                    safeText(diagnostic.message || diagnostic.code || "Session reader failed."),
+                                ),
+                                repairHref: settingsHref(record.projectId),
+                                repairLabel: "Open Project settings",
+                            });
+                        }
+                        return {
+                            sessions: (result.sessions || []).filter((session) => session.runwieldSessionId).map((
+                                session,
+                            ) => sessionSummary(record.projectId, session)),
+                            hasMoreSessions: result.hasNext === true,
+                        };
+                    } catch (error) {
+                        diagnostics.push({
+                            source: "sessions-reader",
+                            message: diagnosticMessage(error instanceof Error ? error : new Error(String(error))),
+                            repairHref: settingsHref(record.projectId),
+                            repairLabel: "Open Project settings",
+                        });
+                        const sessions: SessionSummary[] = [];
+                        return { sessions, hasMoreSessions: false };
+                    }
+                })();
+                const [plans, { sessions, hasMoreSessions }] = await Promise.all([plansRead, sessionsRead]);
+                const plansForSidebar = plans.filter((plan) =>
+                    safeText(plan.planId) && !TERMINAL.has(planStatus(plan)) && !isSequencePlan(plan.attrs || {})
+                );
+                const associations = new Map<string, SessionSummary[]>();
+                const associatedIds = new Set<string>();
+                const planIds = new Set(plansForSidebar.map((plan) => plan.planId));
+                const stateByPlan = new Map<string, { activeSession: boolean; stopped: boolean }>();
+                for (const session of sessions) {
+                    const id = session.runwieldSessionId!;
+                    const committed = new Set(
+                        (store.listSessionPlanAssociations?.(id, record.projectId) || [])
+                            .filter((association) =>
+                                association.committedGeneration !== null && planIds.has(association.planId || "")
+                            )
+                            .map((association) => association.planId!),
+                    );
+                    for (const planId of committed) {
+                        const matches = associations.get(planId) || [];
+                        matches.push(session);
+                        associations.set(planId, matches);
+                        associatedIds.add(id);
+                        const state = stateByPlan.get(planId) || { activeSession: false, stopped: false };
+                        state.activeSession ||= session.state === "active";
+                        state.stopped ||= session.state === "idle" || session.state === "interrupted";
+                        stateByPlan.set(planId, state);
+                    }
+                }
+                plansForSidebar.sort((left, right) => {
+                    const leftHold = planStatus(left) === "on_hold" ? 1 : 0;
+                    const rightHold = planStatus(right) === "on_hold" ? 1 : 0;
+                    const rank = (plan: OwnerPlan) =>
+                        STATUS_PRIORITY[
+                            classifyPlan(plan, null, {
+                                ...stateByPlan.get(plan.planId),
+                                ready: READY.has(planStatus(plan)),
+                            }) || "recently-finished"
+                        ];
+                    return leftHold - rightHold || rank(left) - rank(right) ||
+                        (Date.parse(planUpdatedAt(right)) || 0) - (Date.parse(planUpdatedAt(left)) || 0) ||
+                        left.planId.localeCompare(right.planId);
+                });
+                const standalone = sessions.filter((session) => !associatedIds.has(session.runwieldSessionId!));
+                projects[index] = {
+                    ...project,
+                    plans: plansForSidebar.map((plan) =>
+                        sidebarPlan(project, plan, associations.get(plan.planId) || [])
+                    ),
+                    hasMorePlans: plansForSidebar.length > 5,
+                    sessions: standalone.slice(0, 5),
+                    hasMoreSessions: hasMoreSessions || standalone.length > 5,
+                    diagnostics,
+                };
+            }
+        }));
+        return projects;
+    });
+}
+
 type DashboardPayload = { projects: SidebarProject[]; dashboard: { sections: DashboardSection[] } };
 type DashboardFrame = {
     type: "snapshot" | "complete" | "error";

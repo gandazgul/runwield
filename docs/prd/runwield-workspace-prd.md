@@ -398,10 +398,12 @@ when all relevant checks succeeded. A failed check never makes an empty section 
 verified rows and offer Retry. A failed refresh keeps prior rows but labels them as not updated; a successful retry
 replaces obsolete rows. Each card keeps its sorting, expansion, and focus during updates.
 
-**Requirement: Bound navigation reads and share concurrent refreshes.** Dashboard and sidebar requests made together
-share their in-progress read. Navigation reads only the recent Session page it needs, without counting the full Session
-archive, and reads each Session's Plan associations once per refresh. Completed reads are not retained as a stale cache;
-the next refresh reads current workflow evidence.
+**Requirement: Bound navigation reads without waiting for the Dashboard.** The sidebar reads saved Plan and Session
+navigation evidence independently of Dashboard classification, readiness checks, and live connections. Navigation reads
+only the recent Session names it needs, without counting the full Session archive. Each listing request reads one
+recovered, sorted Session catalog snapshot rather than scanning it again for each page. Completed reads are not retained
+as a stale cache; the next refresh reads current evidence. Sidebar Plan ordering uses saved Plan status and Session
+state; Dashboard cards use their separately verified workflow evidence.
 
 The sidebar's controls are usable before any data request completes, including on mobile. Registered Projects load
 first; each Project's recent Sessions appears independently without waiting for Plans, workflow evidence, another
@@ -428,15 +430,16 @@ unless a current unanswered interaction needs the owner.
 - Given completed checks with no eligible work, a card says “Nothing here.” Given failed checks, it instead shows an
   error and Retry. A partial failure keeps verified rows; a failed background refresh keeps older rows marked not
   updated. A successful retry replaces old rows and clears the warning.
-- Given the Dashboard is hidden or a request is still active, automatic refresh does not start another scan. Dashboard
-  and sidebar callers share active preparation without treating a prior completed read as current evidence.
+- Given the Dashboard is hidden or a request is still active, automatic refresh does not start another Dashboard scan. A
+  sidebar request finishes without waiting for an unrelated live connection or Dashboard readiness check.
 - Given two registered Projects with blocked, ready, finished, and running work, when the owner opens Workspace, the
   queue surfaces what needs attention without opening each Project.
 - When the owner pins work, it becomes easier to find but does not gain approval or execution permission.
 - When work reaches a required human decision, the attention signal leads to the correct Session or Plan; quietly
   running work stays secondary.
 - Given a Project with thousands of archived Sessions, opening the Dashboard and sidebar together does not read every
-  archived transcript or duplicate the dashboard scan. A later refresh reflects newly completed work.
+  archived transcript. Paging a listing does not repeat its manifest scan. A later refresh reflects newly completed
+  work.
 - Given a ready Plan with old repair or review flags, it appears in Ready to Continue. A live question, Plan review,
   code review, or execution Agent stopped at a conversational Pair checkpoint appears in Needs You and links to the
   associated Session; answering it removes that attention signal. Active TUI Sessions are observed without first opening

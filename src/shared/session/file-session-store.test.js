@@ -69,32 +69,35 @@ Deno.test("Core catalogs every local Session without creating a Workspace databa
     }
 });
 
-Deno.test("Project Session listing returns 30 newest Sessions and paginates by date", async () => {
+Deno.test("Project Session listing paginates and provides a sorted unpaged snapshot", async () => {
     const fixture = await makeFixture();
     try {
         const store = openFileSessionStore({ baseDir: fixture.sessionBaseDir });
         const project = store.ensureRuntimeProject({ root: fixture.projectRoot });
-        for (let index = 0; index < 31; index += 1) {
-            const day = String(index + 1).padStart(2, "0");
+        for (let index = 0; index < 101; index += 1) {
             await writeTranscript(
                 fixture.sessionDir,
                 fixture.projectRoot,
                 `session-${index}`,
                 null,
-                `2026-01-${day}T00:00:00.000Z`,
+                new Date(Date.UTC(2026, 0, index + 1)).toISOString(),
             );
         }
 
         const firstPage = await store.listProjectSessions(project.projectId, { page: 0, pageSize: 30 });
         const secondPage = await store.listProjectSessions(project.projectId, { page: 1, pageSize: 30 });
+        const snapshot = await store.listProjectSessions(project.projectId, { all: true, catalog: false });
 
+        assertEquals(snapshot.sessions.length, 101);
+        assertEquals(snapshot.sessions.slice(0, 30), firstPage.sessions);
+        assertEquals(snapshot.sessions.slice(30, 60), secondPage.sessions);
         assertEquals(firstPage.sessions.length, 30);
-        assertEquals(secondPage.sessions.length, 1);
-        assertEquals(firstPage.total, 31);
+        assertEquals(secondPage.sessions.length, 30);
+        assertEquals(firstPage.total, 101);
         assertEquals(firstPage.hasNext, true);
-        assertEquals(secondPage.hasNext, false);
-        assertEquals(firstPage.sessions[0].piSessionId, "session-30");
-        assertEquals(secondPage.sessions[0].piSessionId, "session-0");
+        assertEquals(secondPage.hasNext, true);
+        assertEquals(firstPage.sessions[0].piSessionId, "session-100");
+        assertEquals(snapshot.sessions[snapshot.sessions.length - 1].piSessionId, "session-0");
     } finally {
         await Deno.remove(fixture.rootDir, { recursive: true });
     }

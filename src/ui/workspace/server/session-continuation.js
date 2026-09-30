@@ -650,36 +650,29 @@ export class WorkspaceSessionContinuationService {
         const excludedPlans = new Set(options.excludedPlanIds || []);
         // Navigation needs one visible page and a lookahead, not a count of every transcript.
         const visibleLimit = options.includeTotal === false ? start + pageSize + 1 : Infinity;
-        const result = await this.store.listProjectSessions(projectId, { page: 0, pageSize: 100, catalog: false });
-        let batch = result;
+        // One recovered catalog snapshot per request; paging the catalog would rescan
+        // and reparse every manifest (and recovery descriptor) for each 100 rows.
+        const result = await this.store.listProjectSessions(projectId, { all: true, catalog: false });
         const visible = [];
-        for (let catalogPage = 0;; catalogPage++) {
-            // Keep transcript reads bounded; never load all large histories in parallel.
-            for (const session of batch.sessions) {
-                // Filter stable identities before opening transcript files. Sidebar expansion
-                // needs only five unseen names, regardless of the Project's history size.
-                if (excludedSessions.has(session.runwieldSessionId)) continue;
-                if (options.planId || excludedPlans.size) {
-                    const associations = this.store.listSessionPlanAssociations(session.runwieldSessionId, projectId)
-                        .filter((entry) => entry.committedGeneration !== null);
-                    if (options.planId && !associations.some((entry) => entry.planId === options.planId)) continue;
-                    if (associations.some((entry) => excludedPlans.has(entry.planId))) continue;
-                }
-                const segments = this.store.listSessionTranscriptSegments(session.runwieldSessionId);
-                const paths = segments.length
-                    ? [...segments].sort((a, b) => a.ordinal - b.ordinal).map((segment) => segment.transcriptPath)
-                    : [session.transcriptPath].filter(Boolean);
-                const displayName = await readSessionDisplayName(paths);
-                if (!options.includeEmpty && !displayName) continue;
-                visible.push({ ...session, displayName });
-                if (visible.length >= visibleLimit) break;
+        // Keep transcript reads bounded; never load all large histories in parallel.
+        for (const session of result.sessions) {
+            // Filter stable identities before opening transcript files. Sidebar expansion
+            // needs only five unseen names, regardless of the Project's history size.
+            if (excludedSessions.has(session.runwieldSessionId)) continue;
+            if (options.planId || excludedPlans.size) {
+                const associations = this.store.listSessionPlanAssociations(session.runwieldSessionId, projectId)
+                    .filter((entry) => entry.committedGeneration !== null);
+                if (options.planId && !associations.some((entry) => entry.planId === options.planId)) continue;
+                if (associations.some((entry) => excludedPlans.has(entry.planId))) continue;
             }
-            if (visible.length >= visibleLimit || !batch.hasNext) break;
-            batch = await this.store.listProjectSessions(projectId, {
-                page: catalogPage + 1,
-                pageSize: 100,
-                catalog: false,
-            });
+            const segments = this.store.listSessionTranscriptSegments(session.runwieldSessionId);
+            const paths = segments.length
+                ? [...segments].sort((a, b) => a.ordinal - b.ordinal).map((segment) => segment.transcriptPath)
+                : [session.transcriptPath].filter(Boolean);
+            const displayName = await readSessionDisplayName(paths);
+            if (!options.includeEmpty && !displayName) continue;
+            visible.push({ ...session, displayName });
+            if (visible.length >= visibleLimit) break;
         }
         return {
             ...result,

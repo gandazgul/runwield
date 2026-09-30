@@ -345,6 +345,7 @@ export class FileSessionManifestCache {
     readonly #baseDir: string;
     readonly #manifests = new Map<string, CachedManifest>();
     readonly #manifestIdsByPath = new Map<string, string>();
+    readonly #manifestIdsByTranscriptPath = new Map<string, string>();
     readonly #projects = new Map<string, FileSessionProject>();
 
     constructor(baseDir: string) {
@@ -356,14 +357,22 @@ export class FileSessionManifestCache {
     }
 
     remember(path: string, manifest: FileSessionManifest): void {
+        this.#cacheManifest(path, manifest, manifestFingerprint(path));
+    }
+
+    #cacheManifest(path: string, manifest: FileSessionManifest, fingerprint: ManifestFingerprint): void {
         const previous = this.#manifests.get(manifest.runwieldSessionId);
-        if (previous && previous.path !== path) this.#manifestIdsByPath.delete(previous.path);
-        this.#manifests.set(manifest.runwieldSessionId, {
-            path,
-            manifest: structuredClone(manifest),
-            fingerprint: manifestFingerprint(path),
-        });
+        if (previous) {
+            if (previous.path !== path) this.#manifestIdsByPath.delete(previous.path);
+            for (const segment of previous.manifest.segments) {
+                this.#manifestIdsByTranscriptPath.delete(resolve(segment.transcriptPath));
+            }
+        }
+        this.#manifests.set(manifest.runwieldSessionId, { path, manifest: structuredClone(manifest), fingerprint });
         this.#manifestIdsByPath.set(path, manifest.runwieldSessionId);
+        for (const segment of manifest.segments) {
+            this.#manifestIdsByTranscriptPath.set(resolve(segment.transcriptPath), manifest.runwieldSessionId);
+        }
     }
 
     readPath(path: string): { path: string; manifest: FileSessionManifest } | null {
@@ -381,22 +390,20 @@ export class FileSessionManifestCache {
         }
         const manifest = readJson<FileSessionManifest>(path);
         if (manifest.version !== FILE_SESSION_STORE_VERSION) return null;
-        this.#manifests.set(manifest.runwieldSessionId, {
-            path,
-            manifest: structuredClone(manifest),
-            fingerprint,
-        });
-        this.#manifestIdsByPath.set(path, manifest.runwieldSessionId);
+        this.#cacheManifest(path, manifest, fingerprint);
         return { path, manifest };
     }
 
     findByTranscriptPath(transcriptPath: string): { path: string; manifest: FileSessionManifest } | null {
         const resolvedTranscriptPath = resolve(transcriptPath);
-        for (const cached of this.#manifests.values()) {
+        const cachedId = this.#manifestIdsByTranscriptPath.get(resolvedTranscriptPath);
+        const cached = cachedId ? this.#manifests.get(cachedId) : undefined;
+        if (cached) {
+            const found = this.readPath(cached.path);
             if (
-                cached.manifest.segments.some((segment) => resolve(segment.transcriptPath) === resolvedTranscriptPath)
+                found?.manifest.segments.some((segment) => resolve(segment.transcriptPath) === resolvedTranscriptPath)
             ) {
-                return this.readPath(cached.path);
+                return found;
             }
         }
         let recovery: FileSessionManifest;

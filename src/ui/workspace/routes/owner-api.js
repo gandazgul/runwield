@@ -11,7 +11,7 @@ import {
 import { loadBoard, loadWorkspaceDetail } from "../server/plan-adapter.js";
 import { runOwnerPlanAction } from "../server/owner-plan-actions.ts";
 import { loadOwnerPlanProgress } from "../server/owner-plan-progress.ts";
-import { loadOwnerDashboard, subscribeOwnerDashboard } from "../server/owner-dashboard.ts";
+import { loadOwnerDashboard, loadOwnerSidebar, subscribeOwnerDashboard } from "../server/owner-dashboard.ts";
 import { listOwnerProjects, requireOwnerProjectRoot, serializeOwnerProject } from "../server/owner-projects.js";
 import { ownerSecurityHeaders } from "../server/owner-origin.js";
 import { reviewFileContentApi } from "./api/review-file-handlers.js";
@@ -188,8 +188,8 @@ export function projectsApi(ctx) {
 /** @param {any} ctx */
 export async function ownerSidebarApi(ctx) {
     try {
-        const payload = await loadOwnerDashboard(ctx.state.store, ctx.state.sessionContinuation);
-        return ownerJson({ projects: payload.projects });
+        const projects = await loadOwnerSidebar(ctx.state.store, ctx.state.sessionContinuation);
+        return ownerJson({ projects });
     } catch (error) {
         return ownerErrorJson(error);
     }
