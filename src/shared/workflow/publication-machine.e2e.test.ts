@@ -141,6 +141,54 @@ async function runCrashCase(mode: PublicationMode, crashAfter: string, advanceTa
     }
 }
 
+Deno.test("publication to main does not follow a different upstream branch", async () => {
+    const projectRoot = await makeRepo();
+    const remoteRoot = await Deno.makeTempDir({ prefix: "publication-target-remote-" });
+    const worktreeRoot = await Deno.makeTempDir({ prefix: "publication-target-worktree-" });
+    const configPath = await Deno.makeTempFile({ prefix: "publication-target-driver-", suffix: ".json" });
+    try {
+        await git(remoteRoot, ["init", "--bare"]);
+        await git(projectRoot, ["remote", "add", "origin", remoteRoot]);
+        await git(projectRoot, ["push", "origin", "main:main"]);
+        await git(projectRoot, ["push", "origin", "main:epic/billing-api-integration"]);
+        await git(projectRoot, ["config", "branch.main.remote", "origin"]);
+        await git(projectRoot, ["config", "branch.main.merge", "refs/heads/epic/billing-api-integration"]);
+        await git(projectRoot, ["switch", "-c", "epic/billing-api-integration"]);
+        const originalEpic = await git(remoteRoot, ["rev-parse", "refs/heads/epic/billing-api-integration"]);
+        const originalMain = await git(remoteRoot, ["rev-parse", "refs/heads/main"]);
+        const worktree = await createTestWorktreeAttempt({
+            projectRoot,
+            planName: "wrong-upstream",
+            baseBranch: "main",
+            baseRef: "refs/heads/main",
+            worktreeRoot,
+            attemptId: "attempt-1",
+        });
+        await Deno.writeTextFile(`${worktree.path}/implementation.txt`, "published to main\n");
+        await Deno.writeTextFile(
+            configPath,
+            JSON.stringify({
+                projectRoot,
+                attemptId: "attempt-1",
+                planName: "wrong-upstream",
+                targetBranch: "main",
+                executionBranch: worktree.branch,
+                executionCwd: worktree.path,
+            }),
+        );
+        assertEquals(await runDriver(configPath), 0);
+        const main = await git(remoteRoot, ["rev-parse", "refs/heads/main"]);
+        assert(main !== originalMain, "target main must advance");
+        assertEquals(await git(remoteRoot, ["rev-parse", "refs/heads/epic/billing-api-integration"]), originalEpic);
+        assertEquals(await git(remoteRoot, ["show", `${main}:implementation.txt`]), "published to main");
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => {});
+        await Deno.remove(remoteRoot, { recursive: true }).catch(() => {});
+        await Deno.remove(worktreeRoot, { recursive: true }).catch(() => {});
+        await Deno.remove(configPath).catch(() => {});
+    }
+});
+
 Deno.test("remote publication invoked from a linked checkout stages below the primary internal root", async () => {
     const projectRoot = await makeRepo();
     const remoteRoot = await Deno.makeTempDir({ prefix: "publication-linked-remote-" });
