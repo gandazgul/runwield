@@ -19,6 +19,78 @@ for (const mode of ["normal", "missing", "fallback", "disabled"]) {
     });
 }
 
+Deno.test("module evaluation failure reports the error and restart action", async () => {
+    const result = await new Deno.Command(Deno.execPath(), {
+        args: ["run", "-A", "scripts/workspace-renderer-probe.ts", "evaluation-failure"],
+        cwd: RUNWIELD_ROOT,
+        stdout: "piped",
+        stderr: "piped",
+    }).output();
+    assertEquals(result.success, true, new TextDecoder().decode(result.stderr));
+    const report = JSON.parse(new TextDecoder().decode(result.stdout));
+    assertStringIncludes(report.response, "restart");
+    assertStringIncludes(new TextDecoder().decode(result.stderr), "Renderer evaluation failed");
+});
+
+Deno.test("fixture follows unprefixed Session and protected Plan navigation", async () => {
+    const root = await Deno.makeTempDir({ prefix: "renderer-navigation-" });
+    const origin = "http://127.0.0.1";
+    const fixture = await createRendererFixture(root, origin);
+    try {
+        const ownerPlan = fixture.routes.find((route) =>
+            route.path.includes("/projects/") && route.path.endsWith("/plans")
+        )!;
+        const ownerSession = fixture.routes.find((route) =>
+            route.path.includes("/sessions/") && !route.path.endsWith("/sessions")
+        )!;
+        for (
+            const [path, referer, marker] of [
+                [ownerPlan.path.replace("/fixture/owner", "") + "/fixture-id-0", ownerPlan.path, "Memory plan body 0"],
+                [ownerSession.path.replace("/fixture/owner", ""), ownerPlan.path, "Project Session"],
+                [ownerSession.path.replace("/fixture/owner", "").replace(/\/[^/]+$/, "/new"), ownerSession.path, "New"],
+                ["/plans/fixture-id-1", "/fixture/local/plans/fixture-id-0", "Memory plan body 1"],
+                ["/review/code", "/fixture/review/code", "Memory code review marker"],
+                ["/session-question", "/fixture/question/session-question", "Memory question marker"],
+            ]
+        ) {
+            const response = await fixture.request(
+                path,
+                new Request(`${origin}${path}`, {
+                    headers: { referer: `${origin}${referer}` },
+                }),
+            );
+            assertEquals(response.status, 200, path);
+            assertStringIncludes(await response.text(), marker);
+        }
+    } finally {
+        await fixture.close();
+        await Deno.remove(root, { recursive: true });
+    }
+});
+
+Deno.test("unprefixed Code Review loads without a referer and routes its APIs to Code Review", async () => {
+    const root = await Deno.makeTempDir({ prefix: "renderer-code-review-" });
+    const origin = "http://127.0.0.1";
+    const fixture = await createRendererFixture(root, origin);
+    try {
+        const page = await fixture.request("/review/code");
+        assertEquals(page.status, 200);
+        assertStringIncludes(await page.text(), "Memory code review marker");
+        const apiPath = "/api/agents/capabilities";
+        const api = await fixture.request(
+            apiPath,
+            new Request(`${origin}${apiPath}`, {
+                headers: { referer: `${origin}/review/code` },
+            }),
+        );
+        assertEquals(api.status, 200);
+        assertEquals((await api.json()).mode, "review");
+    } finally {
+        await fixture.close();
+        await Deno.remove(root, { recursive: true });
+    }
+});
+
 Deno.test("shared renderer serves concurrent pages with independent current Plan, review and question content", async () => {
     const root = await Deno.makeTempDir({ prefix: "renderer-lifecycle-" });
     const fixture = await createRendererFixture(root, "http://127.0.0.1");

@@ -62,18 +62,17 @@ export async function createRendererFixture(root: string, origin: string): Promi
     const ids = projects.map((project, index) =>
         store.registerProject({ root: project, displayName: `Memory Project ${index}` }).projectId
     );
-    const { encodeCwdForSessionDir } = await import("../src/shared/session/root-session.js");
+    const { writeBareSessionTranscript } = await import("../src/testing/bare-session-transcript-fixture.ts");
     const runtimeProject = store.ensureRuntimeProject({ root: projects[0] });
-    const sessionDir = join(root, "sessions", encodeCwdForSessionDir(await Deno.realPath(projects[0])));
-    await Deno.mkdir(sessionDir, { recursive: true });
     const sessionIds: string[] = [];
     for (let index = 0; index < 2; index++) {
         const piSessionId = `memory-session-${index}`;
         const timestamp = `2026-01-0${index + 1}T00:00:00.000Z`;
-        const transcriptPath = join(sessionDir, `${timestamp.replace(/[:.]/g, "-")}_${piSessionId}.jsonl`);
-        await Deno.writeTextFile(
-            transcriptPath,
-            `${JSON.stringify({ type: "session", version: 3, id: piSessionId, timestamp, cwd: projects[0] })}\n`,
+        const transcriptPath = await writeBareSessionTranscript(
+            join(root, "sessions"),
+            projects[0],
+            piSessionId,
+            timestamp,
         );
         const session = await store.ensureSessionCatalogRecord({
             projectId: runtimeProject.projectId,
@@ -132,14 +131,20 @@ export async function createRendererFixture(root: string, origin: string): Promi
         if (!match && (path === "/workspace.webmanifest" || path === "/workspace-pwa.js" || path.startsWith("/pwa/"))) {
             return await owner.handler()(new Request(`${origin}${path}`));
         }
-        // Astro pages use absolute API paths. Keep their request origin and
-        // select the corresponding fixture app from the browser's referer.
+        // Astro links are absolute and lose the fixture prefix on navigation.
+        // Owner Project routes and local Plan routes have distinct path spaces;
+        // use the referer for shared APIs and subsequent review/question requests.
         const referer = incoming?.headers.get("referer");
-        const from = referer
-            ? /^\/fixture\/(owner|local|review|question)(\/.*)$/.exec(new URL(referer).pathname)
-            : null;
-        const kind = match?.[1] ??
-            (path.startsWith("/api/owner/") ? "owner" : path.startsWith("/api/") ? from?.[1] : undefined);
+        const fromPath = referer ? new URL(referer).pathname : "";
+        const from = /^\/fixture\/(owner|local|review|question)(\/.*)$/.exec(fromPath);
+        const routeKind = (pathname: string): string | undefined => {
+            if (pathname.startsWith("/api/owner/") || /^\/projects(?:\/|$)/.test(pathname)) return "owner";
+            if (pathname.startsWith("/plans/") || pathname === "/closed" || pathname === "/on-hold") return "local";
+            if (pathname.startsWith("/review/")) return "review";
+            if (pathname === "/session-question") return "question";
+        };
+        const kind = match?.[1] ?? routeKind(path) ??
+            (path.startsWith("/api/") || path === "/" ? from?.[1] ?? routeKind(fromPath) : undefined);
         if (!kind) return new Response("Fixture route not found", { status: 404 });
         const suffix = match?.[2] ?? path;
         const headers = new Headers(incoming?.headers);
@@ -156,7 +161,12 @@ export async function createRendererFixture(root: string, origin: string): Promi
         if (kind === "owner") return await owner.handler()(req);
         if (kind === "local") return await local.handler()(req);
         if (kind === "question") return await question.handler()(req);
-        return await reviews[(from?.[2] === "/code" || suffix === "/code") ? 1 : 0].handler()(req);
+        const reviewPage = targetPath.startsWith("/review/")
+            ? targetPath
+            : from?.[1] === "review"
+            ? `/review${from[2]}`
+            : fromPath;
+        return await reviews[reviewPage === "/review/code" ? 1 : 0].handler()(req);
     }
     return {
         routes,
@@ -238,7 +248,7 @@ async function main(): Promise<void> {
                         elapsedMs: Math.round(performance.now() - started),
                     });
                 }
-                if (url.pathname === "/") return Response.json(current.routes);
+                if (url.pathname === "/" && !req.headers.has("referer")) return Response.json(current.routes);
                 const result = await current.request(url.pathname, req);
                 responses++;
                 guard();

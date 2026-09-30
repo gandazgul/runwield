@@ -645,8 +645,9 @@ function ctx(req, state, params = {}) {
 }
 
 let astroHandlePromise;
+let astroImportFailure = false;
 
-async function loadAstroHandle() {
+function loadAstroHandle() {
     if (Deno.env.get("WLD_WORKSPACE_DISABLE_BUILT_SERVER") === "1") return null;
     if (!astroHandlePromise) {
         astroHandlePromise = (async () => {
@@ -658,7 +659,12 @@ async function loadAstroHandle() {
                     if (!await isAstroEntryImportable(entryPath)) continue;
                     const entry = await import(/* @vite-ignore */ toFileUrl(entryPath).href);
                     if (typeof entry.handle === "function") return entry.handle;
-                } catch {
+                } catch (error) {
+                    astroImportFailure = true;
+                    console.error(
+                        `Workspace renderer module evaluation failed at ${entryPath}. Repair the build and restart the Workspace server; JavaScript may cache this failure.`,
+                        error,
+                    );
                     // Try the source build after the opaque runtime build, or vice versa.
                 }
             }
@@ -773,7 +779,9 @@ function renderStaticReviewFallback(reviewType, payload) {
 
 function workspaceBuildUnavailable() {
     return new Response(
-        "Workspace Astro build unavailable. Run `deno task workspace:build` before serving page routes.",
+        astroImportFailure
+            ? "Workspace renderer module evaluation failed. Repair the build and restart the Workspace server; JavaScript may cache the failure."
+            : "Workspace Astro build unavailable. Run `deno task workspace:build` before serving page routes.",
         {
             status: 503,
             headers: { "content-type": "text/plain; charset=utf-8" },

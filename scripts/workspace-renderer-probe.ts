@@ -37,10 +37,10 @@ try {
     await entry(runtime, "runtime");
     const { createWorkspaceApp } = await import(toFileUrl(join(root, "src/ui/workspace/server.js")).href);
     const handler = createWorkspaceApp({ cwd: root, token: "secret" }).handler();
-    async function page(value: string): Promise<string> {
+    const page = async (value: string): Promise<string> => {
         const response = await handler(new Request(`http://localhost/?token=secret&page=${value}`));
         return `${response.status}:${await response.text()}`;
-    }
+    };
     if (Deno.args[0] === "missing") {
         // No valid entry on the first attempt; the next request may retry.
         await Deno.remove(runtime);
@@ -50,21 +50,32 @@ try {
     if (Deno.args[0] === "fallback") {
         await Deno.writeTextFile(source, "// no importable marker");
     }
-    if (Deno.args[0] === "disabled") {
-        Deno.env.set("WLD_WORKSPACE_DISABLE_BUILT_SERVER", "1");
-        if (!(await page("disabled")).startsWith("503:")) throw new Error("Disabled renderer did not fail");
-        Deno.env.delete("WLD_WORKSPACE_DISABLE_BUILT_SERVER");
+    if (Deno.args[0] === "evaluation-failure") {
+        for (const path of [source, runtime]) {
+            await Deno.writeTextFile(path, `// ${marker}\nthrow new Error('Renderer evaluation failed');`);
+        }
+        const response = await page("broken");
+        if (!response.startsWith("503:") || !response.includes("restart")) {
+            throw new Error(`Evaluation failure did not require restart: ${response}`);
+        }
+        console.log(JSON.stringify({ mode: Deno.args[0], response }));
+    } else {
+        if (Deno.args[0] === "disabled") {
+            Deno.env.set("WLD_WORKSPACE_DISABLE_BUILT_SERVER", "1");
+            if (!(await page("disabled")).startsWith("503:")) throw new Error("Disabled renderer did not fail");
+            Deno.env.delete("WLD_WORKSPACE_DISABLE_BUILT_SERVER");
+        }
+        const responses = await Promise.all(Array.from({ length: 12 }, (_, index) => page(String(index))));
+        const expected = Deno.args[0] === "fallback" ? "runtime" : "source";
+        for (const [index, response] of responses.entries()) {
+            if (!response.includes(`<h1>${expected} ${index}</h1>`)) throw new Error(`Wrong response: ${response}`);
+        }
+        const count = Reflect.get(globalThis, "__rendererProbe") as Record<string, number>;
+        if (count?.[expected] !== 1 || count[expected === "source" ? "runtime" : "source"]) {
+            throw new Error(`Entry initialized more than once or wrong entry selected: ${JSON.stringify(count)}`);
+        }
+        console.log(JSON.stringify({ mode: Deno.args[0], count, responses: responses.length }));
     }
-    const responses = await Promise.all(Array.from({ length: 12 }, (_, index) => page(String(index))));
-    const expected = Deno.args[0] === "fallback" ? "runtime" : "source";
-    for (const [index, response] of responses.entries()) {
-        if (!response.includes(`<h1>${expected} ${index}</h1>`)) throw new Error(`Wrong response: ${response}`);
-    }
-    const count = Reflect.get(globalThis, "__rendererProbe") as Record<string, number>;
-    if (count?.[expected] !== 1 || count[expected === "source" ? "runtime" : "source"]) {
-        throw new Error(`Entry initialized more than once or wrong entry selected: ${JSON.stringify(count)}`);
-    }
-    console.log(JSON.stringify({ mode: Deno.args[0], count, responses: responses.length }));
 } finally {
     await Deno.remove(root, { recursive: true });
 }
