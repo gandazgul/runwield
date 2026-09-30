@@ -926,6 +926,11 @@ async function exerciseRepairCompactionFollowUp(disconnect) {
                     generation: 0,
                     activeAgent: "reviewer-feedback-engineer",
                 });
+                const imagePreflight = await runtime.preflightUserTurnImages(adopted.sessionId, {
+                    initialRequest: "Describe this pasted image.",
+                    initialImages: [{ base64: btoa("img"), mimeType: "image/png" }],
+                });
+                assertEquals(imagePreflight.ok, true, JSON.stringify(imagePreflight));
                 const continuation = buildSemanticRepairSegmentContinuation({
                     runwieldSessionId: acquired.session.runwieldSessionId,
                     planId,
@@ -949,6 +954,11 @@ async function exerciseRepairCompactionFollowUp(disconnect) {
                     continuation,
                     expectedGeneration: 0,
                 });
+                const rolledImagePreflight = await runtime.preflightUserTurnImages(adopted.sessionId, {
+                    initialRequest: "Describe this pasted image.",
+                    initialImages: [{ base64: btoa("img"), mimeType: "image/png" }],
+                });
+                assertEquals(rolledImagePreflight.ok, true, JSON.stringify(rolledImagePreflight));
                 if (disconnect) await setCustomSetting("retry", { enabled: false }, "project", worktreeRoot);
                 setRuntimeModelResponseFactories([
                     (context) => {

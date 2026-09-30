@@ -4,7 +4,8 @@ import { loadAgentDef } from ".././agents.js";
 import { resolveModel } from ".././session.js";
 import { resolvePromptTemplateSettings } from "../prompt-template-settings.ts";
 import { resolveNamedInvocation } from ".././named-invocation.ts";
-import { openPersistedRootSession } from ".././root-session.js";
+import { isPathInside, openPersistedRootSession } from ".././root-session.js";
+import { sessionDirForRoot } from ".././file-session-storage.ts";
 import {
     modelSupportsImageInput,
     persistImageAttachment,
@@ -197,10 +198,26 @@ export class RuntimeImages {
             if (!sessionManager) {
                 const managed = session.getManagedMetadata?.();
                 if (managed?.transcriptPath && managed?.piSessionId) {
+                    const segment = this.services.sessionStore?.getCurrentSessionSegment(managed.runwieldSessionId);
+                    const transcriptPath = segment?.transcriptPath || managed.transcriptPath;
+                    const transcriptCwd = segment?.transcriptCwd || session.cwd;
+                    const projectRoot = segment && this.services.sessionStore
+                        ? this.services.sessionStore.requireSessionProjectRoot(managed.projectId)
+                        : null;
+                    const projectSessionDir = projectRoot && this.services.sessionStore
+                        ? sessionDirForRoot(this.services.sessionStore.path, projectRoot)
+                        : null;
+                    const managedProjectSessionDir =
+                        projectSessionDir && isPathInside(transcriptPath, projectSessionDir)
+                            ? projectSessionDir
+                            : undefined;
                     const opened = await openPersistedRootSession({
-                        cwd: session.cwd,
-                        sessionId: managed.piSessionId,
-                        sessionPath: managed.transcriptPath,
+                        cwd: transcriptCwd,
+                        sessionId: segment?.piSessionId || managed.piSessionId,
+                        sessionPath: transcriptPath,
+                        sessionDir: managedProjectSessionDir,
+                        managedProjectRoot: managedProjectSessionDir ? projectRoot || undefined : undefined,
+                        managedSegmentCwd: managedProjectSessionDir ? transcriptCwd : undefined,
                     });
                     sessionManager = opened.sessionManager;
                     openedSessionManager = opened.sessionManager;
