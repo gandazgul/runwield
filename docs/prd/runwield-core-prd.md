@@ -649,6 +649,8 @@ Recovery requirements:
   loaded it, validation and publication use `release/next`, leave `main` unchanged, and record the actual delivery
   target. Cleanup proves the source commits are on `release/next` before removing the source branch; it does not require
   those commits to be on the current checkout's branch.
+- Given a Plan targeting `main` and a checkout on an Epic branch, when Git config points `branch.main.merge` to the Epic
+  branch, publication updates remote `main` only. Verification must inspect remote `main`, not the configured upstream.
 - Given a Session that still displays failed or canceled checks from an earlier attempt, when a resumed delivery
   publishes and cleans up successfully, the Session reports delivery complete with the current check results and does
   not ask the user to repeat publication.
@@ -1612,7 +1614,8 @@ inline and larger output is available through a local log path. Controls and lim
 cross-process task lookup, saved job queue, restart recovery, or replay after process exit. On the first eligible
 `task_completed` call while Background Tasks run, Core rejects completion and lists the running task IDs and kinds. It
 explains that the next eligible call cancels the remaining tasks and accepts completion. The Agent can wait for results,
-cancel tasks, or make that next call. Cancellation does not prove a test passed. Later work can start new Background Tasks.
+cancel tasks, or make that next call. Cancellation does not prove a test passed. Later work can start new Background
+Tasks.
 
 **Requirement: Receive task results without another user message.**
 

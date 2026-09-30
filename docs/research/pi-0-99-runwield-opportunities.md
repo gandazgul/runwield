@@ -14,7 +14,8 @@ savings, or user demand. No implementation changes or live provider requests wer
 ### The upgrade is a foundation, not automatic feature adoption
 
 [Pi 0.99.0](https://pi.dev/changelog/releases/0.99.0) adds codemode, tool search, built-in MCP integration, virtual
-models, classifier integration, ChatGPT login, and richer tool contracts.
+models, classifier integration, a new OpenAI-provider ChatGPT login path, and richer tool contracts. ChatGPT
+subscription access through the existing Codex provider predates this release.
 [Pi 0.99.1](https://pi.dev/changelog/releases/0.99.1) mainly adds model availability and fixes bundled OpenAI login
 loading.
 
@@ -23,37 +24,50 @@ Its TUI, Workspace, and ACP surfaces do not automatically inherit Pi's own inter
 [Session construction](../../src/shared/session/session.js), [Core PRD](../prd/runwield-core-prd.md),
 [Pi MCP SDK documentation](https://pi.dev/docs/latest/mcp#sdk).
 
-### 1. Complete the new ChatGPT login path
+### 1. Support the new OpenAI subscription route without disrupting Codex
 
-**User outcome:** A developer can use a ChatGPT subscription without finding an API key, while API-key users retain
-their existing path.
+**Correction:** ChatGPT subscription access already works in RunWield. The owner confirms using it for this
+conversation. This release adds another provider/authentication route, not subscription access for the first time.
 
-Pi's new login requires a stable installation UUID through `getDeviceId`. RunWield calls `runtime.login()` without these
-options. The installed OAuth implementation throws when the UUID is absent. Separately, RunWield's API-key picker
-excludes all OAuth-capable providers; OpenAI now belongs to that set.
+|                 | Existing route                      | New Pi 0.99 route                                                |
+| --------------- | ----------------------------------- | ---------------------------------------------------------------- |
+| Provider        | `openai-codex`, now labeled legacy  | `openai`                                                         |
+| Model service   | `chatgpt.com/backend-api`           | `api.openai.com/v1`, using the Responses API                     |
+| Authentication  | Existing ChatGPT subscription OAuth | New ChatGPT OAuth flow with a stable installation ID             |
+| API-key support | Separate OpenAI provider            | OpenAI provider supports either subscription OAuth or an API key |
+
+These differences are confirmed in installed `pi-ai/dist/providers/openai-codex.js`, `providers/openai.js`, and
+`auth/oauth/openai-chatgpt.js`. They do not establish better models, larger quotas, lower cost, or better performance.
+
+The missing `getDeviceId` option affects the **new OpenAI login path**, not the existing Codex path. RunWield calls
+`runtime.login()` without these options, and the new OAuth implementation throws when the UUID is absent. Separately,
+RunWield's API-key picker excludes all OAuth-capable providers; OpenAI now belongs to that set.
 
 Sources: [RunWield login adapter](../../src/shared/models/model-registry.ts), `loginProvider`;
-[provider picker](../../src/cmd/auth/index.ts), `getLoginProviderOptions`; installed
-`pi-ai/dist/auth/oauth/openai-chatgpt.js`, `loginOpenAIChatGPT`;
+[provider picker](../../src/cmd/auth/index.ts), `getLoginProviderOptions`;
 [release notes](https://pi.dev/changelog/releases/0.99.0).
 
-**Inference:** This is an immediate compatibility and onboarding opportunity, not a new authentication system. Preserve
-existing Codex credentials and explicit model selections. The inspected code does not provide automatic migration to
-OpenAI. Live login and packaged-binary checks remain necessary.
+**Inference:** Preserve working Codex credentials and model selections. Correct the API-key picker regression and make
+the new route work if offered, but do not present either as unlocking subscription access. No urgent migration from
+Codex is established. Live checks are still needed for the new route; its account entitlements and practical advantages
+were not verified.
 
-### 2. Make steering status more accurate
+### 2. Steering dispositions: future compatibility note, not a product priority
 
-**User outcome:** A user can distinguish input handled by an extension from input queued for the Agent.
+**Correction:** The owner confirms that RunWield does not yet support user extensions. Distinguishing extension-handled
+input from queued input therefore does not establish a useful current user outcome. Internal use of Pi extension
+machinery is not evidence of a supported user-extension workflow.
 
-Pi now returns `handled` or `queued` from `steer()` and `followUp()`. RunWield's `steerAgentSessionWithPreparedInput`
-discards that result. Its queue owner reconciles queue contents and reports `queued: true` after acceptance.
+Pi now returns `handled` or `queued` from `steer()` and `followUp()`. RunWield discards that return value and reconciles
+queue contents separately. This is an API difference, not proof of a user-visible defect.
 
 Sources: [Session steering](../../src/shared/session/session.js),
 [queue owner](../../src/shared/session/runtime/queues.ts), installed `pi-coding-agent/dist/core/agent-session.d.ts`,
 [release notes](https://pi.dev/changelog/releases/0.99.0).
 
-**Inference:** Use the new signal to improve status truth across surfaces. It is not proof that the model later received
-the input. Keep handoff protection and queue reconciliation. Do not expand this into new queue-persistence requirements.
+**Recommendation:** Remove this item from the current opportunity list. Revisit it when a supported input handler can
+consume a message, or when a concrete steering failure demonstrates a need. Do not add extension support merely to make
+this API useful.
 
 ### 3. Reduce unused tool context
 
@@ -179,7 +193,9 @@ automatic retry policy or a reason to retain raw prompts indefinitely.
 
 Separate compatibility work from product bets:
 
-1. **Address login compatibility and steering truth first.** They affect existing user journeys.
+1. **Keep login compatibility separate from product opportunities.** Preserve working Codex subscription access. The new
+   OpenAI route needs integration, not an urgent migration; the API-key picker regression affects existing users.
+   Steering dispositions have no demonstrated current user benefit and are not a priority.
 2. **Prioritize tool efficiency next:** structured result fidelity, then deferred catalogs, then bounded read-only
    composition with inspectable child activity.
 3. **Evaluate automatic model selection separately.** Compare it with current presets before claiming lower cost.

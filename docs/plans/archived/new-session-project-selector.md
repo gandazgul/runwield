@@ -43,8 +43,8 @@ The owner confirmed that the selector is temporary: it belongs to New Session be
 existing Session. The default is the current or last-opened Project in this browser, not activity across devices. The
 owner also ruled out changing Project after typing; this change does not transfer drafts between Projects.
 
-The owning capabilities are [Browser Sessions](../prd/runwield-workspace-prd.md#browser-sessions) and
-[Project access and navigation](../prd/runwield-workspace-prd.md#project-access-and-navigation).
+The owning capabilities are [Browser Sessions](../../prd/runwield-workspace-prd.md#browser-sessions) and
+[Project access and navigation](../../prd/runwield-workspace-prd.md#project-access-and-navigation).
 
 - **Add:** a visible, temporary Project choice before starting a Session.
 - **Preserve:** registered-Project access limits, browser-local navigation defaults, Project-scoped drafts, failed-send
