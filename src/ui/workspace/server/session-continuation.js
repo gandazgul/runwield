@@ -319,6 +319,8 @@ export class WorkspaceSessionContinuationService {
         this.operations = new Map();
         /** @type {Map<string, Set<(snapshot: Record<string, unknown>) => void>>} */
         this.operationListeners = new Map();
+        /** @type {Map<string, Set<(status: string) => void>>} */
+        this.operationChanges = new Map();
         /** @type {Set<(notification: WorkspaceAttentionNotification) => void>} */
         this.notificationListeners = new Set();
         /** @type {Map<string, Promise<() => void>>} */
@@ -335,6 +337,9 @@ export class WorkspaceSessionContinuationService {
         this.openingContinuations = new Map();
         /** @type {Set<Promise<void>>} */
         this.backgroundOperations = new Set();
+        this.closed = false;
+        /** @type {Promise<void> | null} */
+        this.closing = null;
     }
 
     /** @param {() => Promise<void>} work */
@@ -353,37 +358,85 @@ export class WorkspaceSessionContinuationService {
     }
 
     close() {
-        for (const retained of this.retainedSessions.values()) retained.unsubscribe();
-        this.retainedSessions.clear();
-        this.operationListeners.clear();
-        this.notificationListeners.clear();
-        for (const stream of this.remoteNotificationStreams.values()) {
-            void stream.then((close) => close()).catch(() => {});
-        }
-        this.remoteNotificationStreams.clear();
-        this.codeReviewRefreshContexts.clear();
-        return (async () => {
+        if (this.closing) return this.closing;
+        this.closing = (async () => {
             while (this.backgroundOperations.size) await Promise.all(this.backgroundOperations);
             await Promise.all(this.closingRetainedSessions.values());
             await this.runtime.closeAllSessionsWhenIdle();
+            this.closed = true;
+            for (const retained of this.retainedSessions.values()) retained.unsubscribe();
+            this.retainedSessions.clear();
+            this.operationListeners.clear();
+            this.operationChanges.clear();
+            this.notificationListeners.clear();
+            for (const operationId of this.remoteNotificationStreams.keys()) this.closeRemoteNotifications(operationId);
+            this.operations.clear();
+            this.createRequests.clear();
+            this.pendingCreateRequests.clear();
+            this.openingContinuations.clear();
+            this.codeReviewRefreshContexts.clear();
         })();
+        return this.closing;
     }
 
     /** @param {string} operationId */
     notifyOperation(operationId) {
+        const status = this.operations.get(operationId)?.status || "unknown";
+        for (const listener of [...(this.operationChanges.get(operationId) || [])]) listener(status);
         const listeners = this.operationListeners.get(operationId);
-        if (!listeners) return;
+        if (!listeners?.size) return;
         const snapshot = this.getOperation(operationId);
         for (const listener of [...listeners]) listener(snapshot);
     }
 
     /** @param {string} operationId @param {WorkspaceOperationRecord} record */
     setOperation(operationId, record) {
-        this.operations.set(operationId, {
-            ...record,
-            browserNotificationPolicy: this.resolveBrowserNotificationPolicy(record.projectId),
-        });
+        if (this.closed) return;
+        const previous = this.operations.get(operationId);
+        if (previous?.status !== "running" && previous) return;
+        if (record.status === "running") {
+            this.operations.set(operationId, {
+                ...record,
+                browserNotificationPolicy: this.resolveBrowserNotificationPolicy(record.projectId),
+            });
+        } else {
+            const stopped =
+                /** @type {import('../../../shared/session/session-runtime-events.js').RuntimeAttentionRequestedEvent | undefined} */ (
+                    record.events.findLast((event) =>
+                        event.type === "attention_requested" && event.reason === "agentStopped" && !event.eventId &&
+                        !event.notificationSurface
+                    )
+                );
+            this.operations.set(operationId, {
+                status: record.status,
+                projectId: record.projectId,
+                runwieldSessionId: record.runwieldSessionId || null,
+                generation: record.generation ?? null,
+                error: record.error,
+                events: stopped
+                    ? [{
+                        type: stopped.type,
+                        reason: stopped.reason,
+                        agentName: stopped.agentName,
+                        sessionName: stopped.sessionName,
+                        sessionId: stopped.sessionId,
+                        timestamp: stopped.timestamp,
+                    }]
+                    : [],
+                browserNotificationPolicy: previous?.browserNotificationPolicy ||
+                    this.resolveBrowserNotificationPolicy(record.projectId),
+            });
+            this.closeRemoteNotifications(operationId);
+        }
         this.notifyOperation(operationId);
+    }
+
+    /** @param {string} operationId */
+    closeRemoteNotifications(operationId) {
+        const stream = this.remoteNotificationStreams.get(operationId);
+        if (!stream) return;
+        this.remoteNotificationStreams.delete(operationId);
+        void stream.then((close) => close()).catch(() => {});
     }
 
     /** Release a task owner only when no task, result, or user submission still needs it.
@@ -442,7 +495,7 @@ export class WorkspaceSessionContinuationService {
                 unsubscribe();
                 sessionId = nextId;
                 const record = this.operations.get(currentOperationId);
-                if (record) {
+                if (record?.status === "running") {
                     record.runtimeSessionId = nextId;
                     record.events = [];
                     record.runwieldSessionId = this.runtime.getSessionSnapshot(nextId)?.managed?.runwieldSessionId ||
@@ -486,7 +539,7 @@ export class WorkspaceSessionContinuationService {
     /** @param {string} operationId @param {import("../../../shared/session/session-runtime-events.js").SessionRuntimeEvent} event */
     appendOperationEvent(operationId, event) {
         const record = this.operations.get(operationId);
-        if (!record) return;
+        if (!record || record.status !== "running") return;
         appendLiveSessionEvent(record.events, event);
         if (!record.runwieldSessionId && record.runtimeSessionId) {
             record.runwieldSessionId =
@@ -508,7 +561,7 @@ export class WorkspaceSessionContinuationService {
             if (event.type !== "session_replaced" || event.reason !== "prompt_template") return;
             unsubscribe();
             const record = this.operations.get(operationId);
-            if (record) {
+            if (record?.status === "running") {
                 record.runtimeSessionId = event.newSessionId;
                 record.runwieldSessionId =
                     this.runtime.getSessionSnapshot(event.newSessionId)?.managed?.runwieldSessionId || null;
@@ -548,7 +601,7 @@ export class WorkspaceSessionContinuationService {
 
     /** @param {string} operationId @param {WorkspaceOperationRecord | undefined} operation */
     async watchRemoteNotifications(operationId, operation) {
-        if (!operation?.remote || !operation.runwieldSessionId) return;
+        if (this.closed || !operation?.remote || !operation.runwieldSessionId) return;
         let stream = this.remoteNotificationStreams.get(operationId);
         if (!stream) {
             stream = subscribeLiveSessionAttention(operation.runwieldSessionId, operationId, (event) => {
@@ -558,10 +611,30 @@ export class WorkspaceSessionContinuationService {
         }
         try {
             await stream;
+            if (this.operations.get(operationId)?.status !== "running") this.closeRemoteNotifications(operationId);
         } catch (error) {
-            this.remoteNotificationStreams.delete(operationId);
+            if (this.remoteNotificationStreams.get(operationId) === stream) {
+                this.remoteNotificationStreams.delete(operationId);
+            }
             throw error;
         }
+    }
+
+    /** Observe state changes without constructing transcript snapshots until the reader asks.
+     * @param {string} operationId @param {(status: string) => void} listener
+     */
+    subscribeOperationChanges(operationId, listener) {
+        let listeners = this.operationChanges.get(operationId);
+        if (!listeners) {
+            listeners = new Set();
+            this.operationChanges.set(operationId, listeners);
+        }
+        listeners.add(listener);
+        listener(this.operations.get(operationId)?.status || this.getOperation(operationId).status);
+        return () => {
+            listeners.delete(listener);
+            if (!listeners.size) this.operationChanges.delete(operationId);
+        };
     }
 
     /** @param {string} projectId */

@@ -1170,6 +1170,10 @@ Deno.test("Workspace receives the final stop from TUI and ACP turns after steeri
                     assertEquals(steered.queued, true);
                     release();
                     await turn;
+                    const settled = await service.refreshOperation(live.operation.operationId);
+                    assertEquals(settled.status, "completed");
+                    assertEquals(service.remoteNotificationStreams.size, 0);
+                    assertEquals(service.operations.get(live.operation.operationId)?.events.length, 0);
                     // No Session page or operation polling is involved in alert delivery.
                     for (let index = 0; index < 100 && notifications.length === 0; index++) {
                         await new Promise((resolve) => setTimeout(resolve, 10));

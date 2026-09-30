@@ -689,11 +689,28 @@ catalog and follow the same Agent defaults and override rules; switching Agents 
 that Agent’s settings. Workspace hides `/theme`, `/quit`, and `/exit`, keeps existing navigation commands, and does not
 expose TUI-only process controls.
 
+**Requirement: Keep repeated browser use memory-stable.**
+
+After an operation settles, Workspace keeps its compact identity, result, retry metadata, and applicable Agent-stop
+alert, not a second live copy of its transcript, tools, images, or pending answers. Saved conversation and workflow
+reports remain in the [Core Session files](runwield-core-prd.md#session-continuity). A slow observer receives the latest
+needed snapshot instead of a copy for each live event; closing its browser connection does not end live work, a pending
+review, or a Background Task. A reconnect shows current work and committed history. Retry metadata still grows with the
+number of requests, and a single active snapshot can be large; this is not an absolute memory ceiling. Whole-history
+projection, history virtualization, and active-turn byte limits remain deferred.
+
 **Acceptance scenarios:**
 
 - After repeated visits to different Sessions, Plans, reviews, and questions, each page shows the current requested
   content. The running Workspace does not retain an additional renderer for every visit. Rebuilding an already loaded
   production renderer requires a server restart; the development server keeps its normal hot reload.
+- After many completed turns, the browser can reconnect to the same Session, see complete saved Agent output, and submit
+  a follow-up once. A duplicate request keeps its original operation and Session; different input with the same request
+  ID is rejected. Completed live operations keep no transcript-sized payloads.
+- When an observer reads slowly or disconnects during a turn, new snapshots coalesce without pausing the Agent. A fast
+  observer sees the latest busy state, queued steering, and pending review or question. After settlement it receives a
+  compact final result and the saved history appears once; no false interruption or stale Session response replaces it.
+  A fast completion can still notify Agent-stop once, while restored history does not replay that alert.
 - From New Session, the owner sees the route Project above the collapsed composer on desktop and phone. With an empty
   draft, choosing another enabled Project opens its New Session route and loads its saved draft and settings before Send
   is available. A disabled or unavailable Project cannot be chosen. A failed Project read offers Retry; when no Projects

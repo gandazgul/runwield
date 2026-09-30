@@ -33,7 +33,8 @@ Deno.test("Workspace retains a newly created Session until its task result is sa
                 assertEquals(operation.status, "completed", JSON.stringify(operation));
                 const id = operation.runwieldSessionId;
                 assert(id);
-                const task = JSON.stringify(operation.events).match(/"task_id"\s*:\s*"([0-9a-f-]+)"/);
+                const history = await service.timeline(id, { projectId: fixture.project.projectId });
+                const task = JSON.stringify(history.events).match(/"task_id"\s*:\s*"([0-9a-f-]+)"/);
                 assert(task);
                 const generatedId = `background:${id}:${task[1]}`;
                 let automatic = service.getOperation(generatedId);
@@ -42,7 +43,8 @@ Deno.test("Workspace retains a newly created Session until its task result is sa
                     automatic = service.getOperation(generatedId);
                 }
                 assertEquals(automatic.status, "completed", JSON.stringify(automatic));
-                assert(JSON.stringify(automatic.events).includes("Created task result received."));
+                const completedHistory = await service.timeline(id, { projectId: fixture.project.projectId });
+                assert(JSON.stringify(completedHistory.events).includes("Created task result received."));
             } finally {
                 await service.close();
                 service.store.close();
@@ -91,9 +93,10 @@ Deno.test("Workspace history replay does not revive completed background operati
                 const initial = await waitForCompletion(created.operationId);
                 const id = initial.runwieldSessionId;
                 assert(id);
+                const initialHistory = await service.timeline(id, { projectId: fixture.project.projectId });
                 const taskIds = [
                     ...new Set(
-                        [...JSON.stringify(initial.events).matchAll(/"task_id"\s*:\s*"([0-9a-f-]+)"/g)]
+                        [...JSON.stringify(initialHistory.events).matchAll(/"task_id"\s*:\s*"([0-9a-f-]+)"/g)]
                             .map((match) => match[1]),
                     ),
                 ];
@@ -132,12 +135,14 @@ Deno.test("Workspace history replay does not revive completed background operati
                 for (const operationId of generatedIds) {
                     assertEquals(service.getOperation(operationId).status, "completed");
                 }
-                assert(JSON.stringify(completed.events).includes("Operation complete."));
+                const completedHistory = await service.timeline(id, { projectId: fixture.project.projectId });
+                assert(JSON.stringify(completedHistory.events).includes("Operation complete."));
                 const live = await service.liveSession(fixture.project.projectId, id);
                 assertEquals(live.state, "idle");
                 assertEquals(live.operation, null);
                 const followUp = await continueSession("follow-up", "Continue this conversation.");
-                assert(JSON.stringify(followUp.events).includes("Follow-up received."));
+                const followUpHistory = await service.timeline(id, { projectId: fixture.project.projectId });
+                assert(JSON.stringify(followUpHistory.events).includes("Follow-up received."));
             } finally {
                 await service.close();
                 service.store.close();

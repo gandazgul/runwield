@@ -20,8 +20,8 @@ dependencies:
     - "01-reuse-workspace-renderer"
 userVerifiedAt: null
 createdAt: "2026-09-30T13:17:28.080Z"
-status: "in_progress"
 targetBranch: "main"
+status: "implemented"
 ---
 
 # Release Finished Operation Payloads and Bound Observation Streams

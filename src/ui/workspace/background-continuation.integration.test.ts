@@ -38,7 +38,8 @@ Deno.test("Workspace reuses the owning runtime Session for the next continuation
                 }
                 assertEquals(firstResult.status, "completed", JSON.stringify(firstResult));
                 assert(typeof firstResult.generation === "number");
-                const task = JSON.stringify(firstResult.events).match(/"task_id"\s*:\s*"([0-9a-f-]+)"/);
+                const firstHistory = await service.timeline(fixture.session.runwieldSessionId);
+                const task = JSON.stringify(firstHistory.events).match(/"task_id"\s*:\s*"([0-9a-f-]+)"/);
                 assert(task);
                 taskId = task[1];
                 const ownerId = service.runtime.listSessions().find((entry) =>
@@ -64,7 +65,9 @@ Deno.test("Workspace reuses the owning runtime Session for the next continuation
                     )?.id,
                     ownerId,
                 );
-                assert(JSON.stringify(secondResult.events).includes(taskId));
+                assert(
+                    JSON.stringify((await service.timeline(fixture.session.runwieldSessionId)).events).includes(taskId),
+                );
                 const generatedId = `background:${fixture.session.runwieldSessionId}:${taskId}`;
                 let automatic = service.getOperation(generatedId);
                 for (let index = 0; index < 600 && automatic.status !== "completed"; index++) {
@@ -72,7 +75,11 @@ Deno.test("Workspace reuses the owning runtime Session for the next continuation
                     automatic = service.getOperation(generatedId);
                 }
                 assertEquals(automatic.status, "completed", JSON.stringify(automatic));
-                assert(JSON.stringify(automatic.events).includes("Background result received."));
+                assert(
+                    JSON.stringify((await service.timeline(fixture.session.runwieldSessionId)).events).includes(
+                        "Background result received.",
+                    ),
+                );
                 let latestGeneration = service.store.inspectSessionActivation(fixture.session.runwieldSessionId)
                     .generation?.generation;
                 for (let index = 0; index < 400 && latestGeneration === secondResult.generation; index++) {
