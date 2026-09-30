@@ -757,7 +757,12 @@ jobs:
                   brew trust --formula 1broseidon/tap/cymbal
 
             - name: Validate Homebrew tap
-              run: deno task package:homebrew:check --tap homebrew-tap
+              run: |
+                  # Hosted runners can retain an openssl@1.1 link that blocks Homebrew from linking openssl@3.
+                  if brew list --versions openssl@1.1 | grep -q .; then
+                    brew unlink openssl@1.1
+                  fi
+                  deno task package:homebrew:check --tap homebrew-tap
 
             - name: Archive verified Homebrew tap
               run: |
