@@ -17,8 +17,8 @@ dependencies:
     []
 userVerifiedAt: null
 createdAt: "2026-09-30T04:08:57.304Z"
-status: "in_progress"
 targetBranch: "main"
+status: "implemented"
 ---
 
 # Reuse the Workspace Page Renderer

@@ -644,23 +644,34 @@ function ctx(req, state, params = {}) {
     return { req, request: req, url: new URL(req.url), state, params };
 }
 
+let astroHandlePromise;
+
 async function loadAstroHandle() {
     if (Deno.env.get("WLD_WORKSPACE_DISABLE_BUILT_SERVER") === "1") return null;
-
-    const entryPaths = Deno.build.standalone
-        ? [ASTRO_RUNTIME_ENTRY_PATH, ASTRO_SOURCE_ENTRY_PATH]
-        : [ASTRO_SOURCE_ENTRY_PATH, ASTRO_RUNTIME_ENTRY_PATH];
-    for (const entryPath of entryPaths) {
-        try {
-            if (!await isAstroEntryImportable(entryPath)) continue;
-            const entryUrl = toFileUrl(entryPath).href;
-            const entry = await import(/* @vite-ignore */ `${entryUrl}?mtime=${Date.now()}`);
-            if (typeof entry.handle === "function") return entry.handle;
-        } catch {
-            // Try the source build after the opaque runtime build, or vice versa.
-        }
+    if (!astroHandlePromise) {
+        astroHandlePromise = (async () => {
+            const entryPaths = Deno.build.standalone
+                ? [ASTRO_RUNTIME_ENTRY_PATH, ASTRO_SOURCE_ENTRY_PATH]
+                : [ASTRO_SOURCE_ENTRY_PATH, ASTRO_RUNTIME_ENTRY_PATH];
+            for (const entryPath of entryPaths) {
+                try {
+                    if (!await isAstroEntryImportable(entryPath)) continue;
+                    const entry = await import(/* @vite-ignore */ toFileUrl(entryPath).href);
+                    if (typeof entry.handle === "function") return entry.handle;
+                } catch {
+                    // Try the source build after the opaque runtime build, or vice versa.
+                }
+            }
+            return null;
+        })().then((handle) => {
+            if (!handle) astroHandlePromise = null;
+            return handle;
+        }, (error) => {
+            astroHandlePromise = null;
+            throw error;
+        });
     }
-    return null;
+    return astroHandlePromise;
 }
 
 async function isAstroEntryImportable(entryPath) {
