@@ -1,5 +1,5 @@
 import { assertEquals, assertMatch } from "@std/assert";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import { createMnemotecaTools, type MnemotecaToolHost } from "./tools.ts";
 import type { HelperBinaryExecResult } from "../helper-binary-exec.ts";
 
@@ -33,8 +33,8 @@ function setup(
     return { calls, getTool, host, tools };
 }
 
-function fakeContext(): ExtensionContext {
-    return {} as ExtensionContext;
+function fakeContext(): ExtensionToolContext {
+    return {} as ExtensionToolContext;
 }
 
 async function executeText(

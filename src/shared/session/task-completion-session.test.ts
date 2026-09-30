@@ -1,6 +1,6 @@
 import { assertEquals, assertExists } from "@std/assert";
 import { join } from "@std/path";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { createTaskCompletedTool } from "../../tools/task-completed.ts";
 import { makeToolProjectFixture } from "../../testing/workflow-metrics-fixture.ts";
@@ -13,7 +13,7 @@ import {
     TASK_COMPLETION_CUSTOM_TYPE,
 } from "./task-completion-session.ts";
 
-const EXTENSION_CONTEXT = {} as ExtensionContext;
+const EXTENSION_CONTEXT = {} as ExtensionToolContext;
 const TASK_COMPLETION_PROJECT_ROOT = makeToolProjectFixture("runwield-task-completion-session-");
 type HostedSessionManager = NonNullable<ConstructorParameters<typeof HostedSession>[0]["sessionManager"]>;
 

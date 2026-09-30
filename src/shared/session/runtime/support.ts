@@ -48,7 +48,9 @@ export interface RuntimeAgentSession {
     isCompacting?: boolean;
     getSteeringMessages?(): readonly string[];
     clearQueue?(): void | { steering?: readonly string[]; followUp?: readonly string[] };
-    followUp?(text: string): void | Promise<void>;
+    followUp?(
+        text: string,
+    ): void | Promise<void> | ReturnType<import("@earendil-works/pi-coding-agent").AgentSession["followUp"]>;
     setAutoCompactionEnabled?(enabled: boolean): void;
     cycleThinkingLevel?(): import("../hosted-session.js").ThinkingLevel | undefined;
     setThinkingLevel?(level: import("../hosted-session.js").ThinkingLevel): void;

@@ -1,7 +1,7 @@
 import { assertArrayIncludes, assertEquals, assertMatch } from "@std/assert";
 import { join } from "@std/path";
 import { CLAUDE_CLI_CAPABILITY_TOOL_NAMES, createClaudeCliCapabilityTools } from "./capability-tools.ts";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import { withProcessGlobalTestLock } from "../../../../testing/process-global-lock.js";
 
 async function writeExecutable(path: string, content: string): Promise<void> {
@@ -15,8 +15,8 @@ function getTool(tools: ReturnType<typeof createClaudeCliCapabilityTools>, name:
     return tool;
 }
 
-function fakeContext(): ExtensionContext {
-    return {} as ExtensionContext;
+function fakeContext(): ExtensionToolContext {
+    return {} as ExtensionToolContext;
 }
 
 async function executeText(tool: ReturnType<typeof getTool>, params: Record<string, string | boolean>) {

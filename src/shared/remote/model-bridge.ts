@@ -141,6 +141,7 @@ function safeOptions(
             callbackPolicy === "no-extensions" && new Set([
                 "onPayload",
                 "onResponse",
+                "onProviderStreamEvent",
                 "transformHeaders",
                 "toolExecution",
                 "beforeToolCall",

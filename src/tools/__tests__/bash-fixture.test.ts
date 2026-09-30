@@ -75,19 +75,17 @@ Deno.test("restricted Pi bash inspects real staged and unstaged Git state withou
         const outside = await Deno.makeTempDir({ prefix: "runwield-bash-outside-git-" });
         try {
             const outsideTool = createRunWieldBashToolDefinition(outside, ["git status"]);
-            const error = await assertRejects(
-                () =>
-                    outsideTool.execute(
-                        "call",
-                        { command: "git status" },
-                        new AbortController().signal,
-                        () => {},
-                        { sessionManager: SessionManager.inMemory(outside) } as never,
-                    ),
-                Error,
-                "not a git repository",
+            const result = await outsideTool.execute(
+                "call",
+                { command: "git status" },
+                new AbortController().signal,
+                () => {},
+                { sessionManager: SessionManager.inMemory(outside) } as never,
             );
-            assertEquals(error.message.includes("Allowed commands:"), false);
+            assertEquals(result.isError, true);
+            const output = result.content.filter((item) => item.type === "text").map((item) => item.text).join("\n");
+            assertStringIncludes(output, "not a git repository");
+            assertEquals(output.includes("Allowed commands:"), false);
         } finally {
             await Deno.remove(outside, { recursive: true });
         }

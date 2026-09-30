@@ -1,5 +1,5 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import { writeWorkRecord } from "../shared/work-records/index.ts";
 import type { WorkRecordFrontMatter } from "../shared/work-records/schema.js";
 import type { WorkRecordMnemotecaPort } from "../shared/work-records/mnemoteca-port.ts";
@@ -7,7 +7,7 @@ import { createWorkRecordMnemotecaFixture } from "../shared/work-records/test-fi
 import { createWorkRecordSearchTool } from "./work-record-search.ts";
 
 const RECORD_ID = "11111111-1111-4111-8111-111111111111";
-const EXTENSION_CONTEXT = {} as ExtensionContext;
+const EXTENSION_CONTEXT = {} as ExtensionToolContext;
 
 function resultText(result: { content: Array<{ type: string; text?: string }> }): string {
     const content = result.content[0];

@@ -422,7 +422,7 @@ export class RuntimeWorkflows {
                     { planName: current.planName },
                     undefined,
                     undefined,
-                    {} as import("@earendil-works/pi-coding-agent").ExtensionContext,
+                    {} as import("@earendil-works/pi-coding-agent").ExtensionToolContext,
                 );
                 const event = claimWorkflowToolEvent(activeSession, { kinds: ["plan_written"], owningSession: null });
                 if (event?.kind !== "plan_written") {

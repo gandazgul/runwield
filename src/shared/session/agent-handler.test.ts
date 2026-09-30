@@ -3,7 +3,7 @@ import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { Type } from "@earendil-works/pi-ai";
 import {
     defineTool,
-    type ExtensionContext,
+    type ExtensionToolContext,
     SessionManager,
     type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
@@ -17,7 +17,7 @@ import { setCustomSetting } from "../settings.js";
 import { listPendingWorkflowToolEvents, publishWorkflowToolEvent } from "../workflow/workflow-tool-events.ts";
 import { listPendingTaskCompletions } from "./task-completion-session.ts";
 
-const EXTENSION_CONTEXT = {} as ExtensionContext;
+const EXTENSION_CONTEXT = {} as ExtensionToolContext;
 type HostedSessionManager = NonNullable<ConstructorParameters<typeof HostedSession>[0]["sessionManager"]>;
 
 function hostedSessionManager(sessionManager: SessionManager): HostedSessionManager {

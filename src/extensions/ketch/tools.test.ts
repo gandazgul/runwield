@@ -1,5 +1,5 @@
 import { assertEquals, assertMatch, assertStringIncludes } from "@std/assert";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import { createKetchTools, type KetchToolHost, MAX_WEB_FETCH_CHARS } from "./tools.ts";
 import type { HelperBinaryExecResult } from "../helper-binary-exec.ts";
 
@@ -33,8 +33,8 @@ function setup(
     return { calls, getTool };
 }
 
-function fakeContext(): ExtensionContext {
-    return {} as ExtensionContext;
+function fakeContext(): ExtensionToolContext {
+    return {} as ExtensionToolContext;
 }
 
 async function executeTool(

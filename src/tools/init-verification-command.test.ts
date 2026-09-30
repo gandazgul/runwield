@@ -1,7 +1,7 @@
 import { assertEquals, assertRejects } from "@std/assert";
 import { join } from "@std/path";
 import { parse as parseJsonc } from "@std/jsonc";
-import type { AgentToolResult, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { AgentToolResult, ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import {
     createInitVerificationCommandOperation,
     INIT_VERIFICATION_COMMAND_PLACEHOLDER,
@@ -19,7 +19,7 @@ interface InitVerificationCommandDetails {
     reason?: string;
 }
 
-const EXTENSION_CONTEXT = {} as ExtensionContext;
+const EXTENSION_CONTEXT = {} as ExtensionToolContext;
 
 async function executeTool(
     operation: ReturnType<typeof createInitVerificationCommandOperation>,

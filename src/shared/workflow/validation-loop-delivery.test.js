@@ -146,7 +146,7 @@ Deno.test("Epic child delivery commits its Manual QA artifact with verified meta
                     { checklistMarkdown: "Manual verification steps for epic/01-one\n\n- [ ] Check delivered child" },
                     undefined,
                     undefined,
-                    /** @type {import('@earendil-works/pi-coding-agent').ExtensionContext} */ ({}),
+                    /** @type {import('@earendil-works/pi-coding-agent').ExtensionToolContext} */ ({}),
                 );
                 return [{
                     role: "toolResult",

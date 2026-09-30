@@ -1,9 +1,9 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import { savePlan } from "../plan-store.js";
 import { createQaChecklistGeneratedTool } from "./qa-checklist-generated.ts";
 
-const EXTENSION_CONTEXT = {} as ExtensionContext;
+const EXTENSION_CONTEXT = {} as ExtensionToolContext;
 
 function text(result: { content: Array<{ type: string; text?: string }> }): string {
     const item = result.content[0];

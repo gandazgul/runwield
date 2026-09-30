@@ -1,5 +1,5 @@
 import { assert, assertEquals, assertMatch, assertRejects } from "@std/assert";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import { createCymbalTools, type CymbalToolHost, MAX_CODE_BATCH_OUTPUT_CHARS } from "./tools.ts";
 import type { HelperBinaryExecResult } from "../helper-binary-exec.ts";
 
@@ -41,8 +41,8 @@ function setup(
     return { calls, getTool };
 }
 
-function fakeContext(): ExtensionContext {
-    return {} as ExtensionContext;
+function fakeContext(): ExtensionToolContext {
+    return {} as ExtensionToolContext;
 }
 
 async function executeTool(

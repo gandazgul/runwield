@@ -16,7 +16,7 @@ import type { PlanWrittenEventPayload } from "./workflow-tool-events.ts";
 import { normalizePlanApprovalAction, primaryPlanApprovalActionForClassification } from "./plan-approval.js";
 import { isEpicPlan, isProjectPlan, isSequencePlan, projectPlanType } from "../project-plan.ts";
 import { createPlanWrittenTool } from "../../tools/plan-written.ts";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 
 const fixture = defineCommittedGitFixture({ ".gitignore": ".wld/\n" });
 type HostedManager = NonNullable<ConstructorParameters<typeof HostedSession>[0]["sessionManager"]>;
@@ -217,7 +217,7 @@ Deno.test("plan_written reviews all Sequence tabs and dispatches the first child
             { planName: "sequence", plans: [{ planName: "sequence/index" }, { planName: "sequence/search" }] },
             undefined,
             undefined,
-            {} as ExtensionContext,
+            {} as ExtensionToolContext,
         );
         assertEquals((result.details as ToolOutcome).outcome, "approved_execute");
         assertEquals((result.details as ToolOutcome).planName, "sequence/index");

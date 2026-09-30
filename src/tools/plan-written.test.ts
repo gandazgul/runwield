@@ -1,5 +1,5 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import { HostedSession } from "../shared/session/hosted-session.js";
 import { createPlanWrittenTool } from "./plan-written.ts";
 import { join } from "@std/path";
@@ -7,7 +7,7 @@ import { withRuntimeCommandFixture } from "../cmd/testing/runtime-command-fixtur
 import { loadPlan, savePlan } from "../plan-store.js";
 import { enterProjectRuntime, resolveProjectRuntimeLayout } from "../shared/project-runtime-layout.ts";
 
-const EXTENSION_CONTEXT = {} as ExtensionContext;
+const EXTENSION_CONTEXT = {} as ExtensionToolContext;
 
 Deno.test("plan_written recovers old controller files and opens review after migration", async () => {
     await withRuntimeCommandFixture("plan-written-old-runtime-", async ({ projectRoot }) => {

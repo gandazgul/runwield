@@ -19,7 +19,7 @@
  */
 
 import {
-    type ExtensionContext,
+    type ExtensionToolContext,
     type ExtensionUIContext,
     type SessionManager,
     type ToolDefinition,
@@ -170,8 +170,10 @@ function generateBearerToken(): string {
 }
 
 /** Minimal extension context: the bridged tools capture HostedSession state at factory time. */
-function createToolContext(cwd: string, signal?: AbortSignal): ExtensionContext {
+function createToolContext(cwd: string, signal?: AbortSignal): ExtensionToolContext {
     return {
+        tools: [],
+        executeTool: () => Promise.reject(new Error("Nested tools are not available through the CLI bridge.")),
         ui: {} as ExtensionUIContext,
         mode: "print",
         hasUI: false,

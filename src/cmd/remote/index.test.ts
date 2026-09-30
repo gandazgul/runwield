@@ -60,6 +60,8 @@ exec /bin/sh -c "$4"
             config,
             JSON.stringify({
                 extends: fromFileUrl(projectConfig),
+                // The isolated CLI config has no project lockfile; resolve the just-upgraded Pi packages.
+                minimumDependencyAge: 0,
                 imports: {
                     ...Object.fromEntries(
                         Object.entries(imports).map(([key, value]) => [
