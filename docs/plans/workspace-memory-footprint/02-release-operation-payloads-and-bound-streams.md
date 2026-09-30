@@ -21,7 +21,7 @@ dependencies:
 userVerifiedAt: null
 createdAt: "2026-09-30T13:17:28.080Z"
 targetBranch: "main"
-status: "implemented"
+status: "validated_reviewer"
 ---
 
 # Release Finished Operation Payloads and Bound Observation Streams

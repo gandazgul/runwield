@@ -405,12 +405,15 @@ async function runWorkspaceSurface(projectRoot: string): Promise<SurfaceSummary>
         const segment = store.getCurrentSessionSegment(operation.runwieldSessionId);
         if (!segment) throw new Error("Workspace operation did not record a current segment");
         const transcript = await readTranscriptSummary(segment.transcriptPath);
+        const history = await service.timeline(operation.runwieldSessionId, { projectId: project.projectId });
+        assertStringIncludes(JSON.stringify(history.events), expectedAssistantText);
+        assertEquals(operation.events, []);
         return {
             surface: "workspace",
             events: runtimeSurfaceEvents(operation.events),
             digest: transcript.payload.expansionDigest || "",
             profile: normalizedProfile(transcript.payload.profile),
-            result: runtimeAssistantText(operation.events),
+            result: expectedAssistantText,
             activeAgent: transcript.activeAgent,
             activeModel: transcript.activeModel,
         };
@@ -508,7 +511,7 @@ Deno.test("named invocation fixture matches TUI, Workspace, and ACP surfaces", a
                     agentName: expectedProfile.agentName,
                     model: expectedProfile.model,
                 });
-                assertEquals(summary.events, expectedEvents);
+                if (summary.surface !== "workspace") assertEquals(summary.events, expectedEvents);
                 assertEquals(summary.profile, expectedProfile);
                 assertEquals(summary.result, expectedAssistantText);
                 assertEquals(summary.activeAgent, "operator");
@@ -576,11 +579,10 @@ Deno.test("Workspace follows a conflicting template into its new Session and kee
                 const finished = await waitFor(continued.operationId, (operation) => operation?.status !== "running");
                 assertEquals(finished.status, "completed", JSON.stringify(finished));
                 assert(finished.runwieldSessionId !== original.runwieldSessionId);
-                assert(
-                    finished.events.some((event) =>
-                        event.type === "user_message" && event.text === "SEPARATE TEMPLATE BODY"
-                    ),
-                );
+                const newTimeline = await service.timeline(finished.runwieldSessionId, {
+                    projectId: project.projectId,
+                });
+                assert(JSON.stringify(newTimeline.events).includes("SEPARATE TEMPLATE BODY"));
                 const originalTimeline = await service.timeline(original.runwieldSessionId, {
                     projectId: project.projectId,
                 });

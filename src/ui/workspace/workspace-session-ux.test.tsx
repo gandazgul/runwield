@@ -2049,7 +2049,7 @@ Deno.test("New Session terminal stream message followed by error does not report
         };
         await startObservedNewSession(surface);
         assertEquals(streams.length, 1);
-        await surface.act(async () => {
+        await surface.act(() => {
             streams[0].onmessage({ data: JSON.stringify({ status: "completed", events: [] }) });
             streams[0].onerror();
         });

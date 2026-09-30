@@ -131,7 +131,7 @@ Deno.test("Workspace history replay does not revive completed background operati
                     });
                     return await waitForCompletion(started.operationId);
                 };
-                const completed = await continueSession("complete-operation", "Finish the operation.");
+                await continueSession("complete-operation", "Finish the operation.");
                 for (const operationId of generatedIds) {
                     assertEquals(service.getOperation(operationId).status, "completed");
                 }
@@ -140,7 +140,7 @@ Deno.test("Workspace history replay does not revive completed background operati
                 const live = await service.liveSession(fixture.project.projectId, id);
                 assertEquals(live.state, "idle");
                 assertEquals(live.operation, null);
-                const followUp = await continueSession("follow-up", "Continue this conversation.");
+                await continueSession("follow-up", "Continue this conversation.");
                 const followUpHistory = await service.timeline(id, { projectId: fixture.project.projectId });
                 assert(JSON.stringify(followUpHistory.events).includes("Follow-up received."));
             } finally {
