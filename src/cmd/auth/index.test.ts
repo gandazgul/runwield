@@ -68,6 +68,16 @@ Deno.test("subscription provider choices come from the hydrated fixture registry
     });
 });
 
+Deno.test("API-key login offers OpenAI even when it supports subscription login", async () => {
+    await withAuthTest("auth-openai-api-key-", async ({ registry, harness }) => {
+        assert(registry.getOAuthProviders().some((provider) => provider.id === "openai"));
+        await harness.type("/login api-key openai\r");
+        await harness.waitForScreen("Enter API key for OpenAI:");
+        await harness.pressKey("escape");
+        await harness.waitForIdle(3_000);
+    });
+});
+
 Deno.test("API-key login persists through the fixture credential store and status command", async () => {
     await withAuthTest("auth-api-key-login-", async ({ harness, registry }) => {
         await registry.logoutProvider(FIXTURE_PROVIDER);
