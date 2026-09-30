@@ -4,7 +4,7 @@ import { enterProjectRuntime } from "../project-runtime-layout.ts";
 import { formatWorkRecordMarkdown, parseWorkRecordMarkdown } from "./markdown.js";
 import type { WorkRecordResource } from "./schema.js";
 import { listWorkRecords, replaceWorkRecord } from "./store.js";
-import { supersedeWorkRecord } from "./lifecycle.js";
+import { supersedeWorkRecord } from "./lifecycle.ts";
 import { syncWorkRecordToIndex } from "./index-adapter.js";
 import type { WorkRecordMnemotecaPort } from "./mnemoteca-port.ts";
 
