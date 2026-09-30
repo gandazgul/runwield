@@ -1,6 +1,6 @@
 import { assertEquals } from "@std/assert";
 import { join } from "@std/path";
-import { isEmptyProjectDirectory } from "./project-state.js";
+import { isEmptyProjectDirectory } from "./project-state.ts";
 
 /**
  * @param {string} prefix

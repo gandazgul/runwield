@@ -39,7 +39,6 @@
     "src/shared/owner-coordination/session-activations.js",
     "src/shared/owner-coordination/sessions.js",
     "src/shared/package-resources.js",
-    "src/shared/project-state.js",
     "src/shared/remote/runtime.js",
     "src/shared/remote/target.js",
     "src/shared/session/active-agent-session.js",
