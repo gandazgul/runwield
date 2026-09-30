@@ -115,7 +115,7 @@ Deno.test("standalone Workspace bundle omits runner environment without changing
         await Deno.mkdir(clientDir);
         await Deno.writeTextFile(join(clientDir, "client.css"), "body{}\n");
         await buildWorkspaceRuntime({ serverEntry, clientDir, runtimeDir }, {
-            run: async () => Deno.writeTextFile(serverOutput, `const mode=${snapshot}?.PROD;\n`),
+            run: () => Deno.writeTextFile(serverOutput, `const mode=${snapshot}?.PROD;\n`),
         });
         assertEquals(await Deno.readTextFile(serverOutput), `const mode=Object.assign(${flags},{})?.PROD;\n`);
     } finally {

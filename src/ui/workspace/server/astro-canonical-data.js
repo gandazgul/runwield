@@ -1,7 +1,7 @@
 // @ts-nocheck: Compiled Workspace injects its bundled adapter. Astro dev can fall back to a native dynamic import
 // so both surfaces use the canonical adapter without reimplementing it.
 
-import { isAstroDevelopmentMode } from "./astro-dev-mode.js";
+import { isAstroDevelopmentMode } from "./astro-dev-mode.ts";
 
 const ADAPTER_URL_KEY = Symbol.for("runwield.workspace.plan-adapter-url");
 const ADAPTER_MODULE_KEY = Symbol.for("runwield.workspace.plan-adapter-module");
