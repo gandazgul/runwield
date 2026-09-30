@@ -1,27 +1,27 @@
 ---
-classification: PLANNED_CHANGE
-workKind: BUG_FIX
-complexity: HIGH
-parentPlan: workspace-memory-footprint
+planId: "d9669631-9da1-4698-b78a-c01fee3b946a"
+classification: "PLANNED_CHANGE"
+workKind: "BUG_FIX"
+complexity: "HIGH"
+affectedPaths:
+    - "src/ui/workspace/server/session-continuation.js"
+    - "src/ui/workspace/routes/owner-session-api.js"
+    - "src/ui/workspace/islands/SessionSurface.jsx"
+    - "src/ui/workspace/server/owner-connections.js"
+    - "src/ui/workspace/session-continuation.integration.test.ts"
+    - "scripts/workspace-memory-check.ts"
+    - "docs/prd/runwield-workspace-prd.md"
+executionAgent: "engineer"
+collaborationRecommendation: "autonomous"
+origin: "internal"
+parentPlan: "workspace-memory-footprint"
 order: 2
 dependencies:
-    - 01-reuse-workspace-renderer
-affectedPaths:
-    - src/ui/workspace/server/session-continuation.js
-    - src/ui/workspace/routes/owner-session-api.js
-    - src/ui/workspace/islands/SessionSurface.jsx
-    - src/ui/workspace/server/owner-connections.js
-    - src/ui/workspace/session-continuation.integration.test.ts
-    - scripts/workspace-memory-check.ts
-    - docs/prd/runwield-workspace-prd.md
-executionAgent: engineer
-collaborationRecommendation: autonomous
-devServerCommand: null
-devServerUrl: null
-devServerHmr: null
-createdAt: 2026-09-29
-status: draft
-planId: "d9669631-9da1-4698-b78a-c01fee3b946a"
+    - "01-reuse-workspace-renderer"
+userVerifiedAt: null
+createdAt: "2026-09-30T13:17:28.080Z"
+status: "in_progress"
+targetBranch: "main"
 ---
 
 # Release Finished Operation Payloads and Bound Observation Streams
