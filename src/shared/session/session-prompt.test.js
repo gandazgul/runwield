@@ -513,10 +513,11 @@ sessionPromptTest("task_completed assistant messages bypass post-turn auto-compa
     );
 });
 
-sessionPromptTest("Engineer compaction uses 50 percent of context or 80K tokens", () => {
-    assertEquals(getEngineerCompactionThreshold(AGENTS.ENGINEER, 128_000), 64_000);
-    assertEquals(getEngineerCompactionThreshold(AGENTS.FRONTEND_ENGINEER, 200_000), 80_000);
-    assertEquals(getEngineerCompactionThreshold(AGENTS.REVIEWER_FEEDBACK_ENGINEER, 1_000_000), 80_000);
+sessionPromptTest("Engineer compaction uses 60 percent of context or 120K tokens", () => {
+    assertEquals(getEngineerCompactionThreshold(AGENTS.ENGINEER, 128_000), 76_800);
+    assertEquals(getEngineerCompactionThreshold(AGENTS.PLAN_ENGINEER, 128_000), 76_800);
+    assertEquals(getEngineerCompactionThreshold(AGENTS.FRONTEND_ENGINEER, 200_000), 120_000);
+    assertEquals(getEngineerCompactionThreshold(AGENTS.REVIEWER_FEEDBACK_ENGINEER, 1_000_000), 120_000);
     assertEquals(getEngineerCompactionThreshold(AGENTS.PLANNER, 128_000), null);
 });
 
@@ -531,7 +532,7 @@ sessionPromptTest("runPrompt compacts Engineer before Pi's configured threshold"
         sessionManager: {
             buildSessionContext: () => ({ messages: [], thinkingLevel: "", model: null }),
         },
-        getContextUsage: () => ({ tokens: 50, contextWindow: 100, percent: 50 }),
+        getContextUsage: () => ({ tokens: 60, contextWindow: 100, percent: 60 }),
         _runAutoCompaction: (/** @type {string} */ reason, /** @type {boolean} */ willRetry) => {
             calls.push(`compact:${reason}:${willRetry}`);
             return Promise.resolve(true);
@@ -569,7 +570,7 @@ sessionPromptTest("runPrompt compacts Engineer before Pi's configured threshold"
 
 sessionPromptTest("Engineer post-response compaction re-arms after new context growth", async () => {
     const calls = /** @type {string[]} */ ([]);
-    let tokens = 50;
+    let tokens = 59;
     const session = /** @type {any} */ ({
         model: { contextWindow: 100 },
         settingsManager: {
@@ -585,10 +586,13 @@ sessionPromptTest("Engineer post-response compaction re-arms after new context g
 
     installEngineerAutoCompactionThreshold(session, AGENTS.ENGINEER);
     await session._checkCompaction({ role: "assistant", stopReason: "stop" });
+    assertEquals(calls, []);
+    tokens = 60;
     await session._checkCompaction({ role: "assistant", stopReason: "stop" });
-    tokens = 54;
     await session._checkCompaction({ role: "assistant", stopReason: "stop" });
-    tokens = 55;
+    tokens = 64;
+    await session._checkCompaction({ role: "assistant", stopReason: "stop" });
+    tokens = 65;
     await session._checkCompaction({ role: "assistant", stopReason: "stop" });
 
     assertEquals(calls, ["compact:threshold:false", "compact:threshold:false"]);

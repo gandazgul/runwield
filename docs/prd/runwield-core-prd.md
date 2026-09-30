@@ -975,12 +975,13 @@ assessing change impact. Indexing technology belongs in architecture and impleme
 **Requirement: Retain useful conversation and attachment context.**
 
 `/compact` summarizes a growing conversation, optionally using the user's emphasis instructions. Automatic compaction
-helps with context pressure. Users see progress, completion, failure, and whether input is needed; Escape cancels it.
-Compaction retains the goal, constraints, decisions, progress, relevant file context, and recent activity. Reopening the
-Session retains useful context. Saved Named Invocation expansions, including image blocks, remain available to
-compaction and later turns even though raw user history keeps the compact invocation. Failed or ineffective compaction
-must not strand work or claim completion. Later long-run reliability requirements are in
-[Session Context Resilience](session-context-resilience-prd.md).
+helps with context pressure. Engineer-family Agents use an early threshold of 60% of the model context window or 120,000
+tokens, whichever comes first. Other Agents keep the configured threshold. Users see progress, completion, failure, and
+whether input is needed; Escape cancels it. Compaction retains the goal, constraints, decisions, progress, relevant file
+context, and recent activity. Reopening the Session retains useful context. Saved Named Invocation expansions, including
+image blocks, remain available to compaction and later turns even though raw user history keeps the compact invocation.
+Failed or ineffective compaction must not strand work or claim completion. Later long-run reliability requirements are
+in [Session Context Resilience](session-context-resilience-prd.md).
 
 Vision-capable models receive images directly. With a text-only model, users may select a vision fallback globally or
 through a model preset; the preset takes precedence and an unset fallback is disabled. The same provider configuration
@@ -997,6 +998,8 @@ not inherit it. Future Session deletion also removes its images. See
 
 **Acceptance scenarios:**
 
+- Given an Engineer-family Agent with a 128,000-token context window, its early compaction threshold is 76,800 tokens.
+  With a 200,000-token or larger window, the early threshold is capped at 120,000 tokens.
 - When compaction finishes and the Session resumes, its goal, decisions, constraints, saved Named Invocation expansion,
   and useful progress survive; failure or cancellation never claims successful compaction.
 - Given a text-only destination model and no suitable vision fallback, when the user tries to send an image or changes
