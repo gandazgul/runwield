@@ -27,6 +27,9 @@ workRecord:
     recordId: "862cc044-f349-400f-afd8-e308036dd965"
     path: "docs/work-records/2026-09-29-new-session-project-selector-delivered.md"
     lastAttemptAt: "2026-09-29T03:41:04.244Z"
+archivedAt: "2026-09-29T22:10:24.714Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/new-session-project-selector.md"
 ---
 
 # New Session Project Selector

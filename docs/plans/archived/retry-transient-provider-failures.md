@@ -47,16 +47,16 @@ missing retry with a controlled provider response.
 
 Owning requirements:
 
-- [Models and providers](../prd/runwield-core-prd.md#models-and-providers): preserve **Change models without losing
+- [Models and providers](../../prd/runwield-core-prd.md#models-and-providers): preserve **Change models without losing
   Session or workflow context**. Proposed addition: **Recover from temporary model-service failures**, with clear
   failure messages, bounded retries, cancellation, and an actionable notice when automatic attempts stop.
-- [Session continuity](../prd/runwield-core-prd.md#session-continuity): preserve **Continue the same saved work across
-  clients**. Failed requests must not discard history or replay completed tools.
-- [Execution, validation, and recovery](../prd/runwield-core-prd.md#execution-validation-and-recovery): retry exhaustion
-  pauses the current attempt; it does not abandon or complete a delivery workflow.
+- [Session continuity](../../prd/runwield-core-prd.md#session-continuity): preserve **Continue the same saved work
+  across clients**. Failed requests must not discard history or replay completed tools.
+- [Execution, validation, and recovery](../../prd/runwield-core-prd.md#execution-validation-and-recovery): retry
+  exhaustion pauses the current attempt; it does not abandon or complete a delivery workflow.
 
 No requirement is removed. Existing Session, Session Transcript, and Execution Backend meanings in
-[domain language](../domain-language.md) remain unchanged.
+[domain language](../../domain-language.md) remain unchanged.
 
 ## Objective
 
