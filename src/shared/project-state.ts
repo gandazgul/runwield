@@ -14,10 +14,10 @@ export const EMPTY_PROJECT_DIRECTORY_INIT_NOOP_BODY =
     "Nothing to initialize yet. This directory has no project files for RunWield to inspect. Add files or describe what you want to build; once the project has meaningful files, RunWield can initialize project context.";
 
 /**
- * @param {string} name
+ * @param name
  * @returns {boolean}
  */
-function isDotPrefixedSegment(name) {
+function isDotPrefixedSegment(name: string) {
     return name.startsWith(".");
 }
 
@@ -30,10 +30,10 @@ function isDotPrefixedSegment(name) {
  * Read, iteration, and stat failures are treated conservatively as meaningful
  * because meaningful files may exist but could not be inspected.
  *
- * @param {string} cwd
+ * @param cwd
  * @returns {Promise<boolean>}
  */
-export async function isEmptyProjectDirectory(cwd) {
+export async function isEmptyProjectDirectory(cwd: string) {
     try {
         const rootInfo = await Deno.lstat(cwd);
         if (!rootInfo.isDirectory || rootInfo.isSymlink) return false;
@@ -42,10 +42,10 @@ export async function isEmptyProjectDirectory(cwd) {
     }
 
     /**
-     * @param {string} dir
+     * @param dir
      * @returns {Promise<boolean>} true when a meaningful file is found
      */
-    async function containsMeaningfulFile(dir) {
+    async function containsMeaningfulFile(dir: string) {
         let entries;
         try {
             entries = Deno.readDir(dir);

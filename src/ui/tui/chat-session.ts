@@ -23,7 +23,7 @@ import {
     EMPTY_PROJECT_DIRECTORY_PROMPT_NOTE,
     EMPTY_PROJECT_DIRECTORY_WELCOME_BODY,
     isEmptyProjectDirectory,
-} from "../../shared/project-state.js";
+} from "../../shared/project-state.ts";
 import { listAvailableAgents } from "../../shared/session/agents.js";
 import { openFileSessionStore } from "../../shared/session/file-session-store.ts";
 import {
