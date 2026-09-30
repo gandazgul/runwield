@@ -644,23 +644,40 @@ function ctx(req, state, params = {}) {
     return { req, request: req, url: new URL(req.url), state, params };
 }
 
-async function loadAstroHandle() {
-    if (Deno.env.get("WLD_WORKSPACE_DISABLE_BUILT_SERVER") === "1") return null;
+let astroHandlePromise;
+let astroImportFailure = false;
 
-    const entryPaths = Deno.build.standalone
-        ? [ASTRO_RUNTIME_ENTRY_PATH, ASTRO_SOURCE_ENTRY_PATH]
-        : [ASTRO_SOURCE_ENTRY_PATH, ASTRO_RUNTIME_ENTRY_PATH];
-    for (const entryPath of entryPaths) {
-        try {
-            if (!await isAstroEntryImportable(entryPath)) continue;
-            const entryUrl = toFileUrl(entryPath).href;
-            const entry = await import(/* @vite-ignore */ `${entryUrl}?mtime=${Date.now()}`);
-            if (typeof entry.handle === "function") return entry.handle;
-        } catch {
-            // Try the source build after the opaque runtime build, or vice versa.
-        }
+function loadAstroHandle() {
+    if (Deno.env.get("WLD_WORKSPACE_DISABLE_BUILT_SERVER") === "1") return null;
+    if (!astroHandlePromise) {
+        astroHandlePromise = (async () => {
+            const entryPaths = Deno.build.standalone
+                ? [ASTRO_RUNTIME_ENTRY_PATH, ASTRO_SOURCE_ENTRY_PATH]
+                : [ASTRO_SOURCE_ENTRY_PATH, ASTRO_RUNTIME_ENTRY_PATH];
+            for (const entryPath of entryPaths) {
+                try {
+                    if (!await isAstroEntryImportable(entryPath)) continue;
+                    const entry = await import(/* @vite-ignore */ toFileUrl(entryPath).href);
+                    if (typeof entry.handle === "function") return entry.handle;
+                } catch (error) {
+                    astroImportFailure = true;
+                    console.error(
+                        `Workspace renderer module evaluation failed at ${entryPath}. Repair the build and restart the Workspace server; JavaScript may cache this failure.`,
+                        error,
+                    );
+                    // Try the source build after the opaque runtime build, or vice versa.
+                }
+            }
+            return null;
+        })().then((handle) => {
+            if (!handle) astroHandlePromise = null;
+            return handle;
+        }, (error) => {
+            astroHandlePromise = null;
+            throw error;
+        });
     }
-    return null;
+    return astroHandlePromise;
 }
 
 async function isAstroEntryImportable(entryPath) {
@@ -762,7 +779,9 @@ function renderStaticReviewFallback(reviewType, payload) {
 
 function workspaceBuildUnavailable() {
     return new Response(
-        "Workspace Astro build unavailable. Run `deno task workspace:build` before serving page routes.",
+        astroImportFailure
+            ? "Workspace renderer module evaluation failed. Repair the build and restart the Workspace server; JavaScript may cache the failure."
+            : "Workspace Astro build unavailable. Run `deno task workspace:build` before serving page routes.",
         {
             status: 503,
             headers: { "content-type": "text/plain; charset=utf-8" },

@@ -1,23 +1,25 @@
 ---
-classification: PLANNED_CHANGE
-workKind: BUG_FIX
-complexity: MEDIUM
-parentPlan: workspace-memory-footprint
-order: 1
-dependencies: []
-affectedPaths:
-    - src/ui/workspace/server.js
-    - src/ui/workspace/workspace-local-server.test.js
-    - scripts/build-workspace-runtime.js
-    - docs/prd/runwield-workspace-prd.md
-executionAgent: engineer
-collaborationRecommendation: autonomous
-devServerCommand: null
-devServerUrl: null
-devServerHmr: null
-createdAt: 2026-09-29
-status: draft
 planId: "6928f86e-c4d3-497a-8ff0-7abb792d17e9"
+classification: "PLANNED_CHANGE"
+workKind: "BUG_FIX"
+complexity: "MEDIUM"
+affectedPaths:
+    - "src/ui/workspace/server.js"
+    - "src/ui/workspace/workspace-local-server.test.js"
+    - "scripts/build-workspace-runtime.js"
+    - "docs/prd/runwield-workspace-prd.md"
+executionAgent: "engineer"
+collaborationRecommendation: "autonomous"
+origin: "internal"
+parentPlan: "workspace-memory-footprint"
+order: 1
+dependencies:
+    []
+userVerifiedAt: null
+createdAt: "2026-09-30T04:08:57.304Z"
+targetBranch: "main"
+status: "validated"
+validatedCommit: "3e3cb3cdf564229813abe40727f27925001f58c2"
 ---
 
 # Reuse the Workspace Page Renderer

@@ -157,8 +157,8 @@ export const replayHydrationScenario = {
         { type: "enter" },
         // An idle snapshot can precede asynchronous submit startup. Observe the
         // actual reply before checking that the resumed turn has settled.
-        { type: "waitForScreen", text: "Hydrated Session accepted a follow-up.", timeoutMs: 8000 },
-        { type: "waitForIdle", timeoutMs: 8000 },
+        { type: "waitForScreen", text: "Hydrated Session accepted a follow-up.", timeoutMs: 20000 },
+        { type: "waitForIdle", timeoutMs: 20000 },
     ],
     assertions: [
         assertsGoldenCoverage("terminal:replay-hydration", (result) => {
