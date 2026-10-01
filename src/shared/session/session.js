@@ -3585,7 +3585,7 @@ export function attachSessionEventSubscribers(
                 break;
             }
             case "compaction_start": {
-                // Manual /compact has its own UI in cmd/compact/index.js — avoid duplicate status.
+                // Manual /compact has its own UI in cmd/compact/index.ts — avoid duplicate status.
                 if (event.reason !== "manual") {
                     const label = event.reason === "overflow"
                         ? "Context overflow detected, auto-compacting..."

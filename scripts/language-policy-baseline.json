@@ -5,7 +5,6 @@
     "src/acp/session-map.js",
     "src/cmd/agents/getArgumentCompletions.js",
     "src/cmd/command-helpers.js",
-    "src/cmd/compact/index.js",
     "src/cmd/context/index.js",
     "src/cmd/export/index.js",
     "src/cmd/help/index.js",

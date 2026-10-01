@@ -28,7 +28,7 @@ affectedPaths:
     - "src/shared/session/background-tasks.ts"
     - "src/tools/delegate-agent.ts"
     - "src/tools/__tests__/delegate-agent.test.js"
-    - "src/cmd/compact/index.js"
+    - "src/cmd/compact/index.ts"
     - "src/cmd/compact/index.test.js"
     - "src/ui/tui/runtime-adapter.js"
     - "src/ui/tui/runtime-adapter.test.js"
@@ -336,7 +336,7 @@ shifts, migration or compatibility risk grows, or the Verification Plan no longe
   successful work.
 - `src/tools/__tests__/delegate-agent.test.js` — verify delegated Agent cancellation and context pause preserve tool
   settlement, report `context_resilience_paused` deterministically, and respect Hosted Session compaction serialization.
-- `src/cmd/compact/index.js` — handle Runtime's `compaction_in_progress` result without reading success-only compaction
+- `src/cmd/compact/index.ts` — handle Runtime's `compaction_in_progress` result without reading success-only compaction
   fields and display one concise retry-later message.
 - `src/cmd/compact/index.test.js` — cover shared-arbiter acquisition, immediate `compaction_in_progress` behavior,
   manual-compaction re-arm, and non-duplicated manual/automatic status.

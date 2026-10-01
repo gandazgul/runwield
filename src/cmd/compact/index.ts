@@ -4,11 +4,9 @@
  */
 
 import { theme } from "../../ui/theme/theme.js";
+import type { CommandContext } from "../registry.js";
 
-/**
- * @param {import('../registry.js').CommandContext} options
- */
-function notifyCompactionFinished(options) {
+function notifyCompactionFinished(options: CommandContext) {
     try {
         const { notifyRunWieldEvent, sessionRuntime, sessionId } = options;
         if (!notifyRunWieldEvent || !sessionRuntime || !sessionId) return;
@@ -24,11 +22,8 @@ function notifyCompactionFinished(options) {
 
 /**
  * Handle compact command.
- *
- * @param {string[]} argv
- * @param {import('../registry.js').CommandContext} [options]
  */
-export async function runCompactCommand(argv, options = {}) {
+export async function runCompactCommand(argv: string[], options: CommandContext = {}) {
     if (!options?.uiAPI) {
         console.error("The /compact command is only available inside an interactive session.");
         return "failed";
