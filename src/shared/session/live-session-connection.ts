@@ -186,6 +186,7 @@ export async function openLiveSessionConnection(
     return async () => {
         for (const stream of streams) stream.end();
         await new Promise<void>((resolve) => server.close(() => resolve(undefined)));
+        steeringRequests.clear();
     };
 }
 
