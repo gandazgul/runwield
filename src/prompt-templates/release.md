@@ -5,8 +5,8 @@ agent: engineer
 
 # Release
 
-You are running inside the wld harness. Release the current repository by discovering and following that repository's
-own release policy and automation.
+You are running inside the RunWield harness. Release the current repository by discovering and following that
+repository's own release policy and automation.
 
 ## Execution Steps
 
@@ -80,8 +80,9 @@ own release policy and automation.
 
    - Run the repository-owned release command or documented manual sequence for the selected operation.
    - Monitor CI/CD and release publication to completion.
-   - If CI/CD fails, investigate and repair only issues in the release scope; otherwise report the exact failure and
-     recovery command.
+   - If CI/CD fails, investigate and repair issues with CI/CD, don't re-architect or bradly write code outside of
+     surgical fixes to get CI/CD to pass.
+   - If the CI/CD scripts are out of date or broken, report this and propose a solution for the user to approve.
 
 7. Complete release notes after publication when repository policy requires it.
 
@@ -100,3 +101,6 @@ own release policy and automation.
 If a required CLI tool or credential is missing, halt and inform the user.
 
 Store a memory only when there's a significant breaking change or durable release policy decision worth recalling later.
+
+Keep going unless you are truly blocked, try your best to get the release done and only stop whe truly blocked, or you
+need user permissions for CI/CD changes.
