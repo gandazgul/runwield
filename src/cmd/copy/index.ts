@@ -4,20 +4,18 @@
  */
 
 import { theme } from "../../ui/theme/theme.js";
+import type { CommandContext } from "../registry.js";
 
 /**
  * Copy text to the system clipboard using the platform-appropriate command.
  *
- * @param {string} text
- * @returns {Promise<boolean>} True when the text was copied successfully.
+ * @returns True when the text was copied successfully.
  */
-async function copyToClipboard(text) {
+async function copyToClipboard(text: string): Promise<boolean> {
     const platform = Deno.build.os;
 
-    /** @type {string | undefined} */
-    let command;
-    /** @type {string[]} */
-    let args = [];
+    let command: string;
+    let args: string[] = [];
 
     switch (platform) {
         case "darwin":
@@ -79,11 +77,8 @@ async function copyToClipboard(text) {
 
 /**
  * Handle the /copy command.
- *
- * @param {string[]} _argv
- * @param {import('../registry.js').CommandContext} [options]
  */
-export async function runCopyCommand(_argv, options = {}) {
+export async function runCopyCommand(_argv: string[], options: CommandContext = {}): Promise<void> {
     if (!options?.uiAPI) {
         console.error("The /copy command is only available inside an interactive session.");
         return;

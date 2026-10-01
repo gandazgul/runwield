@@ -7,7 +7,6 @@
     "src/cmd/command-helpers.js",
     "src/cmd/compact/index.js",
     "src/cmd/context/index.js",
-    "src/cmd/copy/index.js",
     "src/cmd/export/index.js",
     "src/cmd/help/index.js",
     "src/cmd/registry.js",
