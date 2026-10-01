@@ -974,11 +974,12 @@ export async function recordPlanEvent({ cwd, planName, event, currentStatus, det
                 { kind: "catalog", root: location.registryRoot },
                 { kind: "plan", id: planName },
                 ...(parentPlanName ? [{ kind: /** @type {const} */ ("plan"), id: parentPlanName }] : []),
-                ...siblings.filter((child) => child.name !== planName).map((child) => ({
-                    kind: /** @type {const} */ ("plan"),
-                    id: child.name,
-                    root: getPlanDocumentRoot(child.path),
-                })),
+                ...siblings.filter((child) => child.name !== planName && !child.path.includes(":docs/plans/"))
+                    .map((child) => ({
+                        kind: /** @type {const} */ ("plan"),
+                        id: child.name,
+                        root: getPlanDocumentRoot(child.path),
+                    })),
             ];
             const transition = await runPlanLifecycleEventTransition({
                 projectRoot: cwd,
@@ -1023,6 +1024,10 @@ export async function recordPlanEvent({ cwd, planName, event, currentStatus, det
                             lockedSiblings.map(async (child) => {
                                 if (child.name === planName) {
                                     return { name: planName, revision: beforePlan.revision, attrs: beforePlan.attrs };
+                                }
+                                // A target-branch snapshot has no editable document or local Plan lock.
+                                if (child.path.includes(":docs/plans/")) {
+                                    return { name: child.name, revision: undefined, attrs: child.attrs };
                                 }
                                 const lockedChild = await loadPlan(getPlanDocumentRoot(child.path), child.name);
                                 if (!lockedChild) throw new Error(`Child Plan disappeared: ${child.name}`);

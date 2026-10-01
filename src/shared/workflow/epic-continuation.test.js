@@ -2,6 +2,7 @@ import { assertEquals, assertStringIncludes } from "@std/assert";
 import { dirname, join } from "@std/path";
 import { loadPlan, updatePlanStatus } from "../../plan-store.js";
 import { presentEpicChildPlan, resolveEpicContinuation } from "./epic-continuation.ts";
+import { recordPlanEvent } from "./plan-lifecycle.js";
 
 /**
  * @param {string} cwd
@@ -113,6 +114,48 @@ Deno.test("resolveEpicContinuation trusts the delivered child document over a st
 
     assertEquals(result.kind, "plan");
     assertEquals(result.childPlanName, "epic/02-next");
+});
+
+Deno.test("a completed sequence reports no remaining children after its final child", async () => {
+    const cwd = await makeProject();
+    await writePlan(cwd, "epic", {
+        classification: "PROJECT",
+        type: "sequence",
+        complexity: "HIGH",
+        status: "ready_for_work",
+        summary: "Completed sequence",
+        affectedPaths: [],
+        createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    await writePlan(cwd, "epic/01-done", {
+        classification: "FEATURE",
+        complexity: "MEDIUM",
+        status: "validated_reviewer",
+        parentPlan: "epic",
+        order: 1,
+        affectedPaths: [],
+        createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    await recordPlanEvent({
+        cwd,
+        planName: "epic/01-done",
+        event: "validation_passed",
+        currentStatus: "validated_reviewer",
+        details: {
+            executionMode: "worktree",
+            deliveryEvidence: {
+                version: 1,
+                mode: "worktree_merge",
+                executionCommit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                targetBranch: "main",
+                targetHeadBeforeMerge: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            },
+        },
+    });
+    assertEquals((await loadPlan(cwd, "epic"))?.attrs.status, "validated");
+    const result = await resolveEpicContinuation({ cwd, completedPlanName: "epic/01-done" });
+    assertEquals(result.kind, "none");
+    assertEquals(result.reason, "parent_epic_not_active");
 });
 
 Deno.test("resolveEpicContinuation stops on the first blocked child instead of skipping later work", async () => {

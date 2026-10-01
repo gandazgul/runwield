@@ -132,15 +132,15 @@ export async function resolveEpicContinuation(
     const parentLocation = await resolveWorkflowPlanLocation(cwd, parentPlanName);
     const parent = parentLocation.plan;
     if (!parent) return { kind: "none", reason: "parent_epic_missing", completedPlanName, parentPlanName };
+    if (!isActiveProjectEpic(parent.attrs)) {
+        return { kind: "none", reason: "parent_epic_not_active", completedPlanName, parentPlanName };
+    }
     try {
         if (projectPlanType(parent.attrs) === "sequence" && parent.attrs.status !== "ready_for_work") {
             return { kind: "blocked", reason: "sequence_not_ready", completedPlanName, parentPlanName };
         }
     } catch {
         return { kind: "blocked", reason: "unsupported_project_type", completedPlanName, parentPlanName };
-    }
-    if (!isActiveProjectEpic(parent.attrs)) {
-        return { kind: "none", reason: "parent_epic_not_active", completedPlanName, parentPlanName };
     }
 
     const targetBranch = typeof parent.attrs.targetBranch === "string" ? parent.attrs.targetBranch.trim() : "";

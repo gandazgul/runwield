@@ -10,6 +10,7 @@ import { COLLABORATION_LOCK_BYPASS } from "../collaboration/lock.js";
 import { listEntries } from "../worktree-registry.js";
 import { createExecutionStartPorts, startActiveExecutionWorkflow } from "./execution-start.ts";
 import { resolveEpicContinuation } from "./epic-continuation.ts";
+import { recordPlanEvent } from "./plan-lifecycle.js";
 import { resolveWorkflowPlanLocation } from "./plan-location.ts";
 import { preparePlanningWorktreeForPlan } from "./planning-worktree.ts";
 
@@ -242,6 +243,86 @@ Deno.test("Epic branch execution promotes the saved planning worktree", async ()
     assertEquals(workflow?.executionCwd, planning.entry.path);
     assertEquals(entries.length, 1);
     assertEquals(entries[0].status, "active");
+});
+
+Deno.test("A published sequence keeps its parent open while a target-only child remains", async () => {
+    const repo = await journeyFixture.checkout();
+    await writePlan(repo, "epic", {
+        planId: "plan-epic",
+        classification: "PROJECT",
+        type: "sequence",
+        complexity: "HIGH",
+        status: "ready_for_work",
+        targetBranch: "epic-target",
+        affectedPaths: [],
+        createdAt: "2026-01-01T00:00:00.000Z",
+    }, "# Epic\n");
+    await writePlan(repo, "epic/01-done", {
+        planId: "plan-child-01",
+        classification: "FEATURE",
+        complexity: "MEDIUM",
+        status: "validated_reviewer",
+        parentPlan: "epic",
+        order: 1,
+        targetBranch: "epic-target",
+        affectedPaths: [],
+        createdAt: "2026-01-01T00:00:00.000Z",
+    }, "# First child\n");
+    await recordPlanEvent({
+        cwd: repo,
+        planName: "epic/01-done",
+        event: "validation_passed",
+        currentStatus: "validated_reviewer",
+        details: {
+            executionMode: "worktree",
+            deliveryEvidence: {
+                version: 1,
+                mode: "worktree_merge",
+                executionCommit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                targetBranch: "epic-target",
+                targetHeadBeforeMerge: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            },
+        },
+    });
+    assertEquals((await loadPlan(repo, "epic"))?.attrs.status, "ready_for_work");
+    const result = await resolveEpicContinuation({ cwd: repo, completedPlanName: "epic/01-done" });
+    assertEquals(result.kind, "execute");
+    assertEquals(result.childPlanName, "epic/02-next");
+});
+
+Deno.test("Sequence continuation follows the ready target parent when the primary copy is stale", async () => {
+    const repo = await journeyFixture.checkout();
+    const parent = await loadPlan(repo, "epic");
+    assert(parent);
+    await writePlan(repo, "epic", {
+        planId: "plan-epic",
+        classification: "PROJECT",
+        type: "sequence",
+        complexity: "HIGH",
+        status: "draft",
+        targetBranch: "epic-target",
+        affectedPaths: [],
+        createdAt: "2026-01-01T00:00:00.000Z",
+    }, "# Epic\n");
+    // The target branch holds the approved sequence and its published children.
+    await git(repo, ["switch", "epic-target"]);
+    await writePlan(repo, "epic", {
+        planId: "plan-epic",
+        classification: "PROJECT",
+        type: "sequence",
+        complexity: "HIGH",
+        status: "ready_for_work",
+        targetBranch: "epic-target",
+        affectedPaths: [],
+        createdAt: "2026-01-01T00:00:00.000Z",
+    }, "# Epic\n");
+    await git(repo, ["add", "."]);
+    await git(repo, ["commit", "-m", "approve sequence"]);
+    await git(repo, ["switch", "main"]);
+
+    const result = await resolveEpicContinuation({ cwd: repo, completedPlanName: "epic/01-done" });
+    assertEquals(result.kind, "execute");
+    assertEquals(result.childPlanName, "epic/02-next");
 });
 
 Deno.test("Epic branch continuation selects the next child from target state", async () => {
