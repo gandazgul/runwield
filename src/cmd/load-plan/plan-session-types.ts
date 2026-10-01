@@ -10,6 +10,7 @@ import type { PlanFrontMatter } from "../../plan-store.js";
 import type { PlanApprovalAction } from "../../shared/workflow/plan-approval.js";
 import type { PlanActionRequest, PlanActionResult } from "../../shared/workflow/plan-actions.ts";
 import type { SequenceReviewDecision, SequenceReviewDocument } from "../../shared/workflow/sequence-review.ts";
+import type { EpicIntegrationGateResult } from "../../shared/workflow/epic-integration.ts";
 
 export type ActiveExecutionWorkflow = import("../../shared/types.js").ActiveExecutionWorkflow;
 
@@ -91,6 +92,8 @@ export interface PlanSessionSurface {
      * chooses to continue; only the first continuation action pays this cost.
      */
     activateForPlan: (planName: string) => Promise<void>;
+    /** Run the integration gate on an Epic branch; absent where no live Session can run checks and review. */
+    runEpicIntegrationGate?: (epicPlanName: string) => Promise<EpicIntegrationGateResult>;
 }
 
 /**

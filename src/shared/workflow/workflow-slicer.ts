@@ -23,6 +23,7 @@ import { buildSlicerRequest } from "./workflow-prompts.js";
 import { recordPlanEvent } from "./plan-lifecycle.js";
 import { isEpicPlan } from "../project-plan.ts";
 import { runEpicDecompositionFinalizeTransition } from "./state-transition.ts";
+import { ensureEpicBranch } from "./epic-branch.ts";
 import type { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { TriageMeta } from "../../tools/plan-written.ts";
 import type { HostedSession } from "../session/hosted-session.js";
@@ -426,12 +427,13 @@ export function createSlicerFinalizeTool({ planName, cwd }) {
                     }
                     return transition.value;
                 })));
+                const branchSummary = await prepareEpicBranchSummary(cwd, planName);
                 if (result.alreadyReady) {
                     return {
                         content: [{
                             type: "text",
                             text:
-                                `${result.writeSummary}\nEpic already ready_for_work with ${result.children.length} child planned change plan(s).`,
+                                `${result.writeSummary}\nEpic already ready_for_work with ${result.children.length} child planned change plan(s).${branchSummary}`,
                         }],
                         details: {
                             status: "ready_for_work",
@@ -444,7 +446,8 @@ export function createSlicerFinalizeTool({ planName, cwd }) {
                 return {
                     content: [{
                         type: "text",
-                        text: `${result.writeSummary}\nFinalized Epic decomposition: ${planName} is ready_for_work.`,
+                        text:
+                            `${result.writeSummary}\nFinalized Epic decomposition: ${planName} is ready_for_work.${branchSummary}`,
                     }],
                     details: {
                         status: result.updated.status,
@@ -462,6 +465,33 @@ export function createSlicerFinalizeTool({ planName, cwd }) {
             }
         },
     });
+}
+
+/**
+ * Create the Epic branch and put the new child drafts on it right after
+ * decomposition. An Epic the author did not name a branch for gets
+ * `epic/<epic-name>`, recorded only once the branch exists. A failure here does
+ * not undo the decomposition: loading the Epic or continuing to its first child
+ * prepares the branch again.
+ *
+ * @param {string} cwd
+ * @param {string} planName
+ * @returns {Promise<string>}
+ */
+async function prepareEpicBranchSummary(cwd, planName) {
+    try {
+        const branch = await ensureEpicBranch(cwd, planName);
+        if (branch.kind !== "ready") return "";
+        const seeded = branch.seededChildren?.length
+            ? ` ${branch.seededChildren.length} child draft(s) are on it.`
+            : "";
+        return `\nEpic branch: ${branch.branch}${
+            branch.created ? " (created from the latest primary branch)" : ""
+        }.${seeded}`;
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return `\nThe Epic branch is not ready yet: ${message}`;
+    }
 }
 
 /**

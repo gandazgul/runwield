@@ -21,10 +21,11 @@ const MANUAL_QA_PROMPT_FILE = "manual-qa-prompt.md";
 const REVIEWER_FEEDBACK_ENGINEER_FILE = "reviewer-feedback-engineer.md";
 const REVIEWER_PROMPT_FILE = "reviewer-prompt.md";
 const REVIEWER_VERIFY_PROMPT_FILE = "reviewer-verify-prompt.md";
+const INTEGRATION_REVIEWER_PROMPT_FILE = "integration-reviewer-prompt.md";
 const SLICER_PROMPT_FILE = "slicer-prompt.md";
 const VERIFICATION_ADVERSARY_ROLE_FILE = "verification-adversary.md";
 
-export type ReviewerSubAgentMode = "discovery" | "verify";
+export type ReviewerSubAgentMode = "discovery" | "verify" | "integration";
 export type SubAgentDefinitionLoadMode = "barePrompt" | "fullAgent";
 export type SubAgentDefinitionId = typeof SUBAGENTS[keyof typeof SUBAGENTS];
 
@@ -47,6 +48,8 @@ export interface SubAgentDefinition {
     loadMode: SubAgentDefinitionLoadMode;
     file: string;
     verifyFile?: string;
+    /** Reviewer prompt for the Epic integration gate, which reviews a whole Epic branch. */
+    integrationFile?: string;
     allowedTools?: readonly string[];
     /**
      * Explicit opt-out for a bare-prompt subagent that is intentionally
@@ -148,6 +151,7 @@ export const SUBAGENT_DEFINITIONS: Readonly<Record<SubAgentDefinitionId, SubAgen
         loadMode: "barePrompt",
         file: REVIEWER_PROMPT_FILE,
         verifyFile: REVIEWER_VERIFY_PROMPT_FILE,
+        integrationFile: INTEGRATION_REVIEWER_PROMPT_FILE,
         allowedTools: REVIEWER_SUBAGENT_TOOLS,
     }),
     [SUBAGENTS.REVIEWER_FEEDBACK_ENGINEER]: Object.freeze({
@@ -216,8 +220,12 @@ function normalizeBundledPromptFrontMatter(parsed: ParsedPromptFrontMatter): Par
 }
 
 function subagentRelativePath(definition: SubAgentDefinition, reviewerMode: ReviewerSubAgentMode) {
-    const file = definition.id === SUBAGENTS.REVIEWER && reviewerMode === "verify" && definition.verifyFile
+    const file = definition.id !== SUBAGENTS.REVIEWER
+        ? definition.file
+        : reviewerMode === "verify" && definition.verifyFile
         ? definition.verifyFile
+        : reviewerMode === "integration" && definition.integrationFile
+        ? definition.integrationFile
         : definition.file;
     return join(SUBAGENT_DEFINITIONS_DIR, file);
 }

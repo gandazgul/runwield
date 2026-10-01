@@ -87,7 +87,7 @@ function buildStalePlanStatusMessage(planName, currentStatus, canonicalStatus) {
 }
 
 /**
- * @typedef {"review_feedback"|"review_approved"|"readiness_passed"|"epic_readiness_passed"|"decomposition_finalized"|"execution_started"|"execution_failed"|"implementation_finished"|"mechanical_validation_failed"|"mechanical_validation_passed"|"semantic_review_feedback"|"semantic_review_passed"|"validation_failed"|"validation_passed"|"recovery_continue"|"recovery_reset"|"review_reopened"|"epic_done_enough"|"manual_status_change"|"manual_closed_without_verification"|"manual_user_verified"|"plan_held"|"hold_resumed"|"hold_reset_to_draft"} PlanEvent
+ * @typedef {"review_feedback"|"review_approved"|"readiness_passed"|"epic_readiness_passed"|"decomposition_finalized"|"execution_started"|"execution_failed"|"implementation_finished"|"mechanical_validation_failed"|"mechanical_validation_passed"|"semantic_review_feedback"|"semantic_review_passed"|"validation_failed"|"validation_passed"|"recovery_continue"|"recovery_reset"|"review_reopened"|"epic_done_enough"|"epic_children_delivered"|"epic_integration_passed"|"epic_integration_failed"|"epic_integration_stale"|"manual_status_change"|"manual_closed_without_verification"|"manual_user_verified"|"plan_held"|"hold_resumed"|"hold_reset_to_draft"} PlanEvent
  */
 
 /**
@@ -111,6 +111,8 @@ function buildStalePlanStatusMessage(planName, currentStatus, canonicalStatus) {
  * @property {"ci"} [mechanicalFailureKind]
  * @property {import('./validation-checkpoint.ts').ValidationCheckpoint|null} [validationCheckpoint]
  * @property {string} [epicDoneEnoughSummary]
+ * @property {string} [integrationCommit] - Epic branch commit the integration gate checked
+ * @property {string|null} [integrationReport] - Project-relative path of a failing integration gate report
  * @property {import('../../plan-store.js').ExecutionMode} [executionMode]
  * @property {import('../../plan-store.js').DeliveryEvidence} [deliveryEvidence]
  * @property {PlanStatus} [manualTargetStatus]
@@ -237,7 +239,11 @@ const ALLOWED_FROM = {
         "verified",
         "user_verified",
     ],
-    epic_done_enough: ["ready_for_work", "validated", "verified"],
+    epic_done_enough: ["ready_for_work", "implemented", "validated", "verified"],
+    epic_children_delivered: ["ready_for_work"],
+    epic_integration_passed: ["implemented"],
+    epic_integration_failed: ["implemented"],
+    epic_integration_stale: ["validated"],
     manual_status_change: ALL_KNOWN_STATUSES,
     manual_closed_without_verification: ALL_KNOWN_STATUSES,
     manual_user_verified: ALL_KNOWN_STATUSES,
@@ -245,6 +251,15 @@ const ALLOWED_FROM = {
     hold_resumed: ["on_hold"],
     hold_reset_to_draft: ["on_hold"],
 };
+
+/** Events that describe an Epic as a whole and never apply to an executable Plan. */
+const EPIC_ONLY_EVENTS = new Set([
+    "epic_done_enough",
+    "epic_children_delivered",
+    "epic_integration_passed",
+    "epic_integration_failed",
+    "epic_integration_stale",
+]);
 
 /** @type {Record<PlanEvent, PlanStatus>} */
 const EVENT_STATUS = {
@@ -266,6 +281,10 @@ const EVENT_STATUS = {
     recovery_reset: "ready_for_work",
     review_reopened: "feedback",
     epic_done_enough: "validated",
+    epic_children_delivered: "implemented",
+    epic_integration_passed: "validated",
+    epic_integration_failed: "implemented",
+    epic_integration_stale: "implemented",
     manual_status_change: "draft",
     manual_closed_without_verification: "closed_without_verification",
     manual_user_verified: "user_verified",
@@ -451,8 +470,11 @@ function getManualTargetStatus(currentStatus, details) {
  */
 export function buildPlanEventUpdates(event, currentStatus, details = {}) {
     assertAllowedTransition(event, currentStatus);
-    if (event === "epic_done_enough" && !isProjectPlan(details.triageMeta)) {
-        throw new Error("Invalid Plan Lifecycle transition: epic_done_enough can only apply to PROJECT Epic plans.");
+    if (EPIC_ONLY_EVENTS.has(event) && !isProjectPlan(details.triageMeta)) {
+        throw new Error(`Invalid Plan Lifecycle transition: ${event} can only apply to PROJECT Epic plans.`);
+    }
+    if (event === "epic_integration_passed" && !details.integrationCommit) {
+        throw new Error("Invalid Plan Lifecycle transition: epic_integration_passed requires integrationCommit.");
     }
 
     const now = iso(details.now ? details.now() : new Date());
@@ -734,6 +756,41 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         updates.failedAt = null;
     }
 
+    if (event === "epic_children_delivered") {
+        updates.implementedAt = now;
+        updates.failureReason = null;
+        updates.failedAt = null;
+    }
+
+    if (event === "epic_integration_passed") {
+        // The checked commit is the proof: a later Epic branch commit makes it stale.
+        updates.validatedCommit = details.integrationCommit;
+        updates.validatedAt = now;
+        updates.epicIntegrationReport = null;
+        updates.userVerifiedAt = null;
+        updates.userVerificationNote = null;
+        if (Object.hasOwn(details, "humanReviewMode")) updates.humanReviewMode = details.humanReviewMode;
+        if (Object.hasOwn(details, "humanReviewDecision")) updates.humanReviewDecision = details.humanReviewDecision;
+        if (Object.hasOwn(details, "humanReviewedAt")) updates.humanReviewedAt = details.humanReviewedAt ?? null;
+        updates.failureReason = null;
+        updates.failedAt = null;
+    }
+
+    if (event === "epic_integration_failed") {
+        updates.failureReason = details.failureReason || "The Epic integration gate found problems.";
+        updates.failedAt = now;
+        updates.epicIntegrationReport = details.integrationReport ?? null;
+        updates.validatedCommit = null;
+    }
+
+    if (event === "epic_integration_stale") {
+        updates.validatedAt = null;
+        updates.validatedCommit = null;
+        updates.humanReviewMode = null;
+        updates.humanReviewDecision = null;
+        updates.humanReviewedAt = null;
+    }
+
     if (event === "validation_passed") {
         const executionMode = normalizeExecutionMode(details.executionMode ?? updates.executionMode);
         const deliveryEvidence = normalizeDeliveryEvidence(details.deliveryEvidence);
@@ -850,6 +907,19 @@ function hasModeAppropriateDeliveryEvidence(attrs) {
 }
 
 /**
+ * An Epic with its own branch completes from delivered children and the
+ * integration gate (`epic-integration.ts`), never from child statuses alone.
+ * Epics without one, and Sequences, keep the legacy status-based completion.
+ *
+ * @param {Partial<import('../../plan-store.js').PlanFrontMatter>} attrs
+ * @returns {boolean}
+ */
+function hasEpicBranch(attrs) {
+    if (attrs.type === "sequence") return false;
+    return typeof attrs.targetBranch === "string" && attrs.targetBranch.trim() !== "";
+}
+
+/**
  * @param {Object} opts
  * @param {string} opts.cwd
  * @param {string} opts.planName
@@ -869,6 +939,7 @@ async function advanceParentEpicWhenAllChildrenVerified({ cwd, planName, event, 
     if (!parent || !isProjectPlan(parent.attrs)) return;
     if (isPlanDependencySatisfiedStatus(parent.attrs.status)) return;
     if (parent.attrs.status !== "ready_for_work") return;
+    if (hasEpicBranch(parent.attrs)) return;
 
     const children = await findCompletionSiblings(cwd, parentPlanName);
     if (!children.length) return;
@@ -1036,7 +1107,7 @@ export async function recordPlanEvent({ cwd, planName, event, currentStatus, det
                         );
                         if (
                             lockedParent && isProjectPlan(lockedParent.attrs) &&
-                            lockedParent.attrs.status === "ready_for_work"
+                            lockedParent.attrs.status === "ready_for_work" && !hasEpicBranch(lockedParent.attrs)
                         ) {
                             const projectedChildren = childrenBeforeWrite.map((child) =>
                                 child.name === planName

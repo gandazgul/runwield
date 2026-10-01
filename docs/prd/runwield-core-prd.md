@@ -470,11 +470,29 @@ the decomposition. Finalization makes child selection available; each child stil
 conversation can pause and resume. Users can deliver one child, defer the rest, and mark the Epic done enough with a
 summary while unfinished children remain available.
 
-`load-plan` offers the appropriate planning, decomposition, child selection, execution, or recovery action. When a new
-Epic has no target branch, opening it for child work creates that branch from the repository's default branch before
-Planner starts. An existing target branch keeps its own history. Unfinished dependencies are explained before
-proceeding. `wld plans` shows Epic progress and child status separately from standalone Plans. Revising an Epic does not
-silently authorize changed child scope.
+`load-plan` offers the appropriate planning, decomposition, child selection, execution, or recovery action. Unfinished
+dependencies are explained before proceeding. `wld plans` shows Epic progress and child status separately from
+standalone Plans. Revising an Epic does not silently authorize changed child scope.
+
+**Requirement: Every Epic starts and ends on its own branch.**
+
+Architect names an Epic branch for every new Epic; when none is named, RunWield uses `epic/<epic-name>`. Children
+inherit it and deliver to it, so partial work never reaches the primary branch before the Epic is ready. When the Epic
+first needs the branch, RunWield creates it from the latest primary branch, records that starting commit, and puts the
+child drafts on it without changing the user's checkout. A missing branch never stops a child from starting. An existing
+branch keeps its own history and is never reset. An Epic whose children already started without a branch keeps its
+earlier behavior.
+
+**Requirement: An Epic finishes through its integration gate.**
+
+Child status alone does not finish an Epic with its own branch. The Epic is implemented when every included child is
+delivered to the Epic branch; a child whose publication is still pending does not count. The integration gate then
+checks the exact branch head as one change: the project's checks, an integration review of the whole Epic diff against
+the Epic, and Code Review per the user's `codereview` setting. A pass marks the Epic validated for that commit. Findings
+are written to an Epic report and become a draft repair child; Planner starts from them, the user reviews the repair
+like any child, and its delivery runs the gate again. A later commit on the Epic branch makes an earlier pass stale.
+RunWield stops at validated: the user merges the Epic branch or opens a pull request. Automatic Epic publication is
+deferred to [Epic Branch Publication Workflow](../plans/epic-branch-publication-workflow.md).
 
 **On hold** means paused and resumable, not completed or archived. Nonterminal Plans can retain their previous stage and
 an optional reason. **Resume from hold** checks whether relevant changes or missing work affect continuation, then
@@ -487,8 +505,17 @@ and siblings active. Listings keep held work distinct from active and finished w
 
 **Acceptance scenarios:**
 
-- Given a new Epic with a missing target branch, when the user opens it to start the first child, the target branch
-  starts from the repository's default branch and Planner can use the child Plan.
+- Given a new Epic with a missing Epic branch, when the user opens it to start the first child, the branch starts from
+  the latest primary branch, the child drafts are on it, the user's checkout is unchanged, and Planner can use the child
+  Plan.
+- Given an Epic whose last child validated but has not finished publishing, when the user opens the Epic, it is not
+  implemented and the integration gate is not offered.
+- Given an Epic whose children are all delivered to the Epic branch, when the integration gate passes, the Epic is
+  validated for that branch head and the primary branch is unchanged.
+- Given an integration gate with findings, when it finishes, the Epic report lists them and a draft repair child under
+  the Epic opens in Planner; after the repair is delivered, the gate runs again.
+- Given a validated Epic, when a new commit lands on its branch, the Epic returns to implemented until the gate passes
+  on the new head.
 - Given an approved Epic, when the user saves draft children, they remain drafts; finalizing decomposition enables child
   selection without approving each child.
 - Given an independently held child, when the parent Epic is held and resumed, that child stays held and other children

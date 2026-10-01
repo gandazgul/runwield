@@ -204,6 +204,8 @@ export function getStoredPlanPath(cwd, planName) {
  * @property {"done_enough"|null} [epicCompletionMode] - Explicit Epic completion mode when an Epic is marked done enough for now
  * @property {string|null} [epicDoneEnoughAt] - ISO timestamp when an Epic was marked done enough for now
  * @property {string|null} [epicDoneEnoughSummary] - Human-readable summary captured when an Epic was marked done enough for now
+ * @property {string|null} [epicBaseCommit] - Primary-branch commit the Epic branch was created from; the integration gate diffs from it
+ * @property {string|null} [epicIntegrationReport] - Project-relative path of the latest failing Epic integration gate report
  * @property {string} [targetBranch] - User-selected target branch, independent of the current execution attempt
  * @property {string|null} [validatedCommit] - Validated implementation commit; durable after runtime cleanup
  * @property {PlanFrontMatter["status"]|null} [heldFromStatus] - Status captured before the Plan moved to on_hold
@@ -457,6 +459,8 @@ function formatFrontMatter(fm) {
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.epicCompletionMode, fm.epicCompletionMode);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.epicDoneEnoughAt, fm.epicDoneEnoughAt);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.epicDoneEnoughSummary, fm.epicDoneEnoughSummary);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.epicBaseCommit, fm.epicBaseCommit);
+    appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.epicIntegrationReport, fm.epicIntegrationReport);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.executionMode, fm.executionMode);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.deliveryEvidence, fm.deliveryEvidence);
     appendYamlField(lines, PLAN_FRONT_MATTER_KEYS.executionBaselineTree, fm.executionBaselineTree);
@@ -1081,6 +1085,8 @@ export function injectFrontMatter(markdown, overrides = {}) {
         ),
         epicDoneEnoughAt: optionalFrontMatterValue(overrides, existingFm, "epicDoneEnoughAt"),
         epicDoneEnoughSummary: optionalFrontMatterValue(overrides, existingFm, "epicDoneEnoughSummary"),
+        epicBaseCommit: optionalFrontMatterValue(overrides, existingFm, "epicBaseCommit"),
+        epicIntegrationReport: optionalFrontMatterValue(overrides, existingFm, "epicIntegrationReport"),
         executionMode: Object.hasOwn(overrides, "executionMode")
             ? normalizeExecutionMode(overrides.executionMode)
             : normalizeExecutionMode(existingFm.executionMode),
@@ -1220,6 +1226,10 @@ export function parsePlanFrontMatter(markdown, opts = {}) {
             epicCompletionMode: attrs.epicCompletionMode === "done_enough" ? attrs.epicCompletionMode : undefined,
             epicDoneEnoughAt: attrs.epicDoneEnoughAt,
             epicDoneEnoughSummary: attrs.epicDoneEnoughSummary,
+            epicBaseCommit: typeof attrs.epicBaseCommit === "string" ? attrs.epicBaseCommit : undefined,
+            epicIntegrationReport: typeof attrs.epicIntegrationReport === "string"
+                ? attrs.epicIntegrationReport
+                : undefined,
             executionMode: normalizeExecutionMode(attrs.executionMode),
             deliveryEvidence: normalizeDeliveryEvidence(attrs.deliveryEvidence),
             validatedCommit: typeof attrs.validatedCommit === "string" ? attrs.validatedCommit : undefined,
@@ -2925,7 +2935,8 @@ async function fileExists(path) {
  * @returns {Promise<{ name: string, path: string, attrs: PlanFrontMatter, body: string, markdown: string }>}
  */
 async function resolveActivePlanNameOrId(cwd, planNameOrId) {
-    const byName = (await resolveWorkflowPlanLocation(cwd, planNameOrId)).plan;
+    // Archive and restore move documents; resolving a name must not start a planning attempt.
+    const byName = (await resolveWorkflowPlanLocation(cwd, planNameOrId, { readOnly: true })).plan;
     if (byName) {
         const { name } = canonicalizeStoredPlanName(planNameOrId);
         if (isHiddenPlanName(name)) {

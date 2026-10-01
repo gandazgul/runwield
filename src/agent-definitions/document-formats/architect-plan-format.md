@@ -12,8 +12,8 @@ affectedPaths:
 devServerCommand: null
 devServerUrl: null
 devServerHmr: null
-# Optional: target execution branch for child Plans when explicitly requested by the user.
-# targetBranch: "feature/base-branch"
+# Required: the Epic branch. Children deliver here; RunWield creates it from the latest primary branch.
+targetBranch: "epic/<epic-plan-name>"
 createdAt: "<ISO-8601 date or timestamp>"
 status: "draft"
 ---

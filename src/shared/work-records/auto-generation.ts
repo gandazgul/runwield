@@ -58,7 +58,7 @@ function conciseError(value: Error | string): string {
 }
 
 async function loadActiveSource(cwd: string, name: string): Promise<WorkRecordSource | null> {
-    const { plan } = await resolveWorkflowPlanLocation(cwd, name);
+    const { plan } = await resolveWorkflowPlanLocation(cwd, name, { readOnly: true });
     return plan ? buildActiveWorkRecordSource(name, plan) : null;
 }
 

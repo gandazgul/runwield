@@ -1722,7 +1722,7 @@ export async function runArchiveTransition<T>(
     opts: TransitionOptionsBase & { action: "archive" | "restore"; move: (ctx: BaseTransitionContext) => Promise<T> },
 ): Promise<TransitionResult> {
     const source = opts.action === "archive"
-        ? (await resolveWorkflowPlanLocation(opts.projectRoot, opts.planName)).plan
+        ? (await resolveWorkflowPlanLocation(opts.projectRoot, opts.planName, { readOnly: true })).plan
         : await loadArchivedPlan(opts.projectRoot, opts.planName);
     const projectRoot = source ? getPlanDocumentRoot(source.path) : opts.projectRoot;
     return await runSemanticTransition({

@@ -1638,23 +1638,36 @@ async function runComposedTuiScenario(scenario, options) {
                         Deno.cwd(),
                     ).catch(() => "origin");
                     const remotePath = await runGoldenGit(["remote", "get-url", remote], Deno.cwd()).catch(() => "");
-                    const remoteHead = remotePath
+                    const primaryHead = remotePath
                         ? await runGoldenGit(
                             ["--git-dir", remotePath, "rev-parse", `refs/heads/${branch}`],
                             Deno.cwd(),
                         )
                         : "";
-                    /** @param {string} name */
-                    const loadRemotePlanAttrs = async (name) => {
-                        if (!remotePath || !remoteHead) return null;
+                    // Children of an Epic with its own branch are delivered there, not to the
+                    // checked-out primary branch, so delivery evidence is read from that branch.
+                    const epicBranch = typeof localParent?.attrs.targetBranch === "string"
+                        ? localParent.attrs.targetBranch
+                        : "";
+                    const remoteHead = remotePath && epicBranch
+                        ? await runGoldenGit(
+                            ["--git-dir", remotePath, "rev-parse", `refs/heads/${epicBranch}`],
+                            Deno.cwd(),
+                        ).catch(() => primaryHead)
+                        : primaryHead;
+                    /** @param {string} name @param {string} head */
+                    const loadRemotePlanAttrsAt = async (name, head) => {
+                        if (!remotePath || !head) return null;
                         const markdown = await runGoldenGit(
-                            ["--git-dir", remotePath, "show", `${remoteHead}:docs/plans/${name}.md`],
+                            ["--git-dir", remotePath, "show", `${head}:docs/plans/${name}.md`],
                             Deno.cwd(),
                         ).catch(() => "");
                         return markdown ? parsePlanFrontMatter(markdown).attrs : null;
                     };
+                    /** @param {string} name */
+                    const loadRemotePlanAttrs = (name) => loadRemotePlanAttrsAt(name, remoteHead);
                     state.projectPlans = {
-                        parent: await loadRemotePlanAttrs(epicPlanName) || localParent?.attrs,
+                        parent: await loadRemotePlanAttrsAt(epicPlanName, primaryHead) || localParent?.attrs,
                         firstChild: localChildren[0]
                             ? await loadRemotePlanAttrs(localChildren[0].name) || localChildren[0].attrs
                             : undefined,
@@ -1668,6 +1681,13 @@ async function runComposedTuiScenario(scenario, options) {
                     const registryEntries = registryText ? (JSON.parse(registryText).entries || []) : [];
                     state.projectDurability = {
                         branch,
+                        epicBranch,
+                        primaryTrackedFiles: remotePath && primaryHead
+                            ? await runGoldenGit(
+                                ["--git-dir", remotePath, "ls-tree", "-r", "--name-only", primaryHead],
+                                Deno.cwd(),
+                            )
+                            : "",
                         deliveryLog: remotePath && remoteHead
                             ? await runGoldenGit(
                                 ["--git-dir", remotePath, "log", "--oneline", "-12", remoteHead],
@@ -1708,14 +1728,27 @@ async function runComposedTuiScenario(scenario, options) {
                         ["--git-dir", remotePath, "ls-tree", "-r", "--name-only", remoteHead],
                         Deno.cwd(),
                     );
-                    const recordNames = remoteTree.split("\n").filter((path) =>
+                    const publishedNames = remoteTree.split("\n").filter((path) =>
                         path.startsWith("docs/work-records/") && path.endsWith(".md")
                     );
+                    // An Epic finished by its integration gate writes its record in the primary
+                    // checkout: committing it to the Epic branch would move the validated head.
+                    const localNames = [];
+                    try {
+                        for await (const entry of Deno.readDir(join(Deno.cwd(), "docs", "work-records"))) {
+                            if (entry.isFile && entry.name.endsWith(".md")) {
+                                localNames.push(`docs/work-records/${entry.name}`);
+                            }
+                        }
+                    } catch (error) {
+                        if (!(error instanceof Deno.errors.NotFound)) throw error;
+                    }
+                    const status = publishedNames.length > 0 ? "published" : localNames.length > 0 ? "local" : "absent";
                     state.workRecord = {
-                        status: recordNames.length > 0 ? "published" : "absent",
-                        recordNames,
+                        status,
+                        recordNames: publishedNames.length > 0 ? publishedNames : localNames.sort(),
                     };
-                    events.push(`project:epic:work-record:${recordNames.length > 0 ? "published" : "absent"}`);
+                    events.push(`project:epic:work-record:${status}`);
                     await writeHeartbeat();
                 } else if (typed.type === "deletePlanWorktreeBaseBranch") {
                     const planName = String(typed.planName || "");

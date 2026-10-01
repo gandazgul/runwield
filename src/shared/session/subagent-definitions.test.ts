@@ -15,6 +15,7 @@ const EXPECTED_PROMPT_FILES = [
     "delegated-agent-prompt.md",
     "delegated-read-agent-prompt.md",
     "init-agent-prompt.md",
+    "integration-reviewer-prompt.md",
     "manual-qa-prompt.md",
     "reviewer-feedback-engineer.md",
     "reviewer-prompt.md",
@@ -84,6 +85,15 @@ Deno.test("reviewer discovery and verify prompts load through one registry id", 
     assertStringIncludes(verify.systemPrompt, "verification round");
     assertEquals(discovery.systemPrompt.includes(USER_AUTHORITY_MARKER), false);
     assertEquals(verify.systemPrompt.includes(USER_AUTHORITY_MARKER), false);
+});
+
+Deno.test("the Epic integration gate loads its own reviewer prompt through the reviewer id", async () => {
+    const integration = await loadSubAgentDefinition(SUBAGENTS.REVIEWER, { reviewerMode: "integration" });
+
+    assertEquals(integration.name, AGENTS.REVIEWER);
+    assertStringIncludes(integration.systemPrompt, "Integration Reviewer");
+    assertStringIncludes(integration.systemPrompt, "Do the children fit together?");
+    assertEquals(integration.systemPrompt.includes(USER_AUTHORITY_MARKER), false);
 });
 
 Deno.test("bare-prompt subagents receive canonical tool ceilings without the shared system prompt", async () => {

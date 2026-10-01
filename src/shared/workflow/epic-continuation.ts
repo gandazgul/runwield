@@ -30,7 +30,9 @@ import { systemLocalCIPort } from "./validation-local-ci.ts";
 import { SYSTEM_WORK_RECORD_MNEMOTECA_PORT } from "../work-records/mnemoteca-port.ts";
 import { isGitRepository } from "../git.js";
 import { findTargetBranchPlansByParent, preparePlanningWorktreeForPlan } from "./planning-worktree.ts";
+import { ensureEpicBranch } from "./epic-branch.ts";
 import { resolveWorkflowPlanLocation } from "./plan-location.ts";
+import { resolvePrimaryCheckoutRoot } from "../primary-checkout.ts";
 
 const TERMINAL_CHILD_STATUSES = new Set(["validated", "verified", "user_verified", "closed_without_verification"]);
 
@@ -129,7 +131,11 @@ export async function resolveEpicContinuation(
         return { kind: "none", reason: "completed_plan_not_completed_child_feature", completedPlanName };
     }
     if (!parentPlanName) return { kind: "none", reason: "completed_plan_has_no_parent_epic", completedPlanName };
-    const parentLocation = await resolveWorkflowPlanLocation(cwd, parentPlanName);
+    let parentLocation = await resolveWorkflowPlanLocation(cwd, parentPlanName);
+    if (!parentLocation.plan && resolvePrimaryCheckoutRoot(cwd) !== cwd) {
+        // A child's execution checkout is based on the Epic branch, which carries the children but not the Epic.
+        parentLocation = await resolveWorkflowPlanLocation(resolvePrimaryCheckoutRoot(cwd), parentPlanName);
+    }
     const parent = parentLocation.plan;
     if (!parent) return { kind: "none", reason: "parent_epic_missing", completedPlanName, parentPlanName };
     if (!isActiveProjectEpic(parent.attrs)) {
@@ -267,6 +273,7 @@ export async function runEpicChildContinuation(
         ["draft", "feedback", "approved", "ready_for_work"].includes(resolution.childAttrs.status) &&
         await isGitRepository(hostedSession.cwd)
     ) {
+        await ensureEpicBranch(hostedSession.cwd, resolution.childAttrs.parentPlan);
         const planning = await preparePlanningWorktreeForPlan(hostedSession.cwd, planName, resolution.childAttrs);
         planRoot = planning.entry.path;
     }

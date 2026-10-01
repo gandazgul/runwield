@@ -17,6 +17,12 @@ export type { MissingExecutionWorktreeRecovery } from "./execution-worktree-resc
 
 interface ResolveWorkflowPlanLocationOptions {
     migrateRegistry?: boolean;
+    /**
+     * Resolve the Plan without preparing a planning worktree for an unfinished child on its target branch. The local
+     * copy is returned when it exists, otherwise the branch copy. Callers that only read or move the local document,
+     * such as Work Record generation and archive, must not start planning attempts.
+     */
+    readOnly?: boolean;
 }
 
 function inferParentPlanName(planName: string): string {
@@ -117,6 +123,7 @@ export async function resolveWorkflowPlanLocation(
             if (isCompletedPlanStatus(targetPlan.attrs.status)) {
                 return { registryRoot, documentRoot: cwd, plan: plan || targetPlan };
             }
+            if (options.readOnly) return { registryRoot, documentRoot: cwd, plan: plan || targetPlan };
             const planning = await preparePlanningWorktreeForPlan(registryRoot, planName, targetPlan.attrs);
             return { registryRoot, documentRoot: planning.entry.path, plan: planning.plan };
         }

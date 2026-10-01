@@ -6,6 +6,7 @@ import { readPersistedPendingSegmentContinuationEntry } from ".././workflow-cont
 import { executePlanAction } from "../../workflow/plan-actions.ts";
 
 import { buildSemanticRepairCiState, isRuntimeRootSessionManager } from "./support.ts";
+import { isEpicGateReadyAfterChildren, runEpicGateInSession } from "./epic-gate.ts";
 
 import type { RuntimeServices } from "./base.ts";
 import { isManagedOperationFailure } from "./types.ts";
@@ -17,83 +18,15 @@ import type { RuntimeReads } from "./reads.ts";
 import type { RuntimeAgentSettings } from "./agent-settings.ts";
 import type { RuntimeManagedSync } from "./managed-sync.ts";
 import type { RuntimeTurns } from "./turns.ts";
+import type {
+    RuntimeExecutePlanOptions,
+    RuntimePlanningOptions,
+    RuntimeSlicerOptions,
+    RuntimeTriageInput,
+    RuntimeValidationOptions,
+    RuntimeWorkflowOptions,
+} from "./workflow-options.ts";
 
-interface RuntimeTriageFields {
-    status?: string | null;
-    classification?: string | null;
-    planId?: string | null;
-    planName?: string | null;
-    revision?: string | null;
-    executionAgent?: string | null;
-    parentPlan?: string | null;
-    routingIntent?: string | null;
-    complexity?: string | null;
-    validationCiAttempts?: number;
-    validationSemanticRounds?: number;
-    worktree?: import("../../workflow/plan-actions.ts").PlanWorktreeExpectation;
-}
-type RuntimePersistedTriageInput =
-    & Omit<import("../../../plan-store.js").PlanFrontMatter, "status" | "executionAgent">
-    & {
-        status?: string;
-        worktree?: import("../../workflow/plan-actions.ts").PlanWorktreeExpectation;
-    };
-type RuntimeTriageInput =
-    | RuntimeTriageFields
-    | RuntimePersistedTriageInput
-    | import("../../../tools/plan-written.ts").TriageMeta
-    | import("../../../plan-store.js").PlanFrontMatter;
-type RuntimeExecutePlanOptions =
-    & Partial<
-        Omit<
-            import("../../workflow/plan-executor.ts").ExecutePlanOptions,
-            "hostedSession" | "triageMeta"
-        >
-    >
-    & {
-        triageMeta?: RuntimeTriageInput;
-        expectedGeneration?: number;
-        initialRequest?: string;
-        planContent?: string;
-    };
-type RuntimePlanningOptions =
-    & Partial<
-        Omit<
-            import("../../workflow/planning-agent.ts").RunPlanningAgentOptions,
-            "hostedSession" | "sessionManager" | "triageMeta"
-        >
-    >
-    & { triageMeta?: RuntimeTriageInput };
-type RuntimeSlicerOptions = Partial<
-    Omit<
-        import("../../workflow/workflow-slicer.ts").RunSlicerAgentOptions,
-        "hostedSession" | "sessionManager"
-    >
->;
-type RuntimeValidationOptions =
-    & Partial<
-        Omit<
-            import("../../workflow/validation-supervisor.ts").ContinueWorkflowValidationArgs,
-            | "triageMeta"
-            | "hostedSession"
-            | "sessionManager"
-            | "git"
-            | "semanticReviewPort"
-            | "localCI"
-            | "workRecordMnemotecaPort"
-            | "supportsSemanticRepairHandoff"
-        >
-    >
-    & {
-        triageMeta?: RuntimeTriageInput;
-        expectedGeneration?: number;
-        skipPendingSegmentResume?: boolean;
-    };
-type RuntimeWorkflowOptions =
-    | RuntimeExecutePlanOptions
-    | RuntimePlanningOptions
-    | RuntimeSlicerOptions
-    | RuntimeValidationOptions;
 type WorkflowValidationResult = import("../../workflow/validation.ts").WorkflowValidationResult;
 interface SemanticRepairHandoffResult {
     kind: "semantic_repair_handoff";
@@ -621,6 +554,20 @@ export class RuntimeWorkflows {
         });
     }
 
+    async runEpicIntegrationGate(
+        sessionId: string,
+        options: import("./epic-gate.ts").RuntimeEpicIntegrationGateOptions,
+    ) {
+        const session = this.services.sessionHost.getSession(sessionId);
+        if (!session) throw new Error("SessionRuntime.runEpicIntegrationGate: session not found");
+        return await this.runWorkflowOperation(
+            session,
+            "runEpicIntegrationGate",
+            options,
+            () => runEpicGateInSession(session, session.cwd, options.epicPlanName),
+        );
+    }
+
     async runValidation(
         sessionId: string,
         options: RuntimeValidationOptions,
@@ -874,11 +821,20 @@ export class RuntimeWorkflows {
             const { resolveEpicContinuation, runEpicChildContinuation } = await import(
                 "../../workflow/epic-continuation.ts"
             );
-            const resolution: import("../../workflow/epic-continuation.ts").EpicContinuationResolution =
+            let resolution: import("../../workflow/epic-continuation.ts").EpicContinuationResolution =
                 currentContinuation.resolution || await resolveEpicContinuation({
                     cwd: currentContinuation.projectRoot,
                     completedPlanName: currentContinuation.completedPlanName,
                 });
+            const epicName = resolution.reason === "no_remaining_children" ? resolution.parentPlanName : undefined;
+            const root = currentContinuation.projectRoot;
+            if (epicName && await isEpicGateReadyAfterChildren(currentOldSession, root, epicName)) {
+                // The last child is delivered: the Epic finishes through its integration gate.
+                const gate = await this.runWorkflowOperation(currentOldSession, "runEpicIntegrationGate", {
+                    epicPlanName: epicName,
+                }, () => runEpicGateInSession(currentOldSession, root, epicName));
+                if (gate.kind === "findings") resolution = gate.repairChild;
+            }
             if (
                 !["plan", "readiness_execute", "execute"].includes(resolution.kind) || !resolution.childPlanName ||
                 !resolution.parentPlanName

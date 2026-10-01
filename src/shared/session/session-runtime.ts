@@ -200,6 +200,9 @@ export class SessionRuntime {
     runSlicerAgent(...args: Parameters<RuntimeWorkflows["runSlicerAgent"]>) {
         return this.#workflows.runSlicerAgent(...args);
     }
+    runEpicIntegrationGate(...args: Parameters<RuntimeWorkflows["runEpicIntegrationGate"]>) {
+        return this.#workflows.runEpicIntegrationGate(...args);
+    }
     runValidation(...args: Parameters<RuntimeWorkflows["runValidation"]>) {
         return this.#workflows.runValidation(...args);
     }

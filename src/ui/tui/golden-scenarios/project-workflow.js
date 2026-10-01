@@ -9,7 +9,7 @@ import { assertRuntimeEvent, assertsGoldenCoverage } from "../testing/portfolio-
 
 /** @typedef {import('../testing/scenario-runner.js').GoldenScenarioResult} GoldenScenarioResult */
 /** @typedef {{ status?: string }} WorkRecordStatus */
-/** @typedef {{ status?: string, epicCompletionMode?: string, workRecord?: WorkRecordStatus }} EpicCompletionAttrs */
+/** @typedef {{ status?: string, epicCompletionMode?: string, validatedCommit?: string, workRecord?: WorkRecordStatus }} EpicCompletionAttrs */
 /** @typedef {{ attrs?: { workRecord?: WorkRecordStatus } }} PlanReviewState */
 
 /** @param {GoldenScenarioResult} result @param {string | undefined} capability */
@@ -86,14 +86,20 @@ function assertRuntimeSessionReplacementAndEpicEvidence(result, capability) {
     }
 
     const durability =
-        /** @type {{ trackedFiles?: string, deliveryLog?: string, liveRegistryEntries?: string[], registryEntryCount?: number } | undefined} */ (result
+        /** @type {{ trackedFiles?: string, primaryTrackedFiles?: string, epicBranch?: string, deliveryLog?: string, liveRegistryEntries?: string[], registryEntryCount?: number } | undefined} */ (result
             .state.projectDurability);
     // Each child ran a real Engineer turn in a real worktree and a real Direct
-    // Delivery merge, so its file has to be tracked on the delivered branch.
+    // Delivery merge to the Epic branch, so its file has to be tracked there and
+    // the primary branch must not have received partial Epic work.
+    assert(durability?.epicBranch === "epic/epic", `Expected the Epic branch epic/epic; got ${durability?.epicBranch}`);
     for (const childFile of ["golden-child-one.txt", "golden-child-two.txt"]) {
         assert(
             String(durability?.trackedFiles || "").includes(childFile),
-            `Expected ${childFile} tracked after child delivery; tracked=${durability?.trackedFiles}`,
+            `Expected ${childFile} tracked on the Epic branch after child delivery; tracked=${durability?.trackedFiles}`,
+        );
+        assert(
+            !String(durability?.primaryTrackedFiles || "").includes(childFile),
+            `Expected ${childFile} absent from the primary branch; tracked=${durability?.primaryTrackedFiles}`,
         );
     }
     assert(String(durability?.deliveryLog || "").length > 0, "Expected Git ancestry evidence for child deliveries.");
@@ -379,6 +385,29 @@ export const twoChildProjectContinuationScenario = {
                 { name: "review_complete", arguments: { approved: true, feedback: "Second child approved." } },
             ],
         },
+        {
+            // Both children are on the Epic branch, so the integration gate reviews the
+            // whole Epic diff. Paths outside that diff only return a tool error.
+            id: "integration-reviewer-approves-epic",
+            agent: "reviewer",
+            phase: "semantic_review",
+            requiredTools: ["review_diff", "review_complete"],
+            thinking: "Review the assembled Epic as one change.",
+            toolCalls: [
+                { name: "review_diff", arguments: { command: "list", scope: "full" } },
+                ...[
+                    ".gitignore",
+                    ".wld/settings.json",
+                    "golden-child-one.txt",
+                    "golden-child-two.txt",
+                    "docs/plans/epic.md",
+                    "docs/plans/epic/01-child-one.md",
+                    "docs/plans/epic/02-child-two.md",
+                    "docs/plans/epic/manual-qa.md",
+                ].map((path) => ({ name: "review_diff", arguments: { command: "show", scope: "full", path } })),
+                { name: "review_complete", arguments: { approved: true, feedback: "The children fit together." } },
+            ],
+        },
     ],
     actions: [
         {
@@ -441,6 +470,8 @@ export const twoChildProjectContinuationScenario = {
             statuses: ["validated", "verified", "user_verified"],
             timeoutMs: 240000,
         },
+        // The integration gate records the pass, then writes the Epic's Work Record.
+        { type: "waitForScreen", text: "Work Record generated", timeoutMs: 60000 },
         // No idle wait here: after continuation replaces the Session, the
         // composition tracks a Session the Runtime has closed, so idle never settles.
         { type: "captureProjectDurability", planName: "epic" },
@@ -471,9 +502,14 @@ export const twoChildProjectContinuationScenario = {
             );
             const planReview = /** @type {PlanReviewState | undefined} */ (result.state.planReview);
             assert(parent?.status === "validated", `Expected parent Epic validated; got ${parent?.status}`);
+            // The Epic finishes through its integration gate on the Epic branch, not from child statuses.
             assert(
-                parent?.epicCompletionMode === "done_enough",
-                `Expected parent Epic done_enough; got ${parent?.epicCompletionMode}`,
+                typeof parent?.validatedCommit === "string" && parent.validatedCommit.length > 0,
+                `Expected the integration gate to record the checked Epic commit; got ${parent?.validatedCommit}`,
+            );
+            assert(
+                parent?.epicCompletionMode !== "done_enough",
+                "Expected the integration gate, not done-enough, to complete the Epic.",
             );
             assert(
                 (projectState?.registryEntries || []).length === 0,
@@ -498,9 +534,10 @@ export const twoChildProjectContinuationScenario = {
             const workRecord =
                 /** @type {{ status?: string, path?: string, error?: string, recordNames?: string[] } | undefined} */ (result
                     .state.workRecord);
+            // The integration gate writes the finished Epic's record in the primary checkout.
             assert(
-                workRecord?.status === "published",
-                `Expected Workflow Validation to publish its Work Record; got ${workRecord?.status} ${
+                workRecord?.status === "local" || workRecord?.status === "published",
+                `Expected the finished Epic to write its Work Record; got ${workRecord?.status} ${
                     workRecord?.error || ""
                 }`,
             );

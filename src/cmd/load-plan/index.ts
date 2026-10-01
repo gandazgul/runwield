@@ -68,6 +68,7 @@ import { isGitRepository } from "../../shared/git.js";
 import { openFileSessionStore } from "../../shared/session/file-session-store.ts";
 import { findPlanAssociatedSessions, verifyPlanAssociatedSession } from "../../shared/session/plan-session-lookup.ts";
 import { preparePlanningWorktreeForPlan } from "../../shared/workflow/planning-worktree.ts";
+import { ensureEpicBranch } from "../../shared/workflow/epic-branch.ts";
 import { isPublicationCleanupPending } from "../../shared/workflow/publication-attempt.ts";
 
 export { getLoadPlanCompletions } from "./getArgumentCompletions.ts";
@@ -374,6 +375,7 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
             ["draft", "feedback", "approved", "ready_for_work"].includes(plan.attrs.status) &&
             plan.attrs.worktreeStatus !== "active" && await isGitRepository(projectRoot)
         ) {
+            await ensureEpicBranch(projectRoot, String(plan.attrs.parentPlan));
             const planning = await preparePlanningWorktreeForPlan(projectRoot, plan.planName, plan.attrs);
             await switchPlanAgent(session.getEffectiveAgentName() || AGENTS.ROUTER, {
                 cwd: planning.entry.path,

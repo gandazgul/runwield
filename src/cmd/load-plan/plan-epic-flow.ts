@@ -13,6 +13,7 @@ import {
     compareChildPlansByOrder,
     findPlansByParent,
     isTerminalArchivableStatus,
+    loadPlan,
     resolvePlan,
 } from "../../plan-store.js";
 import { isInValidation, isProjectPlan, recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
@@ -27,7 +28,8 @@ import {
     preparePlanningWorktreeForPlan,
 } from "../../shared/workflow/planning-worktree.ts";
 import { isGitRepository } from "../../shared/git.js";
-import { prepareTargetBranchRef } from "../../shared/worktree.js";
+import { ensureEpicBranch } from "../../shared/workflow/epic-branch.ts";
+import { reconcileEpicDelivery } from "../../shared/workflow/epic-integration.ts";
 import { archiveEpicWithChildren } from "./plan-epic-archive.ts";
 import { buildPlanSummary } from "../../shared/plan-presentation.ts";
 import { readControllerWorktree } from "../../shared/workflow/controller-registry.ts";
@@ -88,10 +90,36 @@ export async function handleEpicPlan({
     projectPlanType(plan.attrs);
     const sequence = isSequencePlan(plan.attrs);
 
-    const targetBranch = typeof plan.attrs.targetBranch === "string" ? plan.attrs.targetBranch.trim() : "";
-    if (targetBranch && await isGitRepository(projectRoot)) {
-        await prepareTargetBranchRef(projectRoot, targetBranch);
+    let epicGateReady = false;
+    if (await isGitRepository(projectRoot)) {
+        try {
+            const branch = await ensureEpicBranch(projectRoot, plan.planName);
+            if (branch.kind === "ready" && branch.created) {
+                uiAPI.appendSystemMessage(
+                    `Created the Epic branch ${branch.branch} from the latest primary branch.`,
+                    false,
+                    "RunWield",
+                );
+            } else if (branch.reason === "branch_unavailable") {
+                uiAPI.appendSystemMessage(
+                    `This Epic has no Epic branch yet, so its children deliver to their own targets. ${
+                        branch.error || ""
+                    }`.trim(),
+                    false,
+                    "RunWield",
+                );
+            }
+            const reconciled = await reconcileEpicDelivery(projectRoot, plan.planName);
+            epicGateReady = reconciled.gateReady;
+        } catch (error) {
+            // The Epic stays readable; child work retries branch preparation when it starts.
+            const message = error instanceof Error ? error.message : String(error);
+            uiAPI.appendSystemMessage(`The Epic branch is not ready: ${message}`, true, "RunWield");
+        }
+        const refreshed = await loadPlan(projectRoot, plan.planName);
+        if (refreshed) plan.attrs = { ...plan.attrs, ...refreshed.attrs };
     }
+    const targetBranch = typeof plan.attrs.targetBranch === "string" ? plan.attrs.targetBranch.trim() : "";
     const familyChildren = targetBranch && await isGitRepository(projectRoot)
         ? await findTargetBranchPlansByParent(projectRoot, targetBranch, plan.planName)
         : await findPlansByParent(projectRoot, plan.planName);
@@ -194,7 +222,10 @@ export async function handleEpicPlan({
                 ? [{ value: "review", label: sequence ? "Review Sequence with Planner" : "Review with Architect" }]
                 : []),
             ...(canOpenSlicer ? [{ value: "slicer", label: "Open or resume Slicer decomposition" }] : []),
-            ...(hasChildren && plan.attrs.status === "ready_for_work"
+            ...(epicGateReady && session.runEpicIntegrationGate
+                ? [{ value: "integration_gate", label: "Run the integration gate on the Epic branch" }]
+                : []),
+            ...(hasChildren && (plan.attrs.status === "ready_for_work" || plan.attrs.status === "implemented")
                 ? [{ value: "done_enough", label: `Mark ${sequence ? "Sequence" : "Epic"} done enough for now` }]
                 : []),
             ...(isUserVerifiableStatus(plan.attrs.status)
@@ -223,6 +254,17 @@ export async function handleEpicPlan({
         if (answer === "view") {
             uiAPI.appendSystemMessage(buildEpicPlanSummary(plan, children), false, "Plan");
             continue;
+        }
+
+        if (answer === "integration_gate" && session.runEpicIntegrationGate) {
+            await session.activateForPlan(plan.planName);
+            const gate = await session.runEpicIntegrationGate(plan.planName);
+            if (gate.kind === "findings" && gate.repairChild.childPlanName) {
+                await loadChildPlan(gate.repairChild.childPlanName);
+            } else if (gate.kind === "not_ready" || gate.kind === "paused") {
+                uiAPI.appendSystemMessage(gate.reason, false, "RunWield");
+            }
+            return "handled";
         }
 
         if (answer === "hold") {

@@ -72,6 +72,7 @@ export const SESSION_RUNTIME_METHOD_POLICY = {
     runPlanAction: "fenced_standalone_mutation",
     runPlanningAgent: "fenced_standalone_mutation",
     runSlicerAgent: "fenced_standalone_mutation",
+    runEpicIntegrationGate: "fenced_standalone_mutation",
     runValidation: "fenced_standalone_mutation",
     setActiveExecutionWorkflow: "fenced_standalone_mutation",
     setInteractionAdapter: "projection_adapter_local",

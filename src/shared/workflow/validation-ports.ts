@@ -177,13 +177,16 @@ export type IndependentRepairTurnRequest = {
  * outcome shapes. The engine passes opaque handles; the adapter casts them to the Pi
  * types exactly once.
  */
+/** Which reviewer prompt runs: a Plan's discovery or verification round, or the Epic integration gate. */
+export type ReviewerRoundMode = "discovery" | "verify" | "integration";
+
 export type IsolatedAgentSessionRequest =
     | {
         kind: "reviewer";
         agentName: string;
         userRequest: string;
         cwd: string;
-        reviewerMode: "discovery" | "verify";
+        reviewerMode: ReviewerRoundMode;
         customTools: OpaqueToolDefinition[];
         sessionManager: SessionManagerHandle;
     }

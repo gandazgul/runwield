@@ -133,8 +133,9 @@ Each child descriptor must include:
 - `devServerUrl` — the local URL to open if discoverable; omit when unknown.
 - `devServerHmr` — `true` when the dev server is expected to support hot module reload, `false` only when you know it
   does not.
-- `targetBranch` — target execution branch. Preserve the parent Epic target branch for each child unless the user
-  explicitly asks a child to target a different branch or no target branch.
+- `targetBranch` — omit it so the child inherits the Epic branch. Every child delivers to the Epic branch, and the Epic
+  is validated as one change there. Set a different branch, or `null`, only when the user explicitly asks for that
+  child.
 - `content` — complete planner-format Planned Change Plan markdown body with implementation steps and verification plan.
 
 Write **Expected Change Surface** as the boundaries you have evidence for, never an exhaustive file list, and keep the

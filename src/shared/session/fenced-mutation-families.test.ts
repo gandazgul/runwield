@@ -21,6 +21,7 @@ const FENCED_METHOD_DRIVERS: Record<string, string> = {
     replaceSessionForExecutionFollowUp: "rollManagedSessionSegment(",
     reviewSavedPlan: "runManagedStandaloneMutation(",
     rollManagedSessionSegment: "rollSessionTranscriptSegment(",
+    runEpicIntegrationGate: "runWorkflowOperation(",
     runLocalShellCommand: "runLocalShellCommand(",
     runPlanAction: "runPlanAction(",
     runPlanningAgent: "runPlanningAgent(",

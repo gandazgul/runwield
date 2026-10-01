@@ -2,7 +2,10 @@ import { dirname, join, relative } from "@std/path";
 import { loadPlan } from "../plan-store.js";
 
 export const EPIC_MANUAL_QA_FILE_NAME = "manual-qa.md";
-export const EPIC_ARTIFACT_FILE_NAMES = Object.freeze([EPIC_MANUAL_QA_FILE_NAME]);
+/** The latest failing Epic integration gate report; a repair child is planned from it. */
+export const EPIC_INTEGRATION_REPORT_FILE_NAME = "integration-report.md";
+export const EPIC_ARTIFACT_FILE_NAMES = Object.freeze([EPIC_MANUAL_QA_FILE_NAME, EPIC_INTEGRATION_REPORT_FILE_NAME]);
+const EPIC_ARTIFACT_PLAN_SEGMENTS = new Set(EPIC_ARTIFACT_FILE_NAMES.map((fileName) => fileName.replace(/\.md$/, "")));
 
 export type AppendEpicManualQaSectionArgs = {
     projectRoot: string;
@@ -45,7 +48,7 @@ function projectRelativePath(projectRoot: string, path: string): string {
 
 export function isEpicArtifactPlanName(planName: string): boolean {
     const segments = splitPlanName(planName.replace(/\.md$/i, ""));
-    return segments.length === 2 && segments[1] === "manual-qa";
+    return segments.length === 2 && EPIC_ARTIFACT_PLAN_SEGMENTS.has(segments[1]);
 }
 
 export function isEpicArtifactPlanPath(path: string): boolean {
@@ -54,7 +57,7 @@ export function isEpicArtifactPlanPath(path: string): boolean {
     const docsIndex = parts.lastIndexOf("docs");
     if (docsIndex < 0 || parts[docsIndex + 1] !== "plans") return false;
     const rest = parts.slice(docsIndex + 2);
-    return rest.length === 2 && rest[1] === EPIC_MANUAL_QA_FILE_NAME;
+    return rest.length === 2 && EPIC_ARTIFACT_FILE_NAMES.includes(rest[1]);
 }
 
 export function assertNotReservedEpicArtifactPlanName(planName: string): void {
@@ -172,7 +175,7 @@ export async function appendEpicManualQaSection(
 }
 
 export function getActiveEpicArtifactPaths(projectRoot: string, epicPlanName: string): string[] {
-    return [getEpicArtifactPath(projectRoot, epicPlanName, EPIC_MANUAL_QA_FILE_NAME)];
+    return EPIC_ARTIFACT_FILE_NAMES.map((fileName) => getEpicArtifactPath(projectRoot, epicPlanName, fileName));
 }
 
 export function getArchivedEpicArtifactPath(projectRoot: string, epicPlanName: string, fileName: string): string {

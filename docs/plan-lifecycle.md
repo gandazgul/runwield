@@ -91,7 +91,8 @@ when one is recorded.
 
 `implemented`: Implementation work finished in the execution worktree and is ready for the next Mechanical Validation
 phase. CI failure or Semantic Review or Code Review feedback returns here so the next validation call restarts at CI
-with durable retry counters.
+with durable retry counters. For an Epic with its own branch, `implemented` means every included child is delivered to
+the Epic branch and the integration gate has not passed on the current branch head.
 
 `validated_ci`: Mechanical Validation passed for the current implementation. The next Workflow Validation call resumes
 at Semantic Review and must not rerun CI first.
@@ -101,7 +102,9 @@ durable Code Review metadata and publication; only this status may produce `vali
 
 `validated`: Workflow Validation succeeded. For worktree-backed execution this status is committed to the execution
 branch before publication begins and never changes again. The separate publication attempt record proves whether those
-validated commits reached the target branch and whether cleanup finished.
+validated commits reached the target branch and whether cleanup finished. For an Epic with its own branch, `validated`
+means the integration gate passed on the commit recorded in `validatedCommit`; it does not mean the Epic branch was
+merged into the primary branch.
 
 `verified`: A retained terminal status for non-worktree and older lifecycle outcomes. For an Epic PROJECT Plan,
 `verified` may also mean the user marked the Epic "done enough for now"; remaining child FEATURE Plans stay visible and
@@ -166,7 +169,11 @@ changing the Plan state machine.
 | `recovery_continue`                  | `in_progress`, `failed`                                                                         | `ready_for_work`              | Records the retry in the authoritative execution Plan before the normal execution-start transition returns it to `in_progress`; the primary-checkout copy is not read or rewritten.                                            |
 | `recovery_reset`                     | `in_progress`, `failed`, `implemented`                                                          | `ready_for_work`              | Records that recovery abandoned the current attempt before retrying.                                                                                                                                                           |
 | `review_reopened`                    | `ready_for_decomposition`, `ready_for_work`, `in_progress`, `failed`, `implemented`, `verified` | `feedback`                    | The user chose to revise the Plan instead of continuing execution.                                                                                                                                                             |
-| `epic_done_enough`                   | `ready_for_work`, `verified`                                                                    | `verified`                    | The user marked an Epic complete enough for now; child FEATURE Plans remain visible and loadable.                                                                                                                              |
+| `epic_done_enough`                   | `ready_for_work`, `implemented`, `validated`, `verified`                                        | `validated`                   | The user marked an Epic complete enough for now; child Plans remain visible and loadable. It skips the integration gate and is not a gate pass.                                                                                |
+| `epic_children_delivered`            | `ready_for_work`                                                                                | `implemented`                 | Every included child of an Epic with its own branch is delivered: its delivered commit is contained in the Epic branch, or the user closed or accepted it. Sets `implementedAt`.                                               |
+| `epic_integration_passed`            | `implemented`                                                                                   | `validated`                   | The integration gate passed on the exact Epic branch head. Records that commit as `validatedCommit` and the Code Review decision; clears `epicIntegrationReport`.                                                              |
+| `epic_integration_failed`            | `implemented`                                                                                   | `implemented`                 | The integration gate found problems. Records `failureReason` and the report path in `epicIntegrationReport`; RunWield adds a draft repair child for Planner.                                                                   |
+| `epic_integration_stale`             | `validated`                                                                                     | `implemented`                 | The Epic branch moved after a gate pass. Clears `validatedCommit` and `validatedAt`; the gate must pass again on the new head.                                                                                                 |
 | `manual_status_change`               | Board-safe non-terminal statuses                                                                | Dynamic target                | User-driven board movement among `draft`, `feedback`, `approved`, `ready_for_work`, `in_progress`, `implemented`; `ready_for_decomposition` is included only for Epics. Records an event instead of editing `status` directly. |
 | `manual_closed_without_verification` | Board-safe non-terminal statuses                                                                | `closed_without_verification` | Terminal manual closure without Workflow Validation; does not set `verifiedAt` or review metadata.                                                                                                                             |
 | `manual_user_verified`               | Board-safe non-terminal statuses                                                                | `user_verified`               | Terminal user attestation with required `userVerificationNote`; sets `userVerifiedAt`, never sets `verifiedAt`, and preserves failure, execution, review, Delivery Evidence, and worktree facts as history.                    |
@@ -209,6 +216,46 @@ caller inputs, locked resources, owned effects, success proof, rollback limit, a
 
 The matching checked-in table in `src/shared/workflow/state-transition.test.js` fails if a row lacks inputs, locks,
 effects, proof, rollback limits, or recovery actions.
+
+## Epic Branches and the Integration Gate
+
+Every new Epic starts and ends on its own branch, recorded as the Epic's `targetBranch`. Architect names it, and Slicer
+or RunWield fills in `epic/<epic-name>` when it is missing. Children inherit it and deliver to it.
+
+When the Epic first needs the branch, RunWield creates it from the latest primary branch (origin's default branch, then
+origin's `main`, then local `main`) and records that commit as `epicBaseCommit`. The Epic and its children record the
+branch only after it exists; when an Epic nobody named a branch for cannot get one, it keeps the legacy behavior. An
+existing branch is used as it is and is never reset. Child drafts missing from the branch are committed onto it with Git
+plumbing, so no checkout is changed; a branch that is checked out somewhere is never moved under that checkout. A draft
+committed before it had a `planId` is replaced by its identified copy. An Epic whose children already started without a
+branch keeps the legacy behavior below.
+
+Reading or archiving an Epic child never prepares a planning worktree for it: archive, restore, and Work Record
+generation resolve the local document read-only. Planning worktrees start only when Planner or execution starts the
+child.
+
+```mermaid
+stateDiagram-v2
+    ready_for_work --> implemented: epic_children_delivered
+    implemented --> validated: epic_integration_passed
+    implemented --> implemented: epic_integration_failed (repair child added)
+    validated --> implemented: epic_integration_stale
+```
+
+Child status alone never completes an Epic with its own branch. A validated child whose publication is pending does not
+count; its delivered commit must be contained in the Epic branch. RunWield reconciles after a child is delivered and
+whenever the Epic is loaded.
+
+The integration gate runs on the exact Epic branch head in a temporary detached checkout that it removes afterwards. It
+runs the project's checks, then an integration review of the whole Epic diff from `epicBaseCommit` against the Epic, and
+then Code Review per the `codereview` setting. A pass records `epic_integration_passed`. Findings write
+`docs/plans/<epic>/integration-report.md`, record `epic_integration_failed`, and add a draft repair child under the Epic
+that Planner starts from. The repair child is reviewed and run like any other child, and its delivery runs the gate
+again. The user can mark the Epic done enough at any point. RunWield never merges the Epic branch into the primary
+branch; the user merges it or opens a pull request.
+
+Epics without their own branch, and Sequences, keep the legacy completion: when the last child validates, the container
+is marked done enough from child statuses. A Sequence gets a branch only when the user names one.
 
 ## Manual Board Movement and Closure
 

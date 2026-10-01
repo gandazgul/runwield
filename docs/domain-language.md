@@ -583,20 +583,32 @@ intended behavior. Recommended for structural or high-risk Plans; never a requir
 Reviewer, red team, adversarial validation
 
 **Epic**: A PROJECT Plan with `type: epic` or no type, containing design and decomposition context. Its approval action
-is Approve & Slice. For a targeted Epic, the target branch owns current child progress. _Avoid_: Initiative, umbrella
+is Approve & Slice. A new Epic has an **Epic Branch**, which owns current child progress. _Avoid_: Initiative, umbrella
 task
+
+**Epic Branch**: The branch an Epic starts and ends on, recorded as the Epic's `targetBranch` (default
+`epic/<epic-name>`). RunWield creates it from the latest primary branch when the Epic first needs it, records that
+commit as `epicBaseCommit`, and puts child drafts on it. Children deliver to it. RunWield never merges it into the
+primary branch; the user merges it or opens a pull request. _Avoid_: Release branch, feature branch
+
+**Integration Gate**: The check that finishes an Epic with an **Epic Branch** once every included child is delivered to
+it. It runs the project's checks, an integration review of the whole Epic diff, and Code Review per the `codereview`
+setting, on the exact branch head. A pass makes the Epic `validated` for that commit; findings become a draft repair
+child that Planner starts from. _Avoid_: Epic validation run, final review
 
 **Sequence**: A PROJECT Plan with `type: sequence` whose brief context and complete child Plans are authored by Planner
 and reviewed together. Approve & Execute starts the first child; normal PROJECT continuation runs subsequent children in
-order. Each child retains its own validation and delivery. A Sequence has no aggregate validation, publication, or
-automatic Epic release branch. _Avoid_: Epic, separate chain manifest
+order. Each child retains its own validation and delivery. A Sequence is lightweight on purpose: it has no aggregate
+validation or **Integration Gate**, and it gets a branch only when the user asks for one. _Avoid_: Epic, separate chain
+manifest
 
 **Child PLANNED_CHANGE Plan**: An executable PLANNED_CHANGE Plan linked to a PROJECT container through `parentPlan`.
 Targeted Epic children can have a planning worktree before execution; approval promotes that same checkout to execution.
 _Avoid_: Child FEATURE Plan, subtask, ticket, DAG node
 
-**Epic Artifact**: A reserved non-Plan Markdown file stored beside an Epic's Child PLANNED_CHANGE Plans. The first Epic
-Artifact is `docs/plans/<epic>/manual-qa.md`. It is ordinary user-owned Markdown, has no Plan Lifecycle, and has no
+**Epic Artifact**: A reserved non-Plan Markdown file stored beside an Epic's Child PLANNED_CHANGE Plans:
+`docs/plans/<epic>/manual-qa.md` and the latest failing **Integration Gate** report,
+`docs/plans/<epic>/integration-report.md`. It is ordinary user-owned Markdown, has no Plan Lifecycle, and has no
 verification, dependency, delivery, or Epic completion authority. _Avoid_: QA tracker, child Plan, artifact lifecycle
 
 **Task Completion**: The `task_completed` signal an execution Agent emits when its assigned work is complete. The first
@@ -827,6 +839,8 @@ _Avoid_: Durable prompt, recoverable continuation, database interaction record
   Work until a separate Run action.
 - Only a non-Epic Plan at **Ready For Work** can proceed to implementation.
 - An **Epic** contains decomposition context; its **Child PLANNED_CHANGE Plans** are the independently executable units.
+- An **Epic** with an **Epic Branch** is implemented when every included child is delivered to that branch, not when
+  every child shows a finished status, and is validated only by a passing **Integration Gate** on the current head.
 - An **Implemented Plan** must pass **Workflow Validation** before becoming a **Verified Plan**.
 - An **In-Progress Plan** or **Failed Plan** may require **Plan Recovery** before workflow can continue safely.
 - A **Verified Plan** or **Closed Without Verification Plan** may produce a **Work Record**. A Plan accumulates zero or
