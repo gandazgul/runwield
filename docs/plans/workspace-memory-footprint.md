@@ -10,7 +10,7 @@ affectedPaths:
     - "src/ui/workspace/islands/SessionSurface.jsx"
     - "scripts/workspace-memory-check.ts"
     - "docs/prd/runwield-workspace-prd.md"
-status: "ready_for_work"
+status: "validated"
 origin: "internal"
 userVerifiedAt: null
 userVerificationNote: null
