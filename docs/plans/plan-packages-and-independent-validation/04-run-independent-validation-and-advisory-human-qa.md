@@ -40,6 +40,11 @@ This child introduces Validator as the independent owner of the approved contrac
 complete reporting, safe pause on findings or operational interruption, and direct user acceptance. Automatic repair and
 the shared loop budget remain for the next child.
 
+It also upgrades the Epic integration gate from the standalone `epic-branches-and-integration-gate` Plan: the gate's
+check step becomes Validator running the Epic's integrated `validation.md` against the pinned Epic branch head, in place
+of the project CI command alone. The gate's integration review, `codereview` handling, and repair-child loop stay as
+that Plan delivered them.
+
 ## Objective
 
 End implementation at `implemented`, run every approved check through an independent Validator where feasible, generate
@@ -115,6 +120,8 @@ grows, or the Verification Plan no longer proves the objective.
   unchanged candidate; advisory human QA can remain and is not a user gate.
 - A Plan or Epic can become `user_validated` through code review or direct action after failed, interrupted, or unrun
   checks; the route and available evidence are recorded without rewriting reports or creating delivery evidence.
+- The Epic integration gate runs Validator on the Epic's integrated `validation.md` against the exact Epic branch head;
+  the result binds the Epic package revision, child set, and checked commit, and any of those changing makes it stale.
 - Late Agent events cannot overwrite user acceptance, restart work, or claim proof for changed code or requirements.
 - Core execution, lifecycle, and semantic review requirements and scenarios match delivered independent proof, advisory
   QA, direct acceptance, and role ownership.

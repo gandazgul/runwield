@@ -19,10 +19,9 @@ createdAt: "2026-09-21T17:14:02.628Z"
 status: "draft"
 origin: "internal"
 parentPlan: "plan-packages-and-independent-validation"
-order: 7
+order: 6
 dependencies:
     - "03-share-plan-packages-without-content-loss"
-    - "06-assemble-and-validate-epics-on-epic-branches"
 targetBranch: "epic/plan-packages-and-independent-validation"
 planId: "c4664452-908d-4802-8a76-46fcb58b6c1d"
 ---
@@ -36,9 +35,9 @@ cannot enumerate repositories, and a one-time global marker would miss old-forma
 Active work can also have different authoritative content in a managed execution or retained worktree than in the
 primary checkout.
 
-This child is the rollout boundary after storage, approval, collaboration, validation, repair, and Epic assembly
-semantics exist. It keeps conversion support for the parent Epic's agreed version window and does not check out
-arbitrary unmanaged branches.
+This child is the rollout boundary after storage, approval, collaboration, validation, and repair semantics exist. Epic
+branch assembly ships beforehand in the standalone `epic-branches-and-integration-gate` Plan. It keeps conversion
+support for the parent Epic's agreed version window and does not check out arbitrary unmanaged branches.
 
 ## Objective
 

@@ -57,6 +57,13 @@ Two saved dependent Epics remain separate:
 - `plan-package-frontend-experience-planning` adds user journeys, representative states, and reviewed prototypes.
 - `epic-branch-publication-workflow` adds owner-triggered delivery of an Epic branch to the primary branch.
 
+One prerequisite ships first as a standalone Plan:
+
+- `epic-branches-and-integration-gate` gives every Epic an automatic Epic branch, settles Epic completion from delivered
+  children, and adds an integration gate (CI, integration review, Code Review per setting) before an Epic is
+  `validated`. This Epic runs on that flow. Its Validator child upgrades the gate's checks to the integrated
+  `validation.md` contract; Epic assembly is no longer a child of this Epic.
+
 This Epic does not implement either dependent experience. Its interfaces must support them. No-plan QUICK_FIX behavior
 remains unchanged.
 

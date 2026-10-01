@@ -19,14 +19,13 @@ createdAt: "2026-09-21T17:14:03.300Z"
 status: "draft"
 origin: "internal"
 parentPlan: "plan-packages-and-independent-validation"
-order: 8
+order: 7
 dependencies:
     - "02-author-and-approve-complete-plan-packages"
     - "03-share-plan-packages-without-content-loss"
     - "04-run-independent-validation-and-advisory-human-qa"
     - "05-repair-findings-through-one-recoverable-loop"
-    - "06-assemble-and-validate-epics-on-epic-branches"
-    - "07-migrate-legacy-plans-and-unfinished-work"
+    - "06-migrate-legacy-plans-and-unfinished-work"
 targetBranch: "epic/plan-packages-and-independent-validation"
 planId: "0ed25ea6-3b19-4a1e-baab-c061a45cd845"
 ---
@@ -35,9 +34,10 @@ planId: "0ed25ea6-3b19-4a1e-baab-c061a45cd845"
 
 ## Context
 
-The preceding children establish package, approval, validation, repair, Epic assembly, collaboration, and migration
-authority. Owners still need coherent TUI and Workspace projections that distinguish authored intent, generated
-evidence, acceptance, and delivery. A stale tab or database projection must never manufacture approval or proof.
+The preceding children establish package, approval, validation, repair, collaboration, and migration authority. Epic
+branch assembly and the integration gate come from the standalone `epic-branches-and-integration-gate` Plan. Owners
+still need coherent TUI and Workspace projections that distinguish authored intent, generated evidence, acceptance, and
+delivery. A stale tab or database projection must never manufacture approval or proof.
 
 The dependent frontend-experience Epic will later add experience-contract planning, representative states, and prototype
 policy. This child implements the package management and workflow surfaces required by the current Epic without
