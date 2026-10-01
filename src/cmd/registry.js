@@ -16,7 +16,7 @@ import { runResumeCommand } from "./resume/index.ts";
 import { runInstallCommand } from "./install/index.ts";
 import { runRemoveCommand } from "./remove/index.ts";
 import { runCompactCommand } from "./compact/index.js";
-import { runCopyCommand } from "./copy/index.js";
+import { runCopyCommand } from "./copy/index.ts";
 import { runReloadCommand } from "./reload/index.ts";
 import { runVersionCommand } from "./version/index.ts";
 import { runPlanReviewCommand } from "./plan-review/index.ts";
