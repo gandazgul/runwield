@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import { runCompactCommand } from "./index.js";
+import { runCompactCommand } from "./index.ts";
 import { initRunWieldTheme } from "../../ui/theme/theme.js";
 
 initRunWieldTheme();

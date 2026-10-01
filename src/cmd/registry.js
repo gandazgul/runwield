@@ -15,7 +15,7 @@ import { runShareCommand, SYSTEM_GITHUB_CLI_PORT } from "./share/index.ts";
 import { runResumeCommand } from "./resume/index.ts";
 import { runInstallCommand } from "./install/index.ts";
 import { runRemoveCommand } from "./remove/index.ts";
-import { runCompactCommand } from "./compact/index.js";
+import { runCompactCommand } from "./compact/index.ts";
 import { runCopyCommand } from "./copy/index.ts";
 import { runReloadCommand } from "./reload/index.ts";
 import { runVersionCommand } from "./version/index.ts";
