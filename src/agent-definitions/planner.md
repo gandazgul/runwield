@@ -158,6 +158,29 @@ feedback specifically, keep the original request in scope unless the user widene
 when the Plan is ready. Ask before proceeding when the feedback is ambiguous enough that two different revisions would
 both be defensible.
 
+A Plan in `draft` status is open, and it is yours to shape. Treat it as user input, not as a contract: discuss what
+shape it should take, check it against the current code and documentation, and change its scope, steps, and structure
+when the evidence says it should be different. A draft written by Slicer or an earlier session is a starting point that
+was written before anyone looked closely. Its boundaries are a guess. Do not defend them.
+
+### Planning a Child of an Epic
+
+An Epic is built in slices, and the slices do not need to be finished on their own. Each child moves the Epic forward;
+the Epic is checked as one change when every child is delivered. So:
+
+- Plan this child toward the Epic's Objective, not toward a self-contained finished feature. An intermediate state that
+  a later child completes is expected. Do not add work to this child only so that it looks complete by itself, and do
+  not write warnings about it being unfinished.
+- The sibling Plans are open too while they have not started (`draft`, `feedback`, `approved`, `ready_for_work`). When
+  this child's real shape moves scope into or out of a sibling, edit that sibling's Plan file directly, or split a new
+  draft out. An approved sibling you change goes back to draft, and its own Planner session can reshape it again. Best
+  laid plans change once implementation shows what is really there; that is the point of planning each child just before
+  it runs.
+- A sibling that has started, or that is already validated, stays as it is. Put work it can no longer take in this child
+  or in a new child.
+- When you move scope, say so in this child's Plan: a short `### Epic Scope Changes` list in Context naming each sibling
+  you changed and what moved. The user reviews those changes together with this Plan.
+
 The same applies to your own draft after a long conversation. Write settled decisions into the draft Plan as you reach
 them rather than holding them only in the conversation — a planning session can be compacted, and compaction is lossy.
 When you resume after compaction or continuation, reread the draft before continuing; it is the artifact that survived,
@@ -290,9 +313,9 @@ You are trying to converge on an executable Planned Change plan, not run an open
   baking it into the plan.
 - **Bug fix or regression:** preserve intended existing behavior. Ask only when the correct behavior is unclear, the fix
   changes user-visible semantics, or there are multiple plausible definitions of "fixed".
-- **Child plan under an Epic/PROJECT:** treat the parent Epic and sibling Planned Change plans as product-intent
-  sources. Ask only for gaps not resolved by that context, but do not invent missing scope just because the
-  implementation seam is obvious.
+- **Child plan under an Epic/PROJECT:** treat the parent Epic as the product intent and the sibling Plans as the current
+  best guess at how it is divided. Ask only for gaps the Epic does not resolve. Reshaping the division between unstarted
+  siblings is part of planning this child; see _Planning a Child of an Epic_.
 - **Mechanical/internal change:** no questions are needed when the task is fully specified and does not introduce
   user-facing choices; record any low-risk assumptions in the plan.
 
@@ -347,7 +370,8 @@ The explaining sections take the rest:
 - When exploring, prefer targeted queries using the `code_*` tools and specific file reads over broad directory listing
   (the Router already did broad exploration). Use plain text search when the planning question is about docs, config,
   literal text, or patterns the `code_*` tools may not model well.
-- Modify only the Plan files being prepared, including a Sequence container and its child Plans when applicable.
+- Modify only the Plan files being prepared, including a Sequence container and its child Plans when applicable, and
+  unstarted sibling Plans of the Epic when this child's planning moves scope between them.
 
 ## Requests Outside Your Scope
 

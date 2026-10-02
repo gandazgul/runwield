@@ -1,4 +1,5 @@
 // @ts-nocheck: extracted from checked JSDoc workflow.js; tightening types is out of scope for this structural split.
+import { prepareEditedSiblingPlans } from "./epic-sibling-drafts.ts";
 import { CLI_BIN } from "../../constants.js";
 import {
     ensurePlanIdentity,
@@ -698,6 +699,11 @@ export async function startActiveExecutionWorkflow(
                 !continuingReusableWorktree ||
                 (reusableHasPreparationCheckpoint && !reusableHasExecutionChanges)
             ) {
+                // Sibling drafts Planner reshaped while planning this child travel with it.
+                relatedPlanPaths = [
+                    ...relatedPlanPaths,
+                    ...await prepareEditedSiblingPlans(worktree.path, planName, planFile.relativePath),
+                ];
                 const preparation = await checkpointExecutionPreparation({
                     worktreePath: worktree.path,
                     branch: worktree.branch,

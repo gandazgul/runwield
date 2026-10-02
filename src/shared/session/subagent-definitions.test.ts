@@ -87,13 +87,21 @@ Deno.test("reviewer discovery and verify prompts load through one registry id", 
     assertEquals(verify.systemPrompt.includes(USER_AUTHORITY_MARKER), false);
 });
 
-Deno.test("the Epic integration gate loads its own reviewer prompt through the reviewer id", async () => {
-    const integration = await loadSubAgentDefinition(SUBAGENTS.REVIEWER, { reviewerMode: "integration" });
+Deno.test("the Integration Reviewer is its own subagent sharing review practice with the Semantic Reviewer", async () => {
+    const integration = await loadSubAgentDefinition(SUBAGENTS.INTEGRATION_REVIEWER);
+    const discovery = await loadSubAgentDefinition(SUBAGENTS.REVIEWER, { reviewerMode: "discovery" });
 
     assertEquals(integration.name, AGENTS.REVIEWER);
-    assertStringIncludes(integration.systemPrompt, "Integration Reviewer");
+    assertEquals(integration.displayName, "Integration Reviewer");
     assertStringIncludes(integration.systemPrompt, "Do the children fit together?");
+    assertStringIncludes(integration.systemPrompt, "You do not read every line.");
+    // One shared practice: the same approval default and work-in-progress rule reach both reviewers.
+    for (const prompt of [integration.systemPrompt, discovery.systemPrompt]) {
+        assertStringIncludes(prompt, "## Review Practice");
+        assertStringIncludes(prompt, "Work in Progress Is Not a Defect");
+    }
     assertEquals(integration.systemPrompt.includes(USER_AUTHORITY_MARKER), false);
+    assertEquals(integration.tools.includes("delegate_agent"), true);
 });
 
 Deno.test("bare-prompt subagents receive canonical tool ceilings without the shared system prompt", async () => {

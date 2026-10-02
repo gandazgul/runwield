@@ -65,6 +65,8 @@ export interface ReviewCompleteEventPayload {
     feedback: string;
     findings: import("../../tools/review-complete.ts").ReviewFinding[];
     advisories: import("../../tools/review-complete.ts").ReviewAdvisory[];
+    /** Epic children only; absent from older recorded events. */
+    integrationNotes?: import("../../tools/review-complete.ts").ReviewIntegrationNote[];
 }
 
 export interface QaChecklistGeneratedEventPayload {

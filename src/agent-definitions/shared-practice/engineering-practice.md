@@ -32,6 +32,17 @@ Write the minimum code that solves the stated problem.
 This governs complexity you invented, not the work itself. When a Plan or a request calls for an abstraction, a
 migration, or a large refactor, that decision is already made — build it.
 
+## Work in Progress Is Normal
+
+A Plan that is one child of an Epic builds one slice. Later children finish what this one starts. Build the slice the
+Plan describes and stop there.
+
+- Do not write comments, log messages, UI text, or report lines saying the work is unfinished, unsafe, unverified, a
+  placeholder, or "not production ready." State facts a reader can act on instead: what this code does now, and, when it
+  matters, which later step changes it.
+- Do not add scaffolding, guards, or fallbacks only to make an intermediate state look complete.
+- A real defect is different. If something you built is wrong, fix it or report it plainly.
+
 ## Keep the Design Simple
 
 Smallest means the least new complexity, not the fewest changed lines. Following John Ousterhout's _A Philosophy of

@@ -398,12 +398,13 @@ export const AGENTS = Object.freeze({
  * registry keys, not necessarily the runtime `AgentDefinition.name` returned by
  * the registry entry.
  *
- * @type {Readonly<{DELEGATED: string, DELEGATED_READ: string, INIT: string, MANUAL_QA: string, REVIEWER: string, REVIEWER_FEEDBACK_ENGINEER: string, SLICER: string}>}
+ * @type {Readonly<{DELEGATED: string, DELEGATED_READ: string, INIT: string, INTEGRATION_REVIEWER: string, MANUAL_QA: string, REVIEWER: string, REVIEWER_FEEDBACK_ENGINEER: string, SLICER: string}>}
  */
 export const SUBAGENTS = Object.freeze({
     DELEGATED: "delegated",
     DELEGATED_READ: "delegated-read",
     INIT: "init",
+    INTEGRATION_REVIEWER: "integration-reviewer",
     MANUAL_QA: "manual-qa",
     REVIEWER: "reviewer",
     REVIEWER_FEEDBACK_ENGINEER: "reviewer-feedback-engineer",

@@ -39,8 +39,19 @@ Deno.test("loadReviewerPrompt loads the verification prompt for later rounds", a
 });
 
 /** @param {string} name */
-function readBundledPrompt(name) {
-    return Deno.readTextFile(new URL(`../../agent-definitions/subagent-definitions/${name}`, import.meta.url));
+/**
+ * The prompt an Agent actually receives. Reviewer prompts compose the shared
+ * review practice, so their contracts hold for the composed prompt; other
+ * bundled prompts are read as written.
+ *
+ * @param {string} name
+ */
+async function readBundledPrompt(name) {
+    if (name === "reviewer-prompt.md" || name === "reviewer-verify-prompt.md") {
+        const definition = await loadReviewerPrompt(name === "reviewer-verify-prompt.md" ? "verify" : "discovery");
+        return definition.systemPrompt;
+    }
+    return await Deno.readTextFile(new URL(`../../agent-definitions/subagent-definitions/${name}`, import.meta.url));
 }
 
 Deno.test("Semantic review prompt includes the canonical effective Plan projection", () => {
@@ -80,10 +91,10 @@ Deno.test("bundled discovery reviewer prompt states an approval default", async 
     assertStringIncludes(prompt, "Your Default Is Approval");
     assertStringIncludes(
         prompt.replace(/\s+/g, " "),
-        "Approve unless you can name the specific Plan requirement or concrete correctness, regression, or security defect, and the changed code responsible for it.",
+        "Approve unless you can name the specific requirement or concrete correctness, regression, or security defect, and the changed code responsible for it.",
     );
     assertStringIncludes(prompt.replace(/\s+/g, " "), "are not reasons to reject");
-    assertStringIncludes(prompt, "This does not lower the bar for plan adherence");
+    assertStringIncludes(prompt, "This does not lower the bar for adherence");
 });
 
 Deno.test("bundled discovery reviewer prompt keeps code smells non-blocking", async () => {
@@ -130,6 +141,44 @@ Deno.test("bundled reviewer prompts exclude verification-completion auditing", a
         assertStringIncludes(prompt, "a command", name);
         assertStringIncludes(prompt, "report to be filed so that you can approve", name);
     }
+});
+
+Deno.test("bundled reviewer prompts treat work in progress as normal, not as a finding", async () => {
+    for (const name of ["reviewer-prompt.md", "reviewer-verify-prompt.md"]) {
+        const prompt = (await readBundledPrompt(name)).replace(/\s+/g, " ");
+
+        // General "this is unfinished/unsafe" commentary is noise inside an Epic; real defects stay findings.
+        assertStringIncludes(prompt, "Work in Progress Is Not a Defect", name);
+        assertStringIncludes(prompt, "Do not write general warnings that the work is unfinished", name);
+        assertStringIncludes(prompt, "A real defect is still a finding", name);
+    }
+});
+
+Deno.test("bundled discovery reviewer prompt scopes Epic children to their own correctness", async () => {
+    const prompt = (await readBundledPrompt("reviewer-prompt.md")).replace(/\s+/g, " ");
+
+    assertStringIncludes(prompt, "### Epic Context");
+    assertStringIncludes(prompt, "a missing piece that a sibling owns is not a finding");
+    assertStringIncludes(prompt, "Notes never block this child");
+    assertStringIncludes(prompt, "when there is nothing to note, leave `integrationNotes` out");
+});
+
+Deno.test("Semantic review request carries the Epic context before the Plan", () => {
+    const config = buildSemanticReviewAttempt(
+        1,
+        undefined,
+        { semanticRound: 1, reviewLedger: { items: [], sequence: 0 }, repairBaselineTree: "", lastRepairReport: "" },
+        "discovery",
+        "diff --git a/a.ts b/a.ts\n",
+        "",
+        "# Child Plan\n",
+        undefined,
+        "### Epic Context\n\nThis Plan is one child of the Epic epic.",
+    );
+
+    const epicIndex = config.prompt.indexOf("### Epic Context");
+    assertEquals(epicIndex >= 0, true);
+    assertEquals(epicIndex < config.prompt.indexOf("### Approved Plan"), true);
 });
 
 Deno.test("bundled discovery reviewer prompt requires all findings in one pass", async () => {

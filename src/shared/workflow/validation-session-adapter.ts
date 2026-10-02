@@ -23,7 +23,7 @@ import { emitAssistantMessage, type RuntimeValidationProgress } from "../session
 import { requestHostedSessionInteraction } from "../session/session-runtime-interactions.js";
 import { getAgentDisplayName as getSessionAgentDisplayName } from "../session/agents.js";
 import { ClaudeCliBackendError } from "../session/backends/claude-cli/failure.ts";
-import { REVIEWER_SUBAGENT_TOOLS } from "../session/subagent-definitions.ts";
+import { INTEGRATION_REVIEWER_SUBAGENT_TOOLS, REVIEWER_SUBAGENT_TOOLS } from "../session/subagent-definitions.ts";
 import { AGENTS, SUBAGENTS } from "../../constants.js";
 import {
     emitRunWieldSystemStatus,
@@ -271,11 +271,13 @@ async function runIsolatedRequest(
             agentName: request.agentName,
             userRequest: request.userRequest,
             cwd: request.cwd,
-            subAgentDefinition: {
-                id: SUBAGENTS.REVIEWER,
-                options: { reviewerMode: request.reviewerMode },
-            },
-            toolNames: [...REVIEWER_SUBAGENT_TOOLS],
+            // The Epic integration gate runs its own reviewer, with its own prompt and tool ceiling.
+            subAgentDefinition: request.reviewerMode === "integration"
+                ? { id: SUBAGENTS.INTEGRATION_REVIEWER }
+                : { id: SUBAGENTS.REVIEWER, options: { reviewerMode: request.reviewerMode } },
+            toolNames: request.reviewerMode === "integration"
+                ? [...INTEGRATION_REVIEWER_SUBAGENT_TOOLS]
+                : [...REVIEWER_SUBAGENT_TOOLS],
             customTools: bindReviewDiffTools(hostedSession, request.customTools),
             includeEditFallback: false,
             sessionManager: request.sessionManager as unknown as SessionManager || SessionManager.inMemory(request.cwd),

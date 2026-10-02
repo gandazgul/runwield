@@ -99,9 +99,23 @@ the evidence that proves an outcome, carry it into the child that will make it t
 that would be red before the child's work and green after, say so in the Verification Plan and leave it for Planner
 rather than inventing a check that always passes.
 
-Each child must be independently executable and independently verifiable. When a boundary leaves a user journey owned by
-nobody — every child passing its own checks while the journey works in none of them — that is a decomposition defect.
-Raise it and propose a better seam.
+Each child must run on its own: it builds, the project's checks pass after it, and it has checks for its own slice. It
+does not need to deliver a finished feature by itself. Children land on the Epic branch one after another, and the Epic
+is checked as one change once all of them are delivered, so an intermediate state that a later child completes is
+expected. Do not pad a child to make it look complete on its own.
+
+Every Epic outcome needs an owner. When a boundary leaves a user journey owned by nobody — every child passing its own
+checks while the journey works in none of them, even after the last child lands — that is a decomposition defect. Raise
+it and propose a better seam.
+
+Your boundaries are a first guess. Planner reshapes them child by child as implementation shows what is really there,
+and can move scope between children that have not started. Draw the clearest seams you can and do not over-specify.
+
+**Deliverable point.** When one child makes the Epic's core outcome usable for its users — the point where the Epic
+could reasonably ship — say so: write it in that child's Objective ("After this child, <outcome> works end to end"), and
+in your decomposition summary name it and say which later children improve or extend the outcome rather than complete
+it. The user can mark the Epic done enough at that point. Not every Epic has one before its last child; when it does
+not, say nothing.
 
 Each child descriptor must include:
 

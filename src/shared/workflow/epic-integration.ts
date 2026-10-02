@@ -33,8 +33,7 @@ import { findTargetBranchPlansByParent } from "./planning-worktree.ts";
 import { ensureEpicBranch } from "./epic-branch.ts";
 import type { LocalCIPort, LocalCIResult } from "./validation-local-ci.ts";
 import { createValidationSessionPort, type SemanticReviewPort } from "./validation-session-adapter.ts";
-import { createReviewDiffTool, parseDiffFiles } from "./review-diff-tool.js";
-import { ReviewInspection } from "./review-inspection.ts";
+import { createReviewDiffTool } from "./review-diff-tool.js";
 import { createLedger } from "./review-ledger.ts";
 import { formatCodeReviewAnnotations, normalizeHumanReview } from "./validation-human-review.ts";
 import {
@@ -62,6 +61,8 @@ export interface EpicChildDelivery {
     status: string;
     /** The child's work is in the Epic branch, or the user closed or accepted it. */
     settled: boolean;
+    /** The commits this child delivered, when its delivery evidence records them. */
+    delivery?: { from: string; to: string };
 }
 
 /** Where an Epic with a branch stands. */
@@ -206,11 +207,19 @@ export async function readEpicDeliveryState(
     }
     const included = [...family.values()].filter((child) => isPlannedChangeClassification(child.attrs.classification))
         .sort(compareChildPlansByOrder);
-    const children = await Promise.all(included.map(async (child) => ({
-        name: child.name,
-        status: child.attrs.status,
-        settled: await isChildSettled(primaryRoot, ref, head, child),
-    })));
+    const children = await Promise.all(included.map(async (child) => {
+        const evidence = child.attrs.deliveryEvidence;
+        const delivery = evidence?.mode === "worktree_merge" && evidence.executionCommit &&
+                evidence.targetHeadBeforeMerge
+            ? { from: evidence.targetHeadBeforeMerge, to: evidence.executionCommit }
+            : undefined;
+        return {
+            name: child.name,
+            status: child.attrs.status,
+            settled: await isChildSettled(primaryRoot, ref, head, child),
+            ...(delivery ? { delivery } : {}),
+        };
+    }));
     return {
         epicPlanName,
         branch,
@@ -313,11 +322,32 @@ function childListing(state: EpicDeliveryState): string {
     return state.children.map((child) => `- ${child.name} (${child.status})`).join("\n");
 }
 
+/** Which files each delivered child changed, so the reviewer can find the seams between children. */
+async function filesByChild(primaryRoot: string, state: EpicDeliveryState): Promise<string> {
+    const sections: string[] = [];
+    for (const child of state.children) {
+        if (!child.delivery) {
+            sections.push(`- ${child.name} (${child.status}): files not recorded`);
+            continue;
+        }
+        const changed = await runGitResult(primaryRoot, [
+            "diff",
+            "--name-only",
+            child.delivery.from,
+            child.delivery.to,
+        ]);
+        const files = changed.success ? changed.stdout.split("\n").filter(Boolean) : [];
+        sections.push(`- ${child.name} (${child.status}): ${files.length ? files.join(", ") : "no file changes"}`);
+    }
+    return sections.join("\n");
+}
+
 function buildIntegrationReviewRequest(
     epicPlanName: string,
     epicMarkdown: string,
     state: EpicDeliveryState,
     checksSummary: string,
+    childFiles: string,
 ): string {
     return [
         `You are reviewing the assembled Epic ${epicPlanName} on its branch ${state.branch} at ${state.head}.`,
@@ -326,11 +356,14 @@ function buildIntegrationReviewRequest(
         "",
         checksSummary,
         "",
-        "### Delivered Children",
+        "### Delivered Children and Their Files",
         "",
-        childListing(state),
+        childFiles || childListing(state),
         "",
         "### Epic",
+        "",
+        "The Objective and Verification Plan are the requirements. The `### Integration Notes` section, when present, lists",
+        "places to look that the reviewers of individual children left for you.",
         "",
         epicMarkdown,
     ].join("\n");
@@ -344,20 +377,12 @@ async function runIntegrationReview(
     request: string,
 ): Promise<{ kind: "completed"; outcome: ValidationReviewOutcome } | { kind: "paused"; reason: string }> {
     const sessionManager = port.createInMemorySessionManager(checkoutPath);
-    const inspection = new ReviewInspection(
-        parseDiffFiles(diffText).map((file: { path: string; byteLength: number }) => ({
-            scope: "full" as const,
-            path: file.path,
-            byteLength: file.byteLength,
-        })),
-    );
     let prompt = request;
     for (let attempt = 1; attempt <= MAX_REVIEWER_ATTEMPTS; attempt++) {
+        // No full-read gate: each child was read line by line in its own review, and
+        // this reviewer reads selectively from the Epic outcomes and Integration Notes.
         const customTools = [
-            createReviewDiffTool({ full: diffText }, {
-                inspection,
-                ledger: createLedger(),
-            }) as unknown as OpaqueToolDefinition,
+            createReviewDiffTool({ full: diffText }, { ledger: createLedger() }) as unknown as OpaqueToolDefinition,
         ];
         const session = await port.runIsolatedAgentSession({
             kind: "reviewer",
@@ -372,7 +397,7 @@ async function runIntegrationReview(
             return { kind: "paused", reason: session.failure.message };
         }
         if (session.reviewOutcome) return { kind: "completed", outcome: session.reviewOutcome };
-        prompt = inspection.feedback() ||
+        prompt =
             "You have not called review_complete yet. Finish this review now by calling review_complete with your decision. Do not restart the review — use what you have already inspected.";
     }
     return { kind: "paused", reason: "The integration reviewer finished without reporting a decision." };
@@ -606,7 +631,13 @@ export async function runEpicIntegrationGate(
             port,
             checkoutPath,
             diffText,
-            buildIntegrationReviewRequest(epicPlanName, epic.markdown, state, checksSummary),
+            buildIntegrationReviewRequest(
+                epicPlanName,
+                epic.markdown,
+                state,
+                checksSummary,
+                await filesByChild(primaryRoot, state),
+            ),
         );
         if (review.kind === "paused") return review;
         const findings = [...(checks.finding ? [checks.finding] : []), ...reviewFindings(review.outcome)];

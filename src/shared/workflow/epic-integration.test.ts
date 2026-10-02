@@ -335,3 +335,22 @@ Deno.test("Epic gate events apply only to Epics and a pass must name the checked
         "can only apply to PROJECT Epic plans",
     );
 });
+
+Deno.test("review_complete carries an Epic child's Integration Notes without blocking approval", async () => {
+    const { createReviewCompletedTool } = await import("../../tools/review-complete.ts");
+    const { hostedSession } = gateSession();
+    const tool = createReviewCompletedTool({ hostedSession });
+    type Details = { outcome?: string; integrationNotes?: Array<{ check: string; where: string }> };
+    const execute = tool.execute as unknown as (
+        id: string,
+        params: Record<string, unknown>,
+    ) => Promise<{ details: Details }>;
+
+    const { details } = await execute("review-1", {
+        approved: true,
+        integrationNotes: [{ check: "  Child 3 must read the new index  ", where: "index.ts" }, { check: "   " }],
+    });
+
+    assertEquals(details.outcome, "approved");
+    assertEquals(details.integrationNotes, [{ check: "Child 3 must read the new index", where: "index.ts" }]);
+});
