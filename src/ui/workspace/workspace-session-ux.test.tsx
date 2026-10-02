@@ -946,7 +946,7 @@ Deno.test("image-only user messages survive the browser timeline reducer", () =>
     assertEquals(items[0].role, "user");
 });
 
-Deno.test("Core busy events show Thinking at the live edge before any assistant output and clear on idle", async () => {
+Deno.test("Core busy events show Working at the live edge before any assistant output and clear on idle", async () => {
     const { createElement } = await import("react");
     const { renderToStaticMarkup } = await import("react-dom/server");
     const events = [
@@ -955,7 +955,7 @@ Deno.test("Core busy events show Thinking at the live edge before any assistant 
     ];
     let items = reduceOperationTransientItems(events);
     const html = renderToStaticMarkup(createElement(SessionTimeline, { items }));
-    assertEquals(html.includes('aria-label="Thinking..."'), true);
+    assertEquals(html.includes('aria-label="Working..."'), true);
     assertEquals(html.includes('class="rw-thinking-glyph"'), true);
     assertEquals(items.at(-1).kind, "busy");
     events.push({ type: "assistant_text_delta", messageId: "reply", delta: "Hello back" });

@@ -117,6 +117,15 @@ export async function resolveAgentDefsDir(projectRoot) {
  */
 const displayNameCache = new Map();
 
+/**
+ * Sync cache of busy indicator lines keyed by internal agent name. Populated as
+ * a side-effect of every `loadAgentDef*` call so callers that need busy lines
+ * without awaiting (for example runtime event emission) can resolve them cheaply.
+ *
+ * @type {Map<string, readonly string[]>}
+ */
+const busyLinesCache = new Map();
+
 const AGENT_INTERNAL_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 /**
@@ -223,6 +232,60 @@ export function getAgentDisplayName(internalName, projectRoot) {
 }
 
 /**
+ * Synchronously read an agent file's frontmatter `busyLines:` field across all
+ * definition layers (highest priority wins). Returns `undefined` when no valid
+ * entry is found — the caller falls back to the default "Working...".
+ *
+ * @param {string} internalName
+ * @param {string | undefined} projectRoot
+ * @returns {readonly string[] | undefined}
+ */
+function readBusyLinesFromFrontMatterSync(internalName, projectRoot) {
+    const candidatePaths = getAgentDefDirsByPriority(projectRoot).map((dir) => join(dir, `${internalName}.md`));
+
+    for (const filePath of candidatePaths) {
+        let raw;
+        try {
+            assertPersonalResourcePathSync(filePath, "Agent busy lines");
+            raw = Deno.readTextFileSync(filePath);
+        } catch (error) {
+            if (error instanceof PersonalResourcePathError) throw error;
+            continue;
+        }
+        if (!hasFrontMatter(raw)) continue;
+        const { attrs } = extractYaml(raw);
+        const lines = normalizeBusyLines(/** @type {{ busyLines?: unknown }} */ (attrs).busyLines);
+        if (lines) return lines;
+    }
+
+    return undefined;
+}
+
+/**
+ * Resolve an agent's busy indicator lines from its definition's frontmatter
+ * `busyLines:` field. The cache is populated by `loadAgentDef*`; on miss, the
+ * file is read synchronously. Returns `undefined` when no busy lines are
+ * declared — callers should fall back to "Working...".
+ *
+ * @param {string} internalName
+ * @param {string} [projectRoot]
+ * @returns {readonly string[] | undefined}
+ */
+export function getAgentBusyLines(internalName, projectRoot) {
+    if (!internalName) return undefined;
+    const canonicalName = normalizeAgentInternalName(internalName);
+    const cacheKey = displayNameCacheKey(projectRoot, canonicalName);
+    const cached = busyLinesCache.get(cacheKey);
+    if (cached) return cached;
+    const fromFile = readBusyLinesFromFrontMatterSync(canonicalName, projectRoot);
+    if (fromFile) {
+        busyLinesCache.set(cacheKey, fromFile);
+        return fromFile;
+    }
+    return undefined;
+}
+
+/**
  * List all known agent definition names across bundled + home + local layers.
  *
  * @param {string} [projectRoot]
@@ -270,6 +333,24 @@ function normalizeToolNames(tools) {
     }
 
     return normalized;
+}
+
+/**
+ * @param {unknown} value
+ * @returns {number | undefined}
+ */
+/**
+ * Normalize the `busyLines` front matter value into a readonly string array.
+ * Valid entries are non-empty strings; anything else is filtered out.
+ * Returns `undefined` when no valid entries exist.
+ *
+ * @param {unknown} value
+ * @returns {readonly string[] | undefined}
+ */
+function normalizeBusyLines(value) {
+    if (!Array.isArray(value)) return undefined;
+    const lines = value.filter((item) => typeof item === "string" && item.trim().length > 0).map((item) => item.trim());
+    return lines.length > 0 ? lines : undefined;
 }
 
 /**
@@ -505,7 +586,7 @@ export async function composeSharedPracticePrompt(value, agentName, projectRoot)
  * @returns {Promise<import('./types.js').AgentDefinition>}
  */
 async function loadAgentDefFromPaths(agentName, filePaths, projectRoot) {
-    /** @type {{ name?: string, model?: string, description?: string, contextContract?: unknown, promptOverride?: boolean, thinkingLevel?: string, temperature?: unknown, tools?: unknown[], [key: string]: unknown }} */
+    /** @type {{ name?: string, model?: string, description?: string, contextContract?: unknown, promptOverride?: boolean, thinkingLevel?: string, temperature?: unknown, tools?: unknown[], busyLines?: unknown, [key: string]: unknown }} */
     let mergedAttrs = {};
     /** @type {string[]} */
     let mergedTools = [];
@@ -571,6 +652,7 @@ async function loadAgentDefFromPaths(agentName, filePaths, projectRoot) {
     // or unhide a bundled one. The flag controls discoverability only; workflow
     // dispatch loads and activates the exact Agent identity either way.
     const workflowOnly = mergedAttrs.workflowOnly === true;
+    const busyLines = normalizeBusyLines(mergedAttrs.busyLines);
     const bashAllowedCommands = normalizeBashAllowedCommands(
         /** @type {string[] | null | undefined} */ (mergedAttrs.bashAllowedCommands),
         `Agent definition "${agentName}"`,
@@ -590,6 +672,7 @@ async function loadAgentDefFromPaths(agentName, filePaths, projectRoot) {
     }
 
     displayNameCache.set(displayNameCacheKey(projectRoot, agentName), displayName);
+    if (busyLines) busyLinesCache.set(displayNameCacheKey(projectRoot, agentName), busyLines);
 
     return {
         name: agentName,
@@ -602,6 +685,7 @@ async function loadAgentDefFromPaths(agentName, filePaths, projectRoot) {
         tools,
         bashAllowedCommands,
         workflowOnly,
+        busyLines,
         systemPrompt,
     };
 }

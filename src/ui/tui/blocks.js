@@ -1268,6 +1268,8 @@ export class SpinnerBlock {
         this.isBusy = false;
         /** @type {Array<{task: number, assignee: string, description: string}>} */
         this.tasks = [];
+        /** @type {readonly string[] | undefined} */
+        this.busyLines = undefined;
     }
 
     /**
@@ -1277,6 +1279,12 @@ export class SpinnerBlock {
     setBusy(busy, tasks = []) {
         this.isBusy = busy;
         this.tasks = tasks;
+        this.invalidate();
+    }
+
+    /** @param {readonly string[] | undefined} lines */
+    setBusyLines(lines) {
+        this.busyLines = lines;
         this.invalidate();
     }
 
@@ -1302,8 +1310,11 @@ export class SpinnerBlock {
             });
         }
 
-        // Generic busy spinner
-        const line = theme.fg("accent", `${f} Thinking...`);
+        // Pick a busy label: randomly from the agent's declared lines, or fall back to "Working..."
+        const label = this.busyLines && this.busyLines.length > 0
+            ? this.busyLines[this.frame % this.busyLines.length]
+            : "Working...";
+        const line = theme.fg("accent", `${f} ${label}`);
         return [line + " ".repeat(Math.max(0, w - visibleWidth(line)))];
     }
 }
