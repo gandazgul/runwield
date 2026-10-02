@@ -102,6 +102,17 @@ without a second client prompt or another response to the original request. Task
 follow [Core Session continuity](runwield-core-prd.md#session-continuity); loading after process exit restores saved
 history, not a running task.
 
+**Requirement: Treat ACP deletion as reversible archive.**
+
+RunWield implements `session/delete` as the shared [Core archive state](runwield-core-prd.md#session-continuity), not
+transcript deletion. It resolves a mapped or persisted ACP Session ID to the stable RunWield Session, including IDs
+based on a Pi segment. The explicit request confirms stopping busy work: RunWield cancels through the owning Runtime or
+live connection and waits for authoritative settlement before committing archive state and removing the mapping. Failure
+to stop, settle, or persist returns an error instead of archive success. Successful, repeated, or unknown-ID deletion
+returns `{}`. `session/close` only releases live resources; it does not archive. Workspace
+[Project settings](runwield-workspace-prd.md#project-access-and-navigation) offers Unarchive; ACP `session/list` remains
+unsupported.
+
 **Requirement: Select models and reasoning levels through the client's native controls.**
 
 New and loaded ACP Sessions expose the available models and active selection through standard `configOptions`.
@@ -119,6 +130,13 @@ another lifecycle.
 
 **Acceptance scenarios:**
 
+- Given a mapped or persisted ACP Session ID, when the client sends `session/delete`, it receives `{}` and the owning
+  stable Session is archived with all transcript segments and Plan Associations intact. Repeating the request or
+  deleting an unknown ID also returns `{}`.
+- Given busy work owned by ACP or another RunWield surface, `session/delete` confirms Stop and waits for settlement
+  before archive. A stop or persistence failure returns an error without claiming success.
+- Given a saved Session, `session/close` releases its live resources without changing archive state. Explicitly loading
+  an archived Session restores its saved conversation without unarchiving it.
 - Given a Session created through ACP, when the process exits and a compatible client loads the returned Session
   identifier, it reaches the same saved conversation.
 - Given the same Session open in an idle TUI, when an ACP client continues it, the open screen does not reserve it or
@@ -332,8 +350,12 @@ Current conformance evidence and unfinished checks belong in the
 [implementation audit](../acp-implementation-details.md), not a second checklist here. Protocol hardening can proceed
 independently of the Telegram proof.
 
-Optional listing, deletion, configuration, additional roots, rich media, embedded resources, and client filesystem or
-terminal delegation should be evaluated on user value. Compliance does not require advertising unsupported options.
+Optional listing, additional roots, rich media, embedded resources, and client filesystem or terminal delegation should
+be evaluated on user value. Compliance does not require advertising unsupported options.
+
+RunWield currently advertises `sessionCapabilities.delete: {}` and includes `session/delete` in its implemented-method
+metadata. This capability is reversible archive as defined in [ACP Session access](#acp-session-access), not hard
+deletion. ACP `session/list` remains unsupported and unadvertised.
 
 RunWield currently advertises ACP image prompts. ACP image blocks use the shared Session image path: vision-capable
 models receive the image directly, while text-only models can inspect the persisted attachment through `see_image` when
@@ -341,6 +363,8 @@ models receive the image directly, while text-only models can inspect the persis
 
 **Acceptance scenarios:**
 
+- When a client initializes, delete is advertised and `session/delete` accepts the standard request and returns an empty
+  result on success. Listing is not advertised; archive support does not imply `session/list` support.
 - When RunWield advertises a capability, its required protocol behavior passes interoperability checks with more than
   one client before full compliance is claimed.
 - When an optional capability is unsupported, it is not advertised merely to satisfy a checklist; public coverage

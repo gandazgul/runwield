@@ -3,7 +3,7 @@ import { dirname, join } from "@std/path";
 import { createHash } from "node:crypto";
 import { classifyRootSessionLocator, encodeCwdForSessionDir } from "./root-session.js";
 import { openFileSessionStore } from "./file-session-store.ts";
-import { manifestPath, sessionDirForRoot } from "./file-session-storage.ts";
+import { lockPath, manifestPath, sessionDirForRoot } from "./file-session-storage.ts";
 
 const TIMESTAMP = "2026-01-01T00:00:00.000Z";
 
@@ -1094,3 +1094,223 @@ Deno.test("Plan Association manifest projection drops pending entries on unchang
         await Deno.remove(fixture.rootDir, { recursive: true });
     }
 });
+
+Deno.test("Session archive survives reopen and restores transcript segments and Plan associations", async () => {
+    const fixture = await makeFixture();
+    let store = openFileSessionStore({ baseDir: fixture.sessionBaseDir });
+    try {
+        const project = store.ensureRuntimeProject({ root: fixture.projectRoot });
+        const transcriptPath = await writeTranscript(fixture.sessionDir, fixture.projectRoot, "archive-root");
+        const session = await store.ensureSessionCatalogRecord({
+            projectId: project.projectId,
+            piSessionId: "archive-root",
+            transcriptPath,
+            transcriptCwd: fixture.projectRoot,
+        });
+        let proof = store.acquireSessionActivation({
+            runwieldSessionId: session.runwieldSessionId,
+            projectId: project.projectId,
+            ownerInstanceId: "archive-test",
+            ownerProcessKind: "test",
+        });
+        const segment = store.getCurrentSessionSegment(session.runwieldSessionId);
+        assert(segment);
+        store.stagePlanAssociation(proof, {
+            planId: "archive-plan",
+            planName: "archive-plan",
+            purpose: "planning",
+            segmentId: segment.segmentId,
+            segmentKind: "planning",
+            recordedAt: TIMESTAMP,
+        });
+        proof = store.changeSessionActivationPhase(proof, "hydrated");
+        proof = store.changeSessionActivationPhase(proof, "checkpointing");
+        const bytes = await Deno.readFile(transcriptPath);
+        store.publishGenerationAndRelease(proof, {
+            generation: 0,
+            byteLength: bytes.length,
+            terminalEntryId: null,
+            digestHex: createHash("sha256").update(bytes).digest("hex"),
+        });
+        const segments = store.listSessionTranscriptSegments(session.runwieldSessionId);
+        const associations = store.listSessionPlanAssociations(session.runwieldSessionId);
+        const generation = store.inspectSessionActivation(session.runwieldSessionId).generation;
+        const archived = store.archiveSession(session.runwieldSessionId, project.projectId);
+        assert(archived.archivedAt);
+        assertEquals(store.archiveSession(session.runwieldSessionId).archivedAt, archived.archivedAt);
+        store.close();
+        store = openFileSessionStore({ baseDir: fixture.sessionBaseDir });
+        assertEquals(store.getSessionById(session.runwieldSessionId)?.archivedAt, archived.archivedAt);
+        assertEquals((await store.listProjectSessions(project.projectId)).sessions, []);
+        assertEquals((await store.listProjectSessions(project.projectId, { archiveState: "archived" })).total, 1);
+        assertEquals(store.unarchiveSession(session.runwieldSessionId).archivedAt, null);
+        assertEquals(store.unarchiveSession(session.runwieldSessionId).runwieldSessionId, session.runwieldSessionId);
+        assertEquals((await store.listProjectSessions(project.projectId)).total, 1);
+        assertEquals(store.listSessionTranscriptSegments(session.runwieldSessionId), segments);
+        assertEquals(store.listSessionPlanAssociations(session.runwieldSessionId), associations);
+        assertEquals(store.inspectSessionActivation(session.runwieldSessionId).generation, generation);
+        assertEquals(await Deno.readFile(transcriptPath), bytes);
+    } finally {
+        store.close();
+        await Deno.remove(fixture.rootDir, { recursive: true });
+    }
+});
+
+Deno.test("Session archive refuses the writer lock and keeps a newer committed generation", async () => {
+    const fixture = await makeFixture();
+    const writer = openFileSessionStore({ baseDir: fixture.sessionBaseDir });
+    const archiver = openFileSessionStore({ baseDir: fixture.sessionBaseDir });
+    try {
+        const project = writer.ensureRuntimeProject({ root: fixture.projectRoot });
+        const transcriptPath = await writeTranscript(fixture.sessionDir, fixture.projectRoot, "locked-archive");
+        const session = await writer.ensureSessionCatalogRecord({
+            projectId: project.projectId,
+            piSessionId: "locked-archive",
+            transcriptPath,
+            transcriptCwd: fixture.projectRoot,
+        });
+        archiver.getSessionById(session.runwieldSessionId);
+        const file = Deno.openSync(lockPath(fixture.sessionDir, session.runwieldSessionId), {
+            create: true,
+            read: true,
+            write: true,
+        });
+        try {
+            file.lockSync(true);
+            assertThrows(() => archiver.archiveSession(session.runwieldSessionId), Error, "another RunWield surface");
+            assertEquals(archiver.getSessionById(session.runwieldSessionId)?.archivedAt, null);
+        } finally {
+            file.unlockSync();
+            file.close();
+        }
+
+        let proof = writer.acquireSessionActivation({
+            runwieldSessionId: session.runwieldSessionId,
+            projectId: project.projectId,
+            ownerInstanceId: "writer",
+            ownerProcessKind: "test",
+        });
+        assertThrows(() => archiver.archiveSession(session.runwieldSessionId), Error, "another RunWield surface");
+        assertThrows(() => writer.archiveSession(session.runwieldSessionId), Error, "another RunWield surface");
+        proof = writer.changeSessionActivationPhase(proof, "hydrated");
+        proof = writer.changeSessionActivationPhase(proof, "checkpointing");
+        const bytes = await Deno.readFile(transcriptPath);
+        const published = writer.publishGenerationAndRelease(proof, {
+            generation: 0,
+            byteLength: bytes.length,
+            terminalEntryId: null,
+            digestHex: createHash("sha256").update(bytes).digest("hex"),
+        });
+        archiver.archiveSession(session.runwieldSessionId);
+        assertEquals(archiver.inspectSessionActivation(session.runwieldSessionId).generation, published.generation);
+        assertThrows(() => archiver.unarchiveSession(session.runwieldSessionId, "foreign-project"));
+    } finally {
+        writer.close();
+        archiver.close();
+        await Deno.remove(fixture.rootDir, { recursive: true });
+    }
+});
+
+Deno.test("Session archive filters apply before pagination and totals", async () => {
+    const fixture = await makeFixture();
+    const store = openFileSessionStore({ baseDir: fixture.sessionBaseDir });
+    try {
+        const project = store.ensureRuntimeProject({ root: fixture.projectRoot });
+        for (let index = 0; index < 6; index++) {
+            await writeTranscript(
+                fixture.sessionDir,
+                fixture.projectRoot,
+                `archive-page-${index}`,
+                null,
+                new Date(Date.UTC(2026, 0, index + 1)).toISOString(),
+            );
+        }
+        const all = await store.listProjectSessions(project.projectId, { all: true });
+        for (const session of all.sessions.filter((_, index) => index % 2 === 0)) {
+            store.archiveSession(session.runwieldSessionId);
+        }
+        for (const archivedView of [false, true]) {
+            const archiveState = archivedView ? "archived" : "active";
+            const first = await store.listProjectSessions(project.projectId, { archiveState, pageSize: 2 });
+            const second = await store.listProjectSessions(project.projectId, { archiveState, pageSize: 2, page: 1 });
+            assertEquals(first.total, 3);
+            assertEquals(second.total, 3);
+            assertEquals(first.sessions.length, 2);
+            assertEquals(second.sessions.length, 1);
+            assertEquals(first.hasNext, true);
+            assertEquals(second.hasNext, false);
+            assertEquals([...first.sessions, ...second.sessions].map((item) => Boolean(item.archivedAt)), [
+                archiveState === "archived",
+                archiveState === "archived",
+                archiveState === "archived",
+            ]);
+        }
+        assertEquals((await store.listProjectSessions(project.projectId, { archiveState: "all", all: true })).total, 6);
+    } finally {
+        store.close();
+        await Deno.remove(fixture.rootDir, { recursive: true });
+    }
+});
+
+Deno.test("Session archive is retained when the primary manifest is recovered from its descriptor", async () => {
+    const fixture = await makeFixture();
+    let store = openFileSessionStore({ baseDir: fixture.sessionBaseDir });
+    try {
+        const project = store.ensureRuntimeProject({ root: fixture.projectRoot });
+        await writeTranscript(fixture.sessionDir, fixture.projectRoot, "archive-recovery");
+        const session = (await store.listProjectSessions(project.projectId)).sessions[0];
+        const archived = store.archiveSession(session.runwieldSessionId);
+        store.close();
+        await Deno.remove(manifestPath(fixture.sessionDir, session.runwieldSessionId));
+        store = openFileSessionStore({ baseDir: fixture.sessionBaseDir });
+        assertEquals(store.getSessionById(session.runwieldSessionId)?.archivedAt, archived.archivedAt);
+        assertEquals((await store.listProjectSessions(project.projectId)).total, 0);
+    } finally {
+        store.close();
+        await Deno.remove(fixture.rootDir, { recursive: true });
+    }
+});
+
+for (const changed of [false, true]) {
+    Deno.test(`Session archive recovers abandoned activation with ${changed ? "changed" : "unchanged"} evidence`, async () => {
+        const fixture = await makeFixture();
+        const writer = openFileSessionStore({ baseDir: fixture.sessionBaseDir });
+        const archiver = openFileSessionStore({ baseDir: fixture.sessionBaseDir });
+        try {
+            const project = writer.ensureRuntimeProject({ root: fixture.projectRoot });
+            const transcriptPath = await writeTranscript(fixture.sessionDir, fixture.projectRoot, "abandoned-archive");
+            const session = await writer.ensureSessionCatalogRecord({
+                projectId: project.projectId,
+                piSessionId: "abandoned-archive",
+                transcriptPath,
+                transcriptCwd: fixture.projectRoot,
+            });
+            writer.acquireSessionActivation({
+                runwieldSessionId: session.runwieldSessionId,
+                projectId: project.projectId,
+                ownerInstanceId: "abandoned",
+                ownerProcessKind: "test",
+            });
+            if (changed) await Deno.writeTextFile(transcriptPath, "changed evidence\n", { append: true });
+            writer.close();
+            if (changed) {
+                assertThrows(() => archiver.archiveSession(session.runwieldSessionId), Error, "requires recovery");
+                assertEquals(archiver.getSessionById(session.runwieldSessionId)?.archivedAt, null);
+                assertEquals(
+                    archiver.inspectSessionActivation(session.runwieldSessionId).activation?.state,
+                    "reconcile_required",
+                );
+            } else {
+                assert(archiver.archiveSession(session.runwieldSessionId).archivedAt);
+                assertEquals(
+                    archiver.inspectSessionActivation(session.runwieldSessionId).activation?.state,
+                    "uninitialized",
+                );
+            }
+        } finally {
+            writer.close();
+            archiver.close();
+            await Deno.remove(fixture.rootDir, { recursive: true });
+        }
+    });
+}

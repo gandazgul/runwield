@@ -56,6 +56,13 @@ and Session Name, persists across Agent handoffs, contains one or more ordered S
 contain multiple Agent Sessions. RunWield catalogs every local Session automatically; Workspace Project registration is
 a separate access decision. _Avoid_: Managed Session, unmanaged Session, Agent Session, HostedSession, Task, Work Item
 
+**Archived Session**: A Session with durable, reversible archive state in its file-authoritative Session Manifest.
+Ordinary Session history and TUI resume omit it, but its stable ID, Session Transcript Segments, Plan Associations, and
+workflow remain intact. Associated Plans retain its link and archived status. Workspace Project settings > Archived
+Sessions offers Unarchive; opening a direct link or continuing work does not silently unarchive it. ACP `session/delete`
+archives; `session/close` only releases live resources. _Avoid_: Deleted transcript, completed Plan, closed workflow,
+closed ACP Session
+
 **Session Transcript**: The private raw message and event history of one Session. Its owner may resume or search it, but
 it is not shared project knowledge or a source for cross-Session Agent retrieval. Pi persists completed tool calls and
 interaction results as committed transcript history; a live unanswered interaction is not committed history until its
@@ -90,9 +97,9 @@ interactions for a live Session; observation does not require control. Session C
 the Session Writer Lock. _Avoid_: Plan ownership, Session ownership, Agent ownership
 
 **Session Manifest**: The atomic JSON record beside a Session's Pi transcripts that stores stable identity, ordered
-segments, committed generation evidence, and current writer state. Transcript-adjacent recovery descriptors and Pi
-lineage can rebuild it without a Workspace database. It may carry projections of committed transcript evidence, but the
-transcript remains the authority. _Avoid_: Session database, Workspace catalog authority
+segments, committed generation evidence, current writer state, and reversible archive state. Transcript-adjacent
+recovery descriptors and Pi lineage can rebuild it without a Workspace database. It may carry projections of committed
+transcript evidence, but the transcript remains the authority. _Avoid_: Session database, Workspace catalog authority
 
 **Plan Association**: Append-only Session evidence that records that one Session worked on one Plan for one Association
 Purpose. It uses the Plan's durable `planId`, the Plan name at the time of recording, and the current Session Transcript
