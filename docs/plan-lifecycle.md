@@ -230,6 +230,16 @@ plumbing, so no checkout is changed; a branch that is checked out somewhere is n
 committed before it had a `planId` is replaced by its identified copy. An Epic whose children already started without a
 branch keeps the legacy behavior below.
 
+While planning one child, Planner may reshape any sibling that has not started. Those edits travel to the Epic branch in
+the child's preparation commit, and a reshaped sibling that was `approved` or `ready_for_work` returns to `draft` so its
+own Planner session can reshape it again. A sibling that has started stays as it is.
+
+Each child's Semantic Review judges only that child's correctness, with the Epic's objective and siblings as context.
+Its Integration Notes are written to a RunWield-managed `### Integration Notes` subsection of the Epic's Verification
+Plan; the Integration Reviewer reads them as places to look. The Integration Reviewer is its own subagent: it reads
+selectively from the Epic outcomes and notes instead of reading every line again, and can hand large areas to read-only
+delegates.
+
 Reading or archiving an Epic child never prepares a planning worktree for it: archive, restore, and Work Record
 generation resolve the local document read-only. Planning worktrees start only when Planner or execution starts the
 child.

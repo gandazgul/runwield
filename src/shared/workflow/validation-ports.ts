@@ -16,7 +16,7 @@
  * the single cast from the Pi types happens inside `validation-session-adapter.ts`.
  */
 
-import type { ReviewAdvisory, ReviewFinding } from "../../tools/review-complete.ts";
+import type { ReviewAdvisory, ReviewFinding, ReviewIntegrationNote } from "../../tools/review-complete.ts";
 import type { ValidationOperationalFailure } from "./validation-operational-errors.ts";
 import type { ReviewLedger } from "./review-ledger.ts";
 
@@ -146,6 +146,8 @@ export type ValidationReviewOutcome = {
     feedback: string;
     findings: ReviewFinding[];
     advisories: ReviewAdvisory[];
+    /** What an Epic child's reviewer left for the integration review; absent outside Epics. */
+    integrationNotes?: ReviewIntegrationNote[];
 };
 
 /**

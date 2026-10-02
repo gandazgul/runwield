@@ -27,6 +27,12 @@ export interface ReviewFinding {
     origin?: "missed_original" | "repair_regression";
 }
 
+/** Something only the assembled Epic can show, left by an Epic child's reviewer for the integration review. */
+export interface ReviewIntegrationNote {
+    check: string;
+    where: string;
+}
+
 export interface ReviewAdvisory {
     title: string;
     detail: string;
@@ -81,6 +87,16 @@ const ADVISORY_PARAMS = Type.Object({
     })),
 });
 
+const INTEGRATION_NOTE_PARAMS = Type.Object({
+    check: Type.String({
+        description: "What the integration review should check once the Epic's children are assembled.",
+        minLength: 1,
+    }),
+    where: Type.Optional(Type.String({
+        description: "Files, symbols, or sibling children involved.",
+    })),
+});
+
 const PARAMETERS = Type.Object({
     approved: Type.Boolean({
         description: "Whether the implementation satisfies the plan requirements with no open blocking issues.",
@@ -100,10 +116,16 @@ const PARAMETERS = Type.Object({
         description:
             "Non-blocking Review Advisories: code smells, maintainability observations, and genuine Plan ambiguity. These never block approval.",
     })),
+    integrationNotes: Type.Optional(Type.Array(INTEGRATION_NOTE_PARAMS, {
+        default: [],
+        description:
+            "Epic children only: what the integration review should check once the children are assembled. Never blocks this review. Omit when there is nothing to note.",
+    })),
 });
 
 type ReviewFindingParam = Static<typeof FINDING_PARAMS>;
 type ReviewAdvisoryParam = Static<typeof ADVISORY_PARAMS>;
+type ReviewIntegrationNoteParam = Static<typeof INTEGRATION_NOTE_PARAMS>;
 
 type ReviewCompleteDetails =
     | { outcome: "rejected"; reason: "approved_with_open_findings" | "incomplete_inspection" | "invalid_findings" }
@@ -113,6 +135,7 @@ type ReviewCompleteDetails =
         feedback: string;
         findings: ReviewFinding[];
         advisories: ReviewAdvisory[];
+        integrationNotes: ReviewIntegrationNote[];
     };
 
 type ReviewCompleteResult = AgentToolResult<ReviewCompleteDetails> & { terminate: boolean };
@@ -151,6 +174,7 @@ export function createReviewCompletedTool(
             const feedback = typeof params.feedback === "string" ? params.feedback.trim() : "";
             const findings = normalizeFindings(params.findings);
             const advisories = normalizeAdvisories(params.advisories);
+            const integrationNotes = normalizeIntegrationNotes(params.integrationNotes);
             const openFindings = findings.filter((finding) => !finding.resolved);
             const findingError = validateFindingStates(params.findings || [], ledger);
             if (findingError) {
@@ -205,7 +229,7 @@ export function createReviewCompletedTool(
                 },
             }, hostedSession.cwd);
 
-            const details = { outcome, approved, feedback: projection, findings, advisories };
+            const details = { outcome, approved, feedback: projection, findings, advisories, integrationNotes };
             publishWorkflowToolEvent({
                 hostedSession,
                 toolCallId,
@@ -218,6 +242,14 @@ export function createReviewCompletedTool(
                 terminate: true,
             };
         },
+    });
+}
+
+function normalizeIntegrationNotes(value: ReviewIntegrationNoteParam[] | undefined): ReviewIntegrationNote[] {
+    if (!Array.isArray(value)) return [];
+    return value.flatMap((note) => {
+        const check = note.check.trim();
+        return check ? [{ check, where: typeof note.where === "string" ? note.where.trim() : "" }] : [];
     });
 }
 

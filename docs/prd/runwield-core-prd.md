@@ -483,6 +483,15 @@ child drafts on it without changing the user's checkout. A missing branch never 
 branch keeps its own history and is never reset. An Epic whose children already started without a branch keeps its
 earlier behavior.
 
+**Requirement: Children are slices, and their boundaries can move.**
+
+A child moves the Epic forward; it does not need to be a finished feature by itself. Planner plans each child just
+before it runs and may reshape any sibling that has not started, moving scope in or out or splitting a new draft. A
+reshaped sibling that was already approved returns to draft. A started or validated child stays as it is. Each child's
+review judges that child's own correctness with the Epic as context; work a sibling owns is not a finding, and agents do
+not write general "unfinished" warnings. A reviewer can leave Integration Notes for the integration review in a managed
+subsection of the Epic's Verification Plan; when there is nothing to note, it leaves nothing.
+
 **Requirement: An Epic finishes through its integration gate.**
 
 Child status alone does not finish an Epic with its own branch. The Epic is implemented when every included child is
@@ -516,6 +525,10 @@ and siblings active. Listings keep held work distinct from active and finished w
   the Epic opens in Planner; after the repair is delivered, the gate runs again.
 - Given a validated Epic, when a new commit lands on its branch, the Epic returns to implemented until the gate passes
   on the new head.
+- Given Planner moving scope from the child it is planning into an approved, unstarted sibling, when the child starts,
+  the sibling's change is on the Epic branch with the child and the sibling is back in draft.
+- Given a child review that leaves Integration Notes, when the review finishes, the notes appear in the Epic's
+  `### Integration Notes` subsection and the integration review receives them as places to look.
 - Given an approved Epic, when the user saves draft children, they remain drafts; finalizing decomposition enables child
   selection without approving each child.
 - Given an independently held child, when the parent Epic is held and resumed, that child stays held and other children

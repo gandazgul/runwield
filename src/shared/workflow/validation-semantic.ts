@@ -8,6 +8,7 @@ import { AGENTS } from "../../constants.js";
 import { captureWorktreeTree, getWorkflowDiff, getWorktreeReviewDiff } from "./git-snapshot.js";
 import { buildDiffInspectionSection, createReviewDiffTool, parseDiffFiles } from "./review-diff-tool.js";
 import { ReviewInspection } from "./review-inspection.ts";
+import { loadEpicReviewContext, recordIntegrationNotes } from "./epic-review-context.ts";
 import { logValidationFailure } from "./validation-state-errors.ts";
 import {
     applyRoundFindings,
@@ -422,6 +423,10 @@ export async function runReviewerRound(
     let nudgeReason: string | undefined;
     let inspectedDiff = false;
     let latestOutcome: ValidationReviewOutcome | null = null;
+    // A child of an Epic with its own branch is reviewed for its own correctness, with the Epic as context.
+    const epicContext = await loadEpicReviewContext(context.projectRoot, args.planName, args.triageMeta).catch(() =>
+        null
+    );
     let operationalAttempt = 1;
     const repairDiffText = state.repairBaselineTree
         ? await getWorkflowDiff(context.executionCwd, state.repairBaselineTree)
@@ -468,6 +473,7 @@ export async function runReviewerRound(
             repairDiffText,
             args.planContent,
             inspection,
+            epicContext?.section || "",
         );
         nudgeReason = undefined;
         try {
@@ -687,6 +693,21 @@ export async function runReviewerRound(
         };
     }
 
+    if (epicContext && latestOutcome.integrationNotes?.length) {
+        const written = await recordIntegrationNotes(
+            context.projectRoot,
+            epicContext.epicPlanName,
+            args.planName,
+            latestOutcome.integrationNotes,
+        ).catch(() => null);
+        if (written) {
+            emitStatus(
+                args,
+                `The reviewer left ${latestOutcome.integrationNotes.length} Integration Note(s) for ${epicContext.epicPlanName}.`,
+                "info",
+            );
+        }
+    }
     const applied = applyRoundFindings(state.reviewLedger, latestOutcome.findings, state.semanticRound);
     if (!latestOutcome.approved && openItems(applied.ledger).length > 0) {
         emitReviewerLedgerReport(args, applied.ledger, applied.resolvedCount);
@@ -728,6 +749,7 @@ export function buildSemanticReviewAttempt(
     repairDiffText = "",
     planContent = "",
     inspection?: ReviewInspection,
+    epicContextSection = "",
 ): {
     prompt: string;
     customTools: OpaqueToolDefinition[];
@@ -792,6 +814,7 @@ export function buildSemanticReviewAttempt(
             scope: reviewMode === "verify" ? "repair" : "full",
         }),
         "",
+        ...(epicContextSection ? [epicContextSection, ""] : []),
         "### Approved Plan",
         "",
         projectEngineerPlanBody(planContent),
