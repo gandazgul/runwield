@@ -25,7 +25,7 @@ import { normalizeBrowserNotificationPolicy } from "../../../shared/session/noti
 import { applySharedPlanReviewDecision } from "../../../shared/workflow/plan-review-actions.ts";
 import { loadPlanActionEvidence } from "../../../shared/workflow/plan-actions.ts";
 import { loadReviewFeedbackImages } from "../../../shared/workflow/review-feedback-images.ts";
-import { getWorktreeReviewDiff, WorktreeReviewComparisonError } from "../../../shared/workflow/git-snapshot.js";
+import { getWorktreeReviewDiff, WorktreeReviewComparisonError } from "../../../shared/workflow/git-snapshot.ts";
 import {
     createSessionRuntime,
     deriveManagedSessionContinuationDecision,

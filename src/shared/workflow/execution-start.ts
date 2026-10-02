@@ -29,7 +29,7 @@ import {
     pruneEntry as pruneWorktreeRegistryEntry,
     updateEntry as updateWorktreeRegistryEntry,
 } from "../worktree-registry.js";
-import { captureWorktreeTree } from "./git-snapshot.js";
+import { captureWorktreeTree } from "./git-snapshot.ts";
 import { ensureExecutionPlanFile, loadCanonicalExecutionPlanSource } from "./execution-plan-file.js";
 import {
     emitCreatedExecutionWorktree,

@@ -1,7 +1,7 @@
 import { assertEquals, assertExists, assertStringIncludes } from "@std/assert";
 import { executeWorkflowTestTools } from "../../testing/workflow-agent-tools.ts";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
-import { captureWorktreeTree, diffTrees, getWorktreeReviewDiff } from "../../shared/workflow/git-snapshot.js";
+import { captureWorktreeTree, diffTrees, getWorktreeReviewDiff } from "../../shared/workflow/git-snapshot.ts";
 import { parseDiffFiles } from "../../shared/workflow/review-diff-tool.js";
 import {
     git,

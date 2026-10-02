@@ -15,7 +15,7 @@ import {
 } from "../worktree-registry.js";
 import { prepareExecutionPlanFile } from "./execution-plan-file.js";
 import { resolveTargetBranchName } from "../worktree.js";
-import { getWorkflowDiff } from "./git-snapshot.js";
+import { getWorkflowDiff } from "./git-snapshot.ts";
 import { recordWorkflowMetric } from "./metrics.js";
 import { isInValidation } from "./plan-lifecycle.js";
 import { hasImplementationDiff, requiresImplementationDiff } from "./validation-scope.ts";
