@@ -28,7 +28,13 @@ createdAt: "2026-10-02"
 origin: "internal"
 userVerifiedAt: null
 targetBranch: "main"
-status: "validated_reviewer"
+status: "validated"
+validatedCommit: "f3219e8fe10a2659ee48dd162bbc0f3fb048a372"
+workRecord:
+    status: "generated"
+    recordId: "68c201f7-83de-479c-8a2a-bc8e5f259acb"
+    path: "docs/work-records/2026-10-02-reversible-session-archive-across-acp-and-workspace.md"
+    lastAttemptAt: "2026-10-02T23:07:17.255Z"
 ---
 
 # Archive Sessions Through ACP and Workspace
