@@ -6,6 +6,7 @@ import {
     devOwnerPlanProgress,
     devOwnerSessionOptions,
     devOwnerSessionPage,
+    devOwnerSetSessionArchive,
     devOwnerSidebar,
     devOwnerTimeline,
 } from "../../../server/dev-owner-fixtures.ts";
@@ -113,7 +114,11 @@ export const GET = ({ request, params }: { request: Request; params: { segments?
                         hasNext: false,
                         hasPrevious: false,
                     }
-                    : devOwnerSessionPage(pageValue(url, "page", 0), pageValue(url, "pageSize", 30)),
+                    : devOwnerSessionPage(
+                        pageValue(url, "page", 0),
+                        pageValue(url, "pageSize", 30),
+                        url.searchParams.get("archiveState") === "archived",
+                    ),
             );
         }
         if (segments[2] === "sessions" && segments[4] === "timeline") {
@@ -132,9 +137,17 @@ export const GET = ({ request, params }: { request: Request; params: { segments?
     return json({ error: "Dev owner API route not found." }, 404);
 };
 
-export const POST = ({ params }: { params: { segments?: string } }) => {
+export const POST = async ({ request, params }: { request: Request; params: { segments?: string } }) => {
     if (!import.meta.env.DEV) return json({ error: "Not found." }, 404);
     const segments = routeSegments({ params });
+    if (
+        segments[0] === "projects" && segments[1] === DEV_OWNER_PROJECT.projectId && segments[2] === "sessions" &&
+        segments.length === 5 && ["archive", "unarchive"].includes(segments[4])
+    ) {
+        const body = await request.json().catch(() => ({}));
+        const result = devOwnerSetSessionArchive(segments[3], segments[4] === "archive", body.confirmed === true);
+        return json(result, result.status);
+    }
     if (segments.join("/") === "search/refresh") return json({ refreshed: true });
     if (segments.join("/") === "pairing/request") {
         return json({

@@ -8,6 +8,7 @@ import {
     projectLiveSessionInfo,
     readLiveSessionConnection,
     subscribeLiveSessionAttention,
+    waitForSessionActivationSettlement,
 } from "../../../shared/session/live-session-connection.ts";
 import { createHash } from "node:crypto";
 import { findPlanEvidenceById } from "../../../plan-store.js";
@@ -61,6 +62,7 @@ export class ImageSubmissionValidationError extends Error {
  * @property {boolean} [includeEmpty]
  * @property {boolean} [includeTotal]
  * @property {string} [planId]
+ * @property {"active" | "archived" | "all"} [archiveState]
  * @property {string[]} [excludedPlanIds]
  * @property {string[]} [excludedSessionIds]
  */
@@ -725,7 +727,11 @@ export class WorkspaceSessionContinuationService {
         const visibleLimit = options.includeTotal === false ? start + pageSize + 1 : Infinity;
         // One recovered catalog snapshot per request; paging the catalog would rescan
         // and reparse every manifest (and recovery descriptor) for each 100 rows.
-        const result = await this.store.listProjectSessions(projectId, { all: true, catalog: false });
+        const result = await this.store.listProjectSessions(projectId, {
+            all: true,
+            catalog: false,
+            archiveState: options.planId ? "all" : options.archiveState,
+        });
         const visible = [];
         // Keep transcript reads bounded; never load all large histories in parallel.
         for (const session of result.sessions) {
@@ -761,6 +767,7 @@ export class WorkspaceSessionContinuationService {
                     runwieldSessionId: session.runwieldSessionId,
                     projectId,
                     displayName: session.displayName,
+                    archivedAt: session.archivedAt,
                     headerTimestamp: session.headerTimestamp,
                     lastCatalogedAt: session.lastCatalogedAt,
                     state: inspected.activation?.state || "missing_activation",
@@ -1045,6 +1052,45 @@ export class WorkspaceSessionContinuationService {
                 void this.runtime.closeSession(adopted.sessionId);
             }
         }
+    }
+
+    /**
+     * @typedef {Object} WorkspaceSessionArchiveRequest
+     * @property {string} projectId
+     * @property {string} runwieldSessionId
+     * @property {boolean} [confirmed]
+     */
+    /** @param {WorkspaceSessionArchiveRequest} options */
+    async archiveSession(options) {
+        requireOwnerProjectRoot(this.store, options.projectId);
+        const session = this.store.getSessionById(options.runwieldSessionId);
+        if (!session || !sessionBelongsToOwnerProject(this.store, session, options.projectId)) {
+            throw new Error("Session not found.");
+        }
+        const inspected = this.store.inspectSessionActivation(options.runwieldSessionId);
+        if (inspected.activation?.state === "active") {
+            if (options.confirmed !== true) {
+                throw new Error("This Session is busy. Confirm to stop its work and archive it.");
+            }
+            const live = await this.liveSession(options.projectId, options.runwieldSessionId);
+            if (!live.operation) throw new Error("No running turn to stop. Refresh and try again.");
+            const canceled = await this.cancelOperation({ operationId: live.operation.operationId });
+            if (!canceled?.ok) throw new Error("Could not stop this Session. Try again.");
+            await waitForSessionActivationSettlement(this.store, options.runwieldSessionId);
+        }
+        const archived = this.store.archiveSession(options.runwieldSessionId, options.projectId);
+        return { runwieldSessionId: archived.runwieldSessionId, archivedAt: archived.archivedAt };
+    }
+
+    /** @param {WorkspaceSessionArchiveRequest} options */
+    async unarchiveSession(options) {
+        requireOwnerProjectRoot(this.store, options.projectId);
+        const session = this.store.getSessionById(options.runwieldSessionId);
+        if (!session || !sessionBelongsToOwnerProject(this.store, session, options.projectId)) {
+            throw new Error("Session not found.");
+        }
+        const restored = this.store.unarchiveSession(options.runwieldSessionId, options.projectId);
+        return { runwieldSessionId: restored.runwieldSessionId, archivedAt: restored.archivedAt };
     }
 
     /**

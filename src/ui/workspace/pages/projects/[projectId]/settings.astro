@@ -1,7 +1,9 @@
 ---
+import ArchivedSessions from "../../../islands/ArchivedSessions.jsx";
 import SettingsLayout from "../../../layouts/SettingsLayout.astro";
 import { loadOwnerProjects } from "../../../server/astro-owner-data.js";
 
+const archived = Astro.url.searchParams.get("tab") === "archived";
 const projectId = Astro.params.projectId ?? "";
 const project = (await loadOwnerProjects()).find((item: { projectId: string }) => item.projectId === projectId);
 if (!project) Astro.response.status = 404;
@@ -13,6 +15,11 @@ if (!project) Astro.response.status = 404;
                 <h1>{project.displayName}</h1>
                 <p>{project.rootLabel} · {project.healthStatus}</p>
             </div>
+            <nav class="tabs workspace-settings-tabs" aria-label="Project settings sections">
+                <a class={!archived ? "active" : undefined} href="?tab=general" aria-current={!archived ? "page" : undefined}>General</a>
+                <a class={archived ? "active" : undefined} href="?tab=archived" aria-current={archived ? "page" : undefined}>Archived Sessions</a>
+            </nav>
+            {archived ? <ArchivedSessions projectId={projectId} client:load /> : <>
             <section class="owner-card project-settings-card">
                 <h2>Project root</h2>
                 <form class="owner-form project-relink-form" data-project-relink={project.projectId}>
@@ -29,6 +36,7 @@ if (!project) Astro.response.status = 404;
                 </div>
                 <pre class="project-diagnostics" data-project-diagnostics={project.projectId} hidden></pre>
             </section>
+            </>}
             <script is:inline data-astro-rerun>
                 function rwSettingsOwnerCookie(name){return document.cookie.split('; ').find(v=>v.startsWith(name+'='))?.split('=').slice(1).join('=')||'';}
                 async function rwSettingsOwnerFetch(url,options={}){options.headers=Object.assign({'content-type':'application/json','x-runwield-csrf':decodeURIComponent(rwSettingsOwnerCookie('rw_owner_csrf'))},options.headers||{});return await fetch(url,options);}

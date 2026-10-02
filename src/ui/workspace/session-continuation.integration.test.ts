@@ -4,14 +4,16 @@ import { createSessionRuntime } from "../../shared/session/session-runtime.ts";
 import {
     ownerNotificationsStreamApi,
     ownerProjectSessionsApi,
+    ownerSessionArchiveApi,
     ownerSessionContinuationStartApi,
     ownerSessionCreateApi,
+    ownerSessionUnarchiveApi,
 } from "./routes/owner-session-api.js";
 import { createOwnerConnectionRegistry } from "./server/owner-connections.js";
 import { AGENTS } from "../../constants.js";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { setCustomSetting } from "../../shared/settings.js";
-import { manifestPath } from "../../shared/session/file-session-storage.ts";
+import { lockPath, manifestPath } from "../../shared/session/file-session-storage.ts";
 import {
     appendTranscriptEntry,
     makeManagedSessionFixture,
@@ -1457,6 +1459,332 @@ Deno.test("sidebar expansion reads only five unseen matching Session names plus 
         Deno.readTextFile = readTextFile;
         service.close();
         store.close();
+        await fixture.cleanup();
+    }
+});
+
+function archiveRouteContext(service, fixture, body = {}, projectId = fixture.project.projectId) {
+    return {
+        req: new Request("http://localhost/archive", { method: "POST", body: JSON.stringify(body) }),
+        params: { projectId, runwieldSessionId: fixture.session.runwieldSessionId },
+        state: { store: service.store, sessionContinuation: service },
+    };
+}
+
+Deno.test("Workspace archive API persists across restart and filters before pagination", async () => {
+    const fixture = await makeManagedSessionFixture();
+    let service = new WorkspaceSessionContinuationService({ store: fixture.openStore() });
+    try {
+        const lock = Deno.openSync(lockPath(fixture.sessionDir, fixture.session.runwieldSessionId), {
+            create: true,
+            read: true,
+            write: true,
+        });
+        try {
+            lock.lockSync(true);
+            assertEquals((await ownerSessionArchiveApi(archiveRouteContext(service, fixture))).status, 409);
+            assertEquals(service.store.getSessionById(fixture.session.runwieldSessionId).archivedAt, null);
+        } finally {
+            lock.unlockSync();
+            lock.close();
+        }
+        const originalSegments = service.store.listSessionTranscriptSegments(fixture.session.runwieldSessionId);
+        const originalGeneration = service.store.inspectSessionActivation(fixture.session.runwieldSessionId).generation;
+        const archivedIds = [fixture.session.runwieldSessionId];
+        for (let index = 0; index < 3; index++) {
+            const transcriptPath = `${fixture.sessionDir}/2026-01-0${index + 2}T00-00-00-000Z_archive-${index}.jsonl`;
+            await Deno.writeTextFile(
+                transcriptPath,
+                JSON.stringify({
+                    type: "session",
+                    id: `archive-${index}`,
+                    cwd: fixture.projectRoot,
+                    timestamp: `2026-01-0${index + 2}T00:00:00.000Z`,
+                    name: `Session ${index}`,
+                }) + "\n",
+            );
+            const session = await service.store.ensureSessionCatalogRecord({
+                projectId: fixture.project.projectId,
+                piSessionId: `archive-${index}`,
+                transcriptPath,
+                transcriptCwd: fixture.projectRoot,
+            });
+            if (index < 2) {
+                await service.archiveSession({
+                    projectId: fixture.project.projectId,
+                    runwieldSessionId: session.runwieldSessionId,
+                });
+                archivedIds.push(session.runwieldSessionId);
+            }
+        }
+        const response = await ownerSessionArchiveApi(archiveRouteContext(service, fixture));
+        assertEquals(response.status, 200);
+        const archivedAt = (await response.json()).archivedAt;
+        assert(archivedAt);
+        service.close();
+        service.store.close();
+        service = new WorkspaceSessionContinuationService({ store: fixture.openStore() });
+        assertEquals(service.store.getSessionById(fixture.session.runwieldSessionId).archivedAt, archivedAt);
+        for (const includeTotal of [true, false]) {
+            const seen = [];
+            for (let page = 0; page < 3; page++) {
+                const result = await ownerProjectSessionsApi({
+                    ...archiveRouteContext(service, fixture),
+                    url: new URL(
+                        `http://localhost/sessions?archiveState=archived&page=${page}&pageSize=1&includeTotal=${includeTotal}`,
+                    ),
+                });
+                assertEquals(result.status, 200);
+                const body = await result.json();
+                assertEquals(body.total, includeTotal ? 3 : null);
+                assertEquals(body.hasNext, page < 2);
+                assertEquals(body.sessions.length, 1);
+                assert(body.sessions[0].archivedAt);
+                seen.push(body.sessions[0].runwieldSessionId);
+            }
+            assertEquals(seen.sort(), [...archivedIds].sort());
+        }
+        assertEquals((await service.listSessions(fixture.project.projectId)).total, 1);
+        assertEquals((await service.listSessions(fixture.project.projectId, { archiveState: "all" })).total, 4);
+        assertEquals(
+            (await ownerProjectSessionsApi({
+                ...archiveRouteContext(service, fixture),
+                url: new URL("http://localhost/sessions?archiveState=invalid"),
+            })).status,
+            400,
+        );
+        assertEquals((await ownerSessionUnarchiveApi(archiveRouteContext(service, fixture))).status, 200);
+        service.close();
+        service.store.close();
+        service = new WorkspaceSessionContinuationService({ store: fixture.openStore() });
+        assertEquals(service.store.getSessionById(fixture.session.runwieldSessionId).archivedAt, null);
+        assertEquals((await service.listSessions(fixture.project.projectId)).total, 2);
+        assertEquals(service.store.listSessionTranscriptSegments(fixture.session.runwieldSessionId), originalSegments);
+        assertEquals(
+            service.store.inspectSessionActivation(fixture.session.runwieldSessionId).generation,
+            originalGeneration,
+        );
+    } finally {
+        service.close();
+        service.store.close();
+        await fixture.cleanup();
+    }
+});
+
+Deno.test("Workspace archive rejects foreign and disabled Projects before stopping work", async () => {
+    const fixture = await makeManagedSessionFixture();
+    const service = new WorkspaceSessionContinuationService({ store: fixture.openStore() });
+    let proof;
+    try {
+        proof = fixture.store.acquireSessionActivation({
+            projectId: fixture.project.projectId,
+            runwieldSessionId: fixture.session.runwieldSessionId,
+            expectedGeneration: 0,
+            operationId: "inaccessible-owner",
+            ownerInstanceId: "test-owner",
+            ownerProcessKind: "test",
+        });
+        const foreignRoot = `${fixture.projectRoot}/foreign`;
+        await Deno.mkdir(foreignRoot);
+        const foreign = service.store.registerProject({ root: foreignRoot });
+        for (const projectId of [foreign.projectId, "missing-project"]) {
+            assertEquals(
+                (await ownerSessionArchiveApi(archiveRouteContext(service, fixture, { confirmed: true }, projectId)))
+                    .status,
+                409,
+            );
+            assertEquals(
+                (await ownerSessionUnarchiveApi(archiveRouteContext(service, fixture, {}, projectId))).status,
+                409,
+            );
+        }
+        service.store.setProjectEnabled(fixture.project.projectId, false);
+        assertEquals(
+            (await ownerSessionArchiveApi(archiveRouteContext(service, fixture, { confirmed: true }))).status,
+            409,
+        );
+        assertEquals(
+            fixture.store.inspectSessionActivation(fixture.session.runwieldSessionId).activation.state,
+            "active",
+        );
+        assertEquals(service.store.getSessionById(fixture.session.runwieldSessionId).archivedAt, null);
+        service.store.setProjectEnabled(fixture.project.projectId, true);
+        // A confirmed stop cannot reach this owner. The archive must not change.
+        assertEquals(
+            (await ownerSessionArchiveApi(archiveRouteContext(service, fixture, { confirmed: true }))).status,
+            409,
+        );
+        assertEquals(service.store.getSessionById(fixture.session.runwieldSessionId).archivedAt, null);
+    } finally {
+        if (proof) fixture.store.releaseUnchangedActivation(proof);
+        service.close();
+        service.store.close();
+        await fixture.cleanup();
+    }
+});
+
+Deno.test("Workspace busy archive requires boolean confirmation and waits for settlement", async () => {
+    await withRuntimeCommandFixture(
+        "workspace-archive-busy-",
+        async ({ homeDir, projectRoot, setModelResponseFactory }) => {
+            const fixture = await makeManagedSessionFixture({ home: homeDir, projectRoot });
+            const service = new WorkspaceSessionContinuationService({ store: fixture.openStore() });
+            let release = () => {};
+            const held = new Promise((resolve) => {
+                release = resolve;
+            });
+            let started = false;
+            let cancelCount = 0;
+            const cancelSession = service.runtime.cancelSession.bind(service.runtime);
+            service.runtime.cancelSession = async (sessionId) => {
+                cancelCount += 1;
+                return await cancelSession(sessionId);
+            };
+            try {
+                setModelResponseFactory(async (context) => {
+                    started = true;
+                    await held;
+                    return fixture.recordedModelResponse("Stopped work.")(context);
+                });
+                const operation = await service.startContinuation({
+                    projectId: fixture.project.projectId,
+                    runwieldSessionId: fixture.session.runwieldSessionId,
+                    expectedGeneration: 0,
+                    requestId: "archive-busy",
+                    text: "Work until stopped.",
+                });
+                for (let index = 0; index < 400 && !started; index++) {
+                    await new Promise((resolve) => setTimeout(resolve, 10));
+                }
+                assert(started);
+                for (const body of [{}, { confirmed: false }, { confirmed: "true" }, { confirmed: 1 }]) {
+                    assertEquals(
+                        (await ownerSessionArchiveApi(archiveRouteContext(service, fixture, body))).status,
+                        409,
+                    );
+                    assertEquals(service.store.getSessionById(fixture.session.runwieldSessionId).archivedAt, null);
+                    assertEquals(
+                        service.store.inspectSessionActivation(fixture.session.runwieldSessionId).activation.state,
+                        "active",
+                    );
+                    assertEquals(service.getOperation(operation.operationId).status, "running");
+                    assertEquals(cancelCount, 0);
+                }
+                const pending = ownerSessionArchiveApi(archiveRouteContext(service, fixture, { confirmed: true }));
+                await new Promise((resolve) => setTimeout(resolve, 50));
+                assertEquals(service.store.getSessionById(fixture.session.runwieldSessionId).archivedAt, null);
+                release();
+                assertEquals((await pending).status, 200);
+                assert(service.store.getSessionById(fixture.session.runwieldSessionId).archivedAt);
+                assertEquals(
+                    service.store.inspectSessionActivation(fixture.session.runwieldSessionId).activation.state,
+                    "idle",
+                );
+                assertEquals((await service.listSessions(fixture.project.projectId)).total, 0);
+            } finally {
+                release();
+                await service.runtime.closeAllSessionsWhenIdle();
+                service.close();
+                service.store.close();
+                await fixture.cleanup();
+            }
+        },
+    );
+});
+
+Deno.test("Workspace archive stops a remote surface through the live connection", async () => {
+    await withRuntimeCommandFixture(
+        "workspace-archive-remote-",
+        async ({ homeDir, projectRoot, setModelResponseFactory }) => {
+            const fixture = await makeManagedSessionFixture({ home: homeDir, projectRoot });
+            const owner = fixture.openRuntime("tui", "archive-remote-owner");
+            const service = new WorkspaceSessionContinuationService({ store: fixture.openStore() });
+            let release = () => {};
+            const held = new Promise((resolve) => {
+                release = resolve;
+            });
+            let started = false;
+            try {
+                setModelResponseFactory(async (context) => {
+                    started = true;
+                    await held;
+                    return fixture.recordedModelResponse("Remote work.")(context);
+                });
+                const turn = owner.runtime.promptUserTurn(owner.adoptedSessionId, {
+                    initialRequest: "Start remote work.",
+                });
+                for (let index = 0; index < 400 && !started; index++) {
+                    await new Promise((resolve) => setTimeout(resolve, 10));
+                }
+                assert(started);
+                assertEquals((await ownerSessionArchiveApi(archiveRouteContext(service, fixture))).status, 409);
+                assertEquals(service.operations.size, 0);
+                const pending = ownerSessionArchiveApi(archiveRouteContext(service, fixture, { confirmed: true }));
+                await new Promise((resolve) => setTimeout(resolve, 50));
+                assertEquals(service.store.getSessionById(fixture.session.runwieldSessionId).archivedAt, null);
+                release();
+                assertEquals((await pending).status, 200);
+                await turn;
+                assert(service.store.getSessionById(fixture.session.runwieldSessionId).archivedAt);
+                assertEquals(
+                    service.store.inspectSessionActivation(fixture.session.runwieldSessionId).activation.state,
+                    "idle",
+                );
+            } finally {
+                release();
+                await owner.close();
+                service.close();
+                service.store.close();
+                await fixture.cleanup();
+            }
+        },
+    );
+});
+
+Deno.test("Workspace Plan-filtered Session API explicitly includes archived associations", async () => {
+    const fixture = await makeManagedSessionFixture();
+    const service = new WorkspaceSessionContinuationService({ store: fixture.openStore() });
+    try {
+        const segmentId = fixture.store.getCurrentSessionSegment(fixture.session.runwieldSessionId).segmentId;
+        let proof = fixture.store.acquireSessionActivation({
+            projectId: fixture.project.projectId,
+            runwieldSessionId: fixture.session.runwieldSessionId,
+            expectedGeneration: 0,
+            operationId: "archive-association",
+            ownerInstanceId: "test-owner",
+            ownerProcessKind: "test",
+        });
+        fixture.store.stagePlanAssociation(proof, {
+            planId: "archived-plan",
+            planName: "Archived Plan",
+            purpose: "planning",
+            segmentId,
+            segmentKind: "session",
+            recordedAt: "2026-01-01T00:00:00.000Z",
+        });
+        proof = fixture.store.changeSessionActivationPhase(proof, "hydrated");
+        proof = fixture.store.changeSessionActivationPhase(proof, "checkpointing");
+        fixture.store.publishGenerationAndRelease(proof, {
+            generation: 1,
+            currentSegmentId: segmentId,
+            ...await readTranscriptEvidence(fixture.transcriptPath),
+        });
+        assertEquals((await ownerSessionArchiveApi(archiveRouteContext(service, fixture))).status, 200);
+        for (const includeTotal of [true, false]) {
+            const response = await ownerProjectSessionsApi({
+                ...archiveRouteContext(service, fixture),
+                url: new URL(`http://localhost/sessions?plan=archived-plan&includeTotal=${includeTotal}`),
+            });
+            assertEquals(response.status, 200);
+            const body = await response.json();
+            assertEquals(body.sessions.length, 1);
+            assertEquals(body.sessions[0].runwieldSessionId, fixture.session.runwieldSessionId);
+            assert(body.sessions[0].archivedAt);
+        }
+        assertEquals((await service.listSessions(fixture.project.projectId)).sessions, []);
+    } finally {
+        service.close();
+        service.store.close();
         await fixture.cleanup();
     }
 });

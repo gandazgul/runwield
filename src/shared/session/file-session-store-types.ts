@@ -66,6 +66,7 @@ export interface FileSessionManifest {
     updatedAt: string;
     currentSegmentId: string;
     fence: number;
+    archivedAt?: string | null;
     activation: FileSessionActivation;
     generation: FileSessionGeneration | null;
     segments: SessionTranscriptSegment[];
@@ -177,6 +178,7 @@ export interface SessionLocator {
 }
 
 export interface CatalogedSession {
+    archivedAt: string | null;
     runwieldSessionId: string;
     projectId: string;
     displayName: string | null;
@@ -198,6 +200,7 @@ export interface CatalogDiagnostic {
 }
 
 export interface ListSessionOptions {
+    archiveState?: "active" | "archived" | "all";
     /** Return the entire sorted catalog for a caller that filters its own visible page. */
     all?: boolean;
     catalog?: boolean;
@@ -376,6 +379,8 @@ export interface FileSessionStore {
     requireSessionProjectRoot(projectId: string): string;
     findSessionByLocator(locator: SessionLocator): CatalogedSession | null;
     getSessionById(runwieldSessionId: string, projectId?: string): CatalogedSession | null;
+    archiveSession(runwieldSessionId: string, projectId?: string): CatalogedSession;
+    unarchiveSession(runwieldSessionId: string, projectId?: string): CatalogedSession;
     ensureSessionCatalogRecord(locator: EnsureSessionCatalogOptions): Promise<CatalogedSession>;
     ensureSessionCatalogRecordAndAcquire(options: {
         locator: EnsureSessionCatalogOptions;
