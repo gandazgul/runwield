@@ -1040,6 +1040,10 @@ not inherit it. Future Session deletion also removes its images. See
 
 - Given an Engineer-family Agent with a 128,000-token context window, its early compaction threshold is 76,800 tokens.
   With a 200,000-token or larger window, the early threshold is capped at 120,000 tokens.
+- Given an Engineer retry after an aborted request, retained instructions from earlier Agents do not inflate its
+  usage-backed context count. The pre-prompt check includes the incoming message.
+- Given successful compaction with no queued messages, Engineer compaction resets and Pair checkpoints remain available.
+  A failed or cancelled compaction does not count as success.
 - When compaction finishes and the Session resumes, its goal, decisions, constraints, saved Named Invocation expansion,
   and useful progress survive; failure or cancellation never claims successful compaction.
 - Given a text-only destination model and no suitable vision fallback, when the user tries to send an image or changes
