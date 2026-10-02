@@ -48,10 +48,10 @@
     "npm:@codemirror/state@^6.7.5": "6.7.5",
     "npm:@codemirror/view@^6.43.11": "6.43.11",
     "npm:@deno/astro-adapter@0.6": "0.6.0_astro@7.3.2_@emnapi+core@1.11.3_@emnapi+runtime@1.11.3",
-    "npm:@earendil-works/pi-agent-core@~0.99.1": "0.99.1_@modelcontextprotocol+sdk@1.30.0_undici@8.10.2",
-    "npm:@earendil-works/pi-ai@~0.99.1": "0.99.1_@modelcontextprotocol+sdk@1.30.0_undici@8.10.2",
-    "npm:@earendil-works/pi-coding-agent@~0.99.1": "0.99.1_@modelcontextprotocol+sdk@1.30.0",
-    "npm:@earendil-works/pi-tui@~0.99.1": "0.99.1",
+    "npm:@earendil-works/pi-agent-core@1": "1.0.0_@modelcontextprotocol+sdk@1.30.0_undici@8.10.2",
+    "npm:@earendil-works/pi-ai@1": "1.0.0_@modelcontextprotocol+sdk@1.30.0_undici@8.10.2",
+    "npm:@earendil-works/pi-coding-agent@1": "1.0.0_@modelcontextprotocol+sdk@1.30.0",
+    "npm:@earendil-works/pi-tui@1": "1.0.0",
     "npm:@lezer/common@^1.5.2": "1.5.2",
     "npm:@lezer/highlight@^1.2.3": "1.2.3",
     "npm:@modelcontextprotocol/sdk@1.30.0": "1.30.0_zod@4.4.3",
@@ -1064,26 +1064,21 @@
         "astro"
       ]
     },
-    "@earendil-works/chord@0.99.1": {
-      "integrity": "sha512-4xyn0IBzJ+Xu/iOGi2hjXJGAR61QEhEWZsIqTDqr+GmItdquYwBO5jYFnqGiBaTqlY12/EpM7QHoEKSHbyvOug==",
+    "@earendil-works/chord@1.0.0": {
+      "integrity": "sha512-BIfWfrByM0pKq6tfKYXuwx0ed2CvaqIM3EDA7Dps+fP+d3CiPWdlHi1cDsJC05llqKJoRz5//G0hz0yQwwjISQ==",
       "dependencies": [
         "esbuild"
       ]
     },
-    "@earendil-works/pi-agent-core@0.99.1_@modelcontextprotocol+sdk@1.30.0_undici@8.10.2": {
-      "integrity": "sha512-zywvWnj5FujeuFI/x/CJHwwxhcLIQgjqseTA+bQgX4O8gJTcgjRd/I8SZnQDqJvxC9QcV12ujiGLviv6EgwcCg==",
+    "@earendil-works/pi-agent-core@1.0.0_@modelcontextprotocol+sdk@1.30.0_undici@8.10.2": {
+      "integrity": "sha512-bHFONjtEBDqiV+g1DmmtkSlfAaqHELr+XO+6I5Nah4gswwZrLJO4yZB/JjsnlI4AKWTayBLfgS6DCbeBBz9e2Q==",
       "dependencies": [
-        "@earendil-works/chord",
         "@earendil-works/pi-ai",
-        "@earendil-works/pi-telemetry",
-        "diff@8.0.4",
-        "ignore",
-        "typebox",
-        "yaml@2.9.0"
+        "typebox"
       ]
     },
-    "@earendil-works/pi-ai@0.99.1_@modelcontextprotocol+sdk@1.30.0_undici@8.10.2": {
-      "integrity": "sha512-4nV9JKc94iPX8bwdGPc2nTuVPKIPsffhnp3WoN9NYCNqbtoOF8LhYcIs/+Sn/alroqJK/5QRu6/Z6Ck+n0hyBA==",
+    "@earendil-works/pi-ai@1.0.0_@modelcontextprotocol+sdk@1.30.0_undici@8.10.2": {
+      "integrity": "sha512-3/W1vdDaVtpeMd23ElvJC12HLA5yS/BGqqcXF+0SK082dN7cbgNcCwguTBRBC258Ke8SzSvUW1B75iAf8w8IxA==",
       "dependencies": [
         "@anthropic-ai/sdk",
         "@aws-sdk/client-bedrock-runtime",
@@ -1098,14 +1093,14 @@
       ],
       "bin": true
     },
-    "@earendil-works/pi-codemode@0.99.1": {
-      "integrity": "sha512-oh8TMsBI3SWTN3xTQtX8u5n+BKhnVXcFagroWumfn6/WWfBnDYL/LmeQtjLb83WRTb9rcu+ZdK8rFa4vggvCJg==",
+    "@earendil-works/pi-codemode@1.0.0": {
+      "integrity": "sha512-LPpFI4+T9NzDnhBDs15izWAolaoM8xnwqdziRd6Zx8BQeoEPvzefD2vMMzSyF0rOtq34TfQqkZ0ki16f6cGdMg==",
       "dependencies": [
         "quickjs-wasi"
       ]
     },
-    "@earendil-works/pi-coding-agent@0.99.1_@modelcontextprotocol+sdk@1.30.0": {
-      "integrity": "sha512-cWUrTOqA5M73cOYMgsh9PlhDrsBhavd+n5kVY6F7BGbGl1RjqCteVCoeVMVqhngoGACVDyw1tbLjajL8l9jrHg==",
+    "@earendil-works/pi-coding-agent@1.0.0_@modelcontextprotocol+sdk@1.30.0": {
+      "integrity": "sha512-/FtbxoSQU/mEv1QnichJjRjqteqaIaMWxmhB4G367+MwZfX7/DI5B9YAg5lqbN7nztFskBEtUSZ+FlmMBECtMw==",
       "dependencies": [
         "@earendil-works/chord",
         "@earendil-works/pi-agent-core",
@@ -1132,17 +1127,17 @@
       ],
       "bin": true
     },
-    "@earendil-works/pi-mcp@0.99.1": {
-      "integrity": "sha512-YCFGPkmDzLwQuIzwfbP6Vuk/g/ukKpZhwTpbcfzomuI1Fkiu6hHRkOGwAqsO3G8cTkZWkM8vmOkFJjStQNC4qA==",
+    "@earendil-works/pi-mcp@1.0.0": {
+      "integrity": "sha512-rYra0aF5iPmJd+fsB+VBuqxWNABGJ3Iiyhg0CqIc/91ta2n7IvQmCp0Cac/YkUTNnvRsVZnjgAiBkRi6+ouWuw==",
       "dependencies": [
         "cross-spawn"
       ]
     },
-    "@earendil-works/pi-telemetry@0.99.1": {
-      "integrity": "sha512-9PBPjGk+TXRtuMianpqBbHBpYpyKusESF6rwdmgD0WTZSTUQXhcKEO0hAINRLuSwy4V7yPvXV+EVV0ONY7mbpQ=="
+    "@earendil-works/pi-telemetry@1.0.0": {
+      "integrity": "sha512-WjNBj5TYIiPZFQEz2WlULcDwPLaKwIlmsKjVeYM+LJSbnSp38kWsHUJysIDGnu23IcLbKoPtywsvYfUJCeZePA=="
     },
-    "@earendil-works/pi-tui@0.99.1": {
-      "integrity": "sha512-gZp0Guat96Fr1AuC/xqVz5B2lulZakp/PxD1lXx3lSgBdjiqmwYhJbcQ0HRrGAfy0WtMGn9b05RJr5qJf7oIuw==",
+    "@earendil-works/pi-tui@1.0.0": {
+      "integrity": "sha512-JsT7kXnpZA2YOtQu6RyriyxEO0eJIzPyfiH09bH+OLN5+s18HYkwaUD/tBkjhnSfMu6/50CQPRYJagzSP6HdPw==",
       "dependencies": [
         "get-east-asian-width",
         "marked@18.0.11"
@@ -3141,8 +3136,8 @@
     "@silvia-odwyer/photon-node@0.3.4": {
       "integrity": "sha512-bnly4BKB3KDTFxrUIcgCLbaeVVS8lrAkri1pEzskpmxu9MdfGQTy8b8EgcD83ywD3RPMsIulY8xJH5Awa+t9fA=="
     },
-    "@smithy/core@3.35.0": {
-      "integrity": "sha512-zRMhfkByhT2snNdr1si24vJitU6Cr9ix2MikUfWmkAgp4jrNP0GcKSP5YvwQ+TlI8AZXER5QOGJn3JsVtSD9/A==",
+    "@smithy/core@3.35.1": {
+      "integrity": "sha512-i4YPS4B6ts7bjn7UwLnGjiZdprOvHvgGobFZsYK3GIY3E5hIqtj0rReU69BcTpGp+fvtraSNXeG1l+jtJvF55w==",
       "dependencies": [
         "@smithy/types",
         "tslib"
@@ -6693,10 +6688,10 @@
       "npm:@codemirror/state@^6.7.5",
       "npm:@codemirror/view@^6.43.11",
       "npm:@deno/astro-adapter@0.6",
-      "npm:@earendil-works/pi-agent-core@~0.99.1",
-      "npm:@earendil-works/pi-ai@~0.99.1",
-      "npm:@earendil-works/pi-coding-agent@~0.99.1",
-      "npm:@earendil-works/pi-tui@~0.99.1",
+      "npm:@earendil-works/pi-agent-core@1",
+      "npm:@earendil-works/pi-ai@1",
+      "npm:@earendil-works/pi-coding-agent@1",
+      "npm:@earendil-works/pi-tui@1",
       "npm:@lezer/common@^1.5.2",
       "npm:@lezer/highlight@^1.2.3",
       "npm:@modelcontextprotocol/sdk@^1.30.0",
