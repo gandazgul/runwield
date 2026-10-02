@@ -28,7 +28,7 @@ createdAt: "2026-10-02"
 origin: "internal"
 userVerifiedAt: null
 targetBranch: "main"
-status: "implemented"
+status: "validated_reviewer"
 ---
 
 # Archive Sessions Through ACP and Workspace

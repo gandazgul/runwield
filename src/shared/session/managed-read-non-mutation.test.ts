@@ -233,6 +233,7 @@ Deno.test("managed read sweep drives read paths without writable Pi calls or tra
                 await runtime.verifyPlanAssociatedSession({
                     runwieldSessionId: session.runwieldSessionId,
                     displayName: session.displayName,
+                    archivedAt: session.archivedAt,
                     piSessionId: session.piSessionId,
                     transcriptPath: session.transcriptPath,
                     associations: [],

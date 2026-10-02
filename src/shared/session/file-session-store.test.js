@@ -1297,13 +1297,13 @@ for (const changed of [false, true]) {
                 assertThrows(() => archiver.archiveSession(session.runwieldSessionId), Error, "requires recovery");
                 assertEquals(archiver.getSessionById(session.runwieldSessionId)?.archivedAt, null);
                 assertEquals(
-                    archiver.inspectSessionActivation(session.runwieldSessionId).activation.state,
+                    archiver.inspectSessionActivation(session.runwieldSessionId).activation?.state,
                     "reconcile_required",
                 );
             } else {
                 assert(archiver.archiveSession(session.runwieldSessionId).archivedAt);
                 assertEquals(
-                    archiver.inspectSessionActivation(session.runwieldSessionId).activation.state,
+                    archiver.inspectSessionActivation(session.runwieldSessionId).activation?.state,
                     "uninitialized",
                 );
             }

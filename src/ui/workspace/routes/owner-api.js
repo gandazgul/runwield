@@ -367,7 +367,12 @@ export async function associatedPlanSession(store, projectId, planId) {
     let selectedAt = "";
     let selectedCurrent = false;
     for (let page = 0;; page++) {
-        const batch = await store.listProjectSessions(projectId, { catalog: false, page, pageSize: 100 });
+        const batch = await store.listProjectSessions(projectId, {
+            catalog: false,
+            archiveState: "all",
+            page,
+            pageSize: 100,
+        });
         for (const session of batch.sessions) {
             const associations = store.listSessionPlanAssociations(session.runwieldSessionId, projectId)
                 .filter((entry) => entry.committedGeneration !== null);

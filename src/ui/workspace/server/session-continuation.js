@@ -1083,7 +1083,7 @@ export class WorkspaceSessionContinuationService {
     }
 
     /** @param {WorkspaceSessionArchiveRequest} options */
-    async unarchiveSession(options) {
+    unarchiveSession(options) {
         requireOwnerProjectRoot(this.store, options.projectId);
         const session = this.store.getSessionById(options.runwieldSessionId);
         if (!session || !sessionBelongsToOwnerProject(this.store, session, options.projectId)) {

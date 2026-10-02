@@ -703,7 +703,11 @@ export async function runReviewerRound(
         if (written) {
             emitStatus(
                 args,
-                `The reviewer left ${latestOutcome.integrationNotes.length} Integration Note(s) for ${epicContext.epicPlanName}.`,
+                buildValidationUserMessage({
+                    kind: "integration_notes_saved",
+                    count: latestOutcome.integrationNotes.length,
+                    epicPlanName: epicContext.epicPlanName,
+                }),
                 "info",
             );
         }

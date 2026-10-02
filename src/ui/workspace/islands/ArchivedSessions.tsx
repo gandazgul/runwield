@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { SessionList } from "../components/SessionList.jsx";
+import { SessionList, type SessionListData } from "../components/SessionList.jsx";
 
-/** @param {{ projectId: string }} props */
-export default function ArchivedSessions({ projectId }) {
+interface ArchivedSessionsProps {
+    projectId: string;
+}
+
+export default function ArchivedSessions({ projectId }: ArchivedSessionsProps) {
     const [page, setPage] = useState(0);
-    const [data, setData] = useState(null);
+    const [data, setData] = useState<SessionListData | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
     const generation = useRef(0);
