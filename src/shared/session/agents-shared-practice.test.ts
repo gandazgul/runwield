@@ -201,6 +201,16 @@ Deno.test("every bundled fragment is claimed by at least one agent", async () =>
     // Both delegated subagent definitions claim this fragment outside the top-level listing.
     claimed.add("delegated-session");
     // Discovery, verification, and integration Reviewers are workflow-only subagents.
+    const { loadSubAgentDefinition } = await import("./subagent-definitions.ts");
+    const { SUBAGENTS } = await import("../../constants.js");
+    const reviewPractice = (await Deno.readTextFile(join(SHARED_PRACTICE_DIR, "review-practice.md")))
+        .replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, "").trim();
+    for (const id of [SUBAGENTS.REVIEWER, SUBAGENTS.INTEGRATION_REVIEWER]) {
+        const reviewer = await loadSubAgentDefinition(id);
+        assertStringIncludes(reviewer.systemPrompt, reviewPractice);
+    }
+    const verifyReviewer = await loadSubAgentDefinition(SUBAGENTS.REVIEWER, { reviewerMode: "verify" });
+    assertStringIncludes(verifyReviewer.systemPrompt, reviewPractice);
     claimed.add("review-practice");
 
     for await (const entry of Deno.readDir(SHARED_PRACTICE_DIR)) {
