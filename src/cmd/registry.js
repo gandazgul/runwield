@@ -10,7 +10,7 @@ import { runExportCommand } from "./export/index.js";
 import { runNewCommand } from "./new/index.ts";
 import { runNameCommand } from "./name/index.ts";
 import { runSessionCommand } from "./session/index.js";
-import { runContextCommand } from "./context/index.js";
+import { runContextCommand } from "./context/index.ts";
 import { runShareCommand, SYSTEM_GITHUB_CLI_PORT } from "./share/index.ts";
 import { runResumeCommand } from "./resume/index.ts";
 import { runInstallCommand } from "./install/index.ts";
