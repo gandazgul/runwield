@@ -200,6 +200,8 @@ Deno.test("every bundled fragment is claimed by at least one agent", async () =>
     claimed.add("working-tree-safety");
     // Both delegated subagent definitions claim this fragment outside the top-level listing.
     claimed.add("delegated-session");
+    // Discovery, verification, and integration Reviewers are workflow-only subagents.
+    claimed.add("review-practice");
 
     for await (const entry of Deno.readDir(SHARED_PRACTICE_DIR)) {
         if (!entry.isFile || !entry.name.endsWith(".md")) continue;

@@ -9,6 +9,7 @@ import {
     ownerSessionCreateApi,
     ownerSessionUnarchiveApi,
 } from "./routes/owner-session-api.js";
+import { associatedPlanSession } from "./routes/owner-api.js";
 import { createOwnerConnectionRegistry } from "./server/owner-connections.js";
 import { AGENTS } from "../../constants.js";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
@@ -1782,6 +1783,10 @@ Deno.test("Workspace Plan-filtered Session API explicitly includes archived asso
             assert(body.sessions[0].archivedAt);
         }
         assertEquals((await service.listSessions(fixture.project.projectId)).sessions, []);
+        assertEquals(
+            await associatedPlanSession(service.store, fixture.project.projectId, "archived-plan"),
+            fixture.session.runwieldSessionId,
+        );
     } finally {
         service.close();
         service.store.close();

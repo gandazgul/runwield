@@ -3189,19 +3189,24 @@ for (const mapped of [false, true]) {
             await withRuntimeCommandFixture("runwield-acp-delete-remote-", async (fixture) => {
                 const handle = startTestServer();
                 const store = openFileSessionStore();
+                /** @type {ReturnType<typeof createServer> | undefined} */
                 let socket;
                 let proof;
-                let socketPath;
+                let socketPath = "";
                 let stopped = () => {};
                 const cancellation = new Promise((resolve) => {
-                    stopped = resolve;
+                    stopped = () => resolve(undefined);
                 });
                 try {
                     const created = mapped
                         ? await createSession(handle, fixture.projectRoot)
                         : await createIdleUngeneratedPersistedSession(fixture.projectRoot);
-                    const session = store.getSessionById(created.persistedSessionId) ||
-                        store.findSessionByLocator({ piSessionId: created.persistedSessionId || created.piSessionId });
+                    const persistedId = "persistedSessionId" in created
+                        ? created.persistedSessionId
+                        : created.piSessionId;
+                    const sessionId = "sessionId" in created ? created.sessionId : `acp-${created.piSessionId}`;
+                    const session = store.getSessionById(persistedId) ||
+                        store.findSessionByLocator({ piSessionId: persistedId });
                     assert(session);
                     proof = store.acquireSessionActivation({
                         runwieldSessionId: session.runwieldSessionId,
@@ -3226,12 +3231,13 @@ for (const mapped of [false, true]) {
                         );
                         stopped();
                     });
-                    await new Promise((resolve) => socket.listen(socketPath, resolve));
+                    const listeningSocket = socket;
+                    await new Promise((resolve) => listeningSocket.listen(socketPath, () => resolve(undefined)));
                     await sendMessage(handle, {
                         jsonrpc: "2.0",
                         id: "remote-delete",
                         method: "session/delete",
-                        params: { sessionId: mapped ? created.sessionId : `acp-${created.piSessionId}` },
+                        params: { sessionId },
                     });
                     let deleteSettled = false;
                     const deletion = readThroughResponse(handle, "remote-delete", 10_000).then((result) => {
@@ -3240,7 +3246,7 @@ for (const mapped of [false, true]) {
                     });
                     await cancellation;
                     assertEquals(store.getSessionById(session.runwieldSessionId)?.archivedAt, null);
-                    assertEquals(store.inspectSessionActivation(session.runwieldSessionId).activation.state, "active");
+                    assertEquals(store.inspectSessionActivation(session.runwieldSessionId).activation?.state, "active");
                     if (!cancellationFails) {
                         // Cancellation acknowledgment is not writer settlement.
                         await new Promise((resolve) => setTimeout(resolve, 100));
@@ -3254,20 +3260,21 @@ for (const mapped of [false, true]) {
                         assert(result.error);
                         assertEquals(store.getSessionById(session.runwieldSessionId)?.archivedAt, null);
                         assertEquals(
-                            store.inspectSessionActivation(session.runwieldSessionId).activation.state,
+                            store.inspectSessionActivation(session.runwieldSessionId).activation?.state,
                             "active",
                         );
                     } else {
                         assertEquals(result.result, {});
                         assert(store.getSessionById(session.runwieldSessionId)?.archivedAt);
                         assertEquals(
-                            store.inspectSessionActivation(session.runwieldSessionId).activation.state,
+                            store.inspectSessionActivation(session.runwieldSessionId).activation?.state,
                             mapped ? "idle" : "uninitialized",
                         );
                     }
                 } finally {
                     if (proof) store.releaseUnchangedActivation(proof);
-                    if (socket) await new Promise((resolve) => socket.close(resolve));
+                    const closingSocket = socket;
+                    if (closingSocket) await new Promise((resolve) => closingSocket.close(resolve));
                     if (socketPath) await Deno.remove(socketPath).catch(() => {});
                     store.close();
                     await closeTestServer(handle);

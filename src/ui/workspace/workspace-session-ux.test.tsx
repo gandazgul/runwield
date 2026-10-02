@@ -2211,7 +2211,7 @@ Deno.test("Idle archive failure keeps its open link and supports retry; archived
 });
 
 Deno.test("Archived Sessions fetches the selected page and keeps saved links when Unarchive fails", async () => {
-    const { default: ArchivedSessions } = await import("./islands/ArchivedSessions.jsx");
+    const { default: ArchivedSessions } = await import("./islands/ArchivedSessions.tsx");
     const { createElement, act } = await import("react");
     const { create } = await import("react-test-renderer");
     const previousFetch = globalThis.fetch;
@@ -2393,7 +2393,7 @@ Deno.test("Plan Session archive keeps the row and switches its action; stale idl
 
 for (const surface of ["archived", "history"]) {
     Deno.test(`${surface} Session pagination returns from a page emptied by concurrent row actions`, async () => {
-        const { default: ArchivedSessions } = await import("./islands/ArchivedSessions.jsx");
+        const { default: ArchivedSessions } = await import("./islands/ArchivedSessions.tsx");
         const { createElement, act } = await import("react");
         const { create } = await import("react-test-renderer");
         const previousFetch = globalThis.fetch;
@@ -2462,7 +2462,7 @@ for (const surface of ["archived", "history"]) {
                     }),
                 );
             });
-            await act(async () => {
+            await act(() => {
                 renderer.root.findAllByType("button").find((button) => button.children.join("").includes("Next")).props
                     .onClick();
             });
