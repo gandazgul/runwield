@@ -7,7 +7,7 @@ import {
     personalGlobalRoot,
     PersonalResourcePathError,
 } from "../remote/personal-resources.ts";
-import { directoryExists, fileExists } from "../helpers.js";
+import { directoryExists, fileExists } from "../helpers.ts";
 import { getCustomSetting } from "../settings.js";
 import { extractBundledSkills } from "./agent-assets.js";
 

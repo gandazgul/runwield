@@ -1,8 +1,4 @@
-/**
- * @param {string} path
- * @returns {Promise<boolean>}
- */
-export async function directoryExists(path) {
+export async function directoryExists(path: string): Promise<boolean> {
     try {
         const stat = await Deno.stat(path);
         return stat.isDirectory;
@@ -11,11 +7,7 @@ export async function directoryExists(path) {
     }
 }
 
-/**
- * @param {string} path
- * @returns {Promise<boolean>}
- */
-export async function fileExists(path) {
+export async function fileExists(path: string): Promise<boolean> {
     try {
         const stat = await Deno.stat(path);
         return stat.isFile;
