@@ -748,3 +748,28 @@ Deno.test("New Session link prefers current enabled Project, then remembered ena
     renderSidebar({ projects: projects.map((project) => ({ ...project, enabled: false })) }, { kind: "home" });
     assertEquals(link(), "/projects");
 });
+
+Deno.test("Plan-associated sidebar Sessions keep open links and show Archived status", () => {
+    const { document } = installFakeBrowser();
+    renderSidebar({
+        projects: [{
+            projectId: "project-a",
+            displayName: "Project A",
+            enabled: true,
+            sessions: [],
+            plans: [{
+                planId: "plan-a",
+                title: "Plan A",
+                sessions: [{
+                    runwieldSessionId: "saved",
+                    displayName: "Saved conversation",
+                    state: "idle",
+                    archivedAt: "2026-10-02",
+                }],
+            }],
+        }],
+    }, { kind: "plan", projectId: "project-a", planId: "plan-a" });
+    const row = document.querySelector('[data-sidebar-session="saved"]');
+    assertEquals(row.href, "/projects/project-a/sessions/saved");
+    assertEquals(row.querySelector("small").textContent, "Archived");
+});

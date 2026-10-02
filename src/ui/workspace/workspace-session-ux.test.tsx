@@ -2064,3 +2064,436 @@ Deno.test("New Session terminal stream message followed by error does not report
         return defaultNewSessionResponse(url);
     });
 });
+
+Deno.test("Session history confirms busy archive before any request and guards duplicate actions", async () => {
+    const { SessionList } = await import("./components/SessionList.jsx");
+    const { createElement, act } = await import("react");
+    const { create } = await import("react-test-renderer");
+    const previousFetch = globalThis.fetch;
+    const previousConfirm = globalThis.confirm;
+    const previousDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
+    const previousAct = globalThis.IS_REACT_ACT_ENVIRONMENT;
+    let renderer;
+    const requests = [];
+    let finish;
+    try {
+        globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+        Object.defineProperty(globalThis, "document", {
+            configurable: true,
+            value: { cookie: "rw_owner_csrf=archive-token" },
+        });
+        globalThis.confirm = () => false;
+        globalThis.fetch = (url, options) => {
+            requests.push({ url: String(url), body: JSON.parse(options.body), headers: options.headers });
+            return new Promise((resolve) => {
+                finish = resolve;
+            });
+        };
+        await act(() => {
+            renderer = create(
+                createElement(SessionList, {
+                    projectId: "project one",
+                    data: {
+                        sessions: [{ runwieldSessionId: "busy one", displayName: "Busy Session", state: "active" }],
+                    },
+                }),
+            );
+        });
+        const archive = () =>
+            renderer.root.findAllByType("button").find((button) =>
+                button.props["aria-label"] === "Archive Busy Session"
+            );
+        await act(async () => {
+            await archive().props.onClick();
+        });
+        assertEquals(requests.length, 0);
+        assertEquals(renderer.root.findAllByProps({ className: "session-list-name" }).length, 1);
+        globalThis.confirm = () => true;
+        const action = archive().props.onClick;
+        let pending;
+        await act(() => {
+            pending = action();
+        });
+        assertEquals(archive().props.disabled, true);
+        await act(async () => {
+            await action();
+        });
+        assertEquals(requests.length, 1);
+        assertEquals(requests[0].url, "/api/owner/projects/project%20one/sessions/busy%20one/archive");
+        assertEquals(requests[0].body, { confirmed: true });
+        assertEquals(requests[0].headers["x-runwield-csrf"], "archive-token");
+        await act(async () => {
+            finish(Response.json({}));
+            await pending;
+        });
+        assertEquals(renderer.root.findAllByProps({ className: "session-list-name" }).length, 0);
+    } finally {
+        if (renderer) await act(() => renderer.unmount());
+        globalThis.fetch = previousFetch;
+        globalThis.confirm = previousConfirm;
+        globalThis.IS_REACT_ACT_ENVIRONMENT = previousAct;
+        if (previousDocument) Object.defineProperty(globalThis, "document", previousDocument);
+        else delete globalThis.document;
+    }
+});
+
+Deno.test("Idle archive failure keeps its open link and supports retry; archived rows unarchive without confirmation", async () => {
+    const { SessionList } = await import("./components/SessionList.jsx");
+    const { createElement, act } = await import("react");
+    const { create } = await import("react-test-renderer");
+    const previousFetch = globalThis.fetch;
+    const previousConfirm = globalThis.confirm;
+    const previousDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
+    const previousAct = globalThis.IS_REACT_ACT_ENVIRONMENT;
+    let renderer;
+    const requests = [];
+    try {
+        globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+        Object.defineProperty(globalThis, "document", { configurable: true, value: { cookie: "" } });
+        globalThis.confirm = () => {
+            throw new Error("Idle and Unarchive must not confirm");
+        };
+        globalThis.fetch = (url, options) => {
+            requests.push({ url: String(url), body: JSON.parse(options.body) });
+            return Promise.resolve(
+                requests.length === 1
+                    ? Response.json({ error: "Storage is unavailable." }, { status: 503 })
+                    : Response.json({}),
+            );
+        };
+        const data = {
+            sessions: [{ runwieldSessionId: "saved", displayName: "Saved Session", state: "idle" }],
+            total: 1,
+        };
+        await act(() => {
+            renderer = create(createElement(SessionList, { projectId: "p", data }));
+        });
+        const button = () =>
+            renderer.root.findAllByType("button").find((row) => row.props["aria-label"]?.includes("Saved Session"));
+        await act(async () => {
+            await button().props.onClick();
+        });
+        assertEquals(requests[0].body, { confirmed: false });
+        assertStringIncludes(renderer.root.findByProps({ role: "alert" }).children.join(""), "Try again.");
+        assertEquals(
+            renderer.root.findAllByType("a").some((link) => link.props.href === "/projects/p/sessions/saved"),
+            true,
+        );
+        assertEquals(button().props.disabled, false);
+        await act(async () => {
+            await button().props.onClick();
+        });
+        assertEquals(renderer.root.findAllByProps({ className: "session-list-name" }).length, 0);
+        await act(() => renderer.unmount());
+        await act(() => {
+            renderer = create(
+                createElement(SessionList, {
+                    projectId: "p",
+                    archived: true,
+                    data: { ...data, sessions: [{ ...data.sessions[0], archivedAt: "2026-10-02" }] },
+                }),
+            );
+        });
+        assertEquals(renderer.root.findByProps({ className: "session-list-status" }).children, ["Archived"]);
+        await act(async () => {
+            await button().props.onClick();
+        });
+        assertEquals(requests[2].url, "/api/owner/projects/p/sessions/saved/unarchive");
+        assertEquals(renderer.root.findAllByProps({ className: "session-list-name" }).length, 0);
+    } finally {
+        if (renderer) await act(() => renderer.unmount());
+        globalThis.fetch = previousFetch;
+        globalThis.confirm = previousConfirm;
+        globalThis.IS_REACT_ACT_ENVIRONMENT = previousAct;
+        if (previousDocument) Object.defineProperty(globalThis, "document", previousDocument);
+        else delete globalThis.document;
+    }
+});
+
+Deno.test("Archived Sessions fetches the selected page and keeps saved links when Unarchive fails", async () => {
+    const { default: ArchivedSessions } = await import("./islands/ArchivedSessions.jsx");
+    const { createElement, act } = await import("react");
+    const { create } = await import("react-test-renderer");
+    const previousFetch = globalThis.fetch;
+    const previousDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
+    const previousAct = globalThis.IS_REACT_ACT_ENVIRONMENT;
+    let renderer;
+    const reads = [];
+    try {
+        globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+        Object.defineProperty(globalThis, "document", { configurable: true, value: { cookie: "" } });
+        globalThis.fetch = (url, options) => {
+            if (options?.method === "POST") {
+                return Promise.resolve(Response.json({ error: "Cannot write archive state." }, { status: 503 }));
+            }
+            const query = new URL(String(url), "http://localhost").searchParams;
+            reads.push({ archiveState: query.get("archiveState"), page: query.get("page") });
+            const page = Number(query.get("page"));
+            return Promise.resolve(
+                Response.json({
+                    sessions: [{
+                        runwieldSessionId: `saved-${page}`,
+                        displayName: `Saved ${page}`,
+                        archivedAt: "2026-10-02",
+                        state: "idle",
+                    }],
+                    page,
+                    pageSize: 30,
+                    total: 31,
+                    hasNext: page === 0,
+                    hasPrevious: page === 1,
+                }),
+            );
+        };
+        await act(() => {
+            renderer = create(createElement(ArchivedSessions, { projectId: "p" }));
+        });
+        assertEquals(reads, [{ archiveState: "archived", page: "0" }]);
+        const byText = (text) =>
+            renderer.root.findAllByType("button").find((button) => button.children.join("") === text);
+        await act(() => byText("Next 30").props.onClick());
+        assertEquals(reads[1], { archiveState: "archived", page: "1" });
+        assertEquals(byText("Next 30").props.disabled, true);
+        await act(async () => {
+            await renderer.root.findAllByType("button").find((button) =>
+                button.props["aria-label"] === "Unarchive Saved 1"
+            ).props.onClick();
+        });
+        assertEquals(
+            renderer.root.findAllByType("a").some((link) => link.props.href === "/projects/p/sessions/saved-1"),
+            true,
+        );
+        assertStringIncludes(
+            renderer.root.findByProps({ role: "alert" }).children.join(""),
+            "Cannot write archive state.",
+        );
+        await act(() => byText("Previous").props.onClick());
+        assertEquals(reads[2], { archiveState: "archived", page: "0" });
+    } finally {
+        if (renderer) await act(() => renderer.unmount());
+        globalThis.fetch = previousFetch;
+        globalThis.IS_REACT_ACT_ENVIRONMENT = previousAct;
+        if (previousDocument) Object.defineProperty(globalThis, "document", previousDocument);
+        else delete globalThis.document;
+    }
+});
+
+Deno.test("fresh Session history restores a previously removed ID and empty later pages keep Previous", async () => {
+    const { SessionList } = await import("./components/SessionList.jsx");
+    const { createElement, act } = await import("react");
+    const { create } = await import("react-test-renderer");
+    const previousFetch = globalThis.fetch;
+    const previousDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
+    const previousAct = globalThis.IS_REACT_ACT_ENVIRONMENT;
+    let renderer;
+    try {
+        globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+        Object.defineProperty(globalThis, "document", { configurable: true, value: { cookie: "" } });
+        globalThis.fetch = () => Promise.resolve(Response.json({}));
+        const data = {
+            sessions: [{ runwieldSessionId: "restored", displayName: "Restored", state: "idle" }],
+            page: 1,
+            hasPrevious: true,
+        };
+        await act(() => {
+            renderer = create(createElement(SessionList, { projectId: "p", data }));
+        });
+        await act(async () => {
+            await renderer.root.findByProps({ "aria-label": "Archive Restored" }).props.onClick();
+        });
+        assertEquals(renderer.root.findAllByProps({ className: "session-list-name" }).length, 0);
+        assertEquals(
+            renderer.root.findAllByType("button").find((button) => button.children.includes("Previous")).props.disabled,
+            false,
+        );
+        await act(() =>
+            renderer.update(
+                createElement(SessionList, { projectId: "p", data: { ...data, sessions: [...data.sessions] } }),
+            )
+        );
+        assertEquals(renderer.root.findAllByProps({ className: "session-list-name" }).length, 1);
+    } finally {
+        if (renderer) await act(() => renderer.unmount());
+        globalThis.fetch = previousFetch;
+        globalThis.IS_REACT_ACT_ENVIRONMENT = previousAct;
+        if (previousDocument) Object.defineProperty(globalThis, "document", previousDocument);
+        else delete globalThis.document;
+    }
+});
+
+Deno.test("Plan Session archive keeps the row and switches its action; stale idle busy conflict confirms retry", async () => {
+    const { SessionList } = await import("./components/SessionList.jsx");
+    const { createElement, act } = await import("react");
+    const { create } = await import("react-test-renderer");
+    const previousFetch = globalThis.fetch;
+    const previousConfirm = globalThis.confirm;
+    const previousDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
+    const previousAct = globalThis.IS_REACT_ACT_ENVIRONMENT;
+    let renderer;
+    const requests = [];
+    let confirmed = false;
+    try {
+        globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+        Object.defineProperty(globalThis, "document", { configurable: true, value: { cookie: "" } });
+        globalThis.confirm = () => confirmed;
+        globalThis.fetch = (url, options) => {
+            requests.push({ url: String(url), body: JSON.parse(options.body) });
+            return Promise.resolve(
+                requests.length === 1
+                    ? Response.json({ error: "This Session is busy. Confirm to stop its work and archive it." }, {
+                        status: 409,
+                    })
+                    : Response.json({}),
+            );
+        };
+        await act(() => {
+            renderer = create(
+                createElement(SessionList, {
+                    projectId: "p",
+                    preserveArchived: true,
+                    data: {
+                        sessions: [{ runwieldSessionId: "plan-session", displayName: "Plan Session", state: "idle" }],
+                    },
+                }),
+            );
+        });
+        const action = () =>
+            renderer.root.findAllByType("button").find((button) =>
+                button.props["aria-label"]?.includes("Plan Session")
+            );
+        await act(async () => {
+            await action().props.onClick();
+        });
+        await act(async () => {
+            await action().props.onClick();
+        });
+        assertEquals(requests.length, 1);
+        confirmed = true;
+        await act(async () => {
+            await action().props.onClick();
+        });
+        assertEquals(requests[1].body, { confirmed: true });
+        assertEquals(renderer.root.findByProps({ className: "session-list-status" }).children, ["Archived"]);
+        assertEquals(action().props["aria-label"], "Unarchive Plan Session");
+        confirmed = false;
+        await act(async () => {
+            await action().props.onClick();
+        });
+        assertEquals(requests[2].url, "/api/owner/projects/p/sessions/plan-session/unarchive");
+        assertEquals(action().props["aria-label"], "Archive Plan Session");
+    } finally {
+        if (renderer) await act(() => renderer.unmount());
+        globalThis.fetch = previousFetch;
+        globalThis.confirm = previousConfirm;
+        globalThis.IS_REACT_ACT_ENVIRONMENT = previousAct;
+        if (previousDocument) Object.defineProperty(globalThis, "document", previousDocument);
+        else delete globalThis.document;
+    }
+});
+
+for (const surface of ["archived", "history"]) {
+    Deno.test(`${surface} Session pagination returns from a page emptied by concurrent row actions`, async () => {
+        const { default: ArchivedSessions } = await import("./islands/ArchivedSessions.jsx");
+        const { createElement, act } = await import("react");
+        const { create } = await import("react-test-renderer");
+        const previousFetch = globalThis.fetch;
+        const previousDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
+        const previousAct = globalThis.IS_REACT_ACT_ENVIRONMENT;
+        const browser = new Window({ url: "http://localhost/projects/p/sessions" });
+        const keys = [
+            "window",
+            "location",
+            "localStorage",
+            "sessionStorage",
+            "HTMLElement",
+            "CustomEvent",
+            "matchMedia",
+            "EventSource",
+        ];
+        const previous = new Map(keys.map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+        let renderer;
+        const removed = new Set();
+        const settle = [];
+        try {
+            for (const key of keys) {
+                Object.defineProperty(globalThis, key, {
+                    configurable: true,
+                    value: key === "window"
+                        ? browser
+                        : key === "matchMedia"
+                        ? browser.matchMedia.bind(browser)
+                        : browser[key],
+                });
+            }
+            globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+            Object.defineProperty(globalThis, "document", { configurable: true, value: { cookie: "" } });
+            globalThis.fetch = (url, options) => {
+                if (options?.method === "POST") {
+                    return new Promise((resolve) =>
+                        settle.push(() => {
+                            removed.add(String(url).split("/").at(-2));
+                            resolve(Response.json({}));
+                        })
+                    );
+                }
+                const page = Number(new URL(String(url), "http://localhost").searchParams.get("page"));
+                const ids = page === 0 ? ["first"] : ["last-one", "last-two"].filter((id) => !removed.has(id));
+                return Promise.resolve(
+                    Response.json({
+                        sessions: ids.map((id) => ({
+                            runwieldSessionId: id,
+                            displayName: id,
+                            state: "idle",
+                            archivedAt: surface === "archived" ? "2026-10-02" : null,
+                        })),
+                        page,
+                        pageSize: 30,
+                        total: 32 - removed.size,
+                        hasNext: page === 0,
+                        hasPrevious: page > 0,
+                    }),
+                );
+            };
+            await act(() => {
+                renderer = create(
+                    createElement(surface === "archived" ? ArchivedSessions : SessionSurface, {
+                        projectId: "p",
+                        mode: "list",
+                    }),
+                );
+            });
+            await act(async () => {
+                renderer.root.findAllByType("button").find((button) => button.children.join("").includes("Next")).props
+                    .onClick();
+            });
+            let one, two;
+            await act(() => {
+                one = renderer.root.findAllByType("button").find((button) =>
+                    button.props["aria-label"]?.endsWith("last-one")
+                ).props.onClick();
+                two = renderer.root.findAllByType("button").find((button) =>
+                    button.props["aria-label"]?.endsWith("last-two")
+                ).props.onClick();
+            });
+            await act(async () => {
+                settle.forEach((resolve) => resolve());
+                await Promise.all([one, two]);
+            });
+            assertEquals(
+                renderer.root.findAllByProps({ className: "session-list-name" }).map((row) => row.children.join("")),
+                ["first"],
+            );
+        } finally {
+            if (renderer) await act(() => renderer.unmount());
+            globalThis.fetch = previousFetch;
+            globalThis.IS_REACT_ACT_ENVIRONMENT = previousAct;
+            if (previousDocument) Object.defineProperty(globalThis, "document", previousDocument);
+            else delete globalThis.document;
+            for (const [key, descriptor] of previous) {
+                if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+                else delete globalThis[key];
+            }
+            await browser.happyDOM.close();
+        }
+    });
+}

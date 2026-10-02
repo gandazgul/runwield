@@ -27,8 +27,8 @@ devServerUrl: "http://127.0.0.1:5173"
 createdAt: "2026-10-02"
 origin: "internal"
 userVerifiedAt: null
-status: "in_progress"
 targetBranch: "main"
+status: "implemented"
 ---
 
 # Archive Sessions Through ACP and Workspace

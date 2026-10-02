@@ -77,6 +77,7 @@ import {
     ownerNotificationsStreamApi,
     ownerProjectCommandMetricsApi,
     ownerProjectSessionsApi,
+    ownerSessionArchiveApi,
     ownerSessionBootstrapApi,
     ownerSessionConfigureApi,
     ownerSessionContinuationStartApi,
@@ -92,6 +93,7 @@ import {
     ownerSessionPlanWorkflowApi,
     ownerSessionSteerApi,
     ownerSessionTimelineApi,
+    ownerSessionUnarchiveApi,
 } from "./routes/owner-session-api.js";
 import {
     assertOwnerHost,
@@ -348,6 +350,8 @@ export function createOwnerWorkspaceApp(options) {
     app.get("/api/owner/projects/:projectId/session-options", ownerSessionOptionsApi);
     app.get("/api/owner/projects/:projectId/sessions", ownerProjectSessionsApi);
     app.post("/api/owner/projects/:projectId/sessions", ownerSessionCreateApi);
+    app.post("/api/owner/projects/:projectId/sessions/:runwieldSessionId/archive", ownerSessionArchiveApi);
+    app.post("/api/owner/projects/:projectId/sessions/:runwieldSessionId/unarchive", ownerSessionUnarchiveApi);
     app.get("/api/owner/projects/:projectId/sessions/:runwieldSessionId/timeline", ownerSessionTimelineApi);
     app.get("/api/owner/projects/:projectId/sessions/:runwieldSessionId/live", ownerSessionLiveApi);
     app.post("/api/owner/projects/:projectId/sessions/:runwieldSessionId/bootstrap", ownerSessionBootstrapApi);

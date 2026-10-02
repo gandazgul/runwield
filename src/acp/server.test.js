@@ -8,6 +8,7 @@ import { fauxAssistantMessage, fauxText, fauxToolCall, getSystemMessageText } fr
 import { dirname, fromFileUrl, join, resolve } from "@std/path";
 import { withRuntimeCommandFixture } from "../cmd/testing/runtime-command-fixture.ts";
 import { savePlan } from "../plan-store.js";
+import { captureTranscriptEvidence } from "../shared/session/session-transcript-projection.js";
 import { openFileSessionStore } from "../shared/session/file-session-store.ts";
 import { __resetSettingsForTests, setCustomSetting } from "../shared/settings.js";
 import { drainWorkflowMetrics, getWorkflowMetricsFilePath } from "../shared/workflow/metrics.js";
@@ -429,12 +430,14 @@ Deno.test("createInitializeResponse advertises only implemented ACP capabilities
     assertEquals(capabilities.promptCapabilities._meta.runwield.contentTypes, ["text", "image", "resource_link"]);
     assertEquals(capabilities.loadSession, true);
     assertEquals(capabilities.sessionCapabilities.close, {});
+    assertEquals(capabilities.sessionCapabilities.delete, {});
     assertEquals(capabilities.sessionCapabilities._meta.runwield.implementedMethods, [
         "session/new",
         "session/load",
         "session/prompt",
         "session/cancel",
         "session/close",
+        "session/delete",
         "session/set_config_option",
     ]);
     assertEquals(response.authMethods, []);
@@ -3023,3 +3026,253 @@ Deno.test("ACP interview cancellation during a blocked question write precedes i
         }
     });
 });
+
+Deno.test("ACP session/delete archives a mapped Session and succeeds for repeated and missing IDs", async () => {
+    await withRuntimeCommandFixture("runwield-acp-delete-", async (fixture) => {
+        fixture.setModelResponseFactories([() => fauxAssistantMessage(fauxText("saved conversation"))]);
+        const handle = startTestServer();
+        const store = openFileSessionStore();
+        try {
+            const created = await createSession(handle, fixture.projectRoot);
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "persist-delete",
+                method: "session/prompt",
+                params: { sessionId: created.sessionId, prompt: [{ type: "text", text: "save" }] },
+            });
+            await readThroughResponse(handle, "persist-delete", 1000);
+            const session = store.getSessionById(created.persistedSessionId) ||
+                store.findSessionByLocator({ piSessionId: created.persistedSessionId });
+            assert(session);
+            const segments = store.listSessionTranscriptSegments(session.runwieldSessionId);
+            for (const [index, sessionId] of [created.sessionId, created.sessionId, "acp-missing"].entries()) {
+                await sendMessage(handle, {
+                    jsonrpc: "2.0",
+                    id: `delete-${index}`,
+                    method: "session/delete",
+                    params: { sessionId },
+                });
+                assertEquals((await readThroughResponse(handle, `delete-${index}`)).response.result, {});
+            }
+            assert(store.getSessionById(session.runwieldSessionId)?.archivedAt);
+            assertEquals(store.listSessionTranscriptSegments(session.runwieldSessionId), segments);
+            const after = await request(handle, {
+                jsonrpc: "2.0",
+                id: "deleted-prompt",
+                method: "session/prompt",
+                params: { sessionId: created.sessionId, prompt: [{ type: "text", text: "no" }] },
+            });
+            assertEquals(after.error.code, -32001);
+            const frame = framesMatching(handle, (message) => message.id === "delete-0")[0];
+            assertAcpFrameSchema("DeleteSessionResponse", frame, (message) => message.result);
+        } finally {
+            store.close();
+            await closeTestServer(handle);
+        }
+    });
+});
+
+Deno.test("ACP session/delete resolves an unmapped Pi segment ID to its multi-segment Session", async () => {
+    await withRuntimeCommandFixture("runwield-acp-delete-pi-", async (fixture) => {
+        const store = openFileSessionStore();
+        const handle = startTestServer();
+        try {
+            const first = await createIdleUngeneratedPersistedSession(fixture.projectRoot);
+            const neighbor = await createIdleUngeneratedPersistedSession(fixture.projectRoot);
+            const session = store.findSessionByLocator({ piSessionId: first.piSessionId });
+            const other = store.findSessionByLocator({ piSessionId: neighbor.piSessionId });
+            assert(session);
+            assert(other);
+            // Use a fresh uncataloged transcript for the successor segment.
+            const piSessionId = "delete-pi-successor";
+            const transcriptPath = join(dirname(first.transcriptPath), `2026-01-02T00-00-00-000Z_${piSessionId}.jsonl`);
+            await Deno.writeTextFile(
+                transcriptPath,
+                `${
+                    JSON.stringify({
+                        type: "session",
+                        version: 3,
+                        id: piSessionId,
+                        timestamp: "2026-01-02T00:00:00.000Z",
+                        cwd: fixture.projectRoot,
+                    })
+                }\n`,
+            );
+            const current = store.getCurrentSessionSegment(session.runwieldSessionId);
+            assert(current);
+            store.sealSessionTranscriptSegment({
+                runwieldSessionId: session.runwieldSessionId,
+                segmentId: current.segmentId,
+                evidence: await captureTranscriptEvidence({
+                    transcriptPath: first.transcriptPath,
+                    transcriptCwd: fixture.projectRoot,
+                }),
+            });
+            await store.appendSessionTranscriptSegment({
+                runwieldSessionId: session.runwieldSessionId,
+                projectId: session.projectId,
+                piSessionId,
+                transcriptPath,
+                transcriptCwd: fixture.projectRoot,
+                kind: "execution",
+            });
+            const segments = store.listSessionTranscriptSegments(session.runwieldSessionId);
+            assertEquals(segments.length, 2);
+            const deleted = await request(handle, {
+                jsonrpc: "2.0",
+                id: "delete-pi",
+                method: "session/delete",
+                params: { sessionId: `acp-${first.piSessionId}` },
+            });
+            assertEquals(deleted.result, {});
+            assert(store.getSessionById(session.runwieldSessionId)?.archivedAt);
+            assertEquals(store.getSessionById(other.runwieldSessionId)?.archivedAt, null);
+            assertEquals(store.listSessionTranscriptSegments(session.runwieldSessionId), segments);
+        } finally {
+            store.close();
+            await closeTestServer(handle);
+        }
+    });
+});
+
+Deno.test("ACP session/delete cancels busy work and archives only after writer settlement", async () => {
+    await withRuntimeCommandFixture("runwield-acp-delete-busy-", async (fixture) => {
+        fixture.setModelResponseFactories([() => fauxAssistantMessage(fauxText("working ".repeat(5_000)))]);
+        const handle = startTestServer();
+        const store = openFileSessionStore();
+        try {
+            const created = await createSession(handle, fixture.projectRoot);
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "busy-delete-prompt",
+                method: "session/prompt",
+                params: { sessionId: created.sessionId, prompt: [{ type: "text", text: "work" }] },
+            });
+            for (;;) {
+                const message = await readMessage(handle);
+                if (
+                    message.params?.update?.sessionUpdate === "agent_message_chunk" &&
+                    String(message.params.update.content?.text || "").includes("working")
+                ) break;
+            }
+            const session = store.getSessionById(created.persistedSessionId) ||
+                store.findSessionByLocator({ piSessionId: created.persistedSessionId });
+            assert(session);
+            assertEquals(store.inspectSessionActivation(session.runwieldSessionId).activation?.state, "active");
+            assertEquals(session.archivedAt, null);
+            await sendMessage(handle, {
+                jsonrpc: "2.0",
+                id: "busy-delete",
+                method: "session/delete",
+                params: { sessionId: created.sessionId },
+            });
+            const result = await readThroughResponse(handle, "busy-delete", 10_000);
+            assertEquals(result.response.result, {});
+            const prompt = result.messages.find((message) => message.id === "busy-delete-prompt");
+            assertEquals(prompt?.result.stopReason, "cancelled");
+            assertEquals(store.inspectSessionActivation(session.runwieldSessionId).activation?.state, "idle");
+            assert(store.getSessionById(session.runwieldSessionId)?.archivedAt);
+        } finally {
+            store.close();
+            await closeTestServer(handle);
+        }
+    });
+});
+
+for (const mapped of [false, true]) {
+    for (const cancellationFails of [false, true]) {
+        Deno.test(`ACP session/delete ${mapped ? "mapped" : "unmapped"} remote owner ${cancellationFails ? "failed cancellation keeps archive unchanged" : "waits for cancellation settlement"}`, async () => {
+            if (Deno.build.os === "windows") return;
+            const { createServer } = await import("node:http");
+            const { createHash } = await import("node:crypto");
+            const { getHomeDir } = await import("../constants.js");
+            await withRuntimeCommandFixture("runwield-acp-delete-remote-", async (fixture) => {
+                const handle = startTestServer();
+                const store = openFileSessionStore();
+                let socket;
+                let proof;
+                let socketPath;
+                let stopped = () => {};
+                const cancellation = new Promise((resolve) => {
+                    stopped = resolve;
+                });
+                try {
+                    const created = mapped
+                        ? await createSession(handle, fixture.projectRoot)
+                        : await createIdleUngeneratedPersistedSession(fixture.projectRoot);
+                    const session = store.getSessionById(created.persistedSessionId) ||
+                        store.findSessionByLocator({ piSessionId: created.persistedSessionId || created.piSessionId });
+                    assert(session);
+                    proof = store.acquireSessionActivation({
+                        runwieldSessionId: session.runwieldSessionId,
+                        projectId: session.projectId,
+                        ownerInstanceId: "remote-workspace",
+                        ownerProcessKind: "workspace",
+                        operationId: "remote-delete-op",
+                    });
+                    const key = createHash("sha256").update(
+                        `${getHomeDir()}:${session.runwieldSessionId}:remote-delete-op`,
+                    ).digest("hex").slice(0, 40);
+                    socketPath = `/tmp/runwield-${key}.sock`;
+                    socket = createServer(async (incoming, response) => {
+                        let body = "";
+                        for await (const chunk of incoming) body += chunk.toString();
+                        assertEquals(JSON.parse(body).action, "cancel");
+                        response.setHeader("content-type", "application/json");
+                        response.end(
+                            JSON.stringify(
+                                cancellationFails ? { ok: false, error: "Remote cancellation failed" } : { ok: true },
+                            ),
+                        );
+                        stopped();
+                    });
+                    await new Promise((resolve) => socket.listen(socketPath, resolve));
+                    await sendMessage(handle, {
+                        jsonrpc: "2.0",
+                        id: "remote-delete",
+                        method: "session/delete",
+                        params: { sessionId: mapped ? created.sessionId : `acp-${created.piSessionId}` },
+                    });
+                    let deleteSettled = false;
+                    const deletion = readThroughResponse(handle, "remote-delete", 10_000).then((result) => {
+                        deleteSettled = true;
+                        return result.response;
+                    });
+                    await cancellation;
+                    assertEquals(store.getSessionById(session.runwieldSessionId)?.archivedAt, null);
+                    assertEquals(store.inspectSessionActivation(session.runwieldSessionId).activation.state, "active");
+                    if (!cancellationFails) {
+                        // Cancellation acknowledgment is not writer settlement.
+                        await new Promise((resolve) => setTimeout(resolve, 100));
+                        assertEquals(deleteSettled, false);
+                        assertEquals(store.getSessionById(session.runwieldSessionId)?.archivedAt, null);
+                        store.releaseUnchangedActivation(proof);
+                        proof = null;
+                    }
+                    const result = await deletion;
+                    if (cancellationFails) {
+                        assert(result.error);
+                        assertEquals(store.getSessionById(session.runwieldSessionId)?.archivedAt, null);
+                        assertEquals(
+                            store.inspectSessionActivation(session.runwieldSessionId).activation.state,
+                            "active",
+                        );
+                    } else {
+                        assertEquals(result.result, {});
+                        assert(store.getSessionById(session.runwieldSessionId)?.archivedAt);
+                        assertEquals(
+                            store.inspectSessionActivation(session.runwieldSessionId).activation.state,
+                            mapped ? "idle" : "uninitialized",
+                        );
+                    }
+                } finally {
+                    if (proof) store.releaseUnchangedActivation(proof);
+                    if (socket) await new Promise((resolve) => socket.close(resolve));
+                    if (socketPath) await Deno.remove(socketPath).catch(() => {});
+                    store.close();
+                    await closeTestServer(handle);
+                }
+            });
+        });
+    }
+}
