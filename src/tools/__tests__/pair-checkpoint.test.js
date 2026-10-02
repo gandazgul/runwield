@@ -162,15 +162,32 @@ Deno.test("automatic compaction preserves Pair state and active user-turn proven
     const { session, sessionManager } = makePairSession();
     beginRequest(session, sessionManager, { dispatchKind: "plan_execution" });
     await execute(createPairCheckpointTool({ hostedSession: session }), "checkpoint-1", reportParams);
+    /** @type {import('@earendil-works/pi-coding-agent').AgentSessionEventListener | undefined} */
+    let listener;
     const compactingSession = /** @type {*} */ ({
+        subscribe: /** @param {import('@earendil-works/pi-coding-agent').AgentSessionEventListener} callback */ (
+            callback,
+        ) => {
+            listener = callback;
+            return () => {
+                listener = undefined;
+            };
+        },
         _runAutoCompaction: () => {
             sessionManager.getBranch().splice(0);
-            return Promise.resolve(true);
+            listener?.({
+                type: "compaction_end",
+                reason: "threshold",
+                result: { summary: "summary", firstKeptEntryId: "recent", tokensBefore: 120_000 },
+                aborted: false,
+                willRetry: false,
+            });
+            return Promise.resolve(false);
         },
     });
     installPairCheckpointAutoCompactionPreservation(compactingSession, session);
 
-    assertEquals(await compactingSession._runAutoCompaction("threshold", false), true);
+    assertEquals(await compactingSession._runAutoCompaction("threshold", false), false);
     assertEquals(readCurrentPairCheckpoint(session)?.report.report.summary, reportParams.summary);
     assertEquals(readRequestAttemptEntries(/** @type {*} */ (sessionManager)).at(-1)?.phase, "started");
 });

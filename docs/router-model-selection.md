@@ -124,6 +124,19 @@ Smaller models tend to be "helpful" in the wrong direction. Gemma4 31B is more w
 
 ## Benchmark Notes
 
+Use `scripts/run-router-golden-set.js` to run the real Router against the golden CSV. You can override the model,
+thinking level, and sampling temperature for that run:
+
+```sh
+deno run -A scripts/run-router-golden-set.js --model <provider/model> \
+  --thinking-level medium --temperature 0.1 --rerun --out <results.csv>
+```
+
+`--thinking-level` accepts `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`. `--temperature` accepts a
+finite number from 0 to 2, including zero. Omit either option to keep the configured Router default. The overrides do
+not change saved settings. Provider support varies; the existing temperature fallback omits temperature when the model
+does not support it. Use separate output files and `--rerun` to compare settings without reusing completed decisions.
+
 The current golden-set benchmark is useful, but it is not perfect.
 
 - Historical prompts contain real project context, so models can spend a lot of time doing genuine discovery.
