@@ -17,7 +17,9 @@ import {
 } from "./file-session-activation-state.ts";
 import {
     bundleDir,
+    catalogedSession,
     ensurePrivateDir,
+    FILE_SESSION_STORE_VERSION,
     FileSessionManifestCache,
     isoNow,
     lockPath,
@@ -53,6 +55,8 @@ function dropPendingPlanAssociations(manifest: FileSessionManifest): void {
 
 type FileSessionControl = Pick<
     FileSessionStore,
+    | "archiveSession"
+    | "unarchiveSession"
     | "inspectSessionActivation"
     | "acquireSessionActivation"
     | "changeSessionActivationPhase"
@@ -70,7 +74,57 @@ type FileSessionControl = Pick<
 
 export function createFileSessionControl(options: FileSessionControlOptions): FileSessionControl {
     const { locks, manifests } = options;
+
+    function setArchiveState(runwieldSessionId: string, projectId: string | undefined, archived: boolean) {
+        const found = manifests.resolve(runwieldSessionId, projectId);
+        if (!found || (projectId && found.manifest.projectId !== projectId)) {
+            throw new Error("Session identity is unavailable");
+        }
+        const file = Deno.openSync(lockPath(sessionDirForManifestPath(found.path), runwieldSessionId), {
+            create: true,
+            read: true,
+            write: true,
+            mode: 0o600,
+        });
+        try {
+            if (!file.tryLockSync(true)) throw new Error("Session is open in another RunWield surface");
+            try {
+                const manifest = readJson<FileSessionManifest>(found.path);
+                if (
+                    manifest.version !== FILE_SESSION_STORE_VERSION ||
+                    manifest.runwieldSessionId !== runwieldSessionId ||
+                    (projectId && manifest.projectId !== projectId)
+                ) {
+                    throw new Error("Session identity is unavailable");
+                }
+                if (manifest.activation.state === "active") {
+                    markRecoveryAfterAbandonedWriter(manifest, isoNow(options.now));
+                    manifests.write(manifest, found.path);
+                }
+                if (["uncertain", "reconcile_required"].includes(manifest.activation.state)) {
+                    throw new Error(`Session requires recovery: ${manifest.activation.blockedReason || "unknown"}`);
+                }
+                if (Boolean(manifest.archivedAt) !== archived) {
+                    manifest.archivedAt = archived ? isoNow(options.now) : null;
+                    manifests.write(manifest, found.path);
+                }
+                return catalogedSession(manifest);
+            } finally {
+                file.unlockSync();
+            }
+        } finally {
+            file.close();
+        }
+    }
+
     return {
+        archiveSession(runwieldSessionId, projectId) {
+            return setArchiveState(runwieldSessionId, projectId, true);
+        },
+        unarchiveSession(runwieldSessionId, projectId) {
+            return setArchiveState(runwieldSessionId, projectId, false);
+        },
+
         inspectSessionActivation(runwieldSessionId) {
             const found = manifests.resolve(runwieldSessionId);
             if (!found) return { activation: null, generation: null };

@@ -62,6 +62,7 @@ export async function listRecentResumableSessions(
     }).filter((locator) => {
         const session = sessionStore.findSessionByLocator({ transcriptPath: locator.sessionPath });
         if (!session) return true;
+        if (session.archivedAt) return false;
         const isRepairSegment = sessionStore.listSessionTranscriptSegments(session.runwieldSessionId).some(
             (segment) => segment.transcriptPath === locator.sessionPath && segment.kind === "semantic_repair",
         );

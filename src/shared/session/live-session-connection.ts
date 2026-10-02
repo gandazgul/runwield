@@ -272,3 +272,15 @@ export function subscribeLiveSessionAttention(
         request.end();
     });
 }
+
+/** Wait for the authoritative writer to release its operation before a metadata mutation. */
+export async function waitForSessionActivationSettlement(
+    store: import("./file-session-store-types.ts").FileSessionStore,
+    sessionId: string,
+): Promise<void> {
+    const deadline = Date.now() + 30_000;
+    while (store.inspectSessionActivation(sessionId).activation?.state === "active") {
+        if (Date.now() >= deadline) throw new Error("The Session is still stopping. Try again.");
+        await new Promise<void>((resolve) => setTimeout(resolve, 25));
+    }
+}
