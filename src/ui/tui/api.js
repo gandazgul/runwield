@@ -62,6 +62,7 @@ export function createSilentUiApi() {
         requestRender: () => {},
         advanceSpinner: () => {},
         setBusy: () => {},
+        setAgentBusyLines: () => {},
         setRunningTasks: () => {},
         clearMessages: () => {},
         promptSelect: () => Promise.resolve(null),
@@ -731,6 +732,12 @@ export function createUiApi(
                 restoreFocusedCursorAfterBusy();
             }
             tui.requestRender();
+        },
+
+        /** @param {readonly string[] | undefined} lines */
+        setAgentBusyLines: (lines) => {
+            spinner.setBusyLines(lines);
+            if (!outputSuppressed) tui.requestRender();
         },
 
         /** @param {Array<{task: number, assignee: string, description: string}>} tasks */

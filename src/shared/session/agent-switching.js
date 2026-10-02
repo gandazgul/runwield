@@ -5,7 +5,7 @@
 
 import { createAgentHandler } from "./agent-handler.js";
 import { readPersistedActiveAgentName, readPersistedManualModelState } from "./active-agent-session.js";
-import { normalizeAgentInternalName } from "./agents.js";
+import { getAgentBusyLines, normalizeAgentInternalName } from "./agents.js";
 import {
     appendDebugLog,
     clearAgentSessionQueueForTransition,
@@ -251,12 +251,14 @@ export async function switchActiveAgent(hostedSession, options) {
         const previousRootIdentity = previousAgentName || persistedAgentName || selectionAgent || "";
         const rootHandoff = Boolean(previousRootIdentity) &&
             normalizeAgentInternalName(previousRootIdentity) !== normalizeAgentInternalName(committedAgentName);
+        const committedBusyLines = getAgentBusyLines(committedAgentName, hostedSession.cwd);
         emitHostedSessionRuntimeEvent(hostedSession, {
             type: RuntimeEventTypes.AGENT_CHANGED,
             agentName: committedAgentName,
             displayName: committedDisplayName,
             model: options.model,
             ...(rootHandoff ? { rootHandoff: true } : {}),
+            ...(committedBusyLines ? { busyLines: committedBusyLines } : {}),
         });
     }
     if (options.releaseActiveWorkflow) releaseActiveWorkflowAfterUserSwitch(hostedSession, agentName);

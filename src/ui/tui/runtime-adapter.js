@@ -311,6 +311,9 @@ export function attachTuiRuntimeAdapter({
                 } else if (!currentRootAgentName && nextRootAgentName && !value.rootHandoff) {
                     currentRootAgentName = nextRootAgentName;
                 }
+                uiAPI.setAgentBusyLines?.(
+                    Array.isArray(value.busyLines) && value.busyLines.length > 0 ? value.busyLines : undefined,
+                );
                 uiAPI.requestRender();
                 break;
             }

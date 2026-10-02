@@ -110,6 +110,8 @@ export function reduceSessionEvents(events, options = {}) {
     const startIndex = options.startIndex || 0;
     let busy = false;
     let lastSegmentKey = null;
+    /** @type {readonly string[] | undefined} */
+    let currentBusyLines = undefined;
     /** @type {Record<string, any> | null} */
     let lastAssistantMessage = null;
     const ensure = (/** @type {string} */ key, /** @type {Record<string, any>} */ item) => {
@@ -142,6 +144,12 @@ export function reduceSessionEvents(events, options = {}) {
         const type = text(event.type);
         if (type === "busy_changed") {
             busy = event.busy === true;
+            return;
+        }
+        if (type === "agent_changed") {
+            currentBusyLines = Array.isArray(event.busyLines) && event.busyLines.length > 0
+                ? event.busyLines
+                : undefined;
             return;
         }
         const id = text(event.messageId || event.toolCallId || event.eventId || `${source}:${startIndex + index}`);
@@ -363,7 +371,12 @@ export function reduceSessionEvents(events, options = {}) {
     const visibleItems = mergeSessionTimelineItems(items.filter((item) => MESSAGE_TYPES.has(item.kind)), []);
     // Runtime activity belongs at the live edge, never in saved conversation history.
     if (source === "transient" && busy) {
-        visibleItems.push({ kind: "busy", key: "runtime-busy", source });
+        visibleItems.push({
+            kind: "busy",
+            key: "runtime-busy",
+            source,
+            ...(currentBusyLines ? { busyLines: currentBusyLines } : {}),
+        });
     }
     return visibleItems;
 }
@@ -695,7 +708,15 @@ export function SessionTimeline({ items, events, emptyMessage = "", sessionPath 
         <ol className="session-timeline" aria-label="Session timeline">
             {timelineItems.map((item, index) => (
                 <li key={item.key || `${item.kind}:${index}`} className={`session-timeline-item item-${item.kind}`}>
-                    {item.kind === "busy" ? <RunWieldThinkingDots label="Thinking..." /> : item.kind === "workflow"
+                    {item.kind === "busy"
+                        ? (
+                            <RunWieldThinkingDots
+                                label={Array.isArray(item.busyLines) && item.busyLines.length > 0
+                                    ? item.busyLines[0]
+                                    : "Working..."}
+                            />
+                        )
+                        : item.kind === "workflow"
                         ? (
                             <article
                                 className={`rw-workflow-block status-${item.status}`}

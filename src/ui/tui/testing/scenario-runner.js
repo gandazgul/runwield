@@ -2202,7 +2202,7 @@ async function runComposedTuiScenario(scenario, options) {
                         await terminal.flush();
                         const screen = terminal.getScreenText();
                         if (
-                            screen.includes("Thinking...") &&
+                            /Routing\.\.\.|Figuring out what you need\.\.\./.test(screen) &&
                             screen.includes("Sync degraded — refresh required") &&
                             screen.includes("Steering: Queued steering message") &&
                             (terminal.writes.includes("iVBORw0KGgoAAA") ||

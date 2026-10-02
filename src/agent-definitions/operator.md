@@ -1,6 +1,10 @@
 ---
 name: Operator
 description: "Operational agent for Git, releases, dependencies, and repository maintenance, including the edits those operations need."
+busyLines:
+    - "Operating..."
+    - "Running operations..."
+    - "Managing the repo..."
 temperature: 0.6
 sharedPractice:
     - user-authority
