@@ -11,6 +11,7 @@ import { HostedSession } from "./hosted-session.js";
 import { setCustomSetting } from "../settings.js";
 import { drainWorkflowMetrics, getWorkflowMetricsFilePath } from "../workflow/metrics.js";
 import { installAgyCliMcpSetup } from "./backends/agy-cli/mcp-setup.ts";
+import { startMcpIntegration } from "../mcp/integration.ts";
 import { getRootSessionBranchEntries } from "./root-session.js";
 import { createReplayEvents } from "./session-transcript-projection.js";
 import { runActiveAgentTurn } from "./agent-switching.js";
@@ -539,6 +540,55 @@ Deno.test("Agy bridged tool composition matches Claude CLI", async () => {
     } finally {
         await Deno.remove(cwd, { recursive: true }).catch(() => undefined);
     }
+});
+
+Deno.test("Agy root turns refresh external MCP tools without recreating the native agent", async () => {
+    await withAgyExecutionFixture(async (_home, cwd, logPath) => {
+        const hosted = createHostedSession(cwd, SessionManager.inMemory(cwd));
+        const externalLog = join(cwd, "external-mcp.jsonl");
+        const { integration } = await startMcpIntegration({
+            cwd,
+            servers: [{
+                name: "fixture",
+                command: Deno.execPath(),
+                args: ["run", "-A", new URL("../mcp/fixture-server.ts", import.meta.url).pathname],
+                env: { RUNWIELD_MCP_FIXTURE_LOG: externalLog },
+                source: "request",
+            }],
+        });
+        await hosted.setMcpIntegration(integration);
+        const calls = join(cwd, "mcp-calls.json");
+        Deno.env.set("RUNWIELD_AGY_EXECUTION_MCP_CALLS", calls);
+        try {
+            const root = await ensureRootAgentSession({ hostedSession: hosted, agentName: AGENTS.GUIDE });
+            await Deno.writeTextFile(
+                calls,
+                JSON.stringify([
+                    { name: "mcp__fixture__fixture_echo", arguments: { marker: "change-tools" } },
+                ]),
+            );
+            await runRootTurn({ hostedSession: hosted, agentName: AGENTS.GUIDE, userRequest: "change server tools" });
+            const deadline = Date.now() + 5_000;
+            while (integration.getTools()[0]?.name !== "mcp__fixture__replacement" && Date.now() < deadline) {
+                await new Promise((resolve) => setTimeout(resolve, 10));
+            }
+            await Deno.writeTextFile(
+                calls,
+                JSON.stringify([
+                    { name: "mcp__fixture__replacement", arguments: { marker: "agy-next-turn" } },
+                ]),
+            );
+            await runRootTurn({ hostedSession: hosted, agentName: AGENTS.GUIDE, userRequest: "call replacement" });
+            assertEquals(hosted.getRootAgentSession(), root);
+            const listed = (await Deno.readTextFile(logPath)).trim().split("\n")
+                .filter((line) => line.includes('"mcp":{"tools"')).at(-1) || "";
+            assertStringIncludes(listed, "mcp__fixture__replacement");
+            assertEquals(listed.includes("mcp__fixture__fixture_echo"), false);
+            assertStringIncludes(await Deno.readTextFile(externalLog), '"marker":"agy-next-turn"');
+        } finally {
+            await hosted.dispose();
+        }
+    });
 });
 
 Deno.test("Agy maps every RunWield thinking level to the verified backend model", async () => {

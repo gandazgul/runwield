@@ -1941,6 +1941,7 @@ function repairNamedInvocationContextEdits(sessionManager) {
  * @param {import('../bash-command-policy.ts').BashAllowedCommands} [opts.inheritedBashAllowedCommands]
  * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [opts.customTools]
  * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [opts.mcpRootTools]
+ * @param {import('../mcp/integration.ts').McpIntegration} [opts.mcpIntegration]
  * @param {string} [opts.modelOverride]
  * @param {"off"|"minimal"|"low"|"medium"|"high"|"xhigh"|"max"} [opts.thinkingLevelOverride]
  * @param {number} [opts.temperatureOverride]
@@ -1978,6 +1979,7 @@ export async function buildAgentSession({
     inheritedBashAllowedCommands,
     customTools,
     mcpRootTools,
+    mcpIntegration,
     modelOverride,
     thinkingLevelOverride,
     temperatureOverride,
@@ -2038,8 +2040,13 @@ export async function buildAgentSession({
         }));
     }
     const effectiveMcpRootTools = mcpRootTools || targetHostedSession?.getMcpRootTools?.() || [];
+    const effectiveMcpIntegration = mcpRootTools?.length === 0
+        ? undefined
+        : mcpIntegration || targetHostedSession?.getMcpIntegration?.();
     for (const tool of effectiveMcpRootTools) {
-        if (!finalCustomTools.find((existing) => existing.name === tool.name)) finalCustomTools.push(tool);
+        if (!effectiveMcpIntegration && !finalCustomTools.find((existing) => existing.name === tool.name)) {
+            finalCustomTools.push(tool);
+        }
         if (!tools.includes(tool.name)) tools.push(tool.name);
     }
     if (!activeModelSupportsImages && visionFallbackModelRef && !tools.includes("see_image")) {
@@ -2222,6 +2229,8 @@ export async function buildAgentSession({
         (/** @type {import('@earendil-works/pi-coding-agent').ExtensionAPI} */ pi) =>
             reAnchorExtension(pi, { agentName, hostedSession: targetHostedSession }),
     ];
+    const mcpRootBinding = effectiveMcpIntegration?.bindRoot(tools);
+    if (mcpRootBinding) extensionFactories.push(mcpRootBinding.extensionFactory);
     if (allowedCommands === undefined && await hasSnipBinary()) {
         extensionFactories.push((pi) => snipExtension(pi));
     }
@@ -2250,17 +2259,45 @@ export async function buildAgentSession({
         appendDebugLog(debugLogPath, debugMsg);
     }
 
+    // An SDK allowlist freezes names, so newly discovered MCP tools would be
+    // rejected. Keep the current Agent's other tools excluded while permitting
+    // Pi to register and withdraw the trusted session's MCP tools dynamically.
+    const excludedRootTools = mcpRootBinding
+        ? [
+            ...new Set([
+                "read",
+                "bash",
+                "powershell",
+                "edit",
+                "write",
+                "grep",
+                "find",
+                "ls",
+                "codemode",
+                "tool_search",
+                ...finalCustomTools.map((tool) => tool.name),
+                ...loader.getExtensions().extensions.flatMap((extension) => [...extension.tools.keys()]),
+            ]),
+        ].filter((name) => !tools.includes(name))
+        : [];
     const { session, extensionsResult } = await createAgentSession({
         cwd: sessionCwd,
         agentDir: getSettingsDir("global"),
         modelRuntime,
         settingsManager,
-        tools,
+        ...(mcpRootBinding ? { noTools: "builtin", excludeTools: excludedRootTools } : { tools }),
         customTools: finalCustomTools,
         resourceLoader: loader,
         sessionManager: effectiveSessionManager,
         ...(resolvedModel ? { model: resolvedModel } : {}),
     });
+    if (mcpRootBinding) {
+        const dispose = session.dispose.bind(session);
+        session.dispose = () => {
+            mcpRootBinding.dispose();
+            dispose();
+        };
+    }
     /** @type {any} */ (session).runWieldModelRegistry = modelRegistry;
     /** @type {any} */ (session).runWieldProjectRoot = sessionCwd;
     installEarlySteeringInterruption(/** @type {any} */ (session));
@@ -2315,6 +2352,7 @@ export async function buildAgentSession({
 
     // Ensure extension lifecycle hooks (e.g. session_start) are activated for this agent invocation.
     await session.bindExtensions({});
+    session.setActiveToolsByName([...new Set([...tools, ...session.getActiveToolNames()])]);
 
     const imageMode = activeModelSupportsImages ? "direct" : (visionFallbackModelRef ? "fallback" : "blocked");
     await recordWorkflowMetric({
@@ -2602,8 +2640,14 @@ export async function buildExecutionSession(opts) {
                 sessionManager: effectiveSessionManager,
             },
         );
+    const effectiveMcpIntegration = opts.mcpRootTools?.length === 0
+        ? undefined
+        : opts.mcpIntegration || targetHostedSession?.getMcpIntegration?.() || undefined;
+    const mcpToolNames = new Set(effectiveMcpIntegration?.getTools().map((tool) => tool.name));
+    const stableBridgedTools = finalCustomTools.filter((tool) => !mcpToolNames.has(tool.name));
     const backendPrompt = backend === "agy-cli"
-        ? finalSystemPrompt + buildBridgedToolPromptAppendix(finalCustomTools, "Antigravity CLI", rebuildToolNames)
+        ? finalSystemPrompt + buildBridgedToolPromptAppendix(stableBridgedTools, "Antigravity CLI", rebuildToolNames) +
+            (mcpToolNames.size > 0 ? "\nExternal server tools are available through the current MCP tool list.\n" : "")
         : finalSystemPrompt;
     const promptState = {
         text: backendPrompt,
@@ -2624,6 +2668,7 @@ export async function buildExecutionSession(opts) {
             sessionManager: effectiveSessionManager,
             hostedSession: targetHostedSession || undefined,
             bridgedTools: finalCustomTools,
+            mcpIntegration: effectiveMcpIntegration,
             persistModelChange: opts.persistModelChange !== false,
         })
         : await AgyCliExecutionSession.create({
@@ -2635,6 +2680,7 @@ export async function buildExecutionSession(opts) {
             sessionManager: effectiveSessionManager,
             hostedSession: targetHostedSession || undefined,
             bridgedTools: finalCustomTools,
+            mcpIntegration: effectiveMcpIntegration,
             thinkingLevel: backendThinking,
             persistModelChange: opts.persistModelChange !== false,
             declaredTools: rebuildToolNames,
@@ -4074,6 +4120,7 @@ export function disposeRootAgentSessionForNewSession(hostedSession) {
  * @param {string[]} [opts.toolNames]
  * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [opts.customTools]
  * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [opts.mcpRootTools]
+ * @param {import('../mcp/integration.ts').McpIntegration} [opts.mcpIntegration]
  * @param {string} [opts.modelOverride]
  * @param {"off"|"minimal"|"low"|"medium"|"high"|"xhigh"|"max"} [opts.thinkingLevelOverride]
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager]
@@ -4325,6 +4372,7 @@ function recordPiExecutionContext(recorder, session, projection, samplingPoint) 
  * @param {Array<{base64: string, mimeType: string}>} [opts.images]
  * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [opts.customTools]
  * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [opts.mcpRootTools]
+ * @param {import('../mcp/integration.ts').McpIntegration} [opts.mcpIntegration]
  * @param {AbortSignal} [opts.signal]
  * @param {import('./request-dispatch.ts').RequestDispatchKind} [opts.dispatchKind]
  * @param {boolean} [opts.disableAutoCompaction]
@@ -4617,6 +4665,7 @@ export async function runNonInteractiveAgentPrompt({
  * @param {import('../bash-command-policy.ts').BashAllowedCommands} [opts.inheritedBashAllowedCommands]
  * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [opts.customTools]
  * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [opts.mcpRootTools]
+ * @param {import('../mcp/integration.ts').McpIntegration} [opts.mcpIntegration]
  * @param {string} [opts.modelOverride] - Optional explicit model override in provider/id format.
  * @param {"off"|"minimal"|"low"|"medium"|"high"|"xhigh"|"max"} [opts.thinkingLevelOverride]
  * @param {number} [opts.temperatureOverride]

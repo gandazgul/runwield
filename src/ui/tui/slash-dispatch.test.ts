@@ -229,7 +229,7 @@ Deno.test("handleSlashCommand executes built-in help through the real command re
     });
 });
 
-Deno.test("handleSlashCommand keeps disabled built-ins reserved instead of dispatching same-named prompt templates", async () => {
+Deno.test("handleSlashCommand keeps the MCP adapter shell-only instead of dispatching a prompt template", async () => {
     await withSlashFixture({}, async ({ context, messages, submittedRequests }) => {
         const slashContext = context("/mcp agy-cli");
         slashContext.promptTemplateByName.set("mcp", {
@@ -238,7 +238,7 @@ Deno.test("handleSlashCommand keeps disabled built-ins reserved instead of dispa
         });
 
         assertEquals(await handleSlashCommand(slashContext), true);
-        assertEquals(messages, ["Command /mcp is not available in this surface."]);
+        assertEquals(messages, ["Use wld mcp agy-cli from a shell to run the stdio adapter."]);
         assertEquals(submittedRequests, []);
     });
 });

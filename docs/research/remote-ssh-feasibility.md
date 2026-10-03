@@ -79,7 +79,7 @@ Official provider documentation confirms that remote browser login is not the sa
   [`session.js`](../../src/shared/session/session.js), [`sleep`](../../src/cmd/sleep/index.ts).
 - MCP servers and helper binaries currently execute against one `cwd`. Some need local credentials; others need remote
   project files. An arbitrary personal integration cannot be assumed portable. Sources:
-  [`MCP pool`](../../src/shared/mcp/pool.ts),
+  [`MCP integration`](../../src/shared/mcp/integration.ts),
   [`RunWield MCP bridge`](../../src/shared/session/bridged-tools/mcp-bridge.ts),
   [`helper execution`](../../src/extensions/helper-binary-exec.ts).
 - Working outside Git is already supported in parts of Core. A remote home directory is not inherently invalid, but
@@ -101,7 +101,8 @@ Official provider documentation confirms that remote browser login is not the sa
 - RunWield has process-tree cancellation, but this does not prove cleanup after SSH loss. CLI backends, helpers, and MCP
   subprocesses do not all share the same termination path. Sources:
   [`foreground-process.ts`](../../src/shared/foreground-process.ts),
-  [`foreground-process tests`](../../src/shared/foreground-process.test.ts), [`MCP pool`](../../src/shared/mcp/pool.ts).
+  [`foreground-process tests`](../../src/shared/foreground-process.test.ts),
+  [`MCP integration`](../../src/shared/mcp/integration.ts).
 - Network loss is not instantly detectable. Stopping a process does not undo files already written or an external action
   already accepted. Remote output that never reached local storage cannot be described as saved history.
 

@@ -45,6 +45,7 @@ const handlerMetadata = new WeakMap();
  * @property {{ id: import('./subagent-definitions.ts').SubAgentDefinitionId, options?: import('./subagent-definitions.ts').LoadSubAgentDefinitionOptions }} [subAgentDefinition]
  * @property {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [customTools]
  * @property {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [mcpRootTools]
+ * @property {import('../mcp/integration.ts').McpIntegration} [mcpIntegration]
  * @property {string[]} [toolNames]
  * @property {string} [projectStateContext]
  * @property {boolean} [includeEditFallback]
@@ -146,6 +147,7 @@ export async function switchActiveAgent(hostedSession, options) {
         subAgentDefinition: options.subAgentDefinition,
         customTools: options.customTools,
         mcpRootTools: options.mcpRootTools,
+        mcpIntegration: options.mcpIntegration,
         toolNames: options.toolNames,
         projectStateContext: options.projectStateContext,
         includeEditFallback: options.includeEditFallback,

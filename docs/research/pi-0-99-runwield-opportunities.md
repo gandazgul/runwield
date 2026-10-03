@@ -122,13 +122,14 @@ Sources: [runtime result normalization](../../src/shared/session/session-runtime
 **User outcome:** Agents can use structured integration results reliably, and users can connect a hosted MCP service
 without a local proxy.
 
-RunWield currently supports stdio MCP tools only. Discovery retains input schemas but not output schemas or annotations.
-Results place `structuredContent` and `isError` inside `details`, rather than Pi's new top-level result contract.
+At research time, RunWield supported stdio MCP tools through its own adapter. The Pi 1.0 migration now uses Pi's
+built-in MCP extension, including native result contracts, annotations, resource tools, and live tool-list updates.
+HTTP/OAuth configuration and codemode remain separate work.
 
 Pi supports streamable HTTP, OAuth, dynamic tool lists, and structured tool results. These capabilities offer a route to
 remote services and less text parsing.
 
-Sources: [current MCP scope and trust rules](../mcp.md), [MCP client](../../src/shared/mcp/pool.ts),
+Sources: [current MCP scope and trust rules](../mcp.md), [MCP client](../../src/shared/mcp/integration.ts),
 [Pi MCP documentation](https://pi.dev/docs/latest/mcp).
 
 **Recommendation:** Treat result fidelity and remote-service support as separate opportunities. Correct result/error

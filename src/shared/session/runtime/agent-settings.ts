@@ -16,7 +16,7 @@ import { parseProviderModel } from "../../models/model-validation.ts";
 import { getSettingsManager, setGlobalCompactionSetting } from "../../settings.js";
 import { getSessionKeyboardHelp } from ".././session-help.ts";
 import { resolveMcpConfig } from "../../mcp/config.ts";
-import { startMcpToolPool } from "../../mcp/pool.ts";
+import { startMcpIntegration } from "../../mcp/integration.ts";
 import { ensureAgyCliMcpSetup } from ".././backends/agy-cli/mcp-setup.ts";
 import { readCurrentPairCheckpoint, recordPairCheckpointSnapshot } from ".././pair-checkpoint-session.ts";
 
@@ -519,7 +519,7 @@ export class RuntimeAgentSettings {
         forceReload = false,
     ) {
         if (requestServers) hostedSession.setMcpRequestServers(requestServers);
-        if (!forceReload && !requestServers && hostedSession.getMcpToolPool?.()) return null;
+        if (!forceReload && !requestServers && hostedSession.getMcpIntegration?.()) return null;
         const resolved = await resolveMcpConfig({
             cwd: hostedSession.cwd,
             requestServers: hostedSession.getMcpRequestServers?.() || [],
@@ -533,7 +533,7 @@ export class RuntimeAgentSettings {
                 { level: "warning" },
             );
         }
-        const started = await startMcpToolPool({ cwd: hostedSession.cwd, servers: resolved.servers });
+        const started = await startMcpIntegration({ cwd: hostedSession.cwd, servers: resolved.servers });
         for (const item of started.warnings) {
             emitSystemStatus(
                 hostedSession,
@@ -543,7 +543,17 @@ export class RuntimeAgentSettings {
                 { level: "warning" },
             );
         }
-        return started.pool;
+        return started.integration;
+    }
+
+    async runMcpCommand(sessionId: string, args: string) {
+        const session = this.services.sessionHost.getSession(sessionId);
+        if (!session) return { ok: false, error: "not_found", notifications: [] };
+        if (session.isTurnActive()) throw new SessionTurnInProgressError(session.id);
+        const started = await this.refreshMcpTools(session);
+        if (started) await session.setMcpIntegration(started);
+        const notifications = await session.getMcpIntegration()?.runCommand(args) ?? [];
+        return { ok: true, notifications };
     }
 
     async activateSessionAgent(
@@ -558,20 +568,22 @@ export class RuntimeAgentSettings {
             this.lifecycle.clearPendingProject(hostedSession.id);
             this.managedOperations.setPendingCreationProof(hostedSession.id, pendingCreation);
         }
-        const mcpToolPool = options.mcpRootTools ? null : await this.refreshMcpTools(
+        const mcpIntegration = options.mcpRootTools ? null : await this.refreshMcpTools(
             hostedSession,
             options.mcpServers,
             options.reloadMcpTools === true,
         );
-        const activationOptions = mcpToolPool ? { ...options, mcpRootTools: mcpToolPool.getTools() } : options;
+        const activationOptions = mcpIntegration
+            ? { ...options, mcpRootTools: mcpIntegration.getTools(), mcpIntegration }
+            : options;
         try {
             if (!pendingCreation) {
                 const result = await switchActiveAgent(hostedSession, activationOptions);
-                if (mcpToolPool) await hostedSession.setMcpToolPool(mcpToolPool);
+                if (mcpIntegration) await hostedSession.setMcpIntegration(mcpIntegration);
                 return result;
             }
         } catch (error) {
-            if (mcpToolPool) await mcpToolPool.close().catch(() => {});
+            if (mcpIntegration) await mcpIntegration.close().catch(() => {});
             throw error;
         }
         try {
@@ -583,12 +595,12 @@ export class RuntimeAgentSettings {
                         ...activationOptions,
                         managedOperationCapability: capability,
                     });
-                    if (mcpToolPool) await hostedSession.setMcpToolPool(mcpToolPool);
+                    if (mcpIntegration) await hostedSession.setMcpIntegration(mcpIntegration);
                     return result;
                 },
             );
         } catch (error) {
-            if (mcpToolPool) await mcpToolPool.close().catch(() => {});
+            if (mcpIntegration) await mcpIntegration.close().catch(() => {});
             throw error;
         }
     }
@@ -624,6 +636,7 @@ export class RuntimeAgentSettings {
             releaseActiveWorkflow?: boolean;
             customTools?: import("@earendil-works/pi-coding-agent").ToolDefinition[];
             mcpRootTools?: import("@earendil-works/pi-coding-agent").ToolDefinition[];
+            mcpIntegration?: import("../../mcp/integration.ts").McpIntegration;
             toolNames?: string[];
             reloadMcpTools?: boolean;
             mcpServers?: import("../../mcp/config.ts").McpServerDefinition[];
