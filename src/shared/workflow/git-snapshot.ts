@@ -7,12 +7,10 @@ import { dirname, isAbsolute, join } from "@std/path";
 import { assertGitRepository, GitRepositoryRequiredError } from "../git.js";
 
 class GitCommandError extends Error {
-    /**
-     * @param {string[]} args
-     * @param {number} code
-     * @param {string} output
-     */
-    constructor(args, code, output) {
+    code: number;
+    output: string;
+
+    constructor(args: string[], code: number, output: string) {
         super(`git ${args.join(" ")} failed: ${output}`.trim());
         this.name = "GitCommandError";
         this.code = code;
@@ -21,29 +19,21 @@ class GitCommandError extends Error {
 }
 
 export class WorktreeReviewComparisonError extends Error {
-    /** @param {string} message */
-    constructor(message) {
+    constructor(message: string) {
         super(message);
         this.name = "WorktreeReviewComparisonError";
     }
 }
 
 export class WorktreeReviewTargetError extends WorktreeReviewComparisonError {
-    /** @param {string} targetBranch */
-    constructor(targetBranch) {
+    constructor(targetBranch: string) {
         const branch = targetBranch || "(missing)";
         super(`Cannot compute the worktree review diff because target ref refs/heads/${branch} is unavailable.`);
         this.name = "WorktreeReviewTargetError";
     }
 }
 
-/**
- * @param {string} cwd
- * @param {string[]} args
- * @param {Record<string, string>} [env]
- * @returns {Promise<string>}
- */
-async function runGit(cwd, args, env = {}) {
+async function runGit(cwd: string, args: string[], env: Record<string, string> = {}): Promise<string> {
     let output;
     try {
         const command = new Deno.Command("git", {
@@ -81,28 +71,25 @@ async function runGit(cwd, args, env = {}) {
     return stdoutText;
 }
 
-/** @param {Error} error */
-function isMissingRevisionError(error) {
+function isMissingRevisionError(error: Error): boolean {
     return error instanceof GitCommandError && error.output.includes("Needed a single revision");
 }
 
-/**
- * @typedef {Object} GitCommitSummary
- * @property {string} hash
- * @property {string} date
- * @property {string} subject
- */
+export interface GitCommitSummary {
+    hash: string;
+    date: string;
+    subject: string;
+}
 
 /**
  * List commits on HEAD since a timestamp that touched any of the provided
  * paths.
- *
- * @param {string} cwd
- * @param {string | undefined} since
- * @param {string[]} paths
- * @returns {Promise<GitCommitSummary[]>}
  */
-export async function listCommitsTouchingPathsSince(cwd, since, paths) {
+export async function listCommitsTouchingPathsSince(
+    cwd: string,
+    since: string | undefined,
+    paths: string[],
+): Promise<GitCommitSummary[]> {
     const pathspecs = (Array.isArray(paths) ? paths : [])
         .map((path) => String(path || "").trim())
         .filter(Boolean);
@@ -128,11 +115,8 @@ export async function listCommitsTouchingPathsSince(cwd, since, paths) {
 /**
  * Capture the current working tree into a git tree object without mutating the
  * repository's real index.
- *
- * @param {string} cwd
- * @returns {Promise<string>}
  */
-export async function captureWorktreeTree(cwd) {
+export async function captureWorktreeTree(cwd: string): Promise<string> {
     await assertGitRepository(cwd, "Capturing an execution baseline tree");
     const realIndex = (await runGit(cwd, ["rev-parse", "--git-path", "index"])).trim();
     const realIndexPath = isAbsolute(realIndex) ? realIndex : join(cwd, realIndex);
@@ -153,23 +137,12 @@ export async function captureWorktreeTree(cwd) {
     }
 }
 
-/**
- * @param {string} cwd
- * @param {string} baseTree
- * @param {string} currentTree
- * @returns {Promise<string>}
- */
-export async function diffTrees(cwd, baseTree, currentTree) {
+export async function diffTrees(cwd: string, baseTree: string, currentTree: string): Promise<string> {
     await assertGitRepository(cwd, "Computing a workflow diff");
     return await runGit(cwd, ["diff", `${baseTree}..${currentTree}`]);
 }
 
-/**
- * @param {string} cwd
- * @param {string | undefined} baselineTree
- * @returns {Promise<string>}
- */
-export async function getWorkflowDiff(cwd, baselineTree) {
+export async function getWorkflowDiff(cwd: string, baselineTree: string | undefined): Promise<string> {
     await assertGitRepository(cwd, "Computing a workflow diff");
     if (!baselineTree) {
         return await runGit(cwd, ["diff"]);
@@ -184,12 +157,8 @@ export async function getWorkflowDiff(cwd, baselineTree) {
  * ancestor with execution HEAD to the current worktree files. This is the
  * shared comparison for AI review, repair context, human review, and future
  * full-review consumers.
- *
- * @param {string} cwd
- * @param {string} targetBranch
- * @returns {Promise<string>}
  */
-export async function getWorktreeReviewDiff(cwd, targetBranch) {
+export async function getWorktreeReviewDiff(cwd: string, targetBranch: string): Promise<string> {
     await assertGitRepository(cwd, "Computing a worktree review diff");
     const branch = String(targetBranch || "").trim();
     if (!branch) throw new WorktreeReviewTargetError(branch);
@@ -236,12 +205,8 @@ export async function getWorktreeReviewDiff(cwd, targetBranch) {
  * Restore the repository's real index and worktree to a previously captured
  * git tree only when the current tree already matches the target tree. This
  * fail-closed guard prevents stale baseline restores from deleting newer work.
- *
- * @param {string} cwd
- * @param {string} targetTree
- * @returns {Promise<void>}
  */
-export async function restoreWorktreeTree(cwd, targetTree) {
+export async function restoreWorktreeTree(cwd: string, targetTree: string): Promise<void> {
     await assertGitRepository(cwd, "Restoring an execution baseline tree");
     const targetType = (await runGit(cwd, ["cat-file", "-t", targetTree])).trim();
     if (targetType !== "tree") {

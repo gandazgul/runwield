@@ -13,7 +13,7 @@ import { isGitRepositoryRequiredError } from "../../shared/git.js";
 import { isProjectPlan, recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
 import { decidePostExecution } from "../../shared/workflow/decisions.js";
 import { finalizePlanImplementation } from "../../shared/workflow/workflow.js";
-import { listCommitsTouchingPathsSince } from "../../shared/workflow/git-snapshot.js";
+import { listCommitsTouchingPathsSince } from "../../shared/workflow/git-snapshot.ts";
 import {
     type ExecutionContextCandidate,
     type ResolvedValidationContext,

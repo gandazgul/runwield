@@ -10,7 +10,7 @@ import {
     validateWorktreeDiscard,
     validateWorktreeRecreation,
 } from "../../shared/worktree.js";
-import { restoreWorktreeTree } from "../../shared/workflow/git-snapshot.js";
+import { restoreWorktreeTree } from "../../shared/workflow/git-snapshot.ts";
 import { formatGitRequiredMessage, isGitRepositoryRequiredError } from "../../shared/git.js";
 import {
     confirmBaselineReset,
