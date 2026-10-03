@@ -118,6 +118,13 @@ Deno.test("code review messages distinguish user review from AI review", () => {
     );
 });
 
+Deno.test("saved integration notes name the parent Epic and note count", () => {
+    assertEquals(
+        buildValidationUserMessage({ kind: "integration_notes_saved", count: 2, epicPlanName: "demo" }),
+        "AI review left 2 note(s) for demo.",
+    );
+});
+
 Deno.test("Epic child Work Record message explains that generation waits for the parent", () => {
     assertEquals(
         buildValidationUserMessage({
@@ -219,6 +226,7 @@ Deno.test("all validation recovery and doctor messages stay plain", async () => 
         buildValidationUserMessage({ kind: "semantic_approved", round: 1 }),
         buildValidationUserMessage({ kind: "review_repair", repairKind: "semantic" }),
         buildValidationUserMessage({ kind: "reviewer_nudge", round: 1, attempt: 2 }),
+        buildValidationUserMessage({ kind: "integration_notes_saved", count: 2, epicPlanName: "demo" }),
         buildValidationUserMessage({
             kind: "semantic_limit",
             planName: "demo",

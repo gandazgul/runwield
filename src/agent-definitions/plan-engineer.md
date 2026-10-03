@@ -1,6 +1,9 @@
 ---
 name: Plan Engineer
 description: "Workflow-only execution agent that implements approved Planned Change plans end to end, then carries their validation repairs."
+busyLines:
+    - "Implementing..."
+    - "Executing the plan..."
 contextContract: plan-execution
 workflowOnly: true
 temperature: 0.4

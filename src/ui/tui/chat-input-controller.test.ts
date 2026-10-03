@@ -280,11 +280,11 @@ Deno.test("slash new replaces the TUI with an unpersisted shell until its first 
             await waitFor(
                 () =>
                     terminal.getScreenText().includes("persist this Session now") &&
-                    terminal.getScreenText().includes("Thinking..."),
+                    /Routing\.\.\.|Figuring out what you need\.\.\./.test(terminal.getScreenText()),
                 "first message and thinking frame",
             );
             assertStringIncludes(terminal.getScreenText(), "persist this Session now");
-            assertStringIncludes(terminal.getScreenText(), "Thinking...");
+            assertEquals(/Routing\.\.\.|Figuring out what you need\.\.\./.test(terminal.getScreenText()), true);
             releaseModel.resolve();
             await composition.waitForIdle();
             assertEquals(

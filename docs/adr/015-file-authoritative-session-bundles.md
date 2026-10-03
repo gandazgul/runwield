@@ -23,7 +23,7 @@ Every local Session uses a bundle under the Project's encoded `~/.wld/sessions/`
 
 - Pi JSONL files remain the transcript content;
 - an atomic `manifest.json` stores stable RunWield Session identity, the ordered segment list, the current segment,
-  committed generation evidence, and writer state;
+  committed generation evidence, writer state, and reversible archive state;
 - `session.lock` is the target of the operating-system exclusive file lock; and
 - each committed transcript has an adjacent `.runwield.json` recovery descriptor containing the last recoverable
   manifest.
@@ -53,6 +53,26 @@ lock and compare the current transcript with the last committed or activation-ba
 
 Generation and rollover proofs still fence stale in-process work. The OS lock, not a database row or timeout, prevents
 simultaneous writers.
+
+### Archive state follows the same authority and lock
+
+Archive state belongs in the file-authoritative manifest, not Workspace SQLite or an ACP mapping. This keeps one
+reversible visibility decision across local surfaces without making Workspace registration a Core prerequisite. Missing
+archive metadata means active for older bundles. Archive does not change stable identity, transcript segments, Plan
+Associations, or Plan and workflow state; it is not hard deletion or ACP resource closure.
+
+Archive and Unarchive acquire the existing Session Writer Lock, reread and validate the current manifest, and change
+only archive metadata. Idempotent transitions preserve current generation and turn evidence rather than overwriting a
+cached manifest. Busy work must stop through its owner and settle before the transition; a held lock or active
+activation prevents the write. Workspace asks for confirmation before stopping work; an explicit ACP `session/delete`
+request supplies that confirmation. Stop, settlement, and persistence failures are recoverable errors, not successful
+archive outcomes. Existing crash inspection and reconciliation rules still apply; archive does not bypass them or replay
+unfinished external effects.
+
+Atomic manifest commits refresh the transcript-adjacent recovery descriptors with archive state. Reopening the store or
+rebuilding Workspace projections therefore retains committed archive state. Ordinary history and TUI resume omit
+archived Sessions, while Plan-associated listings retain their links and archived status. Project settings offers
+Unarchive. Direct links and explicit loading remain available and do not silently restore ordinary-list visibility.
 
 ### Every Session is segmented
 
@@ -148,8 +168,9 @@ records, acknowledgements, or resolution state.
 ### Workspace database is Workspace-only
 
 Workspace SQLite stores explicitly registered Projects, paired devices, bounded endpoint receipts, and rebuildable
-Workspace projections. It does not own Session identity, segment order, generations, or writer coordination. Endpoint
-receipts carry stable Session IDs as values and do not foreign-key them to the retired SQLite Session catalog.
+Workspace projections. It does not own Session identity, archive state, segment order, generations, or writer
+coordination. Endpoint receipts carry stable Session IDs as values and do not foreign-key them to the retired SQLite
+Session catalog.
 
 Deleting or rebuilding the Workspace database removes Workspace registration, pairing, receipts, and projections. It
 does not prevent TUI or ACP from listing, opening, or continuing local Sessions. Registering the Project again lets

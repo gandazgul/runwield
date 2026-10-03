@@ -1040,6 +1040,10 @@ not inherit it. Future Session deletion also removes its images. See
 
 - Given an Engineer-family Agent with a 128,000-token context window, its early compaction threshold is 76,800 tokens.
   With a 200,000-token or larger window, the early threshold is capped at 120,000 tokens.
+- Given an Engineer retry after an aborted request, retained instructions from earlier Agents do not inflate its
+  usage-backed context count. The pre-prompt check includes the incoming message.
+- Given successful compaction with no queued messages, Engineer compaction resets and Pair checkpoints remain available.
+  A failed or cancelled compaction does not count as success.
 - When compaction finishes and the Session resumes, its goal, decisions, constraints, saved Named Invocation expansion,
   and useful progress survive; failure or cancellation never claims successful compaction.
 - Given a text-only destination model and no suitable vision fallback, when the user tries to send an image or changes
@@ -1642,6 +1646,15 @@ The file storage, operation-scoped writer lock, transcript segments, and synchro
 [ADR-015](../adr/015-file-authoritative-session-bundles.md). These mechanisms implement the outcomes above; they do not
 create additional product restrictions on which screen the owner may use.
 
+**Requirement: Archive a Session without losing saved work.**
+
+Archive is a current, reversible Session state shared by ACP and Workspace. It hides the Session from ordinary history
+and TUI resume lists, not from its associated Plans. Archive and Unarchive preserve the stable Session ID, every Session
+Transcript Segment, Plan Associations, and Plan and workflow state. Older Sessions without archive metadata remain
+active. Direct links and explicit loading remain usable; opening or continuing an archived Session does not silently
+unarchive it. Workspace Project settings provides the recovery surface through
+[Archived Sessions](runwield-workspace-prd.md#project-access-and-navigation).
+
 **Requirement: Run bounded background work.**
 
 When its tool policy offers `background_task`, an Agent with effective shell authority can start an independent command,
@@ -1683,6 +1696,12 @@ surface.
 
 **Acceptance scenarios:**
 
+- Given a saved Session, when the owner archives it through ACP or Workspace and reopens the store, ordinary history and
+  TUI resume omit it. Its associated Plans still link to it with archived status; its ID, full transcript, Plan
+  Associations, and workflow state are unchanged.
+- Given an archived Session, opening its direct link or explicitly loading it preserves archive state. Unarchive from
+  Project settings returns that same Session to ordinary history without creating a new conversation.
+- Given an older Session without archive metadata, ordinary history and TUI resume continue to show it as active.
 - Given a fresh empty composer, when the user opens it without submitting work, no project runtime state is created; the
   first submitted work enters the project runtime.
 - When validation starts another repair, observers see the repair activity without a second copy of the user's original

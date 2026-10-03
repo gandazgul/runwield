@@ -214,3 +214,41 @@ Deno.test("resume listing ignores an unrelated parent Project record", async () 
         }
     });
 });
+
+Deno.test("resume listing excludes archived Sessions and keeps active and legacy Sessions", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const previousHome = getHomeDir();
+        const home = await Deno.makeTempDir({ prefix: "runwield-archive-resume-" });
+        Deno.env.set("HOME", home);
+        const cwd = join(home, "project");
+        await Deno.mkdir(cwd);
+        const store = openFileSessionStore();
+        try {
+            const project = store.ensureRuntimeProject({ root: cwd });
+            const sessionDir = getRunWieldSessionDir(cwd);
+            await Deno.mkdir(sessionDir, { recursive: true });
+            for (const [index, id] of ["archived", "active", "legacy"].entries()) {
+                const timestamp = new Date(Date.UTC(2026, 0, index + 1)).toISOString();
+                const transcriptPath = join(sessionDir, `${timestamp.replace(/[:.]/g, "-")}_${id}.jsonl`);
+                await Deno.writeTextFile(transcriptPath, transcriptText(id, cwd, timestamp, index));
+                if (id !== "legacy") {
+                    const session = await store.ensureSessionCatalogRecord({
+                        projectId: project.projectId,
+                        piSessionId: id,
+                        transcriptPath,
+                        transcriptCwd: cwd,
+                    });
+                    if (id === "archived") store.archiveSession(session.runwieldSessionId);
+                }
+            }
+            assertEquals((await listRecentResumableSessions(cwd, store)).map((item) => item.id).sort(), [
+                "active",
+                "legacy",
+            ]);
+        } finally {
+            store.close();
+            Deno.env.set("HOME", previousHome);
+            await Deno.remove(home, { recursive: true });
+        }
+    });
+});

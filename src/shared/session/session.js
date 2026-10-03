@@ -17,7 +17,7 @@ import {
     SessionManager,
     shouldCompact,
 } from "@earendil-works/pi-coding-agent";
-import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
+import { createAssistantMessageEventStream, getCurrentSystemMessage } from "@earendil-works/pi-ai";
 import { formatProviderError, formatProviderRetryExhaustion, normalizeProviderStream } from "./provider-errors.ts";
 import { completeSimple } from "@earendil-works/pi-ai/compat";
 import { WorkflowStepCompleted } from "../workflow/workflow-tool-events.ts";
@@ -1943,6 +1943,7 @@ function repairNamedInvocationContextEdits(sessionManager) {
  * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [opts.mcpRootTools]
  * @param {string} [opts.modelOverride]
  * @param {"off"|"minimal"|"low"|"medium"|"high"|"xhigh"|"max"} [opts.thinkingLevelOverride]
+ * @param {number} [opts.temperatureOverride]
  * @param {import('@earendil-works/pi-coding-agent').SessionManager} [opts.sessionManager]
  * @param {import('../../tools/plan-written.ts').TriageMeta} [opts.triageMeta]
  * @param {{ id: import('./subagent-definitions.ts').SubAgentDefinitionId, options?: import('./subagent-definitions.ts').LoadSubAgentDefinitionOptions }} [opts.subAgentDefinition]
@@ -1979,6 +1980,7 @@ export async function buildAgentSession({
     mcpRootTools,
     modelOverride,
     thinkingLevelOverride,
+    temperatureOverride,
     sessionManager,
     triageMeta,
     subAgentDefinition,
@@ -2272,10 +2274,12 @@ export async function buildAgentSession({
         normalizeProviderStream(providerStream, model, context, options);
 
     const configuredTemperature = agentName ? getConfiguredAgentTemperature(agentName, sessionCwd) : undefined;
-    const temperatureSource = configuredTemperature !== undefined ? "settings agent temperature" : (
-        agentDef.temperature !== undefined ? "agent definition temperature" : undefined
+    const temperatureSource = temperatureOverride !== undefined ? "explicit temperature override" : (
+        configuredTemperature !== undefined ? "settings agent temperature" : (
+            agentDef.temperature !== undefined ? "agent definition temperature" : undefined
+        )
     );
-    const resolvedTemperature = configuredTemperature ?? agentDef.temperature;
+    const resolvedTemperature = temperatureOverride ?? configuredTemperature ?? agentDef.temperature;
     applySessionTemperature(session, resolvedTemperature);
 
     if (extensionsResult?.errors?.length) {
@@ -2825,13 +2829,16 @@ export function installEngineerAutoCompactionThreshold(session, agentName) {
     const target = /** @type {AutoCompactionSessionPatch} */ (/** @type {unknown} */ (session));
     if (target.__runWieldEngineerAutoCompactionInstalled || typeof target._checkCompaction !== "function") return;
 
+    session.subscribe((event) => {
+        if (event.type === "compaction_end" && event.result && !event.aborted) {
+            markEngineerCompactionComplete(session);
+        }
+    });
+
     const originalCheckCompaction = target._checkCompaction;
     target._checkCompaction = async function (assistantMessage, skipAbortedCheck = true) {
-        const compactedByPi = await originalCheckCompaction.call(this, assistantMessage, skipAbortedCheck);
-        if (compactedByPi) {
-            markEngineerCompactionComplete(session);
-            return true;
-        }
+        const shouldContinue = await originalCheckCompaction.call(this, assistantMessage, skipAbortedCheck);
+        if (shouldContinue) return true;
 
         const message = /** @type {{ stopReason?: string }} */ (assistantMessage);
         if (skipAbortedCheck && message.stopReason === "aborted") return false;
@@ -2847,9 +2854,8 @@ export function installEngineerAutoCompactionThreshold(session, agentName) {
         }
         if (typeof target._runAutoCompaction !== "function") return false;
 
-        const compacted = await target._runAutoCompaction.call(this, "threshold", false);
-        if (compacted) markEngineerCompactionComplete(session);
-        return compacted;
+        // Pi returns whether queued messages require continuation, not compaction success.
+        return await target._runAutoCompaction.call(this, "threshold", false);
     };
     target.__runWieldEngineerAutoCompactionInstalled = true;
 }
@@ -2912,13 +2918,18 @@ export function installPairCheckpointAutoCompactionPreservation(session, hostedS
         );
         const checkpoint = readCurrentPairCheckpoint(hostedSession);
         const requestAttempt = sessionManager ? readRequestAttemptEntries(sessionManager).at(-1) : null;
-        const compacted = await originalRunAutoCompaction.call(this, reason, willRetry);
-        if (!compacted) return false;
-        if (checkpoint) recordPairCheckpointSnapshot(hostedSession, checkpoint);
-        if (sessionManager && requestAttempt?.phase === "started") {
-            recordRequestAttemptSnapshot(sessionManager, requestAttempt);
+        const unsubscribe = session.subscribe((event) => {
+            if (event.type !== "compaction_end" || !event.result || event.aborted) return;
+            if (checkpoint) recordPairCheckpointSnapshot(hostedSession, checkpoint);
+            if (sessionManager && requestAttempt?.phase === "started") {
+                recordRequestAttemptSnapshot(sessionManager, requestAttempt);
+            }
+        });
+        try {
+            return await originalRunAutoCompaction.call(this, reason, willRetry);
+        } finally {
+            unsubscribe();
         }
-        return true;
     };
     target.__runWieldPairCheckpointCompactionPreserved = true;
 }
@@ -2953,12 +2964,18 @@ function estimatePendingPromptTokens(prepared) {
  */
 function estimateCurrentContextTokens(session) {
     const usage = session.getContextUsage?.();
-    let currentTokens = typeof usage?.tokens === "number" ? usage.tokens : 0;
-    const contextMessages = session.sessionManager?.buildSessionContext?.().messages;
-    if (Array.isArray(contextMessages)) {
-        currentTokens = Math.max(currentTokens, estimateAgentMessagesTokens(contextMessages));
-    }
-    return currentTokens;
+    // Pi includes trailing messages and skips aborted usage. Do not override its
+    // count with accumulated instructions that the provider does not receive.
+    if (typeof usage?.tokens === "number") return usage.tokens;
+    const messages = session.sessionManager.buildSessionContext().messages;
+    const currentSystem = getCurrentSystemMessage(messages);
+    const systemTokens = estimateTokens({
+        role: "system",
+        content: session.systemPrompt,
+        toolsAdded: currentSystem?.toolsAdded,
+        timestamp: Date.now(),
+    });
+    return systemTokens + estimateAgentMessagesTokens(messages.filter((message) => message.role !== "system"));
 }
 
 /**
@@ -2978,15 +2995,15 @@ function assertPreparedPromptFitsContext(session, prepared, model) {
  * @param {import('@earendil-works/pi-coding-agent').AgentSession} session
  * @param {PreparedPromptContent} prepared
  * @param {string} agentName
- * @returns {Promise<boolean>} true when a compaction attempt was started and succeeded
+ * @returns {Promise<void>}
  */
 async function compactBeforePromptIfNeeded(session, prepared, agentName) {
     const settings = session.settingsManager?.getCompactionSettings?.();
-    if (!settings?.enabled) return false;
-    if (session.isStreaming || session.isCompacting) return false;
+    if (!settings?.enabled) return;
+    if (session.isStreaming || session.isCompacting) return;
 
     const contextWindow = session.model?.contextWindow ?? 0;
-    if (typeof contextWindow !== "number" || contextWindow <= 0) return false;
+    if (typeof contextWindow !== "number" || contextWindow <= 0) return;
 
     const currentTokens = estimateCurrentContextTokens(session);
     const totalTokens = currentTokens + estimatePendingPromptTokens(prepared);
@@ -2994,14 +3011,12 @@ async function compactBeforePromptIfNeeded(session, prepared, agentName) {
     const needsCompaction = engineerThreshold === null
         ? shouldCompact(totalTokens, contextWindow, settings)
         : shouldRunEngineerCompaction(session, currentTokens, totalTokens, engineerThreshold, contextWindow);
-    if (!needsCompaction) return false;
+    if (!needsCompaction) return;
 
     const runAutoCompaction = /** @type {{ _runAutoCompaction?: (reason: string, willRetry: boolean) => Promise<boolean> }} */
         (/** @type {unknown} */ (session))._runAutoCompaction;
-    if (typeof runAutoCompaction !== "function") return false;
-    const compacted = await runAutoCompaction.call(session, "threshold", false);
-    if (compacted && engineerThreshold !== null) markEngineerCompactionComplete(session);
-    return compacted;
+    if (typeof runAutoCompaction !== "function") return;
+    await runAutoCompaction.call(session, "threshold", false);
 }
 
 // Execution observation belongs to the Agent Session, not its foreground display subscriber.
@@ -4604,6 +4619,7 @@ export async function runNonInteractiveAgentPrompt({
  * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} [opts.mcpRootTools]
  * @param {string} [opts.modelOverride] - Optional explicit model override in provider/id format.
  * @param {"off"|"minimal"|"low"|"medium"|"high"|"xhigh"|"max"} [opts.thinkingLevelOverride]
+ * @param {number} [opts.temperatureOverride]
  * @param {string} opts.userRequest - The user-facing request/instruction to send to the agent
  * @param {Array<{base64: string, mimeType: string}>} [opts.images]
  * @param {import('../../tools/plan-written.ts').TriageMeta} [opts.triageMeta] - Optional triage metadata threaded into auto-wired plan_written.

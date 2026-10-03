@@ -99,7 +99,7 @@ and `api-auth-probes.ts`. Do not rerun successful generations just to verify doc
 
 ## Sources
 
-- [Pi image API](../../node_modules/@earendil-works/pi-ai/README.md) — installed 0.84.2 image-generation section.
+- [Pi image API](https://unpkg.com/@earendil-works/pi-ai@0.84.2/README.md) — version 0.84.2 image-generation section.
 - [Codex App Server](https://learn.chatgpt.com/docs/app-server) — official local client protocol.
 - [Codex image generation](https://learn.chatgpt.com/docs/image-generation) — subscription usage and host behavior.
 - [Antigravity headless mode](https://antigravity.google/docs/cli/headless/) — cached login, public stream, and output

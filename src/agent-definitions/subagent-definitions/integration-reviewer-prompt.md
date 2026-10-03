@@ -1,6 +1,10 @@
 ---
 name: Integration Reviewer
 description: "Workflow-only integration review prompt. Reviews a whole Epic branch against the Epic before the Epic is marked validated."
+busyLines:
+    - "Reviewing the Epic..."
+    - "Checking integration..."
+    - "Auditing..."
 sharedPractice:
     - review-practice
 ---

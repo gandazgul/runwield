@@ -116,17 +116,34 @@ export function devOwnerProjects() {
     return [DEV_OWNER_PROJECT, DEV_OWNER_SECOND_PROJECT];
 }
 
-export function devOwnerSessionPage(page = 0, pageSize = 30) {
+const devArchivedSessions = new Map<string, string>();
+
+export function devOwnerSetSessionArchive(sessionId: string, archived: boolean, confirmed: boolean) {
+    const session = DEV_OWNER_SESSIONS.find((row) => row.runwieldSessionId === sessionId);
+    if (!session) return { error: "Session not found.", status: 404 };
+    if (archived && session.state === "active" && !confirmed) {
+        return { error: "Confirm stopping current work before archive.", status: 409 };
+    }
+    if (archived) devArchivedSessions.set(sessionId, devArchivedSessions.get(sessionId) || new Date().toISOString());
+    else devArchivedSessions.delete(sessionId);
+    return { runwieldSessionId: sessionId, archivedAt: devArchivedSessions.get(sessionId) || null, status: 200 };
+}
+
+export function devOwnerSessionPage(page = 0, pageSize = 30, archived = false) {
     const start = page * pageSize;
-    const sessions = DEV_OWNER_SESSIONS.slice(start, start + pageSize);
+    const selected = DEV_OWNER_SESSIONS.filter((row) => devArchivedSessions.has(row.runwieldSessionId) === archived);
+    const sessions = selected.slice(start, start + pageSize).map((row) => ({
+        ...row,
+        archivedAt: devArchivedSessions.get(row.runwieldSessionId) || null,
+    }));
     return {
         sessions,
         diagnostics: [],
         page,
         pageSize,
-        total: DEV_OWNER_SESSIONS.length,
-        hasNext: start + pageSize < DEV_OWNER_SESSIONS.length,
-        hasPrevious: page > 0 && start < DEV_OWNER_SESSIONS.length,
+        total: selected.length,
+        hasNext: start + pageSize < selected.length,
+        hasPrevious: page > 0 && start < selected.length,
     };
 }
 
@@ -134,8 +151,8 @@ export function devOwnerSidebar() {
     return {
         projects: [{
             ...DEV_OWNER_PROJECT,
-            sessions: DEV_OWNER_SESSIONS.slice(0, 5),
-            hasMoreSessions: DEV_OWNER_SESSIONS.length > 5,
+            sessions: devOwnerSessionPage(0, 5).sessions,
+            hasMoreSessions: devOwnerSessionPage(0, 5).hasNext,
         }, {
             ...DEV_OWNER_SECOND_PROJECT,
             sessions: [],

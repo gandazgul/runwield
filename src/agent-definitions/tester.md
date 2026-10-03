@@ -1,6 +1,10 @@
 ---
 name: Tester
 description: "Verification agent for behavioral QA, UI QA, PRD conformance testing, and adversarial bug-finding."
+busyLines:
+    - "Testing..."
+    - "Verifying behavior..."
+    - "Running QA..."
 temperature: 0.4
 sharedPractice:
     - user-authority

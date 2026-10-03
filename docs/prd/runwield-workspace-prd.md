@@ -488,6 +488,14 @@ remain unavailable until the Project is enabled and its root is available.
 Dashboard attention rows use the Plan name from the live review or linked Plan. Questions without a Plan use the Session
 name. The waiting reason belongs in the secondary status text, never as a repeated generic row title.
 
+**Requirement: Restore archived Sessions from Project settings.**
+
+Current Project settings has General and Archived Sessions tabs. Archived Sessions lists paginated archived names, links
+to their conversations, and an Unarchive action. Successful Unarchive restores ordinary history with the same Session
+ID, transcript, and Plan Associations. Opening an archived Session does not unarchive it. Associated Plan Session
+listings retain these links with visible archived status. Project access and Session ownership are checked before any
+archive-state change; a foreign Session cannot be changed through another Project.
+
 **Requirement: Install Workspace as an online-only app.**
 
 On supported browsers, Workspace can be installed from its HTTPS origin (or localhost for development), with a RunWield
@@ -565,6 +573,11 @@ facts describe the confirmed phase and any recorded failure.
 
 **Acceptance scenarios:**
 
+- Given an archived Session, Project settings > Archived Sessions lists its name and supports paging and opening its
+  saved conversation. Opening it leaves it archived. Unarchive removes it from this view and returns the same ID and
+  transcript to ordinary history.
+- Given an archived Session associated with a Plan, the Plan still lists its Session link with archived status.
+- Given a foreign Session or unauthorized Project, an Archive or Unarchive request fails without changing the Session.
 - Given two registered roots and one unregistered directory, when the owner browses Projects, only the registered roots
   are available to Workspace.
 - When a Project is disabled or removed, Workspace access and indexing stop without deleting repository data, saved
@@ -646,6 +659,16 @@ and selected Agent and model across TUI and browser. The primary timeline repres
 
 Terminal-byte streaming is not the primary Session UI.
 
+**Requirement: Archive conversations from Session history.**
+
+Current Session history provides a per-row Archive action. Idle Sessions archive without confirmation. Busy Sessions
+require confirmation to stop current work; Cancel leaves work running and archive state unchanged. Confirm uses the
+existing Stop path and waits for settlement before archive. Pending actions are visible. A failed request keeps the
+Session in the current view and shows an error with retry guidance. Controls work with keyboard and touch input.
+Ordinary history omits archived Sessions; the Archived view belongs in
+[Project settings](#project-access-and-navigation), not on Session history. Durable archive semantics follow
+[Core Session continuity](runwield-core-prd.md#session-continuity).
+
 **Requirement: Keep repeated browser navigation memory-stable.** Reopening Session, Plan, review, and question pages in
 one running Workspace process shows current content without retaining another page renderer for each visit. Navigation
 does not cache page responses or make the owner restart Workspace to see current Plan content. Live operation
@@ -701,6 +724,12 @@ projection, history virtualization, and active-turn byte limits remain deferred.
 
 **Acceptance scenarios:**
 
+- Given an idle Session in history, Archive removes its row without a confirmation or loss of saved work; it appears in
+  Project settings > Archived Sessions.
+- Given a busy Session, Archive asks for confirmation. Cancel leaves it running and active; Confirm stops and settles
+  work before the Session appears in Archived Sessions, without completing its Plan or workflow.
+- Given a failed Stop or archive write, the row remains and an actionable error appears. Keyboard and phone-width users
+  can retry the same action without losing access to its transcript.
 - After repeated visits to different Sessions, Plans, reviews, and questions, each page shows the current requested
   content. The running Workspace does not retain an additional renderer for every visit. Rebuilding an already loaded
   production renderer requires a server restart; the development server keeps its normal hot reload.

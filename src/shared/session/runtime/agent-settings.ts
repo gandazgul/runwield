@@ -1,7 +1,7 @@
 import { AGENTS } from "../../../constants.js";
 import { recordManualModelSelection } from ".././active-agent-session.js";
 import { resolveActiveWorkflowRuntimeAgent } from "../../workflow/execution-agent.ts";
-import { getAgentDisplayName } from ".././agents.js";
+import { getAgentBusyLines, getAgentDisplayName } from ".././agents.js";
 import { switchActiveAgent } from ".././agent-switching.js";
 import {
     drainSessionCompactionMetrics,
@@ -124,10 +124,12 @@ export class RuntimeAgentSettings {
             }
         }
         hostedSession.resetAgentInfoStack(displayName, model, provider, agentName);
+        const busyLines = getAgentBusyLines(agentName, hostedSession.cwd);
         this.events.emitSessionEvent(sessionId, {
             type: RuntimeEventTypes.AGENT_CHANGED,
             agentName,
             model: model || undefined,
+            ...(busyLines ? { busyLines } : {}),
         });
         return { ok: true, agentName, model };
     }
@@ -279,6 +281,8 @@ export class RuntimeAgentSettings {
             toolNames?: string[];
             customTools?: import("@earendil-works/pi-coding-agent").ToolDefinition[];
             modelOverride?: string;
+            thinkingLevelOverride?: import("../hosted-session.js").ThinkingLevel;
+            temperatureOverride?: number;
         },
     ): Promise<Awaited<ReturnType<typeof runIsolatedAgentSession>> | RuntimeMutationResult | ManagedOperationFailure> {
         const session = this.services.sessionHost.getSession(sessionId);
@@ -304,6 +308,8 @@ export class RuntimeAgentSettings {
                         toolNames: options.toolNames,
                         customTools: options.customTools,
                         modelOverride: options.modelOverride,
+                        thinkingLevelOverride: options.thinkingLevelOverride,
+                        temperatureOverride: options.temperatureOverride,
                         subAgentDefinition: options.subAgentDefinition,
                     })),
             { activateAgent: false },

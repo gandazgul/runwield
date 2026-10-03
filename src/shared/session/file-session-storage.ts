@@ -208,6 +208,7 @@ export function catalogedSession(manifest: FileSessionManifest) {
         runwieldSessionId: manifest.runwieldSessionId,
         projectId: manifest.projectId,
         displayName: manifest.displayName,
+        archivedAt: manifest.archivedAt || null,
         source: manifest.source,
         piSessionId: current.piSessionId,
         transcriptPath: current.transcriptPath,

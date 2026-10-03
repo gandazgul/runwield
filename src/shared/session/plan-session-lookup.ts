@@ -10,6 +10,7 @@ import { projectAggregateTranscript } from "./session-transcript-manifest.ts";
 export interface PlanAssociatedSession {
     runwieldSessionId: string;
     displayName: string | null;
+    archivedAt: string | null;
     piSessionId: string;
     transcriptPath: string;
     associations: ManifestPlanAssociation[];
@@ -43,6 +44,7 @@ export async function findPlanAssociatedSessions(
     for (let page = 0;; page += 1) {
         const listed = await sessionStore.listProjectSessions(project.projectId, {
             catalog: false,
+            archiveState: "all",
             page,
             pageSize: 100,
         });
@@ -65,6 +67,7 @@ export async function findPlanAssociatedSessions(
         candidates.push({
             runwieldSessionId: session.runwieldSessionId,
             displayName: session.displayName,
+            archivedAt: session.archivedAt,
             piSessionId: session.piSessionId,
             transcriptPath: session.transcriptPath,
             associations: associations.map((association) => ({ ...association })),
