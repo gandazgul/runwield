@@ -1,5 +1,5 @@
 import { verifyBuildArtifact } from "../../../scripts/build-metadata.js";
-import { fixedPythonCommand } from "./target.js";
+import { fixedPythonCommand } from "./target.ts";
 
 /** @param {{os: string, arch: string}} platform */
 export function linuxTarget(platform) {
