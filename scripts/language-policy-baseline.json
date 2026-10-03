@@ -80,7 +80,6 @@
     "src/shared/workflow/workflow-results.js",
     "src/shared/workflow/workflow.js",
     "src/shared/worktree-registry.js",
-    "src/shared/worktree-test-helpers.js",
     "src/shared/worktree.js",
     "src/testing/process-global-lock.js",
     "src/tools/docs-file-tools.js",
