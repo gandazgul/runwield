@@ -220,8 +220,11 @@ export class RuntimeLifecycleLoading {
                     const sync = await this.sync.synchronizeManagedSession(adopted.sessionId, { emitEvents: false });
                     const adoptedHostedSession = this.services.sessionHost.getSession(adopted.sessionId);
                     if (!adoptedHostedSession) throw new Error("Session Manager load did not retain adopted Session");
-                    const mcpToolPool = await this.settings.refreshMcpTools(adoptedHostedSession, options.mcpServers);
-                    if (mcpToolPool) await adoptedHostedSession.setMcpToolPool(mcpToolPool);
+                    const mcpIntegration = await this.settings.refreshMcpTools(
+                        adoptedHostedSession,
+                        options.mcpServers,
+                    );
+                    if (mcpIntegration) await adoptedHostedSession.setMcpIntegration(mcpIntegration);
                     const setupEvents = this.events.consumePendingReplayEvents(adopted.sessionId);
                     const replayEvents = sync.ok
                         ? setupEvents.concat(

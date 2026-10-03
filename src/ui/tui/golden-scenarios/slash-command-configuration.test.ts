@@ -11,6 +11,7 @@ import {
     slashAgentFrontmatterModelScenario,
     slashAgentScenario,
     slashAgentUnavailablePresetRecoveryScenario,
+    slashMcpScenario,
     slashModelScenario,
     slashModelUnavailableOverrideRecoveryScenario,
     slashSettingsScenario,
@@ -32,6 +33,7 @@ registerSlashCommandGoldenTests("src/ui/tui/golden-scenarios/slash-command-tree-
     { scenario: slashAgentBaseSettingScenario, exportName: "slashAgentBaseSettingScenario" },
     { scenario: slashAgentDefaultModelScenario, exportName: "slashAgentDefaultModelScenario" },
     { scenario: slashAgentFrontmatterModelScenario, exportName: "slashAgentFrontmatterModelScenario" },
+    { scenario: slashMcpScenario, exportName: "slashMcpScenario" },
     { scenario: slashModelScenario, exportName: "slashModelScenario" },
     {
         scenario: slashModelUnavailableOverrideRecoveryScenario,

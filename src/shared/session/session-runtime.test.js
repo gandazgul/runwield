@@ -32,7 +32,7 @@ import { openOwnerCoordinationStore } from "../owner-coordination/index.js";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import { getPlanRevisionForText, savePlan } from "../../plan-store.js";
 import { rememberNonGitExecutionConsent } from "../non-git-execution-consent.ts";
-import { McpToolPool } from "../mcp/pool.ts";
+import { McpIntegration } from "../mcp/integration.ts";
 import { loadPlanActionEvidence } from "../workflow/plan-actions.ts";
 import { buildSemanticRepairSegmentContinuation } from "../workflow/execution-segment-handoff.ts";
 import { WORKFLOW_TOOL_EVENT_CUSTOM_TYPE } from "../workflow/workflow-tool-events.ts";
@@ -4324,9 +4324,9 @@ Deno.test("SessionRuntime close settles cleanup when MCP pool close fails", asyn
     runtime.subscribeSessionEvents(sessionId, (event) => {
         events.push(event.type);
     });
-    const pool = new McpToolPool([], []);
+    const pool = new McpIntegration();
     pool.close = () => Promise.reject(new Error("fixture MCP close failed"));
-    await hostedSession.setMcpToolPool(pool);
+    await hostedSession.setMcpIntegration(pool);
 
     assertEquals(await runtime.closeSession(sessionId), { ok: true, closed: true });
 

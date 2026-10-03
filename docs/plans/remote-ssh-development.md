@@ -359,8 +359,8 @@ tools use a Git-aware basename, Core injection leaves collection choice implicit
 support needs explicit project and Memory identity across all three, not just renamed directories.
 
 `session.js:listSkills` and Pi's `DefaultResourceLoader` both discover skills. `named-invocation.ts` resolves sibling
-resources from the skill directory. MCP definitions merge personal then project; `mcp/pool.ts` currently starts local
-stdio subprocesses. Moving text alone does not move resource files or preserve integration location.
+resources from the skill directory. MCP definitions merge personal then project; `mcp/integration.ts` currently starts
+local stdio subprocesses. Moving text alone does not move resource files or preserve integration location.
 
 `review-launcher.ts` calls `BrowserPort.open`; the review server binds loopback and resolves an in-process pending
 promise. Frontend URLs are same-origin. `review-agent-handlers.js` starts Guided Review as another `wld` process. Whole

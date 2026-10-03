@@ -220,20 +220,23 @@ export const commandRegistry = {
     [COMMAND_NAMES.MCP]: {
         name: COMMAND_NAMES.MCP,
         displayName: "MCP",
-        description: "Run a RunWield MCP stdio adapter",
-        summary: "Run a protocol-only MCP stdio adapter for an external CLI backend.",
+        description: "Inspect MCP servers or run a stdio adapter",
+        summary:
+            "Use /mcp to inspect session servers and /mcp reconnect <server> to reconnect. The shell command runs a protocol-only stdio adapter for an external CLI backend.",
         usage: [
             `${bin("mcp agy-cli")}`,
             `${bin("mcp agy-cli --setup")}`,
             `${bin("mcp --help")}`,
+            "/mcp",
+            "/mcp reconnect <server>",
         ],
         notes: [
-            "CLI only: stdout is reserved for MCP JSON-RPC protocol frames.",
+            "Shell adapter stdout is reserved for MCP JSON-RPC protocol frames.",
             "agy-cli uses per-process bridge environment from a RunWield-started Antigravity turn.",
             "--setup asks before writing the persistent Antigravity global MCP server and permission.",
         ],
         execute: runMcpCommand,
-        surfaces: ["cli"],
+        surfaces: ["cli", "slash"],
         getArgumentCompletions: getMcpCompletions,
     },
     [COMMAND_NAMES.AGENT]: {

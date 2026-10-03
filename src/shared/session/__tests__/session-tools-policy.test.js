@@ -15,7 +15,7 @@ import {
     resolveEffectiveSessionToolNames,
 } from "../session.js";
 import { createReviewDiffTool } from "../../workflow/review-diff-tool.js";
-import { startMcpToolPool } from "../../mcp/pool.ts";
+import { startMcpIntegration } from "../../mcp/integration.ts";
 
 // Anchored to this file, not Deno.cwd(): test realms share one process, so a
 // concurrent test file's chdir would otherwise point these at its temp dir.
@@ -32,11 +32,11 @@ const MCP_FIXTURE_SERVER = fromFileUrl(new URL("../../mcp/fixture-server.ts", im
 
 /**
  * @param {string} cwd
- * @returns {Promise<{ pool: import('../../mcp/pool.ts').McpToolPool, tools: import('@earendil-works/pi-coding-agent').ToolDefinition[], logPath: string }>}
+ * @returns {Promise<{ pool: import('../../mcp/integration.ts').McpIntegration, tools: import('@earendil-works/pi-coding-agent').ToolDefinition[], logPath: string }>}
  */
 async function startRealMcpFixtureTools(cwd) {
     const logPath = await Deno.makeTempFile({ prefix: "runwield-real-mcp-policy-" });
-    const result = await startMcpToolPool({
+    const result = await startMcpIntegration({
         cwd,
         servers: [{
             name: "fixture",
@@ -47,7 +47,7 @@ async function startRealMcpFixtureTools(cwd) {
         }],
     });
     assertEquals(result.warnings, []);
-    return { pool: result.pool, tools: result.pool.getTools(), logPath };
+    return { pool: result.integration, tools: result.integration.getTools(), logPath };
 }
 
 /** @param {string} path */

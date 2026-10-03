@@ -1243,8 +1243,11 @@ Configuration and loading details belong in [customization documentation](../cus
 including after an Agent handoff or Session continuation. ACP-supplied servers remain Session-only. Delegated and
 isolated validation/review Agents retain their tool ceilings. MCP failures leave the Session usable with redacted
 diagnostics; cancellation and closing the Session settle server cleanup. Tool results preserve text, images, structured
-details, and server-reported errors, and progress reaches the active surface. MCP tools use direct calls; codemode is
-deferred as a separate capability.
+output, and server-reported errors, and progress reaches the active surface. Pi's built-in MCP extension owns discovery,
+conversion, native tool names, reconnection, and cleanup. Root Pi Agents receive live tool-list updates; external CLI
+Agents refresh available MCP tools between turns. Server resources are read on request through Pi's resource tools.
+`/mcp` prints server status and `/mcp reconnect <server>` reconnects without a model request. MCP tools use direct
+calls; codemode is deferred as a separate capability.
 
 **Remote target:** [Local personal environment](remote-ssh-prd.md#local-personal-environment) specifies direct access to
 laptop `~/.wld` at a fresh private remote mount path, with project `.wld` remaining remote. Personal Agent, prompt, and
@@ -1260,6 +1263,10 @@ mount path is not confinement of trusted remote users. This target is not yet a 
   servers usable.
 - Given an MCP server that fails startup or discovery, the Session reports a redacted warning and remains usable. Given
   a tool that reports progress or an error, the surface receives progress and the model receives the error result.
+- Given a server announces a changed tool list, the next root Pi model request declares its new tools and removes
+  withdrawn tools. The next external CLI turn uses the current MCP tool list. Non-MCP Agent restrictions still apply.
+- Given a server offers resources, a root Agent can list and read them through Pi's resource tools. Oversized text names
+  a private file containing the full output. `/mcp` reports connection status without invoking a model.
 - When a user invokes a Skill or Prompt Template, its full saved expansion reaches the active model and remains
   available to follow-up and resume. Templates display their rendered message; Skills retain their compact command.
 - After installation, `/skill:review` is listed and invokes the portable review instructions and support files for a
