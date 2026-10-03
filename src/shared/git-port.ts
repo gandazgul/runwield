@@ -19,7 +19,7 @@
  * lifecycle, not here.
  */
 
-import { captureWorktreeTree, diffTrees, getWorkflowDiff } from "./workflow/git-snapshot.js";
+import { captureWorktreeTree, diffTrees, getWorkflowDiff } from "./workflow/git-snapshot.ts";
 import { getBranchHead, isCommitAncestorOfBranch } from "./worktree.js";
 
 /**

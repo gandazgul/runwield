@@ -73,7 +73,6 @@
     "src/shared/workflow/collaboration-pull.js",
     "src/shared/workflow/decisions.js",
     "src/shared/workflow/execution-plan-file.js",
-    "src/shared/workflow/git-snapshot.js",
     "src/shared/workflow/guided-review.js",
     "src/shared/workflow/metrics.js",
     "src/shared/workflow/plan-approval.js",
