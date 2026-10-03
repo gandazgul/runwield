@@ -7,8 +7,10 @@ import type { SettingsManager } from "@earendil-works/pi-coding-agent";
 import { getCwd } from "../../constants.js";
 import type { SessionRuntime } from "../../shared/session/session-runtime.ts";
 import {
+    getCustomSetting,
     getMergedCustomSetting,
     getSettingsManager,
+    isMascotEnabled,
     setCompactionKeepRecentTokens,
     setCompactionReserveTokens,
     setCustomSetting,
@@ -270,7 +272,15 @@ export async function runSettingsCommand(argv: string[], options: SettingsComman
     while (true) {
         const session = getActiveSession();
         const settings = getCompactionSettings(settingsManager);
+        const mascotEnabled = isMascotEnabled(projectRoot);
         const selection = await uiAPI.promptSelect("Settings", [
+            {
+                value: "mascot",
+                label: `Mascot: ${mascotEnabled ? "on" : "off"}`,
+                description: `Agent mascot ${mascotEnabled ? "on" : "off"}${
+                    getCustomSetting("mascot", "project", projectRoot) !== undefined ? " (project override active)" : ""
+                }`,
+            },
             {
                 value: "compaction",
                 label: "Compaction",
@@ -285,6 +295,12 @@ export async function runSettingsCommand(argv: string[], options: SettingsComman
         ]);
 
         if (!selection || selection === "done") break;
+        if (selection === "mascot") {
+            await setCustomSetting("mascot", !mascotEnabled, "global", projectRoot);
+            uiAPI.appendSystemMessage(`Mascot ${!mascotEnabled ? "on" : "off"} (global setting).`);
+            uiAPI.requestRender?.();
+            continue;
+        }
         if (selection === "model-presets") {
             while (true) {
                 const presets = getModelPresets(projectRoot);

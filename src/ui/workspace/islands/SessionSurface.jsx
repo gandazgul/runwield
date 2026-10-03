@@ -419,6 +419,7 @@ export function SessionComposer({
     mascotAgent = agentValue || "",
     mascotParentAgent = undefined,
     mascotActivity = "idle",
+    mascotVisible = false,
     modelValue,
     thinkingValue,
     onAgentChange,
@@ -665,7 +666,9 @@ export function SessionComposer({
                 )
                 : null}
             <div className="session-composer-actions" aria-label="Session settings">
-                <RunWieldMascot agentName={mascotAgent} parentAgentName={mascotParentAgent} pose={mascotActivity} />
+                {mascotVisible && (
+                    <RunWieldMascot agentName={mascotAgent} parentAgentName={mascotParentAgent} pose={mascotActivity} />
+                )}
                 <input
                     ref={fileInputRef}
                     type="file"
@@ -2328,6 +2331,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                             agents={agents}
                             models={models}
                             thinkingLevels={thinkingLevels}
+                            mascotVisible={Boolean(sessionOptions) && sessionOptions.mascot !== false}
                             agentValue={selectedAgent}
                             modelValue={selectedModelKey}
                             thinkingValue={selectedThinking}
@@ -2674,6 +2678,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                                 agents={agents}
                                 models={models}
                                 thinkingLevels={thinkingLevels}
+                                mascotVisible={Boolean(sessionOptions) && sessionOptions.mascot !== false}
                                 agentValue={stagedAgent}
                                 mascotAgent={timeline.snapshot?.activeAgentInfo?.agentName || currentAgent}
                                 mascotParentAgent={currentAgent}

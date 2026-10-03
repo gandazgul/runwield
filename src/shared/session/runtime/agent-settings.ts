@@ -13,7 +13,7 @@ import { emitSystemStatus, RuntimeEventTypes } from ".././session-runtime-events
 import { assertModelExecutionBackendSupported } from "../../models/model-execution.ts";
 import { getModelRegistry } from "../../models/model-registry.ts";
 import { parseProviderModel } from "../../models/model-validation.ts";
-import { getSettingsManager, setGlobalCompactionSetting } from "../../settings.js";
+import { clearMascotEnabledCache, getSettingsManager, setGlobalCompactionSetting } from "../../settings.js";
 import { getSessionKeyboardHelp } from ".././session-help.ts";
 import { resolveMcpConfig } from "../../mcp/config.ts";
 import { startMcpIntegration } from "../../mcp/integration.ts";
@@ -459,6 +459,7 @@ export class RuntimeAgentSettings {
                 agentName,
             );
             const refreshed = this.markPromptReadyAgent(sessionId, { agentName });
+            if (refreshed.ok) clearMascotEnabledCache();
             if (refreshed.ok) await this.events.emitCommandCatalogChanged(sessionId, promptReadySession);
             return refreshed.ok ? { ok: true, deferred: true } : refreshed;
         }
@@ -477,6 +478,7 @@ export class RuntimeAgentSettings {
                     reloadMcpTools: true,
                     ...(capability ? { managedOperationCapability: capability } : {}),
                 });
+                clearMascotEnabledCache();
                 await this.events.emitCommandCatalogChanged(sessionId, session);
                 return { ok: true };
             },
