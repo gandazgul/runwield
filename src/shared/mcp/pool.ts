@@ -1,8 +1,8 @@
 import { Type } from "@earendil-works/pi-ai";
 import { type AgentToolResult, defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { Client } from "@modelcontextprotocol/sdk/client";
-import { getDefaultEnvironment, StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio";
-import type { JsonMap, JsonValue, McpServerDefinition, McpWarning } from "./config.ts";
+import { type CallToolResult, McpClient, StdioTransport, toLlmContent, type Tool } from "@earendil-works/pi-mcp";
+import { getDefaultEnvironment } from "@modelcontextprotocol/sdk/client/stdio";
+import type { JsonMap, McpServerDefinition, McpWarning } from "./config.ts";
 
 export interface McpPoolStartOptions {
     cwd: string;
@@ -16,8 +16,8 @@ export interface McpPoolStartResult {
 
 interface ConnectedServer {
     definition: McpServerDefinition;
-    client: Client;
-    transport: StdioClientTransport;
+    client: McpClient;
+    transport: StdioTransport;
 }
 
 interface RemoteToolInfo {
@@ -25,7 +25,8 @@ interface RemoteToolInfo {
     remoteName: string;
     alias: string;
     description: string;
-    inputSchema: JsonMap;
+    inputSchema: Tool["inputSchema"];
+    annotations?: Tool["annotations"];
 }
 
 interface RemoteToolAliasInfo {
@@ -38,12 +39,8 @@ interface McpToolDetails {
     server: string;
     tool: string;
     isError: boolean;
-    structuredContent?: JsonValue;
+    structuredContent?: CallToolResult["structuredContent"];
 }
-
-type McpResultContent =
-    | { type: "text"; text: string }
-    | { type: "image"; data: string; mimeType: string };
 
 const MAX_TOOL_NAME_LENGTH = 64;
 const MAX_DESCRIPTIVE_TEXT = 12000;
@@ -101,29 +98,6 @@ function assignAliases(remoteTools: RemoteToolInfo[]): void {
     }
 }
 
-function isJsonMap(value: JsonValue): value is JsonMap {
-    return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function toJsonValue(value: Exclude<JsonValue, never>): JsonValue {
-    return value;
-}
-
-function toJsonMap(value: JsonValue): JsonMap {
-    return isJsonMap(value) ? value : { type: "object" };
-}
-
-function boundedText(value: string): string {
-    return value.slice(0, MAX_DESCRIPTIVE_TEXT);
-}
-
-function contentToText(value: JsonValue): string {
-    if (typeof value === "string") return boundedText(value);
-    if (typeof value === "number" || typeof value === "boolean") return String(value);
-    if (value === null) return "null";
-    return boundedText(JSON.stringify(value, null, 2));
-}
-
 function safeErrorMessage(error: Error | null): string {
     if (error instanceof Deno.errors.NotFound) return "MCP server command was not found.";
     if (error instanceof Deno.errors.PermissionDenied) return "MCP server command could not be started.";
@@ -131,48 +105,22 @@ function safeErrorMessage(error: Error | null): string {
     return "MCP server failed.";
 }
 
-function convertContentBlock(block: JsonMap): McpResultContent {
-    if (block.type === "text" && typeof block.text === "string") return { type: "text", text: block.text };
-    if (block.type === "image" && typeof block.data === "string" && typeof block.mimeType === "string") {
-        return { type: "image", data: block.data, mimeType: block.mimeType };
-    }
-    if (block.type === "resource_link" && typeof block.uri === "string") {
-        const label = typeof block.title === "string"
-            ? block.title
-            : typeof block.name === "string"
-            ? block.name
-            : block.uri;
-        return { type: "text", text: boundedText(`[MCP resource link: ${label} <${block.uri}>]`) };
-    }
-    if (block.type === "resource" && isJsonMap(block.resource)) {
-        const resource = block.resource;
-        const uri = typeof resource.uri === "string" ? resource.uri : "unknown";
-        if (typeof resource.text === "string") {
-            return { type: "text", text: boundedText(`[MCP resource ${uri}]\n${resource.text}`) };
-        }
-        return { type: "text", text: boundedText(`[MCP resource ${uri}: binary content omitted]`) };
-    }
-    if (block.type === "audio") return { type: "text", text: "[MCP audio content is not supported]" };
-    return { type: "text", text: boundedText(`[Unsupported MCP content: ${contentToText(block)}]`) };
-}
-
-function convertCallResult(result: JsonMap, serverName: string, toolName: string): AgentToolResult<McpToolDetails> {
-    const content: McpResultContent[] = [];
-    const rawContent = Array.isArray(result.content) ? result.content : [];
-    for (const item of rawContent) {
-        if (isJsonMap(item)) content.push(convertContentBlock(item));
-    }
-    if (content.length === 0 && result.toolResult !== undefined) {
-        content.push({ type: "text", text: contentToText(result.toolResult) });
-    }
-    if (content.length === 0 && result.structuredContent !== undefined) {
-        content.push({ type: "text", text: contentToText(result.structuredContent) });
-    }
-    const structuredContent = result.structuredContent !== undefined
-        ? toJsonValue(result.structuredContent)
-        : undefined;
+function convertCallResult(
+    result: CallToolResult,
+    serverName: string,
+    toolName: string,
+): AgentToolResult<McpToolDetails> {
+    // Pi owns MCP content conversion. Preserve RunWield's bound on resource descriptions and
+    // structured fallback text, while ordinary text results and images pass through unchanged.
+    const content = toLlmContent(result).map((block, index) =>
+        block.type === "text" && result.content[index]?.type !== "text"
+            ? { ...block, text: block.text.slice(0, MAX_DESCRIPTIVE_TEXT) }
+            : block
+    );
+    const structuredContent = result.structuredContent;
     return {
         content,
+        isError: result.isError === true,
         details: {
             server: serverName,
             tool: toolName,
@@ -183,7 +131,11 @@ function convertCallResult(result: JsonMap, serverName: string, toolName: string
 }
 
 function createTool(info: RemoteToolInfo): ToolDefinition {
-    const schema = Type.Unsafe(info.inputSchema);
+    const schema = Type.Unsafe({
+        ...info.inputSchema,
+        type: "object",
+        properties: info.inputSchema.properties ?? {},
+    });
     return defineTool({
         name: info.alias,
         label: `MCP: ${info.server.definition.name}/${info.remoteName}`,
@@ -192,31 +144,28 @@ function createTool(info: RemoteToolInfo): ToolDefinition {
                 .trim(),
         promptSnippet: `${info.alias}(...): External MCP tool ${info.server.definition.name}/${info.remoteName}.`,
         parameters: schema,
-        async execute(_toolCallId, params, signal): Promise<AgentToolResult<McpToolDetails>> {
+        annotations: info.annotations,
+        async execute(_toolCallId, params, signal, onUpdate): Promise<AgentToolResult<McpToolDetails>> {
             const result = await info.server.client.callTool(
-                { name: info.remoteName, arguments: params as JsonMap },
-                undefined,
-                { signal },
-            ) as JsonMap;
+                info.remoteName,
+                params as JsonMap,
+                {
+                    signal,
+                    onProgress: onUpdate
+                        ? (progress) =>
+                            onUpdate({
+                                content: [{
+                                    type: "text",
+                                    text: progress.message ?? `MCP progress: ${progress.progress}`,
+                                }],
+                                details: { server: info.server.definition.name, tool: info.remoteName, isError: false },
+                            })
+                        : undefined,
+                },
+            );
             return convertCallResult(result, info.server.definition.name, info.remoteName);
         },
     });
-}
-
-async function listAllTools(client: Client): Promise<{ name: string; description?: string; inputSchema: JsonMap }[]> {
-    const tools: { name: string; description?: string; inputSchema: JsonMap }[] = [];
-    let cursor: string | undefined;
-    do {
-        const result = await client.listTools(cursor ? { cursor } : undefined) as {
-            tools: { name: string; description?: string; inputSchema: JsonValue }[];
-            nextCursor?: string;
-        };
-        for (const tool of result.tools) {
-            tools.push({ name: tool.name, description: tool.description, inputSchema: toJsonMap(tool.inputSchema) });
-        }
-        cursor = result.nextCursor;
-    } while (cursor);
-    return tools;
 }
 
 export class McpToolPool {
@@ -256,14 +205,17 @@ export async function startMcpToolPool(options: McpPoolStartOptions): Promise<Mc
     const connected: ConnectedServer[] = [];
     const remoteTools: RemoteToolInfo[] = [];
     for (const definition of options.servers) {
-        const transport = new StdioClientTransport({
+        const transport = new StdioTransport({
             command: definition.command,
             args: definition.args,
             env: { ...getDefaultEnvironment(), ...definition.env },
+            // Pi inherits the full host environment by default; retain RunWield's minimal
+            // inherited environment plus only the credentials explicitly configured here.
+            inheritEnv: false,
             cwd: options.cwd,
             stderr: "pipe",
         });
-        const client = new Client({ name: "runwield", version: "0.0.0" }, { capabilities: {} });
+        const client = new McpClient({ name: "runwield", version: "0.0.0", capabilities: {} });
         const originalStart = transport.start.bind(transport);
         let failureStage = "spawn";
         transport.start = async () => {
@@ -290,7 +242,7 @@ export async function startMcpToolPool(options: McpPoolStartOptions): Promise<Mc
             continue;
         }
         try {
-            const tools = await listAllTools(client);
+            const tools = await client.listTools();
             for (const tool of tools) {
                 remoteTools.push({
                     server,
@@ -298,6 +250,7 @@ export async function startMcpToolPool(options: McpPoolStartOptions): Promise<Mc
                     alias: "",
                     description: tool.description || "",
                     inputSchema: tool.inputSchema,
+                    annotations: tool.annotations,
                 });
             }
         } catch (error) {
