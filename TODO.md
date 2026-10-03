@@ -123,7 +123,7 @@ Plans and current uncommitted work before creating new ones. Explicit future PRD
 
 14. [ ] **Quick win — Restore the visible theme when preview is cancelled.** If the saved theme is missing, cancelling a
         preview must return to the previous usable theme, not leave the preview active. Keep the saved choice unchanged.
-        Evidence: [theme selection](src/cmd/theme/index.ts), [theme registry](src/ui/theme/theme-registry.js).
+        Evidence: [theme selection](src/cmd/theme/index.ts), [theme registry](src/ui/theme/theme-registry.ts).
 
 Order favors restoring today's broken retrieval, honoring user control, and protecting workflow completion before
 context and polish. Quick wins can ship independently; the order is a priority recommendation, not a dependency chain.
