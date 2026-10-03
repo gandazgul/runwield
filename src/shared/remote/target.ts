@@ -50,37 +50,47 @@ except Exception as error:
     sys.exit(1)
 `;
 
-/** @param {string} source */
-export function fixedPythonCommand(source) {
+export function fixedPythonCommand(source: string): string {
     // Shell escaping applies only to our own fixed code, never to target data.
     return `python3 -c '${source.replaceAll("'", "'\\''")}'`;
 }
 
 export const REMOTE_RESOLVE_COMMAND = fixedPythonCommand(RESOLVE_SOURCE);
 
-/**
- * @typedef {Object} RemoteTarget
- * @property {string} cwd
- * @property {string} home
- * @property {string} os
- * @property {string} arch
- * @property {string | null} gitRoot
- * @property {string | null} gitDir
- * @property {string | null} gitCommonDir
- * @property {string | null} primaryRoot
- * @property {boolean} isWorktree
- */
+export interface RemoteTarget {
+    cwd: string;
+    home: string;
+    os: string;
+    arch: string;
+    gitRoot: string | null;
+    gitDir: string | null;
+    gitCommonDir: string | null;
+    primaryRoot: string | null;
+    isWorktree: boolean;
+}
+
+interface RemoteTargetSuccess extends RemoteTarget {
+    ok: true;
+    error?: string;
+}
+
+interface RemoteTargetFailure {
+    ok: false;
+    error: string;
+}
+
+type RemoteTargetResponse = RemoteTargetSuccess | RemoteTargetFailure;
 
 /**
  * Run the fixed resolver through the user's OpenSSH configuration. `host` is
  * one literal destination operand, never an option or remote command.
- * @param {string} host
- * @param {string | null} path
- * @param {string} [sshExecutable] External subprocess boundary.
- * @param {AbortSignal} [signal] Connection cancellation.
- * @returns {Promise<RemoteTarget>}
  */
-export async function resolveRemoteTarget(host, path = null, sshExecutable = "ssh", signal) {
+export async function resolveRemoteTarget(
+    host: string,
+    path: string | null = null,
+    sshExecutable = "ssh",
+    signal?: AbortSignal,
+): Promise<RemoteTarget> {
     // deno-lint-ignore no-control-regex -- SSH destinations must not contain control or whitespace characters.
     if (!host || host.startsWith("-") || /[\x00-\x20\x7f]/.test(host)) {
         throw new Error("Invalid SSH destination");
@@ -104,7 +114,7 @@ export async function resolveRemoteTarget(host, path = null, sshExecutable = "ss
         new Response(result.stdout).text(),
         new Response(result.stderr).text(),
     ]);
-    let response;
+    let response: RemoteTargetResponse;
     try {
         response = JSON.parse(stdout.trim());
     } catch {
