@@ -100,7 +100,6 @@
     "src/ui/design-system/components/index.js",
     "src/ui/design-system/components/react/RunWieldPrimitives.jsx",
     "src/ui/design-system/sidebar-motion.js",
-    "src/ui/design-system/theme-bridge.js",
     "src/ui/theme/theme-json.js",
     "src/ui/theme/theme-registry.js",
     "src/ui/theme/theme.js",

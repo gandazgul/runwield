@@ -42,7 +42,7 @@ Use the current RunWield browser design system and Workspace surfaces as the blu
 established look and feel.
 
 - Start with `docs/design-system.md`, then verify details against current source.
-- Treat `src/ui/design-system/` as the implementation baseline: `tokens.css`, `components.css`, `theme-bridge.js`, and
+- Treat `src/ui/design-system/` as the implementation baseline: `tokens.css`, `components.css`, `theme-bridge.ts`, and
   `components/react/RunWieldPrimitives.jsx`.
 - Use `--rw-*` semantic tokens and the theme bridge. Do not use hard-coded colors.
 - Before adding a visual pattern, check whether an existing one covers it. If a new one is necessary, document it in
