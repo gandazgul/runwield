@@ -39,7 +39,7 @@ The implementation evidence comes from these source files:
 - `src/cmd/registry.js`
 - `src/cmd/acp/index.ts`
 - `src/acp/server.js`
-- `src/acp/session-map.js`
+- `src/acp/session-map.ts`
 - `src/acp/event-mapper.js`
 - `src/acp/interaction-mapper.js`
 - `src/shared/session/session-runtime.ts`
@@ -237,7 +237,7 @@ field; the client continues using its original ID. The new/load `_meta.runwield.
 new currently reports the Pi ID, while load prefers the stable RunWield ID. Clients should keep the standard ACP ID, not
 substitute that metadata value.
 
-Evidence: `src/acp/server.js` new/load handlers; `src/acp/session-map.js` (`createRecord`,
+Evidence: `src/acp/server.js` new/load handlers; `src/acp/session-map.ts` (`createRecord`,
 `normalizeAcpSessionIdForLoad`); `src/shared/session/session-runtime.ts` (`getSessionSnapshot`). The real reload test in
 `src/acp/server.test.js` checks continuation with the returned ACP ID and explicitly checks the differing metadata IDs.
 
@@ -330,7 +330,7 @@ snapshot, `tokens: null` after compaction, or unavailable capacity suppresses th
 exact values. Cost still accumulates while a context update is suppressed.
 
 Evidence: `src/acp/event-mapper.js` (`mapRuntimeEventToAcpUpdate`), `src/acp/server.js` (`mapEventWithSessionCost` and
-Runtime subscriptions), `src/acp/session-map.js` (`addUsageCost`), and the exact-context wire test in
+Runtime subscriptions), `src/acp/session-map.ts` (`addUsageCost`), and the exact-context wire test in
 `src/acp/server.test.js`.
 
 ## Prompt completion and stop reasons

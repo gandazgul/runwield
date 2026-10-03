@@ -3,7 +3,7 @@
  */
 
 import { assert, assertEquals } from "@std/assert";
-import { AcpSessionMap } from "./session-map.js";
+import { AcpSessionMap } from "./session-map.ts";
 
 Deno.test("AcpSessionMap correlates runtime-owned turns without enforcing exclusion", () => {
     const sessionMap = new AcpSessionMap();
