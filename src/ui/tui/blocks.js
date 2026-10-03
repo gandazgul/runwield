@@ -1270,6 +1270,8 @@ export class SpinnerBlock {
         this.tasks = [];
         /** @type {readonly string[] | undefined} */
         this.busyLines = undefined;
+        /** @type {string | undefined} */
+        this.busyLabel = undefined;
     }
 
     /**
@@ -1278,6 +1280,7 @@ export class SpinnerBlock {
      */
     setBusy(busy, tasks = []) {
         this.isBusy = busy;
+        if (!busy) this.busyLabel = undefined;
         this.tasks = tasks;
         this.invalidate();
     }
@@ -1285,6 +1288,7 @@ export class SpinnerBlock {
     /** @param {readonly string[] | undefined} lines */
     setBusyLines(lines) {
         this.busyLines = lines;
+        this.busyLabel = undefined;
         this.invalidate();
     }
 
@@ -1310,11 +1314,11 @@ export class SpinnerBlock {
             });
         }
 
-        // Pick a busy label: randomly from the agent's declared lines, or fall back to "Working..."
-        const label = this.busyLines && this.busyLines.length > 0
-            ? this.busyLines[this.frame % this.busyLines.length]
+        // Keep the selected label until the agent stops or switches; only the spinner frame advances.
+        this.busyLabel ??= this.busyLines && this.busyLines.length > 0
+            ? this.busyLines[Math.floor(Math.random() * this.busyLines.length)]
             : "Working...";
-        const line = theme.fg("accent", `${f} ${label}`);
+        const line = theme.fg("accent", `${f} ${this.busyLabel}`);
         return [line + " ".repeat(Math.max(0, w - visibleWidth(line)))];
     }
 }
