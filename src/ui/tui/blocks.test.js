@@ -892,26 +892,45 @@ Deno.test("SpinnerBlock shows agent busy line when busyLines are set", () => {
     );
 });
 
-Deno.test("SpinnerBlock cycles through busyLines on frame advance", () => {
+Deno.test("SpinnerBlock keeps the busy line stable throughout a turn", () => {
     const spinner = new SpinnerBlock();
+    const labels = ["Line A", "Line B", "Line C"];
     spinner.setBusy(true);
-    spinner.setBusyLines(["Line A", "Line B", "Line C"]);
-    const seen = new Set();
+    spinner.setBusyLines(labels);
+    const label = labels.find((line) => stripAnsi(spinner.render(80)[0]).includes(line));
+    assert(label);
     for (let i = 0; i < 10; i++) {
-        seen.add(stripAnsi(spinner.render(80)[0]));
         spinner.advance();
+        spinner.setBusy(true);
+        assertEquals(stripAnsi(spinner.render(80)[0]).includes(label), true);
     }
-    // With 3 lines and 10 frames there must be more than 1 distinct label rendered
-    assert(seen.size > 1, "SpinnerBlock should cycle through busy lines");
 });
 
-Deno.test("SpinnerBlock reverts to Working... when busyLines cleared", () => {
+Deno.test("SpinnerBlock selects a new busy line when the Agent switches", () => {
     const spinner = new SpinnerBlock();
     spinner.setBusy(true);
     spinner.setBusyLines(["Ideating..."]);
+    assertEquals(stripAnsi(spinner.render(80)[0]).includes("Ideating..."), true);
+    spinner.setBusyLines(["Coding..."]);
+    assertEquals(stripAnsi(spinner.render(80)[0]).includes("Coding..."), true);
+    spinner.advance();
+    assertEquals(stripAnsi(spinner.render(80)[0]).includes("Coding..."), true);
+    spinner.setBusy(false);
+    assertEquals(spinner.render(80), []);
+    spinner.setBusy(true);
+    assertEquals(stripAnsi(spinner.render(80)[0]).includes("Coding..."), true);
+});
+
+Deno.test("SpinnerBlock uses Working... when switching to an Agent without busy lines", () => {
+    const spinner = new SpinnerBlock();
+    spinner.setBusy(true);
+    spinner.setBusyLines(["Ideating..."]);
+    spinner.render(80);
     spinner.setBusyLines(undefined);
-    const plainText = stripAnsi(spinner.render(80)[0]);
-    assertEquals(plainText.includes("Working..."), true);
+    assertEquals(stripAnsi(spinner.render(80)[0]).includes("Working..."), true);
+    spinner.setBusy(false);
+    spinner.setBusy(true);
+    assertEquals(stripAnsi(spinner.render(80)[0]).includes("Working..."), true);
 });
 
 /** @type {import('../../shared/session/session-runtime-events.js').RuntimeValidationProgress} */
