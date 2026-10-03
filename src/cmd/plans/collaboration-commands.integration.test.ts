@@ -20,7 +20,7 @@ import {
     getProjectSecretStorePath,
     readSecretStore,
 } from "../../shared/collaboration/secrets.js";
-import { parseCollaborationUrl } from "../../shared/collaboration/urls.js";
+import { parseCollaborationUrl } from "../../shared/collaboration/urls.ts";
 import { createSessionRuntime } from "../../shared/session/session-runtime.ts";
 import { withRuntimeCommandFixture } from "../testing/runtime-command-fixture.ts";
 import { withCollaborationServer } from "./collaboration-command-test-fixture.ts";
