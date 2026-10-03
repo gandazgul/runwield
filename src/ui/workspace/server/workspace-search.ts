@@ -6,7 +6,7 @@ import { dirname, join, relative } from "node:path";
 import { getHomeDir } from "../../../constants.js";
 import { listPlanResources } from "../../../plan-store.js";
 import { getWorkRecordsDir, listWorkRecords } from "../../../shared/work-records/store.js";
-import { isCurrentWorkRecord, workRecordNotices } from "../../../shared/work-records/list.js";
+import { isCurrentWorkRecord, workRecordNotices } from "../../../shared/work-records/list.ts";
 import { projectAggregateTranscript } from "../../../shared/session/session-transcript-manifest.ts";
 import { getWorkspaceSearchRefreshMarker } from "../../../shared/workspace-search-refresh.ts";
 import {

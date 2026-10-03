@@ -4,7 +4,7 @@
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { listControllerDocumentWorktrees } from "../../../shared/workflow/controller-registry.ts";
 import { getWorkRecordsDir, listWorkRecords } from "../../../shared/work-records/store.js";
-import { isCurrentWorkRecord, workRecordNotices } from "../../../shared/work-records/list.js";
+import { isCurrentWorkRecord, workRecordNotices } from "../../../shared/work-records/list.ts";
 
 export const PROJECT_ARTIFACT_TYPES = new Set(["work-record", "prd", "adr", "design-system", "domain-language"]);
 
