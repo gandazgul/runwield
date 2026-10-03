@@ -4,7 +4,7 @@
  */
 
 import { findWorkRecordById, listWorkRecords } from "./store.js";
-import { formatWorkRecordScopeLabel, isCurrentWorkRecord, workRecordNotices } from "./list.js";
+import { formatWorkRecordScopeLabel, isCurrentWorkRecord, workRecordNotices } from "./list.ts";
 import {
     getWorkRecordIndexCollectionName,
     isWorkRecordIndexEmpty,
