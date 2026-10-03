@@ -26,7 +26,6 @@
     "src/shared/collaboration/urls.js",
     "src/shared/extensions/wld-extension-manifest.js",
     "src/shared/git.js",
-    "src/shared/helpers.js",
     "src/shared/owner-coordination/activation-protocol.js",
     "src/shared/owner-coordination/database.js",
     "src/shared/owner-coordination/devices.js",
