@@ -5,59 +5,58 @@
 
 const ACP_SESSION_PREFIX = "acp-";
 
-/**
- * @param {string} sessionId
- * @returns {string}
- */
-export function normalizeAcpSessionIdForLoad(sessionId) {
+export function normalizeAcpSessionIdForLoad(sessionId: string): string {
     return sessionId.startsWith(ACP_SESSION_PREFIX) ? sessionId.slice(ACP_SESSION_PREFIX.length) : sessionId;
 }
 
-/**
- * @typedef {Object} AcpPromptRecord
- * @property {boolean} cancelled
- * @property {string} turnId
- * @property {string} [requestId]
- */
+export interface AcpPromptRecord {
+    cancelled: boolean;
+    turnId: string;
+    requestId?: string;
+}
 
-/**
- * @typedef {Object} AcpSessionRecord
- * @property {string} acpSessionId
- * @property {string} runtimeSessionId
- * @property {string} cwd
- * @property {AcpPromptRecord | null} activePrompt
- * @property {boolean} loaded
- * @property {number} usageCostUsd
- * @property {string} [persistedSessionId]
- * @property {string} [sessionPath]
- */
+export interface AcpSessionRecord {
+    acpSessionId: string;
+    runtimeSessionId: string;
+    cwd: string;
+    activePrompt: AcpPromptRecord | null;
+    loaded: boolean;
+    usageCostUsd: number;
+    persistedSessionId?: string;
+    sessionPath?: string;
+}
 
-/**
- * @typedef {Object} CreateAcpSessionRecordOptions
- * @property {string} [acpSessionId]
- * @property {boolean} [loaded]
- * @property {string} [persistedSessionId]
- * @property {string} [sessionPath]
- */
+export interface CreateAcpSessionRecordOptions {
+    acpSessionId?: string;
+    loaded?: boolean;
+    persistedSessionId?: string;
+    sessionPath?: string;
+}
+
+export interface AcpRuntimeSession {
+    sessionId: string;
+    cwd: string;
+}
+
+export interface AcpReplacementRuntimeSession {
+    sessionId: string;
+    cwd?: string;
+}
 
 export class AcpSessionMap {
+    declare records: Map<string, AcpSessionRecord>;
+    declare acpIdsByRuntimeSessionId: Map<string, string>;
+
     constructor() {
-        /** @type {Map<string, AcpSessionRecord>} */
-        this.records = new Map();
-        /** @type {Map<string, string>} */
-        this.acpIdsByRuntimeSessionId = new Map();
+        this.records = new Map<string, AcpSessionRecord>();
+        this.acpIdsByRuntimeSessionId = new Map<string, string>();
     }
 
-    /**
-     * @param {{ sessionId: string, cwd: string }} session
-     * @param {CreateAcpSessionRecordOptions} [options]
-     * @returns {AcpSessionRecord}
-     */
-    createRecord(session, options = {}) {
+    createRecord(session: AcpRuntimeSession, options: CreateAcpSessionRecordOptions = {}): AcpSessionRecord {
         const acpSessionId = options.acpSessionId ||
             `${ACP_SESSION_PREFIX}${options.persistedSessionId || session.sessionId}`;
         if (this.records.has(acpSessionId)) throw new Error(`ACP session already exists: ${acpSessionId}`);
-        const record = {
+        const record: AcpSessionRecord = {
             acpSessionId,
             runtimeSessionId: session.sessionId,
             cwd: session.cwd,
@@ -72,34 +71,27 @@ export class AcpSessionMap {
         return record;
     }
 
-    /** @param {string} acpSessionId */
-    getRecord(acpSessionId) {
+    getRecord(acpSessionId: string): AcpSessionRecord | null {
         return this.records.get(acpSessionId) || null;
     }
 
-    listRecords() {
+    listRecords(): AcpSessionRecord[] {
         return Array.from(this.records.values());
     }
 
-    /** @param {string} runtimeSessionId */
-    getAcpSessionIdForRuntimeSession(runtimeSessionId) {
+    getAcpSessionIdForRuntimeSession(runtimeSessionId: string): string | null {
         return this.acpIdsByRuntimeSessionId.get(runtimeSessionId) || null;
     }
 
-    /**
-     * @param {string} acpSessionId
-     */
-    getRuntimeSessionId(acpSessionId) {
+    getRuntimeSessionId(acpSessionId: string): string | null {
         return this.getRecord(acpSessionId)?.runtimeSessionId || null;
     }
 
-    /**
-     * @param {string} acpSessionId
-     * @param {string} turnId
-     * @param {string} [requestId]
-     * @returns {AcpPromptRecord | null}
-     */
-    beginPrompt(acpSessionId, turnId, requestId = undefined) {
+    beginPrompt(
+        acpSessionId: string,
+        turnId: string,
+        requestId: string | undefined = undefined,
+    ): AcpPromptRecord | null {
         const record = this.getRecord(acpSessionId);
         if (!record) return null;
         record.activePrompt = {
@@ -116,44 +108,29 @@ export class AcpSessionMap {
      * ACP reports `cost.amount` as the cumulative Session cost, while the Runtime
      * emits the cost of a single assistant message, so the adapter keeps the sum.
      * The total belongs to the ACP Session, so it survives Runtime replacement.
-     *
-     * @param {string} acpSessionId
-     * @param {number | undefined} costUsd
-     * @returns {number}
      */
-    addUsageCost(acpSessionId, costUsd) {
+    addUsageCost(acpSessionId: string, costUsd: number | undefined): number {
         const record = this.getRecord(acpSessionId);
         if (!record) return 0;
         if (typeof costUsd === "number" && Number.isFinite(costUsd)) record.usageCostUsd += costUsd;
         return record.usageCostUsd;
     }
 
-    /**
-     * @param {string} acpSessionId
-     * @param {AcpPromptRecord} prompt
-     */
-    endPrompt(acpSessionId, prompt) {
+    endPrompt(acpSessionId: string, prompt: AcpPromptRecord): boolean {
         const record = this.getRecord(acpSessionId);
         if (!record || record.activePrompt !== prompt) return false;
         record.activePrompt = null;
         return true;
     }
 
-    /**
-     * @param {string} acpSessionId
-     * @param {AcpPromptRecord} prompt
-     */
-    isCurrentPrompt(acpSessionId, prompt) {
+    isCurrentPrompt(acpSessionId: string, prompt: AcpPromptRecord): boolean {
         return this.getRecord(acpSessionId)?.activePrompt === prompt;
     }
 
     /**
      * Atomically remap a stable ACP id to a replacement Runtime session id.
-     *
-     * @param {string} acpSessionId
-     * @param {{ sessionId: string, cwd?: string }} session
      */
-    replaceRuntimeSession(acpSessionId, session) {
+    replaceRuntimeSession(acpSessionId: string, session: AcpReplacementRuntimeSession): AcpSessionRecord | null {
         const record = this.getRecord(acpSessionId);
         if (!record) return null;
         this.acpIdsByRuntimeSessionId.delete(record.runtimeSessionId);
@@ -163,16 +140,14 @@ export class AcpSessionMap {
         return record;
     }
 
-    /** @param {string} acpSessionId */
-    markCancelled(acpSessionId) {
+    markCancelled(acpSessionId: string): boolean {
         const record = this.getRecord(acpSessionId);
         if (!record?.activePrompt) return false;
         record.activePrompt.cancelled = true;
         return true;
     }
 
-    /** @param {string} acpSessionId */
-    deleteRecord(acpSessionId) {
+    deleteRecord(acpSessionId: string): boolean {
         const record = this.records.get(acpSessionId);
         if (!record) return false;
         this.records.delete(acpSessionId);
