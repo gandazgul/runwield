@@ -1,13 +1,12 @@
 /** Browser theme CSS and aliases for shared review components. */
 import { DARK_BROWSER_THEME } from "./themes/dark.ts";
+import type { BrowserTheme } from "./themes/dark.ts";
 
 /**
  * Render a browser-owned theme. Callers can supply another token set without
  * changing component CSS or reading TUI settings.
- * @param {import("./themes/dark.ts").BrowserTheme} [theme]
- * @returns {string}
  */
-export function renderRunWieldThemeCss(theme = DARK_BROWSER_THEME) {
+export function renderRunWieldThemeCss(theme: BrowserTheme = DARK_BROWSER_THEME): string {
     const lines = [
         ":root {",
         `    --rw-theme-name: ${JSON.stringify(theme.name)};`,

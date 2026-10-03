@@ -87,7 +87,7 @@ The rest of Workspace should reuse that language through these implementation la
   1,000 lines). Keep import order stable to preserve overrides. Development loads the sections directly; the Workspace
   server and Plan Server packaging use `readWorkspaceStyles` to provide one complete production stylesheet.
 - browser colors: `src/ui/design-system/themes/dark.ts`
-- theme bridge: `src/ui/design-system/theme-bridge.js`
+- theme bridge: `src/ui/design-system/theme-bridge.ts`
 - bundled website fonts: `src/ui/design-system/fonts.css`
 - shell and navigation: `src/ui/workspace/layouts/WorkspaceLayout.astro`
 - shared Plan Board page composition: `src/ui/workspace/components/PlanBoardPage.astro`
@@ -446,7 +446,7 @@ Browser surfaces currently use the approved dark identity from `brand/` and the 
 regardless of OS color preference or the selected TUI theme. TUI settings and appearance remain independent.
 
 `src/ui/design-system/themes/dark.ts` exports `DARK_BROWSER_THEME` with `name`, `colorScheme`, and semantic `colors`.
-`renderRunWieldThemeCss(theme = DARK_BROWSER_THEME)` in `theme-bridge.js` is a pure browser renderer. It keeps the Radix
+`renderRunWieldThemeCss(theme = DARK_BROWSER_THEME)` in `theme-bridge.ts` is a pure browser renderer. It keeps the Radix
 and Plannotator aliases without reading TUI settings. Both browser `/theme.css` endpoints call it without arguments. The
 old `loadRunWieldThemeCss` loader and unused Workspace `server/theme-css.js` module are removed.
 
@@ -508,7 +508,7 @@ control can render much taller. Do not override this reset locally.
 Shared CSS should be split by responsibility rather than kept as one broad `styles.css` file:
 
 - `themes/dark.ts` for the current browser color set; future themes use separate modules with the same semantic roles;
-- `theme-bridge.js` for browser color variables and shared review aliases;
+- `theme-bridge.ts` for browser color variables and shared review aliases;
 - `tokens.css` for non-color typography, geometry, spacing, resets, and derived Complexity intent;
 - `fonts.css` for locally bundled Outfit Variable and IBM Plex Mono, matching the website;
 - `components.css` for reusable design-system primitives such as actions, cards, badges, notices, forms, metadata,
@@ -547,7 +547,7 @@ considering new CSS:
 
 The evaluated StyleSeed palette supplied only role declarations and unused blue/violet ramps, with no component or
 layout CSS to reuse. Its roles are already covered above. Keep the approved values in `themes/dark.ts` and the aliases
-in `theme-bridge.js`; do not copy its generated colors or introduce `--ss-*` variables. Contrast results for an external
+in `theme-bridge.ts`; do not copy its generated colors or introduce `--ss-*` variables. Contrast results for an external
 palette do not validate RunWield's actual combinations, mixed backgrounds, or interaction states.
 
 ### Adding tokens
@@ -557,7 +557,7 @@ Only add a token when an existing semantic token cannot describe the intended us
 - prefixed with `--rw-`;
 - semantic rather than literal;
 - documented in this file;
-- defined in each browser theme when they represent colors; keep review aliases in `theme-bridge.js`;
+- defined in each browser theme when they represent colors; keep review aliases in `theme-bridge.ts`;
 - used by at least one real pattern.
 
 Avoid component-specific tokens until a component genuinely needs stable customization across surfaces.
