@@ -432,7 +432,7 @@ worktree behavior. If group 12 ships first, follow its current collection rules.
 ### 14. Cancel theme preview back to the visible theme
 
 `src/cmd/theme/index.ts:72` captures the saved theme name. Cancellation at `:89` reapplies it. If that theme is missing,
-`src/ui/theme/theme-registry.js:70–72` leaves the current preview active. The saved setting stays unchanged, but the
+`src/ui/theme/theme-registry.ts:75–78` leaves the current preview active. The saved setting stays unchanged, but the
 screen does not return to the usable fallback it showed before preview.
 
 Example: start with a missing saved theme, preview an installed theme, then cancel. Restore the previous visible theme
