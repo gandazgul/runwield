@@ -1,7 +1,7 @@
 import { assert, assertEquals, assertRejects } from "@std/assert";
 import { join } from "@std/path";
 import { publishExecutionWorktreeIsolated } from "./isolated-publication.ts";
-import { createTestWorktreeAttempt, git, makeRepo } from "./worktree-test-helpers.js";
+import { createTestWorktreeAttempt, git, makeRepo } from "./worktree-test-helpers.ts";
 
 for (const targetChange of ["advanced", "rewritten"] as const) {
     Deno.test(`publication verification handles a target ${targetChange} immediately after push`, async () => {

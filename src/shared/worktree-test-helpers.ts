@@ -1,7 +1,20 @@
 import { createWorktreeGitArtifacts, settleWorktreeAttempt } from "./worktree.js";
 import { defineGitFixture } from "./git-test-fixture.ts";
-/** @type {import('./workflow/plan-lifecycle.js').PlanEventDetails} */
-export const TEST_DELIVERY_DETAILS = {
+import type { WorktreeRegistryEntry } from "./worktree-registry.js";
+import type { PlanEventDetails } from "./workflow/plan-lifecycle.js";
+
+export interface TestWorktreeAttemptOptions {
+    projectRoot: string;
+    planName: string;
+    planId?: string;
+    baseRef?: string;
+    baseBranch?: string;
+    worktreeRoot?: string;
+    attemptId?: string;
+}
+
+/** The lifecycle evidence used by worktree tests. */
+export const TEST_DELIVERY_DETAILS: PlanEventDetails = {
     executionMode: "worktree",
     deliveryEvidence: {
         version: 1,
@@ -12,11 +25,7 @@ export const TEST_DELIVERY_DETAILS = {
     },
 };
 
-/**
- * @param {string} cwd
- * @param {string[]} args
- */
-export async function git(cwd, args) {
+export async function git(cwd: string, args: string[]): Promise<string> {
     const command = new Deno.Command("git", { args, cwd, stdout: "piped", stderr: "piped" });
     const output = await command.output();
     if (!output.success) {
@@ -33,7 +42,7 @@ const baseRepository = defineGitFixture(async (cwd) => {
     await git(cwd, ["commit", "-m", "base"]);
 });
 
-export function makeRepo() {
+export function makeRepo(): Promise<string> {
     return baseRepository.checkout();
 }
 
@@ -45,11 +54,8 @@ export function makeRepo() {
  * belongs in a test helper, not behind a production function that throws unless you pass
  * `allowRegistryMutation: "legacy-test-only"` — that flag was a standing invitation to
  * mutate the registry outside a lifecycle transition.
- *
- * @param {{ projectRoot: string, planName: string, planId?: string, baseRef?: string, baseBranch?: string, worktreeRoot?: string, attemptId?: string }} opts
- * @returns {Promise<import('./worktree-registry.js').WorktreeRegistryEntry>}
  */
-export async function createTestWorktreeAttempt(opts) {
+export async function createTestWorktreeAttempt(opts: TestWorktreeAttemptOptions): Promise<WorktreeRegistryEntry> {
     const entry = await createWorktreeGitArtifacts({
         ...opts,
         planId: opts.planId || `test:${opts.planName}`,

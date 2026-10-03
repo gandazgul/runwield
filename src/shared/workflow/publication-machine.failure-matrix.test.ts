@@ -3,7 +3,7 @@ import { dirname, fromFileUrl, join } from "@std/path";
 import { getRunWieldRuntimeDir, PLAN_STAGING_DIR_NAME } from "../../constants.js";
 import { resolveProjectRuntimeLayout } from "../project-runtime-layout.ts";
 import { addEntry, findById, updatePublication } from "../worktree-registry.js";
-import { createTestWorktreeAttempt, git, makeRepo } from "../worktree-test-helpers.js";
+import { createTestWorktreeAttempt, git, makeRepo } from "../worktree-test-helpers.ts";
 import { createPublicationAttempt } from "./publication-attempt.ts";
 import { loadPublicationAttempt, publicationRootForAttempt } from "./publication-machine.ts";
 
