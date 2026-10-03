@@ -1,5 +1,22 @@
 import type { JsonMap } from "./config.ts";
 
+interface FixtureRequestMeta {
+    progressToken?: string | number;
+}
+
+interface FixtureRequestParams {
+    name?: string;
+    arguments?: Record<string, string>;
+    cursor?: string;
+    _meta?: FixtureRequestMeta;
+}
+
+interface FixtureRequest {
+    id?: string | number;
+    method?: string;
+    params?: FixtureRequestParams;
+}
+
 const decoder = new TextDecoder();
 const encoder = new TextEncoder();
 
@@ -31,6 +48,17 @@ function fixtureShouldInitError(): boolean {
     return Deno.env.get("RUNWIELD_MCP_FIXTURE_INIT_ERROR") === "1";
 }
 
+function fixtureShouldPaginate(): boolean {
+    return Deno.env.get("RUNWIELD_MCP_FIXTURE_PAGINATED") === "1";
+}
+
+function fixtureEnvironment(): JsonMap {
+    return {
+        inherited: Deno.env.get("RUNWIELD_MCP_UNCONFIGURED_SECRET") ?? null,
+        configured: Deno.env.get("RUNWIELD_MCP_CONFIGURED_SECRET") ?? null,
+    };
+}
+
 function fixtureTools(): JsonMap[] {
     const names = (Deno.env.get("RUNWIELD_MCP_FIXTURE_TOOLS") || "fixture_echo")
         .split(",")
@@ -44,6 +72,7 @@ function fixtureTools(): JsonMap[] {
             properties: { marker: { type: "string" } },
             required: ["marker"],
         },
+        annotations: { readOnlyHint: true },
     }));
 }
 
@@ -67,11 +96,7 @@ for await (const chunk of Deno.stdin.readable) {
         const line = buffer.slice(0, newline).trim();
         buffer = buffer.slice(newline + 1);
         if (line) {
-            const message = JSON.parse(line) as {
-                id?: string | number;
-                method?: string;
-                params?: { name?: string; arguments?: Record<string, string> };
-            };
+            const message = JSON.parse(line) as FixtureRequest;
             if (message.method === "initialize") {
                 if (fixtureShouldInitError()) {
                     send({
@@ -98,13 +123,73 @@ for await (const chunk of Deno.stdin.readable) {
                         error: { code: -32000, message: "raw secret TOKEN=abc --flag" },
                     });
                 } else {
-                    send({ jsonrpc: "2.0", id: message.id ?? null, result: { tools: fixtureTools() } });
+                    const tools = fixtureTools();
+                    const paginated = fixtureShouldPaginate();
+                    const cursor = message.params?.cursor;
+                    await log({ event: "list", cursor: cursor || "" });
+                    send({
+                        jsonrpc: "2.0",
+                        id: message.id ?? null,
+                        result: paginated
+                            ? cursor
+                                ? { tools: tools.slice(1) }
+                                : { tools: tools.slice(0, 1), nextCursor: "second-page" }
+                            : { tools },
+                    });
                 }
             } else if (message.method === "tools/call") {
                 const marker = message.params?.arguments?.marker || "";
                 await log({ event: "call", pid: Deno.pid, marker });
                 if (marker === "slow") await new Promise((resolve) => setTimeout(resolve, 5_000));
-                if (marker === "resource") {
+                if (marker === "progress") {
+                    const progressToken = message.params?._meta?.progressToken;
+                    if (progressToken !== undefined) {
+                        send({
+                            jsonrpc: "2.0",
+                            method: "notifications/progress",
+                            params: { progressToken, progress: 1, total: 2, message: "Fixture halfway done." },
+                        });
+                    }
+                    send({
+                        jsonrpc: "2.0",
+                        id: message.id ?? null,
+                        result: { content: [{ type: "text", text: "fixture-result:progress" }] },
+                    });
+                } else if (marker === "structured") {
+                    send({
+                        jsonrpc: "2.0",
+                        id: message.id ?? null,
+                        result: { content: [], structuredContent: { marker, count: 2 } },
+                    });
+                } else if (marker === "error") {
+                    send({
+                        jsonrpc: "2.0",
+                        id: message.id ?? null,
+                        result: { content: [{ type: "text", text: "fixture-error" }], isError: true },
+                    });
+                } else if (marker === "environment") {
+                    send({
+                        jsonrpc: "2.0",
+                        id: message.id ?? null,
+                        result: {
+                            content: [{
+                                type: "text",
+                                text: JSON.stringify(fixtureEnvironment()),
+                            }],
+                        },
+                    });
+                } else if (marker === "image-resource") {
+                    send({
+                        jsonrpc: "2.0",
+                        id: message.id ?? null,
+                        result: {
+                            content: [{
+                                type: "resource",
+                                resource: { uri: "fixture://image", mimeType: "image/png", blob: "aW1hZ2U=" },
+                            }],
+                        },
+                    });
+                } else if (marker === "resource") {
                     send({
                         jsonrpc: "2.0",
                         id: message.id ?? null,

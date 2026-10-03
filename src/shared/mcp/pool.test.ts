@@ -1,12 +1,23 @@
 import { assert, assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
+import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { dirname, fromFileUrl, join } from "@std/path";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { SessionHost } from "../session/session-host.js";
 import { createSessionRuntime } from "../session/session-runtime.ts";
+import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import { McpToolPool, startMcpToolPool } from "./pool.ts";
 
 const fixtureServer = join(dirname(fromFileUrl(import.meta.url)), "fixture-server.ts");
+
+function callFixtureTool(
+    tool: ToolDefinition,
+    marker: string,
+    onUpdate?: Parameters<ToolDefinition["execute"]>[3],
+) {
+    const context = {} as Parameters<ToolDefinition["execute"]>[4];
+    return tool.execute(`call-${marker}`, { marker }, undefined, onUpdate, context);
+}
 
 async function readLog(path: string): Promise<string[]> {
     try {
@@ -55,10 +66,20 @@ Deno.test("root Pi turns can call a real MCP fixture tool", async () => {
         const logPath = await Deno.makeTempFile({ prefix: "runwield-root-mcp-log-" });
         const runtime = createSessionRuntime();
         let sawToolResultInTurn = false;
+        let sawErrorResultInTurn = false;
         fixture.setModelResponseFactories([
-            () => fauxAssistantMessage(fauxToolCall("mcp_fixture_fixture_echo", { marker: "root-pi" })),
+            () => {
+                return fauxAssistantMessage([
+                    fauxToolCall("mcp_fixture_fixture_echo", { marker: "root-pi" }),
+                    fauxToolCall("mcp_fixture_fixture_echo", { marker: "error" }),
+                ]);
+            },
             (context) => {
                 sawToolResultInTurn = JSON.stringify(context.messages).includes("fixture-result:root-pi");
+                sawErrorResultInTurn = context.messages.some((message) =>
+                    message.role === "toolResult" && message.toolName === "mcp_fixture_fixture_echo" &&
+                    message.isError === true
+                );
                 return fauxAssistantMessage(fauxText("Root MCP turn complete."));
             },
         ]);
@@ -76,11 +97,97 @@ Deno.test("root Pi turns can call a real MCP fixture tool", async () => {
             const result = await runtime.promptSession(sessionId, { initialRequest: "Call the MCP fixture." });
             assertEquals(result.ok, true);
             assertEquals(sawToolResultInTurn, true);
+            assertEquals(sawErrorResultInTurn, true);
             const logLines = await readLog(logPath);
             assertStringIncludes(logLines.join("\n"), '"marker":"root-pi"');
         } finally {
             await runtime.closeAllSessionsWhenIdle?.();
             await Deno.remove(logPath).catch(() => {});
+        }
+    });
+});
+
+Deno.test("Pi MCP client follows paginated tool lists and retains tool annotations", async () => {
+    const poolResult = await startFixturePool({
+        RUNWIELD_MCP_FIXTURE_PAGINATED: "1",
+        RUNWIELD_MCP_FIXTURE_TOOLS: "first,second",
+    });
+    try {
+        const tools = poolResult.pool.getTools();
+        assertEquals(tools.map((tool) => tool.name), ["mcp_fixture_first", "mcp_fixture_second"]);
+        assertEquals(tools.map((tool) => tool.annotations), [{ readOnlyHint: true }, { readOnlyHint: true }]);
+        assertStringIncludes((await readLog(poolResult.logPath)).join("\n"), '"cursor":"second-page"');
+        const result = await callFixtureTool(tools[1], "paginated");
+        assertEquals(result.content, [{ type: "text", text: "fixture-result:paginated" }]);
+    } finally {
+        await poolResult.pool.close();
+        await Deno.remove(poolResult.logPath).catch(() => {});
+    }
+});
+
+Deno.test("Pi MCP content conversion preserves structured results, errors, and embedded images", async () => {
+    const poolResult = await startFixturePool();
+    try {
+        const [tool] = poolResult.pool.getTools();
+        const structured = await callFixtureTool(tool, "structured");
+        assertEquals(structured.content, [{
+            type: "text",
+            text: JSON.stringify({ marker: "structured", count: 2 }, null, 2),
+        }]);
+        assertEquals(structured.details, {
+            server: "fixture",
+            tool: "fixture_echo",
+            isError: false,
+            structuredContent: { marker: "structured", count: 2 },
+        });
+        const failed = await callFixtureTool(tool, "error");
+        assertEquals(failed.isError, true);
+        assertEquals(failed.details, { server: "fixture", tool: "fixture_echo", isError: true });
+        assertEquals(failed.content, [{ type: "text", text: "fixture-error" }]);
+        const image = await callFixtureTool(tool, "image-resource");
+        assertEquals(image.content, [{ type: "image", data: "aW1hZ2U=", mimeType: "image/png" }]);
+    } finally {
+        await poolResult.pool.close();
+        await Deno.remove(poolResult.logPath).catch(() => {});
+    }
+});
+
+Deno.test("Pi MCP progress reaches the RunWield tool update callback", async () => {
+    const poolResult = await startFixturePool();
+    try {
+        const [tool] = poolResult.pool.getTools();
+        const updates: string[] = [];
+        const result = await callFixtureTool(tool, "progress", (update) => {
+            for (const block of update.content) if (block.type === "text") updates.push(block.text);
+        });
+        assertEquals(updates, ["Fixture halfway done."]);
+        assertEquals(result.content, [{ type: "text", text: "fixture-result:progress" }]);
+    } finally {
+        await poolResult.pool.close();
+        await Deno.remove(poolResult.logPath).catch(() => {});
+    }
+});
+
+Deno.test("Pi MCP transport inherits only RunWield's minimal environment and configured credentials", async () => {
+    await withProcessGlobalTestLock(async () => {
+        const prior = Deno.env.get("RUNWIELD_MCP_UNCONFIGURED_SECRET");
+        Deno.env.set("RUNWIELD_MCP_UNCONFIGURED_SECRET", "host-secret");
+        try {
+            const poolResult = await startFixturePool({ RUNWIELD_MCP_CONFIGURED_SECRET: "configured-secret" });
+            try {
+                const [tool] = poolResult.pool.getTools();
+                const result = await callFixtureTool(tool, "environment");
+                assertEquals(result.content, [{
+                    type: "text",
+                    text: JSON.stringify({ inherited: null, configured: "configured-secret" }),
+                }]);
+            } finally {
+                await poolResult.pool.close();
+                await Deno.remove(poolResult.logPath).catch(() => {});
+            }
+        } finally {
+            if (prior === undefined) Deno.env.delete("RUNWIELD_MCP_UNCONFIGURED_SECRET");
+            else Deno.env.set("RUNWIELD_MCP_UNCONFIGURED_SECRET", prior);
         }
     });
 });
