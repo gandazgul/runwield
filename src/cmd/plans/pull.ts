@@ -31,8 +31,8 @@ import {
     resolvePullSecretRecord,
     secretRecordKey,
 } from "../../shared/collaboration/secrets.js";
-import { parseCollaborationUrl, redactCollaborationUrl } from "../../shared/collaboration/urls.js";
-import { normalizePlanServerUrl } from "../../shared/collaboration/urls.js";
+import { parseCollaborationUrl, redactCollaborationUrl } from "../../shared/collaboration/urls.ts";
+import { normalizePlanServerUrl } from "../../shared/collaboration/urls.ts";
 import { enterProjectRuntime } from "../../shared/project-runtime-layout.ts";
 import { SessionRuntime } from "../../shared/session/session-runtime.ts";
 import {

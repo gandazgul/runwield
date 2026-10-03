@@ -21,7 +21,6 @@
     "src/shared/collaboration/lock.js",
     "src/shared/collaboration/protocol.js",
     "src/shared/collaboration/secrets.js",
-    "src/shared/collaboration/urls.js",
     "src/shared/extensions/wld-extension-manifest.js",
     "src/shared/git.js",
     "src/shared/owner-coordination/activation-protocol.js",
