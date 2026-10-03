@@ -182,6 +182,9 @@ Session; events from the previous Session must no longer affect the view.
   current view, and closing the view removes its event observation.
 - Given tool groups above and inside the current viewport, when the user presses Ctrl+O, only the intersecting groups
   toggle. A tool result longer than 500 lines keeps its first and last lines and identifies the omitted middle lines.
+- Given a busy TUI Agent, the selected activity string stays stable through spinner frames, thinking, and tool calls. An
+  Agent switch selects a new string from the new Agent's strings, or uses `Working...` if none exist. After the Agent
+  stops, the next busy period selects a string again.
 
 ### Agent mascots
 
@@ -198,12 +201,14 @@ scroll.
 Mascots animate during live busy work, pause for owner input or idle, and hold an answering pose when assistant text
 arrives. Ideator's filled bulb means an observed answer, not predicted progress. Saved history cannot restart animation.
 The written Agent identity and activity status remain available. Browser reduced-motion settings, hidden tabs, and
-unmounting stop animation. Terminal disposal stops its clock. The TUI reserves space above the bottom-right Agent label
-without covering transcript or input; short/narrow terminals show a compact still face.
+unmounting stop animation. Terminal disposal stops its clock. The TUI centers the visible mascot within the sidebar
+above the bottom-right Agent label without covering transcript or input; short/narrow terminals show a centered compact
+still face.
 
 Acceptance: an Agent change selects the corresponding prop; a delegated invocation keeps its parent's identity; a busy
 turn animates until an answer, owner wait, or settlement; resuming work restarts animation; resizing preserves access to
-conversation and composer; closing the surface leaves no animation timer running.
+conversation and composer, with the mascot centered at each sidebar width; closing the surface leaves no animation timer
+running.
 
 <a id="32-routing-intents"></a>
 <a id="33-triage-experience"></a>
@@ -1234,6 +1239,13 @@ commands.
 CLI tools remain preferred for many integrations. MCP is optional and should not add unused prompt context.
 Configuration and loading details belong in [customization documentation](../customization.md).
 
+**Trusted MCP tools:** A user can configure optional stdio MCP servers once and call their tools from any root Agent,
+including after an Agent handoff or Session continuation. ACP-supplied servers remain Session-only. Delegated and
+isolated validation/review Agents retain their tool ceilings. MCP failures leave the Session usable with redacted
+diagnostics; cancellation and closing the Session settle server cleanup. Tool results preserve text, images, structured
+details, and server-reported errors, and progress reaches the active surface. MCP tools use direct calls; codemode is
+deferred as a separate capability.
+
 **Remote target:** [Local personal environment](remote-ssh-prd.md#local-personal-environment) specifies direct access to
 laptop `~/.wld` at a fresh private remote mount path, with project `.wld` remaining remote. Personal Agent, prompt, and
 Skill file edits change laptop files directly; there is no copy, sync, or special resource-save operation. A private
@@ -1243,6 +1255,11 @@ mount path is not confinement of trusted remote users. This target is not yet a 
 
 - When a user customizes an Agent at project scope, those choices take precedence over home and bundled settings while
   required workflow capabilities remain available.
+- Given configured or ACP-supplied MCP servers, root Agent handoffs and Session replacement preserve callable tools,
+  while delegated and isolated Agents receive no inherited MCP access. Closing one Session leaves another Session's
+  servers usable.
+- Given an MCP server that fails startup or discovery, the Session reports a redacted warning and remains usable. Given
+  a tool that reports progress or an error, the surface receives progress and the model receives the error result.
 - When a user invokes a Skill or Prompt Template, its full saved expansion reaches the active model and remains
   available to follow-up and resume. Templates display their rendered message; Skills retain their compact command.
 - After installation, `/skill:review` is listed and invokes the portable review instructions and support files for a
