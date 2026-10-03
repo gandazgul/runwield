@@ -5,7 +5,7 @@ import {
     OWNER_DEVICE_COOKIE,
     OWNER_DEVICE_MAX_AGE_SECONDS,
 } from "../../../shared/owner-coordination/index.js";
-import { assertOwnerOrigin, isStateChangingRequest, parseOwnerOrigin } from "./owner-origin.js";
+import { assertOwnerOrigin, isStateChangingRequest, parseOwnerOrigin } from "./owner-origin.ts";
 
 /** @param {string} value */
 function cookieValue(value) {

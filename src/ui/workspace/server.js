@@ -100,7 +100,7 @@ import {
     assertOwnerOrigin,
     isStateChangingRequest,
     withOwnerSecurityHeaders,
-} from "./server/owner-origin.js";
+} from "./server/owner-origin.ts";
 import { requireOwnerProjectRoot, sessionBelongsToOwnerProject } from "./server/owner-projects.js";
 import { ownerProjectPlanSessionsApi } from "./server/owner-plan-sessions.ts";
 import { createOwnerConnectionRegistry } from "./server/owner-connections.js";
