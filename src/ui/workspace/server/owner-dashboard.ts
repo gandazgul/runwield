@@ -79,6 +79,7 @@ type SessionSummary = {
     href?: string;
     state?: string;
     headerTimestamp?: string;
+    archivedAt?: string | null;
 };
 
 type SidebarPlan = {
@@ -143,7 +144,10 @@ type WorkspaceOperation = {
 
 type SessionContinuation = {
     operations?: Map<string, WorkspaceOperation>;
-    listSessions(projectId: string, options: { page: number; pageSize: number; includeTotal?: boolean }): Promise<{
+    listSessions(
+        projectId: string,
+        options: { page: number; pageSize: number; includeTotal?: boolean; archiveState?: "all" },
+    ): Promise<{
         sessions?: SessionSummary[];
         hasNext?: boolean;
         diagnostics?: Array<{ code?: string; message?: string; source?: string }>;
@@ -509,6 +513,7 @@ async function projectPayload(
             page: 0,
             pageSize: 100,
             includeTotal: false,
+            archiveState: "all",
         });
         sessions = (result.sessions || []).filter((session) => session.runwieldSessionId).map((session) =>
             sessionSummary(project.projectId, session)
@@ -661,7 +666,7 @@ async function projectPayload(
         }
     }
     const standaloneSessions = sessions.filter((session) =>
-        session.runwieldSessionId && !associatedSessionIds.has(session.runwieldSessionId)
+        session.runwieldSessionId && !session.archivedAt && !associatedSessionIds.has(session.runwieldSessionId)
     );
     // A resolved live socket can publish its standalone Session without waiting for other sockets.
     for (const task of liveBySession.values()) task.then(publishStandalone);
@@ -845,6 +850,7 @@ export async function loadOwnerSidebar(
                             page: 0,
                             pageSize: 100,
                             includeTotal: false,
+                            archiveState: "all",
                         });
                         for (const diagnostic of result.diagnostics || []) {
                             diagnostics.push({
@@ -915,7 +921,9 @@ export async function loadOwnerSidebar(
                         (Date.parse(planUpdatedAt(right)) || 0) - (Date.parse(planUpdatedAt(left)) || 0) ||
                         left.planId.localeCompare(right.planId);
                 });
-                const standalone = sessions.filter((session) => !associatedIds.has(session.runwieldSessionId!));
+                const standalone = sessions.filter((session) =>
+                    !session.archivedAt && !associatedIds.has(session.runwieldSessionId!)
+                );
                 projects[index] = {
                     ...project,
                     plans: plansForSidebar.map((plan) =>

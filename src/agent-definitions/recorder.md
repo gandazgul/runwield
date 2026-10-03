@@ -1,6 +1,10 @@
 ---
 name: Recorder
 description: "Work Record generation agent that distills completed planned work into concise retrospective planning memory."
+busyLines:
+    - "Recording..."
+    - "Writing the work record..."
+    - "Distilling findings..."
 workflowOnly: true
 temperature: 0.3
 sharedPractice:

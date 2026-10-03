@@ -955,7 +955,9 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         });
     }, [notificationScopeKey, operation?.operationId]);
 
+    const listGeneration = useRef(0);
     async function loadList(requestedPage = listPage) {
+        const generation = ++listGeneration.current;
         setLoadingList(true);
         setListError("");
         try {
@@ -965,11 +967,14 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
                 `/api/owner/projects/${encodeURIComponent(projectId)}/sessions?${query}`,
                 { method: "GET" },
             );
-            setListData(payload);
+            if (generation === listGeneration.current) {
+                setListData(payload);
+                if (!payload.sessions?.length && requestedPage > 0) setListPage(requestedPage - 1);
+            }
         } catch (error) {
-            setListError(errorMessage(error));
+            if (generation === listGeneration.current) setListError(errorMessage(error));
         } finally {
-            setLoadingList(false);
+            if (generation === listGeneration.current) setLoadingList(false);
         }
     }
 
@@ -2187,10 +2192,14 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
             <SessionList
                 projectId={projectId}
                 data={listData}
+                preserveArchived={Boolean(planId)}
                 loading={loadingList}
                 error={listError}
                 onRetry={() => loadList(listPage)}
                 onPageChange={setListPage}
+                onSessionChanged={() => {
+                    void loadList(listPage);
+                }}
             />
         );
     }

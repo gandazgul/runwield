@@ -873,6 +873,47 @@ Deno.test("SpinnerBlock renders tasks when provided", () => {
     assertEquals(plainText.includes("Task 1"), true);
 });
 
+Deno.test("SpinnerBlock shows Working... fallback when no busyLines set", () => {
+    const spinner = new SpinnerBlock();
+    spinner.setBusy(true);
+    const plainText = stripAnsi(spinner.render(80)[0]);
+    assertEquals(plainText.includes("Working..."), true);
+});
+
+Deno.test("SpinnerBlock shows agent busy line when busyLines are set", () => {
+    const spinner = new SpinnerBlock();
+    spinner.setBusy(true);
+    spinner.setBusyLines(["Planning...", "Drafting the plan...", "Thinking through the steps..."]);
+    const plainText = stripAnsi(spinner.render(80)[0]);
+    assertEquals(
+        plainText.includes("Planning...") || plainText.includes("Drafting the plan...") ||
+            plainText.includes("Thinking through the steps..."),
+        true,
+    );
+});
+
+Deno.test("SpinnerBlock cycles through busyLines on frame advance", () => {
+    const spinner = new SpinnerBlock();
+    spinner.setBusy(true);
+    spinner.setBusyLines(["Line A", "Line B", "Line C"]);
+    const seen = new Set();
+    for (let i = 0; i < 10; i++) {
+        seen.add(stripAnsi(spinner.render(80)[0]));
+        spinner.advance();
+    }
+    // With 3 lines and 10 frames there must be more than 1 distinct label rendered
+    assert(seen.size > 1, "SpinnerBlock should cycle through busy lines");
+});
+
+Deno.test("SpinnerBlock reverts to Working... when busyLines cleared", () => {
+    const spinner = new SpinnerBlock();
+    spinner.setBusy(true);
+    spinner.setBusyLines(["Ideating..."]);
+    spinner.setBusyLines(undefined);
+    const plainText = stripAnsi(spinner.render(80)[0]);
+    assertEquals(plainText.includes("Working..."), true);
+});
+
 /** @type {import('../../shared/session/session-runtime-events.js').RuntimeValidationProgress} */
 const verifiedReportProgress = {
     kind: "mechanical",

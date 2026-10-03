@@ -13,7 +13,7 @@ import { runOwnerPlanAction } from "../server/owner-plan-actions.ts";
 import { loadOwnerPlanProgress } from "../server/owner-plan-progress.ts";
 import { loadOwnerDashboard, loadOwnerSidebar, subscribeOwnerDashboard } from "../server/owner-dashboard.ts";
 import { listOwnerProjects, requireOwnerProjectRoot, serializeOwnerProject } from "../server/owner-projects.js";
-import { ownerSecurityHeaders } from "../server/owner-origin.js";
+import { ownerSecurityHeaders } from "../server/owner-origin.ts";
 import { reviewFileContentApi } from "./api/review-file-handlers.js";
 
 const MAX_JSON_BYTES = 64 * 1024;
@@ -367,7 +367,12 @@ export async function associatedPlanSession(store, projectId, planId) {
     let selectedAt = "";
     let selectedCurrent = false;
     for (let page = 0;; page++) {
-        const batch = await store.listProjectSessions(projectId, { catalog: false, page, pageSize: 100 });
+        const batch = await store.listProjectSessions(projectId, {
+            catalog: false,
+            archiveState: "all",
+            page,
+            pageSize: 100,
+        });
         for (const session of batch.sessions) {
             const associations = store.listSessionPlanAssociations(session.runwieldSessionId, projectId)
                 .filter((entry) => entry.committedGeneration !== null);

@@ -1,6 +1,10 @@
 ---
 name: Slicer
 description: "Collaborative Epic decomposition partner for shaping child planned change boundaries and materializing the decomposition the user agrees to."
+busyLines:
+    - "Slicing the Epic..."
+    - "Decomposing..."
+    - "Shaping child plans..."
 sharedPractice:
     - user-authority
     - show-the-work

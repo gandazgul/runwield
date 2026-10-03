@@ -63,6 +63,8 @@ export { OWNER_CSRF_COOKIE, OWNER_DEVICE_COOKIE, OWNER_DEVICE_MAX_AGE_SECONDS } 
  * @property {ReturnType<typeof openFileSessionStore>['ensureSessionCatalogRecordAndAcquire']} ensureSessionCatalogRecordAndAcquire
  * @property {ReturnType<typeof openFileSessionStore>['findSessionByLocator']} findSessionByLocator
  * @property {ReturnType<typeof openFileSessionStore>['getSessionById']} getSessionById
+ * @property {ReturnType<typeof openFileSessionStore>['archiveSession']} archiveSession
+ * @property {ReturnType<typeof openFileSessionStore>['unarchiveSession']} unarchiveSession
  * @property {ReturnType<typeof openFileSessionStore>['listProjectSessions']} listProjectSessions
  * @property {ReturnType<typeof openFileSessionStore>['catalogProjectSessions']} catalogProjectSessions
  * @property {ReturnType<typeof openFileSessionStore>['listSessionTranscriptSegments']} listSessionTranscriptSegments
@@ -164,6 +166,16 @@ export function openOwnerCoordinationStore(options = {}) {
         getSessionById: (runwieldSessionId, projectId) => {
             const runtimeProject = projectId ? resolveSessionProject(projectId) : null;
             return sessionStore.getSessionById(runwieldSessionId, runtimeProject?.projectId);
+        },
+        archiveSession: (runwieldSessionId, projectId) => {
+            const project = projectId ? resolveSessionProject(projectId) : null;
+            if (projectId && !project) throw new Error("Session project is unavailable");
+            return sessionStore.archiveSession(runwieldSessionId, project?.projectId);
+        },
+        unarchiveSession: (runwieldSessionId, projectId) => {
+            const project = projectId ? resolveSessionProject(projectId) : null;
+            if (projectId && !project) throw new Error("Session project is unavailable");
+            return sessionStore.unarchiveSession(runwieldSessionId, project?.projectId);
         },
         listProjectSessions: async (projectId, sessionOptions) => {
             const runtimeProject = resolveSessionProject(projectId);

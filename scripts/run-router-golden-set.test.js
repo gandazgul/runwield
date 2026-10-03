@@ -1,7 +1,8 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertRejects } from "@std/assert";
 import {
     buildRouterGoldenReport,
     createBenchmarkBashNudgeTool,
+    main,
     mergeGoldenRowsWithResultRows,
     normalizeGoldenRow,
     runRouterForGoldenRequest,
@@ -318,4 +319,14 @@ Deno.test("buildRouterGoldenReport scores router decisions", () => {
             },
         },
     );
+});
+
+Deno.test("router benchmark rejects invalid thinking levels before reading the dataset", async () => {
+    await assertRejects(() => main(["--thinking-level", "invalid"]), Error, "Invalid --thinking-level");
+});
+
+Deno.test("router benchmark rejects invalid temperatures before reading the dataset", async () => {
+    for (const temperature of ["", "NaN", "Infinity", "-0.1", "2.1"]) {
+        await assertRejects(() => main(["--temperature", temperature]), Error, "Invalid --temperature");
+    }
 });

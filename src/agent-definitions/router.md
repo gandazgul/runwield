@@ -1,6 +1,9 @@
 ---
 name: Router
 description: "Routing agent that identifies Routing Intent and explores the codebase only when needed."
+busyLines:
+    - "Routing..."
+    - "Figuring out what you need..."
 temperature: 0.1
 sharedPractice:
     - user-authority

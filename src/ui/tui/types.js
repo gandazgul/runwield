@@ -38,6 +38,7 @@
  *   requestRender: () => void,
  *   advanceSpinner?: () => void,
  *   setBusy?: (busy: boolean) => void,
+ *   setAgentBusyLines?: (lines: readonly string[] | undefined) => void,
  *   setRunningTasks?: (tasks: RunningTask[]) => void,
  *   clearMessages?: () => void,
  *   promptSelect: (title: string, options: SelectOption[], hooks?: { onSelectionChange?: (value: string) => void, layout?: import('@earendil-works/pi-tui').SelectListLayoutOptions, hint?: string, persistResult?: boolean }) => Promise<string | null>,

@@ -1,6 +1,10 @@
 ---
 name: Planner
 description: "Planned Change planning agent that produces iterative, focused plans for single planned changes. Inspired by Plannotator's planning approach."
+busyLines:
+    - "Planning..."
+    - "Drafting the plan..."
+    - "Thinking through the steps..."
 temperature: 0.6
 sharedPractice:
     - user-authority

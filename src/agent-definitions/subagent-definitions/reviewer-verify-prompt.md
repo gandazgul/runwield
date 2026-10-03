@@ -1,6 +1,10 @@
 ---
 name: Reviewer
 description: "Workflow-only semantic review prompt. Verification round: checks that a repair addressed the open ledger without introducing regressions."
+busyLines:
+    - "Verifying the repair..."
+    - "Reviewing..."
+    - "Checking regressions..."
 sharedPractice:
     - review-practice
 ---

@@ -1,6 +1,10 @@
 ---
 name: Architect
 description: "Collaborative system-design agent for PROJECT-level architecture, cross-module relationships, data flows, APIs, ADRs, and Epic plans."
+busyLines:
+    - "Architecting..."
+    - "Designing the system..."
+    - "Mapping the structure..."
 temperature: 0.6
 sharedPractice:
     - user-authority

@@ -571,16 +571,31 @@ sessionPromptTest("runPrompt compacts Engineer before Pi's configured threshold"
 sessionPromptTest("Engineer post-response compaction re-arms after new context growth", async () => {
     const calls = /** @type {string[]} */ ([]);
     let tokens = 59;
+    /** @type {import('@earendil-works/pi-coding-agent').AgentSessionEventListener | undefined} */
+    let listener;
     const session = /** @type {any} */ ({
         model: { contextWindow: 100 },
         settingsManager: {
             getCompactionSettings: () => ({ enabled: true, reserveTokens: 10, keepRecentTokens: 10 }),
         },
         getContextUsage: () => ({ tokens, contextWindow: 100, percent: tokens }),
+        subscribe: /** @param {import('@earendil-works/pi-coding-agent').AgentSessionEventListener} callback */ (
+            callback,
+        ) => {
+            listener = callback;
+            return () => {};
+        },
         _checkCompaction: () => Promise.resolve(false),
         _runAutoCompaction: (/** @type {string} */ reason, /** @type {boolean} */ willRetry) => {
             calls.push(`compact:${reason}:${willRetry}`);
-            return Promise.resolve(true);
+            listener?.({
+                type: "compaction_end",
+                reason: "threshold",
+                result: { summary: "summary", firstKeptEntryId: "recent", tokensBefore: tokens },
+                aborted: false,
+                willRetry: false,
+            });
+            return Promise.resolve(false);
         },
     });
 
@@ -606,6 +621,7 @@ sessionPromptTest("Engineer threshold respects disabled automatic compaction", a
             getCompactionSettings: () => ({ enabled: false, reserveTokens: 10, keepRecentTokens: 10 }),
         },
         getContextUsage: () => ({ tokens: 75, contextWindow: 100, percent: 75 }),
+        subscribe: () => () => {},
         _checkCompaction: () => Promise.resolve(false),
         _runAutoCompaction: () => {
             calls.push("compact");

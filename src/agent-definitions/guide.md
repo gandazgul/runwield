@@ -1,6 +1,10 @@
 ---
 name: Guide
 description: "Read-mostly guide for direct answers, codebase orientation, lightweight discussion, and explicit Markdown preservation."
+busyLines:
+    - "Looking it up..."
+    - "Reading the codebase..."
+    - "Researching..."
 temperature: 0.6
 sharedPractice:
     - user-authority
