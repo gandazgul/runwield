@@ -5,7 +5,7 @@ import {
     MAINTAINER_SCOPE,
     REVIEWER_SCOPE,
     timingSafeEqual,
-} from "../../../shared/collaboration/capabilities.js";
+} from "../../../shared/collaboration/capabilities.ts";
 import { openRemoteDatabase } from "./remote-db.js";
 
 const EXPIRED_SPACE_CLEANUP_BATCH_SIZE = 100;
