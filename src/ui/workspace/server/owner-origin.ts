@@ -1,7 +1,11 @@
 /** @module ui/workspace/server/owner-origin */
 
-/** @param {Headers} headers */
-export function ownerSecurityHeaders(headers = new Headers()) {
+export interface OwnerOriginPolicy {
+    publicOrigin: string;
+    host?: string;
+}
+
+export function ownerSecurityHeaders(headers: Headers = new Headers()): Headers {
     headers.set("cache-control", "no-store");
     headers.set("referrer-policy", "no-referrer");
     headers.set("x-content-type-options", "nosniff");
@@ -13,21 +17,18 @@ export function ownerSecurityHeaders(headers = new Headers()) {
     return headers;
 }
 
-/** @param {Response} response */
-export function withOwnerSecurityHeaders(response) {
+export function withOwnerSecurityHeaders(response: Response): Response {
     const headers = new Headers(response.headers);
     ownerSecurityHeaders(headers);
     return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
-/** @param {string} origin */
-export function parseOwnerOrigin(origin) {
+export function parseOwnerOrigin(origin: string) {
     const url = new URL(origin);
     return { origin: url.origin, host: url.host, protocol: url.protocol };
 }
 
-/** @param {Request} request @param {{ publicOrigin: string, host?: string }} policy */
-export function assertOwnerHost(request, policy) {
+export function assertOwnerHost(request: Request, policy: OwnerOriginPolicy): void {
     const expected = parseOwnerOrigin(policy.publicOrigin).host;
     const actual = request.headers.get("host") || new URL(request.url).host;
     if (actual !== expected) {
@@ -35,8 +36,7 @@ export function assertOwnerHost(request, policy) {
     }
 }
 
-/** @param {Request} request @param {{ publicOrigin: string }} policy */
-export function assertOwnerOrigin(request, policy) {
+export function assertOwnerOrigin(request: Request, policy: OwnerOriginPolicy): void {
     const origin = request.headers.get("origin");
     if (!origin) throw new Error("Owner Workspace Origin header is required.");
     if (origin !== parseOwnerOrigin(policy.publicOrigin).origin) {
@@ -44,7 +44,6 @@ export function assertOwnerOrigin(request, policy) {
     }
 }
 
-/** @param {Request} request */
-export function isStateChangingRequest(request) {
+export function isStateChangingRequest(request: Request): boolean {
     return !["GET", "HEAD", "OPTIONS"].includes(request.method);
 }

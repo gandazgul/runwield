@@ -13,7 +13,7 @@ import { runOwnerPlanAction } from "../server/owner-plan-actions.ts";
 import { loadOwnerPlanProgress } from "../server/owner-plan-progress.ts";
 import { loadOwnerDashboard, loadOwnerSidebar, subscribeOwnerDashboard } from "../server/owner-dashboard.ts";
 import { listOwnerProjects, requireOwnerProjectRoot, serializeOwnerProject } from "../server/owner-projects.js";
-import { ownerSecurityHeaders } from "../server/owner-origin.js";
+import { ownerSecurityHeaders } from "../server/owner-origin.ts";
 import { reviewFileContentApi } from "./api/review-file-handlers.js";
 
 const MAX_JSON_BYTES = 64 * 1024;
