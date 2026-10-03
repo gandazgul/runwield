@@ -34,7 +34,7 @@ async function fixture(fn) {
         for (
             const [source, destination] of [
                 ["src/shared/remote/runtime.js", join(remote, "runtime.js")],
-                ["src/shared/remote/target.js", join(remote, "target.js")],
+                ["src/shared/remote/target.ts", join(remote, "target.ts")],
                 ["scripts/build-metadata.js", join(root, "scripts/build-metadata.js")],
             ]
         ) await Deno.copyFile(source, destination);
