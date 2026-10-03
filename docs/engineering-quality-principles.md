@@ -48,9 +48,9 @@ from the local implementation.
 
 - Deep modules with small interfaces.
 - Explicit information ownership.
-- Complexity absorbed at the lowest appropriate layer.
-- Alternatives considered before implementation.
-- Design quality reviewed separately from test correctness.
+- Complexity is absorbed in the lowest appropriate layer.
+- Alternatives are considered before implementation.
+- Design quality is reviewed separately from test correctness.
 - Unnecessary concepts removed, not only duplicate code.
 
 ## Sources for Continued Study
