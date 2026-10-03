@@ -364,7 +364,7 @@ function updateSessionRow(link, projectId, session, current, extraClass = "") {
     label.textContent = session.displayName;
     if (!label.parentElement) link.append(label);
     link.title = label.textContent;
-    const status = sessionStatusLabel(session.state);
+    const status = session.archivedAt ? "Archived" : sessionStatusLabel(session.state);
     let statusNode = link.querySelector("small");
     if (status) {
         if (!statusNode) {

@@ -546,3 +546,94 @@ Deno.test("HTTP dashboard stream completes its producer and starts a fresh read 
         }
     });
 });
+
+Deno.test("archived Sessions stay under Plans in dashboard and sidebar but leave standalone history", async () => {
+    const { WorkspaceSessionContinuationService } = await import("./server/session-continuation.js");
+    const { loadOwnerSidebar } = await import("./server/owner-dashboard.ts");
+    const fixture = await makeManagedSessionFixture();
+    const { store, session, project } = fixture;
+    const continuation = new WorkspaceSessionContinuationService({ store });
+    try {
+        await savePlan(fixture.projectRoot, "archive-plan", "# Archive Plan\n", {
+            planId: "archive-plan",
+            classification: "FEATURE",
+            status: "on_hold",
+        });
+        let proof = store.acquireSessionActivation({
+            runwieldSessionId: session.runwieldSessionId,
+            projectId: project.projectId,
+            ownerInstanceId: "archive-test",
+            ownerProcessKind: "test",
+        });
+        const segment = store.getCurrentSessionSegment(session.runwieldSessionId)!;
+        store.stagePlanAssociation(proof, {
+            planId: "archive-plan",
+            planName: "archive-plan",
+            purpose: "execution",
+            segmentId: segment.segmentId,
+            segmentKind: segment.kind,
+            recordedAt: new Date().toISOString(),
+        });
+        proof = store.changeSessionActivationPhase(proof, "hydrated");
+        proof = store.changeSessionActivationPhase(proof, "checkpointing");
+        store.publishGenerationAndRelease(proof, {
+            generation: 1,
+            currentSegmentId: segment.segmentId,
+            ...await readTranscriptEvidence(fixture.transcriptPath),
+        });
+        const path = `${fixture.sessionDir}/2026-01-02T00-00-00-000Z_standalone-archive.jsonl`;
+        await Deno.writeTextFile(
+            path,
+            `${
+                JSON.stringify({
+                    type: "session",
+                    version: 3,
+                    id: "standalone-archive",
+                    timestamp: "2026-01-02T00:00:00.000Z",
+                    cwd: fixture.projectRoot,
+                })
+            }\n`,
+        );
+        await Deno.writeTextFile(
+            path,
+            `${
+                JSON.stringify({
+                    type: "message",
+                    id: "standalone-user",
+                    timestamp: "2026-01-02T00:00:01.000Z",
+                    message: { role: "user", content: [{ type: "text", text: "Standalone conversation" }] },
+                })
+            }\n`,
+            { append: true },
+        );
+        const standalone = await store.ensureSessionCatalogRecord({
+            projectId: project.projectId,
+            piSessionId: "standalone-archive",
+            transcriptPath: path,
+            transcriptCwd: fixture.projectRoot,
+        });
+        assertEquals((await continuation.listSessions(project.projectId)).sessions.length, 2);
+        store.archiveSession(session.runwieldSessionId);
+        store.archiveSession(standalone.runwieldSessionId);
+        assertEquals((await continuation.listSessions(project.projectId)).sessions.length, 0);
+        const dashboard = await loadOwnerDashboard(store, continuation);
+        const sidebar = await loadOwnerSidebar(store, continuation);
+        for (const projects of [dashboard.projects, sidebar]) {
+            const row = projects.find((item) => item.projectId === project.projectId)!;
+            assertEquals(
+                row.plans.find((plan) => plan.planId === "archive-plan")?.sessions.map((item) =>
+                    item.runwieldSessionId
+                ),
+                [session.runwieldSessionId],
+            );
+            assertEquals(
+                row.plans.find((plan) => plan.planId === "archive-plan")?.sessions[0].archivedAt != null,
+                true,
+            );
+            assertEquals(row.sessions, []);
+        }
+    } finally {
+        await continuation.close();
+        await fixture.cleanup();
+    }
+});

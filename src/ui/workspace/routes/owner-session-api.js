@@ -4,7 +4,7 @@ import { resolveWorkflowPlanLocation } from "../../../shared/workflow/plan-locat
 
 import { ImageSubmissionValidationError } from "../server/session-continuation.js";
 import { ownerErrorJson, ownerJson, sanitizeOwnerError } from "./owner-api.js";
-import { ownerSecurityHeaders } from "../server/owner-origin.js";
+import { ownerSecurityHeaders } from "../server/owner-origin.ts";
 import { findPlanEvidenceById } from "../../../plan-store.js";
 import { requireOwnerProjectRoot, sessionBelongsToOwnerProject } from "../server/owner-projects.js";
 import { getSlashCommandDefinition } from "../../../cmd/registry.js";
@@ -157,7 +157,10 @@ export async function ownerProjectSessionsApi(ctx) {
         requireOwnerProjectRoot(ctx.state.store, ctx.params.projectId);
         const page = readPageValue(ctx.url.searchParams.get("page"), "page", 0, 10_000);
         const pageSize = readPageValue(ctx.url.searchParams.get("pageSize"), "pageSize", 30, 100);
+        const archiveState = ctx.url.searchParams.get("archiveState") || "active";
+        if (!["active", "archived", "all"].includes(archiveState)) throw new Error("archiveState is invalid.");
         const listOptions = {
+            archiveState: ctx.url.searchParams.get("plan") ? "all" : archiveState,
             page,
             pageSize,
             includeEmpty: ctx.url.searchParams.get("includeEmpty") === "true",
@@ -207,6 +210,41 @@ export async function ownerProjectSessionsApi(ctx) {
         });
     } catch (error) {
         return ownerErrorJson(error, 400);
+    }
+}
+
+/**
+ * @typedef {Object} SessionArchiveRouteContext
+ * @property {Request} req
+ * @property {{ projectId: string, runwieldSessionId: string }} params
+ * @property {{ store: import('../../../shared/owner-coordination/index.js').OwnerCoordinationStore, sessionContinuation: import('../server/session-continuation.js').WorkspaceSessionContinuationService }} state
+ */
+/** @param {SessionArchiveRouteContext} ctx */
+export async function ownerSessionArchiveApi(ctx) {
+    try {
+        requireOwnerProjectRoot(ctx.state.store, ctx.params.projectId);
+        const body = await readJson(ctx.req);
+        if (body.confirmed !== undefined && typeof body.confirmed !== "boolean") {
+            throw new Error("confirmed must be a boolean.");
+        }
+        return ownerJson(
+            await ctx.state.sessionContinuation.archiveSession({
+                ...ctx.params,
+                confirmed: body.confirmed === true,
+            }),
+        );
+    } catch (error) {
+        return ownerErrorJson(error, 409);
+    }
+}
+
+/** @param {SessionArchiveRouteContext} ctx */
+export async function ownerSessionUnarchiveApi(ctx) {
+    try {
+        requireOwnerProjectRoot(ctx.state.store, ctx.params.projectId);
+        return ownerJson(await ctx.state.sessionContinuation.unarchiveSession(ctx.params));
+    } catch (error) {
+        return ownerErrorJson(error, 409);
     }
 }
 

@@ -20,6 +20,8 @@ import {
     withRouterJudgementMetrics,
 } from "./router-eval-utils.js";
 
+/** @typedef {Parameters<import("../src/shared/session/session-runtime.ts").SessionRuntime["setSessionThinkingLevel"]>[1]} RouterThinkingLevel */
+
 const ROUTER_EVAL_DIRNAME = "router-eval";
 const DEFAULT_GOLDEN_CSV_NAME = "router-judgements.csv";
 const DEFAULT_RESULT_CSV_NAME = "router-judgements-results.csv";
@@ -74,6 +76,8 @@ const BENCHMARK_ROUTER_TOOLS = [
  * @property {import('../src/shared/session/types.js').ImageAttachment[]} images
  * @property {import('@earendil-works/pi-coding-agent').ToolDefinition[]} customTools
  * @property {string} [modelOverride]
+ * @property {RouterThinkingLevel} [thinkingLevelOverride]
+ * @property {number} [temperatureOverride]
  * @property {string} [cwd]
  */
 
@@ -232,6 +236,8 @@ async function readExistingCsv(path) {
  * @param {{
  *   cwd?: string,
  *   modelOverride?: string,
+ *   thinkingLevelOverride?: RouterThinkingLevel,
+ *   temperatureOverride?: number,
  *   rowTimeoutMs?: number,
  *   runAgentSession?: RouterAgentRunner,
  *   customTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[],
@@ -246,6 +252,8 @@ export async function runRouterForGoldenRequest(requestText, options = {}) {
         images: [],
         customTools: [createBenchmarkBashNudgeTool(), ...(options.customTools || [])],
         modelOverride: options.modelOverride,
+        thinkingLevelOverride: options.thinkingLevelOverride,
+        temperatureOverride: options.temperatureOverride,
     });
 
     /** @type {() => void} */
@@ -286,6 +294,8 @@ export async function runRouterForGoldenRequest(requestText, options = {}) {
  *   limit?: number,
  *   cwd?: string,
  *   modelOverride?: string,
+ *   thinkingLevelOverride?: RouterThinkingLevel,
+ *   temperatureOverride?: number,
  *   rowTimeoutMs?: number,
  *   runAgentSession?: RouterAgentRunner,
  *   onProgress?: (message: string) => void,
@@ -305,6 +315,8 @@ export async function runRouterGoldenSet(rows, options = {}) {
  *   limit?: number,
  *   cwd?: string,
  *   modelOverride?: string,
+ *   thinkingLevelOverride?: RouterThinkingLevel,
+ *   temperatureOverride?: number,
  *   rowTimeoutMs?: number,
  *   runAgentSession?: RouterAgentRunner,
  *   onProgress?: (message: string) => void,
@@ -339,6 +351,8 @@ export async function runRouterGoldenSetWithSelection(rows, options = {}) {
             const triage = await runRouterForGoldenRequest(String(row.requestText || ""), {
                 cwd: options.cwd,
                 modelOverride: options.modelOverride,
+                thinkingLevelOverride: options.thinkingLevelOverride,
+                temperatureOverride: options.temperatureOverride,
                 rowTimeoutMs: options.rowTimeoutMs,
                 runAgentSession: options.runAgentSession,
             });
@@ -388,7 +402,7 @@ export function buildRouterGoldenReport(rows) {
  */
 export async function main(argv) {
     const args = parseArgs(argv, {
-        string: ["csv", "out", "limit", "model", "cwd", "row-timeout-ms"],
+        string: ["csv", "out", "limit", "model", "cwd", "row-timeout-ms", "thinking-level", "temperature"],
         boolean: ["help", "rerun"],
         alias: { h: "help", o: "out", m: "model" },
     });
@@ -404,11 +418,28 @@ export async function main(argv) {
             `  --out, -o <path>     CSV output (default: ${getDefaultRouterResultCsvPath()})`,
             "  --limit <n>          Run only the first n selected rows",
             "  --model, -m <ref>    Override Router model, e.g. provider/model",
+            "  --thinking-level <level> Override thinking: off, minimal, low, medium, high, xhigh, max",
+            "  --temperature <n>    Override sampling temperature (0–2; provider support varies)",
             "  --cwd <path>         Cwd for Router discovery tools",
             `  --row-timeout-ms <n> Per-row timeout (default: ${DEFAULT_ROW_TIMEOUT_MS})`,
             "  --rerun              Rerun selected rows instead of resuming unfinished rows",
         ].join("\n"));
         return;
+    }
+
+    const thinkingLevels = /** @type {const} */ (["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
+    const thinkingLevelOverride = thinkingLevels.find((level) => level === args["thinking-level"]);
+    if (args["thinking-level"] !== undefined && thinkingLevelOverride === undefined) {
+        throw new Error("Invalid --thinking-level. Use off, minimal, low, medium, high, xhigh, or max.");
+    }
+    const temperatureText = args.temperature?.trim();
+    const temperatureOverride = temperatureText === undefined ? undefined : Number(temperatureText);
+    if (
+        temperatureOverride !== undefined &&
+        (temperatureText === "" || !Number.isFinite(temperatureOverride) || temperatureOverride < 0 ||
+            temperatureOverride > 2)
+    ) {
+        throw new Error("Invalid --temperature. Use a finite number from 0 to 2.");
     }
 
     const csvPath = args.csv || getDefaultRouterGoldenCsvPath();
@@ -422,6 +453,8 @@ export async function main(argv) {
         limit: parsePositiveInt(args.limit),
         cwd: args.cwd,
         modelOverride: args.model,
+        thinkingLevelOverride,
+        temperatureOverride,
         rowTimeoutMs: parsePositiveInt(args["row-timeout-ms"]) || DEFAULT_ROW_TIMEOUT_MS,
         resume,
         onRowComplete: async (checkpointRows) => {

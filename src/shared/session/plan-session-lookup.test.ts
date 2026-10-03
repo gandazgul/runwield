@@ -168,3 +168,28 @@ Deno.test("findPlanAssociatedSessions ignores raw transcript associations that w
         await Deno.remove(fixture.rootDir, { recursive: true });
     }
 });
+
+Deno.test("Plan lookup includes archived Sessions and their archive status", async () => {
+    const fixture = await makeFixture();
+    const store = openFileSessionStore({ baseDir: fixture.sessionBaseDir });
+    try {
+        const project = store.ensureRuntimeProject({ root: fixture.projectRoot });
+        const transcriptPath = await writeTranscript(fixture.sessionDir, fixture.projectRoot, "archived-plan");
+        const session = await store.ensureSessionCatalogRecord({
+            projectId: project.projectId,
+            piSessionId: "archived-plan",
+            transcriptPath,
+            transcriptCwd: fixture.projectRoot,
+        });
+        await publishAssociation(store, session, project.projectId);
+        const archived = store.archiveSession(session.runwieldSessionId);
+        const candidates = await findPlanAssociatedSessions(store, { cwd: fixture.projectRoot, planId: "plan-1" });
+        assertEquals(candidates.length, 1);
+        assertEquals(candidates[0].runwieldSessionId, session.runwieldSessionId);
+        assertEquals(candidates[0].archivedAt, archived.archivedAt);
+        assertEquals(candidates[0].associations, store.listSessionPlanAssociations(session.runwieldSessionId));
+    } finally {
+        store.close();
+        await Deno.remove(fixture.rootDir, { recursive: true });
+    }
+});

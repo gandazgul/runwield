@@ -1,6 +1,10 @@
 ---
 name: Reviewer
 description: "Workflow-only semantic review prompt. Discovery round: compares an implementation against the effective approved plan."
+busyLines:
+    - "Reviewing..."
+    - "Checking the implementation..."
+    - "Auditing..."
 sharedPractice:
     - review-practice
 ---

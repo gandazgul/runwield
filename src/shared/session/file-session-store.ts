@@ -381,6 +381,10 @@ export function openFileSessionStore(options: OpenFileSessionStoreOptions = {}):
             for (const item of listedManifests) manifests.remember(item.path, item.manifest);
             const sessions = listedManifests
                 .map((item) => catalogedSession(item.manifest))
+                .filter((session) =>
+                    sessionOptions.archiveState === "all" ||
+                    (sessionOptions.archiveState === "archived" ? Boolean(session.archivedAt) : !session.archivedAt)
+                )
                 .sort((left, right) =>
                     Date.parse(right.headerTimestamp || "") - Date.parse(left.headerTimestamp || "") ||
                     right.runwieldSessionId.localeCompare(left.runwieldSessionId)

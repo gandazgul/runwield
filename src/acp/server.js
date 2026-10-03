@@ -7,6 +7,10 @@ import { agent, methods, ndJsonStream, PROTOCOL_VERSION, RequestError } from "@a
 import { isAbsolute } from "@std/path";
 import { VERSION } from "../shared/version.js";
 import { openFileSessionStore } from "../shared/session/file-session-store.ts";
+import {
+    readLiveSessionConnection,
+    waitForSessionActivationSettlement,
+} from "../shared/session/live-session-connection.ts";
 import { getSelectedDefaultModelAvailability } from "../shared/session/model-readiness.ts";
 import { createSessionRuntime, SessionTurnInProgressError } from "../shared/session/session-runtime.ts";
 import { RuntimeEventTypes } from "../shared/session/session-runtime-events.js";
@@ -91,6 +95,7 @@ function isAuthenticationSetupFailure(message) {
 /**
  * @typedef {Object} AcpServerContext
  * @property {SessionRuntime} runtime
+ * @property {import("../shared/session/file-session-store-types.ts").FileSessionStore} sessionStore
  * @property {AcpSessionMap} sessionMap
  * @property {(requestId: string, release: () => void) => void} [releasePromptAfterResponse]
  * @property {Map<string, ReturnType<typeof createInterviewOperation>>} operations
@@ -127,6 +132,7 @@ export function createInitializeResponse(request) {
             },
             sessionCapabilities: {
                 close: {},
+                delete: {},
                 _meta: {
                     runwield: {
                         implementedMethods: [
@@ -135,6 +141,7 @@ export function createInitializeResponse(request) {
                             "session/prompt",
                             "session/cancel",
                             "session/close",
+                            "session/delete",
                             "session/set_config_option",
                         ],
                         updateNotifications: ["session/update"],
@@ -1642,6 +1649,46 @@ function createRunWieldAcpServer(context) {
         return await interview.waitForRequest(context, settled, promptText, promptImages);
     });
 
+    app.onRequest(methods.agent.session.delete, async (requestContext) => {
+        const sessionId = requestContext.params?.sessionId;
+        if (typeof sessionId !== "string" || !sessionId) {
+            throwInvalidParams("session/delete requires sessionId");
+        }
+        const { sessionStore } = context;
+        const record = sessionMap.getRecord(sessionId);
+        const snapshot = record ? runtime.getSessionSnapshot(record.runtimeSessionId) : null;
+        const persistedId = snapshot?.managed?.runwieldSessionId || record?.persistedSessionId ||
+            normalizeAcpSessionIdForLoad(sessionId);
+        const session = sessionStore.getSessionById(persistedId) ||
+            sessionStore.findSessionByLocator({ piSessionId: persistedId });
+        if (record) {
+            sessionMap.markCancelled(sessionId);
+            operations.get(sessionId)?.cancel();
+            if (runtime.closeSessionWhenIdle) {
+                await runtime.closeSessionWhenIdle(record.runtimeSessionId);
+            } else {
+                await runtime.cancelSession(record.runtimeSessionId);
+                if (session) await waitForSessionActivationSettlement(sessionStore, session.runwieldSessionId);
+                await runtime.closeSession(record.runtimeSessionId);
+            }
+        }
+        if (session) {
+            const activation = sessionStore.inspectSessionActivation(session.runwieldSessionId).activation;
+            if (activation?.state === "active" && activation.operationId) {
+                const result = await readLiveSessionConnection(session.runwieldSessionId, activation.operationId, {
+                    action: "cancel",
+                });
+                if (!result.ok) throw new Error(result.error || "The Session could not be stopped.");
+            }
+            await waitForSessionActivationSettlement(sessionStore, session.runwieldSessionId);
+            sessionStore.archiveSession(session.runwieldSessionId, session.projectId);
+        }
+        operations.get(sessionId)?.stop();
+        operations.delete(sessionId);
+        sessionMap.deleteRecord(sessionId);
+        return {};
+    });
+
     app.onRequest(methods.agent.session.close, async (context) => {
         const request = validateCloseSessionParams(context.params);
         const record = sessionMap.getRecord(request.sessionId);
@@ -1670,7 +1717,6 @@ function createRunWieldAcpServer(context) {
     registerUnimplementedRequest(app, methods.agent.providers.set);
     registerUnimplementedRequest(app, methods.agent.providers.disable);
     registerUnimplementedRequest(app, methods.agent.session.list);
-    registerUnimplementedRequest(app, methods.agent.session.delete);
     registerUnimplementedRequest(app, methods.agent.session.fork);
     registerUnimplementedRequest(app, methods.agent.session.resume);
     registerUnimplementedRequest(app, methods.agent.session.setMode);
@@ -1700,6 +1746,7 @@ export function startRunWieldAcpServer(input, output, options = {}) {
     const operations = new Map();
     const connection = createRunWieldAcpServer({
         runtime,
+        sessionStore,
         sessionMap,
         operations,
         releasePromptAfterResponse: (requestId, release) => {

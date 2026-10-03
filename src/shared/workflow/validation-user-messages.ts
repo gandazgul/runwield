@@ -40,6 +40,7 @@ export type ValidationMessageRequest =
     | { kind: "repair_feedback_prompt" }
     | { kind: "repair_feedback_default" }
     | { kind: "reviewer_nudge"; round: number; attempt: number }
+    | { kind: "integration_notes_saved"; count: number; epicPlanName: string }
     | { kind: "semantic_limit"; planName: string; rounds: number; openCount: number; testsPass: boolean }
     | { kind: "human_review_offer" }
     | { kind: "human_review_wait"; reviewUrl?: string }
@@ -187,6 +188,8 @@ export function buildValidationUserMessage(request: ValidationMessageRequest): s
             return "Revisit the remaining findings using my guidance, verify the repair, and report again.";
         case "reviewer_nudge":
             return `AI review needs more time for round ${request.round}. Try ${request.attempt} of 3.`;
+        case "integration_notes_saved":
+            return `AI review left ${request.count} note(s) for ${request.epicPlanName}.`;
         case "semantic_limit":
             return `AI review checked ${request.planName} ${request.rounds} times. ${request.openCount} item(s) stay open. Tests and CI ${
                 request.testsPass ? "pass" : "do not pass"

@@ -71,7 +71,11 @@ export const managedSyncQueueImageScenario = {
         // which only proved the UI method was called — the blocks could stop
         // reaching the screen entirely without a single scenario noticing.
         assertsGoldenCoverage("block:spinner", (result) => {
-            assertPresentationScreenIncludes(result, "Thinking...");
+            const screen = String(result.state.presentationScreen || "");
+            assert(
+                /Routing\.\.\.|Figuring out what you need\.\.\./.test(screen),
+                `Expected the Router busy status on the presentation screen. Screen:\n${screen}`,
+            );
         }),
         assertsGoldenCoverage("block:managed-sync", (result) => {
             assertPresentationScreenIncludes(result, "Sync degraded — refresh required");

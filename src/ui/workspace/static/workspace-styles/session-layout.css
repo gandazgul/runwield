@@ -675,3 +675,29 @@ body:has(.workspace-main-shell :is(.session-surface-detail, .rw-review-embedded,
     border-color: var(--rw-border-strong);
     background: var(--rw-surface-strong);
 }
+
+/* Keep row navigation and archive actions separate for keyboard and touch use. */
+.session-list-row {
+    align-items: center;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0 var(--rw-space-panel);
+    border-bottom: 1px solid var(--rw-border);
+    padding-right: 0.75rem;
+}
+
+.session-list-row .session-list-item {
+    border-bottom: 0;
+    min-width: 0;
+}
+
+.session-archive-error {
+    grid-column: 1 / -1;
+    margin: 0 0.75rem 0.75rem;
+}
+
+@media (max-width: 640px) {
+    .session-list-row > button {
+        min-height: 44px;
+    }
+}
