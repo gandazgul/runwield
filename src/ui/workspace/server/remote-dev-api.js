@@ -1,7 +1,7 @@
 // @ts-nocheck: tiny Astro-dev-only router mirrors the server wrapper route shape.
 import { DEFAULT_REMOTE_MAX_REQUEST_BYTES, registerRemoteApiRoutes } from "../routes/remote-api.js";
 import { openRemoteWorkspaceAdapter } from "./remote-adapter.js";
-import { isRemoteDevelopmentModeEnabled } from "./remote-mode.js";
+import { isRemoteDevelopmentModeEnabled } from "./remote-mode.ts";
 import { isAstroDevelopmentMode } from "./astro-dev-mode.ts";
 
 const REMOTE_DEV_APP_KEY = Symbol.for("runwield.workspace.remote-dev-app");
