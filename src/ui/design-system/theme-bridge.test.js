@@ -1,6 +1,6 @@
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 import { DARK_BROWSER_THEME } from "./themes/dark.ts";
-import { renderRunWieldThemeCss } from "./theme-bridge.js";
+import { renderRunWieldThemeCss } from "./theme-bridge.ts";
 
 Deno.test("browser theme defaults to the dark RunWield brand", () => {
     const css = renderRunWieldThemeCss();

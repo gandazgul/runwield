@@ -2,7 +2,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { RUNWIELD_SOURCE_ROOT } from "../../../../runtime-root.js";
-import { renderRunWieldThemeCss } from "../../design-system/theme-bridge.js";
+import { renderRunWieldThemeCss } from "../../design-system/theme-bridge.ts";
 import { DARK_BROWSER_THEME } from "../../design-system/themes/dark.ts";
 
 export const WORKSPACE_PWA_PATHS = [
