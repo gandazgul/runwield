@@ -4,7 +4,7 @@
  */
 
 import { discoverAndRegisterThemes, setTheme } from "../../ui/theme/theme.js";
-import { getSettingsManager } from "../../shared/settings.js";
+import { clearMascotEnabledCache, getSettingsManager } from "../../shared/settings.js";
 import type { CommandContext } from "../registry.js";
 
 /**
@@ -20,6 +20,7 @@ export async function runReloadCommand(_argv: string[], options: CommandContext 
     try {
         const result = await options.sessionRuntime.reloadSession(options.sessionId);
         if (result.ok) {
+            clearMascotEnabledCache();
             const settings = getSettingsManager(options.sessionRuntime.getSessionSnapshot(options.sessionId)?.cwd);
             await discoverAndRegisterThemes();
             const persistedTheme = settings.getTheme();

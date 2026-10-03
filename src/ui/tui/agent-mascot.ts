@@ -39,7 +39,7 @@ export class TuiAgentMascot {
             : state.pose === "thinking"
             ? mascot.frames[this.frame].lines
             : mascot[state.pose].lines;
-        const drawingWidth = Math.max(...lines.map((line) => line.trimEnd().length));
+        const drawingWidth = compact ? 7 : mascot.drawingWidth;
         const padding = " ".repeat(Math.max(0, Math.floor((width - drawingWidth) / 2)));
         return lines.map((line) => padding + line.trimEnd());
     }
@@ -47,6 +47,13 @@ export class TuiAgentMascot {
     private stop() {
         clearTimeout(this.timer);
         this.timer = undefined;
+    }
+
+    /** Stop animation while hidden; a later render starts a fresh clock. */
+    pause() {
+        this.stop();
+        this.key = "";
+        this.frame = 0;
     }
 
     dispose() {

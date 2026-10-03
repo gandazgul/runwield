@@ -1,6 +1,6 @@
 import { assert, assertEquals } from "@std/assert";
 import { animations, mascotRoleForAgent, terminalLines } from "./frames.ts";
-import { mascotPose } from "./mascot.ts";
+import { mascotPose, MASCOTS } from "./mascot.ts";
 
 Deno.test("mascot identities follow aliases, hidden agents and inherited delegation", () => {
     for (
@@ -48,4 +48,12 @@ Deno.test("waiting and idle override answering; activity does not imply estimate
     assertEquals(mascotPose({ busy: true, answering: true }), "answering");
     assertEquals(mascotPose({ busy: true, answering: true, waiting: true }), "idle");
     assertEquals(mascotPose({ busy: false, answering: true }), "idle");
+});
+
+Deno.test("mascot drawing widths include every animation frame and still pose", () => {
+    for (const mascot of MASCOTS) {
+        const widths = [...mascot.frames, mascot.idle, mascot.answering]
+            .flatMap((frame) => frame.lines.map((line) => line.trimEnd().length));
+        assertEquals(mascot.drawingWidth, Math.max(...widths), mascot.role);
+    }
 });

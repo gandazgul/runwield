@@ -20,8 +20,8 @@ origin: "internal"
 userVerifiedAt: null
 routingIntent: "PLANNED_CHANGE"
 sessionName: "Mascot Visibility Setting"
-status: "in_progress"
 targetBranch: "main"
+status: "implemented"
 ---
 
 # Mascot visibility setting and base-mascot blink fix
