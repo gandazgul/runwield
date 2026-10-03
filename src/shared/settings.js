@@ -2,7 +2,7 @@ import { SettingsManager } from "@earendil-works/pi-coding-agent";
 import { dirname, join } from "@std/path";
 import { parse as parseJsonc } from "@std/jsonc";
 import lockfile from "proper-lockfile";
-import { normalizePlanServerUrl } from "./collaboration/urls.js";
+import { normalizePlanServerUrl } from "./collaboration/urls.ts";
 import { resolvePrimaryCheckoutRoot } from "./primary-checkout.ts";
 import { getCwd, getHomeDir } from "../constants.js";
 import { remoteSettingsSnapshot, updateRemoteGlobalSetting } from "./remote/settings-bridge.ts";
