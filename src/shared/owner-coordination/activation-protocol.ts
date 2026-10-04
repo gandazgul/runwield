@@ -5,27 +5,42 @@
 
 import { dirname, join } from "@std/path";
 import { getOwnerCoordinationDatabaseEpoch } from "./database.js";
+import type { OwnerCoordinationDatabase } from "./database.js";
 
 export const SESSION_ACTIVATION_PROTOCOL_VERSION = 1;
 export const SESSION_ACTIVATION_MARKER_FILENAME = "session-activation-protocol.json";
 
-/**
- * @typedef {Object} ActivationProtocolStatus
- * @property {boolean} enabled
- * @property {'enabled' | 'not_acknowledged' | 'missing_database_epoch' | 'missing_marker' | 'invalid_marker' | 'epoch_mismatch' | 'unsupported_version'} state
- * @property {string | null} databaseEpoch
- * @property {number | null} markerVersion
- * @property {string | null} markerEpoch
- * @property {string} markerPath
- */
+export interface ActivationProtocolStatus {
+    enabled: boolean;
+    state:
+        | "enabled"
+        | "not_acknowledged"
+        | "missing_database_epoch"
+        | "missing_marker"
+        | "invalid_marker"
+        | "epoch_mismatch"
+        | "unsupported_version";
+    databaseEpoch: string | null;
+    markerVersion: number | null;
+    markerEpoch: string | null;
+    markerPath: string;
+}
 
-/** @param {string} dbPath */
-export function getActivationProtocolMarkerPath(dbPath) {
+interface ActivationProtocolMarker {
+    invalid?: boolean;
+    protocolVersion?: number | string;
+    databaseEpoch?: string;
+}
+
+interface AcknowledgeActivationProtocolOptions {
+    now?: () => string;
+}
+
+export function getActivationProtocolMarkerPath(dbPath: string) {
     return join(dirname(dbPath), SESSION_ACTIVATION_MARKER_FILENAME);
 }
 
-/** @param {string} markerPath */
-function readMarker(markerPath) {
+function readMarker(markerPath: string): ActivationProtocolMarker | null {
     try {
         return JSON.parse(Deno.readTextFileSync(markerPath));
     } catch (error) {
@@ -34,11 +49,7 @@ function readMarker(markerPath) {
     }
 }
 
-/**
- * @param {import('./database.js').OwnerCoordinationDatabase} database
- * @returns {ActivationProtocolStatus}
- */
-export function getActivationProtocolStatus(database) {
+export function getActivationProtocolStatus(database: OwnerCoordinationDatabase): ActivationProtocolStatus {
     const databaseEpoch = getOwnerCoordinationDatabaseEpoch(database.handle);
     const markerPath = getActivationProtocolMarkerPath(database.path);
     if (!databaseEpoch) {
@@ -90,12 +101,10 @@ export function getActivationProtocolStatus(database) {
     return { enabled: true, state: "enabled", databaseEpoch, markerVersion, markerEpoch, markerPath };
 }
 
-/**
- * @param {import('./database.js').OwnerCoordinationDatabase} database
- * @param {{ now?: () => string }} [options]
- * @returns {ActivationProtocolStatus}
- */
-export function acknowledgeActivationProtocol(database, options = {}) {
+export function acknowledgeActivationProtocol(
+    database: OwnerCoordinationDatabase,
+    options: AcknowledgeActivationProtocolOptions = {},
+): ActivationProtocolStatus {
     const databaseEpoch = getOwnerCoordinationDatabaseEpoch(database.handle);
     if (!databaseEpoch) throw new Error("Owner database is missing an activation protocol epoch");
     const markerPath = getActivationProtocolMarkerPath(database.path);
@@ -121,11 +130,7 @@ export function acknowledgeActivationProtocol(database, options = {}) {
     return getActivationProtocolStatus(database);
 }
 
-/**
- * @param {import('./database.js').OwnerCoordinationDatabase} database
- * @returns {ActivationProtocolStatus}
- */
-export function requireActivationProtocolEnabled(database) {
+export function requireActivationProtocolEnabled(database: OwnerCoordinationDatabase): ActivationProtocolStatus {
     const status = getActivationProtocolStatus(database);
     if (!status.enabled) {
         throw new Error(`Session activation protocol is not enabled: ${status.state}`);
