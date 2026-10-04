@@ -54,8 +54,8 @@ this is not a security boundary. They also approved limiting this change to RunW
 Execution Backends keep their current native shell permissions.
 
 The owning configuration requirement is **Respect user customization while retaining workflow capabilities** in
-[Core: Agent and skill customization](../prd/runwield-core-prd.md#agent-and-skill-customization). Add the observable
-command-policy contract there and link it from [Session continuity](../prd/runwield-core-prd.md#session-continuity).
+[Core: Agent and skill customization](../../prd/runwield-core-prd.md#agent-and-skill-customization). Add the observable
+command-policy contract there and link it from [Session continuity](../../prd/runwield-core-prd.md#session-continuity).
 Extend **Run bounded background work** with command-policy parity. Preserve **Receive task results without another user
 message** and Guide’s explicitly requested Markdown preservation. Restricted bash does not grant `background_task` to a
 child.
