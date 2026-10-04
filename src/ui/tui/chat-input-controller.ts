@@ -1,11 +1,11 @@
-import { handleBashCommand } from "./bash-interceptor.js";
+import { handleBashCommand } from "./bash-interceptor.ts";
 import { endBlink } from "./boot-logo.ts";
 import { installKeybindings } from "./keybindings.ts";
 import { handleSlashCommand, isImmediateBuiltinSlashCommandWhileStreaming, type SkillMeta } from "./slash-dispatch.ts";
 import { readClipboardImage } from "./clipboard.ts";
 import { resolveTemplateModel } from "../../shared/models/model-validation.ts";
 import { persistThinkingLevel, recordUserInputHistory, type SessionRuntime } from "./chat-session.ts";
-import { createGenerationGuard } from "./generation-guard.js";
+import { createGenerationGuard } from "./generation-guard.ts";
 import { type ChatView, createPastedImagePreview } from "./chat-view.ts";
 import type { ImageAttachment } from "../../shared/session/types.js";
 import type { UiAPI } from "./types.js";
