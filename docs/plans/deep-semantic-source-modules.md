@@ -198,7 +198,7 @@ src/
       main.ts                 ← src/cli.ts, including the standalone `createRequire` bootstrap
       commands/               ← src/cmd/  (33 command directories + registry.js)
       tui/                    ← src/ui/tui/
-      style/                  ← the chalk half of src/ui/theme/theme.js + theme-registry.js
+      style/                  ← the chalk half of src/ui/theme/theme.js + theme-registry.ts
     acp/                      ← src/acp/
     review/                   ← src/ui/review/  (plan-review, code-review, review-launcher)
     workspace/                ← src/ui/workspace/  (Astro/React app + server/)
@@ -285,7 +285,7 @@ Whole-directory moves:
   face; everything else drops into `internal/` subdomains.
 - `src/shared/workflow/` (98 files) → split between `src/core/workflow/` (orchestration, routing, decisions, prompts,
   slicing, state transitions) and `src/core/execution/` (plan execution, validation, checkpoints, metrics).
-- `src/shared/worktree*.js`, `worktree-registry.js`, `worktree-test-helpers.js` → `src/core/execution/worktrees/`.
+- `src/shared/worktree*.js`, `worktree-registry.js`, `worktree-test-helpers.ts` → `src/core/execution/worktrees/`.
 - `src/shared/collaboration/` → `src/core/collaboration/`; `src/shared/owner-coordination/` →
   `src/core/collaboration/owner-coordination/`.
 - `src/shared/work-records/` → `src/core/work-records/`.
@@ -355,7 +355,7 @@ Separate terminal theme-selection policy from terminal chalk styling; browser th
 - the `theme` proxy, `getMarkdownTheme`, `getSelectListTheme`, `getEditorTheme`, `imageTheme`;
 - `initRunWieldTheme`, `applyPersistedTheme`, `discoverAndRegisterThemes`, `setTheme`, `setThemeInstance`,
   `setRegisteredThemes`, `getAvailableThemes`, `onThemeChange`;
-- `theme-registry.js`;
+- `theme-registry.ts`;
 - the Pi-`Theme` construction half of `theme-json.js`: `createThemeFromJson`, `detectColorMode`, `splitFgBgColors`,
   `BG_TOKEN_NAMES`.
 

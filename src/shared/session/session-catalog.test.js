@@ -12,7 +12,7 @@ import {
     steerRootSession,
     steerRootSessionWithTarget,
 } from "./session.js";
-import { ensureBundledAgentDefFile, getBundledAgentDefsPath } from "./agent-assets.js";
+import { ensureBundledAgentDefFile, getBundledAgentDefsPath } from "./agent-assets.ts";
 import { HostedSession } from "./hosted-session.js";
 import { getAgentDisplayName, listAvailableAgents } from "./agents.js";
 import { getCustomSetting } from "../settings.js";

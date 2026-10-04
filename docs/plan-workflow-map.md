@@ -165,7 +165,7 @@ E2. Agent implements
 │  ├─ U revise + feedback → revise increment → another checkpoint
 │  ├─ U autonomous / unavailable capability → continue autonomously
 │  └─ U stop/cancel → in_progress pause; no completion
-├─ T record_plan_deviation (Pair only, when feedback conflicts with the effective Plan)
+├─ T record_plan_deviation (all execution styles, including restored Sessions and validation repairs)
 │  ├─ U confirm + unchanged Plan revision → append ordered `planDeviations` entry to execution Plan
 │  │  → replacement becomes effective Plan authority; restart after write recovers by tool-call identity
 │  ├─ U cancel → original Plan requirement remains authority

@@ -26,7 +26,7 @@ import {
     validateWorktreeDiscard,
 } from "./worktree.js";
 
-import { createTestWorktreeAttempt, git, makeRepo } from "./worktree-test-helpers.js";
+import { createTestWorktreeAttempt, git, makeRepo } from "./worktree-test-helpers.ts";
 
 Deno.test("worktree helpers report Git requirement outside Git", async () => {
     const projectRoot = await Deno.makeTempDir({ prefix: "runwield-non-git-worktree-" });

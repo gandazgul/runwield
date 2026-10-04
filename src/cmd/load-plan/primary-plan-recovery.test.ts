@@ -1,6 +1,6 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { getDeclaredPlanStatus, loadPlan, savePlan } from "../../plan-store.js";
-import { createTestWorktreeAttempt, makeRepo } from "../../shared/worktree-test-helpers.js";
+import { createTestWorktreeAttempt, makeRepo } from "../../shared/worktree-test-helpers.ts";
 import { removeWorktreeGitArtifacts } from "../../shared/worktree.js";
 import { resolvePlanWithPrimaryRecovery } from "./primary-plan-recovery.ts";
 

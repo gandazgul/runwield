@@ -19,7 +19,7 @@ import { isAnsweredPlanReview } from "../../shared/workflow/plan-review-recovery
 import { applySharedPlanReviewDecision } from "../../shared/workflow/plan-review-actions.ts";
 import { startPlanReviewSurface } from "./review-launcher.ts";
 import type { PlanFrontMatter } from "../../plan-store.js";
-import type { PlanApprovalAction } from "../../shared/workflow/plan-approval.js";
+import type { PlanApprovalAction } from "../../shared/workflow/plan-approval.ts";
 import type { BrowserPort } from "../../shared/browser-port.ts";
 
 interface PlanReviewDecision extends SequenceReviewDecision {

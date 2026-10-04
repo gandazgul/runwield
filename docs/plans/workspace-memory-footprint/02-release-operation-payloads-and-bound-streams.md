@@ -7,7 +7,7 @@ affectedPaths:
     - "src/ui/workspace/server/session-continuation.js"
     - "src/ui/workspace/routes/owner-session-api.js"
     - "src/ui/workspace/islands/SessionSurface.jsx"
-    - "src/ui/workspace/server/owner-connections.js"
+    - "src/ui/workspace/server/owner-connections.ts"
     - "src/ui/workspace/session-continuation.integration.test.ts"
     - "scripts/workspace-memory-check.ts"
     - "docs/prd/runwield-workspace-prd.md"
@@ -131,7 +131,7 @@ shifts, migration or compatibility risk grows, or the Verification Plan no longe
   subscription release, and shutdown cleanup.
 - `src/ui/workspace/routes/owner-session-api.js` — demand-driven operation SSE, final result, abort/cancel, and device
   connection cleanup.
-- `src/ui/workspace/server/owner-connections.js` — reuse existing device revocation registration; change only if this
+- `src/ui/workspace/server/owner-connections.ts` — reuse existing device revocation registration; change only if this
   stream integration requires it.
 - `src/ui/workspace/islands/SessionSurface.jsx` — terminal-stream behavior and non-overlapping, abortable operation
   polling.

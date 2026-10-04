@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import { createGenerationGuard } from "./generation-guard.js";
+import { createGenerationGuard } from "./generation-guard.ts";
 
 // ─── Tests for the real createGenerationGuard() factory ───
 
