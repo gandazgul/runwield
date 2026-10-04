@@ -4,19 +4,50 @@
  */
 
 import { join } from "@std/path";
-import { getHomeDir, SNIP_FILTERS_DIR } from "../constants.js";
+import { getCwd, getHomeDir, SNIP_FILTERS_DIR } from "../constants.js";
+
+export interface SnipFilterOptions {
+    homeDir?: string;
+    bundledDir?: string;
+}
+
+export interface SnipFilterPaths {
+    userFiltersDir: string;
+}
+
+export interface SkippedSnipFilter {
+    path: string;
+    reason: string;
+}
+
+export interface SnipFilterInstallResult {
+    filtersDir: string;
+    installed: string[];
+    removedLegacy: string[];
+    skipped: SkippedSnipFilter[];
+}
+
+export interface SnipFilterCleanupResult {
+    filtersDir: string;
+    removed: string[];
+    removedLegacy: string[];
+    skipped: SkippedSnipFilter[];
+}
+
+export interface SnipFilterInstallStatus {
+    filtersDir: string;
+    installed: string[];
+    conflicts: string[];
+    missing: string[];
+}
 
 const BUNDLED_SNIP_FILTERS_DIR = SNIP_FILTERS_DIR;
 const FILTER_FILE_NAMES = ["deno-check.yaml", "deno-fmt.yaml", "deno-lint.yaml", "deno-test.yaml", "deno-task.yaml"];
 const RUNWIELD_MANAGED_SNIP_FILTER_MARKER = "# Managed by RunWield. Remove with: wld snip-filters cleanup";
 const HARNS_MANAGED_SNIP_FILTER_MARKER = "# Managed by Harns. Remove with: hns snip-filters cleanup";
 
-/**
- * @param {string} path
- * @param {string} content
- * @returns {Promise<boolean>} true when a write happened
- */
-async function writeIfChanged(path, content) {
+/** Return true when a write happened. */
+async function writeIfChanged(path: string, content: string): Promise<boolean> {
     try {
         if (await Deno.readTextFile(path) === content) return false;
     } catch (error) {
@@ -26,18 +57,13 @@ async function writeIfChanged(path, content) {
     return true;
 }
 
-/**
- * @param {string} content
- * @returns {string}
- */
-function withManagedMarker(content) {
+function withManagedMarker(content: string): string {
     return content.startsWith(`${RUNWIELD_MANAGED_SNIP_FILTER_MARKER}\n`)
         ? content
         : `${RUNWIELD_MANAGED_SNIP_FILTER_MARKER}\n${content}`;
 }
 
-/** @param {string} content @returns {boolean} */
-function isRunWieldOrHarnsManaged(content) {
+function isRunWieldOrHarnsManaged(content: string): boolean {
     return content.startsWith(RUNWIELD_MANAGED_SNIP_FILTER_MARKER) ||
         content.startsWith(HARNS_MANAGED_SNIP_FILTER_MARKER);
 }
@@ -45,11 +71,8 @@ function isRunWieldOrHarnsManaged(content) {
 /**
  * Remove the obsolete Harns-only filter directory by exact file name. The
  * directory removals are non-recursive, so unrelated files cannot be lost.
- *
- * @param {string} homeDir
- * @returns {Promise<string[]>}
  */
-async function removeLegacyHarnsFilterDirectory(homeDir) {
+async function removeLegacyHarnsFilterDirectory(homeDir: string): Promise<string[]> {
     const legacyFiltersDir = join(homeDir, ".config", "snip", "harns", "filters");
     const removed = [];
     for (const fileName of FILTER_FILE_NAMES) {
@@ -72,12 +95,8 @@ async function removeLegacyHarnsFilterDirectory(homeDir) {
     return removed;
 }
 
-/**
- * @param {{ homeDir?: string, bundledDir?: string }} [options]
- * @returns {{ userFiltersDir: string }}
- */
-export function getRunWieldSnipPaths(options = {}) {
-    const homeDir = options.homeDir || getHomeDir() || Deno.cwd();
+export function getRunWieldSnipPaths(options: SnipFilterOptions = {}): SnipFilterPaths {
+    const homeDir = options.homeDir || getHomeDir() || getCwd();
     return {
         userFiltersDir: join(homeDir, ".config", "snip", "filters"),
     };
@@ -86,11 +105,10 @@ export function getRunWieldSnipPaths(options = {}) {
 /**
  * Install RunWield' Deno Snip filters into Snip's default user filter directory so
  * plain `snip run -- deno ...` can find them.
- *
- * @param {{ homeDir?: string, bundledDir?: string }} [options]
- * @returns {Promise<{ filtersDir: string, installed: string[], removedLegacy: string[], skipped: Array<{ path: string, reason: string }> }>}
  */
-export async function installRunWieldSnipFiltersForUser(options = {}) {
+export async function installRunWieldSnipFiltersForUser(
+    options: SnipFilterOptions = {},
+): Promise<SnipFilterInstallResult> {
     const bundledDir = options.bundledDir || BUNDLED_SNIP_FILTERS_DIR;
     const paths = getRunWieldSnipPaths(options);
     const installed = [];
@@ -115,7 +133,7 @@ export async function installRunWieldSnipFiltersForUser(options = {}) {
         if (await writeIfChanged(targetPath, content)) installed.push(targetPath);
     }
 
-    const homeDir = options.homeDir || getHomeDir() || Deno.cwd();
+    const homeDir = options.homeDir || getHomeDir() || getCwd();
     const removedLegacy = await removeLegacyHarnsFilterDirectory(homeDir);
     return { filtersDir: paths.userFiltersDir, installed, removedLegacy, skipped };
 }
@@ -123,11 +141,10 @@ export async function installRunWieldSnipFiltersForUser(options = {}) {
 /**
  * Remove RunWield-managed Snip filters from Snip's default user filter directory.
  * Non-RunWield files with the same names are left untouched.
- *
- * @param {{ homeDir?: string }} [options]
- * @returns {Promise<{ filtersDir: string, removed: string[], removedLegacy: string[], skipped: Array<{ path: string, reason: string }> }>}
  */
-export async function cleanupRunWieldSnipFiltersForUser(options = {}) {
+export async function cleanupRunWieldSnipFiltersForUser(
+    options: SnipFilterOptions = {},
+): Promise<SnipFilterCleanupResult> {
     const paths = getRunWieldSnipPaths(options);
     const removed = [];
     const skipped = [];
@@ -148,16 +165,14 @@ export async function cleanupRunWieldSnipFiltersForUser(options = {}) {
         }
     }
 
-    const homeDir = options.homeDir || getHomeDir() || Deno.cwd();
+    const homeDir = options.homeDir || getHomeDir() || getCwd();
     const removedLegacy = await removeLegacyHarnsFilterDirectory(homeDir);
     return { filtersDir: paths.userFiltersDir, removed, removedLegacy, skipped };
 }
 
-/**
- * @param {{ homeDir?: string }} [options]
- * @returns {Promise<{ filtersDir: string, installed: string[], conflicts: string[], missing: string[] }>}
- */
-export async function getRunWieldSnipFilterInstallStatus(options = {}) {
+export async function getRunWieldSnipFilterInstallStatus(
+    options: SnipFilterOptions = {},
+): Promise<SnipFilterInstallStatus> {
     const paths = getRunWieldSnipPaths(options);
     const installed = [];
     const conflicts = [];
