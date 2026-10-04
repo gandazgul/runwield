@@ -15,7 +15,7 @@ import { decidePostExecution, decidePostPlanning } from "../../shared/workflow/d
 import { isPlanReviewableWithoutReopen, isProjectPlan, recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
 import { resolveWorkflowPlanLocation } from "../../shared/workflow/plan-location.ts";
 import { loadPlanActionEvidence } from "../../shared/workflow/plan-actions.ts";
-import { normalizePlanApprovalAction, PLAN_APPROVAL_ACTIONS } from "../../shared/workflow/plan-approval.js";
+import { normalizePlanApprovalAction, PLAN_APPROVAL_ACTIONS } from "../../shared/workflow/plan-approval.ts";
 import {
     appendSessionCompleteGuidance,
     requestRecoverablePlanReview,

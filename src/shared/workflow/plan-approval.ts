@@ -4,43 +4,42 @@ import { projectPlanType } from "../project-plan.ts";
  * Approval-intent contract shared by Plan Review transport and workflow routing.
  */
 
-export const PLAN_APPROVAL_ACTIONS = Object.freeze({
+export interface PlanApprovalActions {
+    readonly RUN: "run";
+    readonly DECOMPOSE: "decompose";
+    readonly LATER: "later";
+}
+
+export const PLAN_APPROVAL_ACTIONS: PlanApprovalActions = Object.freeze({
     RUN: "run",
     DECOMPOSE: "decompose",
     LATER: "later",
 });
 
-/**
- * @typedef {typeof PLAN_APPROVAL_ACTIONS[keyof typeof PLAN_APPROVAL_ACTIONS]} PlanApprovalAction
- */
+export type PlanApprovalAction = typeof PLAN_APPROVAL_ACTIONS[keyof typeof PLAN_APPROVAL_ACTIONS];
 
-/**
- * @param {unknown} classification
- * @returns {"PROJECT"|"PLANNED_CHANGE"|""}
- */
-function normalizePlanClassification(classification) {
+export interface PlanApprovalOptions {
+    classification?: string | null;
+    type?: string;
+    action?: string | null;
+}
+
+function normalizePlanClassification(classification: string | null | undefined): "PROJECT" | "PLANNED_CHANGE" | "" {
     const value = String(classification || "").trim().replace(/^['\"]|['\"]$/g, "").toUpperCase();
     if (value === "PROJECT") return "PROJECT";
     if (value === "PLANNED_CHANGE" || value === "FEATURE") return "PLANNED_CHANGE";
     return "";
 }
 
-/**
- * @param {unknown} action
- * @returns {string}
- */
-function normalizeActionValue(action) {
+function normalizeActionValue(action: string | null | undefined): string {
     return String(action || "").trim().toLowerCase();
 }
 
-/**
- * Return the immediate approval action for a Plan Classification.
- *
- * @param {unknown} classification
- * @param {string} [type]
- * @returns {PlanApprovalAction}
- */
-export function primaryPlanApprovalActionForClassification(classification, type) {
+/** Return the immediate approval action for a Plan Classification. */
+export function primaryPlanApprovalActionForClassification(
+    classification: string | null | undefined,
+    type?: string,
+): PlanApprovalAction {
     return projectPlanType({ classification: normalizePlanClassification(classification), type }) === "epic"
         ? PLAN_APPROVAL_ACTIONS.DECOMPOSE
         : PLAN_APPROVAL_ACTIONS.RUN;
@@ -50,11 +49,8 @@ export function primaryPlanApprovalActionForClassification(classification, type)
  * Safely normalize a browser approval action against trusted Plan Classification.
  * Missing, unknown, or classification-incompatible values intentionally become
  * `later` so approval never grants accidental immediate execution/decomposition.
- *
- * @param {{ classification?: unknown, type?: string, action?: unknown }} opts
- * @returns {PlanApprovalAction}
  */
-export function normalizePlanApprovalAction({ classification, type, action }) {
+export function normalizePlanApprovalAction({ classification, type, action }: PlanApprovalOptions): PlanApprovalAction {
     const planClassification = normalizePlanClassification(classification);
     const requestedAction = normalizeActionValue(action);
 
@@ -72,14 +68,10 @@ export function normalizePlanApprovalAction({ classification, type, action }) {
     return PLAN_APPROVAL_ACTIONS.LATER;
 }
 
-/**
- * @param {unknown} action
- * @returns {PlanApprovalAction | undefined}
- */
-export function readPlanApprovalAction(action) {
+export function readPlanApprovalAction(action: string | null | undefined): PlanApprovalAction | undefined {
     const requestedAction = normalizeActionValue(action);
-    if (Object.values(PLAN_APPROVAL_ACTIONS).includes(/** @type {PlanApprovalAction} */ (requestedAction))) {
-        return /** @type {PlanApprovalAction} */ (requestedAction);
-    }
+    if (requestedAction === PLAN_APPROVAL_ACTIONS.RUN) return PLAN_APPROVAL_ACTIONS.RUN;
+    if (requestedAction === PLAN_APPROVAL_ACTIONS.DECOMPOSE) return PLAN_APPROVAL_ACTIONS.DECOMPOSE;
+    if (requestedAction === PLAN_APPROVAL_ACTIONS.LATER) return PLAN_APPROVAL_ACTIONS.LATER;
     return undefined;
 }
