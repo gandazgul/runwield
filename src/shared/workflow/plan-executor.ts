@@ -11,7 +11,7 @@ import {
     RuntimeInteractionTypes,
 } from "../session/session-runtime-interactions.js";
 import { isExecutablePlanStatus, isProjectPlan, recordPlanEvent } from "./plan-lifecycle.js";
-import { normalizePlanApprovalAction, PLAN_APPROVAL_ACTIONS } from "./plan-approval.js";
+import { normalizePlanApprovalAction, PLAN_APPROVAL_ACTIONS } from "./plan-approval.ts";
 import {
     appendSessionCompleteGuidance,
     requestPlanReviewRetryConfirmation,
