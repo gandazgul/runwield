@@ -33,6 +33,9 @@ workRecord:
     recordId: "79c918ba-6012-4c58-a0ba-a1c568279c53"
     path: "docs/work-records/2026-09-29-configurable-bash-allowlists-for-guide-and-delegates.md"
     lastAttemptAt: "2026-09-29T03:38:32.549Z"
+archivedAt: "2026-10-03T15:43:28.129Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/delegate-bash-command-allowlist.md"
 ---
 
 # Configurable Bash Command Allowlists for Guide and Delegates
