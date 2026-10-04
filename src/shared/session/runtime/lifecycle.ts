@@ -571,8 +571,8 @@ export class RuntimeLifecycle {
         if (options.mcpServers) hostedSession.setMcpRequestServers(options.mcpServers);
         try {
             if (deferPersistence) {
-                const mcpToolPool = await this.settings.refreshMcpTools(hostedSession, options.mcpServers);
-                if (mcpToolPool) await hostedSession.setMcpToolPool(mcpToolPool);
+                const mcpIntegration = await this.settings.refreshMcpTools(hostedSession, options.mcpServers);
+                if (mcpIntegration) await hostedSession.setMcpIntegration(mcpIntegration);
             }
             const activated = deferPersistence
                 ? this.settings.markPromptReadyAgent(hostedSession.id, { agentName })

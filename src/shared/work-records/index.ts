@@ -2,7 +2,7 @@ export * from "./schema.js";
 export * from "./markdown.js";
 export * from "./store.js";
 export * from "./lifecycle.ts";
-export * from "./list.js";
+export * from "./list.ts";
 export * from "./supersession.ts";
 export * from "./generation.js";
 export * from "./auto-generation.ts";

@@ -1,5 +1,5 @@
 import { assertEquals, assertStrictEquals, assertThrows } from "@std/assert";
-import { McpToolPool } from "../mcp/pool.ts";
+import { McpIntegration } from "../mcp/integration.ts";
 import { HostedSession } from "./hosted-session.js";
 import { SessionHost } from "./session-host.js";
 
@@ -167,18 +167,18 @@ function makeManagedOptions(id, runwieldSessionId) {
 Deno.test("HostedSession keeps replacement MCP pool authoritative when prior pool close fails", async () => {
     const hostedSession = new HostedSession({ id: "mcp-replacement", cwd: "/repo/mcp-replacement" });
     let replacementClosed = false;
-    const priorPool = new McpToolPool([], []);
+    const priorPool = new McpIntegration();
     priorPool.close = () => Promise.reject(new Error("prior close failed"));
-    const replacementPool = new McpToolPool([], []);
+    const replacementPool = new McpIntegration();
     replacementPool.close = () => {
         replacementClosed = true;
         return Promise.resolve();
     };
 
-    await hostedSession.setMcpToolPool(priorPool);
-    await hostedSession.setMcpToolPool(replacementPool);
+    await hostedSession.setMcpIntegration(priorPool);
+    await hostedSession.setMcpIntegration(replacementPool);
 
-    assertStrictEquals(hostedSession.getMcpToolPool(), replacementPool);
+    assertStrictEquals(hostedSession.getMcpIntegration(), replacementPool);
     assertEquals(replacementClosed, false);
     await hostedSession.dispose();
     assertEquals(replacementClosed, true);

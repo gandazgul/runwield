@@ -299,8 +299,8 @@ export class HostedSession {
         this.managedOperationCapability = null;
         /** @type {PendingManagedTurnIntent} */
         this.pendingManagedTurnIntent = {};
-        /** @type {import('../mcp/pool.ts').McpToolPool | null} */
-        this.mcpToolPool = null;
+        /** @type {import('../mcp/integration.ts').McpIntegration | null} */
+        this.mcpIntegration = null;
         /** @type {import('../mcp/config.ts').McpServerDefinition[]} */
         this.mcpRequestServers = [];
     }
@@ -593,34 +593,34 @@ export class HostedSession {
         return this.mcpRequestServers.map((server) => ({ ...server }));
     }
 
-    /** @param {import('../mcp/pool.ts').McpToolPool | null} pool */
-    async setMcpToolPool(pool) {
+    /** @param {import('../mcp/integration.ts').McpIntegration | null} pool */
+    async setMcpIntegration(pool) {
         this.assertActive();
-        const previous = this.mcpToolPool;
-        this.mcpToolPool = pool;
+        const previous = this.mcpIntegration;
+        this.mcpIntegration = pool;
         if (previous && previous !== pool) await previous.close().catch(() => {});
     }
 
-    getMcpToolPool() {
-        return this.mcpToolPool;
+    getMcpIntegration() {
+        return this.mcpIntegration;
     }
 
     getMcpRootTools() {
-        return this.mcpToolPool?.getTools?.() || [];
+        return this.mcpIntegration?.getTools?.() || [];
     }
 
     /** @param {HostedSession} targetHostedSession */
     moveMcpStateTo(targetHostedSession) {
         this.assertActive();
         targetHostedSession.assertActive();
-        targetHostedSession.mcpToolPool = this.mcpToolPool;
+        targetHostedSession.mcpIntegration = this.mcpIntegration;
         targetHostedSession.mcpRequestServers = this.getMcpRequestServers();
-        this.mcpToolPool = null;
+        this.mcpIntegration = null;
     }
 
-    async closeMcpToolPool() {
-        const pool = this.mcpToolPool;
-        this.mcpToolPool = null;
+    async closeMcpIntegration() {
+        const pool = this.mcpIntegration;
+        this.mcpIntegration = null;
         if (pool) await pool.close();
     }
 
@@ -1260,7 +1260,7 @@ export class HostedSession {
         this.agentSteeringPreparationWaiters.clear();
         this.disposed = true;
         await Promise.all(pendingDisposals);
-        await this.closeMcpToolPool();
+        await this.closeMcpIntegration();
         this.mcpRequestServers = [];
         this.managed = null;
     }

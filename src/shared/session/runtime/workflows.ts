@@ -707,7 +707,7 @@ export class RuntimeWorkflows {
             }
             session.setActiveExecutionWorkflow(continuation.activeWorkflow);
             const { buildValidationRepairPrompt } = await import("../../workflow/validation-repair-prompt.ts");
-            const { getWorktreeReviewDiff } = await import("../../workflow/git-snapshot.js");
+            const { getWorktreeReviewDiff } = await import("../../workflow/git-snapshot.ts");
             const { createReviewDiffTool, buildDiffInspectionSection } = await import(
                 "../../workflow/review-diff-tool.js"
             );

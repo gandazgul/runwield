@@ -48,6 +48,10 @@ function fixtureShouldInitError(): boolean {
     return Deno.env.get("RUNWIELD_MCP_FIXTURE_INIT_ERROR") === "1";
 }
 
+function fixtureHasResources(): boolean {
+    return Deno.env.get("RUNWIELD_MCP_FIXTURE_RESOURCES") === "1";
+}
+
 function fixtureShouldPaginate(): boolean {
     return Deno.env.get("RUNWIELD_MCP_FIXTURE_PAGINATED") === "1";
 }
@@ -59,8 +63,10 @@ function fixtureEnvironment(): JsonMap {
     };
 }
 
+let changedTools: string | undefined;
+
 function fixtureTools(): JsonMap[] {
-    const names = (Deno.env.get("RUNWIELD_MCP_FIXTURE_TOOLS") || "fixture_echo")
+    const names = (changedTools ?? Deno.env.get("RUNWIELD_MCP_FIXTURE_TOOLS") ?? "fixture_echo")
         .split(",")
         .map((name) => name.trim())
         .filter(Boolean);
@@ -110,7 +116,10 @@ for await (const chunk of Deno.stdin.readable) {
                         id: message.id ?? null,
                         result: {
                             protocolVersion: "2025-06-18",
-                            capabilities: { tools: {} },
+                            capabilities: {
+                                tools: { listChanged: true },
+                                ...(fixtureHasResources() ? { resources: {} } : {}),
+                            },
                             serverInfo: { name: "runwield-fixture", version: "1.0.0" },
                         },
                     });
@@ -137,9 +146,35 @@ for await (const chunk of Deno.stdin.readable) {
                             : { tools },
                     });
                 }
+            } else if (message.method === "resources/list") {
+                send({
+                    jsonrpc: "2.0",
+                    id: message.id ?? null,
+                    result: {
+                        resources: [
+                            { uri: "fixture://document", name: "document", mimeType: "text/plain" },
+                        ],
+                    },
+                });
+            } else if (message.method === "resources/templates/list") {
+                send({ jsonrpc: "2.0", id: message.id ?? null, result: { resourceTemplates: [] } });
+            } else if (message.method === "resources/read") {
+                send({
+                    jsonrpc: "2.0",
+                    id: message.id ?? null,
+                    result: {
+                        contents: [
+                            { uri: "fixture://document", mimeType: "text/plain", text: "fixture-resource" },
+                        ],
+                    },
+                });
             } else if (message.method === "tools/call") {
                 const marker = message.params?.arguments?.marker || "";
                 await log({ event: "call", pid: Deno.pid, marker });
+                if (marker === "change-tools") {
+                    changedTools = "replacement";
+                    send({ jsonrpc: "2.0", method: "notifications/tools/list_changed" });
+                }
                 if (marker === "slow") await new Promise((resolve) => setTimeout(resolve, 5_000));
                 if (marker === "progress") {
                     const progressToken = message.params?._meta?.progressToken;

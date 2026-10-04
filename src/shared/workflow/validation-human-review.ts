@@ -16,7 +16,7 @@ import type {
     ValidationPhaseResult,
 } from "./validation-types.ts";
 import { getPlanAttrs, recordLifecycleEvent } from "./validation-context.ts";
-import { getWorktreeReviewDiff } from "./git-snapshot.js";
+import { getWorktreeReviewDiff } from "./git-snapshot.ts";
 import { emitProgress } from "./validation-emit.ts";
 import { pauseForUserAction, requestInteraction } from "./validation-interactions.ts";
 import { dispatchReviewFeedbackRepair } from "./validation-semantic.ts";

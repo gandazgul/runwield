@@ -1,3 +1,4 @@
+import { setCustomSetting } from "../../shared/settings.js";
 import { withSessionViewFixture } from "./testing/session-view-fixture.ts";
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 import { TuiAltScreen } from "@earendil-works/pi-tui";
@@ -47,6 +48,47 @@ Deno.test("live TUI reserves mascot space and pauses for questions without cover
             await terminal.flush();
             assertStringIncludes(terminal.getScreenText(), "▛▀▀▀▀▀▜");
             assertStringIncludes(terminal.getScreenText(), "Preserve this draft");
+        } finally {
+            view.uiAPI.dispose?.();
+            view.dispose();
+            tui.stop();
+        }
+    });
+});
+
+Deno.test("disabling a live TUI mascot removes rail and compact face without losing input", async () => {
+    await withSessionViewFixture(async ({ runtime, sessionId, session, projectRoot }) => {
+        const terminal = new VirtualTerminal({ columns: 150, rows: 45 });
+        const tui = new TuiAltScreen(terminal);
+        session.resetAgentInfoStack("Operator", "", "", "operator");
+        const view = await createChatView({
+            tui,
+            suppressStartupHeader: true,
+            getSessionId: () => sessionId,
+            sessionRuntime: runtime,
+            setActiveModel: () => Promise.resolve({ status: "active" }),
+        });
+        try {
+            tui.start();
+            view.editor.setText("Keep my input");
+            view.uiAPI.setBusy?.(true);
+            tui.renderNow(true);
+            await terminal.flush();
+            assertStringIncludes(terminal.getScreenText(), "██   ██");
+            await setCustomSetting("mascot", false, "project", projectRoot);
+            for (const [columns, rows] of [[150, 45], [60, 16]]) {
+                terminal.resize(columns, rows);
+                tui.renderNow(true);
+                await terminal.flush();
+                const screen = terminal.getScreenText();
+                assert(!screen.includes("██   ██"));
+                assert(!screen.includes("▛▀▀▀▀▀▜"));
+                assertStringIncludes(screen, "Keep my input");
+            }
+            await setCustomSetting("mascot", true, "project", projectRoot);
+            tui.renderNow(true);
+            await terminal.flush();
+            assertStringIncludes(terminal.getScreenText(), "▛▀▀▀▀▀▜");
         } finally {
             view.uiAPI.dispose?.();
             view.dispose();

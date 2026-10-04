@@ -661,7 +661,26 @@ export const slashSettingsScenario = {
     ],
 };
 
+export const slashMcpScenario = {
+    name: "slash-command-mcp-status",
+    slashCommands: ["mcp"],
+    composedTui: true,
+    initialAgentName: "guide",
+    terminal: { columns: 100, rows: 30 },
+    actions: [
+        { type: "type", text: "/mcp" },
+        { type: "enter" },
+        { type: "waitForScreen", text: "No MCP servers configured." },
+        { type: "waitForIdle" },
+    ],
+    assertions: [
+        (result: ConfigurationScenarioResult) => assertEventIncludes(result, "terminal:type:/mcp"),
+        (result: ConfigurationScenarioResult) => assertEquals(result.state.modelTurns?.length || 0, 0),
+    ],
+};
+
 export const slashCommandConfigurationScenarios = [
+    slashMcpScenario,
     slashAgentScenario,
     slashAgentUnavailablePresetRecoveryScenario,
     slashAgentBaseSettingScenario,

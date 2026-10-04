@@ -159,8 +159,8 @@ not duplicate their lifecycle, review, owner, interaction, or validation logic.
   external CLI backends.
 - `src/shared/session/backends/claude-cli/testing/fake-claude-mcp-client.ts` — reuse the real MCP SDK client pattern for
   the shared stdio transport and end-to-end fixtures.
-- `src/shared/mcp/pool.ts` — reuse its MCP client pagination, cancellation, result conversion, and deterministic close
-  patterns where they apply to stdio forwarding.
+- `src/shared/mcp/integration.ts` — reuse its MCP client pagination, cancellation, result conversion, and deterministic
+  close patterns where they apply to stdio forwarding.
 - `src/shared/workflow/controller-registry.ts` and `src/shared/session/file-session-storage.ts` — reuse operating-system
   lock and durable atomic-write patterns; do not copy an unlocked settings writer.
 - `src/shared/session/backends/agy-cli/custom-agent.ts` — reuse home resolution, link rejection, restrictive modes, and

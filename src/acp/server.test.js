@@ -17,7 +17,7 @@ import { VERSION } from "../shared/version.js";
 import { mapRuntimeEventToAcpUpdate } from "./event-mapper.js";
 import { createAcpInteractionAdapter } from "./interaction-mapper.js";
 import { assertAcpFrameSchema, assertAcpSchema } from "./schema-conformance.ts";
-import { AcpSessionMap } from "./session-map.js";
+import { AcpSessionMap } from "./session-map.ts";
 import {
     createInitializeResponse,
     mapEventWithSessionCost,
@@ -633,7 +633,7 @@ Deno.test("ACP session/new sends setup MCP warnings to the client", async () => 
             const { response, messages } = await readThroughResponse(handle, "new-warning");
             assert(response.result, JSON.stringify(response));
             const warningText = joinedAgentText(messages);
-            assertStringIncludes(warningText, "MCP warning (spawn/dead)");
+            assertStringIncludes(warningText, "MCP warning (connection/dead)");
             assertStringIncludes(warningText, "MCP server failed");
             assertEquals(warningText.includes("/definitely/not"), false);
         } finally {
@@ -1112,7 +1112,7 @@ Deno.test("ACP session/new and session/prompt can invoke a real MCP fixture tool
     await withRuntimeCommandFixture("runwield-acp-mcp-call-", async (fixture) => {
         const logPath = await Deno.makeTempFile({ prefix: "runwield-acp-mcp-log-" });
         fixture.setModelResponseFactories([
-            () => fauxAssistantMessage(fauxToolCall("mcp_fixture_fixture_echo", { marker: "acp-root" })),
+            () => fauxAssistantMessage(fauxToolCall("mcp__fixture__fixture_echo", { marker: "acp-root" })),
             () => fauxAssistantMessage(fauxText("ACP MCP turn complete.")),
         ]);
         const handle = startTestServer();
@@ -1736,7 +1736,7 @@ Deno.test("ACP session/load replays a real persisted Session and accepts another
         let sawLoadedMcpResultInTurn = false;
         fixture.setModelResponseFactories([
             () => fauxAssistantMessage(fauxText("first fixture response")),
-            () => fauxAssistantMessage(fauxToolCall("mcp_fixture_fixture_echo", { marker: "acp-loaded" })),
+            () => fauxAssistantMessage(fauxToolCall("mcp__fixture__fixture_echo", { marker: "acp-loaded" })),
             (context) => {
                 sawLoadedMcpResultInTurn = JSON.stringify(context.messages).includes("fixture-result:acp-loaded");
                 return fauxAssistantMessage(fauxText("continued fixture response"));

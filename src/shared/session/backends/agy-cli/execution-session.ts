@@ -1,3 +1,4 @@
+import type { McpIntegration } from "../../../mcp/integration.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { SessionManager, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { RunWieldModel } from "../../../models/model-registry.ts";
@@ -50,6 +51,7 @@ export interface AgyCliExecutionSessionOptions {
     sessionManager: SessionManager;
     hostedSession?: HostedSession;
     bridgedTools?: ToolDefinition[];
+    mcpIntegration?: McpIntegration;
     thinkingLevel?: string;
     persistModelChange?: boolean;
     declaredTools?: string[];
@@ -93,6 +95,8 @@ export class AgyCliExecutionSession {
     private readonly hostedSession?: HostedSession;
     private readonly ownership: AgyCustomAgentOwnership;
     private readonly bridgedTools: ToolDefinition[];
+    private readonly mcpIntegration?: McpIntegration;
+    private readonly mcpToolNames: Set<string>;
     private readonly thinkingLevel?: string;
     private readonly persistModelChange: boolean;
     private messages: AgentMessage[] = [];
@@ -112,6 +116,8 @@ export class AgyCliExecutionSession {
         this.sessionManager = options.sessionManager;
         this.hostedSession = options.hostedSession;
         this.bridgedTools = [...(options.bridgedTools || [])];
+        this.mcpIntegration = options.mcpIntegration;
+        this.mcpToolNames = new Set(options.mcpIntegration?.getTools().map((tool) => tool.name));
         this.thinkingLevel = options.thinkingLevel;
         this.persistModelChange = options.persistModelChange !== false;
         this.ownership = ownership;
@@ -198,6 +204,13 @@ export class AgyCliExecutionSession {
     }
 
     private async runTurnInternal(options: AgyCliRunOptions): Promise<AgentMessage[]> {
+        const bridgedTools = this.mcpIntegration
+            ? [
+                ...this.bridgedTools.filter((tool) => !this.mcpToolNames.has(tool.name)),
+                ...this.mcpIntegration.getTools(),
+            ]
+            : this.bridgedTools;
+
         if (options.images && options.images.length > 0) {
             throw new Error("Agy CLI execution backend does not support image attachments in this slice");
         }
@@ -250,7 +263,7 @@ export class AgyCliExecutionSession {
             sourceSurface: options.sourceSurface || "cli",
         });
         await recorder.recordExecutionStart();
-        await recorder.recordToolExposure(this.bridgedTools, "partial");
+        await recorder.recordToolExposure(bridgedTools, "partial");
         const pendingObservations = new Set<Promise<void>>();
         const observe = (pending: Promise<void>) => {
             pendingObservations.add(pending);
@@ -283,10 +296,10 @@ export class AgyCliExecutionSession {
                 throw new AgyCliBackendError(failure.kind, { exitCode: failure.exitCode, message: failure.message });
             }
 
-            if (this.bridgedTools.length > 0) {
+            if (bridgedTools.length > 0) {
                 try {
                     bridge = await startRunWieldMcpBridge({
-                        tools: this.bridgedTools,
+                        tools: bridgedTools,
                         cwd: this.cwd,
                         hostedSession: this.hostedSession,
                         sessionManager: this.sessionManager,
@@ -445,7 +458,7 @@ export class AgyCliExecutionSession {
                     observe(recorder.recordResponseLatency("first_response"));
                     if (
                         !observation.toolName?.startsWith("mcp__runwield__") &&
-                        !this.bridgedTools.some((tool) =>
+                        !bridgedTools.some((tool) =>
                             observation.toolName === tool.name ||
                             observation.toolName === mcpAliasFor(tool.name)
                         )

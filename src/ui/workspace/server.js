@@ -13,7 +13,7 @@ import { sessionArtifactKindLabel } from "../../shared/session/session-sidebar.t
 import { extname, join, toFileUrl } from "@std/path";
 import { RUNWIELD_ROOT, RUNWIELD_SOURCE_ROOT } from "../../../runtime-root.js";
 import { PLAN_UI_TOKEN_HEADER, PLAN_UI_TOKEN_QUERY } from "../../constants.js";
-import { getWorktreeReviewDiff, WorktreeReviewComparisonError } from "../../shared/workflow/git-snapshot.js";
+import { getWorktreeReviewDiff, WorktreeReviewComparisonError } from "../../shared/workflow/git-snapshot.ts";
 import {
     boardApi,
     lifecycleActionApi,
@@ -35,7 +35,7 @@ import { openRemoteWorkspaceAdapter } from "./server/remote-adapter.js";
 import { escapeReviewPayloadJson } from "./server/review-payload-json.ts";
 import { withAccessLogger } from "./server-access-logger.ts";
 import { SYSTEM_WORK_RECORD_MNEMOTECA_PORT } from "../../shared/work-records/mnemoteca-port.ts";
-import { renderRunWieldThemeCss } from "../design-system/theme-bridge.js";
+import { renderRunWieldThemeCss } from "../design-system/theme-bridge.ts";
 import { reviewImageApi, reviewImageUploadApi } from "./routes/api/review-image-handlers.js";
 import {
     cleanupReviewAgentState,

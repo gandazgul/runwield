@@ -4,7 +4,7 @@ import { HostedSession } from "../../shared/session/hosted-session.js";
 import { defineCommittedGitFixture } from "../../shared/git-test-fixture.ts";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import { createTuiInteractionAdapter } from "../tui/runtime-interaction-adapter.js";
-import { getWorktreeReviewDiff } from "../../shared/workflow/git-snapshot.js";
+import { getWorktreeReviewDiff } from "../../shared/workflow/git-snapshot.ts";
 import {
     type ReviewDecisionValue,
     type ReviewServerOutput,

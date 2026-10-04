@@ -1,5 +1,5 @@
 import { AGENT_MASCOT_ALIASES, animations, HEIGHT, svgPath, terminalLines, WIDTH } from "./sprites.ts";
-import { renderRunWieldThemeCss } from "../../../src/ui/design-system/theme-bridge.js";
+import { renderRunWieldThemeCss } from "../../../src/ui/design-system/theme-bridge.ts";
 function encodeBase64(bytes: Uint8Array): string {
     let binary = "";
     for (let index = 0; index < bytes.length; index += 8192) {
