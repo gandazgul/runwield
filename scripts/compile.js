@@ -46,6 +46,7 @@ const STATIC_INCLUDE_PATHS = [
     // directory intact so Photon can load its module-relative WASM asset.
     "image-resize-worker.js",
     "node_modules/@earendil-works/pi-coding-agent/dist/utils/",
+    "node_modules/@silvia-odwyer/photon-node/",
 ];
 
 /**
@@ -68,14 +69,15 @@ const STATIC_INCLUDE_PATHS = [
  *
  * @param {string} cmd
  * @param {string[]} args
+ * @param {Record<string, string>} [extraEnv]
  * @returns {Promise<CommandResult>}
  */
-async function runCmd(cmd, args) {
+async function runCmd(cmd, args, extraEnv = {}) {
     // Vite embeds the environment object's insertion order into server.mjs.
     // Preserve the build environment in a stable order and exclude `_`,
     // which shells change to the previous command path between builds.
     const env = Object.fromEntries(
-        Object.entries(Deno.env.toObject()).filter(([key]) => key !== "_")
+        Object.entries({ ...Deno.env.toObject(), ...extraEnv }).filter(([key]) => key !== "_")
             .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0),
     );
     const command = new Deno.Command(cmd, { args, env, clearEnv: true, stdout: "piped", stderr: "piped" });
@@ -297,6 +299,12 @@ export async function main(args = Deno.args) {
         const smokeTest = await runCmd(resolve(output), ["--version"]);
         if (!smokeTest.success) {
             throw new Error(smokeTest.stderr || "Compiled RunWield binary failed its startup smoke test.");
+        }
+        const imageSmokeTest = await runCmd(resolve(output), ["package-smoke", "image-resize"], {
+            WLD_INTERNAL_PACKAGE_CHECK: "1",
+        });
+        if (!imageSmokeTest.success) {
+            throw new Error(imageSmokeTest.stderr || "Compiled RunWield binary failed its image runtime smoke test.");
         }
     }
     const target = options.target ||

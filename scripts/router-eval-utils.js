@@ -20,6 +20,7 @@ export const ROUTER_JUDGEMENT_COLUMNS = [
     "routerDisagreementKind",
     "routerSummary",
     "routerAffectedPaths",
+    "contextCommit",
 ];
 
 const ROUTING_INTENT_ORDER = new Map(ROUTING_INTENTS.map((intent, index) => [intent, index]));

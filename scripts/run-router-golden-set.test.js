@@ -27,6 +27,7 @@ Deno.test("normalizeGoldenRow fills stable defaults and router metrics", () => {
             humanNotes: "",
             routerSummary: "",
             routerAffectedPaths: "",
+            contextCommit: "",
             routerAgreesWithHuman: "FALSE",
             routerCorrection: "QUICK_FIX->PLANNED_CHANGE",
             routerDistanceFromHuman: 1,

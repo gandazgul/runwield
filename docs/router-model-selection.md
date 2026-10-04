@@ -137,6 +137,27 @@ finite number from 0 to 2, including zero. Omit either option to keep the config
 not change saved settings. Provider support varies; the existing temperature fallback omits temperature when the model
 does not support it. Use separate output files and `--rerun` to compare settings without reusing completed decisions.
 
+### Pin repository context per row
+
+Add an optional `contextCommit` column to the golden CSV. Use the full Git commit hash for the repository state that
+applied when the user made the request. Leave the cell empty for cases that can use the current checkout.
+
+The runner creates one temporary detached worktree from the repository selected by `--cwd`, when it reaches the first
+valid pinned row. Before each later pinned row, it checks out that row's commit in the same worktree. Router filesystem
+and code discovery use that worktree. Generated files are not cleared between rows. The runner removes the worktree when
+the run ends, including after row failures or timeouts. It does not switch branches, reset files, or copy uncommitted
+changes from your source checkout.
+
+Use a full 40- or 64-character commit hash, not a branch name or abbreviated hash. The commit must already exist in the
+local repository; the runner does not fetch it. An invalid or missing commit produces a row error, without falling back
+to the current checkout. Input pins remain in result CSVs and checkpoints. Resume discards a prior result when its pin
+changes; use `--rerun` after changing request text or model settings.
+
+The runner and model remain current. A commit pin fixes tracked repository files, not missing conversation history,
+uncommitted Session state, global settings, memory, external resources, or sibling repositories. Check that the chosen
+commit reflects the original discovery context before using its result as historical evidence. Pins are not inferred
+from Session dates.
+
 The current golden-set benchmark is useful, but it is not perfect.
 
 - Historical prompts contain real project context, so models can spend a lot of time doing genuine discovery.
