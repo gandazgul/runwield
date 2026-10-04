@@ -146,7 +146,7 @@ Deno.test("loadAgentDef loads Operator with structured interview capability", as
     assert(def.systemPrompt.includes("Use `user_interview` for operational choices or confirmations"));
 });
 
-Deno.test("loadAgentDef loads Guide with read-only tools", async () => {
+Deno.test("loadAgentDef loads Guide with discovery, docs and image tools but no general file editing", async () => {
     const def = await loadAgentDef("guide");
 
     assert(def.tools.includes("read"));
@@ -158,6 +158,7 @@ Deno.test("loadAgentDef loads Guide with read-only tools", async () => {
     assert(def.tools.includes("code_search"));
     assert(def.tools.includes("write_docs"));
     assert(def.tools.includes("edit_docs"));
+    assert(def.tools.includes("create_image"));
     assert(def.systemPrompt.includes("explicitly asks you to preserve or update"));
     assert(def.systemPrompt.includes("Plans, PRDs, ADRs, `docs/domain-language.md`, `docs/domain-language-map.md`"));
     assert(def.systemPrompt.includes("context\n  `domain-language.md`, Work Records, Agent Definitions, Skills"));

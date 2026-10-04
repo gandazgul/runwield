@@ -20,7 +20,9 @@ minimal inherited environment.
 
 Root Pi sessions register Pi's original tool definitions through an extension binding, including subsequent tool-list
 updates. External CLI backends expose current definitions through their existing per-turn bridge. Agent disposal
-releases the root binding; owning Session disposal awaits Pi's shutdown hook before disposing the host.
+releases the root binding; owning Session disposal awaits Pi's shutdown hook before disposing the host. An explicitly
+supplied authorized integration remains bound when its inventory is empty, because discovery and recovery are
+independent of the current tool count. Isolated invocation clears both the tool snapshot and the integration.
 
 Using only Pi's client library still required RunWield to maintain discovery orchestration, naming, conversion, and
 reconnection. Loading the MCP extension independently in each root Agent was also considered: it would tie connections

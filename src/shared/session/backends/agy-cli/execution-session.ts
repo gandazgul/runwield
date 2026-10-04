@@ -17,6 +17,7 @@ import {
 } from "./custom-agent.ts";
 import type { AgyCustomAgentOwnership } from "./custom-agent.ts";
 import { prepareAgyCliAgentsCommand, prepareAgyCliStreamCommand } from "./command.ts";
+import { concreteAgyModel, thinkingLevelToEffort } from "./model-options.ts";
 import { DenoAgyCliProcessPort } from "./process.ts";
 import type { AgyCliProcessResult, AgyCliProcessStatus } from "./process.ts";
 import {
@@ -820,27 +821,6 @@ function formatAgyCustomAgentDefinition(
 function makeTemporaryAgentSelector(agentName: string): string {
     const sanitized = agentName.toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "agent";
     return `runwield-${sanitized}-${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
-}
-
-function thinkingLevelToEffort(modelId: string, thinkingLevel: string | undefined): "low" | "medium" | "high" {
-    switch (thinkingLevel || "off") {
-        case "off":
-        case "minimal":
-        case "low":
-            return "low";
-        case "medium":
-            return modelId === "gemini-3.1-pro" ? "high" : "medium";
-        case "high":
-        case "xhigh":
-        case "max":
-            return "high";
-        default:
-            throw new Error(`Unknown RunWield thinkingLevel "${thinkingLevel}".`);
-    }
-}
-
-function concreteAgyModel(modelId: string, effort: "low" | "medium" | "high"): string {
-    return `${modelId}-${effort}`;
 }
 
 type JsonScalar = string | number | boolean | null;

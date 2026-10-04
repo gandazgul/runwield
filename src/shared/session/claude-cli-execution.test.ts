@@ -243,11 +243,13 @@ Deno.test("Claude CLI root turn advertises RunWield skills and project tool perm
     });
 });
 
-Deno.test("Claude CLI root turn can invoke an external MCP tool through the bridge", async () => {
+Deno.test("Claude CLI roots discover initially empty MCP tools and refresh them between turns", async () => {
     await withClaudeExecutionFixture(async (_home, cwd, logPath) => {
         const manager = SessionManager.inMemory(cwd);
         const hostedSession = createHostedSession(cwd, manager);
         const externalLogPath = join(cwd, "external-mcp.jsonl");
+        const toolsPath = join(cwd, "external-mcp-tools.txt");
+        await Deno.writeTextFile(toolsPath, "");
         const fixtureServer = new URL("../mcp/fixture-server.ts", import.meta.url).pathname;
         const poolResult = await startMcpIntegration({
             cwd,
@@ -255,11 +257,12 @@ Deno.test("Claude CLI root turn can invoke an external MCP tool through the brid
                 name: "fixture",
                 command: Deno.execPath(),
                 args: ["run", "-A", fixtureServer],
-                env: { RUNWIELD_MCP_FIXTURE_LOG: externalLogPath },
+                env: { RUNWIELD_MCP_FIXTURE_LOG: externalLogPath, RUNWIELD_MCP_FIXTURE_TOOLS_PATH: toolsPath },
                 source: "request",
             }],
         });
         assertEquals(poolResult.warnings, []);
+        assertEquals(poolResult.integration.getTools(), []);
         const callsPath = join(cwd, "mcp-calls-external.json");
         await Deno.writeTextFile(
             callsPath,
@@ -274,6 +277,12 @@ Deno.test("Claude CLI root turn can invoke an external MCP tool through the brid
                 mcpRootTools: poolResult.integration.getTools(),
                 mcpIntegration: poolResult.integration,
             });
+            await Deno.writeTextFile(toolsPath, "fixture_echo");
+            const discoveryDeadline = Date.now() + 5_000;
+            while (poolResult.integration.getTools().length === 0 && Date.now() < discoveryDeadline) {
+                await new Promise((resolve) => setTimeout(resolve, 10));
+            }
+            assertEquals(poolResult.integration.getTools().length, 1);
             const messages = await runRootTurn({
                 hostedSession,
                 agentName: AGENTS.GUIDE,
