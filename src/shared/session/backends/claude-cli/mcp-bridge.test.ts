@@ -3,6 +3,8 @@ import { Type } from "@earendil-works/pi-ai";
 import { defineTool, SessionManager, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Client } from "@modelcontextprotocol/sdk/client";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp";
+import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types";
+import { createMultiFileEditTool } from "../../../../tools/multi_file_edit.ts";
 import { HostedSession } from "../../hosted-session.js";
 import { RuntimeEventTypes } from "../../session-runtime-events.js";
 import { CLAUDE_CLI_MCP_PROVENANCE, mcpAliasFor, startRunWieldMcpBridge } from "./mcp-bridge.ts";
@@ -315,12 +317,18 @@ Deno.test("workflow MCP bridge serializes concurrent calls so only the first ter
 
 Deno.test("workflow MCP bridge rejects an unknown tool and closes the listener deterministically", async () => {
     await withBridge(makeTestTools().tools, async (context) => {
-        const unknown = await context.client.callTool({
-            name: "runwield_bash",
-            arguments: {},
-        });
-        assertEquals(unknown.isError, true);
-        assertStringIncludes(resultText(unknown as never), "unknown tool");
+        const error = await assertRejects(
+            () =>
+                context.client.callTool({
+                    name: "runwield_bash",
+                    arguments: {},
+                }),
+            McpError,
+            "Unknown tool",
+        );
+        if (!("code" in error)) throw error;
+        assertEquals(error.code, ErrorCode.InvalidParams);
+        assertEquals(recordedMessages(context), []);
 
         const url = context.bridge.url;
         await context.client.close();
@@ -513,6 +521,7 @@ Deno.test("RunWield MCP bridge passes MCP request cancellation to a running brid
 
 Deno.test("RunWield MCP bridge passes abort signal to a running bridged tool", async () => {
     const controller = new AbortController();
+    const started = Promise.withResolvers<void>();
     let observedSignal: AbortSignal | null = null;
     let release: (() => void) | null = null;
     const wait = new Promise<void>((resolve) => {
@@ -525,6 +534,7 @@ Deno.test("RunWield MCP bridge passes abort signal to a running bridged tool", a
         parameters: Type.Object({ query: Type.String() }),
         async execute(_toolCallId, _params, signal, _onUpdate, context) {
             observedSignal = signal || context.signal || null;
+            started.resolve();
             await wait;
             return {
                 content: [{ type: "text" as const, text: observedSignal?.aborted ? "aborted" : "active" }],
@@ -534,10 +544,132 @@ Deno.test("RunWield MCP bridge passes abort signal to a running bridged tool", a
     });
     await withBridgeWithSignal([capability], controller.signal, async (context) => {
         const pending = context.client.callTool({ name: "memory_recall", arguments: { query: "plans" } });
-        await Promise.resolve();
+        await started.promise;
         controller.abort();
         release?.();
         const result = await pending;
         assertStringIncludes(resultText(result as { content: Array<{ type: string; text?: string }> }), "aborted");
     });
+});
+
+Deno.test("RunWield MCP bridge preserves structured results and output schemas", async () => {
+    const schema = Type.Object({ count: Type.Number() });
+    const tool = defineTool({
+        name: "structured",
+        label: "Structured",
+        description: "Return structured output.",
+        parameters: Type.Object({}),
+        outputSchema: schema,
+        execute() {
+            return Promise.resolve({
+                content: [{ type: "text", text: "count: 2" }],
+                details: {},
+                structuredContent: { count: 2 },
+            });
+        },
+    });
+    await withBridge([tool], async (context) => {
+        assertEquals((await context.client.listTools()).tools[0].outputSchema, JSON.parse(JSON.stringify(schema)));
+        const result = await context.client.callTool({ name: "structured", arguments: {} });
+        assertEquals(result.structuredContent, { count: 2 });
+    });
+});
+
+Deno.test("RunWield MCP bridge rejects foreign and opaque Origins on every HTTP method", async () => {
+    await withBridge(makeTestTools().tools, async (context) => {
+        const headers = {
+            Authorization: `Bearer ${context.bridge.token}`,
+            Accept: "application/json, text/event-stream",
+            "Content-Type": "application/json",
+            "Mcp-Session-Id": context.transport.sessionId || "",
+        };
+        for (const method of ["POST", "GET", "DELETE"]) {
+            for (const origin of ["https://untrusted.example", "null", "http://127.0.0.1:1"]) {
+                const response = await fetch(context.bridge.url, {
+                    method,
+                    headers: { ...headers, Origin: origin },
+                    ...(method === "POST" ? { body: JSON.stringify({ jsonrpc: "2.0", id: 99, method: "ping" }) } : {}),
+                });
+                assertEquals(response.status, 403);
+                await response.body?.cancel();
+            }
+        }
+        const allowed = await fetch(context.bridge.url, {
+            method: "POST",
+            headers: { ...headers, Origin: context.bridge.url },
+            body: JSON.stringify({ jsonrpc: "2.0", id: 100, method: "ping" }),
+        });
+        assertEquals(allowed.status, 200);
+        await allowed.body?.cancel();
+        await context.client.ping(); // CLI requests without Origin remain valid.
+    });
+});
+
+Deno.test("RunWield MCP bridge never starts a file edit cancelled while queued", async () => {
+    const cwd = await Deno.makeTempDir({ prefix: "runwield-cancelled-edit-" });
+    const path = `${cwd}/file.txt`;
+    const started = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const blocker = defineTool({
+        name: "wait",
+        label: "Wait",
+        description: "Hold the serialized tool queue.",
+        parameters: Type.Object({}),
+        async execute() {
+            started.resolve();
+            await release.promise;
+            return { content: [], details: {} };
+        },
+    });
+    try {
+        await Deno.writeTextFile(path, "original");
+        await withBridge([blocker, createMultiFileEditTool(cwd)], async (context) => {
+            const first = context.client.callTool({ name: "wait", arguments: {} });
+            await started.promise;
+            const headers = {
+                Authorization: `Bearer ${context.bridge.token}`,
+                Accept: "application/json, text/event-stream",
+                "Content-Type": "application/json",
+                "Mcp-Session-Id": context.transport.sessionId || "",
+            };
+            const queued = await fetch(context.bridge.url, {
+                method: "POST",
+                headers,
+                body: JSON.stringify({
+                    jsonrpc: "2.0",
+                    id: 99,
+                    method: "tools/call",
+                    params: {
+                        name: "multi_file_edit",
+                        arguments: { edits: [{ path, oldText: "original", newText: "changed" }] },
+                    },
+                }),
+            });
+            try {
+                const cancelled = await fetch(context.bridge.url, {
+                    method: "POST",
+                    headers,
+                    body: JSON.stringify({
+                        jsonrpc: "2.0",
+                        method: "notifications/cancelled",
+                        params: { requestId: 99 },
+                    }),
+                });
+                assertEquals(cancelled.status, 202);
+                await cancelled.body?.cancel();
+                release.resolve();
+                await first;
+                await context.client.callTool({ name: "wait", arguments: {} }); // Drain the queue.
+                assertEquals(await Deno.readTextFile(path), "original");
+                assertEquals(recordedMessages(context).length, 4); // Only the two accepted wait calls.
+            } finally {
+                release.resolve();
+                await queued.body?.cancel();
+                await first;
+            }
+        });
+    } finally {
+        release.resolve();
+        await Deno.remove(cwd, { recursive: true });
+    }
 });

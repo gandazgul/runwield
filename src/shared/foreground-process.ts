@@ -27,6 +27,8 @@ export interface SpawnForegroundProcessOptions {
     env?: Record<string, string>;
     /** Optional stdin text written to the child, then closed. */
     stdinText?: string;
+    /** Interactive protocol input, owned and closed by the caller. Mutually exclusive with stdinText. */
+    stdin?: "piped";
     /** User cancellation trigger; aborting terminates the whole process tree. */
     signal?: AbortSignal;
     /** Optional timeout in milliseconds; expiry terminates the whole process tree. */
@@ -66,6 +68,7 @@ export interface ForegroundProcess {
     readonly pid: number | null;
     readonly stdout: ReadableStream<Uint8Array>;
     readonly stderr: ReadableStream<Uint8Array>;
+    readonly stdin?: WritableStream<Uint8Array>;
     /** Force-terminate the process tree without changing a naturally settled outcome. */
     kill(): void;
     /**
@@ -202,6 +205,7 @@ function terminateProcessTree(child: Deno.ChildProcess): void {
 
 function spawnOwnedProcess(options: SpawnForegroundProcessOptions): ForegroundProcess {
     const { command, args = [], cwd, env, stdinText, signal, timeoutMs } = options;
+    if (options.stdin && stdinText !== undefined) throw new Error("Choose interactive stdin or stdinText, not both.");
 
     if (signal?.aborted) {
         return {
@@ -232,7 +236,7 @@ function spawnOwnedProcess(options: SpawnForegroundProcessOptions): ForegroundPr
             args,
             cwd,
             env,
-            stdin: stdinText === undefined ? "null" : "piped",
+            stdin: options.stdin || (stdinText === undefined ? "null" : "piped"),
             stdout: "piped",
             stderr: "piped",
             // Group leadership is what makes the whole tree terminable on
@@ -267,7 +271,14 @@ function spawnOwnedProcess(options: SpawnForegroundProcessOptions): ForegroundPr
         }
     })();
 
-    return { pid: spawned.pid, stdout: spawned.stdout, stderr: spawned.stderr, kill: () => terminate("abort"), done };
+    return {
+        pid: spawned.pid,
+        stdout: spawned.stdout,
+        stderr: spawned.stderr,
+        ...(options.stdin ? { stdin: spawned.stdin } : {}),
+        kill: () => terminate("abort"),
+        done,
+    };
 }
 
 /**

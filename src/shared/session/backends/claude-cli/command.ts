@@ -1,3 +1,5 @@
+import { RUNWIELD_MCP_TOOL_TIMEOUT_MS } from "../../bridged-tools/tool-timeout.ts";
+
 export interface ClaudeCliCommandRequest {
     selector: string;
     systemPrompt: string;
@@ -15,8 +17,6 @@ export interface PreparedClaudeCliCommand {
     /** Owner-only temporary MCP config file path, when mcpConfig was supplied. */
     mcpConfigPath?: string;
 }
-
-const CLAUDE_CLI_MCP_IDLE_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 
 const CLAUDE_CLI_PROJECT_TOOL_NAMES = [
     "Read",
@@ -36,10 +36,10 @@ const CLAUDE_CLI_PROJECT_TOOL_NAMES = [
 
 function resolveMcpToolIdleTimeoutEnv(): string {
     const inherited = Number(Deno.env.get("CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT"));
-    if (Number.isFinite(inherited) && inherited > CLAUDE_CLI_MCP_IDLE_TIMEOUT_MS) {
+    if (Number.isFinite(inherited) && inherited > RUNWIELD_MCP_TOOL_TIMEOUT_MS) {
         return String(Math.trunc(inherited));
     }
-    return String(CLAUDE_CLI_MCP_IDLE_TIMEOUT_MS);
+    return String(RUNWIELD_MCP_TOOL_TIMEOUT_MS);
 }
 
 async function writeOwnerOnlyTempFile(prefix: string, suffix: string, content: string): Promise<string> {

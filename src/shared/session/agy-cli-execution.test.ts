@@ -542,25 +542,39 @@ Deno.test("Agy bridged tool composition matches Claude CLI", async () => {
     }
 });
 
-Deno.test("Agy root turns refresh external MCP tools without recreating the native agent", async () => {
+Deno.test("Agy roots discover initially empty MCP tools and refresh without recreating the native agent", async () => {
     await withAgyExecutionFixture(async (_home, cwd, logPath) => {
         const hosted = createHostedSession(cwd, SessionManager.inMemory(cwd));
         const externalLog = join(cwd, "external-mcp.jsonl");
+        const toolsPath = join(cwd, "external-mcp-tools.txt");
+        await Deno.writeTextFile(toolsPath, "");
         const { integration } = await startMcpIntegration({
             cwd,
             servers: [{
                 name: "fixture",
                 command: Deno.execPath(),
                 args: ["run", "-A", new URL("../mcp/fixture-server.ts", import.meta.url).pathname],
-                env: { RUNWIELD_MCP_FIXTURE_LOG: externalLog },
+                env: { RUNWIELD_MCP_FIXTURE_LOG: externalLog, RUNWIELD_MCP_FIXTURE_TOOLS_PATH: toolsPath },
                 source: "request",
             }],
         });
         await hosted.setMcpIntegration(integration);
+        assertEquals(integration.getTools(), []);
         const calls = join(cwd, "mcp-calls.json");
         Deno.env.set("RUNWIELD_AGY_EXECUTION_MCP_CALLS", calls);
         try {
-            const root = await ensureRootAgentSession({ hostedSession: hosted, agentName: AGENTS.GUIDE });
+            const root = await ensureRootAgentSession({
+                hostedSession: hosted,
+                agentName: AGENTS.GUIDE,
+                mcpRootTools: integration.getTools(),
+                mcpIntegration: integration,
+            });
+            await Deno.writeTextFile(toolsPath, "fixture_echo");
+            const discoveryDeadline = Date.now() + 5_000;
+            while (integration.getTools().length === 0 && Date.now() < discoveryDeadline) {
+                await new Promise((resolve) => setTimeout(resolve, 10));
+            }
+            assertEquals(integration.getTools().length, 1);
             await Deno.writeTextFile(
                 calls,
                 JSON.stringify([

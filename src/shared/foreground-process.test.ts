@@ -1,7 +1,46 @@
 import { assert, assertEquals, assertStringIncludes, assertThrows } from "@std/assert";
 import { spawnForegroundProcess, spawnForegroundShell } from "./foreground-process.ts";
+import { getCwd } from "../constants.js";
 
 const IS_WINDOWS = Deno.build.os === "windows";
+
+Deno.test("spawnForegroundProcess exposes interactive stdin until its owner closes it", async () => {
+    const process = spawnForegroundProcess({
+        command: Deno.execPath(),
+        args: ["eval", "await Deno.stdin.readable.pipeTo(Deno.stdout.writable)"],
+        cwd: getCwd(),
+        stdin: "piped",
+    });
+    const writer = process.stdin!.getWriter();
+    const output = readAll(process.stdout);
+    const errors = readAll(process.stderr);
+    try {
+        await writer.write(new TextEncoder().encode("first\n"));
+        await writer.write(new TextEncoder().encode("second\n"));
+        await writer.close();
+        assertEquals(await process.done, { exitCode: 0, terminatedBy: null });
+        assertEquals(await output, "first\nsecond\n");
+        assertEquals(await errors, "");
+    } finally {
+        process.kill();
+        await Promise.allSettled([process.done, output, errors]);
+        writer.releaseLock();
+    }
+});
+
+Deno.test("spawnForegroundProcess rejects two stdin owners before spawning", () => {
+    assertThrows(
+        () =>
+            spawnForegroundProcess({
+                command: "must-not-spawn",
+                cwd: getCwd(),
+                stdin: "piped",
+                stdinText: "conflicting owner",
+            }),
+        Error,
+        "stdin",
+    );
+});
 
 async function readAll(stream: ReadableStream<Uint8Array>): Promise<string> {
     const reader = stream.getReader();

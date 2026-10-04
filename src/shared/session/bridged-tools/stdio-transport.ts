@@ -3,6 +3,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { Server } from "@modelcontextprotocol/sdk/server";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types";
+import { RUNWIELD_MCP_TOOL_TIMEOUT_MS } from "./tool-timeout.ts";
 
 export const RUNWIELD_MCP_BRIDGE_URL_ENV = "RUNWIELD_MCP_BRIDGE_URL" as const;
 export const RUNWIELD_MCP_BRIDGE_TOKEN_ENV = "RUNWIELD_MCP_BRIDGE_TOKEN" as const;
@@ -72,7 +73,10 @@ export async function runRunWieldMcpStdioTransport(): Promise<void> {
         return client.listTools(request.params, { signal: extra.signal });
     });
     server.setRequestHandler(CallToolRequestSchema, (request, extra) => {
-        return client.callTool(request.params, undefined, { signal: extra.signal });
+        return client.callTool(request.params, undefined, {
+            signal: extra.signal,
+            timeout: RUNWIELD_MCP_TOOL_TIMEOUT_MS,
+        });
     });
     stdio.onclose = () => {
         close();

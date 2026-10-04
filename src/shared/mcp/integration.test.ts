@@ -7,10 +7,11 @@ import {
     type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { dirname, fromFileUrl, join } from "@std/path";
+import { getCwd } from "../../constants.js";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { SessionHost } from "../session/session-host.js";
 import { HostedSession } from "../session/hosted-session.js";
-import { buildAgentSession } from "../session/session.js";
+import { buildAgentSession, runIsolatedAgentSession } from "../session/session.js";
 import { createSessionRuntime } from "../session/session-runtime.ts";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
 import { startMcpIntegration } from "./integration.ts";
@@ -46,7 +47,7 @@ async function readLog(path: string): Promise<string[]> {
 async function startFixtureIntegration(env: Record<string, string> = {}) {
     const logPath = await Deno.makeTempFile({ prefix: "runwield-mcp-log-" });
     const integrationResult = await startMcpIntegration({
-        cwd: Deno.cwd(),
+        cwd: getCwd(),
         servers: [{
             name: "fixture",
             command: Deno.execPath(),
@@ -295,7 +296,7 @@ Deno.test("HostedSession dehydration keeps MCP ownership and direct disposal clo
     const second = await startFixtureIntegration();
     const firstSession = host.createSession({
         id: "first-mcp-owner",
-        cwd: Deno.cwd(),
+        cwd: getCwd(),
         managed: {
             runwieldSessionId: "runwield-first",
             projectId: "project",
@@ -310,7 +311,7 @@ Deno.test("HostedSession dehydration keeps MCP ownership and direct disposal clo
     });
     const secondSession = host.createSession({
         id: "second-mcp-owner",
-        cwd: Deno.cwd(),
+        cwd: getCwd(),
         managed: {
             runwieldSessionId: "runwield-second",
             projectId: "project",
@@ -399,7 +400,7 @@ Deno.test("Runtime replacement carries MCP ownership to the new Session", async 
 
 Deno.test("MCP integration warnings identify connection failures without exposing raw server text", async () => {
     const spawnFailure = await startMcpIntegration({
-        cwd: Deno.cwd(),
+        cwd: getCwd(),
         servers: [{ name: "dead", command: "/definitely/not/runwield-mcp", args: [], env: {}, source: "request" }],
     });
     try {
@@ -480,7 +481,7 @@ Deno.test("Pi MCP preserves embedded text and saves full oversized output", asyn
 
 Deno.test("Pi MCP updates root declarations and withdraws tools without reconnecting", async () => {
     const { integration, logPath } = await startFixtureIntegration();
-    const cwd = Deno.cwd();
+    const cwd = getCwd();
     const binding = integration.bindRoot();
     assert(binding);
     const loader = new DefaultResourceLoader({
@@ -578,6 +579,102 @@ Deno.test("RunWield root MCP updates preserve a narrowed Agent's other tool rest
             session.dispose();
             await hosted.dispose();
             await Deno.remove(logPath).catch(() => {});
+        }
+    });
+});
+
+Deno.test("an initially empty MCP inventory updates its root while isolated calls stay restricted", async () => {
+    await withRuntimeCommandFixture("runwield-empty-mcp-", async (fixture) => {
+        const toolsPath = join(fixture.projectRoot, "mcp-tools.txt");
+        await Deno.writeTextFile(toolsPath, "");
+        const { integration } = await startMcpIntegration({
+            cwd: fixture.projectRoot,
+            servers: [{
+                name: "fixture",
+                command: Deno.execPath(),
+                args: ["run", "-A", fixtureServer],
+                env: { RUNWIELD_MCP_FIXTURE_TOOLS_PATH: toolsPath },
+                source: "request",
+            }],
+        });
+        const hosted = new HostedSession({ id: crypto.randomUUID(), cwd: fixture.projectRoot });
+        await hosted.setMcpIntegration(integration);
+        assertEquals(integration.getTools(), []);
+        const { session } = await buildAgentSession({
+            hostedSession: hosted,
+            agentName: "guide",
+            mcpRootTools: integration.getTools(),
+            mcpIntegration: integration,
+        });
+        try {
+            await Deno.writeTextFile(toolsPath, "replacement");
+            const deadline = Date.now() + 5_000;
+            while (!session.getActiveToolNames().includes("mcp__fixture__replacement") && Date.now() < deadline) {
+                await new Promise((resolve) => setTimeout(resolve, 10));
+            }
+            assert(session.getActiveToolNames().includes("mcp__fixture__replacement"));
+            const result = await callFixtureTool(integration.getTools()[0], "discovered-later");
+            assertEquals(result.content, [{ type: "text", text: "fixture-result:discovered-later" }]);
+            fixture.setModelResponseFactories([() => fauxAssistantMessage(fauxText("Isolated complete."))]);
+            let inspected = false;
+            await runIsolatedAgentSession({
+                hostedSession: hosted,
+                agentName: "guide",
+                userRequest: "Run an isolated check.",
+                mcpRootTools: integration.getTools(),
+                mcpIntegration: integration,
+                onExecutionSessionBuilt: (built) => {
+                    inspected = true;
+                    assertEquals(built.tools.some((name) => name.startsWith("mcp__")), false);
+                    assertEquals(
+                        built.session?.getAllTools().some((tool: ToolDefinition) => tool.name.startsWith("mcp__")),
+                        false,
+                    );
+                },
+            });
+            assert(inspected);
+        } finally {
+            session.dispose();
+            await hosted.dispose();
+        }
+    });
+});
+
+Deno.test("a root with failed initial discovery receives tools after official MCP reconnect", async () => {
+    await withRuntimeCommandFixture("runwield-recovered-mcp-", async (fixture) => {
+        const failurePath = join(fixture.projectRoot, "init-error.txt");
+        await Deno.writeTextFile(failurePath, "1");
+        const { integration, warnings } = await startMcpIntegration({
+            cwd: fixture.projectRoot,
+            servers: [{
+                name: "fixture",
+                command: Deno.execPath(),
+                args: ["run", "-A", fixtureServer],
+                env: { RUNWIELD_MCP_FIXTURE_INIT_ERROR_PATH: failurePath },
+                source: "request",
+            }],
+        });
+        const hosted = new HostedSession({ id: crypto.randomUUID(), cwd: fixture.projectRoot });
+        await hosted.setMcpIntegration(integration);
+        assert(warnings.length > 0);
+        assertEquals(integration.getTools(), []);
+        const { session } = await buildAgentSession({
+            hostedSession: hosted,
+            agentName: "guide",
+            mcpRootTools: integration.getTools(),
+            mcpIntegration: integration,
+        });
+        try {
+            await Deno.writeTextFile(failurePath, "0");
+            await integration.runCommand("reconnect fixture");
+            assert(session.getActiveToolNames().includes("mcp__fixture__fixture_echo"));
+            assertEquals((await callFixtureTool(integration.getTools()[0], "recovered")).content, [{
+                type: "text",
+                text: "fixture-result:recovered",
+            }]);
+        } finally {
+            session.dispose();
+            await hosted.dispose();
         }
     });
 });
