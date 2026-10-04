@@ -14,6 +14,7 @@ const EXPECTED_SLASH_COMMANDS = [
     "load-plan",
     "login",
     "logout",
+    "mcp",
     "model",
     "name",
     "new",

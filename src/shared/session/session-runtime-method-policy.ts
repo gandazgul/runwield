@@ -68,6 +68,8 @@ export const SESSION_RUNTIME_METHOD_POLICY = {
     rollManagedSessionSegment: "fenced_standalone_mutation",
     runIsolatedAgent: "nested_only_mutation",
     runLocalShellCommand: "fenced_standalone_mutation",
+    // Controls this runtime's MCP transports; does not mutate durable Session state.
+    runMcpCommand: "projection_adapter_local",
     reviewSavedPlan: "fenced_standalone_mutation",
     runPlanAction: "fenced_standalone_mutation",
     runPlanningAgent: "fenced_standalone_mutation",

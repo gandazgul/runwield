@@ -1,4 +1,5 @@
-import { getSettingsManager } from "../../shared/settings.js";
+import { getCwd } from "../../constants.js";
+import { getSettingsManager, isMascotEnabled } from "../../shared/settings.js";
 import type { SessionRuntime } from "../../shared/session/session-runtime.ts";
 import {
     CombinedAutocompleteProvider,
@@ -336,6 +337,10 @@ async function createChatViewInternal(options: ChatViewOptions): Promise<ChatVie
     let mascotAnswering = false;
     const renderMascot = (width: number, compact: boolean) => {
         const snapshot = options.sessionRuntime?.getSessionSnapshot(options.getSessionId());
+        if (!isMascotEnabled(snapshot?.cwd || getCwd())) {
+            mascot.pause();
+            return [];
+        }
         return mascot.render(width, compact, {
             agentName: snapshot?.activeAgentInfo?.agentName || snapshot?.activeAgent || "",
             parentAgentName: snapshot?.activeAgent || undefined,

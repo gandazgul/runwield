@@ -1,6 +1,6 @@
 import { assertEquals, assertRejects } from "@std/assert";
 import { join } from "@std/path";
-import { resolveRemoteTarget } from "./target.js";
+import { resolveRemoteTarget } from "./target.ts";
 
 /** @param {(home: string, ssh: string) => Promise<void>} fn */
 async function fixture(fn) {

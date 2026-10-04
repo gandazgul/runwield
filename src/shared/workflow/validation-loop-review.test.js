@@ -5,7 +5,7 @@ import { getHomeDir } from "../../constants.js";
 import { join } from "@std/path";
 import { setCustomSetting } from "../settings.js";
 import { executeWorkflowTestTools } from "../../testing/workflow-agent-tools.ts";
-import { captureWorktreeTree, getWorktreeReviewDiff } from "./git-snapshot.js";
+import { captureWorktreeTree, getWorktreeReviewDiff } from "./git-snapshot.ts";
 import { parseDiffFiles } from "./review-diff-tool.js";
 import { getWorkflowMetricsFilePath } from "./metrics.js";
 import {

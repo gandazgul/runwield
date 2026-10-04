@@ -6,7 +6,7 @@ import {
     normalizeAppendRevisionPayload,
     normalizeCreateSharedSpacePayload,
 } from "./protocol.js";
-import { buildApiUrl, normalizeServerUrl } from "./urls.js";
+import { buildApiUrl, normalizeServerUrl } from "./urls.ts";
 
 /**
  * @typedef {Object} CollaborationClientOptions

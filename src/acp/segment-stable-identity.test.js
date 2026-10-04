@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import { AcpSessionMap } from "./session-map.js";
+import { AcpSessionMap } from "./session-map.ts";
 
 Deno.test("ACP identity remains bound to runwieldSessionId rather than the current piSessionId", () => {
     const sessionMap = new AcpSessionMap();

@@ -1,3 +1,4 @@
+import type { McpIntegration } from "../../../mcp/integration.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { SessionManager, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { RunWieldModel } from "../../../models/model-registry.ts";
@@ -40,6 +41,7 @@ export interface ClaudeCliExecutionSessionOptions {
     hostedSession?: HostedSession;
     /** Eligible RunWield Tool Definitions exposed over MCP this turn. */
     bridgedTools?: ToolDefinition[];
+    mcpIntegration?: McpIntegration;
     /** False for temporary turns that must not change the root model marker. */
     persistModelChange?: boolean;
 }
@@ -102,6 +104,8 @@ export class ClaudeCliExecutionSession {
     private readonly cwd: string;
     private readonly hostedSession?: HostedSession;
     private readonly bridgedTools: ToolDefinition[];
+    private readonly mcpIntegration?: McpIntegration;
+    private readonly mcpToolNames: Set<string>;
     private readonly persistModelChange: boolean;
     private readonly messages: AgentMessage[] = [];
     private readonly steeringMessages: string[] = [];
@@ -118,6 +122,8 @@ export class ClaudeCliExecutionSession {
         this.sessionManager = options.sessionManager;
         this.hostedSession = options.hostedSession;
         this.bridgedTools = [...(options.bridgedTools || [])];
+        this.mcpIntegration = options.mcpIntegration;
+        this.mcpToolNames = new Set(options.mcpIntegration?.getTools().map((tool) => tool.name));
         this.persistModelChange = options.persistModelChange !== false;
         this.messages = this.readMessages();
     }
@@ -180,6 +186,13 @@ export class ClaudeCliExecutionSession {
     }
 
     async runTurn(options: ClaudeCliRunOptions): Promise<AgentMessage[]> {
+        const bridgedTools = this.mcpIntegration
+            ? [
+                ...this.bridgedTools.filter((tool) => !this.mcpToolNames.has(tool.name)),
+                ...this.mcpIntegration.getTools(),
+            ]
+            : this.bridgedTools;
+
         if (options.images && options.images.length > 0) {
             throw new Error("Claude CLI execution backend does not support image attachments in this slice");
         }
@@ -241,7 +254,7 @@ export class ClaudeCliExecutionSession {
             sourceSurface: options.sourceSurface || "cli",
         });
         await recorder.recordExecutionStart();
-        await recorder.recordToolExposure(this.bridgedTools, "partial");
+        await recorder.recordToolExposure(bridgedTools, "partial");
         const pendingObservations = new Set<Promise<void>>();
         const observe = (pending: Promise<void>) => {
             pendingObservations.add(pending);
@@ -252,16 +265,16 @@ export class ClaudeCliExecutionSession {
         let failureKind: string | undefined;
 
         let flushRuntimeDeltas = () => {};
-        const eligibleAliases = this.bridgedTools.map((tool) => mcpAliasFor(tool.name));
+        const eligibleAliases = bridgedTools.map((tool) => mcpAliasFor(tool.name));
         const eligibleAliasesSet = new Set(eligibleAliases);
         const nativeCallIds = new Set<string>();
         let firstTextDeltaRecorded = false;
         let parsed: Awaited<ReturnType<typeof parseClaudeCliStream>> | null = null;
         try {
-            if (this.bridgedTools.length > 0) {
+            if (bridgedTools.length > 0) {
                 try {
                     bridge = await startRunWieldMcpBridge({
-                        tools: this.bridgedTools,
+                        tools: bridgedTools,
                         cwd: this.cwd,
                         hostedSession: this.hostedSession,
                         sessionManager: this.sessionManager,
@@ -301,7 +314,7 @@ export class ClaudeCliExecutionSession {
             }
             command = await prepareClaudeCliCommand({
                 selector,
-                systemPrompt: this.finalSystemPrompt + buildBridgedToolPromptAppendix(this.bridgedTools, "Claude Code"),
+                systemPrompt: this.finalSystemPrompt + buildBridgedToolPromptAppendix(bridgedTools, "Claude Code"),
                 ...(bridge ? { mcpConfig: bridge.config } : {}),
                 allowedToolNames: eligibleAliases.flatMap((alias) => [alias, `mcp__runwield__${alias}`]),
             });

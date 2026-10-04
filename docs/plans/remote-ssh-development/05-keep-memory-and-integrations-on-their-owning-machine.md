@@ -6,7 +6,7 @@ affectedPaths:
     - "src/extensions/mnemoteca/"
     - "src/cmd/sleep/"
     - "src/shared/mcp/config.ts"
-    - "src/shared/mcp/pool.ts"
+    - "src/shared/mcp/integration.ts"
     - "src/shared/work-records/"
     - "src/shared/settings.js"
     - "src/shared/session/session.js"
@@ -64,7 +64,7 @@ shifts, migration or compatibility risk grows, or the Verification Plan no longe
 
 - `src/extensions/mnemoteca/` and `src/cmd/sleep/` — consume one explicit local collection binding instead of deriving
   different names from remote cwd.
-- `src/shared/mcp/config.ts` and `src/shared/mcp/pool.ts` — preserve definition origin, override rules, execution
+- `src/shared/mcp/config.ts` and `src/shared/mcp/integration.ts` — preserve definition origin, override rules, execution
   location, and forwarded personal tool calls.
 - Work Record and Team Memory modules — read canonical remote records and preserve trust requirements while personal
   storage remains local.

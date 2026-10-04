@@ -702,8 +702,8 @@ web search, local docs grep, package install lookup
 Session request. RunWield starts stdio MCP servers from this configuration and exposes their tools to root Agents only.
 _Avoid_: settings key, Custom Tool definition
 
-**MCP Tool**: A tool discovered from a trusted MCP server. RunWield gives it a stable `mcp_<server>_<tool>` name and
-keeps the original server and tool names in the description. _Avoid_: RunWield built-in tool, Custom Tool
+**MCP Tool**: A tool discovered from a trusted MCP server. Pi gives it a stable `mcp__<server>__<tool>` name and keeps
+the original server and tool names in the tool metadata. _Avoid_: RunWield built-in tool, Custom Tool
 
 **Bridged Tool**: A RunWield Tool exposed to an eligible external CLI Execution Backend turn over an authenticated MCP
 bridge. Claude CLI and Antigravity CLI are the current examples. Lifecycle Bridged Tools can advance workflow state.

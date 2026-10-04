@@ -16,8 +16,8 @@ import {
     getProjectSecretStoreLocation,
     resolvePullSecretRecord,
 } from "../../shared/collaboration/secrets.js";
-import { buildCollaborationUrl } from "../../shared/collaboration/urls.js";
-import { normalizePlanServerUrl } from "../../shared/collaboration/urls.js";
+import { buildCollaborationUrl } from "../../shared/collaboration/urls.ts";
+import { normalizePlanServerUrl } from "../../shared/collaboration/urls.ts";
 import { enterProjectRuntime } from "../../shared/project-runtime-layout.ts";
 
 interface PlansPushArgs {

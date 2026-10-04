@@ -39,7 +39,7 @@ The implementation evidence comes from these source files:
 - `src/cmd/registry.js`
 - `src/cmd/acp/index.ts`
 - `src/acp/server.js`
-- `src/acp/session-map.js`
+- `src/acp/session-map.ts`
 - `src/acp/event-mapper.js`
 - `src/acp/interaction-mapper.js`
 - `src/shared/session/session-runtime.ts`
@@ -164,8 +164,8 @@ it must respond with the latest version it supports. RunWield imports `PROTOCOL_
 | Method           | Advertised?                                      | Current behavior                                                                                                                                                                                                                                                                                                                                        | Important gaps                                                                                                                                                                  |
 | ---------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `initialize`     | Required baseline.                               | Stores client capabilities and returns `protocolVersion: 1`, Terminal Auth only for capable Clients, and generated `agentInfo.version`.                                                                                                                                                                                                                 | No known gap in the advertised initialize shape.                                                                                                                                |
-| `session/new`    | Required baseline.                               | Validates absolute `cwd`, accepts stdio `mcpServers`, rejects other MCP transports and `additionalDirectories`, requires login plus a usable default model, creates a prompt-ready Runtime session, maps it to an ACP ID based on the persisted Pi segment ID, and returns `sessionId`, complete model/reasoning `configOptions`, and `_meta.runwield`. | MCP prompts/resources are not supported.                                                                                                                                        |
-| `session/load`   | Advertised through `loadSession: true`.          | Validates like `session/new`, requires `sessionId`, optionally accepts `_meta.runwield.sessionPath`, accepts stdio `mcpServers`, loads a persisted Runtime session, replays mapped Runtime events as `session/update`, and returns complete model/reasoning `configOptions` and `_meta.runwield` after replay.                                          | Supports no additional roots; MCP prompts/resources are not supported.                                                                                                          |
+| `session/new`    | Required baseline.                               | Validates absolute `cwd`, accepts stdio `mcpServers`, rejects other MCP transports and `additionalDirectories`, requires login plus a usable default model, creates a prompt-ready Runtime session, maps it to an ACP ID based on the persisted Pi segment ID, and returns `sessionId`, complete model/reasoning `configOptions`, and `_meta.runwield`. | MCP prompts are not supported; server resources are available through Pi resource tools.                                                                                        |
+| `session/load`   | Advertised through `loadSession: true`.          | Validates like `session/new`, requires `sessionId`, optionally accepts `_meta.runwield.sessionPath`, accepts stdio `mcpServers`, loads a persisted Runtime session, replays mapped Runtime events as `session/update`, and returns complete model/reasoning `configOptions` and `_meta.runwield` after replay.                                          | Supports no additional roots; MCP prompts are not supported; server resources are available through Pi resource tools.                                                          |
 | `session/prompt` | Required baseline.                               | Requires a mapped `sessionId`, converts prompt blocks to one text string, installs an interaction adapter and Session event subscription, streams mapped `session/update` notifications, waits for Runtime settlement and pending update sends, and returns a `stopReason`.                                                                             | Only text and flattened resource links; success returns `end_turn`, cancellation returns `cancelled`, rejected turns return errors. Queued work is a separate limitation below. |
 | `session/cancel` | Required baseline notification.                  | Looks up the mapped Runtime session, marks the active ACP prompt cancelled, and calls `runtime.cancelSession()`. Unknown sessions are ignored because this is a notification. The notification does not complete the prompt by itself.                                                                                                                  | No known ordering gap in the advertised cancel path.                                                                                                                            |
 | `session/close`  | Advertised through `sessionCapabilities.close`.  | Requires a mapped `sessionId`, marks active prompt cancelled, calls `closeSessionWhenIdle()` when available, removes the ACP mapping, and returns `_meta.runwield.closed`.                                                                                                                                                                              | Response shape is acceptable because `_meta` is allowed, but standard clients will ignore the RunWield-specific closure details.                                                |
@@ -237,7 +237,7 @@ field; the client continues using its original ID. The new/load `_meta.runwield.
 new currently reports the Pi ID, while load prefers the stable RunWield ID. Clients should keep the standard ACP ID, not
 substitute that metadata value.
 
-Evidence: `src/acp/server.js` new/load handlers; `src/acp/session-map.js` (`createRecord`,
+Evidence: `src/acp/server.js` new/load handlers; `src/acp/session-map.ts` (`createRecord`,
 `normalizeAcpSessionIdForLoad`); `src/shared/session/session-runtime.ts` (`getSessionSnapshot`). The real reload test in
 `src/acp/server.test.js` checks continuation with the returned ACP ID and explicitly checks the differing metadata IDs.
 
@@ -330,7 +330,7 @@ snapshot, `tokens: null` after compaction, or unavailable capacity suppresses th
 exact values. Cost still accumulates while a context update is suppressed.
 
 Evidence: `src/acp/event-mapper.js` (`mapRuntimeEventToAcpUpdate`), `src/acp/server.js` (`mapEventWithSessionCost` and
-Runtime subscriptions), `src/acp/session-map.js` (`addUsageCost`), and the exact-context wire test in
+Runtime subscriptions), `src/acp/session-map.ts` (`addUsageCost`), and the exact-context wire test in
 `src/acp/server.test.js`.
 
 ## Prompt completion and stop reasons
@@ -486,9 +486,9 @@ Implementation evidence: `src/acp/server.js` capability declarations and unsuppo
 [tool calls](https://agentclientprotocol.com/protocol/v1/tool-calls), and
 [config options](https://agentclientprotocol.com/protocol/v1/session-config-options).
 
-MCP prompts and resources are also outside the current tool-only integration (`src/shared/mcp/pool.ts`). They are MCP
-feature scope, not separate mandatory ACP v1 agent methods. Provider management, Session fork, and NES are not counted
-as missing stable v1 requirements here.
+MCP prompts remain outside the current integration (`src/shared/mcp/integration.ts`). MCP server resources are available
+on request through Pi resource tools. These are MCP features, not separate mandatory ACP v1 agent methods. Provider
+management, Session fork, and NES are not counted as missing stable v1 requirements here.
 
 ## Standard behavior and RunWield extensions
 

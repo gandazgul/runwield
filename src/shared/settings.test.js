@@ -1,5 +1,5 @@
 import { getCwd, getHomeDir } from "../constants.js";
-import { normalizePlanServerUrl } from "./collaboration/urls.js";
+import { normalizePlanServerUrl } from "./collaboration/urls.ts";
 /**
  * @module shared/settings.test
  */

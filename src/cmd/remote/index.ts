@@ -2,7 +2,7 @@
  * terminal transport. No project or personal context is opened on the laptop. */
 import { dirname, join } from "@std/path";
 import { linuxTarget, prepareRemoteRuntime } from "../../shared/remote/runtime.js";
-import { fixedPythonCommand, resolveRemoteTarget } from "../../shared/remote/target.js";
+import { fixedPythonCommand, resolveRemoteTarget } from "../../shared/remote/target.ts";
 import { type MountHeader, startLaptopSftp } from "../../shared/remote/sftp-mount.ts";
 import { VERSION } from "../../shared/version.js";
 import { downloadReleaseRuntime } from "../../shared/remote/release-artifact.ts";

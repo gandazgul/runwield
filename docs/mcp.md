@@ -45,21 +45,32 @@ are not written to disk.
 
 ## Supported scope
 
-This version supports stdio MCP tools only. It does not support HTTP, SSE, MCP prompts, MCP resources as active context,
-or dynamic `tools/list_changed` updates. Restart the Session or run `/reload` to read new tool lists.
-
-A server that fails to start, initialize, or list tools is skipped. The Session continues and shows a redacted warning.
-
 RunWield uses Pi's official
-[`@earendil-works/pi-mcp` client](https://github.com/earendil-works/pi/tree/v1.0.0/packages/mcp) for stdio transport,
-protocol negotiation, paginated tool discovery, cancellation, progress, shutdown, and MCP content conversion. Tool calls
-remain directly exposed to the model; codemode is a separate integration. Existing configuration paths and tool names
-remain stable.
+[built-in MCP extension](https://github.com/earendil-works/pi/blob/v1.0.0/packages/coding-agent/docs/mcp.md). Pi owns
+connection management, discovery, native tool names, result conversion, resources, reconnection, and shutdown. RunWield
+keeps trusted configuration loading, Session ownership, and root Agent access rules.
 
-Text and image results reach the model. Embedded text and image resources are unwrapped by Pi; resource links, audio,
-and other binary resources become text descriptions. Converted resource descriptions and structured fallback text are
-bounded to 12,000 characters, while structured results remain available in tool details. Server-reported tool errors are
-marked as errors, and progress notifications appear as tool updates.
+The current configuration accepts stdio servers and exposes their tools directly. HTTP, OAuth, MCP prompts, and codemode
+remain separate work. A server that fails to connect or discover tools produces a redacted warning; the Session remains
+usable.
+
+Tools now use Pi's native `mcp__<server>__<tool>` names, replacing RunWield's earlier `mcp_<server>_<tool>` aliases. Pi
+adds a stable hash suffix when names collide or exceed the provider limit. Configuration paths remain unchanged.
+
+Pi root Agents receive live `tools/list_changed` updates: new tools become available and withdrawn tools become
+unreachable. External CLI Agents refresh the available MCP tools between turns. Connections survive root Agent handoffs
+and close with the owning Session. `/reload` rereads configuration.
+
+Servers with resources expose Pi's `list_mcp_resources`, `list_mcp_resource_templates`, and `read_mcp_resource` tools.
+Resources are read on request. Text and images reach the model, structured MCP results remain available as structured
+output, and server-reported errors are marked as errors. Pi limits model-facing text to 20 KiB, saving full oversized
+output to a private temporary file named in the result. Progress notifications appear as tool updates.
+
+Use `/mcp` in a RunWield session to print Pi's server status, including tool counts and connection details. Use
+`/mcp reconnect <server>` to reconnect a server. These commands make no model request. Automatic startup warnings are
+redacted; explicitly requesting status can display the server's error text and stderr. The interactive Pi manager,
+configuration editing, and sign-in UI are not exposed in this slice. The shell command `wld mcp agy-cli` remains the
+separate stdio adapter for Antigravity.
 
 ## Trust model
 

@@ -341,6 +341,9 @@ export class SessionRuntime {
     switchAgent(...args: Parameters<RuntimeAgentSettings["switchAgent"]>) {
         return this.#settings.switchAgent(...args);
     }
+    runMcpCommand(...args: Parameters<RuntimeAgentSettings["runMcpCommand"]>) {
+        return this.#settings.runMcpCommand(...args);
+    }
     cancelSession(...args: Parameters<RuntimeTurns["cancelSession"]>) {
         return this.#turns.cancelSession(...args);
     }

@@ -14,7 +14,7 @@ import {
 import { getSelectedDefaultModelAvailability } from "../shared/session/model-readiness.ts";
 import { createSessionRuntime, SessionTurnInProgressError } from "../shared/session/session-runtime.ts";
 import { RuntimeEventTypes } from "../shared/session/session-runtime-events.js";
-import { AcpSessionMap, normalizeAcpSessionIdForLoad } from "./session-map.js";
+import { AcpSessionMap, normalizeAcpSessionIdForLoad } from "./session-map.ts";
 import { mapRuntimeContextToAcpUpdate, mapRuntimeEventToAcpSessionNotification } from "./event-mapper.js";
 import { createAcpInteractionAdapter } from "./interaction-mapper.js";
 import { formatInterviewQuestion, parseInterviewReply } from "./interview-chat.ts";
@@ -923,7 +923,7 @@ function createInterviewOperation(options) {
     let attached = null;
     /** @type {AcpNotificationContext | null} */
     let initialContext = null;
-    /** @type {import('./session-map.js').AcpPromptRecord | null} */
+    /** @type {import('./session-map.ts').AcpPromptRecord | null} */
     let prompt = null;
     /** @type {(() => void)} */
     let unsubscribe = () => {};

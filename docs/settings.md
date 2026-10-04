@@ -361,6 +361,7 @@ These keys are read by RunWield outside the upstream Pi `SettingsManager` schema
 | `guidedReview`                             | string            | `none`, `ask`, `auto`, `always`; default `auto` | global + project | Guided Review Explainer generation policy inside human code review. Invalid values fall back to `none`; manual generation remains available when supported.                                                                                           |
 | `cleanupMergedWorktrees`                   | boolean           | default `true`                                  | global + project | When true, successful merge-back removes a clean execution checkout, deletes its registry entry, and clears Plan worktree metadata. Unexpected dirty state is preserved rather than force-deleted. Set false to keep merged worktrees for inspection. |
 | `workRecords.autoGenerateOnPlanCompletion` | boolean           | default `true`                                  | global + project | Automatically generates or reconciles eligible Work Records after terminal planned-work outcomes. Only literal `false` disables automation; explicit `wld wr` commands still work.                                                                    |
+| `mascot`                                   | boolean           | default `true`                                  | global + project | Hides the agent mascot in TUI and Workspace when false.                                                                                                                                                                                               |
 | `notifications`                            | object            | enabled by default                              | global + project | Attention notifications. TUI uses terminal BEL/OSC for agent stops, `plan_written`, `user_interview`, and `/compact`. Workspace uses browser alerts for live `agentStopped` events. Focused surfaces stay quiet by default.                           |
 | `workflowMetrics`                          | boolean or object | default disabled                                | global + project | Opt-in local-only JSONL workflow metrics under `~/.wld/workflow-metrics/<encoded-project-root>/metrics.jsonl`. Linked worktrees write to the primary project file. Accepts `true` or `{ "enabled": true }`.                                           |
 | `enableExternalSkills`                     | boolean           | default `true`                                  | global           | When true, RunWield includes project `.agents/skills` and home `~/.agents/skills`. When false, it omits both folders. External skills cannot conflict with bundled names or aliases.                                                                  |
@@ -507,6 +508,14 @@ Example:
     "guidedReview": "auto"
 }
 ```
+
+### `mascot`
+
+The agent mascot is on by default in TUI and Workspace. Set `"mascot": false` to hide it on both surfaces. Only a
+literal `false` disables it; project settings override global settings. The TUI `/settings` menu has a **Mascot:
+on|off** toggle that writes the global setting and applies on the next render. A project override still wins. After
+manual settings-file edits, use `/reload` in TUI or reopen the Workspace Session. Workspace honors the setting but has
+no mascot toggle UI.
 
 ### `notifications`
 

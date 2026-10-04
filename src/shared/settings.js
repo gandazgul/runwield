@@ -2,7 +2,7 @@ import { SettingsManager } from "@earendil-works/pi-coding-agent";
 import { dirname, join } from "@std/path";
 import { parse as parseJsonc } from "@std/jsonc";
 import lockfile from "proper-lockfile";
-import { normalizePlanServerUrl } from "./collaboration/urls.js";
+import { normalizePlanServerUrl } from "./collaboration/urls.ts";
 import { resolvePrimaryCheckoutRoot } from "./primary-checkout.ts";
 import { getCwd, getHomeDir } from "../constants.js";
 import { remoteSettingsSnapshot, updateRemoteGlobalSetting } from "./remote/settings-bridge.ts";
@@ -18,6 +18,27 @@ export const ONBOARDING_TUTORIAL_OFFER_HANDLED_SETTING_KEY = "onboardingTutorial
 /** @type {Map<string, string>} */
 const projectSettingsRootMemo = new Map();
 
+/** @type {Map<string, boolean>} */
+const mascotEnabledCache = new Map();
+
+/** Clear cached visibility after settings reloads or writes. */
+export function clearMascotEnabledCache() {
+    mascotEnabledCache.clear();
+}
+
+/**
+ * Only a literal false disables the mascot. Reads are cached for animation renders.
+ * @param {string} projectRoot
+ * @returns {boolean}
+ */
+export function isMascotEnabled(projectRoot) {
+    const cached = mascotEnabledCache.get(projectRoot);
+    if (cached !== undefined) return cached;
+    const enabled = getMergedCustomSetting("mascot", projectRoot) !== false;
+    mascotEnabledCache.set(projectRoot, enabled);
+    return enabled;
+}
+
 const RUNWIELD_CUSTOM_SETTING_KEYS = [
     "agents",
     "activeModelPreset",
@@ -32,6 +53,7 @@ const RUNWIELD_CUSTOM_SETTING_KEYS = [
     "workRecords",
     "plans",
     "notifications",
+    "mascot",
     "nonGitExecutionConsent",
     "enableExternalSkills",
     "enableExternalGlobalAgentsMd",
@@ -459,6 +481,7 @@ function getSettingsStorage(projectRoot) {
  * exercising settings-backed behavior.
  */
 export function __resetSettingsForTests() {
+    clearMascotEnabledCache();
     storageInstance = null;
     projectStorageInstances.clear();
     projectSettingsManagers.clear();
@@ -561,9 +584,11 @@ export function getCustomSetting(key, scope = "project", projectRoot = getCwd())
  * @param {string} [projectRoot]
  */
 export async function setCustomSetting(key, value, scope = "project", projectRoot = getCwd()) {
+    clearMascotEnabledCache();
     if (scope === "global" && remotePersonalResourcesActive()) {
         await updateRemoteGlobalSetting({ kind: "set", key, value });
         await getSettingsManager(projectRoot).reload();
+        clearMascotEnabledCache();
         return;
     }
     const storage = getSettingsStorage(projectRoot);
@@ -583,6 +608,7 @@ export async function setCustomSetting(key, value, scope = "project", projectRoo
     // Force Pi's manager to reload from disk so it doesn't accidentally
     // overwrite our custom key during its next flush() operation.
     await getSettingsManager(projectRoot).reload();
+    clearMascotEnabledCache();
 }
 
 /**
@@ -614,6 +640,7 @@ export function getExactProjectCustomSetting(key, projectRoot) {
  * @param {string} projectRoot
  */
 export function setExactProjectCustomSetting(key, value, projectRoot) {
+    clearMascotEnabledCache();
     const path = getExactProjectSettingsPath(projectRoot);
     ensureSettingsFileForLock(path);
 

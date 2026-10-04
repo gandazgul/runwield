@@ -5,7 +5,7 @@
  */
 
 import { AGENTS } from "../../constants.js";
-import { captureWorktreeTree, getWorkflowDiff, getWorktreeReviewDiff } from "./git-snapshot.js";
+import { captureWorktreeTree, getWorkflowDiff, getWorktreeReviewDiff } from "./git-snapshot.ts";
 import { buildDiffInspectionSection, createReviewDiffTool, parseDiffFiles } from "./review-diff-tool.js";
 import { ReviewInspection } from "./review-inspection.ts";
 import { loadEpicReviewContext, recordIntegrationNotes } from "./epic-review-context.ts";

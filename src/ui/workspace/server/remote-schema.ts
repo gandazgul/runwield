@@ -2,7 +2,7 @@
 
 export const REMOTE_SCHEMA_VERSION = 2;
 
-export const REMOTE_SCHEMA_V1_SQL = `
+export const REMOTE_SCHEMA_V1_SQL: string = `
 CREATE TABLE IF NOT EXISTS schema_migrations (
     version INTEGER PRIMARY KEY,
     applied_at TEXT NOT NULL
@@ -53,7 +53,7 @@ CREATE INDEX IF NOT EXISTS idx_space_comments_space_id ON space_comments(space_i
 CREATE INDEX IF NOT EXISTS idx_space_capabilities_hash ON space_capabilities(capability_hash);
 `;
 
-export const REMOTE_SCHEMA_V2_SQL = `
+export const REMOTE_SCHEMA_V2_SQL: string = `
 ALTER TABLE shared_spaces ADD COLUMN expires_at TEXT;
 CREATE INDEX IF NOT EXISTS idx_shared_spaces_expires_at ON shared_spaces(expires_at);
 `;

@@ -15,7 +15,7 @@ import {
 import { updateEntry as updateWorktreeRegistryEntry } from "../worktree-registry.js";
 import { executePlan, startActiveExecutionWorkflow } from "./workflow.js";
 import { createExecutionStartPorts } from "./execution-start.ts";
-import { captureWorktreeTree } from "./git-snapshot.js";
+import { captureWorktreeTree } from "./git-snapshot.ts";
 import { getTransitionJournalDir } from "./state-transition.ts";
 
 interface RuntimeStatusEvent {

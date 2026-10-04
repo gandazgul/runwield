@@ -3,6 +3,10 @@ import { animations, mascotRoleForAgent, type Pose, svgPath, terminalLines } fro
 /** Precomputed once, shared by both renderers. No pixel work during animation. */
 export const MASCOTS = animations.map((animation) => ({
     role: animation.role,
+    drawingWidth: Math.max(
+        ...[...animation.frames.map((frame) => frame.pixels), animation.idle, animation.answering]
+            .flatMap((pixels) => terminalLines(pixels).map((line) => line.trimEnd().length)),
+    ),
     frames: animation.frames.map((frame) => ({
         duration: frame.duration,
         path: svgPath(frame.pixels),

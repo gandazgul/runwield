@@ -1,7 +1,7 @@
 // @ts-nocheck: Deno test imports are checked by scripts/run-tests.js, not Astro check.
 import { assertEquals, assertFalse, assertRejects, assertStringIncludes } from "@std/assert";
 import { WorkspaceSessionContinuationService } from "./server/session-continuation.js";
-import { getWorktreeReviewDiff } from "../../shared/workflow/git-snapshot.js";
+import { getWorktreeReviewDiff } from "../../shared/workflow/git-snapshot.ts";
 
 const ROUTE_PATH = new URL(
     "./pages/projects/[projectId]/sessions/[runwieldSessionId]/review/code.astro",
