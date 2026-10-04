@@ -2,7 +2,7 @@
 import LoadingSurface from "../../components/LoadingSurface.astro";
 import ReviewLayout from "../../layouts/ReviewLayout.astro";
 import { RemotePlanReview } from "../../react/RemotePlanReview.tsx";
-import { isRemoteDevelopmentModeEnabled } from "../../server/remote-mode.js";
+import { isRemoteDevelopmentModeEnabled } from "../../server/remote-mode.ts";
 
 const runtime = globalThis as any;
 if (

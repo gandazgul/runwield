@@ -13,7 +13,7 @@ import {
     runRemoteWorkspaceServer,
 } from "./remote-server.ts";
 import { handleRemoteSpaceApi } from "./server/remote-dev-api.js";
-import { isRemoteDevelopmentModeEnabled } from "./server/remote-mode.js";
+import { isRemoteDevelopmentModeEnabled } from "./server/remote-mode.ts";
 
 import { createWorkspaceApp } from "./server.js";
 

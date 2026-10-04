@@ -8,16 +8,13 @@
 
 export const REMOTE_WORKSPACE_MODE = "remote";
 
-/**
- * @typedef {Object} RemoteDevelopmentModeOptions
- * @property {boolean} isDevelopment
- * @property {string | undefined} workspaceMode
- */
+export interface RemoteDevelopmentModeOptions {
+    isDevelopment: boolean;
+    workspaceMode: string | undefined;
+}
 
-/**
- * @param {RemoteDevelopmentModeOptions} options
- * @returns {boolean}
- */
-export function isRemoteDevelopmentModeEnabled({ isDevelopment, workspaceMode }) {
+export function isRemoteDevelopmentModeEnabled(
+    { isDevelopment, workspaceMode }: RemoteDevelopmentModeOptions,
+): boolean {
     return isDevelopment && workspaceMode === REMOTE_WORKSPACE_MODE;
 }
