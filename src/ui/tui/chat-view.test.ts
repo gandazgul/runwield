@@ -7,7 +7,7 @@ import { VirtualTerminal } from "./testing/virtual-terminal.js";
 import { RunWieldTui } from "./tui.ts";
 import { installTerminalFocusState } from "./terminal-focus-state.ts";
 import { installKeybindings } from "./keybindings.ts";
-import { createGenerationGuard } from "./generation-guard.js";
+import { createGenerationGuard } from "./generation-guard.ts";
 
 interface LongSessionFrameObservation {
     retainedCount: number;
