@@ -54,7 +54,6 @@
     "src/shared/session/workflow-context-session.js",
     "src/shared/session/workflow-messages.js",
     "src/shared/settings.js",
-    "src/shared/snip-filters.js",
     "src/shared/ticket-references.js",
     "src/shared/types.js",
     "src/shared/update-check.js",
