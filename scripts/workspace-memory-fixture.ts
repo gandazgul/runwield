@@ -260,7 +260,7 @@ async function runOperationWorkload(root: string, combined: boolean, forceGc: bo
     const { ownerSessionOperationStatusApi, ownerSessionOperationStreamApi } = await import(
         "../src/ui/workspace/routes/owner-session-api.js"
     );
-    const { createOwnerConnectionRegistry } = await import("../src/ui/workspace/server/owner-connections.js");
+    const { createOwnerConnectionRegistry } = await import("../src/ui/workspace/server/owner-connections.ts");
     const home = Deno.env.get("HOME")!;
     const projectRoot = join(root, "operation-project");
     await Deno.mkdir(projectRoot, { recursive: true });

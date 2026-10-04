@@ -233,7 +233,7 @@ to the user, not to the file list.
 - `src/ui/workspace/server/session-continuation.js` — operation payload ownership, settled metadata, request
   deduplication, and remote observation cleanup.
 - `src/ui/workspace/routes/owner-session-api.js` — bounded stream delivery, completion, disconnect, and abort handling.
-- `src/ui/workspace/server/owner-connections.js` — existing device-revocation integration for operation observation.
+- `src/ui/workspace/server/owner-connections.ts` — existing device-revocation integration for operation observation.
 - `scripts/workspace-memory-check.ts` (new) — isolated source/compiled renderer, operation, and combined measurements.
 - `src/ui/workspace/islands/SessionSurface.jsx` — observation contract and request cancellation, without cancelling
   agent work.
