@@ -43,7 +43,7 @@ import {
 import {
     PLAN_APPROVAL_ACTIONS,
     primaryPlanApprovalActionForClassification,
-} from "../../../shared/workflow/plan-approval.js";
+} from "../../../shared/workflow/plan-approval.ts";
 import {
     createPlanReviewDraft,
     parsePlanReviewDraft,
