@@ -6,7 +6,7 @@
 import { basename, dirname, fromFileUrl, join } from "@std/path";
 import { extractYaml, test as hasFrontMatter } from "@std/front-matter";
 import { AGENT_DEFS_DIR, AGENTS, SYSTEM_PROMPT_TEMPLATE_PATH } from "../../constants.js";
-import { directoryExists, fileExists } from "../helpers.js";
+import { directoryExists, fileExists } from "../helpers.ts";
 import {
     assertPersonalResourcePath,
     assertPersonalResourcePathSync,

@@ -1,4 +1,4 @@
-import { renderRunWieldThemeCss } from "../../design-system/theme-bridge.js";
+import { renderRunWieldThemeCss } from "../../design-system/theme-bridge.ts";
 
 /** @returns {Response} */
 export const GET = () => {

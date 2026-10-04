@@ -16,7 +16,7 @@ import {
     planRecoveryMessage,
 } from "../../shared/workflow/validation-user-messages.ts";
 import { runPlanFrontMatterTransition, runReviewReopenTransition } from "../../shared/workflow/state-transition.ts";
-import { getWorkflowDiff } from "../../shared/workflow/git-snapshot.js";
+import { getWorkflowDiff } from "../../shared/workflow/git-snapshot.ts";
 import { getWorktreeStatus } from "../../shared/worktree.js";
 import {
     findActiveByPlanName as findWorktreeByPlanName,

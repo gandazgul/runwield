@@ -5,43 +5,28 @@
 
 import { theme } from "../../ui/theme/theme.js";
 import { getHomeDir } from "../../constants.js";
+import type { CommandContext } from "../registry.js";
+import type { ContextProjectionItem, SessionContextReport } from "../../shared/session/session-context-report.js";
 
 const SOURCE_ORDER = ["local", "home", "bundled", "external", "mnemoteca", "runtime", "agent"];
 
-/**
- * @param {number | null | undefined} count
- * @returns {string}
- */
-export function formatContextTokens(count) {
+export function formatContextTokens(count: number | null | undefined): string {
     if (typeof count !== "number" || !Number.isFinite(count)) return "unknown";
     return count.toLocaleString();
 }
 
-/**
- * @param {number | null | undefined} percent
- * @returns {string}
- */
-function formatPercent(percent) {
+function formatPercent(percent: number | null | undefined): string {
     if (typeof percent !== "number" || !Number.isFinite(percent)) return "unknown";
     return `${percent.toFixed(1)}%`;
 }
 
-/**
- * @param {string} path
- * @returns {string}
- */
-export function abbreviateHomePath(path) {
+export function abbreviateHomePath(path: string): string {
     const home = getHomeDir();
     if (!home || !path.startsWith(home)) return path;
     return `~${path.slice(home.length)}`;
 }
 
-/**
- * @param {number | null | undefined} percent
- * @param {number} [width]
- * @returns {string}
- */
-export function renderUsageBar(percent, width = 24) {
+export function renderUsageBar(percent: number | null | undefined, width = 24): string {
     if (typeof percent !== "number" || !Number.isFinite(percent)) {
         return `${"□".repeat(width)} unknown`;
     }
@@ -50,11 +35,7 @@ export function renderUsageBar(percent, width = 24) {
     return `${"■".repeat(filled)}${"□".repeat(width - filled)} ${percent.toFixed(1)}%`;
 }
 
-/**
- * @param {import('../../shared/session/session-context-report.js').SessionContextReport} report
- * @returns {string}
- */
-export function formatContextReport(report) {
+export function formatContextReport(report: SessionContextReport): string {
     const lines = [];
     const model = [report.provider, report.model].filter(Boolean).join("/") || "model unavailable";
     const usageLabel = report.usageState === "last_known"
@@ -114,13 +95,8 @@ export function formatContextReport(report) {
     return lines.join("\n");
 }
 
-/**
- * @param {import('../../shared/session/session-context-report.js').ContextProjectionItem[]} items
- * @returns {Array<[string, import('../../shared/session/session-context-report.js').ContextProjectionItem[]]>}
- */
-function groupItemsBySource(items) {
-    /** @type {Map<string, import('../../shared/session/session-context-report.js').ContextProjectionItem[]>} */
-    const groups = new Map();
+function groupItemsBySource(items: ContextProjectionItem[]): Array<[string, ContextProjectionItem[]]> {
+    const groups = new Map<string, ContextProjectionItem[]>();
     for (const item of items) {
         const source = item.source || "other";
         if (!groups.has(source)) groups.set(source, []);
@@ -137,13 +113,8 @@ function groupItemsBySource(items) {
     });
 }
 
-/**
- * Handle context usage command.
- *
- * @param {string[]} _argv
- * @param {import('../registry.js').CommandContext} [options]
- */
-export async function runContextCommand(_argv, options = {}) {
+/** Handle context usage command. */
+export async function runContextCommand(_argv: string[], options: CommandContext = {}) {
     if (!options?.uiAPI) {
         console.error("The /context command is only available inside an interactive session.");
         return;
