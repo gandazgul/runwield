@@ -242,7 +242,7 @@ shifts, migration or compatibility risk grows, or the Verification Plan no longe
   review history/feedback, identities, and accepted run/save outcome.
 - `src/plan-front-matter.js`, `src/plan-store.js`, and their tests — persisted PROJECT type with backward-compatible
   defaulting, ordinary identity/membership loading, and sibling-ID dependency resolution preserving existing references.
-- `src/shared/workflow/plan-review-actions.ts`, `plan-approval.js`, `state-transition.ts`, and lifecycle helpers — one
+- `src/shared/workflow/plan-review-actions.ts`, `plan-approval.ts`, `state-transition.ts`, and lifecycle helpers — one
   recoverable group decision using existing ownership and transition rules; distinguish common PROJECT behavior from
   Epic-only capabilities so Sequences never enter aggregate validation/publication.
 - `workflow-slicer.ts`, `decisions.js`, `planning-agent.ts`, `workflow-tool-events.ts`, and Session workflow dispatch —

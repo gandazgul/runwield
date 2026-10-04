@@ -1911,7 +1911,7 @@ async function runComposedTuiScenario(scenario, options) {
                     const planName = String(typed.planName || "");
                     const loaded = await loadPlan(Deno.cwd(), planName);
                     if (!loaded) throw new Error(`Cannot seed worktree for missing Plan ${planName}`);
-                    const { createTestWorktreeAttempt } = await import("../../../shared/worktree-test-helpers.js");
+                    const { createTestWorktreeAttempt } = await import("../../../shared/worktree-test-helpers.ts");
                     const { updateEntry } = await import("../../../shared/worktree-registry.js");
                     const { updatePlanFrontMatter } = await import("../../../plan-store.js");
                     const entry = await createTestWorktreeAttempt({

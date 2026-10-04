@@ -5,11 +5,7 @@
 
 const SESSION_NAME_MAX_LENGTH = 40;
 
-/**
- * @param {unknown} value
- * @returns {string}
- */
-export function sanitizeSessionName(value) {
+export function sanitizeSessionName<Value>(value: Value): string {
     return Array.from(String(value ?? ""), (char) => {
         const code = char.charCodeAt(0);
         return code < 32 || code === 127 ? " " : char;
@@ -20,8 +16,7 @@ export function sanitizeSessionName(value) {
         .trim();
 }
 
-/** @param {unknown} name @returns {string} */
-export function formatSessionTerminalTitle(name) {
+export function formatSessionTerminalTitle<Value>(name: Value): string {
     const sanitized = sanitizeSessionName(name);
     return sanitized ? `W. - ${sanitized}` : "W.";
 }

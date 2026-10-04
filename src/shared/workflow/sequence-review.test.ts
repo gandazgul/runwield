@@ -13,7 +13,7 @@ import {
     waitForWorkflowToolEvent,
 } from "./workflow-tool-events.ts";
 import type { PlanWrittenEventPayload } from "./workflow-tool-events.ts";
-import { normalizePlanApprovalAction, primaryPlanApprovalActionForClassification } from "./plan-approval.js";
+import { normalizePlanApprovalAction, primaryPlanApprovalActionForClassification } from "./plan-approval.ts";
 import { isEpicPlan, isProjectPlan, isSequencePlan, projectPlanType } from "../project-plan.ts";
 import { createPlanWrittenTool } from "../../tools/plan-written.ts";
 import type { ExtensionToolContext } from "@earendil-works/pi-coding-agent";

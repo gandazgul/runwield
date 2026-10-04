@@ -4,19 +4,16 @@
  * the public SessionRuntime surface.
  */
 
-/**
- * @typedef {Object} BashContext
- * @property {string} userRequest
- * @property {import('../../shared/session/session-runtime.ts').SessionRuntime} sessionRuntime
- * @property {string} sessionId
- * @property {boolean} [concurrent]
- */
+import type { SessionRuntime } from "../../shared/session/session-runtime.ts";
 
-/**
- * @param {BashContext} ctx
- * @returns {Promise<boolean>}
- */
-export async function handleBashCommand(ctx) {
+export interface BashContext {
+    userRequest: string;
+    sessionRuntime: SessionRuntime;
+    sessionId: string;
+    concurrent?: boolean;
+}
+
+export async function handleBashCommand(ctx: BashContext): Promise<boolean> {
     const { userRequest } = ctx;
     if (!userRequest.startsWith("!")) return false;
 

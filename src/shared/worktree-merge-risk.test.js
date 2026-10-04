@@ -2,7 +2,7 @@ import { assertEquals } from "@std/assert";
 
 import { inspectExecutionWorktreeMergeRisk, removeWorktreeGitArtifacts } from "./worktree.js";
 
-import { createTestWorktreeAttempt, git, makeRepo } from "./worktree-test-helpers.js";
+import { createTestWorktreeAttempt, git, makeRepo } from "./worktree-test-helpers.ts";
 
 Deno.test("inspectExecutionWorktreeMergeRisk reports clean target branch as safe without mutating", async () => {
     const projectRoot = await makeRepo();

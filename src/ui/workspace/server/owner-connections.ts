@@ -1,15 +1,18 @@
 /** @module ui/workspace/server/owner-connections */
 
-/**
- * @typedef {Object} OwnerLiveConnection
- * @property {() => void} close
- */
+export interface OwnerLiveConnection {
+    close(): void;
+}
 
-export function createOwnerConnectionRegistry() {
-    /** @type {Map<string, Set<OwnerLiveConnection>>} */
-    const byDevice = new Map();
+export interface OwnerConnectionRegistry {
+    register(deviceId: string, connection: OwnerLiveConnection): () => boolean | undefined;
+    closeDevice(deviceId: string): number;
+    closeAll(): number;
+}
+
+export function createOwnerConnectionRegistry(): OwnerConnectionRegistry {
+    const byDevice = new Map<string, Set<OwnerLiveConnection>>();
     return {
-        /** @param {string} deviceId @param {OwnerLiveConnection} connection */
         register(deviceId, connection) {
             let connections = byDevice.get(deviceId);
             if (!connections) {
@@ -19,7 +22,6 @@ export function createOwnerConnectionRegistry() {
             connections.add(connection);
             return () => byDevice.get(deviceId)?.delete(connection);
         },
-        /** @param {string} deviceId */
         closeDevice(deviceId) {
             const connections = [...(byDevice.get(deviceId) || [])];
             byDevice.delete(deviceId);

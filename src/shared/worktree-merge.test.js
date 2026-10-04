@@ -8,7 +8,7 @@ import {
     removeWorktreeGitArtifacts,
 } from "./worktree.js";
 
-import { createTestWorktreeAttempt, git, makeRepo } from "./worktree-test-helpers.js";
+import { createTestWorktreeAttempt, git, makeRepo } from "./worktree-test-helpers.ts";
 
 /** @typedef {Error & { mergeFailureKind?: string }} TestMergeRepairError */
 

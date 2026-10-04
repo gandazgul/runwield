@@ -1,6 +1,6 @@
 /**
  * @module plan-deviation
- * Pair-only confirmation tool for durable Plan requirement replacements.
+ * Confirmation tool for durable Plan requirement replacements.
  */
 
 import { type Static, Type } from "@earendil-works/pi-ai";
@@ -31,7 +31,7 @@ const PARAMETERS = Type.Object({
 export type PlanDeviationParameters = Static<typeof PARAMETERS>;
 
 export type PlanDeviationDetails =
-    | { decision: "inactive"; reason: "pair_execution_inactive" | "missing_execution_context" }
+    | { decision: "inactive"; reason: "plan_execution_inactive" | "missing_execution_context" }
     | { decision: "canceled"; reason: "deviation_confirmation_canceled" }
     | { decision: "unsupported"; reason: "plan_deviation_confirmation_unavailable" }
     | { decision: "stale"; reason: "plan_revision_changed" | "execution_context_changed" }
@@ -47,14 +47,13 @@ function deviationResult(text: string, details: PlanDeviationDetails, terminate 
     return { content: [{ type: "text", text }], details, terminate };
 }
 
-function isActivePairWorkflow(
+function isActiveExecutionWorkflow(
     workflow: ActiveExecutionWorkflow | null | undefined,
 ): workflow is ActiveExecutionWorkflow {
     return Boolean(
         workflow &&
             (workflow.executionAgent === "engineer" || workflow.executionAgent === "frontend-engineer") &&
             workflow.executionStarted !== false &&
-            workflow.collaborationStyle === "pair" &&
             !workflow.pairPauseReason &&
             !workflow.pairStopRequested,
     );
@@ -81,14 +80,14 @@ export function createPlanDeviationTool({ hostedSession }: PlanDeviationToolOpti
         name: "record_plan_deviation",
         label: "Record Plan Deviation",
         description:
-            "Ask the user to confirm a Pair Execution instruction that replaces an effective Plan requirement, then persist the confirmed replacement in the authoritative execution Plan.",
+            "Ask the user to confirm an execution instruction that replaces an effective Plan requirement, then persist the confirmed replacement in the authoritative execution Plan.",
         parameters: PARAMETERS,
         async execute(toolCallId, params, signal): Promise<PlanDeviationResult> {
             const workflow = hostedSession.getActiveExecutionWorkflow?.();
-            if (!isActivePairWorkflow(workflow)) {
+            if (!isActiveExecutionWorkflow(workflow)) {
                 return deviationResult(
                     "Plan Deviation recording is inactive. The approved Plan still applies.",
-                    { decision: "inactive", reason: "pair_execution_inactive" },
+                    { decision: "inactive", reason: "plan_execution_inactive" },
                 );
             }
             if (!hasExecutionContext(workflow)) {
@@ -120,7 +119,9 @@ export function createPlanDeviationTool({ hostedSession }: PlanDeviationToolOpti
             }
 
             if (!supportsHostedSessionInteraction(hostedSession, RuntimeInteractionTypes.PLAN_DEVIATION_CONFIRMATION)) {
-                hostedSession.setActiveExecutionWorkflow({ ...workflow, pairPauseReason: "canceled" });
+                if (workflow.collaborationStyle === "pair") {
+                    hostedSession.setActiveExecutionWorkflow({ ...workflow, pairPauseReason: "canceled" });
+                }
                 return deviationResult(
                     "This session cannot confirm Plan Deviations. Pause and ask the user to continue in a host that supports confirmation; no deviation was recorded.",
                     { decision: "unsupported", reason: "plan_deviation_confirmation_unavailable" },
@@ -175,7 +176,9 @@ export function createPlanDeviationTool({ hostedSession }: PlanDeviationToolOpti
                 response.outcome === RuntimeInteractionOutcomes.UNSUPPORTED ||
                 response.outcome === RuntimeInteractionOutcomes.BLOCKED
             ) {
-                hostedSession.setActiveExecutionWorkflow({ ...workflow, pairPauseReason: "canceled" });
+                if (workflow.collaborationStyle === "pair") {
+                    hostedSession.setActiveExecutionWorkflow({ ...workflow, pairPauseReason: "canceled" });
+                }
                 return deviationResult(
                     "Plan Deviation confirmation is unavailable. Pause; no deviation was recorded and the original Plan requirement still applies.",
                     { decision: "unsupported", reason: "plan_deviation_confirmation_unavailable" },
@@ -190,9 +193,9 @@ export function createPlanDeviationTool({ hostedSession }: PlanDeviationToolOpti
             }
 
             const latestWorkflow = hostedSession.getActiveExecutionWorkflow?.();
-            if (!isActivePairWorkflow(latestWorkflow) || !sameExecutionIdentity(workflow, latestWorkflow)) {
+            if (!isActiveExecutionWorkflow(latestWorkflow) || !sameExecutionIdentity(workflow, latestWorkflow)) {
                 return deviationResult(
-                    "The active Pair execution context changed before the Plan Deviation could be saved. Ask for confirmation again against the current Plan.",
+                    "The active execution context changed before the Plan Deviation could be saved. Ask for confirmation again against the current Plan.",
                     { decision: "stale", reason: "execution_context_changed" },
                 );
             }

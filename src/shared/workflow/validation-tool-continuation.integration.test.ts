@@ -13,7 +13,7 @@ import { createGitPort } from "../git-port.ts";
 import { createWorkRecordMnemotecaFixture } from "../work-records/test-fixtures/mnemoteca-port.ts";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { runValidationAgentUntilEvent } from "../session/agent-workflow-step.ts";
-import { createTestWorktreeAttempt, git as runGit, makeRepo } from "../worktree-test-helpers.js";
+import { createTestWorktreeAttempt, git as runGit, makeRepo } from "../worktree-test-helpers.ts";
 import { runActiveAgentTurn, switchActiveAgent } from "../session/agent-switching.js";
 import { __getRootSessionMetadataForTests } from "../session/session.js";
 import { runEpicChildContinuation } from "./epic-continuation.ts";
