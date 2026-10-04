@@ -1,10 +1,90 @@
 # Image generation provider proof
 
-Tested on 2026-09-06. Scope: Pi's existing image provider, Antigravity CLI, the official Codex App Server with
-subscription authentication, and Google's `@google/genai` library. No requests were made directly to undocumented Codex
-backend endpoints. No RunWield implementation or dependency changes were made.
+Historical live tests on 2026-09-06; current implementation checks below are dated 2026-10-03. September scope: Pi's
+existing image provider, Antigravity CLI, the official Codex App Server with subscription authentication, and Google's
+`@google/genai` library. No requests were made directly to undocumented Codex backend endpoints. No RunWield
+implementation or dependency changes were made during that September proof.
 
-## Results
+## Pi 1 0 implementation checks on 2026-10-03
+
+The initial implementation scope was `create_image` through Pi or `agy-cli/<model>`, with required output path and
+optional supported `thinkingLevel`/`temperature`. The later request for OpenCode and Codex adapters is recorded below.
+Direct Google SDK integration remains deferred. The September results are not fresh October runs.
+
+- Installed Pi 1.0.0 exposes image models through the same `ModelRuntime`/`Models` as chat, using
+  `getModelOfType("image", provider, id)` and `generateImages`. The previous separate image registry design is obsolete.
+- The installed catalog has 57 image entries, all through its built-in OpenRouter provider. The adapter calls chat
+  completions and parses image data URLs. OpenRouter documents continuing support for existing image models on that
+  surface; newer image-API-only models must not be assumed to work through this installed adapter.
+- `ImagesOptions` does not expose first-class temperature or thinking. Pi's `onPayload` hook supports the narrow,
+  explicit mappings used by this implementation. Public OpenRouter endpoint metadata advertises temperature and
+  reasoning for Gemini 3.1 Flash Image, and temperature without reasoning for Gemini 2.5 Flash Image. Google's image
+  documentation specifies minimal/high thinking for Gemini 3.1 Flash Image. These are documentation/metadata checks, not
+  paid live option acceptance.
+- No OpenRouter credential was configured in the checked environment. No live Pi generation or edit succeeded in this
+  run. Credentials were inspected only for presence, never printed or copied into repository files.
+- `agy models` returned available models through cached login, but its ordinary log/crash storage writes were denied by
+  this sandbox. A new live image request was not run. The structured final-path contract still needs live proof.
+- Seventeen focused automated tests passed through the real Pi adapter/local HTTP fixture, real Agy process/executable
+  fixture, real Photon decoding/conversion, and actual Claude MCP bridge. They cover settings/presets, reference bytes,
+  output formats, existing/escaping/symlink paths, MIME mismatch, false success, unsupported controls, both in-flight
+  cancellations, Pi Session registration, image results and Session references. Fixtures are not evidence that remote
+  providers generated images.
+- Type checking, lint, formatting, the zero-injection-seam gate and eight relevant test files passed. The source
+  image-processing smoke check and a bundled/minified standalone build of that check both passed; the executable ran
+  outside the checkout and exercised Photon JPEG/WebP conversion and Pi's resize worker. Full release and real surface
+  acceptance remain separate checks in the [revised Plan](../plans/generate-image-tool.md).
+
+Current sources:
+
+- [Pi 1.0 image API](https://github.com/earendil-works/pi/blob/v1.0.0/packages/ai/README.md#image-generation).
+- [OpenRouter image API transition](https://openrouter.ai/blog/announcements/image-api/) and
+  [image generation guide](https://openrouter.ai/docs/guides/overview/multimodal/image-generation).
+- [Gemini 3.1 Flash Image endpoint metadata](https://openrouter.ai/api/v1/models/google/gemini-3.1-flash-image/endpoints)
+  and [Gemini 2.5 Flash Image metadata](https://openrouter.ai/api/v1/models/google/gemini-2.5-flash-image/endpoints).
+- [Google image thinking controls](https://ai.google.dev/gemini-api/docs/image-generation).
+- [Agy structured headless output](https://antigravity.google/docs/cli/headless/).
+- [Photon Node usage](https://silvia-odwyer.github.io/photon/guide/using-photon-node/).
+
+## Additional adapter checks on 2026-10-03
+
+The user explicitly requested adapters for OpenCode, Agy and Codex using existing authentication. The implementation
+retains Agy and Pi routing and adds `codex-cli/<model>` (alias `openai-codex/<model>`) through the official App Server,
+plus experimental `opencode/<model>` through its Responses endpoint. No undocumented Codex endpoint or extracted
+subscription token is used.
+
+- **Codex protocol:** Generated the experimental JSON schema from the installed CLI and checked account, capabilities,
+  catalog, thread/turn parameters and native image-completion items. The live App Server preflight exited before
+  initialization because its SQLite runtime could not initialize under `~/.codex` in this sandbox. No new image was
+  generated. The adapter requires the CLI's own ChatGPT login; Pi's OAuth entry is not used as a substitute.
+- **OpenCode live request:** Used the existing RunWield OpenCode credential against the documented
+  `https://opencode.ai/zen/v1/responses` endpoint with supervising model `gpt-5.6-sol` and the hosted `image_generation`
+  tool. The single request returned HTTP 403 with `Upstream request failed: Model access is disabled`. No image was
+  returned, and there was no automatic retry or fallback. Public catalog presence does not establish account access.
+  This denial happens before successful image output and does not establish whether OpenCode supports the hosted tool.
+  The adapter is experimental until that capability is demonstrated; Responses compatibility alone is insufficient.
+- **Agy:** Retains the previously implemented native-tool adapter. The cached login can list models, but ordinary Agy
+  storage writes remain sandbox-restricted. This is not evidence that the login is invalid or that image generation is
+  unavailable. No fresh structured-output generation/editing proof is claimed.
+- **Automated verification:** All 23 image-tool tests passed, including real HTTP boundary fixtures for Pi/OpenCode and
+  executable subprocess fixtures for Agy/Codex. Codex cases cover ChatGPT-only auth, capabilities, catalog/effort,
+  references, matching image/turn events, permission refusal, stale/outside files, malformed output and cancellation.
+  OpenCode cases cover reference bytes, settings, HTTP denial, no-image/invalid results and cancellation without retry.
+  Nine relevant test files passed, including interactive-stdin ownership/cleanup, existing vision, settings, session
+  policy, Agy and compile tests. Type checking, scoped lint and the zero-injection-seam gate passed. These fixtures
+  prove local behavior, not live provider image output.
+
+Sources for the additional routes:
+
+- [Official Codex App Server](https://learn.chatgpt.com/docs/app-server) and
+  [native Codex image generation](https://learn.chatgpt.com/docs/image-generation).
+- [OpenCode Zen endpoint documentation](https://opencode.ai/docs/zen) documents the Responses endpoint, not a guarantee
+  of hosted image-tool support for this account/model.
+- [OpenAI hosted image-generation tool](https://developers.openai.com/api/docs/guides/tools-image-generation) defines
+  the Responses tool request/result shape used by the experimental OpenCode adapter; this does not prove OpenCode
+  forwards or implements that tool.
+
+## Historical results on 2026-09-06
 
 | Route                                  | Generate                                     | Edit using reference | Evidence                                                                                                                                  |
 | -------------------------------------- | -------------------------------------------- | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
@@ -86,7 +166,10 @@ dependency or a CI fixture. No credentials are embedded in its probe scripts or 
 The directory also contains `codex-app-server.mjs`, separate first-attempt/retry/edit result summaries, `check-auth.ts`,
 and `api-auth-probes.ts`. Do not rerun successful generations just to verify documentation.
 
-## Remaining live checks
+## Historical four-route follow-ups
+
+The current adapter acceptance checklist is in the [revised Plan](../plans/generate-image-tool.md). The following
+September list is retained as historical follow-up context; its old Pi API name is not the Pi 1.0 implementation.
 
 1. Configure OpenRouter through RunWield's existing credential setup or `OPENROUTER_API_KEY`. Generate a mug through
    Pi's `builtinImagesModels().generateImages()`, save and inspect the image block, then submit it as an image input for

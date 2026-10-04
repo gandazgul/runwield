@@ -63,6 +63,8 @@ import reAnchorExtension from "../../extensions/re-anchor/index.ts";
 import { ensureCymbalBinary, ensureMnemotecaBinary, hasSnipBinary } from "../runtime-preflight.ts";
 import { createUserInterviewTool } from "../../tools/user-interview.ts";
 import { createSeeImageTool } from "../../tools/see-image.ts";
+import { createImageTool } from "../../tools/create-image.ts";
+import { resolveImageGenerationSettings } from "../image-generation-settings.ts";
 import {
     discoverProviderModel,
     getModelRegistry,
@@ -2040,9 +2042,8 @@ export async function buildAgentSession({
         }));
     }
     const effectiveMcpRootTools = mcpRootTools || targetHostedSession?.getMcpRootTools?.() || [];
-    const effectiveMcpIntegration = mcpRootTools?.length === 0
-        ? undefined
-        : mcpIntegration || targetHostedSession?.getMcpIntegration?.();
+    const effectiveMcpIntegration = mcpIntegration ||
+        (mcpRootTools?.length === 0 ? undefined : targetHostedSession?.getMcpIntegration?.());
     for (const tool of effectiveMcpRootTools) {
         if (!effectiveMcpIntegration && !finalCustomTools.find((existing) => existing.name === tool.name)) {
             finalCustomTools.push(tool);
@@ -2051,6 +2052,17 @@ export async function buildAgentSession({
     }
     if (!activeModelSupportsImages && visionFallbackModelRef && !tools.includes("see_image")) {
         tools = [...tools, "see_image"];
+    }
+    if (
+        tools.some((name) => ["write", "edit", "multi_file_edit", "create_image"].includes(name)) &&
+        resolveImageGenerationSettings(sessionCwd) && !finalCustomTools.some((tool) => tool.name === "create_image")
+    ) {
+        if (!tools.includes("create_image")) tools.push("create_image");
+        finalCustomTools.push(createImageTool({
+            cwd: sessionCwd,
+            sessionManager: effectiveSessionManager,
+            includeImage: activeModelSupportsImages,
+        }));
     }
 
     // Auto-wire internal custom tools if requested by name and not already provided.
@@ -2410,6 +2422,7 @@ export async function buildAgentSession({
  *   cwd: string,
  *   customTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[],
  *   mcpRootTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[],
+ *   sessionManager?: import('@earendil-works/pi-coding-agent').SessionManager,
  * }} opts
  * @returns {Promise<import('@earendil-works/pi-coding-agent').ToolDefinition[]>}
  */
@@ -2422,6 +2435,7 @@ export async function composeClaudeCliBridgedTools({
     cwd,
     customTools = [],
     mcpRootTools,
+    sessionManager,
 }) {
     /** @type {import('@earendil-works/pi-coding-agent').ToolDefinition[]} */
     const finalCustomTools = [...customTools];
@@ -2433,6 +2447,14 @@ export async function composeClaudeCliBridgedTools({
     const declared = new Set(declaredTools);
     /** @param {string} name */
     const hasTool = (name) => finalCustomTools.find((tool) => tool.name === name);
+
+    if (
+        declaredTools.some((name) => ["write", "edit", "multi_file_edit", "create_image"].includes(name)) &&
+        resolveImageGenerationSettings(cwd) && !hasTool("create_image")
+    ) {
+        // Capture the real runtime/storage context in the tool, not the minimal MCP extension context.
+        finalCustomTools.push(createImageTool({ cwd, sessionManager }));
+    }
 
     const { createClaudeCliCapabilityTools, CLAUDE_CLI_CAPABILITY_TOOL_NAMES } = await import(
         "./backends/claude-cli/capability-tools.ts"
@@ -2520,6 +2542,7 @@ export async function composeClaudeCliBridgedTools({
  *   cwd: string,
  *   customTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[],
  *   mcpRootTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[],
+ *   sessionManager?: import('@earendil-works/pi-coding-agent').SessionManager,
  * }} opts
  * @returns {Promise<import('@earendil-works/pi-coding-agent').ToolDefinition[]>}
  */
@@ -2605,6 +2628,7 @@ export async function buildExecutionSession(opts) {
     const finalCustomTools = backend === "claude-cli"
         ? await composeClaudeCliBridgedTools({
             agentDef,
+            sessionManager: effectiveSessionManager,
             inheritedBashAllowedCommands: opts.inheritedBashAllowedCommands,
             agentName: opts.agentName,
             hostedSession: targetHostedSession,
@@ -2615,6 +2639,7 @@ export async function buildExecutionSession(opts) {
         })
         : await composeAgyCliBridgedTools({
             agentDef,
+            sessionManager: effectiveSessionManager,
             inheritedBashAllowedCommands: opts.inheritedBashAllowedCommands,
             agentName: opts.agentName,
             hostedSession: targetHostedSession,
@@ -2640,9 +2665,8 @@ export async function buildExecutionSession(opts) {
                 sessionManager: effectiveSessionManager,
             },
         );
-    const effectiveMcpIntegration = opts.mcpRootTools?.length === 0
-        ? undefined
-        : opts.mcpIntegration || targetHostedSession?.getMcpIntegration?.() || undefined;
+    const effectiveMcpIntegration = opts.mcpIntegration ||
+        (opts.mcpRootTools?.length === 0 ? undefined : targetHostedSession?.getMcpIntegration?.() || undefined);
     const mcpToolNames = new Set(effectiveMcpIntegration?.getTools().map((tool) => tool.name));
     const stableBridgedTools = finalCustomTools.filter((tool) => !mcpToolNames.has(tool.name));
     const backendPrompt = backend === "agy-cli"
@@ -4707,6 +4731,7 @@ export async function runIsolatedAgentSession(opts) {
         cwd: opts.cwd || hostedSession.cwd,
         projectStateContext,
         mcpRootTools: [],
+        mcpIntegration: undefined,
     });
     const {
         session,

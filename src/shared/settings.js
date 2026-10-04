@@ -44,6 +44,7 @@ const RUNWIELD_CUSTOM_SETTING_KEYS = [
     "activeModelPreset",
     "modelPresets",
     "visionFallback",
+    "imageGeneration",
     "compactOnResumeThresholdPercent",
     "verification_command",
     "codereview",
