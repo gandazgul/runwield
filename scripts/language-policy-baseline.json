@@ -68,7 +68,6 @@
     "src/shared/workflow/execution-plan-file.js",
     "src/shared/workflow/guided-review.js",
     "src/shared/workflow/metrics.js",
-    "src/shared/workflow/plan-approval.js",
     "src/shared/workflow/plan-lifecycle.js",
     "src/shared/workflow/plan-review-recovery.js",
     "src/shared/workflow/review-diff-tool.js",
