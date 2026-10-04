@@ -98,6 +98,7 @@ export const DELEGATED_WRITE_TOOLS = Object.freeze([
     "edit",
     "write",
     "multi_file_edit",
+    "create_image",
 ]);
 
 export const REVIEWER_SUBAGENT_TOOLS = Object.freeze([

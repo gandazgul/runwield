@@ -18,6 +18,21 @@ bashAllowedCommands:
     - git branch --list
     - git remote -v
     - git worktree list
+    - gh pr list
+    - gh pr view
+    - gh pr diff
+    - gh pr checks
+    - gh pr status
+    - gh issue list
+    - gh issue view
+    - gh issue status
+    - gh repo view
+    - glab mr list
+    - glab mr view
+    - glab mr diff
+    - glab issue list
+    - glab issue view
+    - glab repo view
     - ls
     - pwd
     - cat
