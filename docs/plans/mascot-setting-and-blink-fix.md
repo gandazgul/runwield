@@ -21,7 +21,7 @@ userVerifiedAt: null
 routingIntent: "PLANNED_CHANGE"
 sessionName: "Mascot Visibility Setting"
 targetBranch: "main"
-status: "implemented"
+status: "validated_reviewer"
 ---
 
 # Mascot visibility setting and base-mascot blink fix
