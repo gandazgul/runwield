@@ -1,6 +1,10 @@
 {
     "verification_command": "deno task ci",
     "guidedReview": "ask",
+    "imageGeneration": {
+        "model": "codex-cli/gpt-6.1-sol",
+        "thinkingLevel": "low"
+    },
     "plans": {
         "archiveRetentionDays": 14,
         "archiveKeepLast": 10

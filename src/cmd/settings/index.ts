@@ -77,6 +77,7 @@ interface ModelPresetAgentOverride {
 interface ModelPreset {
     agents?: Record<string, ModelPresetAgentOverride>;
     visionFallback?: { model?: string };
+    imageGeneration?: import("../../shared/image-generation-settings.ts").ImageGenerationSettings;
 }
 
 type ModelPresetsMap = Record<string, ModelPreset>;
@@ -240,6 +241,7 @@ function formatModelPresetDescription(preset: ModelPreset): string {
         );
     }
     if (typeof preset.visionFallback?.model === "string") parts.push("vision fallback");
+    if (typeof preset.imageGeneration?.model === "string") parts.push("image generation");
     return parts.length > 0 ? parts.join("; ") : "No overrides";
 }
 
