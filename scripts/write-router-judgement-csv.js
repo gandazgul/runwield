@@ -55,6 +55,7 @@ export function buildJudgementCsvRow(row, existing) {
         routerDecision,
         humanJudgement: existing?.humanJudgement || "",
         humanNotes: existing?.humanNotes || "",
+        contextCommit: existing?.contextCommit || "",
         routerSummary: typeof row.summary === "string" ? row.summary : "",
         routerAffectedPaths: Array.isArray(row.affectedPaths) ? row.affectedPaths.join("; ") : "",
     });
