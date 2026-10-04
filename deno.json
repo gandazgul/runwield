@@ -119,7 +119,7 @@
         "marked": "npm:marked@^18.0.11",
         "mermaid": "npm:mermaid@^12.0.0",
         "motion": "npm:motion@^13.1.1",
-        "tailwind-merge": "npm:tailwind-merge@^3.6.0",
+        "tailwind-merge": "npm:tailwind-merge@^3.7.0",
         "unique-username-generator": "npm:unique-username-generator@^1.5.1",
         "fuse.js": "npm:fuse.js@^7.5.0",
         "perfect-freehand": "npm:perfect-freehand@^1.2.3",
