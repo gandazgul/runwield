@@ -43,7 +43,6 @@
     "src/shared/session/root-session.js",
     "src/shared/session/session-context-report.js",
     "src/shared/session/session-host.js",
-    "src/shared/session/session-name.js",
     "src/shared/session/session-runtime-events.js",
     "src/shared/session/session-runtime-interactions.js",
     "src/shared/session/session-transcript-projection.js",

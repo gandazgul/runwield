@@ -130,7 +130,7 @@ import { createSessionContextProjection, estimateContextTextTokens } from "./ses
 import { installEarlySteeringInterruption } from "./early-steering.js";
 import { loadSubAgentDefinition } from "./subagent-definitions.ts";
 import { formatGitPromptState, readGitPromptState } from "../git.js";
-import { sanitizeSessionName } from "./session-name.js";
+import { sanitizeSessionName } from "./session-name.ts";
 
 /** @returns {string | null} */
 function homePromptsDir() {
