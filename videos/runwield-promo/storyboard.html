@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>RunWield — Promo storyboard v2</title>
+    <style>
+    @font-face {
+      font-family: Outfit;
+      src: url('assets/fonts/outfit-latin-wght-normal.woff2') format('woff2');
+      font-weight: 100 900;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: Plex;
+      src: url('assets/fonts/ibm-plex-mono-latin-500-normal.woff2') format('woff2');
+      font-weight: 500;
+      font-display: swap;
+    }
+    :root {
+      --ink: #0b1020;
+      --mint: #85cbbf;
+      --white: #f8fafc;
+      --muted: #94a3b8;
+      --line: #334155;
+    }
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      background: var(--ink);
+      color: var(--white);
+      font-family: Outfit,Arial,sans-serif;
+    }
+    main {
+      max-width: 1600px;
+      margin: auto;
+      padding: 56px 40px;
+    }
+    header {
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 32px;
+      margin-bottom: 32px;
+    }
+    .eyebrow,
+    .tag,
+    .meta,
+    .chip {
+      font-family: Plex,monospace;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+    }
+    .eyebrow {
+      color: var(--mint);
+      font-size: 12px;
+    }
+    header h1 {
+      font-size: clamp(32px,4vw,64px);
+      letter-spacing: -.04em;
+      line-height: 1;
+      margin: 18px 0;
+    }
+    header p {
+      color: var(--muted);
+      font-size: 19px;
+      max-width: 840px;
+      line-height: 1.5;
+    }
+    .tag {
+      font-size: 11px;
+      display: inline-block;
+      margin: 12px 16px 0 0;
+    }
+    .tag b {
+      color: var(--mint);
+    }
+    .act {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin: 32px 0 16px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .act:after {
+      content: '';
+      height: 1px;
+      background: var(--line);
+      flex: 1;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3,minmax(0,1fr));
+      gap: 28px 20px;
+    }
+    article {
+      min-width: 0;
+    }
+    .frame {
+      aspect-ratio: 1;
+      container-type: size;
+      position: relative;
+      overflow: hidden;
+      background: var(--ink);
+      border: 1px solid var(--line);
+    }
+    .frame h2 {
+      position: absolute;
+      left: 5.5cqw;
+      top: 13cqw;
+      margin: 0;
+      font-size: 10cqw;
+      line-height: .98;
+      letter-spacing: -.045em;
+      font-weight: 850;
+      width: 87cqw;
+      text-transform: lowercase;
+    }
+    .frame em {
+      font-style: normal;
+      color: var(--mint);
+    }
+    .stage {
+      position: absolute;
+      top: 5.5cqw;
+      left: 5.5cqw;
+      right: 5.5cqw;
+      display: flex;
+      justify-content: space-between;
+      font: 500 2.4cqw Plex,monospace;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: var(--mint);
+    }
+    .plate {
+      position: absolute;
+      left: 5.5cqw;
+      right: 5.5cqw;
+      top: 39cqw;
+      height: 51cqw;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      background: var(--ink);
+    }
+    .plate img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .bottom {
+      position: absolute;
+      left: 5.5cqw;
+      bottom: 4.4cqw;
+      font: 500 2.1cqw Plex,monospace;
+      text-transform: uppercase;
+      color: var(--muted);
+      letter-spacing: .03em;
+    }
+    .mini-logo {
+      position: absolute;
+      left: 5.5cqw;
+      top: 5.5cqw;
+      width: 9cqw;
+      height: 9cqw;
+      object-fit: contain;
+    }
+    .hook .intro {
+      position: absolute;
+      left: 5.5cqw;
+      top: 23cqw;
+      font-size: 6.2cqw;
+      line-height: 1.05;
+      margin: 0;
+      color: var(--muted);
+      font-weight: 600;
+      letter-spacing: -.03em;
+    }
+    .hook h2 {
+      top: 42cqw;
+      font-size: 12.5cqw;
+      line-height: .94;
+    }
+    .hook .rule {
+      position: absolute;
+      left: 5.5cqw;
+      bottom: 12cqw;
+      width: 15cqw;
+      height: .8cqw;
+      background: var(--mint);
+    }
+    .plan .plate {
+      top: 34cqw;
+      height: 57cqw;
+    }
+    .approve h2 {
+      font-size: 12cqw;
+      max-width: 78cqw;
+    }
+    .approve .plate {
+      top: 42cqw;
+      height: 48cqw;
+    }
+    .execution h2 {
+      font-size: 11.5cqw;
+    }
+    .execution .plate {
+      top: 39cqw;
+    }
+    .validation h2 {
+      font-size: 10cqw;
+    }
+    .validation .evidence {
+      position: absolute;
+      left: 5.5cqw;
+      right: 5.5cqw;
+      top: 40cqw;
+    }
+    .evidence p {
+      font: 500 2.1cqw Plex,monospace;
+      margin: 0 0 2cqw;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+    .evidence img {
+      display: block;
+      width: 100%;
+      border: 1px solid var(--line);
+    }
+    .evidence .connector {
+      height: 6cqw;
+      margin: 0 0 1cqw;
+      font-size: 5cqw;
+      color: var(--mint);
+    }
+    .evidence .result {
+      color: var(--mint);
+    }
+    .review h2 {
+      font-size: 11cqw;
+    }
+    .review .plate {
+      top: 38cqw;
+      height: 53cqw;
+    }
+    .workspace h2 {
+      font-size: 10.8cqw;
+    }
+    .workspace .sub {
+      position: absolute;
+      top: 26cqw;
+      left: 5.5cqw;
+      color: var(--mint);
+      font: 500 3cqw Plex,monospace;
+    }
+    .workspace .plate {
+      top: 37cqw;
+      height: 54cqw;
+    }
+    .closing .brand {
+      position: absolute;
+      top: 20cqw;
+      left: 5.5cqw;
+      display: flex;
+      align-items: center;
+      gap: 3cqw;
+      font-size: 9cqw;
+      font-weight: 700;
+      letter-spacing: -.03em;
+    }
+    .brand img {
+      width: 15cqw;
+      height: 15cqw;
+      object-fit: contain;
+    }
+    .closing h2 {
+      top: 44cqw;
+      font-size: 10.7cqw;
+      width: 85cqw;
+    }
+    .closing .url {
+      position: absolute;
+      left: 5.5cqw;
+      bottom: 12cqw;
+      font: 500 4.4cqw Plex,monospace;
+      color: var(--mint);
+    }
+    .meta {
+      font-size: 10px;
+      color: var(--muted);
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      margin: 14px 0 9px;
+    }
+    .meta strong {
+      color: var(--white);
+    }
+    .note {
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.45;
+      margin: 0 0 12px;
+    }
+    .note b {
+      color: var(--white);
+      font-weight: 500;
+    }
+    .chip {
+      border-top: 1px solid var(--line);
+      padding-top: 8px;
+      color: var(--mint);
+      font-size: 10px;
+      display: inline-block;
+    }
+    .details {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 28px;
+      margin-top: 44px;
+      padding-top: 24px;
+      border-top: 1px solid var(--line);
+    }
+    .details h2 {
+      font-size: 20px;
+      margin: 0 0 14px;
+    }
+    .details p {
+      color: var(--muted);
+      line-height: 1.6;
+      margin: 8px 0;
+    }
+    .seams {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 9px;
+      align-items: center;
+      font: 500 13px Plex,monospace;
+    }
+    .seams span {
+      color: var(--mint);
+    }
+    .swatches {
+      display: flex;
+      gap: 8px;
+      margin: 16px 0;
+    }
+    .swatches i {
+      height: 32px;
+      width: 64px;
+      border: 1px solid var(--line);
+    }
+    footer {
+      margin-top: 40px;
+      padding-top: 20px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    a {
+      color: var(--mint);
+    }
+    @media (max-width:1000px) {
+      .grid {
+        grid-template-columns: repeat(2,minmax(0,1fr));
+      }
+      main {
+        padding: 32px 20px;
+      }
+    }
+    @media (max-width:600px) {
+      .grid,
+      .details {
+        grid-template-columns: 1fr;
+      }
+      .frame {
+        max-width: 540px;
+      }
+      header p {
+        font-size: 17px;
+      }
+    }
+    @media print {
+      main {
+        padding: 10px;
+      }
+      .grid {
+        grid-template-columns: repeat(3,minmax(0,1fr));
+      }
+      article {
+        break-inside: avoid;
+      }
+      body {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+    }
+    .plate img {
+      object-fit: contain;
+    }
+    .approve h2 {
+      font-size: 10cqw;
+    }
+    .approve .plate {
+      top: 46cqw;
+      height: 44cqw;
+    }
+    .validation .evidence {
+      top: 36cqw;
+    }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header><div class="eyebrow">RunWield / promotional film / layout review</div><h1>Engineering control. <span style="color:var(--mint)">v2</span></h1><p>From Plan annotation to reviewed code. Big type sets the promise; real product captures supply the proof. Frame 04 now shows your current execution screenshot.</p><span class="tag"><b>1080 × 1080</b> · square</span><span class="tag"><b>30 seconds</b> · 8 beats</span><span class="tag">Silent first cut · voice-over later</span></header>
+      <div class="act">01 — THE PROMISE & THE PLAN</div>
+      <section class="grid" aria-label="Storyboard frames 1 to 8">
+        <article><div class="frame hook" id="frame-01"><img class="mini-logo" src="assets/logo.png" alt="RunWield logo"><p class="intro">let agents<br>write code.</p><h2>keep<br>engineering<br><em>control.</em></h2><div class="rule"></div></div><div class="meta"><strong>01 · Keep control</strong><span>00–03s</span></div><p class="note"><b>First move:</b> the two clauses build into one promise. “Control” leads straight into the human annotation.</p><span class="chip">Cut → real Plan Review</span></article>
+        <article><div class="frame plan" id="frame-02"><div class="stage"><span>Plan Review</span><span>01 / shape</span></div><h2>shape<br><em>the plan.</em></h2><div class="plate"><img src="assets/storyboard/plan.jpg" alt="Actual Plannotator annotation requesting an atomic fifth-failure transition"></div><div class="bottom">your feedback → a better plan</div></div><div class="meta"><strong>02 · Shape the Plan</strong><span>03–08s</span></div><p class="note"><b>First move:</b> locate the annotation, then follow its submission. Tight crop preserves the actual comment, not browser chrome.</p><span class="chip">Cut → revised Plan</span></article>
+        <article><div class="frame approve" id="frame-03"><div class="stage"><span>Plan Review</span><span>02 / approve</span></div><h2>revise.<br>approve.<br><em>run.</em></h2><div class="plate"><img src="assets/storyboard/approve.jpg" alt="Actual revised Plan view with Approve and Run control"></div><div class="bottom">execution starts with your approval</div></div><div class="meta"><strong>03 · Revise, then approve</strong><span>08–12s</span></div><p class="note"><b>First move:</b> show the substantive revision, then frame Approve &amp; Run. This still reserves the final approval crop.</p><span class="chip">Cut on approval → execution</span></article>
+        <article><div class="frame execution" id="frame-04"><div class="stage"><span>Execution</span><span>03 / build</span></div><h2>then let<br><em>it build.</em></h2><div class="plate"><img src="assets/storyboard/execution-current.png" alt="User-supplied current RunWield TUI: executing the mascot setting Plan, Plan Engineer tool calls, Session sidebar and mascot"></div><div class="bottom">current execution example</div></div><div class="meta"><strong>04 · Let the agent build</strong><span>12–14s</span></div><p class="note"><b>Updated capture:</b> your current TUI, with native colors, Session sidebar, and mascot intact. This is the mascot-setting Plan, not the account-lockout Session in the other recordings.</p><span class="chip">Still → validation demo</span></article>
+        <article><div class="frame validation" id="frame-05"><div class="stage"><span>Validation</span><span>04 / verify</span></div><h2>check. repair.<br><em>check again.</em></h2><div class="evidence"><p>01 / failure starts repair</p><img src="assets/storyboard/fail.jpg" alt="Actual Tests and CI failed, Validation Repair Engineer will fix it now message"><div class="connector">↓</div><p class="result">02 / repaired and checked again</p><img src="assets/storyboard/pass.jpg" alt="Actual Tests and CI passed status and repair verification report"></div></div><div class="meta"><strong>05 · The validation loop</strong><span>14–20s</span></div><p class="note"><b>First move:</b> hold the failure message. Repair evidence then replaces it with passing checks. Both states are shown here to review the sequence.</p><span class="chip">Cut → human Code Review</span></article>
+        <article><div class="frame review" id="frame-06"><div class="stage"><span>Code Review</span><span>05 / decide</span></div><h2>you approve<br><em>the code.</em></h2><div class="plate"><img src="assets/storyboard/review.jpg" alt="Actual Code Review with the concurrency comment and human Approve control"></div><div class="bottom">inspect the change · make the call</div></div><div class="meta"><strong>06 · Human approval</strong><span>20–24s</span></div><p class="note"><b>First move:</b> review the diff, then land on the human Approve action. Deliberately hold this decision for recognition.</p><span class="chip">Cut → same Session in Workspace</span></article>
+        <article><div class="frame workspace" id="frame-07"><div class="stage"><span>Continuity</span><span>06 / continue</span></div><h2>same <em>session.</em></h2><div class="sub">TUI ↔ WORKSPACE</div><div class="plate"><img src="assets/storyboard/workspace.jpg" alt="Actual account-lockout Session in Workspace, showing the repair record"></div><div class="bottom">the context comes with you</div></div><div class="meta"><strong>07 · One Session, two surfaces</strong><span>24–27s</span></div><p class="note"><b>First move:</b> reveal the same account-lockout title and repair record in Workspace. The interface changes; the Session does not.</p><span class="chip">Cut → brand callback</span></article>
+        <article><div class="frame closing" id="frame-08"><div class="brand"><img src="assets/logo.png" alt="RunWield logo"><span>RunWield</span></div><h2>keep<br>engineering<br><em>control.</em></h2><div class="url">runwield.dev ↗</div></div><div class="meta"><strong>08 · RunWield</strong><span>27–30s</span></div><p class="note"><b>First move:</b> the opening promise returns beside the real logo. The URL stays legible for the closing three seconds.</p><span class="chip">Close · no competing CTA</span></article>
+      </section>
+      <section class="details" aria-label="Continuity and design tokens">
+        <div>
+          <h2>One workflow. Real product evidence.</h2>
+          <div
+            class="seams">Promise <span>→</span> Annotate <span>→</span> Approve <span>→</span> Build <span>→</span> Repair <span>→</span> Review <span>→</span> Workspace <span>→</span> RunWield</div>
+          <p>Consistent heading anchors and stage labels carry the viewer across interfaces. Plan Review receives nine seconds; the validation loop receives six. Frame 04 is a current execution example from a different Plan; the remaining recordings follow the account-lockout demo.</p>
+          <p>Held moment: human Code Review approval. No fabricated product UI, cosmetic “passed” badges, personal browser toolbar, or unreadable whole-screen thumbnails.</p>
+        </div>
+        <div>
+          <h2>Mint, navy, evidence.</h2>
+          <div
+            class="swatches"><i style="background:var(--mint)"></i><i style="background:var(--ink)"></i><i style="background:var(--white)"></i></div>
+          <p>Outfit Variable: oversized headlines.<br>IBM Plex Mono: stage labels.<br>Flat surfaces. Sharp edges. Real logo.</p>
+        </div>
+      </section>
+      <footer>Static layout review — no animation or audio yet. Sources: existing recordings plus the user's current execution screenshot in frame 04. Stills demonstrate framing, not final edit timing. Each square is the actual delivery ratio. <a href="STORYBOARD.md">Read the timed storyboard</a>.</footer>
+    </main>
+  </body>
+</html>

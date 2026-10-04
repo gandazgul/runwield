@@ -1,0 +1,13 @@
+RunWield. Let agents write code. Keep engineering control.
+Thirty-second promotional video, square for LinkedIn and X.
+Real recorded Session: Add Account Lockout Policy.
+Router selects a Planned Change and hands off to Planner.
+Plannotator Plan Review: inspect, annotate the atomic fifth-failure transition, revise, approve and run.
+Engineer executes in an isolated worktree.
+Mechanical validation finds a failing test; a repair passes 29 tests.
+An independent review finds a nondeterministic test; another repair runs validation again.
+Human Guided Code Review inspects the actual diff and approves.
+The same Session is accessible in Workspace.
+Closing logo: brand/logo.png. Call to action: runwield.dev.
+Use the provided local recordings and brand assets; no new site capture.
+Silent draft now; optional user-recorded voice-over later.

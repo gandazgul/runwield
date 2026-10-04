@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "preferences": {
+    "destination": {
+      "value": "linkedin-and-x-feed",
+      "confirmed_in": [
+        "runwield-promo"
+      ],
+      "updated_at": "2026-10-03T15:27:52.434Z"
+    },
+    "aspect": {
+      "value": "1080x1080",
+      "confirmed_in": [
+        "runwield-promo"
+      ],
+      "updated_at": "2026-10-03T15:27:52.530Z"
+    },
+    "flow": {
+      "value": "automation",
+      "confirmed_in": [
+        "runwield-promo"
+      ],
+      "updated_at": "2026-10-03T15:27:52.629Z"
+    },
+    "storyboard": {
+      "value": "yes",
+      "confirmed_in": [
+        "runwield-promo"
+      ],
+      "updated_at": "2026-10-03T15:27:52.714Z"
+    }
+  },
+  "sightings": {}
+}
