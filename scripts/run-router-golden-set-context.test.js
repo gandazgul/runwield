@@ -41,8 +41,11 @@ Deno.test("pinned rows discover each commit without changing the dirty source ch
         await Deno.writeTextFile(join(cwd, "untracked.txt"), "keep");
         const status = await git(cwd, ["status", "--porcelain"]);
         const worktrees = await git(cwd, ["worktree", "list", "--porcelain"]);
+        /** @type {string[]} */
         const contents = [];
+        /** @type {string[]} */
         const heads = [];
+        /** @type {string[]} */
         const paths = [];
         const rows = await runRouterGoldenSet([row(before), row(after), row(before), row("")], {
             cwd,
@@ -80,6 +83,7 @@ Deno.test("pinned rows discover each commit without changing the dirty source ch
 Deno.test("missing commits fail the row without falling back to current context", async () => {
     const cwd = await fixture.checkout();
     try {
+        /** @type {(string | undefined)[]} */
         const requests = [];
         const rows = await runRouterGoldenSet([row("f".repeat(40)), row("")], {
             cwd,
@@ -102,6 +106,7 @@ Deno.test("missing commits between pinned rows do not run Router against the pre
     try {
         const before = await git(cwd, ["rev-parse", "HEAD~1"]);
         const after = await git(cwd, ["rev-parse", "HEAD"]);
+        /** @type {string[]} */
         const contents = [];
         const rows = await runRouterGoldenSet([row(before), row("f".repeat(40)), row(after)], {
             cwd,
@@ -243,6 +248,7 @@ Deno.test("benchmark CLI binds real Router read tools to each pinned commit", as
                         { ...row(after), decisionId: "after" },
                     ]),
                 );
+                /** @type {string[]} */
                 const reads = [];
                 /** @type {import('@earendil-works/pi-ai').FauxResponseFactory} */
                 const response = (context) => {
