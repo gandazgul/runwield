@@ -222,6 +222,8 @@ spinner, pulsing dots, or animated loading skeleton. Reduced-motion mode shows a
 
 ### Agent mascots
 
+The Core `mascot` setting hides the mascot on both TUI and Workspace surfaces when set to `false`.
+
 `RunWieldMascot` adds the approved one-bit W character beside Workspace's composer Agent controls. TUI uses the same
 source in `src/ui/mascot/frames.ts`, rendered as Unicode half blocks above the footer Agent identity in a reserved right
 column. Full artwork is 20 × 18 pixels (20 columns × 9 terminal rows); short or narrow terminals use a static two-row

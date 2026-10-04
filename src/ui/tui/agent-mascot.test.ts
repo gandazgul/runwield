@@ -1,23 +1,67 @@
+import { FakeTime } from "@std/testing/time";
 import { assertEquals, assertNotEquals } from "@std/assert";
 import { TuiAgentMascot, type TuiMascotState } from "./agent-mascot.ts";
 import { mascotForAgent } from "../mascot/mascot.ts";
 
-Deno.test("mascot is horizontally centered within its available width", () => {
-    const mascot = new TuiAgentMascot(() => {});
+Deno.test("mascot centers on its stable drawing width across poses and compact widths", () => {
+    const renderer = new TuiAgentMascot(() => {});
     try {
         for (const width of [20, 22, 34, 35, 60]) {
-            for (const agentName of ["engineer", "architect", "guide", "operator"]) {
-                for (const compact of [false, true]) {
-                    const lines = mascot.render(width, compact, { agentName, sessionId: "one", pose: "idle" });
-                    const visible = lines.filter((line) => line.trim());
-                    const left = Math.min(...visible.map((line) => line.search(/\S/)));
-                    const right = width - Math.max(...visible.map((line) => line.trimEnd().length));
-                    assertEquals(Math.abs(left - right) <= 1, true, `${agentName}, width ${width}, compact ${compact}`);
+            for (const agentName of ["router", "engineer", "architect", "guide", "operator"]) {
+                const sprite = mascotForAgent(agentName)!;
+                for (const pose of ["idle", "answering", "thinking"] as const) {
+                    const lines = renderer.render(width, false, { agentName, sessionId: "one", pose });
+                    const original = pose === "thinking" ? sprite.frames[0].lines : sprite[pose].lines;
+                    const padding = " ".repeat(Math.max(0, Math.floor((width - sprite.drawingWidth) / 2)));
+                    assertEquals(lines, original.map((line) => padding + line.trimEnd()));
                 }
+                const compact = renderer.render(width, true, { agentName, sessionId: "one", pose: "idle" });
+                assertEquals(
+                    compact,
+                    ["▛▀▀▀▀▀▜", "▙ ▪ ▪ ▟"].map((line) => " ".repeat(Math.floor((width - 7) / 2)) + line),
+                );
             }
         }
     } finally {
-        mascot.dispose();
+        renderer.dispose();
+    }
+});
+
+Deno.test("base dot blinks without moving the W body", () => {
+    const clock = new FakeTime();
+    const renderer = new TuiAgentMascot(() => {});
+    const sprite = mascotForAgent("router")!;
+    const state: TuiMascotState = { agentName: "router", sessionId: "one", pose: "thinking" };
+    try {
+        assertEquals(sprite.drawingWidth, 17);
+        renderer.render(35, false, state);
+        clock.tick(sprite.frames[0].duration);
+        const dotOn = renderer.render(35, false, state);
+        clock.tick(sprite.frames[1].duration);
+        const dotOff = renderer.render(35, false, state);
+        assertNotEquals(dotOn, dotOff);
+        assertEquals(dotOn[7].slice(0, 22).trimEnd(), dotOff[7].slice(0, 22).trimEnd());
+        assertEquals(dotOn[1], dotOff[1]);
+    } finally {
+        renderer.dispose();
+        clock.restore();
+    }
+});
+
+Deno.test("pausing a running mascot stops its clock until visible again", async () => {
+    let renders = 0;
+    const renderer = new TuiAgentMascot(() => renders++);
+    const state: TuiMascotState = { agentName: "architect", sessionId: "one", pose: "thinking" };
+    try {
+        const first = renderer.render(35, false, state);
+        renderer.pause();
+        await new Promise((resolve) => setTimeout(resolve, 120));
+        assertEquals(renders, 0);
+        assertEquals(renderer.render(35, false, state), first);
+        await new Promise((resolve) => setTimeout(resolve, 120));
+        assertEquals(renders, 1);
+    } finally {
+        renderer.dispose();
     }
 });
 

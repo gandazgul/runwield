@@ -12,7 +12,12 @@ import {
 } from "../../../shared/session/live-session-connection.ts";
 import { createHash } from "node:crypto";
 import { findPlanEvidenceById } from "../../../plan-store.js";
-import { getMergedCustomSetting, getSettingsManager } from "../../../shared/settings.js";
+import {
+    clearMascotEnabledCache,
+    getMergedCustomSetting,
+    getSettingsManager,
+    isMascotEnabled,
+} from "../../../shared/settings.js";
 import {
     applyUserAgentSelection,
     applyUserModelSelection,
@@ -681,7 +686,11 @@ export class WorkspaceSessionContinuationService {
             import("../../../cmd/registry.js"),
         ]);
         const builtins = commandRegistry.getSlashCommandDefinitions("workspace");
+        // Options load infrequently, unlike animation renders. Refresh settings
+        // edited by another surface/process before publishing visibility.
+        clearMascotEnabledCache();
         return {
+            mascot: isMascotEnabled(projectRoot),
             defaults: {
                 agentName: defaultAgent.name,
                 model: defaultAgent.defaults.model || defaultModel,

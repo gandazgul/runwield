@@ -210,6 +210,18 @@ turn animates until an answer, owner wait, or settlement; resuming work restarts
 conversation and composer, with the mascot centered at each sidebar width; closing the surface leaves no animation timer
 running.
 
+**Requirement: Owner-controlled mascot visibility and stable centering.**
+
+The `mascot` setting is on by default. Only `mascot: false` hides the mascot in TUI and Workspace, with project settings
+overriding global settings. The TUI `/settings` menu toggles the global setting without a restart; manual edits apply
+after `/reload`. Workspace honors the setting but does not provide a toggle UI. Hiding an active mascot stops its
+animation clock, removes its footprint, and preserves written identity, conversation, and input. TUI centering uses a
+stable drawing width across frames and poses so Base's blinking dot stays in place.
+
+Acceptance: with no setting, both surfaces show the mascot; `mascot: false` hides it in the rail, compact dock, and
+Workspace composer. Toggling in TUI applies on the next render, subject to project overrides; toggling back restores
+animation. Reloading after a manual edit applies the new value. Base's dot blinks without shifting the W body.
+
 <a id="32-routing-intents"></a>
 <a id="33-triage-experience"></a>
 
