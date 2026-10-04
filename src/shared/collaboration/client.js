@@ -1,6 +1,6 @@
 /** @module shared/collaboration/client */
 
-import { redactSecrets } from "./capabilities.js";
+import { redactSecrets } from "./capabilities.ts";
 import {
     normalizeAppendCommentPayload,
     normalizeAppendRevisionPayload,

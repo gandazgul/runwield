@@ -1,7 +1,7 @@
 /** @module shared/collaboration/secrets */
 
 import { dirname, join } from "@std/path";
-import { redactCapabilityValue, redactSecrets } from "./capabilities.js";
+import { redactCapabilityValue, redactSecrets } from "./capabilities.ts";
 import { assertRecord, normalizeLocalSecretRecord } from "./protocol.js";
 import { getHomeDir, PROJECT_SECRET_STORE_RELATIVE_PATH } from "../../constants.js";
 import { enterProjectRuntime, resolveProjectRuntimeLayout } from "../project-runtime-layout.ts";
