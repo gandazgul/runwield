@@ -12,8 +12,16 @@ export const PLAN_UI_TOKEN_HEADER = "x-runwield-workspace-token";
 /** Query parameter used to preserve the active Plan Board search. */
 export const PLAN_SEARCH_QUERY_PARAM = "q";
 
-/** @type {{ MOVE_STATUS: "move_status", USER_VERIFY: "user_verify", CLOSE_WITHOUT_VERIFICATION: "close_without_verification", PUT_ON_HOLD: "put_on_hold", RESUME_FROM_HOLD: "resume_from_hold", RESET_TO_DRAFT: "reset_to_draft" }} */
-export const PLAN_LIFECYCLE_ACTIONS = {
+export interface PlanLifecycleActions {
+    MOVE_STATUS: "move_status";
+    USER_VERIFY: "user_verify";
+    CLOSE_WITHOUT_VERIFICATION: "close_without_verification";
+    PUT_ON_HOLD: "put_on_hold";
+    RESUME_FROM_HOLD: "resume_from_hold";
+    RESET_TO_DRAFT: "reset_to_draft";
+}
+
+export const PLAN_LIFECYCLE_ACTIONS: PlanLifecycleActions = {
     MOVE_STATUS: "move_status",
     USER_VERIFY: "user_verify",
     CLOSE_WITHOUT_VERIFICATION: "close_without_verification",
@@ -22,10 +30,6 @@ export const PLAN_LIFECYCLE_ACTIONS = {
     RESET_TO_DRAFT: "reset_to_draft",
 };
 
-/**
- * @param {string} planId
- * @returns {string}
- */
-export function lifecycleActionApiPath(planId) {
+export function lifecycleActionApiPath(planId: string): string {
     return `/api/plans/${encodeURIComponent(planId)}/lifecycle-action`;
 }
