@@ -18,7 +18,7 @@ import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { join } from "@std/path";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { __resetSettingsForTests, setCustomSetting } from "../settings.js";
-import { SessionHost } from "./session-host.js";
+import { SessionHost } from "./session-host.ts";
 import { captureTranscriptEvidence } from "./session-transcript-projection.js";
 import { switchActiveAgent } from "./agent-switching.js";
 import { RuntimeEventTypes } from "./session-runtime-events.js";

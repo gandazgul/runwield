@@ -11,7 +11,7 @@ import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fix
 import { setCustomSetting } from "../settings.js";
 import { drainWorkflowMetrics, getWorkflowMetricsFilePath } from "../workflow/metrics.js";
 import { SessionRuntime } from "./session-runtime.ts";
-import { SessionHost } from "./session-host.js";
+import { SessionHost } from "./session-host.ts";
 import { openFileSessionStore } from "./file-session-store.ts";
 import type { RuntimeInteractionRequest } from "./session-runtime-interactions.js";
 

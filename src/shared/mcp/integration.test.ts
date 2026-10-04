@@ -9,7 +9,7 @@ import {
 import { dirname, fromFileUrl, join } from "@std/path";
 import { getCwd } from "../../constants.js";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
-import { SessionHost } from "../session/session-host.js";
+import { SessionHost } from "../session/session-host.ts";
 import { HostedSession } from "../session/hosted-session.js";
 import { buildAgentSession, runIsolatedAgentSession } from "../session/session.js";
 import { createSessionRuntime } from "../session/session-runtime.ts";

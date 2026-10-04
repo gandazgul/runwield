@@ -23,7 +23,7 @@ import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fix
 import { loadPlan, savePlan } from "../../plan-store.js";
 import { git } from "../git-test-fixture.ts";
 import { HostedSession } from "../session/hosted-session.js";
-import { SessionHost } from "../session/session-host.js";
+import { SessionHost } from "../session/session-host.ts";
 import { SessionRuntime } from "../session/session-runtime.ts";
 import { RuntimeEventTypes } from "../session/session-runtime-events.js";
 import { openOwnerCoordinationStore } from "../owner-coordination/index.js";

@@ -3,7 +3,7 @@ import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import type { TranscriptContext } from "@earendil-works/pi-ai";
 import { createSessionRuntime, SessionRuntime } from "./session-runtime.ts";
-import { SessionHost } from "./session-host.js";
+import { SessionHost } from "./session-host.ts";
 import { getRuntimeRootAgentSession } from "./runtime/support.ts";
 import { createTaskCompletedTool } from "../../tools/task-completed.ts";
 import { RuntimeEventTypes } from "./session-runtime-events.js";
