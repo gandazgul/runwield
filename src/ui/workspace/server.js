@@ -103,7 +103,7 @@ import {
 } from "./server/owner-origin.ts";
 import { requireOwnerProjectRoot, sessionBelongsToOwnerProject } from "./server/owner-projects.js";
 import { ownerProjectPlanSessionsApi } from "./server/owner-plan-sessions.ts";
-import { createOwnerConnectionRegistry } from "./server/owner-connections.js";
+import { createOwnerConnectionRegistry } from "./server/owner-connections.ts";
 import { setAstroOwnerWorkspaceSessionContinuation, setAstroOwnerWorkspaceStore } from "./server/astro-owner-data.js";
 import { WORKSPACE_PWA_PATHS, workspacePwaResponse } from "./server/workspace-pwa.ts";
 import { createWorkspaceSearchService } from "./server/workspace-search.ts";
