@@ -2084,6 +2084,14 @@ export async function buildAgentSession({
     }
 
     if (
+        tools.includes("record_plan_deviation") && targetHostedSession &&
+        !finalCustomTools.find((tool) => tool.name === "record_plan_deviation")
+    ) {
+        const { createPlanDeviationTool } = await import("../../tools/plan-deviation.ts");
+        finalCustomTools.push(createPlanDeviationTool({ hostedSession: targetHostedSession }));
+    }
+
+    if (
         tools.includes("artifact_written") && targetHostedSession &&
         !finalCustomTools.find((t) => t.name === "artifact_written")
     ) {
@@ -2469,6 +2477,10 @@ export async function composeClaudeCliBridgedTools({
     if (declared.has("plan_written") && hostedSession && !hasTool("plan_written")) {
         const { createPlanWrittenTool } = await import("../../tools/plan-written.ts");
         finalCustomTools.push(createPlanWrittenTool({ triageMeta, agentName, hostedSession }));
+    }
+    if (declared.has("record_plan_deviation") && hostedSession && !hasTool("record_plan_deviation")) {
+        const { createPlanDeviationTool } = await import("../../tools/plan-deviation.ts");
+        finalCustomTools.push(createPlanDeviationTool({ hostedSession }));
     }
     if (declared.has("artifact_written") && hostedSession && !hasTool("artifact_written")) {
         const { createArtifactWrittenTool } = await import("../../tools/artifact-written.ts");
