@@ -21,7 +21,13 @@ userVerifiedAt: null
 routingIntent: "PLANNED_CHANGE"
 sessionName: "Mascot Visibility Setting"
 targetBranch: "main"
-status: "validated_reviewer"
+status: "validated"
+validatedCommit: "a94f7e11246bb5809716984debf3d9b585b873d9"
+workRecord:
+    status: "generated"
+    recordId: "21b92d3b-60a4-4506-815a-48d48d54c168"
+    path: "docs/work-records/2026-10-04-mascot-visibility-control-and-stable-tui-blinking.md"
+    lastAttemptAt: "2026-10-04T00:55:05.481Z"
 ---
 
 # Mascot visibility setting and base-mascot blink fix
