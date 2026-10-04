@@ -18,7 +18,7 @@ import {
     MAINTAINER_SCOPE,
     redactSecrets,
     REVIEWER_SCOPE,
-} from "../../shared/collaboration/capabilities.js";
+} from "../../shared/collaboration/capabilities.ts";
 import { createCollaborationClient, SYSTEM_COLLABORATION_FETCH } from "../../shared/collaboration/client.js";
 import { encryptJsonPayload, exportContentKey, generateContentKey } from "../../shared/collaboration/crypto.js";
 import { COLLABORATION_LOCK_BYPASS, COLLABORATION_STATE_REMOTE_CANONICAL } from "../../shared/collaboration/lock.js";
