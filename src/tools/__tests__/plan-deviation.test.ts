@@ -207,3 +207,85 @@ Deno.test("record_plan_deviation stale revision writes nothing", async () => {
         assertEquals(after.attrs.planDeviations, undefined);
     });
 });
+
+Deno.test("record_plan_deviation confirms autonomous execution and survives reload", async () => {
+    await withTempProject(async (projectRoot) => {
+        await makePlan(projectRoot);
+        const fixture = makeSession(projectRoot, [{ outcome: "accepted", value: true }]);
+        const workflow = fixture.session.getActiveExecutionWorkflow();
+        if (!workflow) throw new Error("Expected execution workflow.");
+        fixture.session.setActiveExecutionWorkflow({ ...workflow, collaborationStyle: "autonomous" });
+        const result = await executeDeviation(createPlanDeviationTool({ hostedSession: fixture.session }), "auto-call");
+        assertEquals(result.details.decision, "recorded");
+        assertEquals((await loadPlan(projectRoot, "demo-plan"))?.attrs.planDeviations?.[0].id, "auto-call");
+    });
+});
+
+Deno.test("record_plan_deviation rejects missing active Plan context", async () => {
+    await withTempProject(async (projectRoot) => {
+        await makePlan(projectRoot);
+        const fixture = makeSession(projectRoot, []);
+        const workflow = fixture.session.getActiveExecutionWorkflow();
+        if (!workflow) throw new Error("Expected execution workflow.");
+        fixture.session.setActiveExecutionWorkflow({ ...workflow, planName: "", collaborationStyle: "autonomous" });
+        const result = await executeDeviation(createPlanDeviationTool({ hostedSession: fixture.session }), "no-plan");
+        assertEquals(result.details, { decision: "inactive", reason: "missing_execution_context" });
+        assertEquals(fixture.requests.length, 0);
+        assertEquals((await loadPlan(projectRoot, "demo-plan"))?.attrs.planDeviations, undefined);
+    });
+});
+
+Deno.test("record_plan_deviation rejects a changed autonomous execution identity", async () => {
+    await withTempProject(async (projectRoot) => {
+        await makePlan(projectRoot);
+        const fixture = makeSession(projectRoot, []);
+        const workflow = fixture.session.getActiveExecutionWorkflow();
+        if (!workflow) throw new Error("Expected execution workflow.");
+        fixture.session.setActiveExecutionWorkflow({ ...workflow, collaborationStyle: "autonomous" });
+        fixture.session.setInteractionAdapter({
+            supportsInteraction: () => true,
+            requestInteraction: () => {
+                fixture.session.setActiveExecutionWorkflow({
+                    ...workflow,
+                    collaborationStyle: "autonomous",
+                    worktreeId: "new-attempt",
+                });
+                return { outcome: "accepted", value: true };
+            },
+        });
+        const result = await executeDeviation(createPlanDeviationTool({ hostedSession: fixture.session }), "changed");
+        assertEquals(result.details, { decision: "stale", reason: "execution_context_changed" });
+        assertEquals((await loadPlan(projectRoot, "demo-plan"))?.attrs.planDeviations, undefined);
+    });
+});
+
+for (const supportsConfirmation of [false, true]) {
+    Deno.test(`record_plan_deviation unsupported autonomous confirmation does not create Pair state (${supportsConfirmation})`, async () => {
+        await withTempProject(async (projectRoot) => {
+            await makePlan(projectRoot);
+            const fixture = makeSession(projectRoot, [{ outcome: "unsupported" }], supportsConfirmation);
+            const workflow = fixture.session.getActiveExecutionWorkflow();
+            if (!workflow) throw new Error("Expected execution workflow.");
+            fixture.session.setActiveExecutionWorkflow({ ...workflow, collaborationStyle: "autonomous" });
+            const result = await executeDeviation(
+                createPlanDeviationTool({ hostedSession: fixture.session }),
+                "unsupported-auto",
+            );
+            assertEquals(result.details.decision, "unsupported");
+            assertEquals(result.terminate, true);
+            assertEquals(fixture.session.getActiveExecutionWorkflow()?.pairPauseReason, undefined);
+            assertEquals((await loadPlan(projectRoot, "demo-plan"))?.attrs.planDeviations, undefined);
+        });
+    });
+}
+
+Deno.test("record_plan_deviation rejects a Session without active execution", async () => {
+    await withTempProject(async (projectRoot) => {
+        await makePlan(projectRoot);
+        const session = new HostedSession({ id: crypto.randomUUID(), cwd: projectRoot });
+        const result = await executeDeviation(createPlanDeviationTool({ hostedSession: session }), "inactive");
+        assertEquals(result.details, { decision: "inactive", reason: "plan_execution_inactive" });
+        assertEquals((await loadPlan(projectRoot, "demo-plan"))?.attrs.planDeviations, undefined);
+        session.dispose();
+    });
+});

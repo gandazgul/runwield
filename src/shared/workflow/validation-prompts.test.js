@@ -218,7 +218,7 @@ Deno.test("bundled verification reviewer prompt treats repair claims as evidence
     assertStringIncludes(prompt.replace(/\s+/g, " "), "otherwise reject the fix with a reason");
 });
 
-Deno.test("bundled validation repair engineer prompt is repair-scoped without Plan or general Engineer context", async () => {
+Deno.test("bundled validation repair engineer prompt is repair-scoped without Plan content or general Engineer context", async () => {
     const prompt = await readBundledPrompt("reviewer-feedback-engineer.md");
     const compact = prompt.replace(/\s+/g, " ");
 
@@ -229,7 +229,8 @@ Deno.test("bundled validation repair engineer prompt is repair-scoped without Pl
     assertStringIncludes(prompt, "`already satisfied`");
     assertStringIncludes(prompt, "CI diagnostics");
     assertStringIncludes(compact, "semantic review findings");
-    assertEquals(prompt.includes("Plan"), false);
+    // The prompt may describe how to record an authorized Plan change, but it must not receive Plan content.
+    assertEquals(prompt.includes("### Approved Plan"), false);
     assertStringIncludes(prompt, "**Your claims are evidence, not resolution.**");
 });
 

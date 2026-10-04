@@ -391,7 +391,7 @@ Deno.test("resolveSessionToolNames blocks runtime toolNames from re-enabling rem
     assert(!resolved.includes("bash"));
 });
 
-Deno.test("Pair workflow tools cannot be re-enabled by static runtime tool names", () => {
+Deno.test("Workflow tools cannot be re-enabled by static runtime tool names", () => {
     const resolved = resolveSessionToolNames(["read"], ["read", "pair_checkpoint", "record_plan_deviation"], []);
     assertEquals(resolved, ["read"]);
 });
@@ -1599,6 +1599,23 @@ Deno.test("external CLI bridge filters RunWield background starts but not native
         assertEquals(await Deno.stat(join(cwd, "bridge-sentinel")).then(() => true, () => false), false);
     } finally {
         await hostedSession.backgroundTasks.cancelAllAndSuppress();
+        await removeTempDir(cwd);
+    }
+});
+
+Deno.test("Claude CLI and Agy CLI bridge declared Plan Deviations for execution Agents", async () => {
+    const cwd = await Deno.makeTempDir({ prefix: "runwield-cli-deviation-" });
+    const hostedSession = new HostedSession({ id: crypto.randomUUID(), cwd });
+    try {
+        for (const agentName of ["plan-engineer", "frontend-engineer"]) {
+            const agentDef = await loadAgentDef(agentName, REPO_ROOT);
+            for (const compose of [composeClaudeCliBridgedTools, composeAgyCliBridgedTools]) {
+                const tools = await compose({ agentDef, agentName, hostedSession, triageMeta: undefined, cwd });
+                assertEquals(tools.filter((tool) => tool.name === "record_plan_deviation").length, 1);
+            }
+        }
+    } finally {
+        hostedSession.dispose();
         await removeTempDir(cwd);
     }
 });
