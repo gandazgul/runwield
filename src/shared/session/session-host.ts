@@ -4,7 +4,10 @@
  */
 
 import { HostedSession } from "./hosted-session.js";
-import type { HostedSessionOptions, ManagedSessionMetadata, MinimalSessionManagerLike } from "./hosted-session.js";
+import type { ManagedSessionMetadata, MinimalSessionManagerLike } from "./hosted-session.js";
+import type { SessionRuntimeEventSink } from "../types.js";
+
+export type SessionHostEventSink = SessionRuntimeEventSink | SessionRuntimeEventSink["emit"];
 
 export interface SessionHostOptions {
     idFactory?: () => string;
@@ -14,7 +17,7 @@ export interface CreateSessionOptions {
     id?: string;
     cwd?: string;
     sessionManager?: MinimalSessionManagerLike | null;
-    eventSink?: HostedSessionOptions["eventSink"];
+    eventSink?: SessionHostEventSink | null;
     managed?: ManagedSessionMetadata | null;
 }
 
