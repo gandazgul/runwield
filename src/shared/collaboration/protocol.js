@@ -1,6 +1,6 @@
 /** @module shared/collaboration/protocol */
 
-import { assertCapabilityScope } from "./capabilities.js";
+import { assertCapabilityScope } from "./capabilities.ts";
 
 /**
  * @typedef {Object} SharedSpaceMetadata
