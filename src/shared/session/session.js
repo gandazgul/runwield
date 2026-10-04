@@ -119,7 +119,7 @@ import {
     PersonalResourcePathError,
     remotePersonalResourcesActive,
 } from "../remote/personal-resources.ts";
-import { getBundledAgentDefsPath } from "./agent-assets.js";
+import { getBundledAgentDefsPath } from "./agent-assets.ts";
 import { expandSkill, listSkills } from "./skill-catalog.ts";
 import { getPackagePromptTemplatePaths, resolveInstalledPackagePromptResources } from "../package-resources.js";
 import { getWldExtensionPaths, resolveInstalledWldExtensionResources } from "../extensions/wld-extension-manifest.js";
