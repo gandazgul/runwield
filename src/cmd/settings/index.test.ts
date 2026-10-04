@@ -423,3 +423,26 @@ Deno.test("runSettingsCommand reports unavailable interactive state", async () =
         );
     });
 });
+
+Deno.test("Mascot menu toggles global visibility and reports project overrides", async () => {
+    await withRuntimeCommandFixture("settings-mascot-", async ({ projectRoot }) => {
+        const { runtime, sessionId } = await createPromptReadyRuntime(projectRoot);
+        try {
+            const harness = makeUiHarness(["mascot", "done"]);
+            await runSettingsCommand([], { sessionRuntime: runtime, sessionId, ...harness });
+            assertEquals(getCustomSetting("mascot", "global", projectRoot), false);
+            assertEquals(harness.selects[0].options.find((item) => item.value === "mascot")?.label, "Mascot: on");
+            assertEquals(harness.selects[1].options.find((item) => item.value === "mascot")?.label, "Mascot: off");
+            assertStringIncludes(harness.messages.join("\n"), "Mascot off");
+            await setCustomSetting("mascot", false, "project", projectRoot);
+            const override = makeUiHarness(["mascot", "done"]);
+            await runSettingsCommand([], { sessionRuntime: runtime, sessionId, ...override });
+            assertEquals(getCustomSetting("mascot", "global", projectRoot), true);
+            const entry = override.selects[1].options.find((item) => item.value === "mascot");
+            assertEquals(entry?.label, "Mascot: off");
+            assertStringIncludes(entry?.description || "", "(project override active)");
+        } finally {
+            await runtime.closeAllSessions();
+        }
+    });
+});
