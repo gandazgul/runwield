@@ -4,7 +4,7 @@ import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { loadPlan, savePlan } from "../../plan-store.js";
 import { defineCommittedGitFixture, git } from "../git-test-fixture.ts";
-import { createTestWorktreeAttempt } from "../worktree-test-helpers.js";
+import { createTestWorktreeAttempt } from "../worktree-test-helpers.ts";
 import { createSessionRuntime } from "./session-runtime.ts";
 import { openFileSessionStore } from "./file-session-store.ts";
 

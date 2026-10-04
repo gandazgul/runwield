@@ -659,12 +659,13 @@ silently adopt Plan body or definition edits from the execution worktree. Plan S
 Evidence, validation counters, and other lifecycle fields remain RunWield-owned. _Avoid_: active validation gate, silent
 worktree Plan edit, lifecycle edit
 
-**Plan Deviation**: An explicit user-confirmed replacement for an effective Plan requirement during Pair Execution. The
-execution Agent proposes the superseded requirement, replacement requirement, and optional reason through
-`record_plan_deviation`; a typed user confirmation writes it to the authoritative execution Plan. Confirmed Plan
-Deviations supersede conflicting original Plan text for execution, Semantic Code Review, and Work Records. Ordinary Pair
-feedback, transcript text, metrics, arbitrary Plan-file edits, and one-delivery Review Overrides are not Plan
-Deviations. _Avoid_: automatic Plan Amendment, checkpoint feedback, review waiver, silent Plan edit
+**Plan Deviation**: An explicit user-confirmed replacement for an effective Plan requirement during Plan execution, in
+autonomous or Pair style, including restored Sessions and validation repairs. The execution Agent proposes the
+superseded requirement, replacement requirement, and optional reason through `record_plan_deviation`; a typed user
+confirmation writes it to the authoritative execution Plan. Confirmed Plan Deviations supersede conflicting original
+Plan text for execution, Semantic Code Review, and Work Records. Ordinary Pair feedback, transcript text, metrics,
+arbitrary Plan-file edits, and one-delivery Review Overrides are not Plan Deviations. _Avoid_: automatic Plan Amendment,
+checkpoint feedback, review waiver, silent Plan edit
 
 **Pair Execution**: A user-steered Plan execution style where Plan Engineer or Frontend Engineer delivers coherent
 observable increments and pauses through ordinary Session conversation. It is a collaboration style, not validation

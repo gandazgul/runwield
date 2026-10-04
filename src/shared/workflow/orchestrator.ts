@@ -32,7 +32,7 @@ import { hasNonGitExecutionConsent, rememberNonGitExecutionConsent } from "../no
 import { switchActiveAgent } from "../session/agent-switching.js";
 import { runRootTurn } from "../session/session.js";
 import { getAgentDisplayName } from "../session/agents.js";
-import { sanitizeSessionName } from "../session/session-name.js";
+import { sanitizeSessionName } from "../session/session-name.ts";
 import {
     emitHostedSessionRuntimeEvent,
     emitSystemStatus,

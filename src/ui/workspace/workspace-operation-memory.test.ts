@@ -5,13 +5,13 @@ import { fauxAssistantMessage, fauxText } from "@earendil-works/pi-ai";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { makeManagedSessionFixture } from "../../testing/managed-session-fixture.ts";
 import { ownerSessionOperationStreamApi } from "./routes/owner-session-api.js";
-import { createOwnerConnectionRegistry } from "./server/owner-connections.js";
+import { createOwnerConnectionRegistry, type OwnerConnectionRegistry } from "./server/owner-connections.ts";
 import { WorkspaceSessionContinuationService } from "./server/session-continuation.js";
 
 type Workspace = {
     fixture: ManagedSessionFixture;
     service: WorkspaceSessionContinuationService;
-    connections: ReturnType<typeof createOwnerConnectionRegistry>;
+    connections: OwnerConnectionRegistry;
     environment: RuntimeCommandFixture;
 };
 
@@ -47,7 +47,7 @@ async function completed(service: WorkspaceSessionContinuationService, operation
 
 function stream(
     service: WorkspaceSessionContinuationService,
-    connections: ReturnType<typeof createOwnerConnectionRegistry>,
+    connections: OwnerConnectionRegistry,
     operationId: string,
     signal?: AbortSignal,
     deviceId = "owner-device",

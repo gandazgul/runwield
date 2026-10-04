@@ -10,7 +10,7 @@ import {
     ownerSessionUnarchiveApi,
 } from "./routes/owner-session-api.js";
 import { associatedPlanSession } from "./routes/owner-api.js";
-import { createOwnerConnectionRegistry } from "./server/owner-connections.js";
+import { createOwnerConnectionRegistry } from "./server/owner-connections.ts";
 import { AGENTS } from "../../constants.js";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { setCustomSetting } from "../../shared/settings.js";

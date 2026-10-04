@@ -1,4 +1,4 @@
-import { PLAN_SEARCH_QUERY_PARAM } from "../constants.js";
+import { PLAN_SEARCH_QUERY_PARAM } from "../constants.ts";
 import { PlanBoardSearch } from "../islands/PlanBoardSearch.jsx";
 import { buildPlanBoardSearchIndex } from "../plan-search.js";
 import { workspaceUrl } from "./PlanCard.jsx";

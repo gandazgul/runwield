@@ -1,6 +1,6 @@
 import Fuse from "fuse.js";
 import { useEffect, useMemo, useState } from "react";
-import { PLAN_SEARCH_QUERY_PARAM } from "../constants.js";
+import { PLAN_SEARCH_QUERY_PARAM } from "../constants.ts";
 
 /**
  * @typedef {Object} PlanSearchEntry

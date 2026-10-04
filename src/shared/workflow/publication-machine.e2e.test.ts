@@ -1,7 +1,7 @@
 import { assert, assertEquals } from "@std/assert";
 import { dirname, fromFileUrl, join } from "@std/path";
 import { addEntry, findById } from "../worktree-registry.js";
-import { createTestWorktreeAttempt, git, makeRepo } from "../worktree-test-helpers.js";
+import { createTestWorktreeAttempt, git, makeRepo } from "../worktree-test-helpers.ts";
 import { publicationRootForAttempt } from "./publication-machine.ts";
 
 const DRIVER = join(dirname(fromFileUrl(import.meta.url)), "testing/publication-process-driver.ts");

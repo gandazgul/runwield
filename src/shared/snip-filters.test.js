@@ -6,7 +6,7 @@ import {
     getRunWieldSnipFilterInstallStatus,
     getRunWieldSnipPaths,
     installRunWieldSnipFiltersForUser,
-} from "./snip-filters.js";
+} from "./snip-filters.ts";
 
 Deno.test("bundled Snip filters are readable from the compile-safe resource directory", async () => {
     const denoTestFilter = await Deno.readTextFile(join(SNIP_FILTERS_DIR, "deno-test.yaml"));

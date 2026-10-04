@@ -7,7 +7,7 @@ import {
     cleanupRunWieldSnipFiltersForUser,
     getRunWieldSnipFilterInstallStatus,
     installRunWieldSnipFiltersForUser,
-} from "../../shared/snip-filters.js";
+} from "../../shared/snip-filters.ts";
 
 interface SkippedFilter {
     path: string;

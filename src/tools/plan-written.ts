@@ -24,7 +24,7 @@ import { assertNotReservedEpicArtifactPlanName } from "../shared/epic-artifacts.
 import { recordPlanEvent } from "../shared/workflow/plan-lifecycle.js";
 import { loadPlanActionEvidence } from "../shared/workflow/plan-actions.ts";
 import { resolveWorkflowPlanLocation } from "../shared/workflow/plan-location.ts";
-import { normalizePlanApprovalAction, PLAN_APPROVAL_ACTIONS } from "../shared/workflow/plan-approval.js";
+import { normalizePlanApprovalAction, PLAN_APPROVAL_ACTIONS } from "../shared/workflow/plan-approval.ts";
 import { recordWorkflowMetric } from "../shared/workflow/metrics.js";
 import {
     emitHostedSessionRuntimeEvent,

@@ -4,7 +4,7 @@ import {
     PLAN_APPROVAL_ACTIONS,
     primaryPlanApprovalActionForClassification,
     readPlanApprovalAction,
-} from "./plan-approval.js";
+} from "./plan-approval.ts";
 
 Deno.test("normalizes FEATURE approval actions", () => {
     assertEquals(

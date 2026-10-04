@@ -5,8 +5,8 @@ import {
     MAINTAINER_SCOPE,
     REVIEWER_SCOPE,
     timingSafeEqual,
-} from "../../../shared/collaboration/capabilities.js";
-import { openRemoteDatabase } from "./remote-db.js";
+} from "../../../shared/collaboration/capabilities.ts";
+import { openRemoteDatabase } from "./remote-db.ts";
 
 const EXPIRED_SPACE_CLEANUP_BATCH_SIZE = 100;
 
@@ -31,7 +31,7 @@ export class RemoteWorkspaceError extends Error {
 
 /**
  * @typedef {Object} RemoteWorkspaceAdapter
- * @property {import("./remote-db.js").RemoteDatabase} database
+ * @property {import("./remote-db.ts").RemoteDatabase} database
  * @property {(input: { planId: string, payloadCiphertext: string, capabilities: { scope: "reviewer" | "maintainer", capabilityHash: string }[] }) => any} createSharedSpace
  * @property {(spaceId: string, capability: string, requiredScope: "reviewer" | "maintainer") => Promise<void>} verifyCapability
  * @property {(spaceId: string) => any} getSharedSpace
@@ -50,7 +50,7 @@ export class RemoteWorkspaceError extends Error {
  */
 
 /**
- * @param {{ database: import("./remote-db.js").RemoteDatabase, retention?: RemoteRetentionPolicy, clock: { now: () => Date } }} options
+ * @param {{ database: import("./remote-db.ts").RemoteDatabase, retention?: RemoteRetentionPolicy, clock: { now: () => Date } }} options
  * @returns {RemoteWorkspaceAdapter}
  */
 export function createRemoteWorkspaceAdapter(options) {

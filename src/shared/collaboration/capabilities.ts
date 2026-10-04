@@ -6,29 +6,22 @@ export const REVIEWER_SCOPE = "reviewer";
 export const MAINTAINER_SCOPE = "maintainer";
 export const CAPABILITY_SCOPES = Object.freeze([REVIEWER_SCOPE, MAINTAINER_SCOPE]);
 
-/**
- * @param {unknown} scope
- * @returns {"reviewer" | "maintainer"}
- */
-export function assertCapabilityScope(scope) {
+export type CapabilityScope = typeof REVIEWER_SCOPE | typeof MAINTAINER_SCOPE;
+
+export function assertCapabilityScope(scope: string): CapabilityScope {
     if (scope !== REVIEWER_SCOPE && scope !== MAINTAINER_SCOPE) {
         throw new Error("Capability scope must be reviewer or maintainer");
     }
     return scope;
 }
 
-/** @returns {string} */
-export function generateBearerCapability() {
+export function generateBearerCapability(): string {
     const bytes = new Uint8Array(32);
     crypto.getRandomValues(bytes);
     return encodeBase64Url(bytes);
 }
 
-/**
- * @param {string} capability
- * @returns {Promise<string>}
- */
-export async function hashCapability(capability) {
+export async function hashCapability(capability: string): Promise<string> {
     if (typeof capability !== "string" || capability.length === 0) {
         throw new Error("Capability must be a non-empty string");
     }
@@ -36,12 +29,7 @@ export async function hashCapability(capability) {
     return `sha256:${encodeBase64Url(new Uint8Array(digest))}`;
 }
 
-/**
- * @param {string} a
- * @param {string} b
- * @returns {boolean}
- */
-export function timingSafeEqual(a, b) {
+export function timingSafeEqual(a: string, b: string): boolean {
     const left = new TextEncoder().encode(a);
     const right = new TextEncoder().encode(b);
     let diff = left.length ^ right.length;
@@ -50,22 +38,13 @@ export function timingSafeEqual(a, b) {
     return diff === 0;
 }
 
-/**
- * @param {string} value
- * @returns {string}
- */
-export function redactCapabilityValue(value) {
+export function redactCapabilityValue(value: string): string {
     if (typeof value !== "string" || value.length === 0) return "[redacted]";
     if (value.startsWith("sha256:")) return "sha256:[redacted]";
     return "[redacted-capability]";
 }
 
-/**
- * @param {unknown} value
- * @param {string[]} [knownSecrets]
- * @returns {string}
- */
-export function redactSecrets(value, knownSecrets = []) {
+export function redactSecrets<Value>(value: Value, knownSecrets: string[] = []): string {
     let text = value instanceof Error ? value.message : String(value);
     text = text.replace(/(Authorization\s*:\s*Bearer\s+)[^\s,}]+/gi, "$1[redacted]");
     text = text.replace(/(cap=)[^&#\s]+/gi, "$1[redacted]");

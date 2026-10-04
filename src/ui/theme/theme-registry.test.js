@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import { createThemeRegistry } from "./theme-registry.js";
+import { createThemeRegistry } from "./theme-registry.ts";
 
 /** @param {string} name */
 function fakeTheme(name) {
