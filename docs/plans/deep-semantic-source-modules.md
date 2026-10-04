@@ -387,7 +387,7 @@ The split is clean because the file already has one:
 ### 3. Preserve independent browser themes
 
 `loadRunWieldThemeCss` and the unused Workspace `server/theme-css.js` compatibility module are already removed. Do not
-recreate or relocate them. Move `themes/dark.ts`, `theme-bridge.js`, `tokens.css`, `fonts.css`, and bundled fonts with
+recreate or relocate them. Move `themes/dark.ts`, `theme-bridge.ts`, `tokens.css`, `fonts.css`, and bundled fonts with
 the design system. `DARK_BROWSER_THEME` keeps its `name`, `colorScheme`, and semantic `colors` shape.
 
 `renderRunWieldThemeCss(theme = DARK_BROWSER_THEME)` stays a pure browser renderer with review aliases. Both browser

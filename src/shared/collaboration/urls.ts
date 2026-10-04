@@ -3,21 +3,19 @@
 import { assertCapabilityScope, redactSecrets } from "./capabilities.js";
 import { assertNonEmptyString } from "./protocol.js";
 
-/**
- * @typedef {Object} CollaborationUrlParts
- * @property {string} serverUrl
- * @property {string} apiBaseUrl
- * @property {string} spaceId
- * @property {string} contentKey
- * @property {string} bearerCapability
- * @property {"reviewer" | "maintainer"} role
- */
+export interface CollaborationUrlInput {
+    serverUrl: string;
+    spaceId: string;
+    contentKey: string;
+    bearerCapability: string;
+    role: "reviewer" | "maintainer";
+}
 
-/**
- * @param {string} value
- * @returns {string}
- */
-export function normalizeServerUrl(value) {
+export interface CollaborationUrlParts extends CollaborationUrlInput {
+    apiBaseUrl: string;
+}
+
+export function normalizeServerUrl(value: string): string {
     const url = new URL(value);
     if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("Plan Server URL must be http or https");
     if (url.search) throw new Error("Plan Server URL must not include query parameters");
@@ -28,11 +26,7 @@ export function normalizeServerUrl(value) {
     return url.toString().replace(/\/$/, "");
 }
 
-/**
- * @param {unknown} value
- * @returns {string}
- */
-export function normalizePlanServerUrl(value) {
+export function normalizePlanServerUrl<Value>(value: Value): string {
     if (typeof value !== "string" || value.trim() === "") {
         throw new Error("Plan Server URL must be a non-empty string.");
     }
@@ -44,11 +38,7 @@ export function normalizePlanServerUrl(value) {
     return normalized;
 }
 
-/**
- * @param {{ serverUrl: string, spaceId: string, contentKey: string, bearerCapability: string, role: "reviewer" | "maintainer" }} parts
- * @returns {string}
- */
-export function buildCollaborationUrl(parts) {
+export function buildCollaborationUrl(parts: CollaborationUrlInput): string {
     const serverUrl = normalizeServerUrl(parts.serverUrl);
     const spaceId = encodeURIComponent(assertNonEmptyString(parts.spaceId, "spaceId"));
     const url = new URL(`${serverUrl}/p/${spaceId}`);
@@ -60,11 +50,7 @@ export function buildCollaborationUrl(parts) {
     return url.toString();
 }
 
-/**
- * @param {string} value
- * @returns {CollaborationUrlParts}
- */
-export function parseCollaborationUrl(value) {
+export function parseCollaborationUrl(value: string): CollaborationUrlParts {
     const url = new URL(value);
     const match = /^(.*)\/p\/([^/]+)\/?$/.exec(url.pathname);
     if (!match) throw new Error("Collaboration URL path must be /p/<space-id>");
@@ -89,20 +75,11 @@ export function parseCollaborationUrl(value) {
     };
 }
 
-/**
- * @param {string} value
- * @returns {string}
- */
-export function redactCollaborationUrl(value) {
+export function redactCollaborationUrl(value: string): string {
     return redactSecrets(value).replace(/#.*$/, "#[redacted]");
 }
 
-/**
- * @param {string} serverUrl
- * @param {string} path
- * @returns {string}
- */
-export function buildApiUrl(serverUrl, path) {
+export function buildApiUrl(serverUrl: string, path: string): string {
     const normalizedPath = normalizeApiPath(path);
     const base = `${normalizeServerUrl(serverUrl)}/`;
     const url = new URL(normalizedPath, base);
@@ -110,11 +87,7 @@ export function buildApiUrl(serverUrl, path) {
     return url.toString();
 }
 
-/**
- * @param {string} path
- * @returns {string}
- */
-function normalizeApiPath(path) {
+function normalizeApiPath(path: string): string {
     const trimmed = assertNonEmptyString(path, "path");
     if (/^[a-z][a-z\d+.-]*:/i.test(trimmed) || trimmed.startsWith("//") || trimmed.includes("\\")) {
         throw new Error("API path must be relative to the Plan Server URL");

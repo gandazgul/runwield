@@ -17,7 +17,7 @@ import { VERSION } from "../shared/version.js";
 import { mapRuntimeEventToAcpUpdate } from "./event-mapper.js";
 import { createAcpInteractionAdapter } from "./interaction-mapper.js";
 import { assertAcpFrameSchema, assertAcpSchema } from "./schema-conformance.ts";
-import { AcpSessionMap } from "./session-map.js";
+import { AcpSessionMap } from "./session-map.ts";
 import {
     createInitializeResponse,
     mapEventWithSessionCost,

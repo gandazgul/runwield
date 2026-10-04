@@ -7,7 +7,7 @@ import {
     restoreWorktreeTree,
     WorktreeReviewComparisonError,
     WorktreeReviewTargetError,
-} from "./git-snapshot.js";
+} from "./git-snapshot.ts";
 import { GitRepositoryRequiredError } from "../git.js";
 
 /**

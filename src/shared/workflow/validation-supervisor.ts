@@ -23,7 +23,7 @@ import type { WorkflowValidationResult } from "./validation-types.ts";
 import { validationUserMessage } from "./validation-user-messages.ts";
 import { emitProgress, emitStatus } from "./validation-emit.ts";
 import { resolvePhaseContext } from "./validation-context.ts";
-import { getWorktreeReviewDiff } from "./git-snapshot.js";
+import { getWorktreeReviewDiff } from "./git-snapshot.ts";
 import { claimReviewFixes, renderOpenItems } from "./review-ledger.ts";
 import { PLAN_STATUSES } from "./plan-lifecycle.js";
 import { resolveWorkflowPlanLocation } from "./plan-location.ts";

@@ -4,37 +4,35 @@
  */
 
 import { formatPlannedWorkLabel } from "../../constants.js";
+import type { WorkRecordResource } from "./schema.js";
 
-/**
- * @param {unknown} scope
- * @param {unknown} workKind
- */
-export function formatWorkRecordScopeLabel(scope, workKind) {
+interface WorkRecordListOptions {
+    includeAll?: boolean;
+}
+
+export function formatWorkRecordScopeLabel(scope: string, workKind?: string): string {
     if (scope === "planned_change" || scope === "feature") return formatPlannedWorkLabel(workKind);
     if (scope === "quick_fix") return "Quick fix";
     if (scope === "epic") return "Epic";
     return String(scope || "unknown");
 }
 
-/** @param {import('./schema.js').WorkRecordResource} record */
-export function isCurrentWorkRecord(record) {
+export function isCurrentWorkRecord(record: WorkRecordResource): boolean {
     return record.attrs.status === "approved" && !record.attrs.archivedAt && !record.attrs.supersededBy;
 }
 
-/**
- * @param {import('./schema.js').WorkRecordResource[]} records
- * @param {{ includeAll?: boolean }} [options]
- */
-export function filterWorkRecordsForList(records, options = {}) {
+export function filterWorkRecordsForList(
+    records: WorkRecordResource[],
+    options: WorkRecordListOptions = {},
+): WorkRecordResource[] {
     const filtered = options.includeAll ? records : records.filter(isCurrentWorkRecord);
     return filtered.sort((a, b) =>
         b.attrs.createdAt.localeCompare(a.attrs.createdAt) || a.title.localeCompare(b.title)
     );
 }
 
-/** @param {import('./schema.js').WorkRecordResource} record */
-export function workRecordNotices(record) {
-    const notices = [];
+export function workRecordNotices(record: WorkRecordResource): string[] {
+    const notices: string[] = [];
     if (record.attrs.completionMode === "closed_without_verification") {
         notices.push("WARNING: RunWield verification was skipped.");
     }
@@ -59,8 +57,7 @@ export function workRecordNotices(record) {
     return notices;
 }
 
-/** @param {import('./schema.js').WorkRecordResource} record */
-export function formatWorkRecordListEntry(record) {
+export function formatWorkRecordListEntry(record: WorkRecordResource): string {
     const sourcePlans = record.attrs.provenance?.sourcePlans || [];
     const evidence = record.attrs.provenance?.evidence || [];
     const lines = [
@@ -80,11 +77,7 @@ export function formatWorkRecordListEntry(record) {
     return lines.join("\n");
 }
 
-/**
- * @param {import('./schema.js').WorkRecordResource[]} records
- * @param {{ includeAll?: boolean }} [options]
- */
-export function formatWorkRecordList(records, options = {}) {
+export function formatWorkRecordList(records: WorkRecordResource[], options: WorkRecordListOptions = {}): string {
     const listed = filterWorkRecordsForList(records, options);
     if (!listed.length) {
         return options.includeAll ? "[RunWield] No Work Records found." : "[RunWield] No current Work Records found.";
