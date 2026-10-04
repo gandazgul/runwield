@@ -3,16 +3,33 @@
  * Small injectable theme registry/controller.
  */
 
-/** @typedef {import('@earendil-works/pi-coding-agent').Theme} ThemeInstance */
+import type { Theme } from "@earendil-works/pi-coding-agent";
 
-/**
- * @param {{ defaultTheme: ThemeInstance, setGlobalTheme: (theme: ThemeInstance) => void, warn?: (message: string) => void }} deps
- */
-export function createThemeRegistry({ defaultTheme, setGlobalTheme, warn = console.warn }) {
-    /** @type {Map<string, ThemeInstance>} */
-    const registeredThemes = new Map();
-    /** @type {Set<() => void>} */
-    const themeChangeListeners = new Set();
+export interface ThemeRegistryDeps {
+    defaultTheme: Theme;
+    setGlobalTheme: (theme: Theme) => void;
+    warn?: (message: string) => void;
+}
+
+export interface ThemeSelectionResult {
+    success: boolean;
+    error?: string;
+}
+
+export interface ThemeRegistry {
+    onChange: (cb: () => void) => () => void;
+    setRegisteredThemes: (themes: Theme[]) => void;
+    setThemeInstance: (themeInstance: Theme) => void;
+    setTheme: (name: string) => ThemeSelectionResult;
+    applyPersistedThemeName: (name: string) => ThemeSelectionResult;
+    getAvailableThemes: () => string[];
+}
+
+export function createThemeRegistry(
+    { defaultTheme, setGlobalTheme, warn = console.warn }: ThemeRegistryDeps,
+): ThemeRegistry {
+    const registeredThemes = new Map<string, Theme>();
+    const themeChangeListeners = new Set<() => void>();
 
     const defaultThemeName = defaultTheme.name;
 
@@ -23,8 +40,7 @@ export function createThemeRegistry({ defaultTheme, setGlobalTheme, warn = conso
 
     resetToDefaultOnly();
 
-    /** @param {ThemeInstance} themeInstance */
-    function notifyGlobalTheme(themeInstance) {
+    function notifyGlobalTheme(themeInstance: Theme): void {
         setGlobalTheme(themeInstance);
         for (const cb of themeChangeListeners) {
             try {
@@ -36,18 +52,13 @@ export function createThemeRegistry({ defaultTheme, setGlobalTheme, warn = conso
         }
     }
 
-    /**
-     * Subscribe to successful theme changes.
-     * @param {() => void} cb
-     * @returns {() => void}
-     */
-    function onChange(cb) {
+    /** Subscribe to successful theme changes. */
+    function onChange(cb: () => void): () => void {
         themeChangeListeners.add(cb);
         return () => themeChangeListeners.delete(cb);
     }
 
-    /** @param {ThemeInstance[]} themes */
-    function setRegisteredThemes(themes) {
+    function setRegisteredThemes(themes: Theme[]): void {
         resetToDefaultOnly();
         for (const theme of themes) {
             if (!theme.name) continue;
@@ -56,16 +67,11 @@ export function createThemeRegistry({ defaultTheme, setGlobalTheme, warn = conso
         }
     }
 
-    /** @param {ThemeInstance} themeInstance */
-    function setThemeInstance(themeInstance) {
+    function setThemeInstance(themeInstance: Theme): void {
         notifyGlobalTheme(themeInstance);
     }
 
-    /**
-     * @param {string} name
-     * @returns {{ success: boolean, error?: string }}
-     */
-    function setTheme(name) {
+    function setTheme(name: string): ThemeSelectionResult {
         const themeInstance = registeredThemes.get(name);
         if (!themeInstance) {
             return { success: false, error: `Theme "${name}" is not registered.` };
@@ -74,11 +80,7 @@ export function createThemeRegistry({ defaultTheme, setGlobalTheme, warn = conso
         return { success: true };
     }
 
-    /**
-     * @param {string} name
-     * @returns {{ success: boolean, error?: string }}
-     */
-    function applyPersistedThemeName(name) {
+    function applyPersistedThemeName(name: string): ThemeSelectionResult {
         const result = setTheme(name);
         if (!result.success) {
             warn(`Persisted theme "${name}" is not available. Keeping current theme.`);
@@ -86,8 +88,7 @@ export function createThemeRegistry({ defaultTheme, setGlobalTheme, warn = conso
         return result;
     }
 
-    /** @returns {string[]} */
-    function getAvailableThemes() {
+    function getAvailableThemes(): string[] {
         return Array.from(registeredThemes.keys()).sort();
     }
 
