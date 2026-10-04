@@ -285,7 +285,7 @@ Whole-directory moves:
   face; everything else drops into `internal/` subdomains.
 - `src/shared/workflow/` (98 files) → split between `src/core/workflow/` (orchestration, routing, decisions, prompts,
   slicing, state transitions) and `src/core/execution/` (plan execution, validation, checkpoints, metrics).
-- `src/shared/worktree*.js`, `worktree-registry.js`, `worktree-test-helpers.js` → `src/core/execution/worktrees/`.
+- `src/shared/worktree*.js`, `worktree-registry.js`, `worktree-test-helpers.ts` → `src/core/execution/worktrees/`.
 - `src/shared/collaboration/` → `src/core/collaboration/`; `src/shared/owner-coordination/` →
   `src/core/collaboration/owner-coordination/`.
 - `src/shared/work-records/` → `src/core/work-records/`.
