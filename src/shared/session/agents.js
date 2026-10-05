@@ -13,7 +13,7 @@ import {
     personalGlobalRoot,
     PersonalResourcePathError,
 } from "../remote/personal-resources.ts";
-import { PROTECTED_TOOL_NAMES, UNIVERSAL_AGENT_TOOL_NAMES } from "../../tools/registry.js";
+import { PROTECTED_TOOL_NAMES, UNIVERSAL_AGENT_TOOL_NAMES } from "../../tools/registry.ts";
 import { normalizeBashAllowedCommands } from "../bash-command-policy.ts";
 
 /** @returns {string | null} */

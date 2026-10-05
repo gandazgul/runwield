@@ -1,6 +1,6 @@
 import { Image, isFocusable, Spacer } from "@earendil-works/pi-tui";
 import { getSettingsManager } from "../../shared/settings.js";
-import { WORKFLOW_TOOL_NAMES } from "../../tools/registry.js";
+import { WORKFLOW_TOOL_NAMES } from "../../tools/registry.ts";
 import { imageTheme } from "../theme/theme.js";
 import {
     AgentMessageBlock,

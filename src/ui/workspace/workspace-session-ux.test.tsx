@@ -830,7 +830,7 @@ Deno.test("review_diff stays collapsed while review_complete is an expanded work
 });
 
 Deno.test("all workflow tools remain expanded outside routine activity, with accepted reports preserved", async () => {
-    const { WORKFLOW_TOOL_NAMES } = await import("../../tools/registry.js");
+    const { WORKFLOW_TOOL_NAMES } = await import("../../tools/registry.ts");
     const { workflowToolMarkdown, SessionTimeline } = await import("./components/SessionTimeline.jsx");
     const { createElement } = await import("react");
     const { renderToStaticMarkup } = await import("react-dom/server");
