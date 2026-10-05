@@ -2,7 +2,7 @@ import { PlanBoardDragDrop } from "../islands/PlanBoardDragDrop.jsx";
 import { BoardColumn } from "./BoardColumn.jsx";
 import { PlanCard } from "./PlanCard.jsx";
 
-export { buildPlanBoardSearchIndex } from "../plan-search.js";
+export { buildPlanBoardSearchIndex } from "../plan-search.ts";
 
 /** @param {{ screen: any, url: URL | string }} props */
 function OrphanRepairSection({ screen, url }) {

@@ -1,10 +1,21 @@
 import { PLAN_SEARCH_QUERY_PARAM } from "../constants.ts";
 import { PlanBoardSearch } from "../islands/PlanBoardSearch.jsx";
-import { buildPlanBoardSearchIndex } from "../plan-search.js";
+import type { PlanSearchScreen } from "../plan-search.ts";
+import { buildPlanBoardSearchIndex } from "../plan-search.ts";
 import { workspaceUrl } from "./PlanCard.jsx";
 
-/** @param {{ board: any, view: "active"|"closed"|"onHold", url: URL | string }} props */
-export function PlanBoardToolbar({ board, view, url }) {
+export type PlanBoardView = "active" | "closed" | "onHold";
+
+export interface PlanBoardToolbarBoard {
+    screens: Record<PlanBoardView, PlanSearchScreen>;
+}
+
+export interface PlanBoardToolbarProps {
+    board: PlanBoardToolbarBoard;
+    view: PlanBoardView;
+    url: URL | string;
+}
+export function PlanBoardToolbar({ board, view, url }: PlanBoardToolbarProps) {
     const currentUrl = workspaceUrl(url);
     const boardId = `status-board-${view}`;
     return (
