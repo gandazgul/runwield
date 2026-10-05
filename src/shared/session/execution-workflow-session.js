@@ -45,8 +45,14 @@ export function recordExecutionWorkflowSnapshot(session) {
         if (!capability) throw new Error("managed_operation_required");
         capability.assertLive();
     }
-    manager.appendCustomEntry?.(EXECUTION_WORKFLOW_CUSTOM_TYPE, {
-        version: 1,
-        workflow: session.getActiveExecutionWorkflow(),
-    });
+    appendExecutionWorkflowSnapshot(manager, session.getActiveExecutionWorkflow());
+}
+
+/**
+ * Append to a transcript while its caller owns the Session writer lock.
+ * @param {import('./hosted-session.js').MinimalSessionManagerLike} manager
+ * @param {import('../types.js').ActiveExecutionWorkflow | null} workflow
+ */
+export function appendExecutionWorkflowSnapshot(manager, workflow) {
+    manager.appendCustomEntry?.(EXECUTION_WORKFLOW_CUSTOM_TYPE, { version: 1, workflow });
 }

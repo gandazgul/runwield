@@ -1,7 +1,7 @@
 import { assertEquals, assertStrictEquals, assertThrows } from "@std/assert";
 import { McpIntegration } from "../mcp/integration.ts";
 import { HostedSession } from "./hosted-session.js";
-import { SessionHost } from "./session-host.js";
+import { SessionHost } from "./session-host.ts";
 
 /**
  * @param {string} id

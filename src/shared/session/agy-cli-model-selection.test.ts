@@ -11,7 +11,7 @@ import {
     installAgyCliMcpSetup,
     resolveInstalledWldExecutable,
 } from "./backends/agy-cli/mcp-setup.ts";
-import { SessionHost } from "./session-host.js";
+import { SessionHost } from "./session-host.ts";
 import { createSessionRuntime, SessionRuntime } from "./session-runtime.ts";
 
 const FIXTURE_MODEL = "runtime-command-fixture/fixture-model";
