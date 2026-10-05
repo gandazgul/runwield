@@ -647,6 +647,9 @@ Plan Engineer and Frontend Engineer always have `record_plan_deviation` during P
 collaboration style or Execution Backend. Availability remains intact after Session restore, compaction, segment
 handoff, and validation repair. The focused Validation Repair Engineer also has this capability. Tool availability does
 not grant authority to write without an active execution Plan and checkout, or after execution pauses or stops.
+Execution ownership is durable from the first execution turn, before any Pair checkpoint. The next writable turn
+restores it automatically under the Session Writer Lock. An explicit clear, pause, or Stop survives restore and
+compaction; missing cached state must not undo those decisions.
 
 **Requirement: Explicit Plan Deviation confirmation and durability.**
 
@@ -664,6 +667,14 @@ preserves work and stops the turn without creating Pair checkpoint state in auto
   available tool asks for explicit confirmation and only acceptance records the replacement.
 - Given a restored or compacted Session, a segment handoff, or a validation repair, the execution or repair Agent still
   has the tool and records an accepted replacement in the active execution Plan.
+- Given execution interrupted before its first checkpoint, resuming the Session records a confirmed replacement in the
+  same execution checkout, not the primary Plan.
+- Given an older Session without an execution snapshot, matching active-branch execution association, persisted Plan
+  context and execution owner, and one active attached worktree with the same Plan ID and an `in_progress` or
+  `implemented` Plan restore writable ownership automatically. A stale primary `ready_for_work` Plan does not block this
+  recovery. Repeated resume does not create another attempt or state entry.
+- Given conflicting Plan IDs, ambiguous worktree evidence, an absent checkout, a finished Plan, a non-execution owner,
+  or explicit execution clear, completion, or Pair Stop evidence, legacy recovery records no replacement.
 - Given a recorded replacement, reload retains it for execution and independent review; retrying the same tool-call ID
   returns the same entry, and the Work Record retains the confirmed deviation.
 - Given canceled confirmation, a changed Plan revision, changed execution context, or stopped execution, no replacement

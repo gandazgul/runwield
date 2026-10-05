@@ -2,6 +2,8 @@ import type { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { HostedSession } from "./hosted-session.js";
 import { readRequestAttemptEntries, type RequestAttemptEntry } from "./request-dispatch.ts";
 import { workflowAttemptKey } from "./task-completion-session.ts";
+import { readExecutionWorkflowSnapshot } from "./execution-workflow-session.js";
+import { readPersistedActiveAgentName } from "./active-agent-session.js";
 
 export const PAIR_CHECKPOINT_CUSTOM_TYPE = "runwield.pair_checkpoint";
 
@@ -60,6 +62,12 @@ type PairClearedEvent = {
 };
 
 type PairCheckpointJournalEvent = PairReportedEvent | PairResolvedEvent | PairClearedEvent;
+
+interface PairLifecycleEntry {
+    type?: string;
+    customType?: string;
+    data?: { state?: string; checkpointId?: string };
+}
 
 type PairCheckpointSessionEntry = {
     type?: string;
@@ -302,9 +310,30 @@ export function pairCheckpointMatchesWorkflow(
 export function restorePairExecutionState(hostedSession: HostedSession): CurrentPairCheckpoint | null {
     const current = readCurrentPairCheckpoint(hostedSession);
     if (!current) return null;
+    const snapshot = readExecutionWorkflowSnapshot(hostedSession.getRootSessionManager());
+    if (snapshot && !snapshot.workflow) return null;
+    if (!snapshot) {
+        const owner = readPersistedActiveAgentName(hostedSession.getRootSessionManager() || undefined);
+        if (owner && !["engineer", "plan-engineer", "frontend-engineer"].includes(owner)) return null;
+        let afterReport = false;
+        for (const entry of getEntries(getSessionManager(hostedSession)) as PairLifecycleEntry[]) {
+            if (entry.type !== "custom") continue;
+            if (
+                entry.customType === PAIR_CHECKPOINT_CUSTOM_TYPE &&
+                entry.data?.state === "reported" && entry.data.checkpointId === current.report.checkpointId
+            ) {
+                afterReport = true;
+            }
+            if (afterReport && entry.customType === "runwield.task_completion" && entry.data?.state === "accepted") {
+                return null;
+            }
+        }
+    }
     const activeWorkflow = hostedSession.getActiveExecutionWorkflow?.();
     if (activeWorkflow && !pairCheckpointMatchesWorkflow(current, activeWorkflow)) return null;
-    hostedSession.setActiveExecutionWorkflow({ ...current.resolution?.workflow || current.report.workflow });
+    if (!snapshot) {
+        hostedSession.setActiveExecutionWorkflow({ ...current.resolution?.workflow || current.report.workflow });
+    }
     return current;
 }
 

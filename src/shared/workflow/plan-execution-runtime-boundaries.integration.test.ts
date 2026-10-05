@@ -641,3 +641,127 @@ Deno.test("autonomous validation repair receives a real Plan Deviation tool", as
         },
     );
 });
+
+interface LegacyCopyEntry {
+    type: string;
+    id: string;
+    parentId?: string | null;
+    customType?: string;
+}
+
+async function copyLegacyTranscript(source: string, projectRoot: string): Promise<SavedSessionInfo> {
+    const manager = SessionManager.create(projectRoot, source.slice(0, source.lastIndexOf("/")));
+    const file = manager.getSessionFile();
+    if (!file) throw new Error("Expected copied transcript path.");
+    const header = manager.getHeader();
+    if (!header) throw new Error("Expected Session header.");
+    const removedParents = new Map<string, string | null>();
+    const copied: LegacyCopyEntry[] = [];
+    for (const line of (await Deno.readTextFile(source)).trim().split("\n")) {
+        const entry = JSON.parse(line) as LegacyCopyEntry;
+        if (entry.type === "session") continue;
+        while (entry.parentId && removedParents.has(entry.parentId)) {
+            entry.parentId = removedParents.get(entry.parentId) || null;
+        }
+        if (["runwield.execution_workflow", "runwield.segment_lineage"].includes(entry.customType || "")) {
+            removedParents.set(entry.id, entry.parentId || null);
+        } else copied.push(entry);
+    }
+    await Deno.writeTextFile(file, [header, ...copied].map((entry) => JSON.stringify(entry)).join("\n") + "\n");
+    return { persistedId: header.id, file };
+}
+
+for (const legacy of [false, true]) {
+    Deno.test(`${legacy ? "legacy" : "restored"} Plan execution records a confirmed deviation before its first checkpoint`, async () => {
+        await withRuntimeCommandFixture(
+            "plan-boundaries-deviation-restore-",
+            async ({ projectRoot, setModelResponseFactories }) => {
+                await initializeGitProject(projectRoot);
+                await saveExecutablePlan(projectRoot, "restored-autonomous");
+                const plan = await loadPlan(projectRoot, "restored-autonomous");
+                if (!plan) throw new Error("Expected Plan.");
+                const evidence = await loadPlanActionEvidence(projectRoot, String(plan.attrs.planId));
+                if (evidence.kind !== "success") throw new Error(evidence.message);
+                const runtime = makeRuntime(new SessionHost());
+                let restored: SessionRuntime | null = null;
+                const sessionId = await runtime.createPromptReadySession({ cwd: projectRoot, agentName: "router" });
+                const toolLists: string[][] = [];
+                const response = (context: TranscriptContext) => {
+                    toolLists.push(getCurrentTools(context.messages).map((tool) => tool.name));
+                    return fauxAssistantMessage(fauxText("Implementation needs more work."));
+                };
+                setModelResponseFactories([
+                    response,
+                    (context: TranscriptContext) => {
+                        toolLists.push(getCurrentTools(context.messages).map((tool) => tool.name));
+                        return fauxAssistantMessage(fauxToolCall("record_plan_deviation", {
+                            supersededRequirement: "Use Pi 0.87.1.",
+                            replacementRequirement: "Use Pi 1.0.0.",
+                        }));
+                    },
+                    () => fauxAssistantMessage(fauxText("Confirmed replacement recorded.")),
+                ]);
+                try {
+                    await runtime.executePlan(sessionId, {
+                        planName: "restored-autonomous",
+                        triageMeta: {
+                            ...plan.attrs,
+                            revision: evidence.evidence.revision,
+                            status: evidence.evidence.status,
+                            worktree: evidence.evidence.worktree,
+                        },
+                    });
+                    let info = await runtime.getSessionInfo(sessionId) as SavedSessionInfo;
+                    await runtime.closeAllSessionsWhenIdle?.();
+                    if (legacy) {
+                        info = await copyLegacyTranscript(info.file, projectRoot);
+                        const legacyManager = SessionManager.open(info.file);
+                        legacyManager.appendCustomEntry("runwield.plan_association", {
+                            planId: String(plan.attrs.planId),
+                            planName: "restored-autonomous",
+                            purpose: "execution",
+                            segmentId: crypto.randomUUID(),
+                            segmentKind: "execution",
+                            recordedAt: new Date().toISOString(),
+                        });
+                    }
+                    restored = makeRuntime(new SessionHost());
+                    const loaded = await restored.loadSession({
+                        cwd: projectRoot,
+                        sessionId: info.persistedId,
+                        sessionPath: info.file,
+                    });
+                    restored.setInteractionAdapter(loaded.sessionId, {
+                        supportsInteraction: (type) => type === "plan_deviation_confirmation",
+                        requestInteraction: () => ({ outcome: "accepted", value: true }),
+                    });
+                    assertEquals(
+                        (await restored.promptUserTurn(loaded.sessionId, { initialRequest: "continue" })).ok,
+                        true,
+                    );
+                    assertEquals(restored.getSessionSnapshot(loaded.sessionId)?.activeAgent, "plan-engineer");
+                    assertEquals(toolLists.length, 2);
+                    for (const tools of toolLists) assertEquals(tools.includes("record_plan_deviation"), true);
+                    const transcript = await Deno.readTextFile(info.file);
+                    assert(
+                        /"decision"\s*:\s*"recorded"/.test(transcript),
+                        "Restored Plan Deviation call must record approval, not return plan_execution_inactive.",
+                    );
+                    const workflow = restored.getRuntimeActiveExecutionWorkflow(loaded.sessionId);
+                    assert(workflow?.executionCwd);
+                    assertEquals(
+                        (await loadPlan(workflow.executionCwd, "restored-autonomous"))?.attrs.planDeviations?.length,
+                        1,
+                    );
+                    assertEquals(
+                        (await loadPlan(projectRoot, "restored-autonomous"))?.attrs.planDeviations?.length || 0,
+                        0,
+                    );
+                } finally {
+                    await restored?.closeAllSessionsWhenIdle?.();
+                    await runtime.closeAllSessionsWhenIdle?.();
+                }
+            },
+        );
+    });
+}

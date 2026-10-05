@@ -94,6 +94,7 @@ import {
 } from "./request-dispatch.ts";
 import { formatProviderModelReference, parseProviderModel } from "../models/model-validation.ts";
 import { readCurrentPairCheckpoint, recordPairCheckpointSnapshot } from "./pair-checkpoint-session.ts";
+import { recordExecutionWorkflowSnapshot } from "./execution-workflow-session.js";
 import { directoryExists, fileExists } from "../helpers.ts";
 import {
     _AGENT_ATTENTION_NUDGES,
@@ -3003,6 +3004,7 @@ export function installPairCheckpointAutoCompactionPreservation(session, hostedS
         const unsubscribe = session.subscribe((event) => {
             if (event.type !== "compaction_end" || !event.result || event.aborted) return;
             if (checkpoint) recordPairCheckpointSnapshot(hostedSession, checkpoint);
+            recordExecutionWorkflowSnapshot(hostedSession);
             if (sessionManager && requestAttempt?.phase === "started") {
                 recordRequestAttemptSnapshot(sessionManager, requestAttempt);
             }
