@@ -1,4 +1,4 @@
-export * from "./schema.js";
+export * from "./schema.ts";
 export * from "./markdown.js";
 export * from "./store.js";
 export * from "./lifecycle.ts";

@@ -31,7 +31,7 @@ import {
  * @property {string[]} notices
  */
 
-/** @param {import('./schema.js').WorkRecordResource} record */
+/** @param {import('./schema.ts').WorkRecordResource} record */
 export function formatHydratedWorkRecord(record) {
     return {
         recordId: record.attrs.recordId,
@@ -51,7 +51,7 @@ export function formatHydratedWorkRecord(record) {
 
 /**
  * @param {WorkRecordAccessMode} accessMode
- * @param {import('./schema.js').WorkRecordResource} record
+ * @param {import('./schema.ts').WorkRecordResource} record
  */
 function canAccessRecord(accessMode, record) {
     return accessMode === "all" || isCurrentWorkRecord(record);
