@@ -14,7 +14,6 @@
     "src/extensions/snip/index.js",
     "src/plan-front-matter.js",
     "src/plan-store.js",
-    "src/review-workspace-server.js",
     "src/shared/collaboration/client.js",
     "src/shared/collaboration/crypto.js",
     "src/shared/collaboration/lock.js",
