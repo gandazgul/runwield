@@ -94,6 +94,7 @@ import {
 } from "./request-dispatch.ts";
 import { formatProviderModelReference, parseProviderModel } from "../models/model-validation.ts";
 import { readCurrentPairCheckpoint, recordPairCheckpointSnapshot } from "./pair-checkpoint-session.ts";
+import { recordExecutionWorkflowSnapshot } from "./execution-workflow-session.js";
 import { directoryExists, fileExists } from "../helpers.ts";
 import {
     _AGENT_ATTENTION_NUDGES,
@@ -119,7 +120,7 @@ import {
     PersonalResourcePathError,
     remotePersonalResourcesActive,
 } from "../remote/personal-resources.ts";
-import { getBundledAgentDefsPath } from "./agent-assets.js";
+import { getBundledAgentDefsPath } from "./agent-assets.ts";
 import { expandSkill, listSkills } from "./skill-catalog.ts";
 import { getPackagePromptTemplatePaths, resolveInstalledPackagePromptResources } from "../package-resources.js";
 import { getWldExtensionPaths, resolveInstalledWldExtensionResources } from "../extensions/wld-extension-manifest.js";
@@ -130,7 +131,7 @@ import { createSessionContextProjection, estimateContextTextTokens } from "./ses
 import { installEarlySteeringInterruption } from "./early-steering.js";
 import { loadSubAgentDefinition } from "./subagent-definitions.ts";
 import { formatGitPromptState, readGitPromptState } from "../git.js";
-import { sanitizeSessionName } from "./session-name.js";
+import { sanitizeSessionName } from "./session-name.ts";
 
 /** @returns {string | null} */
 function homePromptsDir() {
@@ -2084,6 +2085,14 @@ export async function buildAgentSession({
     }
 
     if (
+        tools.includes("record_plan_deviation") && targetHostedSession &&
+        !finalCustomTools.find((tool) => tool.name === "record_plan_deviation")
+    ) {
+        const { createPlanDeviationTool } = await import("../../tools/plan-deviation.ts");
+        finalCustomTools.push(createPlanDeviationTool({ hostedSession: targetHostedSession }));
+    }
+
+    if (
         tools.includes("artifact_written") && targetHostedSession &&
         !finalCustomTools.find((t) => t.name === "artifact_written")
     ) {
@@ -2469,6 +2478,10 @@ export async function composeClaudeCliBridgedTools({
     if (declared.has("plan_written") && hostedSession && !hasTool("plan_written")) {
         const { createPlanWrittenTool } = await import("../../tools/plan-written.ts");
         finalCustomTools.push(createPlanWrittenTool({ triageMeta, agentName, hostedSession }));
+    }
+    if (declared.has("record_plan_deviation") && hostedSession && !hasTool("record_plan_deviation")) {
+        const { createPlanDeviationTool } = await import("../../tools/plan-deviation.ts");
+        finalCustomTools.push(createPlanDeviationTool({ hostedSession }));
     }
     if (declared.has("artifact_written") && hostedSession && !hasTool("artifact_written")) {
         const { createArtifactWrittenTool } = await import("../../tools/artifact-written.ts");
@@ -2991,6 +3004,7 @@ export function installPairCheckpointAutoCompactionPreservation(session, hostedS
         const unsubscribe = session.subscribe((event) => {
             if (event.type !== "compaction_end" || !event.result || event.aborted) return;
             if (checkpoint) recordPairCheckpointSnapshot(hostedSession, checkpoint);
+            recordExecutionWorkflowSnapshot(hostedSession);
             if (sessionManager && requestAttempt?.phase === "started") {
                 recordRequestAttemptSnapshot(sessionManager, requestAttempt);
             }

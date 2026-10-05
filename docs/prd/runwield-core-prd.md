@@ -641,6 +641,46 @@ external action actually requires a command; never substitute internal labels, h
 backup" instruction. Waiting for that action remains part of the open workflow. Do not make repetitive retry clicks the
 normal way to repair RunWield-owned inconsistencies.
 
+**Requirement: Universal Plan Deviation availability.**
+
+Plan Engineer and Frontend Engineer always have `record_plan_deviation` during Plan execution, independent of
+collaboration style or Execution Backend. Availability remains intact after Session restore, compaction, segment
+handoff, and validation repair. The focused Validation Repair Engineer also has this capability. Tool availability does
+not grant authority to write without an active execution Plan and checkout, or after execution pauses or stops.
+Execution ownership is durable from the first execution turn, before any Pair checkpoint. The next writable turn
+restores it automatically under the Session Writer Lock. An explicit clear, pause, or Stop survives restore and
+compaction; missing cached state must not undo those decisions.
+
+**Requirement: Explicit Plan Deviation confirmation and durability.**
+
+An effective Plan requirement changes only after dedicated user confirmation records the exact superseded requirement,
+replacement requirement, and optional reason in the authoritative execution Plan. Confirmed entries survive reload and
+supersede conflicting original text in execution, Semantic Review, and Work Records. Retrying a committed tool-call ID
+returns the saved entry without another write or transcript approval replay. Ordinary feedback and direct Plan-file
+edits are not confirmed deviations. Canceled, unsupported, blocked, or stale confirmation leaves the requirement
+unchanged. A changed execution identity or Plan revision invalidates pending confirmation. Unsupported confirmation
+preserves work and stops the turn without creating Pair checkpoint state in autonomous execution.
+
+**Acceptance scenarios:**
+
+- Given an autonomous or Pair Plan under either execution Agent, when a user requests a conflicting requirement, the
+  available tool asks for explicit confirmation and only acceptance records the replacement.
+- Given a restored or compacted Session, a segment handoff, or a validation repair, the execution or repair Agent still
+  has the tool and records an accepted replacement in the active execution Plan.
+- Given execution interrupted before its first checkpoint, resuming the Session records a confirmed replacement in the
+  same execution checkout, not the primary Plan.
+- Given an older Session without an execution snapshot, matching active-branch execution association, persisted Plan
+  context and execution owner, and one active attached worktree with the same Plan ID and an `in_progress` or
+  `implemented` Plan restore writable ownership automatically. A stale primary `ready_for_work` Plan does not block this
+  recovery. Repeated resume does not create another attempt or state entry.
+- Given conflicting Plan IDs, ambiguous worktree evidence, an absent checkout, a finished Plan, a non-execution owner,
+  or explicit execution clear, completion, or Pair Stop evidence, legacy recovery records no replacement.
+- Given a recorded replacement, reload retains it for execution and independent review; retrying the same tool-call ID
+  returns the same entry, and the Work Record retains the confirmed deviation.
+- Given canceled confirmation, a changed Plan revision, changed execution context, or stopped execution, no replacement
+  is written and the effective requirement remains unchanged.
+- Given an autonomous host without confirmation capability, no deviation is written and no Pair pause state is created.
+
 **Requirement: Validate and deliver approved work without losing recoverable changes.**
 
 Executable Plan work starts only from `ready_for_work`.

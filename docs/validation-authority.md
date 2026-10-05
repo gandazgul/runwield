@@ -32,12 +32,14 @@ The workflow distinguishes these inputs before choosing a lifecycle event:
 
 Error text is for people and diagnostics. It is not a lifecycle discriminator.
 
-A confirmed Plan Deviation is a Plan-definition write, not a validation checkpoint or Plan Amendment gate. It is valid
-only after the dedicated confirmation interaction writes `planDeviations` to the authoritative execution Plan with a
-fresh Plan revision. If execution stops before that write, there is no durable approval and the user must confirm again.
-If execution stops after that write, retrying the same tool call recovers the saved entry by tool-call identity and does
-not replay transcript approval. Semantic Review reloads that Plan and treats the replacement as higher priority than
-conflicting original text. Work Record generation renders the saved entries deterministically.
+Plan Engineer and Frontend Engineer have `record_plan_deviation` in every Plan execution style, including restored
+Sessions and validation repairs. A confirmed Plan Deviation is a Plan-definition write, not a validation checkpoint or
+Plan Amendment gate. It is valid only after the dedicated confirmation interaction writes `planDeviations` to the
+authoritative execution Plan with a fresh Plan revision. If execution stops before that write, there is no durable
+approval and the user must confirm again. If execution stops after that write, retrying the same tool call recovers the
+saved entry by tool-call identity and does not replay transcript approval. Semantic Review reloads that Plan and treats
+the replacement as higher priority than conflicting original text. Work Record generation renders the saved entries
+deterministically.
 
 Every Agent-owned workflow step ends through its accepted completion tool. The validation owner registers its listener
 before dispatch, accepts only events from that invocation, then stops the producer before starting the next phase.

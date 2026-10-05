@@ -5,7 +5,7 @@ import {
     type IsolatedPublicationProgress,
     publishExecutionWorktreeIsolated,
 } from "./isolated-publication.ts";
-import { createTestWorktreeAttempt, git, makeRepo } from "./worktree-test-helpers.js";
+import { createTestWorktreeAttempt, git, makeRepo } from "./worktree-test-helpers.ts";
 import { removeWorktreeGitArtifacts } from "./worktree.js";
 import { RUNWIELD_GITIGNORE_BLOCK } from "./runwield-owned-paths.ts";
 

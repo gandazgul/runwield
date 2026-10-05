@@ -7,29 +7,23 @@ import { dirname, join } from "@std/path";
 import { AGENT_DEFS_DIR, getHomeDir, SKILLS_DIR } from "../../constants.js";
 import { directoryExists, fileExists } from "../helpers.ts";
 
-/** @returns {string | null} */
-function bundledAgentDefsCacheDir() {
+function bundledAgentDefsCacheDir(): string | null {
     const homeDir = getHomeDir();
     return homeDir ? join(homeDir, ".wld", "bundled-agent-definitions") : null;
 }
 
-/** @returns {string | null} */
-function bundledSkillsCacheDir() {
+function bundledSkillsCacheDir(): string | null {
     const homeDir = getHomeDir();
     return homeDir ? join(homeDir, ".wld", "bundled-skills") : null;
 }
 
-/** @type {Promise<string | null> | null} */
-let extractionPromise = null;
+let extractionPromise: Promise<string | null> | null = null;
 
-/** @type {Promise<string | null> | null} */
-let bundledSkillsExtractionPromise = null;
+let bundledSkillsExtractionPromise: Promise<string | null> | null = null;
 
-/** @type {Promise<string> | null} */
-let pathPromise = null;
+let pathPromise: Promise<string> | null = null;
 
-/** @param {string} sourceDir @param {string} destinationDir */
-async function copyTreeFromBundle(sourceDir, destinationDir) {
+async function copyTreeFromBundle(sourceDir: string, destinationDir: string): Promise<void> {
     await Deno.mkdir(destinationDir, { recursive: true });
     const currentEntries = new Set();
     for await (const entry of Deno.readDir(sourceDir)) {
@@ -61,8 +55,7 @@ async function copyTreeFromBundle(sourceDir, destinationDir) {
     }
 }
 
-/** @returns {Promise<string | null>} */
-export function extractBundledAgentDefs() {
+export function extractBundledAgentDefs(): Promise<string | null> {
     if (extractionPromise) return extractionPromise;
     extractionPromise = (async () => {
         const cacheDir = bundledAgentDefsCacheDir();
@@ -77,8 +70,7 @@ export function extractBundledAgentDefs() {
     return extractionPromise;
 }
 
-/** @returns {Promise<string | null>} */
-export function extractBundledSkills() {
+export function extractBundledSkills(): Promise<string | null> {
     if (bundledSkillsExtractionPromise) return bundledSkillsExtractionPromise;
     bundledSkillsExtractionPromise = (async () => {
         const cacheDir = bundledSkillsCacheDir();
@@ -93,21 +85,18 @@ export function extractBundledSkills() {
     return bundledSkillsExtractionPromise;
 }
 
-/** @returns {Promise<string>} */
-export function getBundledAgentDefsPath() {
+export function getBundledAgentDefsPath(): Promise<string> {
     if (!pathPromise) {
         pathPromise = extractBundledAgentDefs().then((extracted) => extracted ?? AGENT_DEFS_DIR);
     }
     return pathPromise;
 }
 
-/** @param {number} ms */
-function delay(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+function delay(ms: number): Promise<void> {
+    return new Promise<void>((resolve) => setTimeout(resolve, ms));
 }
 
-/** @param {string} relativePath @returns {Promise<string>} */
-export async function ensureBundledAgentDefFile(relativePath) {
+export async function ensureBundledAgentDefFile(relativePath: string): Promise<string> {
     const sourcePath = join(AGENT_DEFS_DIR, relativePath);
     if (await fileExists(sourcePath)) return sourcePath;
 
@@ -115,8 +104,7 @@ export async function ensureBundledAgentDefFile(relativePath) {
     const targetPath = join(bundledDir, relativePath);
     if (await fileExists(targetPath)) return targetPath;
 
-    /** @type {unknown} */
-    let lastError;
+    let lastError: Error | string | undefined;
     for (let attempt = 0; attempt < 5; attempt += 1) {
         try {
             const bytes = await Deno.readFile(sourcePath);
@@ -125,7 +113,7 @@ export async function ensureBundledAgentDefFile(relativePath) {
             return targetPath;
         } catch (error) {
             if (await fileExists(targetPath)) return targetPath;
-            lastError = error;
+            lastError = error instanceof Error ? error : String(error);
             if (!(error instanceof Deno.errors.NotFound || error instanceof Deno.errors.AlreadyExists)) break;
             await delay(20 * (attempt + 1));
         }

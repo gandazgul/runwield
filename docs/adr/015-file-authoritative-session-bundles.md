@@ -54,6 +54,30 @@ lock and compare the current transcript with the last committed or activation-ba
 Generation and rollover proofs still fence stale in-process work. The OS lock, not a database row or timeout, prevents
 simultaneous writers.
 
+### Execution ownership belongs in the transcript
+
+The active branch carries a versioned execution workflow snapshot from the first execution turn, not only after a Pair
+checkpoint. State transitions write snapshots; release writes an explicit null tombstone. Pause and Stop remain state,
+not absence. The writable operation restores this evidence after transcript hydration and before root Agent activation,
+under the existing writer lock. Segment rollover and manual or automatic compaction preserve the latest snapshot,
+including the tombstone. A newer snapshot takes precedence over an older Pair checkpoint, while the Pair journal
+continues to supply checkpoint context and assent evidence.
+
+Older transcripts without a snapshot can recover from matching active-branch typed execution association and persisted
+Plan context, with a persisted Plan execution owner. Recovery requires exactly one matching registry entry, active
+status, its attached Git worktree and branch, and an execution checkout Plan with the same Plan ID and `in_progress` or
+`implemented` status. The primary Plan may still say `ready_for_work`; the execution checkout is authoritative here. The
+checkout's execution policy owner must match the persisted Agent. An existing Pair journal takes precedence over legacy
+inference and retains its selected style, checkpoint count, and pause state. Without that journal, legacy recovery uses
+the checkout's collaboration recommendation. A successful recovery writes a snapshot once; subsequent hydration reads it
+without appending another recovery entry.
+
+Name-only lookup or the latest planning association is excluded: neither proves execution ownership. Wrong IDs,
+ambiguous or missing worktrees, finished Plans, a later non-execution owner, terminal task-completion evidence, and
+explicit Pair clear or Stop evidence do not grant legacy writable ownership. An explicit snapshot clear also forbids
+Pair or legacy fallback. This keeps repair in the shared writable runtime rather than making individual tools guess
+which Plan they may mutate. It requires no additional lock, database authority, or replay of external work.
+
 ### Archive state follows the same authority and lock
 
 Archive state belongs in the file-authoritative manifest, not Workspace SQLite or an ACP mapping. This keeps one

@@ -7,6 +7,7 @@ import type { ManagedSessionMetadata } from "./hosted-session.js";
 import { createRootSessionManager, resolveCreatedRootSessionPath } from "./root-session.js";
 import { captureTranscriptEvidence, syncTranscriptFileAndParent } from "./session-transcript-projection.js";
 import { recordPendingSegmentContinuation, recordSegmentLineageEvidence } from "./workflow-context-session.js";
+import { appendExecutionWorkflowSnapshot } from "./execution-workflow-session.js";
 import { recordTutorialContext } from "./tutorial-context-session.ts";
 import type { SegmentHandoffPayload } from "../workflow/execution-segment-handoff.ts";
 
@@ -16,6 +17,7 @@ type RuntimeSessionManager = import("./hosted-session.js").MinimalSessionManager
 type HostedManagedSession = {
     cwd: string;
     getManagedMetadata: () => ManagedSessionMetadata | null;
+    getActiveExecutionWorkflow: () => import("../types.js").ActiveExecutionWorkflow | null;
     getTutorialContext: () => import("./tutorial-context-session.ts").TutorialContext | null;
     getRootSessionManager: () => RuntimeSessionManager | null;
     dehydrateManagedSession: () => void;
@@ -79,6 +81,7 @@ export async function rollSessionTranscriptSegment(
 
     const transcriptCwd = options.transcriptCwd || options.hostedSession.cwd;
     const tutorialContext = options.hostedSession.getTutorialContext();
+    const workflow = options.hostedSession.getActiveExecutionWorkflow();
 
     let proof = options.ownerCoordinationStore.acquireSessionActivation({
         runwieldSessionId: managed.runwieldSessionId,
@@ -117,6 +120,7 @@ export async function rollSessionTranscriptSegment(
             kind: options.kind,
         });
         recordPendingSegmentContinuation(successorManager, options.continuation);
+        appendExecutionWorkflowSnapshot(successorManager, workflow);
         recordTutorialContext(successorManager, tutorialContext);
         await disposeManager(successorManager as { dispose?: () => void | Promise<void> });
         await syncTranscriptFileAndParent(successorTranscriptPath);

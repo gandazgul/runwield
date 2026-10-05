@@ -3,18 +3,17 @@
 import { DatabaseSync } from "node:sqlite";
 import { REMOTE_SCHEMA_V1_SQL, REMOTE_SCHEMA_V2_SQL, REMOTE_SCHEMA_VERSION } from "./remote-schema.ts";
 
-/**
- * @typedef {Object} RemoteDatabase
- * @property {DatabaseSync} handle
- * @property {() => void} close
- * @property {<T>(callback: () => T) => T} transaction
- */
+export interface RemoteDatabase {
+    handle: DatabaseSync;
+    close(): void;
+    transaction<T>(callback: () => T): T;
+}
 
-/**
- * @param {{ dbPath?: string }} [options]
- * @returns {RemoteDatabase}
- */
-export function openRemoteDatabase(options = {}) {
+export interface OpenRemoteDatabaseOptions {
+    dbPath?: string;
+}
+
+export function openRemoteDatabase(options: OpenRemoteDatabaseOptions = {}): RemoteDatabase {
     const db = new DatabaseSync(options.dbPath ?? ":memory:");
     db.exec("PRAGMA foreign_keys = ON");
     if (options.dbPath && options.dbPath !== ":memory:") db.exec("PRAGMA journal_mode = WAL");
@@ -36,8 +35,7 @@ export function openRemoteDatabase(options = {}) {
     };
 }
 
-/** @param {DatabaseSync} db */
-export function runRemoteMigrations(db) {
+export function runRemoteMigrations(db: DatabaseSync): void {
     db.exec("BEGIN IMMEDIATE");
     try {
         db.exec(REMOTE_SCHEMA_V1_SQL);
@@ -59,14 +57,12 @@ export function runRemoteMigrations(db) {
     }
 }
 
-/** @param {DatabaseSync} db */
-function getLatestSchemaVersion(db) {
+function getLatestSchemaVersion(db: DatabaseSync): number {
     const row = db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get();
     return Number(row?.version ?? 0);
 }
 
-/** @param {DatabaseSync} db @param {number} version */
-function recordMigration(db, version) {
+function recordMigration(db: DatabaseSync, version: number): void {
     const row = db.prepare("SELECT version FROM schema_migrations WHERE version = ?").get(version);
     if (row) return;
     db.prepare("INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)").run(

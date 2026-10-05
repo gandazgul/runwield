@@ -1,6 +1,6 @@
 /** @module shared/collaboration/urls */
 
-import { assertCapabilityScope, redactSecrets } from "./capabilities.js";
+import { assertCapabilityScope, type CapabilityScope, redactSecrets } from "./capabilities.ts";
 import { assertNonEmptyString } from "./protocol.js";
 
 export interface CollaborationUrlInput {
@@ -8,7 +8,7 @@ export interface CollaborationUrlInput {
     spaceId: string;
     contentKey: string;
     bearerCapability: string;
-    role: "reviewer" | "maintainer";
+    role: CapabilityScope;
 }
 
 export interface CollaborationUrlParts extends CollaborationUrlInput {

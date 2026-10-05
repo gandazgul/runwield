@@ -2,7 +2,7 @@ import { validateSequenceReviewDecision } from "../../../../shared/workflow/sequ
 /** Review decision transport for Workspace-hosted review surfaces. */
 
 import { normalizePlanClassification } from "../../../../constants.js";
-import { readPlanApprovalAction } from "../../../../shared/workflow/plan-approval.js";
+import { readPlanApprovalAction } from "../../../../shared/workflow/plan-approval.ts";
 import { normalizeCollaborationMode, normalizeExecutionAgent } from "../../../../plan-store.js";
 
 /**

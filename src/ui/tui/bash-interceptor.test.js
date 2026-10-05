@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import { handleBashCommand } from "./bash-interceptor.js";
+import { handleBashCommand } from "./bash-interceptor.ts";
 
 /**
  * @param {string} userRequest

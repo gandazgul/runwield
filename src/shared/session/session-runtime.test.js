@@ -1023,6 +1023,7 @@ async function exerciseRepairCompactionFollowUp(disconnect) {
                 assertEquals(deliveries, 1);
                 assertStringIncludes(promptText, "Summarize remaining repair work.");
                 assertStringIncludes(promptText, blockerNeedle);
+                assertEquals(runtime.getSessionSnapshot(adopted.sessionId)?.activeAgent, "reviewer-feedback-engineer");
                 assertEquals(runtime.getSessionSnapshot(adopted.sessionId)?.cwd, worktreeRoot);
                 assert((runtime.getSessionSnapshot(adopted.sessionId)?.managed?.generation || 0) >= 2);
             } finally {
@@ -1054,6 +1055,10 @@ async function exerciseRepairCompactionFollowUp(disconnect) {
                 });
                 assertEquals(result.ok, true);
                 assertEquals(deliveries, 2);
+                assertEquals(
+                    reloadedRuntime.getSessionSnapshot(loaded.sessionId)?.activeAgent,
+                    "reviewer-feedback-engineer",
+                );
                 assertStringIncludes(promptText, "Continue after disposal.");
                 assertStringIncludes(promptText, blockerNeedle);
                 assertEquals(
@@ -2173,7 +2178,8 @@ Deno.test("SessionRuntime routes execution continuation input to the resolved Pl
     assertEquals(result.ok, true);
     // The workflow still records `engineer`; the user talks to Plan Engineer.
     assertEquals(runtime.getSessionSnapshot(sessionId)?.activeAgent, "plan-engineer");
-    assertEquals(changedAgents, ["planner", "plan-engineer"]);
+    // Restore activates the owner directly, without an intermediate stale Planner activation.
+    assertEquals(changedAgents, ["plan-engineer"]);
 });
 
 Deno.test("SessionRuntime keeps the next Epic decomposition reply with Slicer", async () => {

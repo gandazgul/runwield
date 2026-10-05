@@ -108,7 +108,7 @@ export function recordActiveAgent(sessionManager, agentName, displayName) {
 }
 
 /**
- * @param {SessionEntryReader | undefined} sessionManager
+ * @param {SessionEntryReader | null | undefined} sessionManager
  * @returns {string | null}
  */
 export function readPersistedActiveAgentName(sessionManager) {
@@ -172,7 +172,7 @@ export async function resolveResumeAgentName(sessionManager) {
 }
 
 /**
- * @param {SessionEntryReader | undefined} sessionManager
+ * @param {SessionEntryReader | null | undefined} sessionManager
  * @returns {unknown[]}
  */
 function getSessionEntries(sessionManager) {

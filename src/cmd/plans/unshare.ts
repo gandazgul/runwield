@@ -6,7 +6,7 @@
 import { parseArgs } from "@std/cli/parse-args";
 import { CLI_BIN, getCwd } from "../../constants.js";
 import { clearPlanCollaborationMetadata, listPlanResources } from "../../plan-store.js";
-import { redactSecrets } from "../../shared/collaboration/capabilities.js";
+import { redactSecrets } from "../../shared/collaboration/capabilities.ts";
 import {
     CollaborationApiError,
     createCollaborationClient,

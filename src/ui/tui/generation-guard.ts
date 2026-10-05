@@ -8,17 +8,16 @@
  * or superseded operation cannot leak output into the UI.
  */
 
-/**
- * @typedef {Object} GenerationGuard
- * @property {() => number} bump - Start a new generation; returns its id.
- * @property {(gen: number) => boolean} isCurrent - True iff `gen` is still the active generation.
- * @property {() => void} invalidateAll - Bump without exposing the new id (used on Esc to cancel everything in-flight).
- */
+export interface GenerationGuard {
+    /** Start a new generation; returns its id. */
+    bump: () => number;
+    /** True iff `gen` is still the active generation. */
+    isCurrent: (gen: number) => boolean;
+    /** Bump without exposing the new id (used on Esc to cancel everything in-flight). */
+    invalidateAll: () => void;
+}
 
-/**
- * @returns {GenerationGuard}
- */
-export function createGenerationGuard() {
+export function createGenerationGuard(): GenerationGuard {
     let operationGeneration = 0;
 
     return {

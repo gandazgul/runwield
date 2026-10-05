@@ -7,7 +7,7 @@
 import { extractYaml } from "@std/front-matter";
 import { join } from "@std/path";
 import { AGENT_DEFS_DIR, AGENTS, SUBAGENTS } from "../../constants.js";
-import { ensureBundledAgentDefFile } from "./agent-assets.js";
+import { ensureBundledAgentDefFile } from "./agent-assets.ts";
 import { composeSharedPracticePrompt, loadAgentDefFromPath } from "./agents.js";
 import type { AgentDefinition } from "./types.js";
 import { normalizeBashAllowedCommands } from "../bash-command-policy.ts";
