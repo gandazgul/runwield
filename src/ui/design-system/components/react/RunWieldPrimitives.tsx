@@ -2,18 +2,58 @@ import React from "react";
 import { RunWieldIconButton } from "./RunWieldIconButton.tsx";
 import * as Tabs from "@radix-ui/react-tabs";
 
-/**
- * @param {Array<string | undefined | false | null>} parts
- * @returns {string}
- */
-function classNames(parts) {
+import type { AnchorHTMLAttributes, ButtonHTMLAttributes, HTMLAttributes, ReactNode } from "react";
+
+export type RunWieldActionVariant = "primary" | "secondary" | "danger";
+
+export interface RunWieldButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+    variant?: RunWieldActionVariant;
+}
+
+export interface RunWieldLinkProps extends AnchorHTMLAttributes<HTMLAnchorElement> {
+    variant?: RunWieldActionVariant;
+}
+
+export interface RunWieldCardProps extends HTMLAttributes<HTMLElement> {
+    class?: string;
+}
+
+export interface RunWieldPanelToggleProps {
+    side: "left" | "right";
+    collapsed: boolean;
+    label: string;
+    controls: string;
+    onClick: () => void;
+}
+
+export interface RunWieldThinkingDotsProps {
+    label?: string;
+    className?: string;
+    showLabel?: boolean;
+}
+
+export interface RunWieldTab {
+    value: string;
+    label: string;
+    children: ReactNode;
+}
+
+export interface RunWieldTabsProps {
+    defaultValue: string;
+    tabs: RunWieldTab[];
+    value?: string;
+    onValueChange?: (value: string) => void;
+    keepMounted?: boolean;
+    label?: string;
+}
+
+type ClassNamePart = string | undefined | false | null;
+
+function classNames(parts: ClassNamePart[]) {
     return parts.filter(Boolean).join(" ");
 }
 
-/**
- * @param {{ variant?: "primary" | "secondary" | "danger", className?: string, children?: any, [key: string]: any }} props
- */
-export function RunWieldButton({ variant = "secondary", className, children, ...props }) {
+export function RunWieldButton({ variant = "secondary", className, children, ...props }: RunWieldButtonProps) {
     const variantClass = variant === "primary"
         ? "primary-action"
         : variant === "danger"
@@ -26,16 +66,7 @@ export function RunWieldButton({ variant = "secondary", className, children, ...
     );
 }
 
-/**
- * @typedef {Object} RunWieldPanelToggleProps
- * @property {"left" | "right"} side
- * @property {boolean} collapsed
- * @property {string} label
- * @property {string} controls
- * @property {() => void} onClick
- * @param {RunWieldPanelToggleProps} props
- */
-export function RunWieldPanelToggle({ side, collapsed, label, controls, onClick }) {
+export function RunWieldPanelToggle({ side, collapsed, label, controls, onClick }: RunWieldPanelToggleProps) {
     const pointsLeft = (side === "left") !== collapsed;
     const title = `${collapsed ? "Show" : "Collapse"} ${label}`;
     return (
@@ -63,10 +94,8 @@ export function RunWieldPanelToggle({ side, collapsed, label, controls, onClick 
 /**
  * Use this for links that should look like RunWield actions. Navigation remains
  * an anchor, so browser affordances and accessibility semantics stay intact.
- *
- * @param {{ variant?: "primary" | "secondary" | "danger", className?: string, children?: any, [key: string]: any }} props
  */
-export function RunWieldLink({ variant = "secondary", className, children, ...props }) {
+export function RunWieldLink({ variant = "secondary", className, children, ...props }: RunWieldLinkProps) {
     const variantClass = variant === "primary"
         ? "primary-action"
         : variant === "danger"
@@ -75,21 +104,11 @@ export function RunWieldLink({ variant = "secondary", className, children, ...pr
     return React.createElement("a", { ...props, className: classNames([variantClass, className]) }, children);
 }
 
-/**
- * @param {{ className?: string, children?: any, [key: string]: any }} props
- */
-export function RunWieldCard({ className, children, ...props }) {
+export function RunWieldCard({ className, children, ...props }: RunWieldCardProps) {
     return React.createElement("article", { ...props, className: classNames(["plan-card", className]) }, children);
 }
 
-/**
- * @typedef {Object} RunWieldThinkingDotsProps
- * @property {string} [label]
- * @property {string} [className]
- * @property {boolean} [showLabel]
- * @param {RunWieldThinkingDotsProps} props
- */
-export function RunWieldThinkingDots({ label = "Thinking", className, showLabel = true }) {
+export function RunWieldThinkingDots({ label = "Thinking", className, showLabel = true }: RunWieldThinkingDotsProps) {
     return (
         <span className={classNames(["rw-thinking-dots", className])} role="status" aria-label={label}>
             <span className="rw-thinking-glyph" aria-hidden="true" />
@@ -98,22 +117,8 @@ export function RunWieldThinkingDots({ label = "Thinking", className, showLabel 
     );
 }
 
-/**
- * @typedef {Object} RunWieldTab
- * @property {string} value
- * @property {string} label
- * @property {import('react').ReactNode} children
- * @typedef {Object} RunWieldTabsProps
- * @property {string} defaultValue
- * @property {RunWieldTab[]} tabs
- * @property {string} [value]
- * @property {(value: string) => void} [onValueChange]
- * @property {boolean} [keepMounted]
- * @property {string} [label]
- * @param {RunWieldTabsProps} props
- */
 export function RunWieldTabs(
-    { defaultValue, tabs, value, onValueChange, keepMounted = false, label = "Review sections" },
+    { defaultValue, tabs, value, onValueChange, keepMounted = false, label = "Review sections" }: RunWieldTabsProps,
 ) {
     return React.createElement(
         Tabs.Root,
