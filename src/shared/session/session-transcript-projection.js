@@ -1035,7 +1035,7 @@ export function buildProjectedSessionInfo(entries, options) {
 
 /**
  * @param {unknown[]} entries
- * @returns {import('./session-context-report.js').SessionContextProjection}
+ * @returns {import('./session-context-report.ts').SessionContextProjection}
  */
 export function buildProjectedSessionContextProjection(entries) {
     let tokens = 0;
@@ -1046,7 +1046,7 @@ export function buildProjectedSessionContextProjection(entries) {
     }
     const categories = tokens > 0
         ? [{
-            id: /** @type {import('./session-context-report.js').ContextCategoryId} */ ("conversation_overhead"),
+            id: /** @type {import('./session-context-report.ts').ContextCategoryId} */ ("conversation_overhead"),
             label: "Committed conversation",
             tokens,
             items: [],

@@ -3,7 +3,7 @@ import {
     buildSessionContextReport,
     createSessionContextProjection,
     estimateContextTextTokens,
-} from "./session-context-report.js";
+} from "./session-context-report.ts";
 
 function makeProjection() {
     return createSessionContextProjection([

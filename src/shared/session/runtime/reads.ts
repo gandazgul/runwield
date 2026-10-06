@@ -29,7 +29,7 @@ import {
 } from ".././session-transcript-projection.js";
 import { projectAggregateTranscript } from ".././session-transcript-manifest.ts";
 import { listRecentResumableSessions } from ".././session-resume-list.ts";
-import { buildSessionContextReport } from ".././session-context-report.js";
+import { buildSessionContextReport } from ".././session-context-report.ts";
 import { deriveWorkflowContextFromExecutionWorkflow } from ".././workflow-context-session.js";
 import { dirname, isAbsolute } from "@std/path";
 
