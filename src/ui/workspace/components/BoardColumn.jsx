@@ -1,5 +1,5 @@
 import { EpicCard } from "./EpicCard.tsx";
-import { PlanCard } from "./PlanCard.jsx";
+import { PlanCard } from "./PlanCard.tsx";
 
 /** @param {{ column: any, url: URL | string, draggableCards?: boolean }} props */
 export function BoardColumn({ column, url, draggableCards = true }) {

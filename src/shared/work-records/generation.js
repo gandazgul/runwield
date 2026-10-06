@@ -55,7 +55,7 @@ const USER_VERIFIED_TEXT = "The user attested verification; RunWield Workflow Va
  * @property {string} [executionReport]
  * @property {WorkRecordSource[]} [children]
  * @property {string} [skipReason]
- * @property {import('./schema.js').WorkRecordResource} [existingRecord]
+ * @property {import('./schema.ts').WorkRecordResource} [existingRecord]
  */
 
 /**
@@ -65,7 +65,7 @@ const USER_VERIFIED_TEXT = "The user attested verification; RunWield Workflow Va
  * @property {string} [deviationsFromPlan]
  * @property {string} [deferredWork]
  * @property {string} [futurePlanningNotes]
- * @property {import('./schema.js').WorkRecordSupersessionCandidate[]} [supersessionProposals]
+ * @property {import('./schema.ts').WorkRecordSupersessionCandidate[]} [supersessionProposals]
  */
 
 /**
@@ -85,7 +85,7 @@ const USER_VERIFIED_TEXT = "The user attested verification; RunWield Workflow Va
  * @property {WorkRecordSource[]} sources
  * @property {WorkRecordSource[]} eligible
  * @property {WorkRecordSource[]} skipped
- * @property {Array<{ source: WorkRecordSource, status: "generated"|"linked"|"failed", recordId?: string, path?: string, error?: string, indexWarning?: string, supersessionProposals?: import('./schema.js').WorkRecordSupersessionCandidate[] }>} outcomes
+ * @property {Array<{ source: WorkRecordSource, status: "generated"|"linked"|"failed", recordId?: string, path?: string, error?: string, indexWarning?: string, supersessionProposals?: import('./schema.ts').WorkRecordSupersessionCandidate[] }>} outcomes
  */
 
 /** @param {Date} date */
@@ -134,7 +134,7 @@ function parseJsonObjectFromText(text) {
 
 /**
  * @param {unknown} value
- * @returns {import('./schema.js').WorkRecordSupersessionCandidate[] | undefined}
+ * @returns {import('./schema.ts').WorkRecordSupersessionCandidate[] | undefined}
  */
 function normalizeSupersessionProposals(value) {
     if (value === undefined) return undefined;
@@ -222,9 +222,9 @@ export function deriveWorkRecordScope(source) {
     return "";
 }
 
-/** @param {import('./schema.js').WorkRecordResource[]} records */
+/** @param {import('./schema.ts').WorkRecordResource[]} records */
 export function recordsBySourcePlanId(records) {
-    /** @type {Map<string, import('./schema.js').WorkRecordResource[]>} */
+    /** @type {Map<string, import('./schema.ts').WorkRecordResource[]>} */
     const map = new Map();
     for (const record of records) {
         for (const planId of record.attrs.provenance?.sourcePlans || []) {
@@ -238,7 +238,7 @@ export function recordsBySourcePlanId(records) {
 
 /**
  * @param {WorkRecordSource} source
- * @param {Map<string, import('./schema.js').WorkRecordResource[]>} existingByPlanId
+ * @param {Map<string, import('./schema.ts').WorkRecordResource[]>} existingByPlanId
  */
 function findLinkableExistingRecord(source, existingByPlanId) {
     const candidates = source.planId ? existingByPlanId.get(source.planId) || [] : [];
@@ -254,7 +254,7 @@ function findLinkableExistingRecord(source, existingByPlanId) {
 
 /**
  * @param {WorkRecordSource} source
- * @param {Map<string, import('./schema.js').WorkRecordResource[]>} existingByPlanId
+ * @param {Map<string, import('./schema.ts').WorkRecordResource[]>} existingByPlanId
  * @returns {WorkRecordSource}
  */
 export function evaluateWorkRecordSource(source, existingByPlanId = new Map()) {
@@ -467,7 +467,7 @@ async function validateDeclaredSupersession(cwd, successorRecordId, predecessorR
  * still valid candidates because the recorded reason supplies their status context.
  * @param {string} cwd
  * @param {string} successorRecordId
- * @param {import('./schema.js').WorkRecordSupersessionCandidate[]} candidates
+ * @param {import('./schema.ts').WorkRecordSupersessionCandidate[]} candidates
  */
 async function validateRecorderProposals(cwd, successorRecordId, candidates) {
     if (!candidates.length) return [];
@@ -705,7 +705,7 @@ function buildBody(source, sections) {
 /**
  * @param {string} cwd
  * @param {WorkRecordSource} source
- * @param {import('./schema.js').WorkRecordResource} record
+ * @param {import('./schema.ts').WorkRecordResource} record
  * @param {Date} now
  */
 async function linkSourceToRecord(cwd, source, record, now) {
@@ -721,7 +721,7 @@ async function linkSourceToRecord(cwd, source, record, now) {
 
 /**
  * @param {string} cwd
- * @param {import('./schema.js').WorkRecordResource} record
+ * @param {import('./schema.ts').WorkRecordResource} record
  * @param {WorkRecordGenerationOptions} options
  */
 async function bestEffortSyncGeneratedRecord(cwd, record, options) {
@@ -757,7 +757,7 @@ async function recordGenerationFailure(cwd, source, now, error) {
     }
 }
 
-/** @param {import('./schema.js').WorkRecordResource} record */
+/** @param {import('./schema.ts').WorkRecordResource} record */
 function pendingSupersessionCandidates(record) {
     return record.attrs.supersessionProposal?.candidates || [];
 }
@@ -814,7 +814,7 @@ export async function generateWorkRecordForSource(cwd, inputSource, options) {
             !declaredIdentities.has(candidate.recordId.toLowerCase())
         );
         const supersessionProposals = await validateRecorderProposals(cwd, recordId, undeclaredProposals);
-        /** @type {import('./schema.js').WorkRecordFrontMatter} */
+        /** @type {import('./schema.ts').WorkRecordFrontMatter} */
         const attrs = {
             kind: "work_record",
             recordId,

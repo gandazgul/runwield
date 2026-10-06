@@ -1,7 +1,6 @@
 import { renderRunWieldThemeCss } from "../../design-system/theme-bridge.ts";
 
-/** @returns {Response} */
-export const GET = () => {
+export const GET = (): Response => {
     const css = renderRunWieldThemeCss();
     return new Response(css, {
         headers: {

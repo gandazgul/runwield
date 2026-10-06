@@ -28,7 +28,7 @@ import {
 import { archivePlan, loadArchivedPlan, loadPlan, savePlan } from "../../plan-store.js";
 import { createWorkRecordMnemotecaFixture } from "./test-fixtures/mnemoteca-port.ts";
 
-/** @type {import('./schema.js').WorkRecordFrontMatter} */
+/** @type {import('./schema.ts').WorkRecordFrontMatter} */
 const INTERNAL_ATTRS = {
     kind: "work_record",
     recordId: "11111111-1111-4111-8111-111111111111",

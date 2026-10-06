@@ -1,20 +1,38 @@
-/**
- * @typedef {Object} SessionAvailabilityInput
- * @property {string | null | undefined} [state]
- * @property {string | null | undefined} [activeSurface]
- * @property {boolean} [bootstrapRequired]
- * @property {number | null | undefined} [generation]
- * @property {{ activeAgent?: string | null, workflowContext?: unknown, activeExecutionWorkflow?: unknown }} [snapshot]
- * @property {boolean} [timelineComplete]
- * @property {boolean} [localOperationActive]
- * @property {boolean} [truncated]
- */
+import type { ActiveExecutionWorkflow } from "../../../shared/types.js";
+import type { WorkflowContext } from "../../../shared/session/workflow-context-session.js";
 
-/**
- * @param {SessionAvailabilityInput} input
- * @returns {{ key: string, label: string, explanation: string, intent: "success" | "warning" | "danger" | "info", canPrepare: boolean, canContinue: boolean }}
- */
-export function deriveSessionAvailability(input) {
+export interface SessionAvailabilitySnapshot {
+    activeAgent?: string | null;
+    workflowContext?: WorkflowContext | null;
+    activeExecutionWorkflow?: Partial<ActiveExecutionWorkflow> | null;
+}
+
+export interface SessionAvailabilityInput {
+    state?: string | null;
+    activeSurface?: string | null;
+    bootstrapRequired?: boolean;
+    generation?: number | null;
+    snapshot?: SessionAvailabilitySnapshot | null;
+    timelineComplete?: boolean;
+    localOperationActive?: boolean;
+    truncated?: boolean;
+}
+
+export interface SessionAvailability {
+    key: string;
+    label: string;
+    explanation: string;
+    intent: "success" | "warning" | "danger" | "info";
+    canPrepare: boolean;
+    canContinue: boolean;
+}
+
+export interface SessionActivationStatusProps {
+    availability: SessionAvailability;
+    compact?: boolean;
+}
+
+export function deriveSessionAvailability(input: SessionAvailabilityInput): SessionAvailability {
     if (input.localOperationActive) {
         return {
             key: "workspace-running",
@@ -86,8 +104,7 @@ export function deriveSessionAvailability(input) {
     };
 }
 
-/** @param {{ availability: ReturnType<typeof deriveSessionAvailability>, compact?: boolean }} props */
-export function SessionActivationStatus({ availability, compact = false }) {
+export function SessionActivationStatus({ availability, compact = false }: SessionActivationStatusProps) {
     return (
         <section
             className={`session-activation-status intent-${availability.intent}`}

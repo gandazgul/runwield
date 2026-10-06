@@ -71,6 +71,10 @@ rather than treating fixtures as live acceptance. See
 
 ## Completed implementation checks
 
+- [x] Discover Codex on PATH first, then in the known macOS ChatGPT app bundle under user/system Applications. Keep
+      discovery read-only and fail clearly when unavailable; do not install software or retry generation with another
+      executable. Verified app discovery and `--version` with a restricted terminal-style PATH on 2026-10-05, plus
+      fixture coverage of PATH precedence, invalid candidates, app-backed generation and inaccessible installations.
 - [x] Preserve the custom setting through SettingsManager writes; resolve layers, preset overrides, explicit disable,
       model changes and misspelled fields.
 - [x] Exercise the real Pi OpenRouter adapter against a local HTTP server, including exact reference bytes, reasoning,

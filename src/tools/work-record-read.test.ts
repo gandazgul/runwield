@@ -1,7 +1,7 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import type { ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import { writeWorkRecord } from "../shared/work-records/index.ts";
-import type { WorkRecordFrontMatter } from "../shared/work-records/schema.js";
+import type { WorkRecordFrontMatter } from "../shared/work-records/schema.ts";
 import { createWorkRecordReadTool } from "./work-record-read.ts";
 
 const RECORD_ID = "11111111-1111-4111-8111-111111111111";

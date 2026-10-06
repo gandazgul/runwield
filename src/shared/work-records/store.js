@@ -89,7 +89,7 @@ export async function readWorkRecord(cwd, fileName) {
 /**
  * @param {string} cwd
  * @param {{ createDir?: boolean }} [options]
- * @returns {Promise<import('./schema.js').WorkRecordResource[]>}
+ * @returns {Promise<import('./schema.ts').WorkRecordResource[]>}
  */
 export async function listWorkRecords(cwd, options = {}) {
     const dir = options.createDir === false ? getWorkRecordsDir(cwd) : await ensureWorkRecordsDir(cwd);
@@ -153,7 +153,7 @@ function collisionFileName(fileName, recordId) {
 
 /**
  * @param {string} cwd
- * @param {import('./schema.js').WorkRecordFrontMatter} attrs
+ * @param {import('./schema.ts').WorkRecordFrontMatter} attrs
  * @param {string} body
  * @param {{ fileName?: string }} [options]
  */
@@ -210,7 +210,7 @@ async function syncDirectory(directory) {
 /**
  * Delete one canonical Work Record only when its path and identity still match.
  * @param {string} cwd
- * @param {import('./schema.js').WorkRecordResource} currentRecord
+ * @param {import('./schema.ts').WorkRecordResource} currentRecord
  */
 export async function deleteWorkRecord(cwd, currentRecord) {
     const expectedDir = resolve(getWorkRecordsDir(cwd));
@@ -237,7 +237,7 @@ export async function deleteWorkRecord(cwd, currentRecord) {
 /**
  * Atomically replace one canonical Work Record without permitting an identity or path change.
  * @param {string} cwd
- * @param {import('./schema.js').WorkRecordResource} currentRecord
+ * @param {import('./schema.ts').WorkRecordResource} currentRecord
  * @param {string} markdown
  */
 export async function replaceWorkRecord(cwd, currentRecord, markdown) {
