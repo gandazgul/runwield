@@ -117,7 +117,6 @@
     "src/ui/workspace/astro.config.mjs",
     "src/ui/workspace/components/Board.jsx",
     "src/ui/workspace/components/BoardColumn.jsx",
-    "src/ui/workspace/components/EpicCard.jsx",
     "src/ui/workspace/components/MarkdownView.jsx",
     "src/ui/workspace/components/PlanBoardToolbar.jsx",
     "src/ui/workspace/components/PlanCard.jsx",

@@ -1,4 +1,4 @@
-import { EpicCard } from "./EpicCard.jsx";
+import { EpicCard } from "./EpicCard.tsx";
 import { PlanCard } from "./PlanCard.jsx";
 
 /** @param {{ column: any, url: URL | string, draggableCards?: boolean }} props */
