@@ -521,8 +521,11 @@ async function commitDirtyWorktreeState(
         const dirtyPaths = await gitStatusPaths(worktreePath);
         const disallowedPaths = filterUserDirtyPaths(dirtyPaths, allowedPathSet);
         if (disallowedPaths.length > 0) {
+            const description = messageOptions.phase === "preparation"
+                ? "Execution worktree contains changes outside preparation Plan paths:"
+                : "Execution worktree changed after candidate sealing outside finalized Plan paths:";
             throw new Error(
-                "Execution worktree changed after candidate sealing outside finalized Plan paths:\n" +
+                description + "\n" +
                     disallowedPaths.map((path) => `  - ${path}`).join("\n"),
             );
         }

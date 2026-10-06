@@ -55,7 +55,7 @@ import type { LocalCIPort } from "./validation-local-ci.ts";
 import { createGitPort } from "../git-port.ts";
 import { SYSTEM_WORK_RECORD_MNEMOTECA_PORT } from "../work-records/mnemoteca-port.ts";
 import { acknowledgeTaskCompletion, claimPendingTaskCompletion } from "../session/task-completion-session.ts";
-import { waitForWorkflowToolEvent } from "./workflow-tool-events.ts";
+import { waitForWorkflowToolEvent, WorkflowStepCompleted } from "./workflow-tool-events.ts";
 
 export { runLocalCI, runMechanicalValidation } from "./validation.ts";
 
@@ -188,13 +188,17 @@ async function runRootTurnUntilTaskCompletion(args: {
             turnPromise.then((messages) => ({ kind: "turn" as const, messages })),
         ]);
         if (first.kind === "event") {
-            turnController.abort(new DOMException("Workflow tool event accepted.", "AbortError"));
-            turnPromise.catch(() => undefined);
+            // Completion stops provider work, but the turn still has metrics and
+            // request-attempt writes to finish before the Session can checkpoint.
+            turnController.abort(new WorkflowStepCompleted());
+            await turnPromise.catch(() => undefined);
             return [];
         }
         waitController.abort(new DOMException("Agent turn finished without workflow event.", "AbortError"));
         return first.messages;
     } finally {
+        waitController.abort();
+        await eventPromise.catch(() => undefined);
         args.signal?.removeEventListener("abort", abortBoth);
     }
 }

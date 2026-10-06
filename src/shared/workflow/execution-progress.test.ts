@@ -380,6 +380,110 @@ Deno.test("restart accepts an existing Plan-only preparation commit", async () =
     }
 });
 
+for (const checkpointed of [false, true]) {
+    Deno.test(`child preparation preserves parent edits in a reused ${checkpointed ? "prepared" : "planning"} worktree`, async () => {
+        const parentName = "usage";
+        const planName = "usage/01-recording";
+        const parentPath = "docs/plans/usage.md";
+        const childPath = `docs/plans/${planName}.md`;
+        const projectRoot = await makeWorkflowProject([
+            { name: planName, attrs: { parentPlan: parentName } },
+            { name: parentName, attrs: { classification: "PROJECT" } },
+        ]);
+        const hostedSession = makeHostedSession(`parent-edit-${checkpointed}`, projectRoot, []);
+        let executionCwd = "";
+        try {
+            await git(projectRoot, ["add", "docs/plans"]);
+            await git(projectRoot, ["commit", "-m", "Approved Plan family"]);
+            const worktree = await settleWorktreeAttempt(
+                projectRoot,
+                await createWorktreeGitArtifacts({ projectRoot, planName, planId: PLAN_ID }),
+            );
+            executionCwd = worktree.path;
+            const parent = await loadPlan(worktree.path, parentName);
+            assert(parent);
+            const revisedParent = `${parent.markdown}\nRecording remains opt-in, as requested by the owner.\n`;
+            await Deno.writeTextFile(parent.path, revisedParent);
+            if (checkpointed) {
+                await checkpointExecutionPreparation({
+                    worktreePath: worktree.path,
+                    branch: worktree.branch,
+                    baseCommit: worktree.baseCommit,
+                    planName,
+                    planRelativePath: childPath,
+                    relatedPlanPaths: [parentPath],
+                });
+                // A subsequent planning edit must survive restarting preparation too.
+                await Deno.writeTextFile(parent.path, `${revisedParent}\nMetrics must never block delivery.\n`);
+            }
+            const expectedParent = await Deno.readTextFile(parent.path);
+            await updateWorktreeRegistryEntry(projectRoot, worktree.id, {
+                status: checkpointed ? "active" : "planning",
+            });
+
+            const workflow = await startActiveExecutionWorkflow({
+                planName,
+                triageMeta: { planId: PLAN_ID, classification: "PLANNED_CHANGE", parentPlan: parentName },
+                currentStatus: "ready_for_work",
+                hostedSession,
+                ports: createExecutionStartPorts(),
+            });
+
+            assertEquals(workflow.executionCwd, worktree.path);
+            assertEquals(workflow.executionStarted, true);
+            assertEquals((await loadPlan(worktree.path, planName))?.attrs.status, "in_progress");
+            assertEquals(await Deno.readTextFile(parent.path), expectedParent);
+            assertEquals(await git(worktree.path, ["show", `HEAD:${parentPath}`]), expectedParent.trim());
+            assertEquals(await git(worktree.path, ["status", "--porcelain"]), "");
+            assertEquals((await loadPlan(projectRoot, parentName))?.markdown, parent.markdown);
+        } finally {
+            hostedSession.dispose();
+            if (executionCwd) {
+                await removeWorktreeGitArtifacts({ projectRoot, path: executionCwd, force: true }).catch(() =>
+                    undefined
+                );
+            }
+            await Deno.remove(projectRoot, { recursive: true }).catch(() => undefined);
+        }
+    });
+}
+
+Deno.test("reused child preparation does not require a local copy of its parent", async () => {
+    const planName = "epic/01-child";
+    const projectRoot = await makeWorkflowProject([{ name: planName, attrs: { parentPlan: "epic" } }]);
+    const hostedSession = makeHostedSession("child-only-planning", projectRoot, []);
+    let executionCwd = "";
+    try {
+        await git(projectRoot, ["add", "docs/plans"]);
+        await git(projectRoot, ["commit", "-m", "Child Plan"]);
+        const worktree = await settleWorktreeAttempt(
+            projectRoot,
+            await createWorktreeGitArtifacts({ projectRoot, planName, planId: PLAN_ID }),
+        );
+        executionCwd = worktree.path;
+        await updateWorktreeRegistryEntry(projectRoot, worktree.id, { status: "planning" });
+
+        const workflow = await startActiveExecutionWorkflow({
+            planName,
+            triageMeta: { planId: PLAN_ID, classification: "PLANNED_CHANGE", parentPlan: "epic" },
+            currentStatus: "ready_for_work",
+            hostedSession,
+            ports: createExecutionStartPorts(),
+        });
+
+        assertEquals(workflow.executionStarted, true);
+        assertEquals(workflow.executionCwd, worktree.path);
+        assertEquals(await git(worktree.path, ["status", "--porcelain"]), "");
+        assertEquals(await loadPlan(worktree.path, "epic"), null);
+    } finally {
+        hostedSession.dispose();
+        if (executionCwd) {
+            await removeWorktreeGitArtifacts({ projectRoot, path: executionCwd, force: true }).catch(() => undefined);
+        }
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => undefined);
+    }
+});
+
 Deno.test("execution preparation progress reports non-Git in-place preparation without worktree creation", async () => {
     const projectRoot = await Deno.makeTempDir({ prefix: "runwield-non-git-progress-" });
     const events: RuntimeStatusEvent[] = [];

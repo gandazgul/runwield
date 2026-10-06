@@ -168,7 +168,7 @@ export function createExecutionStartPorts(): ExecutionStartPorts {
     };
 }
 
-async function materializeEpicPlanFamily(projectRoot, executionCwd, planName, planAttrs) {
+async function materializeEpicPlanFamily(projectRoot, executionCwd, planName, planAttrs, existingOnly = false) {
     const parentPlan = typeof planAttrs.parentPlan === "string" ? planAttrs.parentPlan.trim() : "";
     if (!parentPlan) return [];
     const materializedPaths = [];
@@ -179,6 +179,9 @@ async function materializeEpicPlanFamily(projectRoot, executionCwd, planName, pl
     for (const relatedPlanName of new Set(relatedPlanNames)) {
         if (relatedPlanName === planName) continue;
         const source = await loadCanonicalExecutionPlanSource(projectRoot, relatedPlanName);
+        // Reused child worktrees need only carry the family documents they
+        // already contain. The parent may still live in its own planning worktree.
+        if (existingOnly && source.kind === "absent") continue;
         if (source.kind !== "loaded") {
             throw new Error(
                 `Cannot prepare related Plan ${source.relativePath}: ${source.reason || source.kind}`,
@@ -438,6 +441,8 @@ export async function startActiveExecutionWorkflow(
         });
     const continuingReusableWorktree = Boolean(reusable) &&
         (authorityStatus === "in_progress" || reusableHasExecutionChanges || reusableHasPreparationCheckpoint);
+    const needsPreparationCheckpoint = !continuingReusableWorktree ||
+        (reusableHasPreparationCheckpoint && !reusableHasExecutionChanges);
     const needsExecutionStartedEvent = authorityStatus !== "in_progress";
     /** @type {Extract<Awaited<ReturnType<typeof loadCanonicalExecutionPlanSource>>, {kind:"loaded"}> | undefined} */
     let lockedCanonicalPlanSource;
@@ -596,12 +601,16 @@ export async function startActiveExecutionWorkflow(
                 );
             }
             let relatedPlanPaths = [];
-            if (!reusedWorktree) {
+            if (needsPreparationCheckpoint) {
+                // A reused planning worktree can contain parent and sibling edits
+                // too. Include the same family on initial preparation and retry;
+                // materialization preserves every already-present Plan verbatim.
                 relatedPlanPaths = await materializeEpicPlanFamily(
                     planAuthorityRoot,
                     worktree.path,
                     planName,
                     canonicalPlanSource.attrs,
+                    reusedWorktree,
                 );
             }
             const executionPlan = await loadPlan(worktree.path, planName);
@@ -695,10 +704,7 @@ export async function startActiveExecutionWorkflow(
                     worktreeId: worktree.id,
                 });
             }
-            if (
-                !continuingReusableWorktree ||
-                (reusableHasPreparationCheckpoint && !reusableHasExecutionChanges)
-            ) {
+            if (needsPreparationCheckpoint) {
                 // Sibling drafts Planner reshaped while planning this child travel with it.
                 relatedPlanPaths = [
                     ...relatedPlanPaths,

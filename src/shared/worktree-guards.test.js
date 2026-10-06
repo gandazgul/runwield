@@ -130,6 +130,22 @@ Deno.test("execution preparation retry still rejects branches containing impleme
         await savePlanForTest(activeWorktree.path, "prepared-retry", "# Prepared retry", {
             status: "ready_for_work",
         });
+        await Deno.writeTextFile(`${activeWorktree.path}/unexpected.txt`, "Preserve unrelated work\n");
+        await assertRejects(
+            () =>
+                checkpointExecutionPreparation({
+                    worktreePath: activeWorktree.path,
+                    branch: activeWorktree.branch,
+                    baseCommit: activeWorktree.baseCommit,
+                    planName: "prepared-retry",
+                    planRelativePath: "docs/plans/prepared-retry.md",
+                }),
+            Error,
+            "Execution worktree contains changes outside preparation Plan paths:\n  - unexpected.txt",
+        );
+        assertEquals(await Deno.readTextFile(`${activeWorktree.path}/unexpected.txt`), "Preserve unrelated work\n");
+        assertEquals(await git(activeWorktree.path, ["rev-parse", "HEAD"]), activeWorktree.baseCommit);
+        await Deno.remove(`${activeWorktree.path}/unexpected.txt`);
         await checkpointExecutionPreparation({
             worktreePath: activeWorktree.path,
             branch: activeWorktree.branch,

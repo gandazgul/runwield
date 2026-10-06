@@ -104,6 +104,9 @@ New sessions start with the **Router** Agent.
 After Router hands off to Guide, Ideator, Operator, Planner, Architect, Engineer, or another specialist, that specialist
 remains the active root Agent. This keeps follow-up messages in useful context.
 
+Accepted task completion settles the Agent turn and its transcript writes before Core releases the Session. The next
+user message must be accepted on its first submission without a recovery error caused by the completed turn.
+
 **Requirement: Agent selection replaces active instructions.** Switching Agents preserves conversation history while
 replacing the model's system instructions and available tools with those of the selected Agent. Earlier Agents' system
 instructions remain historical evidence and must not govern subsequent requests, including after Session resume.
@@ -160,6 +163,9 @@ Session; events from the previous Session must no longer affect the view.
 
 - Given a new conversation, when the user submits a request, Router handles initial triage; after a specialist handoff,
   follow-up messages stay with that specialist.
+- Given Router has handed off to Operator and Operator reports accepted task completion, when the user sends a
+  follow-up, Core delivers it once to Operator on the first submission. The completed attempt remains recorded as
+  successful, and no late transcript write invalidates the Session checkpoint.
 - Given a Session previously handled by Router and Ideator, when the user selects Engineer and requests implementation,
   the model receives Engineer's instructions and tools with the earlier conversation intact. Router's triage-only
   instructions no longer apply on the first turn, follow-ups, or a resumed Session. Selecting Router again restores its
@@ -800,6 +806,9 @@ Recovery requirements:
   unmerged changes.
 - Given stale locks, inconsistent settings/storage, or mismatched Plan bookkeeping during a workflow, when RunWield
   encounters them, it restores its own consistent state and continues without exposing a repair task to the user.
+- Given an approved child Plan whose reused planning worktree contains edits to its parent Epic, initial execution
+  preparation and interrupted preparation retries preserve those edits and include the related Plans automatically.
+  Execution starts without treating planning changes as post-validation edits or requiring manual Git cleanup.
 - Given a Workspace server that remains alive after abandoning a Plan lock, publication reclaims the abandoned file only
   after proving the operating-system lock is free. A live operation keeps its lock even if its heartbeat is late.
   Dashboard and search catalog reads do not acquire the catalog write lock; deliberate identity backfills still do.
