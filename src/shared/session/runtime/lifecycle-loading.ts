@@ -14,11 +14,7 @@ import { sessionDirForRoot } from ".././file-session-storage.ts";
 import { recordSegmentLineageEvidence } from ".././workflow-context-session.js";
 import { isAbsolute } from "@std/path";
 
-import {
-    enterGitProjectRuntime,
-    isRuntimeRootSessionManager,
-    resolvePersistedPairRootConfiguration,
-} from "./support.ts";
+import { enterGitProjectRuntime, isRuntimeRootSessionManager } from "./support.ts";
 import type { LoadSessionOptions } from "./types.ts";
 
 import type { RuntimeServices } from "./base.ts";
@@ -320,16 +316,10 @@ export class RuntimeLifecycleLoading {
         this.managedOperations.setPendingCreationProof(hostedSession.id, managedProof);
         this.events.attachRuntimeEventSink(hostedSession);
         try {
-            const pairRootConfiguration = resolvePersistedPairRootConfiguration(hostedSession);
             await this.settings.activateSessionAgent(hostedSession, {
-                agentName: pairRootConfiguration?.agentName || agentName,
+                agentName,
                 model: options.modelOverride,
                 mcpServers: options.mcpServers,
-                ...(pairRootConfiguration?.cwd ? { cwd: pairRootConfiguration.cwd } : {}),
-                ...(pairRootConfiguration?.customTools ? { customTools: pairRootConfiguration.customTools } : {}),
-                ...(pairRootConfiguration?.projectStateContext
-                    ? { projectStateContext: pairRootConfiguration.projectStateContext }
-                    : {}),
             });
             const setupEvents = this.events.consumePendingReplayEvents(hostedSession.id);
             const replayEvents = setupEvents.concat(

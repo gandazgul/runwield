@@ -300,6 +300,23 @@ function removeBundledBuildEnvironment(source) {
 }
 
 /**
+ * Astro discovers static assets in filesystem order. Its manifest treats them as
+ * a set, but their serialized order must match across release build jobs.
+ * @param {string} source
+ * @returns {string}
+ */
+function sortBundledManifestAssets(source) {
+    return source.replace(
+        /assets:(\[(?:"(?:\\.|[^"\\])*"(?:,"(?:\\.|[^"\\])*")*)?\])(?=,buildFormat:)/g,
+        (_match, serialized) => {
+            /** @type {string[]} */
+            const assets = JSON.parse(serialized);
+            return `assets:${JSON.stringify(assets.sort())}`;
+        },
+    );
+}
+
+/**
  * Astro can return before all generated server chunks are immediately visible to
  * a follow-up subprocess on every filesystem. Wait for entrypoint imports before
  * invoking `deno bundle`, so release builds do not race the server output.
@@ -387,9 +404,9 @@ export async function buildWorkspaceRuntime(options, port) {
     await waitForFile(serverOutput);
     await Deno.writeTextFile(
         serverOutput,
-        removeBundledBuildEnvironment(unrefBundledMessageChannels(
+        sortBundledManifestAssets(removeBundledBuildEnvironment(unrefBundledMessageChannels(
             normalizeCompiledNodeChildProcessImports(await Deno.readTextFile(serverOutput)),
-        )),
+        ))),
     );
     await waitForStableWorkspaceClientAssets(clientDir);
     await copyOpaqueAssets(clientDir, join(runtimeDir, "client"));

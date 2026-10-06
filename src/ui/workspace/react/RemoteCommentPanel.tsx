@@ -1,7 +1,7 @@
 // @ts-nocheck: Workspace React UI is the scoped TypeScript/TSX exception zone.
 
 import { AnnotationPanel } from "@plannotator/ui/components/AnnotationPanel.tsx";
-import { RemoteCommentStateList } from "./RemoteCommentStateList.jsx";
+import { RemoteCommentStateList } from "./RemoteCommentStateList.tsx";
 
 export function RemoteCommentPanel(
     { comments, annotations, blocks, selectedId, closed, pendingId, onSelect, onResolve, onReopen },

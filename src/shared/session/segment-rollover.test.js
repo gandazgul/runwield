@@ -12,6 +12,7 @@ import {
     recordPendingSegmentContinuation,
     recordSegmentLineageEvidence,
 } from "./workflow-context-session.js";
+import { readExecutionWorkflowSnapshot } from "./execution-workflow-session.js";
 import { readPersistedTutorialContext } from "./tutorial-context-session.ts";
 
 function idFactory(prefix = "id") {
@@ -156,6 +157,14 @@ Deno.test("segment rollover keeps aggregate projection readable and rolls manage
             planId: null,
         };
         const fixture = await createManagedFixture(tutorialContext);
+        /** @type {import('../types.js').ActiveExecutionWorkflow} */
+        const workflow = {
+            planName: "follow-up",
+            triageMeta: {},
+            executionAgent: "engineer",
+            executionCwd: fixture.root,
+        };
+        fixture.hosted.restoreActiveExecutionWorkflow(workflow, null);
         try {
             const before = await readProjection(fixture);
             assert(before.ok);
@@ -184,6 +193,7 @@ Deno.test("segment rollover keeps aggregate projection readable and rolls manage
             });
             assertEquals(readPersistedPendingSegmentContinuation(successorManager), { next: "engineer" });
             assertEquals(readPersistedTutorialContext(successorManager), tutorialContext);
+            assertEquals(readExecutionWorkflowSnapshot(successorManager), { version: 1, workflow });
             await Promise.resolve(
                 (/** @type {{ dispose?: () => void | Promise<void> }} */ (successorManager)).dispose?.(),
             );

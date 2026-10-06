@@ -17,6 +17,7 @@ videos/
 .pi/
 .kiro/
 .astro/
+src/ui/workspace/.astro/
 .agents/
 .claude/skills/
 .styleseed/

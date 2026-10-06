@@ -123,6 +123,34 @@ Deno.test("standalone Workspace bundle omits runner environment without changing
     }
 });
 
+Deno.test("standalone Workspace runtime is identical across manifest asset discovery orders", async () => {
+    const root = await Deno.makeTempDir({ prefix: "wld-workspace-asset-order-" });
+    const serverEntry = join(root, "entry.mjs");
+    const clientDir = join(root, "client");
+    const runtimeDir = join(root, "runtime");
+    const serverOutput = join(runtimeDir, "server.mjs");
+    const sources = [
+        'const manifest={inlinedScripts:["second","first"],assets:["/workspace.css","/_astro/client.js","/pwa/icon.png"],buildFormat:"directory"};',
+        'const manifest={inlinedScripts:["second","first"],assets:["/pwa/icon.png","/workspace.css","/_astro/client.js"],buildFormat:"directory"};',
+    ];
+    const expected =
+        'const manifest={inlinedScripts:["second","first"],assets:["/_astro/client.js","/pwa/icon.png","/workspace.css"],buildFormat:"directory"};';
+    try {
+        await Deno.writeTextFile(serverEntry, "export default true;\n");
+        await Deno.mkdir(clientDir);
+        await Deno.writeTextFile(join(clientDir, "client.js"), "export default true;\n");
+        for (const source of sources) {
+            await buildWorkspaceRuntime({ serverEntry, clientDir, runtimeDir }, {
+                run: () => Deno.writeTextFile(serverOutput, source),
+            });
+            assertEquals(await Deno.readTextFile(serverOutput), expected);
+            assertEquals(await Deno.readTextFile(join(runtimeDir, "client/client.js.asset")), "export default true;\n");
+        }
+    } finally {
+        await Deno.remove(root, { recursive: true });
+    }
+});
+
 Deno.test("unrefBundledMessageChannels prevents renderer ports from keeping the executable alive", () => {
     assertEquals(
         unrefBundledMessageChannels("const scheduler = new MessageChannel;"),

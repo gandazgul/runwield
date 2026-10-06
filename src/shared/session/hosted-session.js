@@ -21,6 +21,7 @@ import {
 } from "./workflow-context-session.js";
 import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runtime-events.js";
 import { clearPairCheckpoint } from "./pair-checkpoint-session.ts";
+import { recordExecutionWorkflowSnapshot } from "./execution-workflow-session.js";
 import { BackgroundTasks } from "./background-tasks.ts";
 import { clearBackgroundSteeringForCompletion } from "./runtime/turns.ts";
 import { PlanReviewConversationOwner } from "./plan-review-conversation.ts";
@@ -481,8 +482,10 @@ export class HostedSession {
     replaceManagedTranscriptSegment(segment) {
         this.assertActive();
         if (!this.managed) throw new Error("Session metadata is unavailable");
+        this.#assertManagedWritableCapability(this.managedOperationCapability);
         disposeIfPresent(this.rootSessionManager);
         this.rootSessionManager = segment.sessionManager;
+        recordExecutionWorkflowSnapshot(this);
         this.managed = {
             ...this.managed,
             piSessionId: segment.piSessionId,
@@ -1151,8 +1154,10 @@ export class HostedSession {
                 throw new Error("setActiveExecutionWorkflow: pairPauseReason must be stop or canceled");
             }
         }
+        if (this.rootSessionManager) this.#assertManagedWritableCapability(this.managedOperationCapability);
         if (workflow) this.pendingTaskCompletion = null;
         this.activeExecutionWorkflow = workflow;
+        recordExecutionWorkflowSnapshot(this);
     }
 
     getActiveExecutionWorkflow() {
@@ -1192,8 +1197,10 @@ export class HostedSession {
 
     clearActiveExecutionWorkflow() {
         this.assertActive();
+        if (this.rootSessionManager) this.#assertManagedWritableCapability(this.managedOperationCapability);
         clearPairCheckpoint(this, "workflow_cleared");
         this.activeExecutionWorkflow = null;
+        recordExecutionWorkflowSnapshot(this);
         this.pendingTaskCompletion = null;
     }
 

@@ -1,5 +1,5 @@
 import { assertEquals, assertFalse, assertStringIncludes } from "@std/assert";
-import { actionClassName } from "./components/Button.jsx";
+import { actionClassName } from "./components/Button.tsx";
 import { Dialog } from "./components/Dialog.jsx";
 import { RunWieldButton, RunWieldLink } from "./components/react/RunWieldPrimitives.jsx";
 import { readWorkspaceStyles } from "../workspace/workspace-styles.ts";

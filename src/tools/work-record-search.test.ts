@@ -1,7 +1,7 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import type { ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import { writeWorkRecord } from "../shared/work-records/index.ts";
-import type { WorkRecordFrontMatter } from "../shared/work-records/schema.js";
+import type { WorkRecordFrontMatter } from "../shared/work-records/schema.ts";
 import type { WorkRecordMnemotecaPort } from "../shared/work-records/mnemoteca-port.ts";
 import { createWorkRecordMnemotecaFixture } from "../shared/work-records/test-fixtures/mnemoteca-port.ts";
 import { createWorkRecordSearchTool } from "./work-record-search.ts";

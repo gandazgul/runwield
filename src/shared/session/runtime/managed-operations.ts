@@ -1,3 +1,4 @@
+import { restoreExecutionWorkflow } from "../execution-workflow-recovery.ts";
 import {
     readPersistedActiveAgentName,
     readPersistedManualModelState,
@@ -16,7 +17,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import {
     normalizeManagedActiveModelState,
     normalizeThinkingLevel,
-    resolvePersistedPairRootConfiguration,
+    resolvePersistedExecutionRootConfiguration,
     resolvePersistedResumeModel,
     resolvePersistedRootConfiguration,
 } from "./support.ts";
@@ -349,6 +350,7 @@ export class RuntimeManagedOperations {
             activeProof = this.services.sessionStore.changeSessionActivationPhase(activeProof, "hydrated");
             capability.updateProof(activeProof);
             hydrated = true;
+            await restoreExecutionWorkflow(hostedSession);
             const result = await body(capability);
             activeProof = this.services.sessionStore.changeSessionActivationPhase(activeProof, "checkpointing");
             capability.updateProof(activeProof);
@@ -666,7 +668,8 @@ export class RuntimeManagedOperations {
             if (options.initialTutorialContext !== undefined) {
                 hostedSession.updateTutorialContext(options.initialTutorialContext, committedPlanAssociations);
             }
-            const pairRootConfiguration = resolvePersistedPairRootConfiguration(hostedSession);
+            await restoreExecutionWorkflow(hostedSession);
+            const executionRootConfiguration = resolvePersistedExecutionRootConfiguration(hostedSession);
             const preparedModelOverride = "preparedModelOverride" in options &&
                     typeof options.preparedModelOverride === "string"
                 ? options.preparedModelOverride
@@ -688,7 +691,8 @@ export class RuntimeManagedOperations {
                     parsedPendingModel.ok ? parsedPendingModel.id : pendingModel,
                 );
             }
-            let agentName = pairRootConfiguration?.agentName || options.agentName || pendingIntent.agentName || null;
+            let agentName = executionRootConfiguration?.agentName || options.agentName || pendingIntent.agentName ||
+                null;
             if (descriptor.activateAgent !== false) {
                 const resumeAgent = await resolveResumeAgentName(sessionManager);
                 agentName ||= resumeAgent;
@@ -714,12 +718,12 @@ export class RuntimeManagedOperations {
                                 : persistedManualModel.model
                             : persistedModel),
                     toolNames: options.toolNames,
-                    customTools: options.customTools || pairRootConfiguration?.customTools ||
+                    customTools: options.customTools || executionRootConfiguration?.customTools ||
                         persistedRootConfiguration.customTools,
                     includeEditFallback: options.includeEditFallback,
-                    ...(pairRootConfiguration?.cwd ? { cwd: pairRootConfiguration.cwd } : {}),
-                    ...(pairRootConfiguration?.projectStateContext
-                        ? { projectStateContext: pairRootConfiguration.projectStateContext }
+                    ...(executionRootConfiguration?.cwd ? { cwd: executionRootConfiguration.cwd } : {}),
+                    ...(executionRootConfiguration?.projectStateContext
+                        ? { projectStateContext: executionRootConfiguration.projectStateContext }
                         : {}),
                     managedOperationCapability: capability,
                 });

@@ -48,7 +48,7 @@ export async function getWorkRecordIndexCollectionName(cwd) {
     return `${resolveWorkRecordIndexProjectName(cwd, await resolveGitCommonDir(cwd))}:work-records`;
 }
 
-/** @param {import('./schema.js').WorkRecordResource} record */
+/** @param {import('./schema.ts').WorkRecordResource} record */
 export function getWorkRecordLocatorTag(record) {
     return `${LOCATOR_PREFIX}${record.attrs.recordId}`;
 }
@@ -59,7 +59,7 @@ export function recordIdFromTags(tags) {
     return tag ? tag.slice(LOCATOR_PREFIX.length) : "";
 }
 
-/** @param {import('./schema.js').WorkRecordResource} record */
+/** @param {import('./schema.ts').WorkRecordResource} record */
 export function buildWorkRecordIndexTags(record) {
     const tags = [
         `status:${record.attrs.status}`,
@@ -74,7 +74,7 @@ export function buildWorkRecordIndexTags(record) {
     return [...new Set(tags)];
 }
 
-/** @param {import('./schema.js').WorkRecordResource} record */
+/** @param {import('./schema.ts').WorkRecordResource} record */
 export function buildWorkRecordIndexDocument(record) {
     const sourcePlans = record.attrs.provenance?.sourcePlans || [];
     const ticketUrls = (record.attrs.tickets || []).map((ticket) => ticket.url).filter(Boolean);
@@ -197,7 +197,7 @@ export async function findIndexedDocumentIdsByRecordId(cwd, recordId, options) {
 
 /**
  * @param {string} cwd
- * @param {import('./schema.js').WorkRecordResource} record
+ * @param {import('./schema.ts').WorkRecordResource} record
  * @param {WorkRecordIndexOptions} options
  */
 export async function syncWorkRecordToIndex(cwd, record, options) {

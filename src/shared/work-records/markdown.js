@@ -14,7 +14,7 @@ import {
     WORK_RECORD_FRONT_MATTER_KEYS,
     WORK_RECORD_KIND,
     WORK_RECORD_OPTIONAL_SECTION_TITLES,
-} from "./schema.js";
+} from "./schema.ts";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -106,7 +106,7 @@ function normalizeSupersessionProposal(value, supersedes) {
     return candidates.length ? { candidates } : undefined;
 }
 
-/** @param {Record<string, unknown>} attrs */
+/** @param {import("./schema.ts").WorkRecordFrontMatter | Record<string, unknown>} attrs */
 export function normalizeWorkRecordFrontMatter(attrs) {
     const provenance = normalizeWorkRecordProvenance(attrs.provenance);
     const normalizedSupersedes = Array.isArray(attrs.supersedes)
@@ -124,7 +124,7 @@ export function normalizeWorkRecordFrontMatter(attrs) {
     const rawWorkKind = normalizeWorkKind(attrs.workKind);
     const rawScope = asTrimmedString(attrs.scope);
     const normalizedScope = rawScope === "feature" ? "planned_change" : rawScope;
-    /** @type {import('./schema.js').WorkRecordFrontMatter} */
+    /** @type {import('./schema.ts').WorkRecordFrontMatter} */
     const normalized = {
         kind: attrs.kind === WORK_RECORD_KIND ? WORK_RECORD_KIND : /** @type {any} */ (attrs.kind),
         recordId: asTrimmedString(attrs.recordId),
@@ -233,7 +233,7 @@ function appendTickets(lines, tickets) {
 
 /**
  * @param {string[]} lines
- * @param {import('./schema.js').WorkRecordProvenance | undefined} provenance
+ * @param {import('./schema.ts').WorkRecordProvenance | undefined} provenance
  */
 function appendProvenance(lines, provenance) {
     if (!provenance) return;
@@ -254,9 +254,9 @@ function appendProvenance(lines, provenance) {
     }
 }
 
-/** @param {import('./schema.js').WorkRecordFrontMatter} attrs */
+/** @param {import('./schema.ts').WorkRecordFrontMatter} attrs */
 export function formatWorkRecordFrontMatter(attrs) {
-    const fm = /** @type {any} */ (normalizeWorkRecordFrontMatter(/** @type {Record<string, unknown>} */ (attrs)));
+    const fm = /** @type {any} */ (normalizeWorkRecordFrontMatter(attrs));
     const lines = ["---"];
     appendScalarOrList(lines, WORK_RECORD_FRONT_MATTER_KEYS.kind, fm.kind);
     appendScalarOrList(lines, WORK_RECORD_FRONT_MATTER_KEYS.recordId, fm.recordId);
@@ -279,7 +279,7 @@ export function formatWorkRecordFrontMatter(attrs) {
 }
 
 /**
- * @param {import('./schema.js').WorkRecordFrontMatter} attrs
+ * @param {import('./schema.ts').WorkRecordFrontMatter} attrs
  * @param {string} body
  */
 export function formatWorkRecordMarkdown(attrs, body) {
@@ -312,7 +312,7 @@ export function extractWorkRecordSections(body) {
 }
 
 /**
- * @param {import('./schema.js').WorkRecordFrontMatter} attrs
+ * @param {import('./schema.ts').WorkRecordFrontMatter} attrs
  * @param {string} body
  */
 export function validateWorkRecord(attrs, body) {
@@ -355,7 +355,7 @@ export function validateWorkRecord(attrs, body) {
 /**
  * @param {string} markdown
  * @param {{ path?: string, relativePath?: string }} [options]
- * @returns {import('./schema.js').WorkRecordResource}
+ * @returns {import('./schema.ts').WorkRecordResource}
  */
 export function parseWorkRecordMarkdown(markdown, options = {}) {
     if (!hasFrontMatter(markdown)) throw new Error("Invalid Work Record: front matter is required.");
