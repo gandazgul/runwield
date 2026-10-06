@@ -91,7 +91,7 @@ The rest of Workspace should reuse that language through these implementation la
 - bundled website fonts: `src/ui/design-system/fonts.css`
 - shell and navigation: `src/ui/workspace/layouts/WorkspaceLayout.astro`
 - shared Plan Board page composition: `src/ui/workspace/components/PlanBoardPage.astro`
-- board patterns: `src/ui/workspace/components/BoardColumn.jsx`, `PlanCard.tsx`, and `EpicCard.jsx`
+- board patterns: `src/ui/workspace/components/BoardColumn.jsx`, `PlanCard.tsx`, and `EpicCard.tsx`
 - detail patterns: `src/ui/workspace/components/PlanDetail.jsx`
 - editor and action islands: `src/ui/workspace/islands/`
 

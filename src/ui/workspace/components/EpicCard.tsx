@@ -1,46 +1,56 @@
 import { detailHref } from "./PlanCard.tsx";
 import { RunWieldCard } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 
-/**
- * @typedef {Object} ProjectCardChild
- * @property {string} planId
- *
- * @typedef {Object} ProjectCardHealth
- * @property {ProjectCardChild[]} [held]
- * @property {ProjectCardChild[]} [failed]
- * @property {ProjectCardChild[]} [blocked]
- * @property {ProjectCardChild[]} [missingDependencies]
- *
- * @typedef {Object} ProjectCardDragActions
- * @property {string[]} [allowedTargetStatuses]
- *
- * @typedef {Object} ProjectCardActions
- * @property {ProjectCardDragActions} [dnd]
- * @property {string[]} [allowedManualTargetStatuses]
- *
- * @typedef {Object} ProjectCardData
- * @property {string} planId
- * @property {string} planName
- * @property {string} status
- * @property {Pick<import("../../../../plan-store.js").PlanFrontMatter, "type">} [attrs]
- * @property {string} [summary]
- * @property {string} [heldFromStatus]
- * @property {string} [heldAt]
- * @property {string} [holdReason]
- * @property {ReturnType<typeof import("../../../../plan-store.js").countChildPlanProgress>} [childProgress]
- * @property {ProjectCardHealth} [childHealth]
- * @property {ProjectCardActions} [actions]
- * @property {number} [childCount]
- * @property {boolean} [doneEnough]
- *
- * @typedef {Object} ProjectCardProps
- * @property {ProjectCardData} epic
- * @property {URL | string} url
- * @property {boolean} [draggableCard]
- */
+import type { countChildPlanProgress, PlanFrontMatter } from "../../../plan-store.js";
 
-/** @param {ProjectCardData} plan */
-function holdMetadata(plan) {
+export interface ProjectCardChild {
+    planId: string;
+}
+
+export interface ProjectCardHealth {
+    held?: ProjectCardChild[];
+    failed?: ProjectCardChild[];
+    blocked?: ProjectCardChild[];
+    missingDependencies?: ProjectCardChild[];
+}
+
+export interface ProjectCardDragActions {
+    allowedTargetStatuses?: string[];
+}
+
+export interface ProjectCardActions {
+    dnd?: ProjectCardDragActions;
+    allowedManualTargetStatuses?: string[];
+}
+
+export type ProjectCardProgress = Pick<
+    ReturnType<typeof countChildPlanProgress>,
+    "verified" | "userVerified" | "total" | "active" | "remaining" | "failed" | "byStatus"
+>;
+
+export interface ProjectCardData {
+    planId: string;
+    planName: string;
+    status: string;
+    attrs?: Pick<PlanFrontMatter, "type">;
+    summary?: string;
+    heldFromStatus?: string;
+    heldAt?: string;
+    holdReason?: string;
+    childProgress?: ProjectCardProgress;
+    childHealth?: ProjectCardHealth;
+    actions?: ProjectCardActions;
+    childCount?: number;
+    doneEnough?: boolean;
+}
+
+export interface ProjectCardProps {
+    epic: ProjectCardData;
+    url: URL | string;
+    draggableCard?: boolean;
+}
+
+function holdMetadata(plan: ProjectCardData) {
     const metadata = [];
     if (plan.heldFromStatus) metadata.push(`held from ${plan.heldFromStatus}`);
     if (plan.heldAt) metadata.push(`held at ${plan.heldAt}`);
@@ -48,10 +58,9 @@ function holdMetadata(plan) {
     return metadata.length ? metadata.join("; ") : "No hold metadata provided.";
 }
 
-/** @param {ProjectCardProps} props */
-export function EpicCard({ epic, url, draggableCard = false }) {
+export function EpicCard({ epic, url, draggableCard = false }: ProjectCardProps) {
     const label = epic.attrs?.type === "sequence" ? "Sequence" : "Epic";
-    const progress = epic.childProgress ||
+    const progress: ProjectCardProgress = epic.childProgress ||
         { verified: 0, userVerified: 0, total: 0, active: 0, remaining: 0, failed: 0, byStatus: {} };
     const held = epic.childHealth?.held?.length || 0;
     const failed = epic.childHealth?.failed?.length || progress.failed || 0;
