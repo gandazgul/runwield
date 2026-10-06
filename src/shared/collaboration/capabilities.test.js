@@ -6,7 +6,7 @@ import {
     redactSecrets,
     REVIEWER_SCOPE,
     timingSafeEqual,
-} from "./capabilities.js";
+} from "./capabilities.ts";
 
 Deno.test("capability generation creates distinct URL-safe 256-bit bearer values", () => {
     const first = generateBearerCapability();

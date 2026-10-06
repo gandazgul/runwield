@@ -2,7 +2,7 @@ import { assertEquals, assertStringIncludes } from "@std/assert";
 import { archivePlan, loadArchivedPlan, savePlan } from "../../plan-store.js";
 import { setCustomSetting } from "../../shared/settings.js";
 import { writeWorkRecord } from "../../shared/work-records/store.js";
-import type { WorkRecordFrontMatter } from "../../shared/work-records/schema.js";
+import type { WorkRecordFrontMatter } from "../../shared/work-records/schema.ts";
 import { runPlansPruneCommand } from "./prune.ts";
 import { type PlanCommandFixture, withPlanCommandFixture } from "./plans-command-test-fixture.ts";
 

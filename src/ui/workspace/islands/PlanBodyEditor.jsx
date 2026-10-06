@@ -1,8 +1,8 @@
 import { RunWieldThinkingDots } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { RunWieldButton } from "../../design-system/components/react/RunWieldPrimitives.jsx";
-import { PLAN_UI_TOKEN_HEADER, PLAN_UI_TOKEN_QUERY } from "../constants.js";
-import { MarkdownView } from "../components/MarkdownView.jsx";
+import { PLAN_UI_TOKEN_HEADER, PLAN_UI_TOKEN_QUERY } from "../constants.ts";
+import { MarkdownView } from "../components/MarkdownView.tsx";
 
 /** @type {Record<string, () => Promise<unknown>>} */
 let workspacePlanDocumentModules = {};

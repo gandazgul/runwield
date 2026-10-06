@@ -619,7 +619,7 @@ export function ownerSessionOperationStreamApi(ctx) {
  * @typedef {Object} NotificationStreamState
  * @property {import('../server/session-continuation.js').WorkspaceSessionContinuationService} sessionContinuation
  * @property {{ deviceId: string }} ownerDevice
- * @property {ReturnType<typeof import('../server/owner-connections.js').createOwnerConnectionRegistry>} ownerConnections
+ * @property {import('../server/owner-connections.ts').OwnerConnectionRegistry} ownerConnections
  */
 /**
  * @typedef {Object} NotificationStreamContext

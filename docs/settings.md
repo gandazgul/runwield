@@ -306,12 +306,17 @@ For the existing Codex ChatGPT subscription login, configure `codex-cli/<model>`
 }
 ```
 
-The example model must be available in your Codex catalog. Install `codex` on `PATH` and sign in to Codex with ChatGPT.
-The adapter uses the official local App Server, checks its account and native image capability, and starts an ephemeral
-read-only thread. It requires one completed native image item and validates its saved file. It does not extract OAuth
-tokens, use undocumented HTTP endpoints, or fall back to API-key billing. Pi's stored Codex login alone is not enough:
-the Codex CLI must already be signed in and able to write its own state. Model and effort select the supervising agent;
-Codex manages the actual image model. Additional permission or client-tool requests fail without approval.
+The example model must be available in your Codex catalog. Sign in to Codex with ChatGPT. RunWield first looks for an
+executable `codex` on `PATH`. On macOS, if none is found, it checks the bundled CLI in `~/Applications/ChatGPT.app`,
+then `/Applications/ChatGPT.app`, using `Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex`. If neither
+route finds an executable, generation fails with setup guidance. Discovery does not install software, alter PATH or
+shell settings, or retry a failed generation with another executable. Permission errors remain errors rather than
+triggering fallback. The adapter uses the official local App Server, checks its account and native image capability, and
+starts an ephemeral read-only thread. It requires one completed native image item and validates its saved file. It does
+not extract OAuth tokens, use undocumented HTTP endpoints, or fall back to API-key billing. Pi's stored Codex login
+alone is not enough: the Codex CLI must already be signed in and able to write its own state. Model and effort select
+the supervising agent; Codex manages the actual image model. Additional permission or client-tool requests fail without
+approval.
 
 `opencode/<model>` uses the existing RunWield OpenCode credential and model configuration against that model's
 documented Responses endpoint. It requests the hosted `image_generation` tool directly, not a text description or a

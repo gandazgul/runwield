@@ -1,6 +1,6 @@
 /** @module ui/workspace/routes/remote-api */
 
-import { MAINTAINER_SCOPE, REVIEWER_SCOPE } from "../../../shared/collaboration/capabilities.js";
+import { MAINTAINER_SCOPE, REVIEWER_SCOPE } from "../../../shared/collaboration/capabilities.ts";
 import {
     assertNonEmptyString,
     assertPositiveInteger,

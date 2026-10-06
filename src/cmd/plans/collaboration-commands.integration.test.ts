@@ -9,9 +9,9 @@ import {
 } from "../../plan-store.js";
 import { git } from "../../shared/git-test-fixture.ts";
 import { resolveProjectRuntimeLayout } from "../../shared/project-runtime-layout.ts";
-import { generateBearerCapability, hashCapability, MAINTAINER_SCOPE } from "../../shared/collaboration/capabilities.js";
+import { generateBearerCapability, hashCapability, MAINTAINER_SCOPE } from "../../shared/collaboration/capabilities.ts";
 import { createCollaborationClient, SYSTEM_COLLABORATION_FETCH } from "../../shared/collaboration/client.js";
-import { encryptJsonPayload, generateContentKeyString, importContentKey } from "../../shared/collaboration/crypto.js";
+import { encryptJsonPayload, generateContentKeyString, importContentKey } from "../../shared/collaboration/crypto.ts";
 import { COLLABORATION_LOCK_BYPASS } from "../../shared/collaboration/lock.js";
 import {
     getGlobalSecretStoreLocation,

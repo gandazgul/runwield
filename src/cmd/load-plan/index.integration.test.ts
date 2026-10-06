@@ -27,7 +27,7 @@ import { recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
 import { writeControllerState } from "../../shared/workflow/controller-registry.ts";
 import { defineCommittedGitFixture } from "../../shared/git-test-fixture.ts";
 import { resolveProjectRuntimeLayout } from "../../shared/project-runtime-layout.ts";
-import { createTestWorktreeAttempt } from "../../shared/worktree-test-helpers.js";
+import { createTestWorktreeAttempt } from "../../shared/worktree-test-helpers.ts";
 import { withRuntimeCommandFixture } from "../testing/runtime-command-fixture.ts";
 import { runLoadPlanCommand } from "./index.ts";
 import { getLoadPlanCompletions } from "./getArgumentCompletions.ts";

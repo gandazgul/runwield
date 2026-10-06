@@ -6,7 +6,7 @@ import type { MinimalSessionManagerLike } from "../hosted-session.js";
 import type { ImageAttachment } from "../types.js";
 import type { RuntimeQueuedMessage, SessionRuntimeEvent } from "../session-runtime-events.js";
 import type { NamedInvocationPayload } from "../named-invocation.ts";
-import type { SessionHost } from "../session-host.js";
+import type { SessionHost } from "../session-host.ts";
 
 export type OwnerProcessKind = "workspace" | "tui" | "acp" | "test";
 

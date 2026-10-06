@@ -94,6 +94,7 @@ import {
 } from "./request-dispatch.ts";
 import { formatProviderModelReference, parseProviderModel } from "../models/model-validation.ts";
 import { readCurrentPairCheckpoint, recordPairCheckpointSnapshot } from "./pair-checkpoint-session.ts";
+import { recordExecutionWorkflowSnapshot } from "./execution-workflow-session.js";
 import { directoryExists, fileExists } from "../helpers.ts";
 import {
     _AGENT_ATTENTION_NUDGES,
@@ -119,7 +120,7 @@ import {
     PersonalResourcePathError,
     remotePersonalResourcesActive,
 } from "../remote/personal-resources.ts";
-import { getBundledAgentDefsPath } from "./agent-assets.js";
+import { getBundledAgentDefsPath } from "./agent-assets.ts";
 import { expandSkill, listSkills } from "./skill-catalog.ts";
 import { getPackagePromptTemplatePaths, resolveInstalledPackagePromptResources } from "../package-resources.js";
 import { getWldExtensionPaths, resolveInstalledWldExtensionResources } from "../extensions/wld-extension-manifest.js";
@@ -130,7 +131,7 @@ import { createSessionContextProjection, estimateContextTextTokens } from "./ses
 import { installEarlySteeringInterruption } from "./early-steering.js";
 import { loadSubAgentDefinition } from "./subagent-definitions.ts";
 import { formatGitPromptState, readGitPromptState } from "../git.js";
-import { sanitizeSessionName } from "./session-name.js";
+import { sanitizeSessionName } from "./session-name.ts";
 
 /** @returns {string | null} */
 function homePromptsDir() {
@@ -3003,6 +3004,7 @@ export function installPairCheckpointAutoCompactionPreservation(session, hostedS
         const unsubscribe = session.subscribe((event) => {
             if (event.type !== "compaction_end" || !event.result || event.aborted) return;
             if (checkpoint) recordPairCheckpointSnapshot(hostedSession, checkpoint);
+            recordExecutionWorkflowSnapshot(hostedSession);
             if (sessionManager && requestAttempt?.phase === "started") {
                 recordRequestAttemptSnapshot(sessionManager, requestAttempt);
             }

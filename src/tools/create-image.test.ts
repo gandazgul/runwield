@@ -1,5 +1,5 @@
 import { assert, assertEquals, assertRejects, assertStringIncludes, assertThrows } from "@std/assert";
-import { fromFileUrl, join } from "@std/path";
+import { dirname, fromFileUrl, join } from "@std/path";
 import { PhotonImage } from "@silvia-odwyer/photon-node";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { Client } from "@modelcontextprotocol/sdk/client";
@@ -701,6 +701,35 @@ Deno.test("Codex adapter refuses unavailable capability, API-key billing, invali
             await assertRejects(() => createImage({ cwd: f.cwd, prompt: "red", outputPath: "invalid.png" }));
         }
     }));
+
+Deno.test({
+    name: "Codex adapter discovers the app-bundled CLI when codex is absent from PATH",
+    ignore: Deno.build.os !== "darwin",
+    fn: () =>
+        withFixture(async (f) => {
+            const executable = join(
+                f.home,
+                "Applications",
+                "ChatGPT.app",
+                "Contents",
+                "Resources",
+                "codex-cli",
+                "CodexCLI.app",
+                "Contents",
+                "MacOS",
+                "codex",
+            );
+            await Deno.mkdir(dirname(executable), { recursive: true });
+            await Deno.rename(join(dirname(f.home), "bin", "codex"), executable);
+            // Exclude the calling app's injected PATH as well as the removed fixture command.
+            Deno.env.set("PATH", join(dirname(f.home), "bin"));
+            await f.settings({ model: "codex-cli/fixture-model" });
+            const image = await createImage({ cwd: f.cwd, prompt: "red", outputPath: "bundled.png" });
+            assertEquals(image.width, 4);
+            assert((await Deno.stat(join(f.cwd, "bundled.png"))).isFile);
+            assertEquals(f.requests.length, 0);
+        }),
+});
 
 Deno.test("Codex adapter interrupts and terminates an in-flight owned helper on cancellation", () =>
     withFixture(async (f) => {
