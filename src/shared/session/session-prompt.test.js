@@ -25,7 +25,7 @@ import {
 import { getRootExecutionMessages } from "./execution-backend.ts";
 import { HostedSession } from "./hosted-session.js";
 import { getRunWieldSessionDir } from "./root-session.js";
-import { estimateContextTextTokens } from "./session-context-report.js";
+import { estimateContextTextTokens } from "./session-context-report.ts";
 import { defineCommittedGitFixture, git } from "../git-test-fixture.ts";
 
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";

@@ -127,7 +127,7 @@ import { getWldExtensionPaths, resolveInstalledWldExtensionResources } from "../
 import { recordToolCallFinished, recordToolCallStarted, recordWorkflowMetric } from "../workflow/metrics.js";
 import { ExecutionMetricsRecorder, SessionContextMetricsRecorder } from "../workflow/execution-metrics.ts";
 import { describeRuntimeTool } from "./tool-event-title.js";
-import { createSessionContextProjection, estimateContextTextTokens } from "./session-context-report.js";
+import { createSessionContextProjection, estimateContextTextTokens } from "./session-context-report.ts";
 import { installEarlySteeringInterruption } from "./early-steering.js";
 import { loadSubAgentDefinition } from "./subagent-definitions.ts";
 import { formatGitPromptState, readGitPromptState } from "../git.js";
@@ -1425,8 +1425,8 @@ function buildSessionNameReminder(tools, options) {
 /**
  * @param {string} label
  * @param {string} text
- * @param {Partial<import('./session-context-report.js').ContextProjectionItem>} [extra]
- * @returns {import('./session-context-report.js').ContextProjectionItem | null}
+ * @param {Partial<import('./session-context-report.ts').ContextProjectionItem>} [extra]
+ * @returns {import('./session-context-report.ts').ContextProjectionItem | null}
  */
 function createContextProjectionItem(label, text, extra = {}) {
     const tokens = estimateContextTextTokens(text);
@@ -1548,7 +1548,7 @@ async function readGlobalInstructionFile(homeDir) {
  * @param {string | undefined} cwd
  * @param {string} [projectStateContext]
  * @param {SystemPromptContextProjectionOptions} [options]
- * @returns {Promise<{ prompt: string, projection: import('./session-context-report.js').SessionContextProjection, effectiveToolDefinitions: import('@earendil-works/pi-coding-agent').ToolDefinition[] }>}
+ * @returns {Promise<{ prompt: string, projection: import('./session-context-report.ts').SessionContextProjection, effectiveToolDefinitions: import('@earendil-works/pi-coding-agent').ToolDefinition[] }>}
  */
 export async function assembleFinalSystemPromptWithContextProjection(
     agentDef,
@@ -1617,7 +1617,7 @@ export async function assembleFinalSystemPromptWithContextProjection(
     const availableToolsStr = toolItems.map((tool) => tool.line).join("\n");
     finalSystemPrompt = finalSystemPrompt?.replace("{{AVAILABLE_TOOLS}}", availableToolsStr);
 
-    /** @type {import('./session-context-report.js').ContextProjectionItem[]} */
+    /** @type {import('./session-context-report.ts').ContextProjectionItem[]} */
     const instructionItems = [];
     let globalAgentsMd = "";
     const homeDir = options.homeDir || getHomeDir();
@@ -1678,7 +1678,7 @@ export async function assembleFinalSystemPromptWithContextProjection(
     finalSystemPrompt = finalSystemPrompt.replace("{{MEMORIES}}", memories);
 
     let skillsBlock = "";
-    /** @type {import('./session-context-report.js').ContextProjectionItem[]} */
+    /** @type {import('./session-context-report.ts').ContextProjectionItem[]} */
     const skillItems = [];
     if (hasSkillsPlaceholder) {
         try {
@@ -1761,7 +1761,7 @@ export async function assembleFinalSystemPromptWithContextProjection(
             id: "tools",
             label: "Tools",
             tokens: toolItems.reduce((sum, tool) => sum + (tool.item?.tokens || 0), 0),
-            items: /** @type {import('./session-context-report.js').ContextProjectionItem[]} */ (
+            items: /** @type {import('./session-context-report.ts').ContextProjectionItem[]} */ (
                 toolItems.map((tool) => tool.item).filter(Boolean)
             ),
         },
@@ -1970,7 +1970,7 @@ function repairNamedInvocationContextEdits(sessionManager) {
  *   resolvedModel: any,
  *   resolvedThinkingLevel: string | undefined,
  *   resolvedTemperature: number | undefined,
- *   contextProjection: import('./session-context-report.js').SessionContextProjection,
+ *   contextProjection: import('./session-context-report.ts').SessionContextProjection,
  *   imageMode?: string,
  *   visionFallbackModelRef?: string
  * }>}
@@ -2591,7 +2591,7 @@ function assertAgyCliImageInputSupported(images) {
  *   resolvedModel: any,
  *   resolvedThinkingLevel: string | undefined,
  *   resolvedTemperature: number | undefined,
- *   contextProjection: import('./session-context-report.js').SessionContextProjection,
+ *   contextProjection: import('./session-context-report.ts').SessionContextProjection,
  *   imageMode?: string,
  *   visionFallbackModelRef?: string
  * }>}
@@ -3116,7 +3116,7 @@ export async function drainSessionCompactionMetrics(session) {
 /**
  * @param {import('@earendil-works/pi-coding-agent').AgentSession} session
  * @param {import('./hosted-session.js').HostedSession} hostedSession
- * @param {import('./session-context-report.js').SessionContextProjection | undefined} projection
+ * @param {import('./session-context-report.ts').SessionContextProjection | undefined} projection
  */
 function attachSessionMetricsObserver(session, hostedSession, projection) {
     const toolStartedAt = new Map();
@@ -4012,7 +4012,7 @@ export function applyAttentionNudge(agentName, userRequest, rootTurnCount) {
 /** @type {WeakMap<import('@earendil-works/pi-coding-agent').AgentSession, ExecutionMetricsRecorder>} */
 const executionMetricsForSession = new WeakMap();
 
-/** @type {WeakMap<import('@earendil-works/pi-coding-agent').AgentSession, { agentDef: import('./types.js').AgentDefinition, subAgentDefinition?: { id: import('./subagent-definitions.ts').SubAgentDefinitionId, options?: import('./subagent-definitions.ts').LoadSubAgentDefinitionOptions }, promptState: { text: string }, subscriberState: SubscriberState, unsubscribeMetrics: () => void, agentName: string, tools: string[], finalCustomTools: import('@earendil-works/pi-coding-agent').ToolDefinition[], callerCustomTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[], effectiveToolDefinitions: import('@earendil-works/pi-coding-agent').ToolDefinition[], mcpToolNames?: string[], rootTurnCount: number, projectStateContext: string, cwd: string, model?: string, resolvedModel?: import('../models/model-registry.ts').RunWieldModel, contextProjection?: import('./session-context-report.js').SessionContextProjection, imageMode?: string, visionFallbackModelRef?: string, steeringTargetId?: string }>} */
+/** @type {WeakMap<import('@earendil-works/pi-coding-agent').AgentSession, { agentDef: import('./types.js').AgentDefinition, subAgentDefinition?: { id: import('./subagent-definitions.ts').SubAgentDefinitionId, options?: import('./subagent-definitions.ts').LoadSubAgentDefinitionOptions }, promptState: { text: string }, subscriberState: SubscriberState, unsubscribeMetrics: () => void, agentName: string, tools: string[], finalCustomTools: import('@earendil-works/pi-coding-agent').ToolDefinition[], callerCustomTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[], effectiveToolDefinitions: import('@earendil-works/pi-coding-agent').ToolDefinition[], mcpToolNames?: string[], rootTurnCount: number, projectStateContext: string, cwd: string, model?: string, resolvedModel?: import('../models/model-registry.ts').RunWieldModel, contextProjection?: import('./session-context-report.ts').SessionContextProjection, imageMode?: string, visionFallbackModelRef?: string, steeringTargetId?: string }>} */
 const rootSessionMetadata = new WeakMap();
 
 /** @type {WeakMap<import('./hosted-session.js').HostedSession, { agentName: string, debugLogPath?: string }>} */
@@ -4082,7 +4082,7 @@ export function getRootSessionRebuildOptions(hostedSession) {
 
 /**
  * @param {import('./hosted-session.js').HostedSession} hostedSession
- * @returns {{ projection: import('./session-context-report.js').SessionContextProjection, activeMessageTokens: number, agentName: string, agentDisplayName: string, model?: string } | null}
+ * @returns {{ projection: import('./session-context-report.ts').SessionContextProjection, activeMessageTokens: number, agentName: string, agentDisplayName: string, model?: string } | null}
  */
 export function getRootSessionContextProjection(hostedSession) {
     const session = /** @type {any} */ (hostedSession?.getRootAgentSession?.());
@@ -4340,7 +4340,7 @@ function publishTransitionSteeringCancellation(hostedSession, transitionSteering
 /**
  * @param {string[]} toolNames
  * @param {import('@earendil-works/pi-coding-agent').ToolDefinition[]} definitions
- * @param {import('./session-context-report.js').SessionContextProjection | undefined} projection
+ * @param {import('./session-context-report.ts').SessionContextProjection | undefined} projection
  * @returns {Array<{ name: string, description?: string, parameters?: unknown, residentTokens?: number }>}
  */
 function assembleToolExposureDefinitions(toolNames, definitions, projection) {
@@ -4364,7 +4364,7 @@ function assembleToolExposureDefinitions(toolNames, definitions, projection) {
 /**
  * Record actual projection and current-context state without retaining prompt text.
  * @param {import('@earendil-works/pi-coding-agent').AgentSession} session
- * @param {import('./session-context-report.js').SessionContextProjection | undefined} projection
+ * @param {import('./session-context-report.ts').SessionContextProjection | undefined} projection
  * @param {import('../workflow/execution-metrics.ts').ContextSnapshotObservation['samplingPoint']} samplingPoint
  * @returns {import('../workflow/execution-metrics.ts').ContextSnapshotObservation}
  */
@@ -4393,7 +4393,7 @@ function piContextSnapshot(session, projection, samplingPoint) {
 
 /** @param {ExecutionMetricsRecorder} recorder
  * @param {import('@earendil-works/pi-coding-agent').AgentSession} session
- * @param {import('./session-context-report.js').SessionContextProjection | undefined} projection
+ * @param {import('./session-context-report.ts').SessionContextProjection | undefined} projection
  * @param {import('../workflow/execution-metrics.ts').ContextSnapshotObservation['samplingPoint']} samplingPoint */
 function recordPiExecutionContext(recorder, session, projection, samplingPoint) {
     return recorder.recordContextSnapshot(piContextSnapshot(session, projection, samplingPoint));
