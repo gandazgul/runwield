@@ -2,34 +2,31 @@
 
 import { decodeBase64Url, encodeBase64Url } from "./base64url.ts";
 
+export interface JsonPayloadRecord {
+    [key: string]: JsonPayload;
+}
+
+export type JsonPayload = string | number | boolean | null | JsonPayload[] | JsonPayloadRecord;
+
 const AES_GCM_ALGORITHM = "AES-GCM";
 const KEY_LENGTH_BITS = 256;
 const IV_LENGTH_BYTES = 12;
 
-/** @returns {Promise<CryptoKey>} */
-export function generateContentKey() {
+export function generateContentKey(): Promise<CryptoKey> {
     return crypto.subtle.generateKey({ name: AES_GCM_ALGORITHM, length: KEY_LENGTH_BITS }, true, [
         "encrypt",
         "decrypt",
     ]);
 }
 
-/**
- * @param {CryptoKey} key
- * @returns {Promise<string>}
- */
-export async function exportContentKey(key) {
+export async function exportContentKey(key: CryptoKey): Promise<string> {
     const raw = await crypto.subtle.exportKey("raw", key);
     const bytes = new Uint8Array(raw);
     if (bytes.byteLength !== 32) throw new Error("Content key must be 256-bit AES key material");
     return encodeBase64Url(bytes);
 }
 
-/**
- * @param {string} value
- * @returns {Promise<CryptoKey>}
- */
-export async function importContentKey(value) {
+export async function importContentKey(value: string): Promise<CryptoKey> {
     const bytes = decodeBase64Url(value);
     if (bytes.byteLength !== 32) throw new Error("Content key must be 32 bytes of base64url key material");
     const keyBytes = new Uint8Array(bytes);
@@ -45,12 +42,7 @@ export async function importContentKey(value) {
     );
 }
 
-/**
- * @param {unknown} payload
- * @param {CryptoKey} key
- * @returns {Promise<string>}
- */
-export async function encryptJsonPayload(payload, key) {
+export async function encryptJsonPayload<Payload>(payload: Payload, key: CryptoKey): Promise<string> {
     const iv = new Uint8Array(IV_LENGTH_BYTES);
     crypto.getRandomValues(iv);
     const plaintext = new TextEncoder().encode(JSON.stringify(payload));
@@ -61,12 +53,7 @@ export async function encryptJsonPayload(payload, key) {
     return encodeBase64Url(combined);
 }
 
-/**
- * @param {string} encryptedPayload
- * @param {CryptoKey} key
- * @returns {Promise<unknown>}
- */
-export async function decryptJsonPayload(encryptedPayload, key) {
+export async function decryptJsonPayload(encryptedPayload: string, key: CryptoKey): Promise<JsonPayload> {
     try {
         const combined = decodeBase64Url(encryptedPayload);
         if (combined.byteLength <= IV_LENGTH_BYTES + 16) throw new Error("Encrypted payload is truncated");
@@ -81,7 +68,6 @@ export async function decryptJsonPayload(encryptedPayload, key) {
     }
 }
 
-/** @returns {Promise<string>} */
-export async function generateContentKeyString() {
+export async function generateContentKeyString(): Promise<string> {
     return exportContentKey(await generateContentKey());
 }

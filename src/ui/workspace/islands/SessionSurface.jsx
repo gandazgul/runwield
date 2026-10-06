@@ -12,7 +12,7 @@ import {
     RunWieldThinkingDots,
 } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 import { SessionList } from "../components/SessionList.jsx";
-import { deriveSessionAvailability } from "../components/SessionActivationStatus.jsx";
+import { deriveSessionAvailability } from "../components/SessionActivationStatus.tsx";
 import {
     displayAgentName,
     mergeSessionTimelineItems,

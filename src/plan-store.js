@@ -23,7 +23,7 @@ import {
     PLANS_DIR_NAME,
     ROUTING_INTENT_PLANNED_CHANGE,
 } from "./constants.js";
-import { PLAN_FRONT_MATTER_KEY_ORDER, PLAN_FRONT_MATTER_KEYS } from "./plan-front-matter.js";
+import { PLAN_FRONT_MATTER_KEY_ORDER, PLAN_FRONT_MATTER_KEYS } from "./plan-front-matter.ts";
 import { normalizeTicketReferences } from "./shared/ticket-references.js";
 import { normalizePlanDeviations } from "./shared/plan-deviations.ts";
 import { resolveWorkflowPlanLocation } from "./shared/workflow/plan-location.ts";
@@ -64,7 +64,7 @@ import {
 /** @typedef {import("./shared/epic-artifacts.ts").MoveEpicArtifactResult} MoveEpicArtifactResult */
 /** @typedef {import("./shared/plan-deviations.ts").PlanDeviation} PlanDeviation */
 
-export { PLAN_FRONT_MATTER_KEY_ORDER, PLAN_FRONT_MATTER_KEYS } from "./plan-front-matter.js";
+export { PLAN_FRONT_MATTER_KEY_ORDER, PLAN_FRONT_MATTER_KEYS } from "./plan-front-matter.ts";
 
 // ─── Helpers ──────────────────────────────────────────────────────────
 

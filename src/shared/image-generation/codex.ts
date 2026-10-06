@@ -5,6 +5,7 @@ import { getHomeDir } from "../../constants.js";
 import { spawnForegroundProcess } from "../foreground-process.ts";
 import type { ImageGenerationSettings } from "../image-generation-settings.ts";
 import { mimeTypeForImagePath } from "../session/image-attachments.js";
+import { resolveCodexExecutable } from "./codex-executable.ts";
 
 interface CodexImageRequest {
     model: string;
@@ -66,6 +67,8 @@ export async function generateCodexImage(request: CodexImageRequest): Promise<Im
         throw new Error("Codex image generation does not support temperature.");
     }
     request.signal?.throwIfAborted();
+    const executable = await resolveCodexExecutable();
+    request.signal?.throwIfAborted();
     const cwd = await Deno.makeTempDir({ prefix: "runwield-codex-image-" });
     const startedAt = Date.now();
     const pending = new Map<number, PendingRequest>();
@@ -105,7 +108,7 @@ export async function generateCodexImage(request: CodexImageRequest): Promise<Im
     };
     try {
         process = spawnForegroundProcess({
-            command: "codex",
+            command: executable,
             args: ["app-server"],
             cwd,
             stdin: "piped",

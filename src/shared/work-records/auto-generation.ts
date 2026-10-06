@@ -25,7 +25,7 @@ import {
 } from "./generation.js";
 
 type WorkRecordSource = import("./generation.js").WorkRecordSource;
-type WorkRecordSupersessionCandidate = import("./schema.js").WorkRecordSupersessionCandidate;
+type WorkRecordSupersessionCandidate = import("./schema.ts").WorkRecordSupersessionCandidate;
 
 export interface WorkRecordAutoGenerationResult {
     status: "disabled" | "skipped" | "generated" | "linked" | "failed";

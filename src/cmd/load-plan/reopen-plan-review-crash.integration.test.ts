@@ -46,7 +46,8 @@ Deno.test("a Session reopens the current saved Plan after its pending review pro
                 requestInteraction(request) {
                     if (request.type !== RuntimeInteractionTypes.PLAN_REVIEW) throw new Error("Unexpected interaction");
                     const persistentId = runtime.getSessionSnapshot(sessionId).managed.runwieldSessionId;
-                    Deno.writeTextFileSync(${JSON.stringify(readyPath)}, JSON.stringify({ persistentId }));
+                    Deno.writeTextFileSync(${JSON.stringify(readyPath + ".tmp")}, JSON.stringify({ persistentId }));
+                    Deno.renameSync(${JSON.stringify(readyPath + ".tmp")}, ${JSON.stringify(readyPath)});
                     return new Promise(() => {});
                 },
             });
@@ -183,7 +184,8 @@ Deno.test("Workspace opens and approves a saved Plan review after its owner is S
             runtime.setInteractionAdapter(sessionId, {
                 requestInteraction(request) {
                     if (request.type !== RuntimeInteractionTypes.PLAN_REVIEW) throw new Error("Unexpected interaction");
-                    Deno.writeTextFileSync(${JSON.stringify(readyPath)}, JSON.stringify({ persistentId }));
+                    Deno.writeTextFileSync(${JSON.stringify(readyPath + ".tmp")}, JSON.stringify({ persistentId }));
+                    Deno.renameSync(${JSON.stringify(readyPath + ".tmp")}, ${JSON.stringify(readyPath)});
                     return new Promise(() => {});
                 },
             });

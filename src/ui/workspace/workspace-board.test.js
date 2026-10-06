@@ -13,9 +13,9 @@ import {
 } from "./server/plan-adapter.js";
 import { buildPlanBoardSearchIndex } from "./components/Board.jsx";
 
-import { renderMarkdown } from "./components/MarkdownView.jsx";
+import { renderMarkdown } from "./components/MarkdownView.tsx";
 
-import { detailHref, workspaceHref } from "./components/PlanCard.jsx";
+import { detailHref, workspaceHref } from "./components/PlanCard.tsx";
 import { draftRecoveryState, planBodyDraftKey, restoredDraftExpectedBodyHash } from "./islands/PlanBodyEditor.jsx";
 
 import { matchingPlanIds, normalizePlanSearchQuery, PLAN_SEARCH_QUERY_PARAM } from "./islands/PlanBoardSearch.jsx";

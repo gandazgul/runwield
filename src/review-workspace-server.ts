@@ -5,10 +5,8 @@
 
 import { startReviewWorkspaceServer as startWorkspaceServer } from "./ui/workspace/server.js";
 
-/**
- * @param {Parameters<typeof startWorkspaceServer>[0]} options
- * @returns {ReturnType<typeof startWorkspaceServer>}
- */
-export function startReviewWorkspaceServer(options) {
+export function startReviewWorkspaceServer(
+    options: Parameters<typeof startWorkspaceServer>[0],
+): ReturnType<typeof startWorkspaceServer> {
     return startWorkspaceServer(options);
 }

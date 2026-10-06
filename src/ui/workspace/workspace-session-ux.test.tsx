@@ -19,7 +19,7 @@ import {
     shouldApplyOperationPoll,
     shouldRefreshSessionAvailability,
 } from "./islands/SessionSurface.jsx";
-import { deriveSessionAvailability } from "./components/SessionActivationStatus.jsx";
+import { deriveSessionAvailability } from "./components/SessionActivationStatus.tsx";
 import { buildWorkflowPresentation } from "../../shared/workflow/workflow-presentation.ts";
 import {
     compactToolLine,

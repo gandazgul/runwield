@@ -4,7 +4,7 @@ import { createWorkRecordMnemotecaFixture } from "../../shared/work-records/test
 import { resolveSelectedThemeJson } from "../theme/theme.js";
 import { renderRunWieldThemeCss } from "../design-system/theme-bridge.ts";
 import { createWorkspaceApp } from "./server.js";
-import { GET } from "./pages/theme.css.js";
+import { GET } from "./pages/theme.css.ts";
 
 Deno.test("production and dev browser themes stay dark when a light TUI theme is selected", async () => {
     await withProcessGlobalTestLock(async () => {
