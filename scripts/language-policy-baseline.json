@@ -109,7 +109,6 @@
     "src/ui/workspace/components/Board.jsx",
     "src/ui/workspace/components/BoardColumn.jsx",
 
-    "src/ui/workspace/components/PlanBoardToolbar.jsx",
     "src/ui/workspace/components/PlanDetail.jsx",
     "src/ui/workspace/components/SessionList.jsx",
     "src/ui/workspace/components/SessionTimeline.jsx",
@@ -126,7 +125,7 @@
     "src/ui/workspace/pages/api/image.js",
     "src/ui/workspace/pages/api/plans/[...segments].js",
     "src/ui/workspace/pages/api/upload.js",
-    "src/ui/workspace/plan-search.js",
+
     "src/ui/workspace/react/pierre-diffs-worker-shim.js",
     "src/ui/workspace/react/remote-review-payload.js",
     "src/ui/workspace/react/vite.config.js",
