@@ -6,7 +6,7 @@ import { loadPlanBodyById, savePlan } from "../../plan-store.js";
 import { PLAN_UI_TOKEN_HEADER } from "../../constants.js";
 import { loadBoard, loadWorkspaceDetail, workspaceMetadata as _workspaceMetadata } from "./server/plan-adapter.js";
 import { PlanBoard } from "./components/Board.jsx";
-import { PlanBoardToolbar } from "./components/PlanBoardToolbar.jsx";
+import { PlanBoardToolbar } from "./components/PlanBoardToolbar.tsx";
 
 import { PlanDetail } from "./components/PlanDetail.jsx";
 
