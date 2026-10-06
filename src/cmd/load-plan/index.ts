@@ -391,7 +391,9 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
             plan.hasFrontMatter = true;
         }
         const associations = planId ? await runtime.listPlanAssociatedSessions(projectRoot, planId) : [];
-        const safeAssociations = associations.filter((candidate) => candidate.safePlanningResume);
+        const safeAssociations = associations.filter((candidate) =>
+            candidate.safePlanningResume && candidate.displayName?.trim()
+        );
         const activeElsewhere = associations.find((candidate) => candidate.reason === "active_elsewhere");
         let candidateToAdopt: (typeof safeAssociations)[number] | null = null;
         const activeSnapshot = runtime.getSessionSnapshot(activeSessionId);
@@ -411,7 +413,7 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
                 `Choose a planning Session for ${plan.planName}:`,
                 safeAssociations.map((candidate) => ({
                     value: candidate.runwieldSessionId,
-                    label: candidate.displayName || candidate.runwieldSessionId,
+                    label: candidate.displayName || "",
                 })),
             );
             candidateToAdopt = safeAssociations.find((candidate) => candidate.runwieldSessionId === answer) || null;
