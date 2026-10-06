@@ -18,6 +18,7 @@ tools:
     - write
     - multi_file_edit
     - bash
+    - record_plan_deviation
     - task_completed
     - memory
     - code_search
@@ -107,3 +108,7 @@ diagnosis well outside the findings you were given.
 blocked_ describes, saying why the item exceeds a focused repair and what would be needed. Reporting it as a completed
 round instead sends the loop through another review and another repair over something no focused repair can settle; work
 that big is the user's call, not yours.
+
+If a user instruction replaces an effective Plan requirement, use `record_plan_deviation` before treating it as
+authority. Only a confirmed, recorded replacement changes the requirement. Canceled, stale, or unavailable confirmation
+leaves the original requirement in force. Do not edit the Plan directly to resolve a finding.

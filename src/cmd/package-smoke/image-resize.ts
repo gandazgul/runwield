@@ -1,4 +1,5 @@
 import { resizeImage } from "@earendil-works/pi-coding-agent";
+import { encodeCreatedImage } from "../../shared/image-generation.ts";
 
 /** Exercise the real worker and Photon WASM inside the packaged executable. */
 export async function checkPackagedImageResize(): Promise<void> {
@@ -18,6 +19,14 @@ export async function checkPackagedImageResize(): Promise<void> {
     );
     if (!decoded || decoded.width !== 2 || decoded.height !== 1 || decoded.wasResized) {
         throw new Error("Packaged image resize produced an invalid image.");
+    }
+    // create_image uses Photon directly to honor the requested output extension.
+    for (const mimeType of ["image/jpeg", "image/webp"]) {
+        const encoded = encodeCreatedImage({ type: "image", data: png, mimeType: "image/png" }, mimeType);
+        const preview = await resizeImage(encoded.bytes, mimeType);
+        if (!preview || preview.width !== 4 || preview.height !== 2) {
+            throw new Error(`Packaged create_image conversion failed for ${mimeType}.`);
+        }
     }
 }
 

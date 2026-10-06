@@ -1,5 +1,5 @@
 import { AGENTS, SUBAGENTS } from "../../../constants.js";
-import { readPersistedModelState } from ".././active-agent-session.js";
+import { readPersistedActiveAgentName, readPersistedModelState } from ".././active-agent-session.js";
 import { resolveActiveWorkflowRuntimeAgent } from "../../workflow/execution-agent.ts";
 import { getModelRegistry } from "../../models/model-registry.ts";
 import { parseProviderModel } from "../../models/model-validation.ts";
@@ -119,18 +119,23 @@ export async function resolvePersistedRootConfiguration(
 }
 
 /**
- * Restore durable Pair ownership before root activation.
+ * Restore durable execution ownership and optional Pair context before root activation.
  *
  * @param {import('.././hosted-session.js').HostedSession} hostedSession
  */
-export function resolvePersistedPairRootConfiguration(hostedSession: import(".././hosted-session.js").HostedSession) {
+export function resolvePersistedExecutionRootConfiguration(
+    hostedSession: import(".././hosted-session.js").HostedSession,
+) {
     const checkpoint = restorePairExecutionState(hostedSession);
-    if (!checkpoint) return null;
     const workflow = hostedSession.getActiveExecutionWorkflow?.() || null;
-    const agentName = resolveActiveWorkflowRuntimeAgent(workflow) || "";
+    const persistedAgent = readPersistedActiveAgentName(hostedSession.getRootSessionManager());
+    // Semantic repair owns this root until its focused repair turn is complete.
+    const agentName = persistedAgent === AGENTS.REVIEWER_FEEDBACK_ENGINEER
+        ? persistedAgent
+        : resolveActiveWorkflowRuntimeAgent(workflow) || "";
     if (!workflow || !agentName) return null;
     const existingProjectState = hostedSession.getProjectStateContext?.() || "";
-    const checkpointContext = formatPairCheckpointContext(checkpoint);
+    const checkpointContext = checkpoint ? formatPairCheckpointContext(checkpoint) : "";
     return {
         agentName,
         cwd: workflow.executionCwd || hostedSession.cwd,

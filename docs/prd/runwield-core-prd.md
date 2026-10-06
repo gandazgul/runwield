@@ -78,6 +78,7 @@ Other surfaces reference these requirements and add only their own user experien
 - [Theme selection](#theme-selection)
 - [Project context and initialization](#project-context-and-initialization)
 - [Compaction and image context](#compaction-and-image-context)
+- [Image generation](#image-generation)
 - [Work records](#work-records)
 - [Agent and skill customization](#agent-and-skill-customization)
 - [Models and providers](#models-and-providers)
@@ -210,6 +211,18 @@ turn animates until an answer, owner wait, or settlement; resuming work restarts
 conversation and composer, with the mascot centered at each sidebar width; closing the surface leaves no animation timer
 running.
 
+**Requirement: Owner-controlled mascot visibility and stable centering.**
+
+The `mascot` setting is on by default. Only `mascot: false` hides the mascot in TUI and Workspace, with project settings
+overriding global settings. The TUI `/settings` menu toggles the global setting without a restart; manual edits apply
+after `/reload`. Workspace honors the setting but does not provide a toggle UI. Hiding an active mascot stops its
+animation clock, removes its footprint, and preserves written identity, conversation, and input. TUI centering uses a
+stable drawing width across frames and poses so Base's blinking dot stays in place.
+
+Acceptance: with no setting, both surfaces show the mascot; `mascot: false` hides it in the rail, compact dock, and
+Workspace composer. Toggling in TUI applies on the next render, subject to project overrides; toggling back restores
+animation. Reloading after a manual edit applies the new value. Base's dot blinks without shifting the W body.
+
 <a id="32-routing-intents"></a>
 <a id="33-triage-experience"></a>
 
@@ -243,6 +256,23 @@ specialist remains active for follow-up messages.
   Engineer implements and receives Mechanical Validation.
 - When a request needs planned implementation, Planner prepares a Planned Change; when it needs coordinated independent
   deliveries, Architect and Slicer shape an Epic. A planned bug remains a bug in Work Kind.
+
+**Requirement: Evaluate routing against fixed repository context.**
+
+Router benchmark rows can specify a full local commit hash. Discovery uses that committed repository state in a separate
+detached worktree, reused across pinned rows without changing the owner's checkout or uncommitted files. Generated files
+are not cleared between rows. Rows without a pin retain current-checkout discovery. Missing or invalid pins produce row
+errors rather than silently using current files. Result files preserve the pin, and resume must not reuse a decision
+made against a different pin. This fixes tracked file context only; conversation history, global settings, memory, and
+external sources remain separate evaluation inputs.
+
+**Acceptance scenarios:**
+
+- Given rows pinned to different commits, Router sees each row's committed files, and the owner's dirty checkout remains
+  unchanged. The benchmark reuses one temporary worktree and removes it when the run ends, including after row failures
+  or timeouts.
+- Given an unavailable commit, that row records an error without invoking Router; later valid rows still run.
+- Given a changed pin and a saved result, resume evaluates the row again instead of using the old decision.
 
 <a id="34-plan-review"></a>
 
@@ -610,6 +640,46 @@ abandonment with work preserved at the safest recoverable point. Commands are co
 external action actually requires a command; never substitute internal labels, hashes, or a generic "restore from
 backup" instruction. Waiting for that action remains part of the open workflow. Do not make repetitive retry clicks the
 normal way to repair RunWield-owned inconsistencies.
+
+**Requirement: Universal Plan Deviation availability.**
+
+Plan Engineer and Frontend Engineer always have `record_plan_deviation` during Plan execution, independent of
+collaboration style or Execution Backend. Availability remains intact after Session restore, compaction, segment
+handoff, and validation repair. The focused Validation Repair Engineer also has this capability. Tool availability does
+not grant authority to write without an active execution Plan and checkout, or after execution pauses or stops.
+Execution ownership is durable from the first execution turn, before any Pair checkpoint. The next writable turn
+restores it automatically under the Session Writer Lock. An explicit clear, pause, or Stop survives restore and
+compaction; missing cached state must not undo those decisions.
+
+**Requirement: Explicit Plan Deviation confirmation and durability.**
+
+An effective Plan requirement changes only after dedicated user confirmation records the exact superseded requirement,
+replacement requirement, and optional reason in the authoritative execution Plan. Confirmed entries survive reload and
+supersede conflicting original text in execution, Semantic Review, and Work Records. Retrying a committed tool-call ID
+returns the saved entry without another write or transcript approval replay. Ordinary feedback and direct Plan-file
+edits are not confirmed deviations. Canceled, unsupported, blocked, or stale confirmation leaves the requirement
+unchanged. A changed execution identity or Plan revision invalidates pending confirmation. Unsupported confirmation
+preserves work and stops the turn without creating Pair checkpoint state in autonomous execution.
+
+**Acceptance scenarios:**
+
+- Given an autonomous or Pair Plan under either execution Agent, when a user requests a conflicting requirement, the
+  available tool asks for explicit confirmation and only acceptance records the replacement.
+- Given a restored or compacted Session, a segment handoff, or a validation repair, the execution or repair Agent still
+  has the tool and records an accepted replacement in the active execution Plan.
+- Given execution interrupted before its first checkpoint, resuming the Session records a confirmed replacement in the
+  same execution checkout, not the primary Plan.
+- Given an older Session without an execution snapshot, matching active-branch execution association, persisted Plan
+  context and execution owner, and one active attached worktree with the same Plan ID and an `in_progress` or
+  `implemented` Plan restore writable ownership automatically. A stale primary `ready_for_work` Plan does not block this
+  recovery. Repeated resume does not create another attempt or state entry.
+- Given conflicting Plan IDs, ambiguous worktree evidence, an absent checkout, a finished Plan, a non-execution owner,
+  or explicit execution clear, completion, or Pair Stop evidence, legacy recovery records no replacement.
+- Given a recorded replacement, reload retains it for execution and independent review; retrying the same tool-call ID
+  returns the same entry, and the Work Record retains the confirmed deviation.
+- Given canceled confirmation, a changed Plan revision, changed execution context, or stopped execution, no replacement
+  is written and the effective requirement remains unchanged.
+- Given an autonomous host without confirmation capability, no deviation is written and no Pair pause state is created.
 
 **Requirement: Validate and deliver approved work without losing recoverable changes.**
 
@@ -1058,6 +1128,66 @@ not inherit it. Future Session deletion also removes its images. See
 - Given a standalone release running outside the source checkout, resizing an image produces a valid image within the
   requested dimensions without worker-loading errors or stray terminal output.
 
+### Image generation
+
+**Scope and maturity:** Implemented local Pi, Agy and official Codex App Server routes, plus an experimental OpenCode
+Responses adapter, with automated boundary coverage. Current live-provider acceptance remains pending as recorded in the
+[provider evidence](../research/image-generation-provider-proof.md). OpenCode hosted image output is unverified; model
+access was denied in the live probe. Dedicated Google SDK integration, graphical image settings, and bounded remote
+generation are deferred.
+
+**Requirement: Generate images through a user-selected model independently of the conversation model.**
+
+Users configure `imageGeneration.model`, optionally with supported `thinkingLevel` and `temperature`, globally, per
+project, or through an active model preset. Pi image-output models use the existing provider configuration and
+authentication. `agy-cli/<model>` uses the same supervising-model and effort selection as Agy conversations; Agy owns
+its native image model and login. `codex-cli/<model>` and `openai-codex/<model>` use the official local Codex runtime's
+existing ChatGPT login, catalog and native image capability, without extracting subscription tokens or falling back to
+API-key billing. `opencode/<model>` reuses the existing RunWield provider configuration and requires a Responses model
+with hosted image-tool access. Unsupported controls are reported, not ignored, and requests never silently switch
+provider or billing route. Model changes must not inherit incompatible controls from the previous model.
+
+**Requirement: Produce a reusable project image with truthful success and safe file handling.**
+
+`create_image` accepts a prompt, a required output path and optional project or current-Session image references.
+Configured file-writing Agents, or Agents explicitly declaring the tool, can use it; read-only Agents do not gain it
+automatically. Claude CLI Agents receive the same tool through the existing MCP bridge. Generation does not require the
+conversation model itself to support image output.
+
+Guide explicitly exposes image generation for requested image work without gaining general file-editing authority.
+Write-capable delegates allow `create_image`; read-only delegates do not receive it.
+
+Success means one decoded image has been saved to the requested new project file in its actual extension's format.
+Existing files and input images remain unchanged. Paths cannot escape their project/Session ownership through symlinks.
+The result identifies its model, path, format and dimensions; image-capable callers also receive a preview. The saved
+file remains usable for later edits and inspection independently of host conversation retention. Native-tool failure,
+text-only output, malformed bytes, cancellation and timeouts must not claim success or publish partial output. RunWield
+does not retry ambiguous generations automatically or change host-global configuration to generate an image.
+
+**Acceptance scenarios:**
+
+- Given an image-capable Pi model and provider credentials, an Agent creates an image at its requested path; a later
+  edit consumes that file and saves a new image without altering the source.
+- Given configured image generation, Guide and write-capable delegates can create a requested image. Guide retains its
+  docs-only editing tools, and read-only delegates cannot inherit `create_image` even when their parent has it.
+- Given `agy-cli/<model>`, the helper uses the configured supervising model and supported effort. A failed native
+  image-tool event followed by final process success remains an error with no published image.
+- Given a signed-in, image-capable Codex runtime, either Codex provider spelling uses the selected supervising model and
+  supported effort in an ephemeral thread. Only a completed native image item from the matching turn with a valid saved
+  file can publish output; API-key accounts and additional approval requests are rejected.
+- Given OpenCode model and hosted image-tool access, the configured Responses endpoint must return exactly one completed
+  image-generation result. Model-access denials and text-only results remain errors, never implicit fallback.
+- Given a Claude CLI conversation and configured image route, the MCP tool accepts current-Session attachment references
+  and returns the saved path and image preview.
+- Given a text-only Pi conversation model, the tool returns metadata without sending image bytes to that model; the
+  project image remains available to a configured `see_image` fallback.
+- Given an existing, escaping or symlinked destination, generation is rejected without modifying existing files. If a
+  destination appears while generation is in flight, it is preserved and the tool reports failure.
+- Given a cancelled in-flight request, HTTP requests receive cancellation or the owned CLI helper terminates, and no
+  output file is published. No implicit generation retry occurs.
+- Given a model preset switches from Pi to Agy, incompatible inherited image options are dropped. Explicit unsupported
+  settings fail clearly; disabling image generation removes automatic registration in newly built Sessions.
+
 ### Work records
 
 **Scope and maturity:** Current generation and retrieval baseline; manual/external creation and richer authorship remain
@@ -1165,18 +1295,21 @@ Scalar front matter overrides by precedence. Prompt bodies append by default unl
 
 Users can customize Agent tools, while required workflow capabilities remain available so customization does not break
 planning or validation. Guide may save ordinary Markdown documents when explicitly requested in the conversation; this
-does not grant authority to change workflow-owned Plans, ADRs, or Work Records.
+does not grant authority to change workflow-owned Plans, ADRs, or Work Records. Guide also supports requested
+[image generation](#image-generation) when configured, without gaining general file-editing tools.
 
 Optional Agent and delegated-definition `bashAllowedCommands` front matter limits RunWield-managed shell starts without
 granting the bash tool. Omission inherits a lower definition layer; absent from all layers means unrestricted bash. A
 list replaces the lower list, `[]` denies every command, and `null` resets the definition's inherited list to
 unrestricted. The child delegate's effective list intersects its parent's limit, so neither omission nor `null` can
-remove a parent's restriction. Guide and read delegates have inspection defaults; write delegates and other Agents
-without a list retain unrestricted bash unless a definition or parent restricts them. Effective role authority selects
-the read definition when a write request is reduced to read. The same best-effort, single-command check applies to
-RunWield-owned foreground bash and background shell starts; denied calls state the reason, allowed commands, and how to
-report a blocker rather than work around the restriction. It is not a security boundary and does not control external
-CLI Execution Backends' native shells. See [customization](../customization.md#agents) for selector syntax and limits.
+remove a parent's restriction. Guide and read delegates have inspection defaults. Read delegates also allow selected
+`gh` and `glab` commands for PR/MR, issue, and repository inspection, not forge mutation or arbitrary API calls. Write
+delegates and other Agents without a list retain unrestricted bash unless a definition or parent restricts them.
+Effective role authority selects the read definition when a write request is reduced to read. The same best-effort,
+single-command check applies to RunWield-owned foreground bash and background shell starts; denied calls state the
+reason, allowed commands, and how to report a blocker rather than work around the restriction. It is not a security
+boundary and does not control external CLI Execution Backends' native shells. See
+[customization](../customization.md#agents) for selector syntax and limits.
 
 **Acceptance scenarios:**
 
@@ -1187,6 +1320,9 @@ CLI Execution Backends' native shells. See [customization](../customization.md#a
   command, it can inspect the repository; an unapproved or compound command does not start and the denial lists allowed
   commands and asks for a final-handoff blocker if they are insufficient. Guide can still preserve an ordinary Markdown
   answer only when explicitly asked, through its docs-only tools.
+- Given a read-only delegate with an unrestricted parent and installed, authenticated forge CLIs, it can list and view
+  GitHub PRs and GitLab MRs, read their diffs, and inspect issues and repository details. Forge mutation commands and
+  arbitrary API calls do not start.
 - Given a restricted parent, when it delegates in foreground or background, the child's shell policy is the intersection
   with its read or write definition; an absent or `null` child list cannot restore commands the parent disallows. A role
   that reduces write to read uses the read definition. A parent without bash cannot grant child bash.
@@ -1245,7 +1381,10 @@ isolated validation/review Agents retain their tool ceilings. MCP failures leave
 diagnostics; cancellation and closing the Session settle server cleanup. Tool results preserve text, images, structured
 output, and server-reported errors, and progress reaches the active surface. Pi's built-in MCP extension owns discovery,
 conversion, native tool names, reconnection, and cleanup. Root Pi Agents receive live tool-list updates; external CLI
-Agents refresh available MCP tools between turns. Server resources are read on request through Pi's resource tools.
+Agents refresh available MCP tools between turns. Server resources are read on request through Pi's resource tools. An
+empty initial inventory does not remove an authorized root's access to later discovery or recovery. Calls cancelled
+while queued never begin execution. Both external CLI bridges preserve structured results and output schemas, report
+unknown tools as protocol errors, and support human-paced review waits. The private HTTP bridge rejects foreign Origins.
 `/mcp` prints server status and `/mcp reconnect <server>` reconnects without a model request. MCP tools use direct
 calls; codemode is deferred as a separate capability.
 
@@ -1265,6 +1404,16 @@ mount path is not confinement of trusted remote users. This target is not yet a 
   a tool that reports progress or an error, the surface receives progress and the model receives the error result.
 - Given a server announces a changed tool list, the next root Pi model request declares its new tools and removes
   withdrawn tools. The next external CLI turn uses the current MCP tool list. Non-MCP Agent restrictions still apply.
+- Given initial discovery returns no tools or fails, later discovery or a successful reconnect makes tools available to
+  the same root Agent. Delegated and isolated Agents still receive no inherited MCP integration.
+- Given a call is cancelled while queued behind another tool, releasing that earlier call does not execute the cancelled
+  tool or change its target files.
+- Given an external CLI Agent calls a tool with structured output, its MCP client receives the structured result and
+  output schema. An unknown tool receives a protocol error; an execution failure remains a tool error.
+- Given an Antigravity Plan Review waits beyond one minute, the proxy keeps the pending call available for the user's
+  decision. Both external CLI bridges allow tool calls to wait up to 24 hours.
+- Given a request to the private HTTP bridge carries a foreign or opaque Origin, the bridge rejects it. Authenticated
+  CLI requests without Origin remain usable.
 - Given a server offers resources, a root Agent can list and read them through Pi's resource tools. Oversized text names
   a private file containing the full output. `/mcp` reports connection status without invoking a model.
 - When a user invokes a Skill or Prompt Template, its full saved expansion reaches the active model and remains
@@ -1529,6 +1678,7 @@ Windows WinGet requirements:
 - make `wld update` and `wld upgrade` print `winget upgrade --id Gandazgul.RunWield --exact`
 - reject Candidate tags for Stable WinGet manifest generation and external submission
 - submit each Stable manifest to `microsoft/winget-pkgs` from the release workflow with a repository secret
+- include `https://runwield.dev/privacy/` as `PrivacyUrl` in the WinGet package metadata
 - keep public install docs marked pending until Microsoft accepts the listing
 
 **Acceptance scenarios:**
@@ -1541,6 +1691,7 @@ Windows WinGet requirements:
   `winget upgrade --id Gandazgul.RunWield --exact` and does not run the shell installer.
 - Given a Stable release, when its Windows package and manifest jobs pass, the release workflow submits a PR to
   `microsoft/winget-pkgs`; given a Candidate release, it does not submit one.
+- Given a generated WinGet manifest, its package metadata links to the published RunWield privacy policy.
 - Given a standalone Unix install, when the user runs `wld update`, RunWield can still use the tag-pinned shell
   installer.
 - Given a loose native Windows executable without package metadata, when the user runs `wld update`, RunWield gives

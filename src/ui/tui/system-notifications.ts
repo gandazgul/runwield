@@ -13,7 +13,7 @@ import {
     type NotificationEventName,
     type NotificationSettingsRecord,
 } from "../../shared/session/notification-content.ts";
-import { formatSessionTerminalTitle } from "../../shared/session/session-name.js";
+import { formatSessionTerminalTitle } from "../../shared/session/session-name.ts";
 import { getCurrentTerminalFocusState, type TerminalFocusState } from "./terminal-focus-state.ts";
 
 const TERMINAL_BELL_BYTES = new Uint8Array([7]);

@@ -9,6 +9,7 @@ docs-site/public/docs-assets/
 docs-site/.astro/
 /artifacts/
 demo-media/
+videos/
 
 .history/
 .learning/

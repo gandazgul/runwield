@@ -2,7 +2,7 @@ import { isEpicPlan } from "../project-plan.ts";
 /** @module shared/workflow/collaboration-pull */
 
 import { AGENTS, CLI_BIN, normalizePlanClassification } from "../../constants.js";
-import { redactSecrets } from "../collaboration/capabilities.js";
+import { redactSecrets } from "../collaboration/capabilities.ts";
 
 /**
  * @typedef {Object} PullReviewComment

@@ -59,12 +59,15 @@ adds a stable hash suffix when names collide or exceed the provider limit. Confi
 
 Pi root Agents receive live `tools/list_changed` updates: new tools become available and withdrawn tools become
 unreachable. External CLI Agents refresh the available MCP tools between turns. Connections survive root Agent handoffs
-and close with the owning Session. `/reload` rereads configuration.
+and close with the owning Session. `/reload` rereads configuration. An initially empty inventory keeps its root binding,
+so later discovery or a successful reconnect can expose tools without replacing the Agent.
 
 Servers with resources expose Pi's `list_mcp_resources`, `list_mcp_resource_templates`, and `read_mcp_resource` tools.
 Resources are read on request. Text and images reach the model, structured MCP results remain available as structured
 output, and server-reported errors are marked as errors. Pi limits model-facing text to 20 KiB, saving full oversized
-output to a private temporary file named in the result. Progress notifications appear as tool updates.
+output to a private temporary file named in the result. Progress notifications appear as tool updates. Claude and
+Antigravity receive structured results and output schemas through the RunWield bridge. Their tool calls can wait up to
+24 hours for workflows such as Plan Review. A call cancelled while queued never starts execution.
 
 Use `/mcp` in a RunWield session to print Pi's server status, including tool counts and connection details. Use
 `/mcp reconnect <server>` to reconnect a server. These commands make no model request. Automatic startup warnings are
@@ -77,7 +80,8 @@ separate stdio adapter for Antigravity.
 MCP servers are trusted code. They can run commands and receive the plaintext environment values that you configure.
 RunWield redacts warnings, but the MCP child process controls its own logs. The child inherits a minimal
 operating-system environment plus the values in its configured `env`, rather than all credentials from the RunWield
-process.
+process. The private loopback HTTP bridge requires its per-turn Bearer token and rejects foreign or opaque browser
+Origins. Unknown tool names produce MCP protocol errors; errors from executing a known tool remain tool error results.
 
 MCP tool schemas do not reliably say whether a tool only reads data or can change state. RunWield exposes configured MCP
 tools to every root Agent. Delegated Agents and isolated validation/review Agents keep their normal tool ceilings and do

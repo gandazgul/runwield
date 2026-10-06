@@ -34,7 +34,7 @@ import {
     formatWorkRecordAutoGenerationResult,
 } from "../../../shared/work-records/auto-generation.js";
 import { executePlanAction, loadPlanActionEvidence } from "../../../shared/workflow/plan-actions.ts";
-import { PLAN_LIFECYCLE_ACTIONS } from "../constants.js";
+import { PLAN_LIFECYCLE_ACTIONS } from "../constants.ts";
 
 /** @typedef {{ reviewOnly?: boolean }} WorkspacePlanDetailOptions */
 

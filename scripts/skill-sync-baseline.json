@@ -14,9 +14,9 @@
         },
         {
             "source": "src/agent-definitions/guide.md",
-            "sourceHash": "1a5061c095699575b4387ad915331a0fc6b6ade04809f818167ebcbcbfe443d0",
+            "sourceHash": "ad67cfee7e3d619a9d533fc2a503837cbaeff6b56337452ffbe3332bc5465b53",
             "skill": "skills/guide/SKILL.md",
-            "skillHash": "6eb82b5cec6f23ea878896fa213016584491900da02c3e38a245131a305b2ff5",
+            "skillHash": "dbc108f78463915b795aa353a6589935e084a4abca74df862eab7ba43b1cac4d",
             "supportFiles": []
         },
         {

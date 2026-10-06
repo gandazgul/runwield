@@ -7,7 +7,7 @@ import { resolveProjectRuntimeLayout } from "../project-runtime-layout.ts";
 import { createWorkRecordMnemotecaFixture } from "../work-records/test-fixtures/mnemoteca-port.ts";
 import { HostedSession } from "../session/hosted-session.js";
 import { removeWorktreeGitArtifacts } from "../worktree.js";
-import { createTestWorktreeAttempt, makeRepo } from "../worktree-test-helpers.js";
+import { createTestWorktreeAttempt, makeRepo } from "../worktree-test-helpers.ts";
 import { createEngineValidationArgs, shouldContinueParentEpicAfterValidation } from "./validation.ts";
 import { resolvePhaseContext } from "./validation-context.ts";
 import { runPublicationPhase } from "./validation-publication.ts";

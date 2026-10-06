@@ -257,6 +257,120 @@ treated as vision-capable, so it does not need to appear in `imageInputModels`. 
 (context window, cost, etc.), define it explicitly under `providers.<p>.models[]` with `input: ["text", "image"]`
 instead of relying on discovery.
 
+### imageGeneration
+
+Configure `create_image` independently of the conversation model, using the same global, project and active-preset
+scopes as `visionFallback`. A Claude CLI conversation can call this tool through RunWield's existing MCP bridge; Claude
+does not need to generate images itself.
+
+For a Pi image model, use normal RunWield provider credentials and model configuration:
+
+```jsonc
+{
+    "imageGeneration": {
+        "model": "openrouter/google/gemini-3.1-flash-image",
+        "thinkingLevel": "high",
+        "temperature": 1
+    }
+}
+```
+
+Pi 1.0's built-in image provider is OpenRouter. The selected entry must be an image-output model in Pi's unified model
+runtime; a chat model accepting image inputs is not enough. This route does not use an Agy, Claude or ChatGPT
+subscription as an API credential.
+
+To use an existing Agy login instead:
+
+```jsonc
+{
+    "imageGeneration": {
+        "model": "agy-cli/gemini-3.8-flash",
+        "thinkingLevel": "medium"
+    }
+}
+```
+
+Agy model selection and thinking use the same supervising-model mapping as normal RunWield Agy conversations. The native
+image model is chosen by Agy, not by this setting. Install and authenticate `agy` first. Generation runs a bounded
+helper process without installing global agents, modifying MCP settings, or bypassing host permissions. Its prompt
+requests only the native image tool; that instruction is not an operating-system sandbox.
+
+For the existing Codex ChatGPT subscription login, configure `codex-cli/<model>` (or the alias `openai-codex/<model>`):
+
+```jsonc
+{
+    "imageGeneration": {
+        "model": "codex-cli/gpt-5.6-sol",
+        "thinkingLevel": "low"
+    }
+}
+```
+
+The example model must be available in your Codex catalog. Install `codex` on `PATH` and sign in to Codex with ChatGPT.
+The adapter uses the official local App Server, checks its account and native image capability, and starts an ephemeral
+read-only thread. It requires one completed native image item and validates its saved file. It does not extract OAuth
+tokens, use undocumented HTTP endpoints, or fall back to API-key billing. Pi's stored Codex login alone is not enough:
+the Codex CLI must already be signed in and able to write its own state. Model and effort select the supervising agent;
+Codex manages the actual image model. Additional permission or client-tool requests fail without approval.
+
+`opencode/<model>` uses the existing RunWield OpenCode credential and model configuration against that model's
+documented Responses endpoint. It requests the hosted `image_generation` tool directly, not a text description or a
+shell-generated drawing. The selected model must use `openai-responses`; reference inputs also require image-input
+support. This route is **experimental**: OpenCode model access and hosted image-tool support are both required, and
+successful image output has not been live-verified. The current account probe returned HTTP 403, “Model access is
+disabled.” This is not proof that OpenCode supports or rejects the image tool itself. The adapter reports that error
+without switching providers or requesting an OpenRouter key. It does not invoke the OpenCode CLI or read that CLI's
+separate credential store.
+
+Supported optional controls in this implementation:
+
+| Route                                                  | `thinkingLevel`                                         | `temperature`                     |
+| ------------------------------------------------------ | ------------------------------------------------------- | --------------------------------- |
+| `openrouter/google/gemini-3.1-flash-image`             | `minimal` or `high`                                     | 0–2                               |
+| `openrouter/google/gemini-2.5-flash-image`             | Omit                                                    | 0–2                               |
+| Other Pi image models                                  | Omit                                                    | Omit                              |
+| `agy-cli/gemini-3.8-flash` or `agy-cli/gemini-3.1-pro` | Existing Agy mapping below                              | Omit                              |
+| `codex-cli/<model>` or `openai-codex/<model>`          | Exact efforts advertised by Codex; `off` maps to `none` | Omit                              |
+| `opencode/<Responses model>`                           | Pi's model mapping, for reasoning models only           | 0–2 for non-reasoning models only |
+
+For Agy, omitted/off/minimal/low maps to low effort; high/xhigh/max maps to high. Medium maps to medium for Flash and
+high for Pro, matching the conversation backend. Unsupported controls produce an error, rather than being silently
+ignored or switching providers. Pi reasoning and temperature are mapped onto its existing OpenRouter payload hook.
+
+Project fields override global fields. `modelPresets.<activeModelPreset>.imageGeneration` overrides those settings.
+Changing the model discards inherited options for the old model. An absent configuration or effective `enabled: false`
+disables automatic tool registration. The configured tool is available to Agents declaring `create_image` or general
+file-writing tools (`write`, `edit`, `multi_file_edit`), not automatically to read-only Agents. Guide explicitly
+declares the tool for requested image work, without gaining general file-editing tools. Write-capable delegates include
+it in their tool allowlist; read-only delegates exclude it. Restart an existing Session after first enabling the tool.
+Bounded remote Sessions are not supported yet.
+
+Tool arguments are `prompt`, required `outputPath`, and optional `imageRefs` (up to 14 project-relative image paths or
+current-Session `attachment:<uuid>` references; provider limits still apply). The Agent cannot override the configured
+model or billing route through tool arguments. For example:
+
+```json
+{
+    "prompt": "Change the mug glaze to cobalt blue, preserving its composition",
+    "imageRefs": ["assets/red-mug.png"],
+    "outputPath": "assets/blue-mug.webp"
+}
+```
+
+The destination must be a new file inside the project, with `.png`, `.jpg`, `.jpeg` or `.webp` extension. RunWield
+converts the bytes when necessary, rejects escaping/symlinked output paths, and never overwrites existing files. Success
+returns the path, actual format, dimensions and model, plus a preview for image-capable callers. The project file
+remains usable by `see_image` or a later edit after the helper exits. Empty/text-only replies, multiple images, invalid
+raster data and failed native tool events are errors. Cancellation does not publish a partial file. Requests have a
+five-minute provider timeout and are not automatically retried; CLI hosts still own their internal behavior.
+
+**Verification:** Pi/OpenCode HTTP handling, Codex/Agy subprocess protocols, raster conversion and Claude MCP delivery
+are covered by isolated fixtures, not live-provider guarantees. Agy and Codex generation/editing passed historical
+September probes; fresh adapter acceptance requires ordinary host storage writes unavailable in this sandbox. OpenCode
+returned a model-access denial, and the optional Pi route lacks an OpenRouter credential. See the
+[dated provider evidence](research/image-generation-provider-proof.md#additional-adapter-checks-on-2026-10-03). A
+standalone Google SDK adapter is not included.
+
 ## Work Records
 
 ### `workRecords.autoGenerateOnPlanCompletion`
@@ -361,6 +475,7 @@ These keys are read by RunWield outside the upstream Pi `SettingsManager` schema
 | `guidedReview`                             | string            | `none`, `ask`, `auto`, `always`; default `auto` | global + project | Guided Review Explainer generation policy inside human code review. Invalid values fall back to `none`; manual generation remains available when supported.                                                                                           |
 | `cleanupMergedWorktrees`                   | boolean           | default `true`                                  | global + project | When true, successful merge-back removes a clean execution checkout, deletes its registry entry, and clears Plan worktree metadata. Unexpected dirty state is preserved rather than force-deleted. Set false to keep merged worktrees for inspection. |
 | `workRecords.autoGenerateOnPlanCompletion` | boolean           | default `true`                                  | global + project | Automatically generates or reconciles eligible Work Records after terminal planned-work outcomes. Only literal `false` disables automation; explicit `wld wr` commands still work.                                                                    |
+| `mascot`                                   | boolean           | default `true`                                  | global + project | Hides the agent mascot in TUI and Workspace when false.                                                                                                                                                                                               |
 | `notifications`                            | object            | enabled by default                              | global + project | Attention notifications. TUI uses terminal BEL/OSC for agent stops, `plan_written`, `user_interview`, and `/compact`. Workspace uses browser alerts for live `agentStopped` events. Focused surfaces stay quiet by default.                           |
 | `workflowMetrics`                          | boolean or object | default disabled                                | global + project | Opt-in local-only JSONL workflow metrics under `~/.wld/workflow-metrics/<encoded-project-root>/metrics.jsonl`. Linked worktrees write to the primary project file. Accepts `true` or `{ "enabled": true }`.                                           |
 | `enableExternalSkills`                     | boolean           | default `true`                                  | global           | When true, RunWield includes project `.agents/skills` and home `~/.agents/skills`. When false, it omits both folders. External skills cannot conflict with bundled names or aliases.                                                                  |
@@ -507,6 +622,14 @@ Example:
     "guidedReview": "auto"
 }
 ```
+
+### `mascot`
+
+The agent mascot is on by default in TUI and Workspace. Set `"mascot": false` to hide it on both surfaces. Only a
+literal `false` disables it; project settings override global settings. The TUI `/settings` menu has a **Mascot:
+on|off** toggle that writes the global setting and applies on the next render. A project override still wins. After
+manual settings-file edits, use `/reload` in TUI or reopen the Workspace Session. Workspace honors the setting but has
+no mascot toggle UI.
 
 ### `notifications`
 

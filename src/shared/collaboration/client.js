@@ -1,12 +1,12 @@
 /** @module shared/collaboration/client */
 
-import { redactSecrets } from "./capabilities.js";
+import { redactSecrets } from "./capabilities.ts";
 import {
     normalizeAppendCommentPayload,
     normalizeAppendRevisionPayload,
     normalizeCreateSharedSpacePayload,
 } from "./protocol.js";
-import { buildApiUrl, normalizeServerUrl } from "./urls.js";
+import { buildApiUrl, normalizeServerUrl } from "./urls.ts";
 
 /**
  * @typedef {Object} CollaborationClientOptions

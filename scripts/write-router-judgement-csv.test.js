@@ -39,6 +39,14 @@ Deno.test("buildJudgementCsv preserves existing human judgement cells", () => {
     assertEquals(rows[0].routerAgreesWithHuman, "TRUE");
 });
 
+Deno.test("buildJudgementCsv preserves existing repository context pins", () => {
+    const contextCommit = "a".repeat(40);
+    const csv = buildJudgementCsv([
+        { decisionId: "d1", requestText: "check the code", routingIntent: "INQUIRY" },
+    ], [{ decisionId: "d1", humanJudgement: "INQUIRY", contextCommit }]);
+    assertEquals(parseCsv(csv)[0].contextCommit, contextCommit);
+});
+
 Deno.test("parseJsonlRows reads reviewed rows", () => {
     const rows = parseJsonlRows('{"decisionId":"d1"}\n{"decisionId":"d2"}\n');
     assertEquals(rows.map((row) => row.decisionId), ["d1", "d2"]);

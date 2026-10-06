@@ -6,7 +6,7 @@
 import { parseArgs } from "@std/cli/parse-args";
 import { CLI_BIN, getCwd } from "../../constants.js";
 import { hashPlanBody, listPlanResources, updatePlanCollaborationMetadata } from "../../plan-store.js";
-import { redactSecrets, REVIEWER_SCOPE } from "../../shared/collaboration/capabilities.js";
+import { redactSecrets, REVIEWER_SCOPE } from "../../shared/collaboration/capabilities.ts";
 import { createCollaborationClient, SYSTEM_COLLABORATION_FETCH } from "../../shared/collaboration/client.js";
 import { encryptJsonPayload, importContentKey } from "../../shared/collaboration/crypto.js";
 import { COLLABORATION_LOCK_BYPASS, COLLABORATION_STATE_REMOTE_CANONICAL } from "../../shared/collaboration/lock.js";
@@ -16,8 +16,8 @@ import {
     getProjectSecretStoreLocation,
     resolvePullSecretRecord,
 } from "../../shared/collaboration/secrets.js";
-import { buildCollaborationUrl } from "../../shared/collaboration/urls.js";
-import { normalizePlanServerUrl } from "../../shared/collaboration/urls.js";
+import { buildCollaborationUrl } from "../../shared/collaboration/urls.ts";
+import { normalizePlanServerUrl } from "../../shared/collaboration/urls.ts";
 import { enterProjectRuntime } from "../../shared/project-runtime-layout.ts";
 
 interface PlansPushArgs {

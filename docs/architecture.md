@@ -100,7 +100,7 @@ structured agent outcomes, calls Plan and execution services, and decides which 
 | --------------------------- | -------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Session application runtime | Create/load/close sessions, serialize turns, switch agents, cancel work, emit semantic events, broker interactions   | `src/shared/session/session-runtime.ts`                                                                                                                  |
 | Per-session ownership       | Project root, root and sub-agent sessions, active agent/model/thinking state, workflow state, active interactions    | `src/shared/session/hosted-session.js`                                                                                                                   |
-| Multi-session registry      | Adopt, find, list, and dispose hosted sessions                                                                       | `src/shared/session/session-host.js`                                                                                                                     |
+| Multi-session registry      | Adopt, find, list, and dispose hosted sessions                                                                       | `src/shared/session/session-host.ts`                                                                                                                     |
 | Pi integration              | Build configured `AgentSession` objects, assemble prompts, wire tools, translate Pi events, run prompts, reuse roots | `src/shared/session/session.js`                                                                                                                          |
 | Workflow application logic  | Interpret tool outcomes, route requests, choose post-planning and post-execution actions                             | `src/shared/session/agent-handler.js`, `src/shared/workflow/orchestrator.js`, `src/shared/workflow/decisions.js`                                         |
 | Plan domain                 | Canonical Markdown persistence, identities, hierarchy, lifecycle state machine, collaboration write lock             | `src/plan-store.js`, `src/shared/workflow/plan-lifecycle.js`                                                                                             |
@@ -1076,7 +1076,7 @@ The highest-value cross-boundary paths for later confidence analysis are visible
 | ----------------------------------------- | ----------------------------------------------------------------------------- |
 | Runtime API and turn loop                 | `src/shared/session/session-runtime.ts`                                       |
 | Per-session state                         | `src/shared/session/hosted-session.js`                                        |
-| Session registry                          | `src/shared/session/session-host.js`                                          |
+| Session registry                          | `src/shared/session/session-host.ts`                                          |
 | Runtime event contract                    | `src/shared/session/session-runtime-events.js`                                |
 | Interaction contract                      | `src/shared/session/session-runtime-interactions.js`                          |
 | Pi session construction and prompt bridge | `src/shared/session/session.js`                                               |
@@ -1093,7 +1093,7 @@ The highest-value cross-boundary paths for later confidence analysis are visible
 | Settings and models                       | `src/shared/settings.js`, `src/shared/models/`                                |
 | Tool policy                               | `src/tools/registry.js`, agent front matter in `src/agent-definitions/`       |
 | TUI adapter                               | `src/ui/tui/chat-session.js`, `src/ui/tui/runtime-adapter.js`                 |
-| ACP adapter                               | `src/acp/server.js`, `src/acp/session-map.js`, mapper modules in `src/acp/`   |
+| ACP adapter                               | `src/acp/server.js`, `src/acp/session-map.ts`, mapper modules in `src/acp/`   |
 | Workspace Plan adapter                    | `src/ui/workspace/server/plan-adapter.js`                                     |
 | Review consumer surface                   | `src/ui/review/review-launcher.js`, `src/review-workspace-server.js`          |
 

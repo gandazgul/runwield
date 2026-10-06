@@ -15,7 +15,7 @@ import { CATPPUCCIN_MOCHA_THEME_PATH } from "../../constants.js";
 import { getSettingsDir, getSettingsManager } from "../../shared/settings.js";
 import { loadExternalThemeJsons } from "./theme-discovery.ts";
 import { createThemeFromJson } from "./theme-json.js";
-import { createThemeRegistry } from "./theme-registry.js";
+import { createThemeRegistry } from "./theme-registry.ts";
 
 /** @typedef {import('@earendil-works/pi-coding-agent').Theme} ThemeInstance */
 /** @typedef {import('./theme-json.js').ThemeJson} ThemeJson */

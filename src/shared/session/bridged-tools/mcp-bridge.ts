@@ -28,7 +28,8 @@ import type { Api, ImageContent, ProviderId, TextContent } from "@earendil-works
 import { validateToolCall } from "@earendil-works/pi-ai";
 import { Server } from "@modelcontextprotocol/sdk/server";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp";
-import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types";
+import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from "@modelcontextprotocol/sdk/types";
+import { RUNWIELD_MCP_TOOL_TIMEOUT_MS } from "./tool-timeout.ts";
 import {
     emitHostedSessionRuntimeEvent,
     normalizeRuntimeToolResult,
@@ -144,6 +145,7 @@ interface McpToolInputSchema {
 
 interface DelegatedToolResult {
     content: ToolContent;
+    structuredContent?: JsonObject;
     details?: JsonObject | null;
     isError?: boolean;
     terminate?: boolean;
@@ -151,6 +153,7 @@ interface DelegatedToolResult {
 
 type McpToolResult = {
     content: ToolContent;
+    structuredContent?: JsonObject;
     isError?: boolean;
 };
 
@@ -369,11 +372,14 @@ export async function startRunWieldMcpBridge(
         args: JsonObject | undefined,
         requestSignal?: AbortSignal,
     ): Promise<McpToolResult> {
+        // Cancellation can arrive while this call is waiting behind another tool.
+        // Check before validation, steering consumption, recording, or execution.
+        const callSignal = mergeAbortSignals(options.signal, requestSignal);
+        callSignal?.throwIfAborted();
         const callId = crypto.randomUUID();
         const entry = byAlias.get(alias);
         if (!entry) {
-            const text = rejectionText(`unknown tool "${alias}"`);
-            return { content: [{ type: "text", text }], isError: true };
+            throw new McpError(ErrorCode.InvalidParams, `Unknown tool: ${alias}`);
         }
         if (entry.kind === "lifecycle" && terminal) {
             return rejectedResult(
@@ -406,7 +412,6 @@ export async function startRunWieldMcpBridge(
         recordToolCall(entry.internalName, callId, args ?? {});
 
         let result: DelegatedToolResult;
-        const callSignal = mergeAbortSignals(options.signal, requestSignal);
         try {
             const executed = await entry.definition.execute(
                 callId,
@@ -417,6 +422,7 @@ export async function startRunWieldMcpBridge(
             );
             result = {
                 content: executed.content,
+                structuredContent: executed.structuredContent as JsonObject | undefined,
                 details: executed.details as JsonObject | null | undefined,
                 terminate: executed.terminate === true,
                 isError: (executed as { isError?: boolean }).isError === true,
@@ -440,7 +446,11 @@ export async function startRunWieldMcpBridge(
             }
         }
         recordToolResult(entry.internalName, callId, result);
-        return { content: result.content, isError: result.isError === true };
+        return {
+            content: result.content,
+            ...(result.structuredContent === undefined ? {} : { structuredContent: result.structuredContent }),
+            isError: result.isError === true,
+        };
     }
 
     mcpServer.setRequestHandler(ListToolsRequestSchema, () => {
@@ -449,6 +459,9 @@ export async function startRunWieldMcpBridge(
                 name: entry.alias,
                 description: entry.definition.description,
                 inputSchema: entry.definition.parameters as McpToolInputSchema,
+                ...(entry.definition.outputSchema
+                    ? { outputSchema: entry.definition.outputSchema as McpToolInputSchema }
+                    : {}),
             })),
         };
     });
@@ -475,6 +488,13 @@ export async function startRunWieldMcpBridge(
             },
         },
         (request) => {
+            const origin = request.headers.get("origin");
+            if (origin !== null && origin !== url) {
+                return new Response(JSON.stringify({ error: "Forbidden Origin" }), {
+                    status: 403,
+                    headers: { "content-type": "application/json" },
+                });
+            }
             const auth = request.headers.get("authorization");
             if (auth !== `Bearer ${token}`) {
                 return new Response(JSON.stringify({ error: "Unauthorized" }), {
@@ -542,7 +562,7 @@ function buildMcpConfigJson(url: string, token: string): string {
                 type: "http",
                 url,
                 headers: { Authorization: `Bearer ${token}` },
-                timeout: 24 * 60 * 60 * 1000,
+                timeout: RUNWIELD_MCP_TOOL_TIMEOUT_MS,
             },
         },
     });

@@ -9,7 +9,7 @@ import {
 } from "../../plan-store.js";
 import { git } from "../../shared/git-test-fixture.ts";
 import { resolveProjectRuntimeLayout } from "../../shared/project-runtime-layout.ts";
-import { generateBearerCapability, hashCapability, MAINTAINER_SCOPE } from "../../shared/collaboration/capabilities.js";
+import { generateBearerCapability, hashCapability, MAINTAINER_SCOPE } from "../../shared/collaboration/capabilities.ts";
 import { createCollaborationClient, SYSTEM_COLLABORATION_FETCH } from "../../shared/collaboration/client.js";
 import { encryptJsonPayload, generateContentKeyString, importContentKey } from "../../shared/collaboration/crypto.js";
 import { COLLABORATION_LOCK_BYPASS } from "../../shared/collaboration/lock.js";
@@ -20,7 +20,7 @@ import {
     getProjectSecretStorePath,
     readSecretStore,
 } from "../../shared/collaboration/secrets.js";
-import { parseCollaborationUrl } from "../../shared/collaboration/urls.js";
+import { parseCollaborationUrl } from "../../shared/collaboration/urls.ts";
 import { createSessionRuntime } from "../../shared/session/session-runtime.ts";
 import { withRuntimeCommandFixture } from "../testing/runtime-command-fixture.ts";
 import { withCollaborationServer } from "./collaboration-command-test-fixture.ts";

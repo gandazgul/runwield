@@ -6,7 +6,7 @@ import {
     PLAN_LIFECYCLE_ACTIONS,
     PLAN_UI_TOKEN_HEADER,
     PLAN_UI_TOKEN_QUERY,
-} from "../constants.js";
+} from "../constants.ts";
 
 /**
  * @typedef {Object} PlanLifecycleActionIntent

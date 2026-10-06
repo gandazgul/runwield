@@ -9,7 +9,7 @@ import { parseArgs } from "@std/cli/parse-args";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { dirname, join } from "@std/path";
-import { AGENTS, getHomeDir } from "../src/constants.js";
+import { AGENTS, getCwd, getHomeDir } from "../src/constants.js";
 import { createSessionRuntime } from "../src/shared/session/session-runtime.ts";
 import { readLatestTriageOutcome as readLatestTriageOutcomeFn } from "../src/shared/workflow/orchestrator.ts";
 import {
@@ -179,6 +179,7 @@ export function normalizeGoldenRow(row, index) {
         humanNotes: row.humanNotes || "",
         routerSummary: row.routerSummary || "",
         routerAffectedPaths: row.routerAffectedPaths || "",
+        contextCommit: (row.contextCommit || "").trim().toLowerCase(),
     });
 }
 
@@ -207,13 +208,18 @@ export function mergeGoldenRowsWithResultRows(goldenRows, resultRows) {
     const resultById = new Map(resultRows.map((row) => [row.decisionId, row]));
     return goldenRows.map((goldenRow, index) => {
         const decisionId = getDecisionId(goldenRow, index);
-        const resultRow = resultById.get(decisionId);
+        const priorResult = resultById.get(decisionId);
+        const contextCommit = (goldenRow.contextCommit || "").trim().toLowerCase();
+        const contextChanged = (priorResult?.contextCommit || "").trim().toLowerCase() !== contextCommit;
+        const resultRow = contextChanged ? undefined : priorResult;
         return {
             ...goldenRow,
             decisionId,
-            routerDecision: resultRow?.routerDecision || goldenRow.routerDecision || "",
-            routerSummary: resultRow?.routerSummary || goldenRow.routerSummary || "",
-            routerAffectedPaths: resultRow?.routerAffectedPaths || goldenRow.routerAffectedPaths || "",
+            routerDecision: contextChanged ? "" : resultRow?.routerDecision || goldenRow.routerDecision || "",
+            routerSummary: contextChanged ? "" : resultRow?.routerSummary || goldenRow.routerSummary || "",
+            routerAffectedPaths: contextChanged
+                ? ""
+                : resultRow?.routerAffectedPaths || goldenRow.routerAffectedPaths || "",
         };
     });
 }
@@ -229,6 +235,20 @@ async function readExistingCsv(path) {
         if (error instanceof Deno.errors.NotFound) return [];
         throw error;
     }
+}
+
+/**
+ * @param {string} cwd
+ * @param {string[]} args
+ * @returns {Promise<string>}
+ */
+async function runContextGit(cwd, args) {
+    const result = await new Deno.Command("git", { cwd, args, stdout: "piped", stderr: "piped" }).output();
+    const decoder = new TextDecoder();
+    if (!result.success) {
+        throw new Error(`Context Git failed: ${decoder.decode(result.stderr).trim()}`);
+    }
+    return decoder.decode(result.stdout).trim();
 }
 
 /**
@@ -265,7 +285,7 @@ export async function runRouterForGoldenRequest(requestText, options = {}) {
         messagesPromise = options.runAgentSession({ ...agentOptions, cwd: options.cwd });
     } else {
         const runtime = createSessionRuntime();
-        const created = await runtime.createInteractiveSession({ cwd: options.cwd || Deno.cwd() });
+        const created = await runtime.createInteractiveSession({ cwd: options.cwd || getCwd() });
         cancel = () => {
             runtime.cancelSession(created.sessionId);
         };
@@ -345,36 +365,69 @@ export async function runRouterGoldenSetWithSelection(rows, options = {}) {
         }
     }
 
-    for (let selectedIndex = 0; selectedIndex < selected.length; selectedIndex++) {
-        const { row, index } = selected[selectedIndex];
-        try {
-            const triage = await runRouterForGoldenRequest(String(row.requestText || ""), {
-                cwd: options.cwd,
-                modelOverride: options.modelOverride,
-                thinkingLevelOverride: options.thinkingLevelOverride,
-                temperatureOverride: options.temperatureOverride,
-                rowTimeoutMs: options.rowTimeoutMs,
-                runAgentSession: options.runAgentSession,
-            });
-            normalized[index] = withRouterJudgementMetrics({
-                ...row,
-                routerDecision: triage.routingIntent,
-                routerSummary: triage.summary || "",
-                // Triage no longer collects affected paths, so the benchmark column stays empty.
-                routerAffectedPaths: "",
-            });
-        } catch (error) {
-            normalized[index] = withRouterJudgementMetrics({
-                ...row,
-                routerDecision: "",
-                routerSummary: `ERROR: ${error instanceof Error ? error.message : String(error)}`,
-                routerAffectedPaths: "",
-            });
+    const sourceCwd = options.cwd || getCwd();
+    let tempDir = "";
+    let worktree = "";
+    let worktreeAdded = false;
+
+    /** @param {string} contextCommit */
+    async function resolveRowCwd(contextCommit) {
+        if (!contextCommit) return sourceCwd;
+        if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(contextCommit)) {
+            throw new Error("Invalid contextCommit: use a full 40- or 64-character Git commit hash.");
         }
-        await options.onRowComplete?.(normalized);
-        options.onProgress?.(
-            `Routed ${selectedIndex + 1}/${selected.length}: ${normalized[index].decisionId || "(unknown decision)"}`,
-        );
+        const commit = await runContextGit(sourceCwd, ["rev-parse", "--verify", `${contextCommit}^{commit}`]);
+        if (!worktreeAdded) {
+            tempDir ||= await Deno.makeTempDir({ prefix: "runwield-router-context-" });
+            worktree = join(tempDir, "checkout");
+            await runContextGit(sourceCwd, ["worktree", "add", "--detach", worktree, commit]);
+            worktreeAdded = true;
+        } else {
+            await runContextGit(worktree, ["checkout", "--detach", commit]);
+        }
+        return worktree;
+    }
+
+    try {
+        for (let selectedIndex = 0; selectedIndex < selected.length; selectedIndex++) {
+            const { row, index } = selected[selectedIndex];
+            try {
+                const cwd = await resolveRowCwd(String(row.contextCommit || ""));
+                const triage = await runRouterForGoldenRequest(String(row.requestText || ""), {
+                    cwd,
+                    modelOverride: options.modelOverride,
+                    thinkingLevelOverride: options.thinkingLevelOverride,
+                    temperatureOverride: options.temperatureOverride,
+                    rowTimeoutMs: options.rowTimeoutMs,
+                    runAgentSession: options.runAgentSession,
+                });
+                normalized[index] = withRouterJudgementMetrics({
+                    ...row,
+                    routerDecision: triage.routingIntent,
+                    routerSummary: triage.summary || "",
+                    // Triage no longer collects affected paths, so the benchmark column stays empty.
+                    routerAffectedPaths: "",
+                });
+            } catch (error) {
+                normalized[index] = withRouterJudgementMetrics({
+                    ...row,
+                    routerDecision: "",
+                    routerSummary: `ERROR: ${error instanceof Error ? error.message : String(error)}`,
+                    routerAffectedPaths: "",
+                });
+            }
+            await options.onRowComplete?.(normalized);
+            options.onProgress?.(
+                `Routed ${selectedIndex + 1}/${selected.length}: ${
+                    normalized[index].decisionId || "(unknown decision)"
+                }`,
+            );
+        }
+    } finally {
+        // Remove only this benchmark's worktree, including generated files, when the run ends.
+        // If Git cleanup fails, preserve the directory and surface the failure.
+        if (worktreeAdded) await runContextGit(sourceCwd, ["worktree", "remove", "--force", worktree]);
+        if (tempDir) await Deno.remove(tempDir, { recursive: true });
     }
 
     return { rows: normalized, selectedIndexes };
@@ -420,7 +473,8 @@ export async function main(argv) {
             "  --model, -m <ref>    Override Router model, e.g. provider/model",
             "  --thinking-level <level> Override thinking: off, minimal, low, medium, high, xhigh, max",
             "  --temperature <n>    Override sampling temperature (0–2; provider support varies)",
-            "  --cwd <path>         Cwd for Router discovery tools",
+            "  --cwd <path>         Discovery cwd and source repository for contextCommit pins",
+            "  CSV contextCommit    Optional full commit hash; discovery uses a detached temporary worktree",
             `  --row-timeout-ms <n> Per-row timeout (default: ${DEFAULT_ROW_TIMEOUT_MS})`,
             "  --rerun              Rerun selected rows instead of resuming unfinished rows",
         ].join("\n"));

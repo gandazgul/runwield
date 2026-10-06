@@ -6,7 +6,7 @@
 import { parseArgs } from "@std/cli/parse-args";
 import { CLI_BIN, getCwd } from "../../constants.js";
 import { clearPlanCollaborationMetadata, listPlanResources } from "../../plan-store.js";
-import { redactSecrets } from "../../shared/collaboration/capabilities.js";
+import { redactSecrets } from "../../shared/collaboration/capabilities.ts";
 import {
     CollaborationApiError,
     createCollaborationClient,
@@ -20,7 +20,7 @@ import {
     getProjectSecretStoreLocation,
     resolveCompatibleSecretRecord,
 } from "../../shared/collaboration/secrets.js";
-import { normalizePlanServerUrl } from "../../shared/collaboration/urls.js";
+import { normalizePlanServerUrl } from "../../shared/collaboration/urls.ts";
 import { enterProjectRuntime } from "../../shared/project-runtime-layout.ts";
 
 interface PlansUnshareArgs {

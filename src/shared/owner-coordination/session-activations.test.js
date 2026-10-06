@@ -1,6 +1,6 @@
 import { assertEquals, assertThrows } from "@std/assert";
 import { openOwnerCoordinationDatabase } from "./database.js";
-import { acknowledgeActivationProtocol, getActivationProtocolStatus } from "./activation-protocol.js";
+import { acknowledgeActivationProtocol, getActivationProtocolStatus } from "./activation-protocol.ts";
 import {
     acquireSessionActivation,
     changeSessionActivationPhase,

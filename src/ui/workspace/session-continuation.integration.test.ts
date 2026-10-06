@@ -10,7 +10,7 @@ import {
     ownerSessionUnarchiveApi,
 } from "./routes/owner-session-api.js";
 import { associatedPlanSession } from "./routes/owner-api.js";
-import { createOwnerConnectionRegistry } from "./server/owner-connections.js";
+import { createOwnerConnectionRegistry } from "./server/owner-connections.ts";
 import { AGENTS } from "../../constants.js";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { setCustomSetting } from "../../shared/settings.js";
@@ -1792,4 +1792,26 @@ Deno.test("Workspace Plan-filtered Session API explicitly includes archived asso
         service.store.close();
         await fixture.cleanup();
     }
+});
+
+Deno.test("Workspace Session options honor merged mascot visibility", async () => {
+    await withRuntimeCommandFixture("workspace-mascot-options-", async ({ homeDir, projectRoot }) => {
+        const fixture = await makeManagedSessionFixture({ home: homeDir, projectRoot });
+        const store = fixture.openStore();
+        const service = new WorkspaceSessionContinuationService({ store });
+        try {
+            assertEquals((await service.listSessionOptions(fixture.project.projectId)).mascot, true);
+            await setCustomSetting("mascot", false, "global", projectRoot);
+            assertEquals((await service.listSessionOptions(fixture.project.projectId)).mascot, false);
+            await setCustomSetting("mascot", true, "project", projectRoot);
+            assertEquals((await service.listSessionOptions(fixture.project.projectId)).mascot, true);
+            const settingsPath = `${projectRoot}/.wld/settings.json`;
+            const settings = JSON.parse(await Deno.readTextFile(settingsPath));
+            await Deno.writeTextFile(settingsPath, JSON.stringify({ ...settings, mascot: false }));
+            assertEquals((await service.listSessionOptions(fixture.project.projectId)).mascot, false);
+        } finally {
+            service.close();
+            store.close();
+        }
+    });
 });

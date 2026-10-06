@@ -147,7 +147,7 @@ Deno.test("source remote help works without a generated identity and connection 
             const path of [
                 "src/cmd/remote/index.ts",
                 "src/shared/remote/runtime.js",
-                "src/shared/remote/target.js",
+                "src/shared/remote/target.ts",
                 "src/shared/remote/control.ts",
                 "src/shared/remote/release-artifact.ts",
                 "src/shared/remote/sftp-mount.ts",

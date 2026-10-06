@@ -65,6 +65,7 @@ PackageLocale: en-US
 Publisher: ${PUBLISHER}
 PublisherUrl: https://github.com/gandazgul
 PublisherSupportUrl: https://github.com/gandazgul/runwield/issues
+PrivacyUrl: https://runwield.dev/privacy/
 PackageName: ${PACKAGE_NAME}
 PackageUrl: https://github.com/gandazgul/runwield
 License: Free Use License

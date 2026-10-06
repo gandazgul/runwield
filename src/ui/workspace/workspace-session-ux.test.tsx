@@ -117,6 +117,7 @@ Deno.test("Session surface retains an HTTP-rejected image draft and sends a corr
     const attachmentsKey = sessionAttachmentsKey(projectId, sessionId);
     const requestKey = sessionRequestKey(projectId, sessionId);
     const images = [{ id: "image-1", name: "draft.png", mimeType: "image/png", base64: btoa("img") }];
+    let mascot = false;
     const submissions = [];
     let renderer;
     const { createElement, act } = await import("react");
@@ -143,7 +144,7 @@ Deno.test("Session surface retains an HTTP-rejected image draft and sends a corr
                         : Response.json({ operationId: "accepted-image", status: "running" }, { status: 202 });
                 }
                 if (path.includes("session-options")) {
-                    return Response.json({ agents: [], models: [], commands: [], defaults: {} });
+                    return Response.json({ mascot, agents: [], models: [], commands: [], defaults: {} });
                 }
                 if (path.includes("session-operations")) return Response.json({ status: "completed", events: [] });
                 return Response.json({ state: "idle", generation: 0, events: [], complete: true, snapshot: {} });
@@ -154,6 +155,7 @@ Deno.test("Session surface retains an HTTP-rejected image draft and sends a corr
             renderer = create(createElement(SessionSurface, { projectId, runwieldSessionId: sessionId }));
         });
         const composer = () => renderer.root.findByType(SessionComposer);
+        assertEquals(composer().props.mascotVisible, false);
         assertEquals(composer().props.draft, "  describe image  ");
         await act(async () => {
             await composer().props.onSubmit();
@@ -168,6 +170,7 @@ Deno.test("Session surface retains an HTTP-rejected image draft and sends a corr
             "Antigravity CLI sessions do not support image attachments.",
         );
         assertEquals(JSON.stringify(renderer.toJSON()).includes("Message queued"), false);
+        mascot = undefined;
         // Reload the real screen: persisted text/previews must still be recoverable.
         await act(() => renderer.unmount());
         await act(() => {
@@ -175,6 +178,7 @@ Deno.test("Session surface retains an HTTP-rejected image draft and sends a corr
         });
         assertEquals(composer().props.draft, "  describe image  ");
         assertEquals(composer().props.imageAttachments, images);
+        assertEquals(composer().props.mascotVisible, true);
         await act(() => composer().props.onDraftChange("  corrected image request  "));
         await act(async () => {
             await composer().props.onSubmit();
@@ -2497,3 +2501,47 @@ for (const surface of ["archived", "history"]) {
         }
     });
 }
+
+Deno.test("Session composer removes mascot markup and keeps controls when hidden", async () => {
+    const { createElement } = await import("react");
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const props = {
+        id: "mascot-composer",
+        draft: "Keep this draft",
+        disabled: false,
+        canSend: true,
+        submitting: false,
+        agentValue: "router",
+        onDraftChange() {},
+        onSubmit() {},
+    };
+    for (const mascotVisible of [false, true]) {
+        const html = renderToStaticMarkup(createElement(SessionComposer, { ...props, mascotVisible }));
+        assertEquals(html.includes('data-agent-mascot="base"'), mascotVisible);
+        assertStringIncludes(html, "Keep this draft");
+        assertStringIncludes(html, 'aria-label="Send"');
+    }
+});
+
+Deno.test("New Session honors loaded mascot options without flashing while loading", async () => {
+    for (const mascot of [false, undefined]) {
+        const options = deferredResponse();
+        await withNewSessionSurface(async ({ mount, composer, act }) => {
+            await mount();
+            assertEquals(composer().props.mascotVisible, false);
+            await act(() =>
+                options.resolve(Response.json({
+                    mascot,
+                    agents: [],
+                    models: [],
+                    defaults: { agentName: "router" },
+                }))
+            );
+            assertEquals(composer().props.mascotVisible, mascot !== false);
+            assertEquals(
+                composer().findAllByType("svg").some((node) => node.props["data-agent-mascot"]),
+                mascot !== false,
+            );
+        }, (url) => url.includes("session-options") ? options.promise : defaultNewSessionResponse(url));
+    }
+});

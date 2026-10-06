@@ -5,10 +5,10 @@ import { workspaceMetadata as _workspaceMetadata } from "./server/plan-adapter.j
 
 import { createWorkspaceApp } from "./server.js";
 
-import { hashCapability } from "../../shared/collaboration/capabilities.js";
-import { openRemoteDatabase } from "./server/remote-db.js";
+import { hashCapability } from "../../shared/collaboration/capabilities.ts";
+import { openRemoteDatabase } from "./server/remote-db.ts";
 import { createRemoteWorkspaceAdapter } from "./server/remote-adapter.js";
-import { REMOTE_SCHEMA_V1_SQL } from "./server/remote-schema.js";
+import { REMOTE_SCHEMA_V1_SQL } from "./server/remote-schema.ts";
 
 import { jsonRequest, readJsonResponse } from "./workspace-test-helpers.js";
 

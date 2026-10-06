@@ -14,13 +14,13 @@ import {
 } from "../../plan-store.js";
 import { buildPlanEventUpdates, isPlanReviewableWithoutReopen, recordPlanEvent } from "./plan-lifecycle.js";
 import { runPlanReviewDecisionTransition } from "./state-transition.ts";
-import { PLAN_APPROVAL_ACTIONS } from "./plan-approval.js";
+import { PLAN_APPROVAL_ACTIONS } from "./plan-approval.ts";
 import { pickControllerState, stripRuntimeFields } from "./controller-state.ts";
 import { writeControllerState } from "./controller-registry.ts";
 import { loadPlanActionEvidence } from "./plan-actions.ts";
 import { resolveWorkflowPlanLocation } from "./plan-location.ts";
 import type { PlanFrontMatter } from "../../plan-store.js";
-import type { PlanApprovalAction } from "./plan-approval.js";
+import type { PlanApprovalAction } from "./plan-approval.ts";
 import type { PlanWorktreeExpectation } from "./plan-actions.ts";
 
 export interface SharedPlanReviewDecision {

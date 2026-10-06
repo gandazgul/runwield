@@ -13,12 +13,14 @@ import { emitSystemStatus, RuntimeEventTypes } from ".././session-runtime-events
 import { assertModelExecutionBackendSupported } from "../../models/model-execution.ts";
 import { getModelRegistry } from "../../models/model-registry.ts";
 import { parseProviderModel } from "../../models/model-validation.ts";
-import { getSettingsManager, setGlobalCompactionSetting } from "../../settings.js";
+import { clearMascotEnabledCache, getSettingsManager, setGlobalCompactionSetting } from "../../settings.js";
 import { getSessionKeyboardHelp } from ".././session-help.ts";
 import { resolveMcpConfig } from "../../mcp/config.ts";
 import { startMcpIntegration } from "../../mcp/integration.ts";
 import { ensureAgyCliMcpSetup } from ".././backends/agy-cli/mcp-setup.ts";
 import { readCurrentPairCheckpoint, recordPairCheckpointSnapshot } from ".././pair-checkpoint-session.ts";
+import { recordExecutionWorkflowSnapshot } from "../execution-workflow-session.js";
+import { resolvePersistedExecutionRootConfiguration } from "./support.ts";
 
 import {
     getRuntimeRootAgentSession,
@@ -430,6 +432,7 @@ export class RuntimeAgentSettings {
                         () => compact.call(rootAgentSession, instructions),
                     );
                     if (checkpoint) recordPairCheckpointSnapshot(session, checkpoint);
+                    recordExecutionWorkflowSnapshot(session);
                     return compacted;
                 } finally {
                     await drainSessionCompactionMetrics(rootAgentSession);
@@ -459,6 +462,7 @@ export class RuntimeAgentSettings {
                 agentName,
             );
             const refreshed = this.markPromptReadyAgent(sessionId, { agentName });
+            if (refreshed.ok) clearMascotEnabledCache();
             if (refreshed.ok) await this.events.emitCommandCatalogChanged(sessionId, promptReadySession);
             return refreshed.ok ? { ok: true, deferred: true } : refreshed;
         }
@@ -477,6 +481,7 @@ export class RuntimeAgentSettings {
                     reloadMcpTools: true,
                     ...(capability ? { managedOperationCapability: capability } : {}),
                 });
+                clearMascotEnabledCache();
                 await this.events.emitCommandCatalogChanged(sessionId, session);
                 return { ok: true };
             },
@@ -591,8 +596,10 @@ export class RuntimeAgentSettings {
                 hostedSession,
                 pendingCreation,
                 async (capability) => {
+                    const executionRootConfiguration = resolvePersistedExecutionRootConfiguration(hostedSession);
                     const result = await switchActiveAgent(hostedSession, {
                         ...activationOptions,
+                        ...executionRootConfiguration,
                         managedOperationCapability: capability,
                     });
                     if (mcpIntegration) await hostedSession.setMcpIntegration(mcpIntegration);
@@ -606,6 +613,8 @@ export class RuntimeAgentSettings {
     }
 
     async alignActiveExecutionWorkflowOwner(hostedSession: import(".././hosted-session.js").HostedSession) {
+        // A focused semantic repair retains its Agent while the execution owner stays durable.
+        if (hostedSession.getRootAgentName?.() === AGENTS.REVIEWER_FEEDBACK_ENGINEER) return;
         const workflow = hostedSession.getActiveExecutionWorkflow?.() || null;
         const executionAgent = resolveActiveWorkflowRuntimeAgent(workflow) || "";
         if (!executionAgent) return;

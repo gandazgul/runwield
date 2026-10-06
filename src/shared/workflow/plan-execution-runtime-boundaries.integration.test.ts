@@ -23,18 +23,24 @@ import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fix
 import { loadPlan, savePlan } from "../../plan-store.js";
 import { git } from "../git-test-fixture.ts";
 import { HostedSession } from "../session/hosted-session.js";
-import { SessionHost } from "../session/session-host.js";
+import { SessionHost } from "../session/session-host.ts";
 import { SessionRuntime } from "../session/session-runtime.ts";
 import { RuntimeEventTypes } from "../session/session-runtime-events.js";
 import { openOwnerCoordinationStore } from "../owner-coordination/index.js";
 import type { RuntimeInteractionRequest, RuntimeInteractionResponse } from "../session/session-runtime-interactions.js";
 import { loadPlanActionEvidence } from "./plan-actions.ts";
 import { executePlan, executePreparedPlanSegmentHandoff } from "./plan-executor.ts";
+import { createValidationSessionPort } from "./validation-session-adapter.ts";
 import { buildExecutionSegmentContinuation } from "./execution-segment-handoff.ts";
 
 type InteractionHandler = (request: RuntimeInteractionRequest) => RuntimeInteractionResponse;
 
 /** What the model was actually handed on a turn, captured from the real request. */
+interface SavedSessionInfo {
+    persistedId: string;
+    file: string;
+}
+
 interface CapturedTurn {
     agentName: string | null;
     systemPrompt: string;
@@ -133,6 +139,7 @@ Deno.test("an engineer-owned Plan runs under Plan Engineer while the Plan keeps 
 
             // The Agent that actually ran, proven by the prompt the model received.
             assertEquals(fixture.turns[0]?.agentName, "plan-engineer");
+            assertEquals(fixture.turns[0]?.toolNames.includes("record_plan_deviation"), true);
             assertStringIncludes(fixture.turns[0]?.systemPrompt ?? "", "You are the Plan Engineer");
             assertEquals((fixture.turns[0]?.systemPrompt ?? "").includes("Quick Fix Checklist"), false);
             assertEquals(fixture.turns[0]?.toolNames.includes("task_completed"), true);
@@ -215,6 +222,7 @@ Deno.test("a legacy segment handoff announces Plan Engineer before resuming", as
                 assertEquals(fixture.statusMessages.includes("Starting Plan Engineer..."), true);
                 assertEquals(fixture.statusMessages.includes("launching Engineer to execute..."), false);
                 assertEquals(fixture.turns[0]?.agentName, "plan-engineer");
+                assertEquals(fixture.turns[0]?.toolNames.includes("record_plan_deviation"), true);
                 assertEquals(result.executionComplete, true);
             } finally {
                 fixture.hostedSession.dispose();
@@ -244,6 +252,7 @@ Deno.test("a frontend-owned Plan runs under Frontend Engineer", async () => {
             });
 
             assertEquals(fixture.turns[0]?.agentName, "frontend-engineer");
+            assertEquals(fixture.turns[0]?.toolNames.includes("record_plan_deviation"), true);
             assertStringIncludes(fixture.turns[0]?.systemPrompt ?? "", "You are the Frontend Engineer");
             assertEquals(fixture.agentChanges.includes("plan-engineer"), false);
             assertEquals(result.executionContext?.executionAgent, "frontend-engineer");
@@ -421,6 +430,7 @@ Deno.test("managed Pair discussion restores the owner, tool, cwd, and checkpoint
                 for (const turn of turns) {
                     assertEquals(turn.agentName, "plan-engineer");
                     assertEquals(turn.toolNames.includes("pair_checkpoint"), true);
+                    assertEquals(turn.toolNames.includes("record_plan_deviation"), true);
                 }
                 assertStringIncludes(turns[1].systemPrompt, "Managed increment is ready.");
                 assertStringIncludes(turns[1].systemPrompt, firstCheckpointId);
@@ -525,3 +535,233 @@ Deno.test("a QUICK_FIX workflow resumes under the selectable Engineer, not Plan 
         }
     });
 });
+
+Deno.test("restored autonomous Plan execution retains Plan Deviation availability", async () => {
+    await withRuntimeCommandFixture(
+        "plan-boundaries-autonomous-restore-",
+        async ({ projectRoot, setModelResponseFactories }) => {
+            await initializeGitProject(projectRoot);
+            await saveExecutablePlan(projectRoot, "restored-autonomous");
+            const plan = await loadPlan(projectRoot, "restored-autonomous");
+            if (!plan) throw new Error("Expected Plan.");
+            const evidence = await loadPlanActionEvidence(projectRoot, String(plan.attrs.planId));
+            if (evidence.kind !== "success") throw new Error(evidence.message);
+            const runtime = makeRuntime(new SessionHost());
+            let restored: SessionRuntime | null = null;
+            const sessionId = await runtime.createPromptReadySession({ cwd: projectRoot, agentName: "router" });
+            const toolLists: string[][] = [];
+            const response = (context: TranscriptContext) => {
+                toolLists.push(getCurrentTools(context.messages).map((tool) => tool.name));
+                return fauxAssistantMessage(fauxText("Implementation needs more work."));
+            };
+            setModelResponseFactories([response, response]);
+            try {
+                await runtime.executePlan(sessionId, {
+                    planName: "restored-autonomous",
+                    triageMeta: {
+                        ...plan.attrs,
+                        revision: evidence.evidence.revision,
+                        status: evidence.evidence.status,
+                        worktree: evidence.evidence.worktree,
+                    },
+                });
+                const info = await runtime.getSessionInfo(sessionId) as SavedSessionInfo;
+                await runtime.closeAllSessionsWhenIdle?.();
+                restored = makeRuntime(new SessionHost());
+                const loaded = await restored.loadSession({
+                    cwd: projectRoot,
+                    sessionId: info.persistedId,
+                    sessionPath: info.file,
+                });
+                assertEquals(
+                    (await restored.promptUserTurn(loaded.sessionId, { initialRequest: "continue" })).ok,
+                    true,
+                );
+                assertEquals(restored.getSessionSnapshot(loaded.sessionId)?.activeAgent, "plan-engineer");
+                assertEquals(toolLists.length, 2);
+                for (const tools of toolLists) assertEquals(tools.includes("record_plan_deviation"), true);
+            } finally {
+                await restored?.closeAllSessionsWhenIdle?.();
+                await runtime.closeAllSessionsWhenIdle?.();
+            }
+        },
+    );
+});
+
+Deno.test("autonomous validation repair receives a real Plan Deviation tool", async () => {
+    await withRuntimeCommandFixture(
+        "plan-boundaries-autonomous-repair-",
+        async ({ projectRoot, setModelResponseFactories }) => {
+            await initializeGitProject(projectRoot);
+            await saveExecutablePlan(projectRoot, "repair-deviation", { status: "implemented" });
+            const fixture = createExecutionFixture(projectRoot);
+            fixture.hostedSession.setActiveExecutionWorkflow({
+                planName: "repair-deviation",
+                triageMeta: { classification: "PLANNED_CHANGE" },
+                executionAgent: "engineer",
+                executionStarted: true,
+                collaborationStyle: "autonomous",
+                projectRoot,
+                executionCwd: projectRoot,
+            });
+            fixture.hostedSession.setInteractionAdapter({
+                supportsInteraction: (type) => type === "plan_deviation_confirmation",
+                requestInteraction: () => ({ outcome: "accepted", value: true }),
+            });
+            const toolLists: string[][] = [];
+            setModelResponseFactories([
+                (context: TranscriptContext) => {
+                    toolLists.push(getCurrentTools(context.messages).map((tool) => tool.name));
+                    return fauxAssistantMessage(fauxToolCall("record_plan_deviation", {
+                        supersededRequirement: "Replace navigation.",
+                        replacementRequirement: "Keep navigation.",
+                    }));
+                },
+                () =>
+                    fauxAssistantMessage(
+                        fauxText("The confirmed replacement is recorded; repair is still in progress."),
+                    ),
+            ]);
+            try {
+                await createValidationSessionPort(fixture.hostedSession).runIndependentRepairTurn({
+                    kind: "validation",
+                    agentName: "reviewer-feedback-engineer",
+                    userRequest: "The user wants to keep navigation. Confirm the Plan replacement.",
+                    cwd: projectRoot,
+                });
+                assertEquals(toolLists[0]?.includes("record_plan_deviation"), true);
+                assertEquals(
+                    (await loadPlan(projectRoot, "repair-deviation"))?.attrs.planDeviations?.[0].replacementRequirement,
+                    "Keep navigation.",
+                );
+                assertEquals(fixture.hostedSession.getActiveExecutionWorkflow()?.pairPauseReason, undefined);
+            } finally {
+                fixture.hostedSession.dispose();
+            }
+        },
+    );
+});
+
+interface LegacyCopyEntry {
+    type: string;
+    id: string;
+    parentId?: string | null;
+    customType?: string;
+}
+
+async function copyLegacyTranscript(source: string, projectRoot: string): Promise<SavedSessionInfo> {
+    const manager = SessionManager.create(projectRoot, source.slice(0, source.lastIndexOf("/")));
+    const file = manager.getSessionFile();
+    if (!file) throw new Error("Expected copied transcript path.");
+    const header = manager.getHeader();
+    if (!header) throw new Error("Expected Session header.");
+    const removedParents = new Map<string, string | null>();
+    const copied: LegacyCopyEntry[] = [];
+    for (const line of (await Deno.readTextFile(source)).trim().split("\n")) {
+        const entry = JSON.parse(line) as LegacyCopyEntry;
+        if (entry.type === "session") continue;
+        while (entry.parentId && removedParents.has(entry.parentId)) {
+            entry.parentId = removedParents.get(entry.parentId) || null;
+        }
+        if (["runwield.execution_workflow", "runwield.segment_lineage"].includes(entry.customType || "")) {
+            removedParents.set(entry.id, entry.parentId || null);
+        } else copied.push(entry);
+    }
+    await Deno.writeTextFile(file, [header, ...copied].map((entry) => JSON.stringify(entry)).join("\n") + "\n");
+    return { persistedId: header.id, file };
+}
+
+for (const legacy of [false, true]) {
+    Deno.test(`${legacy ? "legacy" : "restored"} Plan execution records a confirmed deviation before its first checkpoint`, async () => {
+        await withRuntimeCommandFixture(
+            "plan-boundaries-deviation-restore-",
+            async ({ projectRoot, setModelResponseFactories }) => {
+                await initializeGitProject(projectRoot);
+                await saveExecutablePlan(projectRoot, "restored-autonomous");
+                const plan = await loadPlan(projectRoot, "restored-autonomous");
+                if (!plan) throw new Error("Expected Plan.");
+                const evidence = await loadPlanActionEvidence(projectRoot, String(plan.attrs.planId));
+                if (evidence.kind !== "success") throw new Error(evidence.message);
+                const runtime = makeRuntime(new SessionHost());
+                let restored: SessionRuntime | null = null;
+                const sessionId = await runtime.createPromptReadySession({ cwd: projectRoot, agentName: "router" });
+                const toolLists: string[][] = [];
+                const response = (context: TranscriptContext) => {
+                    toolLists.push(getCurrentTools(context.messages).map((tool) => tool.name));
+                    return fauxAssistantMessage(fauxText("Implementation needs more work."));
+                };
+                setModelResponseFactories([
+                    response,
+                    (context: TranscriptContext) => {
+                        toolLists.push(getCurrentTools(context.messages).map((tool) => tool.name));
+                        return fauxAssistantMessage(fauxToolCall("record_plan_deviation", {
+                            supersededRequirement: "Use Pi 0.87.1.",
+                            replacementRequirement: "Use Pi 1.0.0.",
+                        }));
+                    },
+                    () => fauxAssistantMessage(fauxText("Confirmed replacement recorded.")),
+                ]);
+                try {
+                    await runtime.executePlan(sessionId, {
+                        planName: "restored-autonomous",
+                        triageMeta: {
+                            ...plan.attrs,
+                            revision: evidence.evidence.revision,
+                            status: evidence.evidence.status,
+                            worktree: evidence.evidence.worktree,
+                        },
+                    });
+                    let info = await runtime.getSessionInfo(sessionId) as SavedSessionInfo;
+                    await runtime.closeAllSessionsWhenIdle?.();
+                    if (legacy) {
+                        info = await copyLegacyTranscript(info.file, projectRoot);
+                        const legacyManager = SessionManager.open(info.file);
+                        legacyManager.appendCustomEntry("runwield.plan_association", {
+                            planId: String(plan.attrs.planId),
+                            planName: "restored-autonomous",
+                            purpose: "execution",
+                            segmentId: crypto.randomUUID(),
+                            segmentKind: "execution",
+                            recordedAt: new Date().toISOString(),
+                        });
+                    }
+                    restored = makeRuntime(new SessionHost());
+                    const loaded = await restored.loadSession({
+                        cwd: projectRoot,
+                        sessionId: info.persistedId,
+                        sessionPath: info.file,
+                    });
+                    restored.setInteractionAdapter(loaded.sessionId, {
+                        supportsInteraction: (type) => type === "plan_deviation_confirmation",
+                        requestInteraction: () => ({ outcome: "accepted", value: true }),
+                    });
+                    assertEquals(
+                        (await restored.promptUserTurn(loaded.sessionId, { initialRequest: "continue" })).ok,
+                        true,
+                    );
+                    assertEquals(restored.getSessionSnapshot(loaded.sessionId)?.activeAgent, "plan-engineer");
+                    assertEquals(toolLists.length, 2);
+                    for (const tools of toolLists) assertEquals(tools.includes("record_plan_deviation"), true);
+                    const transcript = await Deno.readTextFile(info.file);
+                    assert(
+                        /"decision"\s*:\s*"recorded"/.test(transcript),
+                        "Restored Plan Deviation call must record approval, not return plan_execution_inactive.",
+                    );
+                    const workflow = restored.getRuntimeActiveExecutionWorkflow(loaded.sessionId);
+                    assert(workflow?.executionCwd);
+                    assertEquals(
+                        (await loadPlan(workflow.executionCwd, "restored-autonomous"))?.attrs.planDeviations?.length,
+                        1,
+                    );
+                    assertEquals(
+                        (await loadPlan(projectRoot, "restored-autonomous"))?.attrs.planDeviations?.length || 0,
+                        0,
+                    );
+                } finally {
+                    await restored?.closeAllSessionsWhenIdle?.();
+                    await runtime.closeAllSessionsWhenIdle?.();
+                }
+            },
+        );
+    });
+}

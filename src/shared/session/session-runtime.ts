@@ -6,7 +6,7 @@ export {
 } from "./session.js";
 export type { DequeueQueuedMessageResult, SteerSessionResult } from "./runtime/types.ts";
 import { AGENTS } from "../../constants.js";
-import { SessionHost } from "./session-host.js";
+import { SessionHost } from "./session-host.ts";
 import { openFileSessionStore } from "./file-session-store.ts";
 import { RuntimeServices } from "./runtime/base.ts";
 import { RuntimeEvents } from "./runtime/events.ts";

@@ -45,7 +45,9 @@ function fixtureShouldListError(): boolean {
 }
 
 function fixtureShouldInitError(): boolean {
-    return Deno.env.get("RUNWIELD_MCP_FIXTURE_INIT_ERROR") === "1";
+    const path = Deno.env.get("RUNWIELD_MCP_FIXTURE_INIT_ERROR_PATH");
+    return Deno.env.get("RUNWIELD_MCP_FIXTURE_INIT_ERROR") === "1" ||
+        (path !== undefined && Deno.readTextFileSync(path) === "1");
 }
 
 function fixtureHasResources(): boolean {
@@ -64,6 +66,22 @@ function fixtureEnvironment(): JsonMap {
 }
 
 let changedTools: string | undefined;
+
+// Tests can change the real server's inventory while it has no callable tools.
+function watchToolChanges(): void {
+    const toolsPath = Deno.env.get("RUNWIELD_MCP_FIXTURE_TOOLS_PATH");
+    if (!toolsPath) return;
+    let configuredTools = Deno.readTextFileSync(toolsPath);
+    changedTools = configuredTools;
+    setInterval(() => {
+        const next = Deno.readTextFileSync(toolsPath);
+        if (next === configuredTools) return;
+        configuredTools = next;
+        changedTools = next;
+        send({ jsonrpc: "2.0", method: "notifications/tools/list_changed" });
+    }, 20);
+}
+watchToolChanges();
 
 function fixtureTools(): JsonMap[] {
     const names = (changedTools ?? Deno.env.get("RUNWIELD_MCP_FIXTURE_TOOLS") ?? "fixture_echo")

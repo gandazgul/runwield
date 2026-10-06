@@ -1,7 +1,7 @@
 /** @module shared/collaboration/lock */
 
-import { redactSecrets } from "./capabilities.js";
-import { normalizePlanServerUrl } from "./urls.js";
+import { redactSecrets } from "./capabilities.ts";
+import { normalizePlanServerUrl } from "./urls.ts";
 
 export const COLLABORATION_STATE_REMOTE_CANONICAL = "remote_canonical";
 

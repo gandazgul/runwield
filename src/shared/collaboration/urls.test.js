@@ -1,5 +1,5 @@
 import { assert, assertEquals, assertThrows } from "@std/assert";
-import { buildApiUrl, buildCollaborationUrl, parseCollaborationUrl, redactCollaborationUrl } from "./urls.js";
+import { buildApiUrl, buildCollaborationUrl, parseCollaborationUrl, redactCollaborationUrl } from "./urls.ts";
 
 Deno.test("collaboration URLs keep key and capability in distinct fragment fields", () => {
     const url = buildCollaborationUrl({

@@ -63,6 +63,8 @@ import reAnchorExtension from "../../extensions/re-anchor/index.ts";
 import { ensureCymbalBinary, ensureMnemotecaBinary, hasSnipBinary } from "../runtime-preflight.ts";
 import { createUserInterviewTool } from "../../tools/user-interview.ts";
 import { createSeeImageTool } from "../../tools/see-image.ts";
+import { createImageTool } from "../../tools/create-image.ts";
+import { resolveImageGenerationSettings } from "../image-generation-settings.ts";
 import {
     discoverProviderModel,
     getModelRegistry,
@@ -92,7 +94,8 @@ import {
 } from "./request-dispatch.ts";
 import { formatProviderModelReference, parseProviderModel } from "../models/model-validation.ts";
 import { readCurrentPairCheckpoint, recordPairCheckpointSnapshot } from "./pair-checkpoint-session.ts";
-import { directoryExists, fileExists } from "../helpers.js";
+import { recordExecutionWorkflowSnapshot } from "./execution-workflow-session.js";
+import { directoryExists, fileExists } from "../helpers.ts";
 import {
     _AGENT_ATTENTION_NUDGES,
     ATTENTION_NUDGE_TURN_INTERVAL,
@@ -117,7 +120,7 @@ import {
     PersonalResourcePathError,
     remotePersonalResourcesActive,
 } from "../remote/personal-resources.ts";
-import { getBundledAgentDefsPath } from "./agent-assets.js";
+import { getBundledAgentDefsPath } from "./agent-assets.ts";
 import { expandSkill, listSkills } from "./skill-catalog.ts";
 import { getPackagePromptTemplatePaths, resolveInstalledPackagePromptResources } from "../package-resources.js";
 import { getWldExtensionPaths, resolveInstalledWldExtensionResources } from "../extensions/wld-extension-manifest.js";
@@ -128,7 +131,7 @@ import { createSessionContextProjection, estimateContextTextTokens } from "./ses
 import { installEarlySteeringInterruption } from "./early-steering.js";
 import { loadSubAgentDefinition } from "./subagent-definitions.ts";
 import { formatGitPromptState, readGitPromptState } from "../git.js";
-import { sanitizeSessionName } from "./session-name.js";
+import { sanitizeSessionName } from "./session-name.ts";
 
 /** @returns {string | null} */
 function homePromptsDir() {
@@ -2040,9 +2043,8 @@ export async function buildAgentSession({
         }));
     }
     const effectiveMcpRootTools = mcpRootTools || targetHostedSession?.getMcpRootTools?.() || [];
-    const effectiveMcpIntegration = mcpRootTools?.length === 0
-        ? undefined
-        : mcpIntegration || targetHostedSession?.getMcpIntegration?.();
+    const effectiveMcpIntegration = mcpIntegration ||
+        (mcpRootTools?.length === 0 ? undefined : targetHostedSession?.getMcpIntegration?.());
     for (const tool of effectiveMcpRootTools) {
         if (!effectiveMcpIntegration && !finalCustomTools.find((existing) => existing.name === tool.name)) {
             finalCustomTools.push(tool);
@@ -2051,6 +2053,17 @@ export async function buildAgentSession({
     }
     if (!activeModelSupportsImages && visionFallbackModelRef && !tools.includes("see_image")) {
         tools = [...tools, "see_image"];
+    }
+    if (
+        tools.some((name) => ["write", "edit", "multi_file_edit", "create_image"].includes(name)) &&
+        resolveImageGenerationSettings(sessionCwd) && !finalCustomTools.some((tool) => tool.name === "create_image")
+    ) {
+        if (!tools.includes("create_image")) tools.push("create_image");
+        finalCustomTools.push(createImageTool({
+            cwd: sessionCwd,
+            sessionManager: effectiveSessionManager,
+            includeImage: activeModelSupportsImages,
+        }));
     }
 
     // Auto-wire internal custom tools if requested by name and not already provided.
@@ -2069,6 +2082,14 @@ export async function buildAgentSession({
                 hostedSession: targetHostedSession || undefined,
             }),
         );
+    }
+
+    if (
+        tools.includes("record_plan_deviation") && targetHostedSession &&
+        !finalCustomTools.find((tool) => tool.name === "record_plan_deviation")
+    ) {
+        const { createPlanDeviationTool } = await import("../../tools/plan-deviation.ts");
+        finalCustomTools.push(createPlanDeviationTool({ hostedSession: targetHostedSession }));
     }
 
     if (
@@ -2410,6 +2431,7 @@ export async function buildAgentSession({
  *   cwd: string,
  *   customTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[],
  *   mcpRootTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[],
+ *   sessionManager?: import('@earendil-works/pi-coding-agent').SessionManager,
  * }} opts
  * @returns {Promise<import('@earendil-works/pi-coding-agent').ToolDefinition[]>}
  */
@@ -2422,6 +2444,7 @@ export async function composeClaudeCliBridgedTools({
     cwd,
     customTools = [],
     mcpRootTools,
+    sessionManager,
 }) {
     /** @type {import('@earendil-works/pi-coding-agent').ToolDefinition[]} */
     const finalCustomTools = [...customTools];
@@ -2433,6 +2456,14 @@ export async function composeClaudeCliBridgedTools({
     const declared = new Set(declaredTools);
     /** @param {string} name */
     const hasTool = (name) => finalCustomTools.find((tool) => tool.name === name);
+
+    if (
+        declaredTools.some((name) => ["write", "edit", "multi_file_edit", "create_image"].includes(name)) &&
+        resolveImageGenerationSettings(cwd) && !hasTool("create_image")
+    ) {
+        // Capture the real runtime/storage context in the tool, not the minimal MCP extension context.
+        finalCustomTools.push(createImageTool({ cwd, sessionManager }));
+    }
 
     const { createClaudeCliCapabilityTools, CLAUDE_CLI_CAPABILITY_TOOL_NAMES } = await import(
         "./backends/claude-cli/capability-tools.ts"
@@ -2447,6 +2478,10 @@ export async function composeClaudeCliBridgedTools({
     if (declared.has("plan_written") && hostedSession && !hasTool("plan_written")) {
         const { createPlanWrittenTool } = await import("../../tools/plan-written.ts");
         finalCustomTools.push(createPlanWrittenTool({ triageMeta, agentName, hostedSession }));
+    }
+    if (declared.has("record_plan_deviation") && hostedSession && !hasTool("record_plan_deviation")) {
+        const { createPlanDeviationTool } = await import("../../tools/plan-deviation.ts");
+        finalCustomTools.push(createPlanDeviationTool({ hostedSession }));
     }
     if (declared.has("artifact_written") && hostedSession && !hasTool("artifact_written")) {
         const { createArtifactWrittenTool } = await import("../../tools/artifact-written.ts");
@@ -2520,6 +2555,7 @@ export async function composeClaudeCliBridgedTools({
  *   cwd: string,
  *   customTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[],
  *   mcpRootTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[],
+ *   sessionManager?: import('@earendil-works/pi-coding-agent').SessionManager,
  * }} opts
  * @returns {Promise<import('@earendil-works/pi-coding-agent').ToolDefinition[]>}
  */
@@ -2605,6 +2641,7 @@ export async function buildExecutionSession(opts) {
     const finalCustomTools = backend === "claude-cli"
         ? await composeClaudeCliBridgedTools({
             agentDef,
+            sessionManager: effectiveSessionManager,
             inheritedBashAllowedCommands: opts.inheritedBashAllowedCommands,
             agentName: opts.agentName,
             hostedSession: targetHostedSession,
@@ -2615,6 +2652,7 @@ export async function buildExecutionSession(opts) {
         })
         : await composeAgyCliBridgedTools({
             agentDef,
+            sessionManager: effectiveSessionManager,
             inheritedBashAllowedCommands: opts.inheritedBashAllowedCommands,
             agentName: opts.agentName,
             hostedSession: targetHostedSession,
@@ -2640,9 +2678,8 @@ export async function buildExecutionSession(opts) {
                 sessionManager: effectiveSessionManager,
             },
         );
-    const effectiveMcpIntegration = opts.mcpRootTools?.length === 0
-        ? undefined
-        : opts.mcpIntegration || targetHostedSession?.getMcpIntegration?.() || undefined;
+    const effectiveMcpIntegration = opts.mcpIntegration ||
+        (opts.mcpRootTools?.length === 0 ? undefined : targetHostedSession?.getMcpIntegration?.() || undefined);
     const mcpToolNames = new Set(effectiveMcpIntegration?.getTools().map((tool) => tool.name));
     const stableBridgedTools = finalCustomTools.filter((tool) => !mcpToolNames.has(tool.name));
     const backendPrompt = backend === "agy-cli"
@@ -2967,6 +3004,7 @@ export function installPairCheckpointAutoCompactionPreservation(session, hostedS
         const unsubscribe = session.subscribe((event) => {
             if (event.type !== "compaction_end" || !event.result || event.aborted) return;
             if (checkpoint) recordPairCheckpointSnapshot(hostedSession, checkpoint);
+            recordExecutionWorkflowSnapshot(hostedSession);
             if (sessionManager && requestAttempt?.phase === "started") {
                 recordRequestAttemptSnapshot(sessionManager, requestAttempt);
             }
@@ -4707,6 +4745,7 @@ export async function runIsolatedAgentSession(opts) {
         cwd: opts.cwd || hostedSession.cwd,
         projectStateContext,
         mcpRootTools: [],
+        mcpIntegration: undefined,
     });
     const {
         session,
