@@ -140,3 +140,47 @@ shifts, migration or compatibility risk grows, or the Verification Plan no longe
 - An uninterruptible OS I/O call may exceed every application deadline. Preserve truthful recovery state and wait for
   actual lock release.
 - Broad standard-SFTP account access is accepted product trust, not evidence that the Session mount is a sandbox.
+
+## Research — Laptop-Owned Explicit Saves (2026-10-05)
+
+**This production child remains paused.** The isolated
+[Session-save proof](../remote-session-save-proof.md#execution-results--2026-10-05) provides evidence for an alternative
+to guarded stock SFTP. It does not change this child's requirements, choose a storage approach, deliver remote support,
+or approve changes to ADR-015 or the PRDs.
+
+| Check                                                                                | Result                                                                                                                                                                                                                                |
+| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Real Pi AgentSession, SSH, laptop-native lock and byte-sync acknowledgement          | Passed; ten saves, one remote sentinel execution, actual compaction/metadata/workflow event and fresh reload.                                                                                                                         |
+| Swallowed recorder failure, late reply, Worker death, owner death and SSH disconnect | Passed; sticky fault stops dependent work; recovery uses laptop evidence and never replays the tool.                                                                                                                                  |
+| Duplicate/conflicting retry and absent/wrong credentials                             | Passed; identical retry changes no bytes; conflict/stale 409 and authentication 401.                                                                                                                                                  |
+| OLD request held across publication and successor acquisition                        | Passed; actual held SSH payload returned 409 after reconnect, with successor bytes unchanged.                                                                                                                                         |
+| Compiled macOS ARM64 native owner and Linux x64 Pi/Worker                            | Passed; same entry/Worker, normal and interrupted saves, real store recovery/publication, fresh compiled reload.                                                                                                                      |
+| Added 0/50/150/500 ms acknowledgement delay, finite stall, independent stop          | Passed as measurements, not usability promises; keyboard round trips 77/327/841/2581 ms; stall 4967 ms; blocked remote stopped in 642.4 ms while laptop lock remained held.                                                           |
+| Terminal controls and cleanup                                                        | Passed by machine PTY: all keys accepted, real Worker fault and saved-reply disconnect, fresh recovery without replay, exact fresh compiled reload; no owned processes/listeners/remote scratch remained. Unrelated watcher survived. |
+| Owner terminal usability judgment                                                    | Not run; machine-driven terminal input is not owner acceptance.                                                                                                                                                                       |
+
+Commands: `git check-ignore prototypes/remote-session-save-proof/`, then
+`deno task prototype remote-session-save-proof`. The normal launcher now uses recorded owned scratch directories,
+streamed SHA-256, gzip and resumable rsync through trusted `sct` SSH. Failed/interrupted transfers remain as evidence;
+there is no localhost or source-runtime substitution. Runtime storage variables are set before imports, laptop children
+use `clearEnv: true`, and remote runtime uses `env -i` without provider credentials or history fallback.
+
+Execution source: `d17d7e2b6fb23e875e150cc236f139e04f9e7b23`, locked Pi 1.0.0 (owner-approved deviation), compiler Deno
+2.9.7 on macOS ARM64; pilot Linux x64 has installed Deno 2.7.14. Raw final technical evidence is ignored under
+`prototypes/remote-session-save-proof/runs/run-127f2e78bb62ab9e/{artifact,transport,faults,experiments}.json` and
+`final-pty-launch.log`. The linked proof Plan contains artifact bytes/hashes, latency samples, failed logs and limits.
+Final focused controls are in `focused-ui-controls.json`, `ui-verification.json` and
+`runs/ui-1b344cb03249c63b/interactive-1791258634357/interactive.json`. Independent cleanup is in
+`cleanup-final-local.json`, `cleanup-final-remote.log` and `cleanup-owned-remote-listener.log`: 106 recorded process
+identities and 23 local listener probes passed; the unrelated compile watcher survived. The broad listener diff was
+truncated by the command wrapper and is not counted as proof. Raw failed logs remain ignored. Linux SHA-256 is
+`d7579e0637d9280d3b5481abe3040c57956eb9649bc0ac8176356a2ab692d512`; macOS SHA-256 is
+`f8fad7a7cb49f68c3c6ee2d69f23fbb2cc3ebe4f80de7c88a46bd3c177ea579c`.
+
+The actual store needs digest-based inspection/recovery and preparing → hydrated → checkpointing transitions; the
+initial acquisition helper pins generation null, so restart uses `acquireSessionActivation` after recovery. Constructor
+migration, lifecycle operations outside `_persist`/`_rewriteFile`, production rollover, attachments and other platforms
+remain integration work. Directory sync after publication is not claimed to occur under the lock; sync is not a
+power-loss guarantee, and killing an SSH forward is not a full network partition. The scratch save endpoint is not a
+production API. Evidence supports further design review, but the synchronous main-loop cost needs owner judgment before
+this child can resume.

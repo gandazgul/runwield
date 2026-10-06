@@ -7,13 +7,19 @@ affectedPaths:
     - "prototypes/remote-session-save-proof/"
     - "docs/plans/remote-session-save-proof.md"
     - "docs/plans/remote-ssh-development/03-guard-remote-session-writer-access.md"
+planDeviations:
+    - id: "call_MpKxFr0gVoVSbBgMtafCEkAS|fc_0c362b0e1e339e50016ac2a7b812d887d1bd17be7e9ef500fb"
+      supersededRequirement: "Use Pi 0.87.1, described by the Plan as the installed, locked dependency, for the real Pi Session persistence proof."
+      replacementRequirement: "Use the execution checkout's locked Pi 1.0.0 for the real Pi Session persistence proof. Inspect and verify its in-memory Session construction and persistence hooks before implementation. Record the actual version and compatibility findings. Do not modify production dependencies."
+      reason: "The execution checkout locks Pi 1.0.0. The owner approved using that version without changing production dependencies."
+      approvedAt: "2026-10-04T19:24:02.072Z"
 executionAgent: "engineer"
 collaborationRecommendation: "pair"
 createdAt: "2026-09-26T00:24:00-04:00"
 origin: "internal"
 userVerifiedAt: null
-status: "in_progress"
 targetBranch: "main"
+status: "implemented"
 ---
 
 # Prove Laptop-Owned Remote Session Saves
@@ -218,3 +224,124 @@ linked PRD scenarios remain targets, ADR-018 remains a proposal, and glossary te
   Carry these into later production planning; a killed SSH process is not a real network partition.
 - **Future implementation remains a decision:** after evidence and owner review, revise child03, its dependent child04,
   and the affected ADR/PRD references together if the owner adopts explicit saves. Do not change them during this proof.
+
+## Execution Results — 2026-10-05
+
+Execution was autonomous after the owner changed the collaboration mode. Production child03 remains paused. These are
+research results, not delivery of remote support or approval of a storage design. The owner has not exercised the
+terminal, so usability remains unconfirmed.
+
+**Environment and source:** execution revision `d17d7e2b6fb23e875e150cc236f139e04f9e7b23`; locked Pi **1.0.0**, as
+approved in the Plan deviation; laptop Deno **2.9.7**, macOS ARM64; trusted `sct` pilot Linux x64, installed Deno
+**2.7.14**. Both proof executables were compiled by laptop Deno 2.9.7. No production source, dependency, configuration,
+PRD, ADR, or glossary was changed. `git check-ignore prototypes/remote-session-save-proof/` confirmed isolation.
+Read-only imports include the real file Session store, native locks, HostedSession, workflow event publisher/waiter, and
+workflow-context recorder. Source hashes are in ignored `source-inventory.json`.
+
+**Commands:** `deno task prototype remote-session-save-proof` is the normal launch. It compiles the same ignored
+`entry.js` and included `save-worker.js` for `aarch64-apple-darwin` and `x86_64-unknown-linux-gnu`. Linux compilation
+uses `--deny-write`; both use the full frozen npm snapshot, `--cached-only`, and explicit Worker inclusion. The laptop
+owner and fresh reload process use the compiled macOS executable, with no source fallback. A recorded interrupted
+transfer can be resumed with
+`PROOF_RESUME_ARTIFACT=/absolute/path/to/owned/artifact.json deno task prototype remote-session-save-proof`. The final
+technical/terminal run used this normal launcher with a recorded owned transfer inventory. Completed runs remove the
+remote directory; their inventory is not a reusable remote cache.
+
+The normal launcher now uses streaming SHA-256, gzip and `rsync --partial --inplace --timeout=45` through trusted SSH,
+with `ServerAliveInterval=10` and `ServerAliveCountMax=3`. It records the owned directory before transfer, retains
+failed attempt logs, and verifies both compressed and unpacked remote hashes. An injected transfer interruption resumed
+in the normal launch. A later transfer was stopped before its controller deadline and resumed through the normal launch.
+Upload time is not Session-save latency. Scratch HOME, Pi and Memory paths are supplied before runtime imports; local
+runtime children use `clearEnv: true`, and remote runtime uses `env -i`. No provider credentials are sent.
+
+| Scenario                                                                      | Result                         | Observable evidence                                                                                                                                                                                                                                |
+| ----------------------------------------------------------------------------- | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Real AgentSession normal turn, metadata, compaction and Workflow Tool Event   | Passed                         | Ten saves; two turn model requests plus compaction; sentinel executed once and its result reached the second turn request.                                                                                                                         |
+| Initial save and append-before-dependent-work ordering                        | Passed                         | Each added-1000 ms reply was held after laptop bytes existed; append and actual workflow waiter remained blocked; native competitor excluded ten times.                                                                                            |
+| Final publication and fresh compiled reload                                   | Passed                         | Laptop bytes, IDs, parents, custom records and compacted context matched; generation 0 digest matched the manifest; lock released. Reload registered no tool and ran no turn.                                                                      |
+| Actual metadata recorder catches a refused save                               | Passed                         | Zero entries saved and no sentinel call; sticky fault prevented the turn.                                                                                                                                                                          |
+| Late reply after main wait expires                                            | Passed                         | Six saved entries, one sentinel call; terminal timeout remained despite the late reply.                                                                                                                                                            |
+| Worker death before tool-result delivery                                      | Passed                         | Five saved entries, one sentinel call; finite 5500 ms main wait stopped continuation.                                                                                                                                                              |
+| Laptop owner death with saved reply pending                                   | Passed                         | Six saved entries; native competitor acquired after actual process death.                                                                                                                                                                          |
+| Dedicated SSH forward disconnect                                              | Passed                         | Six saved entries; live laptop owner retained its native lock; failed operation did not continue.                                                                                                                                                  |
+| Recovery after all five faults                                                | Passed                         | Fresh managers used only laptop bytes; no model/tool replay; exact reconciliation, publication, lock release and fresh compiled reload passed. Changed-history recovery published generation 1 after real store recovery to generation 0.          |
+| Identical retry, conflicting retry, stale operation, absent/wrong credentials | Passed                         | Identical SSH retry changed no bytes; conflicting/stale identities returned 409; absent/wrong credentials returned 401.                                                                                                                            |
+| OLD delivery held across settlement and reconnect                             | Passed                         | Actual SSH-delivered payload held before admission while predecessor published and successor acquired its native lock; later delivery returned 409 and successor bytes were unchanged. A fresh successor append/publication still worked.          |
+| Remote history fallback                                                       | Passed in this bounded runtime | Filesystem writes denied; direct fallback write refused; remote scratch held only executable and sentinel. No personal mount or localhost substitute.                                                                                              |
+| Compiled macOS/Linux normal and interrupted paths                             | Passed                         | Same packaged entry/Worker; compiled laptop native owner throughout final run, compiled Linux Pi/Worker, and fresh compiled laptop reload.                                                                                                         |
+| Finite stall and independent external stop                                    | Passed                         | Stalled save faulted at 5007.1 ms with no model/tool; independent stop completed in 642.4 ms while laptop lock remained held.                                                                                                                      |
+| Terminal controls                                                             | Passed by machine-driven PTY   | All normal/delay/disconnect/Worker-failure/reconnect/keyboard/exit keys were accepted against the compiled pair; saved-reply disconnect and Worker timeout were observed; fresh recovery did not replay the tool. Owner judgment remains separate. |
+| Owner usability judgment                                                      | Not run                        | Machine-driven keys are not an owner exercise or acceptance.                                                                                                                                                                                       |
+
+### Timing samples
+
+Each normal latency case used a fresh real AgentSession over SSH, ten saves and one sentinel execution. Connection setup
+measures tunnel readiness, separately from save waits. Main-loop gaps use a 5 ms monotonic sampler. Keyboard bytes
+travel through live SSH stdin to Pi's main loop; keyboard round-trip uses the independent controller's send/receive
+clock, not subtraction between host clocks. Consecutive synchronous saves can block the keyboard longer than one save.
+
+| Added acknowledgement delay ms | Connection setup ms |   Save waits ms | Longest sampled main-loop gap ms | Keyboard round-trip ms |
+| -----------------------------: | ------------------: | --------------: | -------------------------------: | ---------------------: |
+|                              0 |              1211.9 |       10.3–42.8 |                            124.3 |                     77 |
+|                             50 |              1212.5 |       59.5–97.8 |                            378.9 |                    327 |
+|                            150 |               363.2 |     161.0–197.2 |                            896.5 |                    841 |
+|                            500 |               701.2 |     512.1–662.3 |                           2753.0 |                   2581 |
+|                     7000 stall |              1551.9 | fault at 5007.1 |                           5024.3 |                   4967 |
+
+These are experiment samples, not latency thresholds. The stalled manager acknowledged zero entries. The independent
+stop controller is separate from Pi's blocked thread. It distinguishes a zombie from a live PID and can escalate TERM to
+KILL if the owned PID remains live after 100 ms; neither a deadline nor remote death releases the live laptop lock.
+
+### Artifacts, evidence and limits
+
+| Artifact      |     Bytes | SHA-256                                                            |
+| ------------- | --------: | ------------------------------------------------------------------ |
+| Linux x64     | 957807192 | `d7579e0637d9280d3b5481abe3040c57956eb9649bc0ac8176356a2ab692d512` |
+| macOS ARM64   | 844782994 | `f8fad7a7cb49f68c3c6ee2d69f23fbb2cc3ebe4f80de7c88a46bd3c177ea579c` |
+| Gzip transfer | 271804217 | `1332d590cbb2a6734eb9520f6d0079027e0d7e64dc5cdd5a676524192e37ace1` |
+
+Raw evidence is ignored under `prototypes/remote-session-save-proof/`:
+
+- `runs/run-127f2e78bb62ab9e/{readiness,artifact,transport,faults,experiments}.json` and `final-pty-launch.log` contain
+  the final compiled correctness, recovery, latency, held-OLD and external-stop results. `pty-controls.json` records
+  machine key bytes and exit 0, not owner judgment.
+- `runs/ui-1b344cb03249c63b/interactive-1791258634357/interactive.json`, `focused-ui.log`, `focused-ui-controls.json`,
+  and `ui-verification.json` contain the final control check: exit 0, all nine key actions accepted, Worker fault,
+  disconnect while saved reply pending, fresh recovery, twelve final entries, one sentinel execution, and a fresh
+  compiled reload matching unchanged laptop bytes. This check used
+  `deno run -A --frozen --config deno.json prototypes/remote-session-save-proof/ui-launch.js` under a machine PTY and
+  the same compiled artifacts; `verify-ui.js` independently checked its outcomes. Reconnect now clears the displayed
+  predecessor fault only when a fresh manager/operation exists. Lock state and busy/pending identity update live.
+- Earlier `runs/fault-c9db7658c340f9b6/faults.json` and `fault-resumed-run.log` retain the first five passing fault
+  cases.
+- `final-launch.log` retains the first increment's passing saves/faults/latency/held-OLD results and failed stop probe.
+  That probe used only `kill -0`; the corrected controller checks process state and permits escalation. Do not count
+  this earlier whole launch as passed.
+- `transfer-interruption.log`, `pty-transfer-interrupted.log`, and its controls JSON retain deliberate interruptions;
+  `rebuild-interrupted.log` retains a cancelled stale instrumentation build. `clock-independent-timing.log` records a
+  focused controller stopped before the artifact was ready; its scenarios were not run. Earlier SCP, compilation and
+  recovery failures remain in `fault-*.log` and workflow logs. No failed log was converted to pass evidence.
+
+The real store's initial acquisition pins generation null. Changed-history restart therefore uses actual
+`inspectSessionActivation` and `recoverSessionControl` transcript evidence, then `acquireSessionActivation` with the
+recovered generation and preparing → hydrated → checkpointing phases. Recovery discards unsaved Pi memory; it never
+repairs uncertainty by replaying the sentinel.
+
+Constructor migration, `newSession`, `setSessionFile`, branching, static fork, production rollover and attachments
+remain outside these intercepted hooks. The proof does not qualify all providers or Windows. Explicit transcript sync
+failures propagate. Production publication catches directory-sync errors, so the proof separately syncs
+bundle/transcript parents after publication and does not claim those checks occurred under a still-held lock. Sync is
+not a power-loss proof; killed SSH is not a full network partition. The scratch endpoint is not a production save API.
+
+**Cleanup:** `cleanup-final-local.json` checked 106 recorded process identities and 23 local listener ports: no owned
+process or listener remained. The unrelated compile watcher (PID 70012) survived. Independent `cleanup-final-remote.log`
+found no proof scratch directories, executables in use, or artifact-transfer processes on `sct`;
+`cleanup-owned-remote-listener.log` found the recorded UI SSH-forward port absent. The broad listener baseline diff was
+truncated by the command wrapper and is retained as diagnostic evidence, not counted as a pass. Earlier partial-upload
+directories were also absent. Raw local synthetic evidence and compiled artifacts remain ignored. `git status --short`
+and `git diff --stat` show only these two intended Plan documents; the pre-existing managed frontmatter change was
+preserved. No full CI suite ran; only focused actual proof checks ran.
+
+**Conclusion:** the bounded safety and compiled-package proof supports design review of explicit laptop saves. It does
+not select that design. The measured synchronous keyboard pauses require owner judgment before production planning can
+resume. Requirements, architecture and production child03 remain unchanged and paused.
