@@ -77,8 +77,6 @@
     "src/tools/grep.js",
     "src/tools/read.js",
     "src/tools/registry.js",
-    "src/ui/design-system/components/Button.jsx",
-    "src/ui/design-system/components/Card.jsx",
     "src/ui/design-system/components/Dialog.jsx",
     "src/ui/design-system/components/react/RunWieldPrimitives.jsx",
     "src/ui/design-system/sidebar-motion.js",
