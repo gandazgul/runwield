@@ -1,12 +1,15 @@
 // @ts-ignore — quikdown .d.ts uses CommonJS-style exports while the ESM runtime has a default export.
 import quikdown from "quikdown";
 
+export interface MarkdownViewProps {
+    markdown: string;
+}
+
 /**
  * Render Plan markdown through the shared markdown renderer instead of custom HTML parsing.
  * quikdown escapes raw HTML and rewrites unsafe link protocols before this HTML is passed to React.
- * @param {{ markdown: string }} props
  */
-export function MarkdownView({ markdown }) {
+export function MarkdownView({ markdown }: MarkdownViewProps) {
     const html = renderMarkdown(markdown || "");
     return html
         ? <div className="markdown-view" dangerouslySetInnerHTML={{ __html: html }} />
@@ -17,10 +20,6 @@ export function MarkdownView({ markdown }) {
         );
 }
 
-/**
- * @param {string} markdown
- * @returns {string}
- */
-export function renderMarkdown(markdown) {
+export function renderMarkdown(markdown: string): string {
     return String(quikdown(markdown || "")).trim();
 }

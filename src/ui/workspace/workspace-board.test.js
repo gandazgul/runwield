@@ -13,7 +13,7 @@ import {
 } from "./server/plan-adapter.js";
 import { buildPlanBoardSearchIndex } from "./components/Board.jsx";
 
-import { renderMarkdown } from "./components/MarkdownView.jsx";
+import { renderMarkdown } from "./components/MarkdownView.tsx";
 
 import { detailHref, workspaceHref } from "./components/PlanCard.tsx";
 import { draftRecoveryState, planBodyDraftKey, restoredDraftExpectedBodyHash } from "./islands/PlanBodyEditor.jsx";
