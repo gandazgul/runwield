@@ -119,11 +119,7 @@
     "src/ui/workspace/islands/PlanBodyEditor.jsx",
     "src/ui/workspace/islands/PlanLifecycleActions.jsx",
     "src/ui/workspace/islands/SessionSurface.jsx",
-    "src/ui/workspace/pages/api/config.js",
-    "src/ui/workspace/pages/api/file-content.js",
-    "src/ui/workspace/pages/api/image.js",
     "src/ui/workspace/pages/api/plans/[...segments].js",
-    "src/ui/workspace/pages/api/upload.js",
 
     "src/ui/workspace/react/pierre-diffs-worker-shim.js",
     "src/ui/workspace/react/remote-review-payload.js",
