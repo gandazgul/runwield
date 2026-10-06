@@ -5,7 +5,7 @@ import {
     RuntimeInteractionOutcomes,
     RuntimeInteractionTypes,
 } from "../../../shared/session/interaction-values.ts";
-import { MarkdownView } from "./MarkdownView.jsx";
+import { MarkdownView } from "./MarkdownView.tsx";
 import { SessionQuestionForm } from "./SessionQuestionForm.tsx";
 import { RunWieldLink, RunWieldThinkingDots } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 
