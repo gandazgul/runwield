@@ -7,7 +7,7 @@ import { PlanBodyEditor } from "../islands/PlanBodyEditor.jsx";
 import { PlanLifecycleActions } from "../islands/PlanLifecycleActions.jsx";
 import { BoardColumn } from "./BoardColumn.jsx";
 import { MarkdownView } from "./MarkdownView.jsx";
-import { ComplexityLabel, workspaceHref } from "./PlanCard.jsx";
+import { ComplexityLabel, workspaceHref } from "./PlanCard.tsx";
 import { buildWorkflowPresentation } from "../../../shared/workflow/workflow-presentation.ts";
 import { WorkflowSidebar } from "../react/WorkflowSidebar.tsx";
 
