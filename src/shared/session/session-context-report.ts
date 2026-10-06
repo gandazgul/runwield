@@ -3,100 +3,96 @@
  * Pure helpers for estimating and reporting active Agent Session context-window usage.
  */
 
-/**
- * @typedef {"agent_instructions" | "tools" | "instruction_files" | "core_memories" | "skill_catalog" | "project_state" | "conversation_overhead"} ContextCategoryId
- */
+export type ContextCategoryId =
+    | "agent_instructions"
+    | "tools"
+    | "instruction_files"
+    | "core_memories"
+    | "skill_catalog"
+    | "project_state"
+    | "conversation_overhead";
 
-/**
- * @typedef {Object} ContextProjectionItem
- * @property {string} label
- * @property {number} tokens
- * @property {string} [source]
- * @property {string} [path]
- * @property {string} [name]
- */
+export interface ContextProjectionItem {
+    label: string;
+    tokens: number;
+    source?: string;
+    path?: string;
+    name?: string;
+}
 
-/**
- * @typedef {Object} ContextProjectionCategory
- * @property {ContextCategoryId} id
- * @property {string} label
- * @property {number} tokens
- * @property {ContextProjectionItem[]} [items]
- */
+export interface ContextProjectionCategory {
+    id: ContextCategoryId;
+    label: string;
+    tokens: number;
+    items?: ContextProjectionItem[];
+}
 
-/**
- * @typedef {Object} SessionContextProjection
- * @property {ContextProjectionCategory[]} categories
- * @property {ContextProjectionItem[]} instructionFiles
- * @property {ContextProjectionItem[]} skills
- * @property {number} staticTokens
- */
+export interface SessionContextProjection {
+    categories: ContextProjectionCategory[];
+    instructionFiles: ContextProjectionItem[];
+    skills: ContextProjectionItem[];
+    staticTokens: number;
+}
 
-/**
- * @typedef {Object} ContextUsageState
- * @property {number | null} [tokens]
- * @property {number | null} [contextWindow]
- * @property {number | null} [percent]
- */
+export interface ContextUsageState {
+    tokens?: number | null;
+    contextWindow?: number | null;
+    percent?: number | null;
+}
 
-/**
- * @typedef {Object} RuntimeContextReportInput
- * @property {string} [agentName]
- * @property {string} [agentDisplayName]
- * @property {{ provider?: string, model?: string }} [model]
- * @property {SessionContextProjection | null | undefined} projection
- * @property {ContextUsageState | null | undefined} contextUsage
- * @property {number} [activeMessageTokens]
- * @property {number | null} [contextWindow]
- */
+export interface ContextReportModel {
+    provider?: string;
+    model?: string;
+}
 
-/**
- * @typedef {ContextProjectionCategory & { percent: number | null }} ContextReportCategory
- */
+export interface RuntimeContextReportInput {
+    agentName?: string;
+    agentDisplayName?: string;
+    model?: ContextReportModel;
+    projection: SessionContextProjection | null | undefined;
+    contextUsage: ContextUsageState | null | undefined;
+    activeMessageTokens?: number;
+    contextWindow?: number | null;
+}
 
-/**
- * @typedef {Object} SessionContextReport
- * @property {string} agentName
- * @property {string} agentDisplayName
- * @property {string} provider
- * @property {string} model
- * @property {"last_known" | "estimated" | "unknown_after_compaction"} usageState
- * @property {number | null} usedTokens
- * @property {number | null} contextWindow
- * @property {number | null} percent
- * @property {number | null} freeTokens
- * @property {number} staticTokens
- * @property {number} activeMessageTokens
- * @property {ContextReportCategory[]} categories
- * @property {ContextProjectionItem[]} instructionFiles
- * @property {ContextProjectionItem[]} skills
- */
+export interface ContextReportCategory extends ContextProjectionCategory {
+    percent: number | null;
+}
+
+export type ContextReportUsageState = "last_known" | "estimated" | "unknown_after_compaction";
+
+export interface SessionContextReport {
+    agentName: string;
+    agentDisplayName: string;
+    provider: string;
+    model: string;
+    usageState: ContextReportUsageState;
+    usedTokens: number | null;
+    contextWindow: number | null;
+    percent: number | null;
+    freeTokens: number | null;
+    staticTokens: number;
+    activeMessageTokens: number;
+    categories: ContextReportCategory[];
+    instructionFiles: ContextProjectionItem[];
+    skills: ContextProjectionItem[];
+}
 
 const TOKEN_CHARS = 4;
 
 /**
  * Estimate tokens with Pi's simple chars/4 convention for local attribution.
- * @param {string | undefined | null} text
- * @returns {number}
  */
-export function estimateContextTextTokens(text) {
+export function estimateContextTextTokens(text: string | undefined | null): number {
     if (!text) return 0;
     return Math.ceil(String(text).length / TOKEN_CHARS);
 }
 
-/**
- * @param {ContextProjectionCategory[]} categories
- * @returns {number}
- */
-export function sumContextCategoryTokens(categories) {
+export function sumContextCategoryTokens(categories: ContextProjectionCategory[]): number {
     return categories.reduce((sum, category) => sum + Math.max(0, Number(category.tokens) || 0), 0);
 }
 
-/**
- * @param {ContextProjectionCategory[]} categories
- * @returns {SessionContextProjection}
- */
-export function createSessionContextProjection(categories) {
+export function createSessionContextProjection(categories: ContextProjectionCategory[]): SessionContextProjection {
     const normalized = categories
         .map((category) => ({
             ...category,
@@ -117,10 +113,8 @@ export function createSessionContextProjection(categories) {
 
 /**
  * Build a semantic report from stored static projection and current Runtime usage.
- * @param {RuntimeContextReportInput} input
- * @returns {SessionContextReport | null}
  */
-export function buildSessionContextReport(input) {
+export function buildSessionContextReport(input: RuntimeContextReportInput): SessionContextReport | null {
     const projection = input.projection;
     if (!projection) return null;
 
@@ -136,9 +130,8 @@ export function buildSessionContextReport(input) {
     const contextWindow = normalizePositiveNumber(input.contextUsage?.contextWindow) ??
         normalizePositiveNumber(input.contextWindow) ?? null;
 
-    let usageState = /** @type {SessionContextReport['usageState']} */ ("estimated");
-    /** @type {number | null} */
-    let usedTokens = localEstimate;
+    let usageState: ContextReportUsageState = "estimated";
+    let usedTokens: number | null = localEstimate;
     if (usageExplicitlyUnknown) {
         usageState = "unknown_after_compaction";
         usedTokens = null;
@@ -154,16 +147,17 @@ export function buildSessionContextReport(input) {
 
     const overheadTokens = usedTokens === null ? 0 : Math.max(0, usedTokens - staticTokens - activeMessageTokens);
     const conversationTokens = activeMessageTokens + overheadTokens;
-    const categories = [
+    const overheadCategories: ContextProjectionCategory[] = conversationTokens > 0
+        ? [{
+            id: "conversation_overhead",
+            label: "Conversation & provider overhead",
+            tokens: conversationTokens,
+            items: [],
+        }]
+        : [];
+    const categories: ContextReportCategory[] = [
         ...projection.categories,
-        ...(conversationTokens > 0
-            ? [{
-                id: /** @type {ContextCategoryId} */ ("conversation_overhead"),
-                label: "Conversation & provider overhead",
-                tokens: conversationTokens,
-                items: [],
-            }]
-            : []),
+        ...overheadCategories,
     ].map((category) => ({
         ...category,
         percent: usedTokens && usedTokens > 0 ? (category.tokens / usedTokens) * 100 : null,
@@ -198,10 +192,6 @@ export function buildSessionContextReport(input) {
     };
 }
 
-/**
- * @param {unknown} value
- * @returns {number | null}
- */
-function normalizePositiveNumber(value) {
+function normalizePositiveNumber(value: number | null | undefined): number | null {
     return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
 }

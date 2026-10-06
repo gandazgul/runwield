@@ -7,7 +7,7 @@
  * usage reconciliation, context snapshots, and execution settlement.
  */
 
-import { estimateContextTextTokens } from "../session/session-context-report.js";
+import { estimateContextTextTokens } from "../session/session-context-report.ts";
 import { classifyToolSubUsage, drainWorkflowMetrics, recordWorkflowMetric } from "./metrics.js";
 
 export type ExecutionKind = "root" | "isolated" | "delegated";
