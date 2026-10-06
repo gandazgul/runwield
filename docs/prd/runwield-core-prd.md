@@ -1807,6 +1807,8 @@ conversation. Opening a Session does not reserve it for that screen.
 Required outcomes:
 
 - new Sessions appear in history after the first submitted message, not from opening an empty composer;
+- the planning Session chooser shows the saved Session title, or the first meaningful user message when no title exists;
+  Session IDs are selection values, not labels. Sessions with neither a title nor a message are omitted;
 - the owner can reopen and continue saved Sessions without a migration ceremony or Workspace registration for local use;
 - open surfaces update when another surface saves work, while preserving unsent drafts;
 - a long conversation or completed Plan does not by itself disable the next user message;
@@ -1828,6 +1830,12 @@ Required outcomes:
 The file storage, operation-scoped writer lock, transcript segments, and synchronization design live in
 [ADR-015](../adr/015-file-authoritative-session-bundles.md). These mechanisms implement the outcomes above; they do not
 create additional product restrictions on which screen the owner may use.
+
+**Acceptance scenario: Choose a planning Session by its title.**
+
+When a Plan has multiple resumable planning Sessions, `/load-plan` shows their titles from committed history. An unnamed
+Session shows its first meaningful user message instead. A Session with neither is omitted. Selecting a label continues
+the corresponding Session, even when two labels are the same.
 
 **Requirement: Archive a Session without losing saved work.**
 
