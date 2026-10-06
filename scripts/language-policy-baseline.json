@@ -146,7 +146,6 @@
     "src/ui/workspace/pages/theme.css.js",
     "src/ui/workspace/pages/tokens.css.js",
     "src/ui/workspace/plan-search.js",
-    "src/ui/workspace/react/RemoteCommentStateList.jsx",
     "src/ui/workspace/react/pierre-diffs-worker-shim.js",
     "src/ui/workspace/react/remote-review-payload.js",
     "src/ui/workspace/react/vite.config.js",
