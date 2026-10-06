@@ -57,7 +57,6 @@
     "src/shared/work-records/generation.js",
     "src/shared/work-records/index-adapter.js",
     "src/shared/work-records/markdown.js",
-    "src/shared/work-records/schema.js",
     "src/shared/work-records/search.js",
     "src/shared/work-records/store.js",
     "src/shared/workflow/collaboration-pull.js",
