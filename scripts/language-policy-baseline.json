@@ -12,7 +12,6 @@
     "src/extensions/cymbal/index.js",
     "src/extensions/mnemoteca/index.js",
     "src/extensions/snip/index.js",
-    "src/plan-front-matter.js",
     "src/plan-store.js",
     "src/shared/collaboration/client.js",
     "src/shared/collaboration/crypto.js",

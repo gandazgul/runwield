@@ -1088,7 +1088,7 @@ The highest-value cross-boundary paths for later confidence analysis are visible
 | Plan execution facade                     | `src/shared/workflow/workflow.js`                                             |
 | Validation and repair                     | `src/shared/workflow/validation.ts`                                           |
 | Plan lifecycle                            | `src/shared/workflow/plan-lifecycle.js`                                       |
-| Plan persistence                          | `src/plan-store.js`, `src/plan-front-matter.js`                               |
+| Plan persistence                          | `src/plan-store.js`, `src/plan-front-matter.ts`                               |
 | Worktree operations and registry          | `src/shared/worktree.js`, `src/shared/worktree-registry.js`                   |
 | Settings and models                       | `src/shared/settings.js`, `src/shared/models/`                                |
 | Tool policy                               | `src/tools/registry.js`, agent front matter in `src/agent-definitions/`       |
