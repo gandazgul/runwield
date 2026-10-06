@@ -19,7 +19,13 @@ createdAt: "2026-09-26T00:24:00-04:00"
 origin: "internal"
 userVerifiedAt: null
 targetBranch: "main"
-status: "validated_reviewer"
+status: "validated"
+validatedCommit: "2fe7311d87fb4808889c978248f1c7523edfba9b"
+workRecord:
+    status: "generated"
+    recordId: "b4ee683d-de4d-4f5f-8f91-b3513e1970c4"
+    path: "docs/work-records/2026-10-06-validated-laptop-owned-remote-save-proof.md"
+    lastAttemptAt: "2026-10-06T12:19:00.047Z"
 ---
 
 # Prove Laptop-Owned Remote Session Saves
