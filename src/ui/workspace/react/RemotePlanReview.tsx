@@ -3,7 +3,7 @@ import { RunWieldThinkingDots } from "../../design-system/components/react/RunWi
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createCollaborationClient } from "../../../shared/collaboration/client.js";
-import { decryptJsonPayload, encryptJsonPayload, importContentKey } from "../../../shared/collaboration/crypto.js";
+import { decryptJsonPayload, encryptJsonPayload, importContentKey } from "../../../shared/collaboration/crypto.ts";
 import { normalizeEncryptedPlanPayload } from "../../../shared/collaboration/protocol.js";
 import { parseCollaborationUrl } from "../../../shared/collaboration/urls.ts";
 import { ThemeProvider } from "@plannotator/ui/components/ThemeProvider.tsx";
