@@ -1,7 +1,7 @@
 import { PLAN_SEARCH_QUERY_PARAM } from "../constants.ts";
 import { PlanBoardSearch } from "../islands/PlanBoardSearch.jsx";
 import { buildPlanBoardSearchIndex } from "../plan-search.js";
-import { workspaceUrl } from "./PlanCard.jsx";
+import { workspaceUrl } from "./PlanCard.tsx";
 
 /** @param {{ board: any, view: "active"|"closed"|"onHold", url: URL | string }} props */
 export function PlanBoardToolbar({ board, view, url }) {

@@ -1,4 +1,4 @@
-import { detailHref } from "./PlanCard.jsx";
+import { detailHref } from "./PlanCard.tsx";
 import { RunWieldCard } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 
 /**

@@ -1,13 +1,13 @@
 import {
     PLAN_FRONT_MATTER_KEY_ORDER as FRONT_MATTER_KEY_ORDER,
     PLAN_FRONT_MATTER_KEYS as FM,
-} from "../../../plan-front-matter.js";
+} from "../../../plan-front-matter.ts";
 import { safeHttpTicketReferenceUrl } from "../../../shared/ticket-references.js";
 import { PlanBodyEditor } from "../islands/PlanBodyEditor.jsx";
 import { PlanLifecycleActions } from "../islands/PlanLifecycleActions.jsx";
 import { BoardColumn } from "./BoardColumn.jsx";
 import { MarkdownView } from "./MarkdownView.tsx";
-import { ComplexityLabel, workspaceHref } from "./PlanCard.jsx";
+import { ComplexityLabel, workspaceHref } from "./PlanCard.tsx";
 import { buildWorkflowPresentation } from "../../../shared/workflow/workflow-presentation.ts";
 import { WorkflowSidebar } from "../react/WorkflowSidebar.tsx";
 

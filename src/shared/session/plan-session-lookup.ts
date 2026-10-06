@@ -64,9 +64,24 @@ export async function findPlanAssociatedSessions(
         const activationState = activation.activation?.state || "unknown";
         const currentSegmentKind = currentSegment?.kind || "session";
         const reason = reasonForCandidate(activationState, currentSegmentKind, latest.purpose);
+        let displayName = session.displayName?.trim() || null;
+        if (activation.generation) {
+            const projection = await projectAggregateTranscript({
+                runwieldSessionId: session.runwieldSessionId,
+                cwd: session.transcriptCwd,
+                sessionDir: dirname(session.transcriptPath),
+                generation: activation.generation,
+                segments: sessionStore.listSessionTranscriptSegments(session.runwieldSessionId),
+            });
+            if (projection.ok) {
+                const { name, firstMessage } = projection.snapshot;
+                displayName = (typeof name === "string" ? name.trim() : "") ||
+                    (typeof firstMessage === "string" ? firstMessage.trim() : "") || null;
+            }
+        }
         candidates.push({
             runwieldSessionId: session.runwieldSessionId,
-            displayName: session.displayName,
+            displayName,
             archivedAt: session.archivedAt,
             piSessionId: session.piSessionId,
             transcriptPath: session.transcriptPath,

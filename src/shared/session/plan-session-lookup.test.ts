@@ -193,3 +193,41 @@ Deno.test("Plan lookup includes archived Sessions and their archive status", asy
         await Deno.remove(fixture.rootDir, { recursive: true });
     }
 });
+
+for (
+    const scenario of [
+        { name: "saved title", title: "Dashboard planning", expected: "Dashboard planning" },
+        { name: "first user message", title: "   ", expected: "Build a reliable usage dashboard" },
+    ]
+) {
+    Deno.test(`Plan Session labels use the ${scenario.name} from committed history`, async () => {
+        const fixture = await makeFixture();
+        const store = openFileSessionStore({ baseDir: fixture.sessionBaseDir });
+        try {
+            const project = store.ensureRuntimeProject({ root: fixture.projectRoot });
+            const transcriptPath = await writeTranscript(fixture.sessionDir, fixture.projectRoot, "label-session");
+            const session = await store.ensureSessionCatalogRecord({
+                projectId: project.projectId,
+                piSessionId: "label-session",
+                transcriptPath,
+                transcriptCwd: fixture.projectRoot,
+            });
+            await Deno.writeTextFile(
+                transcriptPath,
+                [
+                    { type: "session_info", name: scenario.title },
+                    { type: "message", message: { role: "user", content: "Build a reliable usage dashboard" } },
+                ].map((entry) => JSON.stringify(entry)).join("\n") + "\n",
+                { append: true },
+            );
+            await publishAssociation(store, session, project.projectId);
+
+            const candidates = await findPlanAssociatedSessions(store, { cwd: fixture.projectRoot, planId: "plan-1" });
+
+            assertEquals(candidates[0].displayName, scenario.expected);
+        } finally {
+            store.close();
+            await Deno.remove(fixture.rootDir, { recursive: true });
+        }
+    });
+}

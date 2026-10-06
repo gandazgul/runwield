@@ -24,7 +24,7 @@ origin: "internal"
 userVerifiedAt: null
 targetBranch: "main"
 status: "validated"
-validatedCommit: "357bbaf1f1be7e07eb607330e6df141f818678cc"
+validatedCommit: "4208a46e3a0b16bd803c45d722f2a9ccedd3565f"
 workRecord:
     status: "generated"
     recordId: "e24fc4b5-cf6e-488e-a977-b5f90016d8a2"

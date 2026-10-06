@@ -4,7 +4,7 @@
  */
 
 import { formatPlannedWorkLabel } from "../../constants.js";
-import type { WorkRecordResource } from "./schema.js";
+import type { WorkRecordResource } from "./schema.ts";
 
 interface WorkRecordListOptions {
     includeAll?: boolean;
