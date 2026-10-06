@@ -6,19 +6,15 @@
 /**
  * Tools present for every user-facing Agent and protected from runtime narrowing.
  * Isolated Subagent definitions do not receive this list.
- *
- * @type {readonly string[]}
  */
-export const UNIVERSAL_AGENT_TOOL_NAMES = Object.freeze([
+export const UNIVERSAL_AGENT_TOOL_NAMES: readonly string[] = Object.freeze([
     "set_session_name",
 ]);
 
 /**
  * Tools protected from removal when they are present in an agent's bundled frontmatter.
- *
- * @type {readonly string[]}
  */
-export const PROTECTED_TOOL_NAMES = Object.freeze([
+export const PROTECTED_TOOL_NAMES: readonly string[] = Object.freeze([
     // memory
     "memory",
     // codebase exploration
@@ -52,10 +48,8 @@ export const PROTECTED_TOOL_NAMES = Object.freeze([
 
 /**
  * Tools that advance or finalize a RunWield workflow.
- *
- * @type {readonly string[]}
  */
-export const WORKFLOW_ADVANCEMENT_TOOL_NAMES = Object.freeze([
+export const WORKFLOW_ADVANCEMENT_TOOL_NAMES: readonly string[] = Object.freeze([
     "triage_report",
     "plan_written",
     "task_completed",
@@ -71,9 +65,8 @@ export const WORKFLOW_ADVANCEMENT_TOOL_NAMES = Object.freeze([
  * Tools that advance a workflow or record its decisions and completed steps stay
  * visible as full blocks. Inspection tools such as review_diff remain ordinary
  * activity, even when the workflow records their results as evidence.
- * @type {readonly string[]}
  */
-export const WORKFLOW_TOOL_NAMES = Object.freeze([
+export const WORKFLOW_TOOL_NAMES: readonly string[] = Object.freeze([
     ...WORKFLOW_ADVANCEMENT_TOOL_NAMES,
     "artifact_written",
     "user_interview",

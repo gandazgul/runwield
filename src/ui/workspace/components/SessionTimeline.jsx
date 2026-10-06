@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { WORKFLOW_TOOL_NAMES } from "../../../tools/registry.js";
+import { WORKFLOW_TOOL_NAMES } from "../../../tools/registry.ts";
 import {
     isApprovalAcceptedValue,
     RuntimeInteractionOutcomes,
