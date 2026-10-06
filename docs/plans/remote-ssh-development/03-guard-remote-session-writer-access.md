@@ -144,7 +144,7 @@ shifts, migration or compatibility risk grows, or the Verification Plan no longe
 ## Research — Laptop-Owned Explicit Saves (2026-10-05)
 
 **This production child remains paused.** The isolated
-[Session-save proof](../remote-session-save-proof.md#execution-results--2026-10-05) provides evidence for an alternative
+[Session-save proof](../remote-session-save-proof.md#execution-results-2026-10-05) provides evidence for an alternative
 to guarded stock SFTP. It does not change this child's requirements, choose a storage approach, deliver remote support,
 or approve changes to ADR-015 or the PRDs.
 
