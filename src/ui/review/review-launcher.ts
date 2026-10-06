@@ -4,7 +4,7 @@ import type { SequenceReviewDocument } from "../../shared/workflow/sequence-revi
  * Hosts human Plan, code, and artifact review surfaces in Workspace.
  */
 
-import { startReviewWorkspaceServer } from "../../review-workspace-server.js";
+import { startReviewWorkspaceServer } from "../../review-workspace-server.ts";
 import { parsePlanFrontMatter, resolvePlanExecutionPolicy } from "../../plan-store.js";
 import type { PlanExecutionPolicy, PlanFrontMatter } from "../../plan-store.js";
 import type { BrowserPort } from "../../shared/browser-port.ts";

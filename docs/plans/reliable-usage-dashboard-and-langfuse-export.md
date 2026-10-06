@@ -20,6 +20,8 @@ createdAt: "2026-09-20T01:12:35-04:00"
 origin: "internal"
 userVerifiedAt: null
 status: "ready_for_work"
+targetBranch: "epic/reliable-usage-dashboard-and-langfuse-export"
+epicBaseCommit: "da55b44d463c4a6797c87792ce3856aa57b0ab29"
 ---
 
 # Reliable Usage, Workspace Dashboard, and Langfuse Export

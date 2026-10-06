@@ -1147,6 +1147,11 @@ API-key billing. `opencode/<model>` reuses the existing RunWield provider config
 with hosted image-tool access. Unsupported controls are reported, not ignored, and requests never silently switch
 provider or billing route. Model changes must not inherit incompatible controls from the previous model.
 
+Codex executable discovery prefers the user's PATH. If no executable is found on macOS, RunWield checks the known
+ChatGPT desktop app bundle in the user's Applications directory and then the system Applications directory. If neither
+is available, it reports the missing executable before starting image generation. Discovery does not install software,
+change shell settings, bypass permission errors, or retry a generation through a different executable.
+
 **Requirement: Produce a reusable project image with truthful success and safe file handling.**
 
 `create_image` accepts a prompt, a required output path and optional project or current-Session image references.
@@ -1175,6 +1180,9 @@ does not retry ambiguous generations automatically or change host-global configu
 - Given a signed-in, image-capable Codex runtime, either Codex provider spelling uses the selected supervising model and
   supported effort in an ephemeral thread. Only a completed native image item from the matching turn with a valid saved
   file can publish output; API-key accounts and additional approval requests are rejected.
+- Given Codex is absent from PATH but installed in a supported macOS ChatGPT app bundle, image generation starts that
+  executable without requiring a shell configuration change. If no executable is available, the tool fails with setup
+  guidance and publishes no image.
 - Given OpenCode model and hosted image-tool access, the configured Responses endpoint must return exactly one completed
   image-generation result. Model-access denials and text-only results remain errors, never implicit fallback.
 - Given a Claude CLI conversation and configured image route, the MCP tool accepts current-Session attachment references
@@ -1799,6 +1807,8 @@ conversation. Opening a Session does not reserve it for that screen.
 Required outcomes:
 
 - new Sessions appear in history after the first submitted message, not from opening an empty composer;
+- the planning Session chooser shows the saved Session title, or the first meaningful user message when no title exists;
+  Session IDs are selection values, not labels. Sessions with neither a title nor a message are omitted;
 - the owner can reopen and continue saved Sessions without a migration ceremony or Workspace registration for local use;
 - open surfaces update when another surface saves work, while preserving unsent drafts;
 - a long conversation or completed Plan does not by itself disable the next user message;
@@ -1820,6 +1830,12 @@ Required outcomes:
 The file storage, operation-scoped writer lock, transcript segments, and synchronization design live in
 [ADR-015](../adr/015-file-authoritative-session-bundles.md). These mechanisms implement the outcomes above; they do not
 create additional product restrictions on which screen the owner may use.
+
+**Acceptance scenario: Choose a planning Session by its title.**
+
+When a Plan has multiple resumable planning Sessions, `/load-plan` shows their titles from committed history. An unnamed
+Session shows its first meaningful user message instead. A Session with neither is omitted. Selecting a label continues
+the corresponding Session, even when two labels are the same.
 
 **Requirement: Archive a Session without losing saved work.**
 

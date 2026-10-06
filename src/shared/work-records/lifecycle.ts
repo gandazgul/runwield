@@ -3,7 +3,7 @@
  * V1 final-state-only Work Record lifecycle helpers.
  */
 
-import type { WorkRecordFrontMatter } from "./schema.js";
+import type { WorkRecordFrontMatter } from "./schema.ts";
 
 export interface ArchiveWorkRecordOptions {
     now?: Date | string;

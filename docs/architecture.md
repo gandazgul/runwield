@@ -1088,13 +1088,13 @@ The highest-value cross-boundary paths for later confidence analysis are visible
 | Plan execution facade                     | `src/shared/workflow/workflow.js`                                             |
 | Validation and repair                     | `src/shared/workflow/validation.ts`                                           |
 | Plan lifecycle                            | `src/shared/workflow/plan-lifecycle.js`                                       |
-| Plan persistence                          | `src/plan-store.js`, `src/plan-front-matter.js`                               |
+| Plan persistence                          | `src/plan-store.js`, `src/plan-front-matter.ts`                               |
 | Worktree operations and registry          | `src/shared/worktree.js`, `src/shared/worktree-registry.js`                   |
 | Settings and models                       | `src/shared/settings.js`, `src/shared/models/`                                |
 | Tool policy                               | `src/tools/registry.js`, agent front matter in `src/agent-definitions/`       |
 | TUI adapter                               | `src/ui/tui/chat-session.js`, `src/ui/tui/runtime-adapter.js`                 |
 | ACP adapter                               | `src/acp/server.js`, `src/acp/session-map.ts`, mapper modules in `src/acp/`   |
 | Workspace Plan adapter                    | `src/ui/workspace/server/plan-adapter.js`                                     |
-| Review consumer surface                   | `src/ui/review/review-launcher.js`, `src/review-workspace-server.js`          |
+| Review consumer surface                   | `src/ui/review/review-launcher.js`, `src/review-workspace-server.ts`          |
 
 [Mnemoteca]: https://github.com/gandazgul/mnemoteca

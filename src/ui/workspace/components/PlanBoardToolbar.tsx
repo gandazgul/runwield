@@ -2,7 +2,7 @@ import { PLAN_SEARCH_QUERY_PARAM } from "../constants.ts";
 import { PlanBoardSearch } from "../islands/PlanBoardSearch.jsx";
 import type { PlanSearchScreen } from "../plan-search.ts";
 import { buildPlanBoardSearchIndex } from "../plan-search.ts";
-import { workspaceUrl } from "./PlanCard.jsx";
+import { workspaceUrl } from "./PlanCard.tsx";
 
 export type PlanBoardView = "active" | "closed" | "onHold";
 

@@ -13,7 +13,7 @@ import {
     normalizeRemoteCommentPayload,
     remoteCommentToPlannotatorAnnotation,
 } from "./react/remote-review-payload.js";
-import { RemoteCommentStateList } from "./react/RemoteCommentStateList.jsx";
+import { RemoteCommentStateList } from "./react/RemoteCommentStateList.tsx";
 
 Deno.test("remote review legacy anchors stay in Plannotator sidebar without fallback highlighting metadata", () => {
     const annotation = remoteCommentToPlannotatorAnnotation({

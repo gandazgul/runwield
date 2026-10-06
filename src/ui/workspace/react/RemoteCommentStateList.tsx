@@ -1,30 +1,22 @@
 import { RunWieldThinkingDots } from "../../design-system/components/react/RunWieldPrimitives.jsx";
-/**
- * @typedef {Object} RemoteCommentStateItem
- * @property {string} id
- * @property {boolean} resolved
- * @property {string} createdAt
- * @property {"comment" | "global_comment"} type
- * @property {string} displayName
- * @property {string} body
- * @property {string} originalText
- * @property {boolean} [anchorMissing]
- * @property {boolean} [unreadable]
- */
 
-/**
- * @typedef {Object} RemoteCommentStateListProps
- * @property {RemoteCommentStateItem[]} comments
- * @property {string | null} selectedId
- * @property {boolean} closed
- * @property {string | null} pendingId
- * @property {(id: string) => void} onSelect
- * @property {(id: string) => void} onResolve
- * @property {(id: string) => void} onReopen
- */
+import type { RemoteCommentRecord } from "./remote-review-payload.js";
 
-/** @param {RemoteCommentStateListProps} props */
-export function RemoteCommentStateList({ comments, selectedId, closed, pendingId, onResolve, onReopen }) {
+export type RemoteCommentStateItem = Omit<RemoteCommentRecord, "anchor">;
+
+export interface RemoteCommentStateListProps {
+    comments: RemoteCommentStateItem[];
+    selectedId: string | null;
+    closed: boolean;
+    pendingId: string | null;
+    onSelect: (id: string) => void;
+    onResolve: (id: string) => void;
+    onReopen: (id: string) => void;
+}
+
+export function RemoteCommentStateList(
+    { comments, selectedId, closed, pendingId, onResolve, onReopen }: RemoteCommentStateListProps,
+) {
     const selectedComment = selectedId ? comments.find((comment) => comment.id === selectedId) : null;
     return (
         <>
