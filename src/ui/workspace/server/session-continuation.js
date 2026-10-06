@@ -47,7 +47,7 @@ import {
     summarizeResumableTranscript,
     validateExpiredControlTranscriptEvidence,
 } from "../../../shared/session/session-transcript-projection.js";
-import { requireOwnerProjectRoot, sessionBelongsToOwnerProject } from "./owner-projects.js";
+import { requireOwnerProjectRoot, sessionBelongsToOwnerProject } from "./owner-projects.ts";
 
 /** A rejected image submission has not been accepted as an operation. */
 export class ImageSubmissionValidationError extends Error {

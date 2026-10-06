@@ -138,7 +138,6 @@
     "src/ui/workspace/server/astro-owner-data.js",
     "src/ui/workspace/server/cwd.js",
     "src/ui/workspace/server/owner-auth.js",
-    "src/ui/workspace/server/owner-projects.js",
     "src/ui/workspace/server/plan-adapter.js",
     "src/ui/workspace/server/remote-adapter.js",
     "src/ui/workspace/server/remote-dev-api.js",

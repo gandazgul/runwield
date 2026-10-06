@@ -37,7 +37,7 @@ navigation.
 
 Existing owner routes already enforce the access model this page needs: `requireOwnerProjectRoot` requires enabled
 roots, and `sessionBelongsToOwnerProject` compares canonical roots because Workspace and Core Project IDs differ
-(`src/ui/workspace/server/owner-projects.js`, used throughout `server.js` and `routes/owner-session-api.js`).
+(`src/ui/workspace/server/owner-projects.ts`, used throughout `server.js` and `routes/owner-session-api.js`).
 
 Owning PRD: this change creates the Workspace **Personal usage and outcomes** capability in
 `docs/prd/runwield-workspace-prd.md`, referencing Core measurement rules rather than restating them.
