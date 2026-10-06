@@ -1,19 +1,51 @@
 import { PLAN_SEARCH_QUERY_PARAM, PLAN_UI_TOKEN_QUERY } from "../constants.ts";
 import { RunWieldCard } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 
-/**
- * @param {URL | string} url
- * @returns {URL}
- */
-export function workspaceUrl(url) {
+export interface PlanLinkTarget {
+    planId: string;
+}
+
+export interface PlanCardDragActions {
+    allowedTargetStatuses?: string[];
+}
+
+export interface PlanCardActions {
+    dnd?: PlanCardDragActions;
+    allowedManualTargetStatuses?: string[];
+}
+
+export interface PlanCardData extends PlanLinkTarget {
+    planName: string;
+    status: string;
+    hierarchyRole?: string;
+    complexity?: string;
+    summary?: string;
+    heldFromStatus?: string;
+    heldAt?: string;
+    holdReason?: string;
+    blockedByDependencies?: boolean;
+    unverifiedDependencyCount?: number;
+    missingDependencyCount?: number;
+    actions?: PlanCardActions;
+}
+
+export interface ComplexityLabelProps {
+    complexity: string;
+}
+
+export interface PlanCardProps {
+    plan: PlanCardData;
+    url: URL | string;
+    compact?: boolean;
+    roleLabel?: string;
+    draggableCard?: boolean;
+}
+
+export function workspaceUrl(url: URL | string) {
     return url instanceof URL ? url : new URL(String(url));
 }
 
-/**
- * @param {string} path
- * @param {URL | string} url
- */
-export function workspaceHref(path, url) {
+export function workspaceHref(path: string, url: URL | string) {
     const currentUrl = workspaceUrl(url);
     const ownerMatch = currentUrl.pathname.match(/^\/projects\/([^/]+)\/plans(?:\/(?:closed|on-hold))?(?:\/[^/]*)?$/);
     const isOwnerProjectPlanRoute = Boolean(ownerMatch);
@@ -33,24 +65,15 @@ export function workspaceHref(path, url) {
     return `${next.pathname}${next.search}`;
 }
 
-/**
- * @param {any} plan
- * @param {URL | string} url
- */
-export function detailHref(plan, url) {
+export function detailHref(plan: PlanLinkTarget, url: URL | string) {
     return workspaceHref(`/plans/${encodeURIComponent(plan.planId)}`, url);
 }
 
-/**
- * @param {any} plan
- * @param {URL | string} url
- */
-export function editBodyHref(plan, url) {
+export function editBodyHref(plan: PlanLinkTarget, url: URL | string) {
     return workspaceHref(`/plans/${encodeURIComponent(plan.planId)}?edit=body`, url);
 }
 
-/** @param {any} plan */
-function holdMetadata(plan) {
+function holdMetadata(plan: PlanCardData) {
     const metadata = [];
     if (plan.heldFromStatus) metadata.push(`held from ${plan.heldFromStatus}`);
     if (plan.heldAt) metadata.push(`held at ${plan.heldAt}`);
@@ -58,26 +81,22 @@ function holdMetadata(plan) {
     return metadata.length ? metadata.join("; ") : "No hold metadata provided.";
 }
 
-/** @type {Record<string, string>} */
-const COMPLEXITY_CLASS_BY_VALUE = {
+const COMPLEXITY_CLASS_BY_VALUE: Record<string, string> = {
     LOW: "complexity-low",
     MEDIUM: "complexity-medium",
     HIGH: "complexity-high",
 };
 
-/** @param {string} complexity */
-export function complexityClassName(complexity) {
+export function complexityClassName(complexity: string) {
     const key = String(complexity || "").toUpperCase();
     return `complexity-label ${COMPLEXITY_CLASS_BY_VALUE[key] || "complexity-unknown"}`;
 }
 
-/** @param {{ complexity: string }} props */
-export function ComplexityLabel({ complexity }) {
+export function ComplexityLabel({ complexity }: ComplexityLabelProps) {
     return <span className={complexityClassName(complexity)}>{complexity}</span>;
 }
 
-/** @param {{ plan: any, url: URL | string, compact?: boolean, roleLabel?: string, draggableCard?: boolean }} props */
-export function PlanCard({ plan, url, compact = false, roleLabel = "Plan", draggableCard = false }) {
+export function PlanCard({ plan, url, compact = false, roleLabel = "Plan", draggableCard = false }: PlanCardProps) {
     const isChildCard = plan.hierarchyRole === "child" || plan.hierarchyRole === "orphan-child";
     const href = detailHref(plan, url);
     const allowedTargetStatuses =

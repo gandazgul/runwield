@@ -120,7 +120,6 @@
     "src/ui/workspace/components/EpicCard.jsx",
     "src/ui/workspace/components/MarkdownView.jsx",
     "src/ui/workspace/components/PlanBoardToolbar.jsx",
-    "src/ui/workspace/components/PlanCard.jsx",
     "src/ui/workspace/components/PlanDetail.jsx",
     "src/ui/workspace/components/SessionActivationStatus.jsx",
     "src/ui/workspace/components/SessionList.jsx",
