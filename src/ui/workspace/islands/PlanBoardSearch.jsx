@@ -2,13 +2,7 @@ import Fuse from "fuse.js";
 import { useEffect, useMemo, useState } from "react";
 import { PLAN_SEARCH_QUERY_PARAM } from "../constants.ts";
 
-/**
- * @typedef {Object} PlanSearchEntry
- * @property {string} planId
- * @property {string} planName
- * @property {string} title
- * @property {string} summary
- */
+/** @typedef {import('../plan-search.ts').PlanSearchEntry} PlanSearchEntry */
 
 /**
  * @typedef {Object} PlanBoardSearchProps
