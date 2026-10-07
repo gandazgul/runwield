@@ -3,6 +3,10 @@
 import { extname, isAbsolute, join, relative, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
+export interface ReviewImageOptions {
+    cwd?: string;
+}
+
 const MAX_REVIEW_IMAGE_BYTES = 20 * 1024 * 1024;
 const REVIEW_UPLOAD_DIR = join(tmpdir(), "runwield-plan-review");
 const IMAGE_CONTENT_TYPES = new Map([
@@ -13,13 +17,11 @@ const IMAGE_CONTENT_TYPES = new Map([
     [".webp", "image/webp"],
 ]);
 
-/** @returns {string} */
-export function reviewUploadDir() {
+export function reviewUploadDir(): string {
     return REVIEW_UPLOAD_DIR;
 }
 
-/** @param {Request} request */
-export async function reviewImageUploadApi(request) {
+export async function reviewImageUploadApi(request: Request): Promise<Response> {
     try {
         const formData = await request.formData();
         const file = formData.get("file");
@@ -49,11 +51,7 @@ export async function reviewImageUploadApi(request) {
     }
 }
 
-/**
- * @param {Request} request
- * @param {{ cwd?: string }} [options]
- */
-export async function reviewImageApi(request, options = {}) {
+export async function reviewImageApi(request: Request, options: ReviewImageOptions = {}): Promise<Response> {
     const url = new URL(request.url);
     const rawPath = url.searchParams.get("path")?.trim();
     if (!rawPath) return new Response("Image path required.", { status: 400 });
@@ -82,8 +80,7 @@ export async function reviewImageApi(request, options = {}) {
     }
 }
 
-/** @param {Uint8Array} bytes @param {string} extension */
-function hasValidImageMagic(bytes, extension) {
+function hasValidImageMagic(bytes: Uint8Array, extension: string): boolean {
     if (extension === ".png") {
         return bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47 && bytes[4] === 0x0d &&
             bytes[5] === 0x0a && bytes[6] === 0x1a && bytes[7] === 0x0a;
@@ -96,14 +93,12 @@ function hasValidImageMagic(bytes, extension) {
     return false;
 }
 
-/** @param {string} path */
-function normalizedImageExtension(path) {
+function normalizedImageExtension(path: string): string {
     const extension = extname(path).toLowerCase();
     return IMAGE_CONTENT_TYPES.has(extension) ? extension : "";
 }
 
-/** @param {string} path @param {string} root */
-function isPathInside(path, root) {
+function isPathInside(path: string, root: string): boolean {
     const rel = relative(resolve(root), resolve(path));
     return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }

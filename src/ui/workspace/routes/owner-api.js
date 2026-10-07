@@ -14,7 +14,7 @@ import { loadOwnerPlanProgress } from "../server/owner-plan-progress.ts";
 import { loadOwnerDashboard, loadOwnerSidebar, subscribeOwnerDashboard } from "../server/owner-dashboard.ts";
 import { listOwnerProjects, requireOwnerProjectRoot, serializeOwnerProject } from "../server/owner-projects.js";
 import { ownerSecurityHeaders } from "../server/owner-origin.ts";
-import { reviewFileContentApi } from "./api/review-file-handlers.js";
+import { reviewFileContentApi } from "./api/review-file-handlers.ts";
 
 const MAX_JSON_BYTES = 64 * 1024;
 
