@@ -67,3 +67,37 @@ RunWield can assign different models to different agents:
 ```
 
 See [Settings Reference](settings.md) for `agents`, `activeModelPreset`, and `modelPresets`.
+
+## Antigravity CLI
+
+Antigravity models run through the `agy` CLI using your Antigravity sign-in, so you don't need an API key.
+
+**Set up:**
+
+1. Install `agy` and sign in to Antigravity.
+2. Select `agy-cli/gemini-3.8-flash` or `agy-cli/gemini-3.1-pro` with `/model` or in your settings.
+3. On first use, RunWield asks before installing the Antigravity agent and MCP configuration it needs.
+
+> **Warning:** Antigravity can't ask you to approve actions while RunWield runs it in the background. During execution,
+> RunWield therefore starts it with `--dangerously-skip-permissions`, which approves every command and file change the
+> Agent requests. Use this backend only when you trust the Agent to run commands and change files with your account's
+> permissions. See
+> [Antigravity's headless permissions documentation](https://antigravity.google/docs/cli/headless/#permissions-in-headless-mode).
+
+Each Agent can use only the tools it is allowed. For example, an Agent without write access cannot create or edit files.
+If Antigravity blocks an action, RunWield shows what was blocked.
+
+**Thinking level** sets Antigravity's effort:
+
+| Thinking level    | Flash effort | Pro effort |
+| ----------------- | ------------ | ---------- |
+| off, minimal, low | low          | low        |
+| medium            | medium       | high       |
+| high, xhigh, max  | high         | high       |
+
+**Limitations:**
+
+- You can't attach images to an Antigravity conversation. Use [`visionFallback`](settings.md#visionfallback) to inspect
+  images through another model.
+- The Session shows Antigravity's commands, file edits, and results as they happen. After a reload, it shows only the
+  steps that finished.

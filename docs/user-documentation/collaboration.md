@@ -1,12 +1,10 @@
 # Self-Hosted Collaborative Planning
 
-RunWield can share a local Plan into a remote-canonical encrypted **Shared Space** so teammates can review it in a
-browser without installing RunWield. The current collaboration path is self-hosted first: you build/run the Deno
-Workspace Plan Server with SQLite storage, then point `wld plans share|pull|push|unshare` at that Plan Server.
+RunWield can share a Plan as an encrypted **Shared Space** so teammates can review and comment on it in a browser
+without installing RunWield. You run your own Plan Server, then use `wld plans share`, `pull`, `push`, and `unshare`
+with it.
 
-Hosted RunWield Workspace, Cloudflare/D1 deployment, published image distribution, and stronger public-instance creation
-authentication are deferred follow-up work. This guide uses placeholder domains such as `https://plans.example.com`;
-replace them with your own host.
+This guide uses placeholder addresses such as `https://plans.example.com`; replace them with your own.
 
 ## Deployment profiles
 
@@ -18,8 +16,8 @@ proxy, SSH tunnel, VPN port forward, or equivalent network configuration.
 
 ### Accountless public deployment
 
-RunWield v1 has no user accounts and no instance-wide creation credential. Anyone who can reach `POST /api/spaces` can
-attempt to create encrypted Shared Spaces. For an internet-facing instance, run the Plan Server behind Nginx or an
+The Plan Server has no user accounts and no password for creating Shared Spaces. Anyone who can reach `POST /api/spaces`
+can attempt to create encrypted Shared Spaces. For an internet-facing instance, run the Plan Server behind Nginx or an
 equivalent reverse proxy that owns public TLS, request-size limits, and per-IP rate limits. Enable optional inactivity
 retention if you want abandoned public links to be removed automatically.
 
@@ -36,8 +34,7 @@ curl http://127.0.0.1:8080/healthz
 curl http://127.0.0.1:8080/readyz
 ```
 
-The repository uses `Containerfile`, `.containerignore`, and `compose.yml` as the supported Podman/OCI packaging path.
-`/healthz` is process liveness. `/readyz` also checks SQLite access and is used by Compose health checks.
+`/healthz` reports that the server is running. `/readyz` also checks that it can open its database.
 
 The compose service publishes `127.0.0.1:8080:8080` by default and persists SQLite data in the
 `runwield-plan-server-data` Podman volume at `/data/runwield-shared-spaces.sqlite` inside the container.
@@ -52,18 +49,6 @@ Useful environment variables:
 | `RUNWIELD_WORKSPACE_REMOTE_DB_PATH` | unset                                 | Backward-compatible alternate database path variable.          |
 | `RUNWIELD_REMOTE_MAX_REQUEST_BYTES` | `5242880`                             | Maximum JSON request body size; keep proxy limits in sync.     |
 | `RUNWIELD_REMOTE_RETENTION_DAYS`    | unset / `0`                           | Optional inactivity retention. Use `7` for public trial hosts. |
-
-For source development without a container:
-
-```bash
-RUNWIELD_REMOTE_HOST=127.0.0.1 \
-RUNWIELD_REMOTE_PORT=8080 \
-RUNWIELD_REMOTE_DB_PATH=.wld/remote-workspace.sqlite \
-deno task workspace:remote
-```
-
-The remote server mode does not mount or serve local Plan files. It registers only the Shared Space browser/API routes,
-static Workspace assets, `/healthz`, and `/readyz`.
 
 ## Public URL and reverse proxy
 
@@ -97,9 +82,8 @@ The Plan Server rejects JSON request bodies larger than `RUNWIELD_REMOTE_MAX_REQ
 the app if the proxy is misconfigured. Your reverse proxy should enforce the same or smaller body limit so oversized
 requests fail before reaching Deno.
 
-The Nginx example applies a stricter rate limit to `POST /api/spaces` than to ordinary review traffic. That endpoint is
-open by design in v1, so public operators should monitor disk use and request rates. If abuse becomes common, a future
-Plan can add a dedicated creation credential with CLI storage and rotation UX.
+The Nginx example applies a stricter rate limit to `POST /api/spaces` than to ordinary review traffic. Anyone can call
+that endpoint, so on a public server, watch disk use and request rates.
 
 Inactivity retention is optional:
 
@@ -307,22 +291,3 @@ import maintainer capability material and then pull, push, or unshare the Shared
   URL and the Plan's stored Plan Server URL.
 - **Out-of-band local edits while locked:** RunWield detects body-hash divergence and refuses silent overwrite. Pull or
   resolve recovery explicitly instead of editing remote-canonical Plans directly.
-
-## Manual end-to-end checklist
-
-Use this checklist after changing packaging or collaboration behavior:
-
-1. `podman compose -f compose.yml up -d`.
-2. Confirm `curl http://127.0.0.1:8080/healthz` and `/readyz` return `{"ok":true,"mode":"remote"}`.
-3. Configure `planServerUrl` or pass `--plan-server http://127.0.0.1:8080`.
-4. Run `wld plans share <plan>` and save the reviewer and maintainer URLs securely.
-5. Open the reviewer URL in a browser and add comments from two display names.
-6. Resolve and reopen at least one comment.
-7. If retention is enabled, verify the browser and CLI display expiry and that writes refresh it.
-8. In another checkout, run `wld plans pull '<maintainer-url>' --to <plan-name>`.
-9. Let Planner or Architect incorporate the feedback into the local Plan.
-10. Run `wld plans push <plan-name>`.
-11. Reopen the reviewer URL and verify the new Revision is available while older Revision comments stay scoped.
-12. Inspect SQLite and representative network payloads for ciphertext-only semantic content.
-13. Stop the service, back up the volume, restore it, restart, and verify `/readyz` plus a known reviewer URL.
-14. Run `wld plans unshare <plan-name>` and verify old reviewer/maintainer links stop working.

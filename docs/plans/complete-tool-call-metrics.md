@@ -60,7 +60,8 @@ Pi's context estimate and usage-bearing transcript entries provide reusable meas
 **Product ownership:** Add a proposed **Local workflow metrics** capability at
 `docs/prd/runwield-core-prd.md#local-workflow-metrics`. It will own opt-in local recording, per-Project separation,
 content exclusion, ordered activity, usage attribution, and honest measurement coverage. This fills a gap in the current
-PRD, not a new reporting promise. Preserve the existing settings contract in [Settings](../settings.md#workflowmetrics).
+PRD, not a new reporting promise. Preserve the existing settings contract in
+[Settings](../user-documentation/settings.md#workflowmetrics).
 
 Preserve [Models and providers](../prd/runwield-core-prd.md#models-and-providers),
 [Compaction and image context](../prd/runwield-core-prd.md#compaction-and-image-context), and

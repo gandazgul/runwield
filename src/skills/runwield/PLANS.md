@@ -2,9 +2,9 @@
 
 Use this file for Plan lifecycle questions. Link to these docs for depth:
 
-- https://github.com/gandazgul/runwield/blob/main/docs/workflows.md
+- https://docs.runwield.dev/workflows/
 - https://github.com/gandazgul/runwield/blob/main/docs/plan-lifecycle.md
-- https://github.com/gandazgul/runwield/blob/main/docs/collaboration.md
+- https://docs.runwield.dev/collaboration/
 
 ## Plan files
 

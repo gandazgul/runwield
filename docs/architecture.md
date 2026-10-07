@@ -595,7 +595,7 @@ omitted child list nor `null` can remove a parent limit. Role ceilings select th
 is reduced to read. RunWield uses the same best-effort single-command check for Pi bash and RunWield-owned background
 shell starts, including delegated Sessions. Denials give the effective list and blocker guidance. This is not a sandbox;
 it does not restrict external CLI Execution Backends' native shells. Restricted Pi Sessions omit Snip's shell-rewriting
-extension. See [Agent customization](customization.md#agents) for examples and limits.
+extension. See [Agent customization](user-documentation/customization.md#agents) for examples and limits.
 
 At invocation time:
 

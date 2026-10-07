@@ -99,7 +99,7 @@ used by later invocations.
     },
 
     "compactOnResumeThresholdPercent": 50,
-    "verification_command": "deno run ci",
+    "verification_command": "deno task ci",
     "codereview": "ask",
     "cleanupMergedWorktrees": true,
     "workRecords": { "autoGenerateOnPlanCompletion": true },
@@ -142,13 +142,12 @@ Agent object values:
 
 Type: string.
 
-Names the active entry in `modelPresets`. If unset, missing, or unknown, RunWield uses the base `agents` overrides. If a
-session has a manual `/model` override, the manual override wins until the active agent changes.
+Names the active entry in `modelPresets`. If it is unset or names a preset that doesn't exist, RunWield uses the base
+`agents` overrides.
 
-The choice survives follow-up messages and resuming that Agent's session. Both `/agent` and automatic workflow handoffs
-resolve the destination Agent's configured model afresh; switching back does not revive an earlier manual override. Each
-successful Agent activation or preset reload saves the Agent and its resolved model together, so the next message and
-resume use the same pair. A failed handoff leaves the previous Agent and model unchanged.
+A model you pick with `/model` overrides the preset for the current Agent. It stays in effect for follow-up messages and
+when you resume that Agent's Session. Switching Agents, with `/agent` or through a workflow handoff, uses the new
+Agent's configured model. Switching back doesn't restore your earlier `/model` choice.
 
 ### `modelPresets`
 
@@ -174,7 +173,41 @@ Each preset has the same `agents.<agentName>.model`, `agents.<agentName>.thinkin
 `agents.<agentName>.temperature` shape as the base `agents` key. Presets are partial: if the active preset does not
 define a value for an agent, RunWield falls back to that agent's base `agents` entry.
 
-### visionFallback
+### Resolution order
+
+Model resolution for an agent invocation:
+
+1. Manual `/model` user override for the current active agent.
+2. Invocation-specific model, such as a prompt-template `model` frontmatter value.
+3. Active preset `modelPresets.<activeModelPreset>.agents.<agent>.model`.
+4. Base `agents.<agent>.model`.
+5. For non-Engineer Agents with no earlier model, Engineer's configured model.
+6. `defaultProvider` plus `defaultModel`.
+7. Layered agent definition frontmatter `model` (`./.wld` > `~/.wld` > bundled).
+
+If none of these resolve to a registered, authenticated model, RunWield reports an error instead of falling through to
+the underlying agent library's built-in fallback.
+
+Thinking level resolution:
+
+1. Active preset `modelPresets.<activeModelPreset>.agents.<agent>.thinkingLevel`.
+2. Base `agents.<agent>.thinkingLevel`.
+3. For Validation Repair Engineer with no earlier thinking level, Engineer's configured thinking level.
+4. `defaultThinkingLevel`.
+5. Layered agent definition frontmatter `thinkingLevel` (`./.wld` > `~/.wld` > bundled).
+
+Temperature resolution:
+
+1. Active preset `modelPresets.<activeModelPreset>.agents.<agent>.temperature`.
+2. Base `agents.<agent>.temperature`.
+3. Layered agent definition frontmatter `temperature` (`./.wld` > `~/.wld` > bundled).
+4. Unset, letting the provider/model default apply.
+
+RunWield omits the resolved temperature for the ChatGPT Codex Responses endpoint, which does not support that parameter.
+If another provider or model reports that temperature is unsupported before returning assistant content, RunWield
+retries that request once without temperature.
+
+### `visionFallback`
 
 Type: object with `model` string in `provider/model_id` format.
 
@@ -212,23 +245,22 @@ Example with LM Studio and Gemma 4 12B:
 ```
 
 Gemma 4 12B is a recommended local image-description fallback when available in LM Studio. Configure the LM Studio
-provider/model in RunWield' model registry with image input support and auth/base URL as usual, then set
+provider/model in RunWield's model registry with image input support and auth/base URL as usual, then set
 `visionFallback.model` to that `provider/model_id`.
 
 Behavior:
 
-- Vision-capable active model: images are sent directly; `see_image` is not injected just because fallback exists.
-- Text-only active model with fallback: image paste/submission is allowed, RunWield warns that `visionFallback.model`
-  will describe images, raw image bytes are withheld from the primary model, and `see_image` can inspect
-  `attachment:<uuid>` or safe project-relative image paths.
-- Fallback settings are resolved from the active Project, not from the process working directory. RunWield validates
-  fallback model support and credentials when an image is sent or inspected, not when a text-only Session starts.
-- Text-only active model without fallback: image paste/submission is blocked non-destructively with:
+- **The active model supports images:** images go to it directly, and the fallback isn't used.
+- **The active model is text-only and a fallback is set:** you can attach images. RunWield tells you the fallback model
+  will describe them, and the Agent uses the `see_image` tool to inspect attachments or image files in your project.
+- **The active model is text-only and no fallback is set:** RunWield blocks the attachment and keeps what you typed:
 
 ```text
 Cannot attach image: current model does not support vision and no visionFallback.model is configured.
-See docs/settings.md#visionfallback to configure an image fallback model.
+See https://docs.runwield.dev/settings/#visionfallback to configure an image fallback model.
 ```
+
+RunWield checks the fallback model and its credentials when you send or inspect an image, not when a Session starts.
 
 #### Declaring vision support for discovered models
 
@@ -257,13 +289,26 @@ treated as vision-capable, so it does not need to appear in `imageInputModels`. 
 (context window, cost, etc.), define it explicitly under `providers.<p>.models[]` with `input: ["text", "image"]`
 instead of relying on discovery.
 
-### imageGeneration
+### `imageGeneration`
 
-Configure `create_image` independently of the conversation model, using the same global, project and active-preset
-scopes as `visionFallback`. A Claude CLI conversation can call this tool through RunWield's existing MCP bridge; Claude
-does not need to generate images itself.
+Type: object with `model` (required), `thinkingLevel`, `temperature`, and `enabled`.
 
-For a Pi image model, use normal RunWield provider credentials and model configuration:
+`imageGeneration` turns on the `create_image` tool, which lets an Agent generate a new image or edit an existing one and
+save it in your project. The image model is separate from your conversation model, so any conversation model can use it,
+including Claude CLI.
+
+Supported providers:
+
+| Provider        | `model` format             | Sign-in                                       |
+| --------------- | -------------------------- | --------------------------------------------- |
+| OpenRouter      | `openrouter/<image model>` | OpenRouter credentials through `/login`       |
+| OpenCode        | `opencode/<model>`         | OpenCode credentials through `/login`         |
+| Codex           | `codex-cli/<model>`        | Codex CLI signed in with your ChatGPT account |
+| Antigravity CLI | `agy-cli/<model>`          | `agy` installed and signed in to Antigravity  |
+
+See [Login commands](providers.md#login-commands) for `/login`.
+
+#### OpenRouter
 
 ```jsonc
 {
@@ -275,27 +320,29 @@ For a Pi image model, use normal RunWield provider credentials and model configu
 }
 ```
 
-Pi 1.0's built-in image provider is OpenRouter. The selected entry must be an image-output model in Pi's unified model
-runtime; a chat model accepting image inputs is not enough. This route does not use an Agy, Claude or ChatGPT
-subscription as an API credential.
+Choose an image-output model. A chat model that only accepts images as input cannot generate them.
 
-To use an existing Agy login instead:
+- `google/gemini-3.1-flash-image`: `thinkingLevel` `minimal` or `high`; `temperature` 0–2.
+- `google/gemini-2.5-flash-image`: `temperature` 0–2; no `thinkingLevel`.
+- Other OpenRouter image models: omit both.
+
+#### OpenCode
 
 ```jsonc
 {
     "imageGeneration": {
-        "model": "agy-cli/gemini-3.8-flash",
-        "thinkingLevel": "medium"
+        "model": "opencode/<model>"
     }
 }
 ```
 
-Agy model selection and thinking use the same supervising-model mapping as normal RunWield Agy conversations. The native
-image model is chosen by Agy, not by this setting. Install and authenticate `agy` first. Generation runs a bounded
-helper process without installing global agents, modifying MCP settings, or bypassing host permissions. Its prompt
-requests only the native image tool; that instruction is not an operating-system sandbox.
+Choose an OpenCode model that uses the Responses API. Your OpenCode account must have access to that model and to image
+generation. To edit reference images, the model must also accept image input.
 
-For the existing Codex ChatGPT subscription login, configure `codex-cli/<model>` (or the alias `openai-codex/<model>`):
+- Reasoning models accept `thinkingLevel` and no `temperature`.
+- Other models accept `temperature` 0–2 and no `thinkingLevel`.
+
+#### Codex
 
 ```jsonc
 {
@@ -306,95 +353,59 @@ For the existing Codex ChatGPT subscription login, configure `codex-cli/<model>`
 }
 ```
 
-The example model must be available in your Codex catalog. Sign in to Codex with ChatGPT. RunWield first looks for an
-executable `codex` on `PATH`. On macOS, if none is found, it checks the bundled CLI in `~/Applications/ChatGPT.app`,
-then `/Applications/ChatGPT.app`, using `Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex`. If neither
-route finds an executable, generation fails with setup guidance. Discovery does not install software, alter PATH or
-shell settings, or retry a failed generation with another executable. Permission errors remain errors rather than
-triggering fallback. The adapter uses the official local App Server, checks its account and native image capability, and
-starts an ephemeral read-only thread. It requires one completed native image item and validates its saved file. It does
-not extract OAuth tokens, use undocumented HTTP endpoints, or fall back to API-key billing. Pi's stored Codex login
-alone is not enough: the Codex CLI must already be signed in and able to write its own state. Model and effort select
-the supervising agent; Codex manages the actual image model. Additional permission or client-tool requests fail without
-approval.
+Install the Codex CLI and sign in with your ChatGPT account. Image generation uses your ChatGPT subscription, not API
+billing. RunWield looks for `codex` on your `PATH`. On macOS it also finds the copy bundled with the ChatGPT desktop app
+in `~/Applications` or `/Applications`.
 
-`opencode/<model>` uses the existing RunWield OpenCode credential and model configuration against that model's
-documented Responses endpoint. It requests the hosted `image_generation` tool directly, not a text description or a
-shell-generated drawing. The selected model must use `openai-responses`; reference inputs also require image-input
-support. This route is **experimental**: OpenCode model access and hosted image-tool support are both required, and
-successful image output has not been live-verified. The current account probe returned HTTP 403, “Model access is
-disabled.” This is not proof that OpenCode supports or rejects the image tool itself. The adapter reports that error
-without switching providers or requesting an OpenRouter key. It does not invoke the OpenCode CLI or read that CLI's
-separate credential store.
+The model must appear in your Codex model list. `thinkingLevel` accepts the reasoning efforts Codex offers for that
+model; `off` means none. `temperature` is not supported. Codex picks the image model itself. `openai-codex/<model>` is
+an accepted alias for `codex-cli/<model>`.
 
-Supported optional controls in this implementation:
+#### Antigravity CLI
 
-| Route                                                  | `thinkingLevel`                                         | `temperature`                     |
-| ------------------------------------------------------ | ------------------------------------------------------- | --------------------------------- |
-| `openrouter/google/gemini-3.1-flash-image`             | `minimal` or `high`                                     | 0–2                               |
-| `openrouter/google/gemini-2.5-flash-image`             | Omit                                                    | 0–2                               |
-| Other Pi image models                                  | Omit                                                    | Omit                              |
-| `agy-cli/gemini-3.8-flash` or `agy-cli/gemini-3.1-pro` | Existing Agy mapping below                              | Omit                              |
-| `codex-cli/<model>` or `openai-codex/<model>`          | Exact efforts advertised by Codex; `off` maps to `none` | Omit                              |
-| `opencode/<Responses model>`                           | Pi's model mapping, for reasoning models only           | 0–2 for non-reasoning models only |
-
-For Agy, omitted/off/minimal/low maps to low effort; high/xhigh/max maps to high. Medium maps to medium for Flash and
-high for Pro, matching the conversation backend. Unsupported controls produce an error, rather than being silently
-ignored or switching providers. Pi reasoning and temperature are mapped onto its existing OpenRouter payload hook.
-
-Project fields override global fields. `modelPresets.<activeModelPreset>.imageGeneration` overrides those settings.
-Changing the model discards inherited options for the old model. An absent configuration or effective `enabled: false`
-disables automatic tool registration. The configured tool is available to Agents declaring `create_image` or general
-file-writing tools (`write`, `edit`, `multi_file_edit`), not automatically to read-only Agents. Guide explicitly
-declares the tool for requested image work, without gaining general file-editing tools. Write-capable delegates include
-it in their tool allowlist; read-only delegates exclude it. Restart an existing Session after first enabling the tool.
-Bounded remote Sessions are not supported yet.
-
-Tool arguments are `prompt`, required `outputPath`, and optional `imageRefs` (up to 14 project-relative image paths or
-current-Session `attachment:<uuid>` references; provider limits still apply). The Agent cannot override the configured
-model or billing route through tool arguments. For example:
-
-```json
+```jsonc
 {
-    "prompt": "Change the mug glaze to cobalt blue, preserving its composition",
-    "imageRefs": ["assets/red-mug.png"],
-    "outputPath": "assets/blue-mug.webp"
+    "imageGeneration": {
+        "model": "agy-cli/gemini-3.8-flash",
+        "thinkingLevel": "medium"
+    }
 }
 ```
 
-The destination must be a new file inside the project, with `.png`, `.jpg`, `.jpeg` or `.webp` extension. RunWield
-converts the bytes when necessary, rejects escaping/symlinked output paths, and never overwrites existing files. Success
-returns the path, actual format, dimensions and model, plus a preview for image-capable callers. The project file
-remains usable by `see_image` or a later edit after the helper exits. Empty/text-only replies, multiple images, invalid
-raster data and failed native tool events are errors. Cancellation does not publish a partial file. Requests have a
-five-minute provider timeout and are not automatically retried; CLI hosts still own their internal behavior.
+Install `agy` and sign in to Antigravity. Supported models are `agy-cli/gemini-3.8-flash` and `agy-cli/gemini-3.1-pro`.
+`thinkingLevel` maps to Antigravity effort as in the [Antigravity CLI](providers.md#antigravity-cli) table.
+`temperature` is not supported. Antigravity picks the image model itself.
 
-**Verification:** Pi/OpenCode HTTP handling, Codex/Agy subprocess protocols, raster conversion and Claude MCP delivery
-are covered by isolated fixtures, not live-provider guarantees. Agy and Codex generation/editing passed historical
-September probes; fresh adapter acceptance requires ordinary host storage writes unavailable in this sandbox. OpenCode
-returned a model-access denial, and the optional Pi route lacks an OpenRouter credential. See the
-[dated provider evidence](research/image-generation-provider-proof.md#additional-adapter-checks-on-2026-10-03). A
-standalone Google SDK adapter is not included.
+#### Where to set it
+
+Set `imageGeneration` in global settings, project settings, or a model preset (`modelPresets.<name>.imageGeneration`).
+Project settings override global settings, and the active preset overrides both. When a more specific scope changes
+`model`, it doesn't inherit `thinkingLevel` or `temperature` from the broader scope.
+
+To turn image generation off in one scope without deleting the configuration, set `"enabled": false`.
+
+After enabling it for the first time, start a new Session so Agents pick up the tool. Agents that can write files get
+`create_image`, and so does Guide. Read-only Agents don't. Image generation isn't available in remote Sessions yet.
+
+#### Using it
+
+Ask the Agent for an image and say where to save it. The Agent can also edit images you name, from your project or
+attached to the Session.
+
+- The output must be a new `.png`, `.jpg`, `.jpeg`, or `.webp` file inside the project. Existing files are never
+  overwritten.
+- Up to 14 reference images can be used for an edit, subject to the provider's own limits.
+- Each request makes one image. Requests time out after five minutes and are not retried, so a failure never charges you
+  for a second image.
+- The Agent cannot change the model or provider; only your settings can.
 
 ## Work Records
 
 ### `workRecords.autoGenerateOnPlanCompletion`
 
-Type: boolean nested under the `workRecords` object. Default: `true`.
+Type: boolean, inside the `workRecords` object. Default: `true`.
 
-When enabled, RunWield automatically generates or reconciles an approved internal Work Record after supported terminal
-Plan outcomes are durably recorded:
-
-- verified standalone FEATURE plans after Workflow Validation and merge-back;
-- user_verified top-level FEATURE Plans and PROJECT Epics after user attestation;
-- PROJECT Epics marked done enough through `wld load-plan`;
-- eligible top-level Plans closed without Workflow Validation through Workspace;
-- a parent Epic that becomes `done_enough` after its final child FEATURE verifies.
-
-Global and project `workRecords` objects are shallow-merged, with project values winning. Only literal
-`autoGenerateOnPlanCompletion: false` disables automation; missing, malformed, or non-boolean values are treated as
-enabled. Disabling this setting suppresses only automatic generation. Canonical Work Record Markdown, `wld wr list`,
-`wld wr search`, `wld wr read`, `wld wr index rebuild`, and explicit `wld wr backfill` remain available.
+RunWield writes a [Work Record](usage.md#work-records) whenever a Plan finishes. Set this to `false` to stop that:
 
 ```jsonc
 {
@@ -404,9 +415,7 @@ enabled. Disabling this setting suppresses only automatic generation. Canonical 
 }
 ```
 
-Automatic attempts are best-effort. A Recorder, backlink, Markdown, or index failure reports a visible result and leaves
-the Plan's terminal state unchanged; run `wld wr backfill` or `wld wr index rebuild` after repairing the underlying
-issue.
+Only `false` turns it off. The `wld wr` commands, including `wld wr backfill`, keep working either way.
 
 ## Collaboration settings
 
@@ -430,40 +439,6 @@ maintainer URLs here; those contain secret `#key=...` and capability material. F
 
 See [Self-hosted collaborative planning](collaboration.md) for Podman/OCI setup and the collaboration privacy model.
 
-### Resolution Order
-
-Model resolution for an agent invocation:
-
-1. Manual `/model` user override for the current active agent.
-2. Invocation-specific model, such as a prompt-template `model` frontmatter value.
-3. Active preset `modelPresets.<activeModelPreset>.agents.<agent>.model`.
-4. Base `agents.<agent>.model`.
-5. For non-Engineer Agents with no earlier model, Engineer's configured model.
-6. `defaultProvider` plus `defaultModel`.
-7. Layered agent definition frontmatter `model` (`./.wld` > `~/.wld` > bundled).
-
-If none of these resolve to a registered, authenticated model, RunWield reports an error instead of falling through to
-the underlying agent library's built-in fallback.
-
-Thinking level resolution:
-
-1. Active preset `modelPresets.<activeModelPreset>.agents.<agent>.thinkingLevel`.
-2. Base `agents.<agent>.thinkingLevel`.
-3. For Validation Repair Engineer with no earlier thinking level, Engineer's configured thinking level.
-4. `defaultThinkingLevel`.
-5. Layered agent definition frontmatter `thinkingLevel` (`./.wld` > `~/.wld` > bundled).
-
-Temperature resolution:
-
-1. Active preset `modelPresets.<activeModelPreset>.agents.<agent>.temperature`.
-2. Base `agents.<agent>.temperature`.
-3. Layered agent definition frontmatter `temperature` (`./.wld` > `~/.wld` > bundled).
-4. Unset, letting the provider/model default apply.
-
-RunWield omits the resolved temperature for the ChatGPT Codex Responses endpoint, which does not support that parameter.
-If another provider or model reports that temperature is unsupported before returning assistant content, RunWield
-retries that request once without temperature.
-
 ## RunWield Custom Keys
 
 These keys are read by RunWield outside the upstream Pi `SettingsManager` schema.
@@ -474,104 +449,155 @@ These keys are read by RunWield outside the upstream Pi `SettingsManager` schema
 | `activeModelPreset`                        | string            | unset                                           | global + project | Selects a named preset from `modelPresets`.                                                                                                                                                                                                           |
 | `modelPresets`                             | object            | preset-name map                                 | global + project | Named per-agent override sets.                                                                                                                                                                                                                        |
 | `visionFallback`                           | object            | unset                                           | global + project | Vision-capable fallback model used by `see_image` when the active model is text-only.                                                                                                                                                                 |
+| `imageGeneration`                          | object            | unset                                           | global + project | Image model used by the `create_image` tool. See [`imageGeneration`](#imagegeneration).                                                                                                                                                               |
 | `compactOnResumeThresholdPercent`          | integer           | `1`-`100`, default `50`                         | global + project | `/resume` offers compaction when estimated context reaches this percentage of the selected model context window.                                                                                                                                      |
 | `verification_command`                     | string            | no default                                      | project          | Command used by Workflow Validation. Init infers candidates from repository evidence, asks the user to confirm one, and saves the confirmed project command. Selecting no implemented verification saves `echo "verification not implemented yet"`.   |
 | `codereview`                               | string            | `none`, `ask`, `always`; default `none`         | global + project | Optional Plannotator human code review gate after local validation and semantic review pass, before merge-back. Invalid values fall back to `none`.                                                                                                   |
 | `guidedReview`                             | string            | `none`, `ask`, `auto`, `always`; default `auto` | global + project | Guided Review Explainer generation policy inside human code review. Invalid values fall back to `none`; manual generation remains available when supported.                                                                                           |
 | `cleanupMergedWorktrees`                   | boolean           | default `true`                                  | global + project | When true, successful merge-back removes a clean execution checkout, deletes its registry entry, and clears Plan worktree metadata. Unexpected dirty state is preserved rather than force-deleted. Set false to keep merged worktrees for inspection. |
-| `workRecords.autoGenerateOnPlanCompletion` | boolean           | default `true`                                  | global + project | Automatically generates or reconciles eligible Work Records after terminal planned-work outcomes. Only literal `false` disables automation; explicit `wld wr` commands still work.                                                                    |
+| `workRecords.autoGenerateOnPlanCompletion` | boolean           | default `true`                                  | global + project | Writes a Work Record when a Plan finishes. Only `false` turns it off.                                                                                                                                                                                 |
 | `mascot`                                   | boolean           | default `true`                                  | global + project | Hides the agent mascot in TUI and Workspace when false.                                                                                                                                                                                               |
 | `notifications`                            | object            | enabled by default                              | global + project | Attention notifications. TUI uses terminal BEL/OSC for agent stops, `plan_written`, `user_interview`, and `/compact`. Workspace uses browser alerts for live `agentStopped` events. Focused surfaces stay quiet by default.                           |
 | `workflowMetrics`                          | boolean or object | default disabled                                | global + project | Opt-in local-only JSONL workflow metrics under `~/.wld/workflow-metrics/<encoded-project-root>/metrics.jsonl`. Linked worktrees write to the primary project file. Accepts `true` or `{ "enabled": true }`.                                           |
+| `planServerUrl`                            | string            | unset                                           | global + project | Default Plan Server for `wld plans share`. See [`planServerUrl`](#planserverurl).                                                                                                                                                                     |
 | `enableExternalSkills`                     | boolean           | default `true`                                  | global           | When true, RunWield includes project `.agents/skills` and home `~/.agents/skills`. When false, it omits both folders. External skills cannot conflict with bundled names or aliases.                                                                  |
 | `enableExternalGlobalAgentsMd`             | boolean           | default `true`                                  | global           | When true, global prompt loading includes `~/.agents/AGENTS.md` after `~/.wld/RUNWIELD.md` and `~/.wld/AGENTS.md`.                                                                                                                                    |
 
 ### `workflowMetrics`
 
-`workflowMetrics` enables local-only workflow metrics recording. It is disabled by default; RunWield writes no metrics
-unless this setting is `true` or an object with `enabled: true`:
+Type: boolean or object. Default: off.
+
+`workflowMetrics` records how RunWield workflows run, for your own local analysis. It is off by default, and RunWield
+writes no metrics until you turn it on. Either form enables it:
 
 ```jsonc
-{
-    "workflowMetrics": true
-}
+{ "workflowMetrics": true }
 ```
 
 ```jsonc
-{
-    "workflowMetrics": { "enabled": true }
-}
+{ "workflowMetrics": { "enabled": true } }
 ```
 
-When enabled, RunWield appends JSONL records to `~/.wld/workflow-metrics/<encoded-project-root>/metrics.jsonl`, where
-`<encoded-project-root>` uses the same project-directory encoding as persisted sessions. Linked execution worktrees
-write to the primary project's metrics file. Records cover routing, planning, execution, validation, recovery,
-model-selection, ordered tool usage, tool exposures and token denominators, model token usage and costs, context
-snapshots, compaction, retries, response latency, and slash commands. Metrics are record-only in this release; there is
-no reporting UI, analytics sync, or CLI summary command.
+Metrics are record-only in this release. RunWield has no reporting UI, CLI summary, or analytics sync. Nothing is
+uploaded, and nothing is backfilled for activity before you enabled the setting.
 
-Metrics records intentionally do not include prompts, user request text, plan markdown, diffs, CI output, review
-feedback, raw tool arguments/results, file contents, secrets, full auth configuration, raw shell command arguments,
-search queries, or absolute worktree paths. Shell command lines are normalized to coarse safe command labels.
+#### Where records go
 
-#### Record versions and accounting
+RunWield appends one JSON object per line to:
 
-Existing version-1 rows remain in the same file. They do not have version-2 execution links, sequence numbers, or
-coverage. Do not fill these fields from adjacent rows. Version-2 rows include `eventId`, `recorderId`, `seq`,
-`category`, `event`, `ts`, and `cwdHash`. An execution can link `managedSessionId`, `sessionId` (backend transcript),
-`segmentId`, `requestId`, `attemptId`, `turnId`, `commandId`, `parentExecutionId`, `parentToolCallId`, and `taskId`. A
-`null` link means that the source did not supply it. Order rows by `recorderId` and `seq`; file order is not a
-cross-execution timeline.
+```text
+~/.wld/workflow-metrics/<encoded-project-root>/metrics.jsonl
+```
 
-`tool_exposure_summary` supplies the tool count and total token estimates; each `tool_exposure` row has an index and
-separate schema-only and resident-context estimates. These estimates use the local characters-per-four estimator, not
-provider billing. `tool_call_started` and `tool_call_finished` share a call ID within an execution. Manual `/compact`
-outside an Agent turn links its before/after context and compaction rows to the Session and command, with no invented
-execution ID. A command picker writes one `command_started` row with phase `opened`. A selection writes
-`command_dispatched` with phase `dispatched` before the actual command outcome is known; `command_finished` reports
-`succeeded`, `failed`, `canceled`, or `rejected`. Closing a picker without choosing writes `canceled` and no dispatch or
-model change. All rows in that command lifecycle share a `commandId`. `tool_operation` keeps only the index and a finite
-Memory, shell, or batch label. A missing end does not imply success. `resultBytes` counts UTF-8 bytes of text;
-`resultTokens` is a text estimate. Image count does not estimate image tokens. Millisecond fields are elapsed durations
-or epoch timestamps as indicated by their names.
+`<encoded-project-root>` uses the same directory encoding as persisted sessions. Linked execution worktrees write to the
+primary project's file, so one project has one metrics file.
 
-`model_usage` identifies its transcript entry or source observation with `sourceId`. Token fields are counts; `null`
-means no measurement, not zero. `inputCacheBasis` states whether input includes cache tokens; do not add cache tokens
-when the basis is `includes_cache` or `unknown`. `aggregationBasis` distinguishes turn totals from per-request
-observations. Claude CLI request and per-model details use `alternative`: they can overlap the turn total and each
-other. For a turn with a reported total, sum only the `turn` row; use alternative rows to inspect detail or when no turn
-total exists. Do not add a turn total to its details. `costAmount` is in `costCurrency` (currently USD); `costSource`
-distinguishes provider-reported cost from rate-calculated cost and unavailable cost. This is measurement, not an
-invoice. `coverage` and per-measurement `availability` use `complete`, `partial`, or `unavailable`; a partial bridge
-inventory is not a complete CLI tool inventory.
+There is no retention period or cleanup job. The file stays until you delete it.
 
-Rows are best effort. Writes may be lost on interruption, I/O failure, or when an opt-out takes effect. There is no
-metrics-specific retention period or cleanup job: files stay until the owner deletes them. No upload or backfill occurs.
-The Owner HTTP command endpoint requires a registered Project and an authorized browser; it does not accept arbitrary
-Session links or unknown submitted command text.
+#### What is recorded
 
-#### Backend observation limits
+Each row has a `category` and an `event`:
 
-Pi reconciles only new transcript entries for the current operation, including standalone usage, compaction, summary,
-and usage-bearing tool results. Missing provider usage remains unavailable. Claude CLI parser tests use synthetic
-stream-json lines in `src/shared/session/backends/claude-cli/claude-cli-backend.test.ts`. A separate captured Claude
-Code 2.1.284 print-mode `Read` tool turn is replayed from
-`src/shared/session/backends/claude-cli/fixtures/claude-2.1.284-read-tool-stream.jsonl`. Captured on 2026-09-29 with
-`--tools Read --allowedTools Read` against a disposable `readme.txt`, the fixture keeps event sequence, native
-call/result pairing, and reported numeric usage. Session/message/call IDs, paths, thinking, tool output, and response
-text were replaced. This fixture verifies that release's captured shape, not every Claude CLI release. The Antigravity
-parser replays `src/shared/session/backends/agy-cli/fixtures/agy-1.2.12-tool-stream.jsonl`: captured from an
-authenticated Antigravity CLI 1.2.12 print-mode, plan-mode turn on 2026-09-29 that read a disposable `readme.txt`. A
-second capture with explicit `--model gemini-3.8-flash --effort low`, saved as
-`src/shared/session/backends/agy-cli/fixtures/agy-1.2.12-model-read-tool-stream.jsonl`, also passes through the
-execution owner. Both retain event sequence, tool-progress shape, and reported numeric usage; they replace the
-conversation ID, directory, parameters, tool output, and response text with harmless values. Earlier Antigravity
-1.1-shaped parser tests are synthetic, not a captured version guarantee. A `tool_info` progress event does not imply a
-complete call. Both CLI backends expose only the RunWield bridge inventory as partial; native schema/context costs,
-missing cache measurements, and usage absent on truncated streams remain unavailable. Do not interpret an absent row as
+| Category                                                                        | What it covers                                                                                                                    |
+| ------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `routing`, `planning`, `execution`, `validation`, `recovery`, `model_selection` | Workflow lifecycle: routing decisions, planning, execution start and finish, retries, response latency, validation, and recovery. |
+| `tool_usage`                                                                    | Which tools were exposed to the model and what they cost in context, plus each tool call in order.                                |
+| `model_usage`                                                                   | Token counts and cost per turn or request.                                                                                        |
+| `context`                                                                       | Context-size snapshots and compaction.                                                                                            |
+| `command`                                                                       | Slash commands and command pickers.                                                                                               |
+
+#### What is never recorded
+
+Records contain no prompts, request text, Plan markdown, diffs, CI output, review feedback, raw tool arguments or
+results, file contents, search queries, secrets, full auth configuration, or absolute worktree paths. Shell commands are
+reduced to coarse labels such as `git status`, `deno task other`, or `pytest`; their arguments are dropped.
+
+#### Reading the file
+
+**Order rows by `recorderId`, then `seq`.** File order is not a timeline: several executions can append to the same file
+at once.
+
+**Version 1 and version 2 rows share the file.** Rows written by older releases (version 1) have no execution links,
+sequence numbers, or coverage fields. Do not fill those fields in from neighboring rows.
+
+Every version 2 row has `eventId`, `recorderId`, `seq`, `category`, `event`, `ts`, and `cwdHash`. A row can also carry
+links that tie it to the work it belongs to:
+
+| Link                                    | Identifies                                        |
+| --------------------------------------- | ------------------------------------------------- |
+| `managedSessionId`                      | The RunWield session.                             |
+| `sessionId`                             | The backend's transcript.                         |
+| `segmentId`, `turnId`, `requestId`      | Position within the session.                      |
+| `attemptId`                             | A retry attempt.                                  |
+| `parentExecutionId`, `parentToolCallId` | The execution or tool call that started this one. |
+| `taskId`                                | A delegated task.                                 |
+| `commandId`                             | A slash command lifecycle.                        |
+
+A `null` link means the source did not supply it. RunWield does not invent links. For example, a manual `/compact` run
+outside an Agent turn links its context and compaction rows to the session and command, with no execution ID.
+
+**`null` means "not measured", never zero.** This applies to token counts, costs, and links. A missing row is also not a
 measured zero.
 
+**Units.** Fields ending in `Ms` are either elapsed durations or epoch timestamps; the field name says which.
+`resultBytes` counts UTF-8 bytes of text output. Fields ending in `Tokens` that RunWield estimates (rather than the
+provider reporting them) use a local four-characters-per-token estimate, not provider billing. Images are counted, but
+their tokens are not estimated.
+
+**Coverage.** `coverage` and per-measurement `availability` are `complete`, `partial`, or `unavailable`.
+
+#### Tool usage events
+
+- `tool_exposure_summary` gives the number of tools offered to the model and their total estimated token cost.
+- `tool_exposure` has one row per tool, with its index and two estimates: the schema alone, and the full context it
+  occupies.
+- `tool_call_started` and `tool_call_finished` share a call ID within an execution. A start with no matching finish does
+  not mean the call succeeded.
+- `tool_operation` records only the call index and a fixed label: Memory, shell, or batch.
+
+#### Command events
+
+All rows for one command share a `commandId`:
+
+1. `command_started` (phase `opened`) when a command picker opens.
+2. `command_dispatched` (phase `dispatched`) when you choose a command, before its outcome is known.
+3. `command_finished` with outcome `succeeded`, `failed`, `canceled`, or `rejected`.
+
+Closing a picker without choosing writes `command_finished` with `canceled`. No dispatch row is written and the model
+does not change.
+
+#### Model usage and cost
+
+Each `model_usage` row identifies its transcript entry or source observation with `sourceId`.
+
+**Avoid double-counting tokens.** Two fields tell you how to add rows up:
+
+- `inputCacheBasis` says whether the input count already includes cache tokens. If it is `includes_cache` or `unknown`,
+  do not add cache tokens on top.
+- `aggregationBasis` is `turn` for a turn total or `alternative` for a more detailed breakdown. Claude CLI reports both:
+  a turn total and per-request and per-model details that overlap the total and each other. When a turn has a `turn`
+  row, sum only that row and use `alternative` rows for detail. Sum `alternative` rows only when no turn total exists.
+
+**Cost.** `costAmount` is in `costCurrency` (currently USD). `costSource` says whether the provider reported the cost,
+RunWield calculated it from rates, or it is unavailable. Treat it as a measurement, not an invoice.
+
+#### Reliability
+
+Recording is best effort. Rows can be lost if RunWield is interrupted, a write fails, or you turn metrics off while work
+is running.
+
+#### Backend coverage
+
+What RunWield can measure depends on the backend:
+
+- **Pi providers:** usage the provider doesn't report is `unavailable`.
+- **Claude CLI and Antigravity CLI:** the tool inventory lists only RunWield's own tools, not the CLI's built-in ones,
+  so its coverage is `partial`. The context cost of built-in tools, cache measurements the CLI doesn't report, and usage
+  lost when a stream is cut off are `unavailable`.
+
 ### `codereview`
+
+Type: string. Default: `none`.
 
 `codereview` controls whether executable Plan validation includes a human Plannotator code review gate. The gate runs
 only after local validation and semantic review pass, and before merge-back or worktree cleanup.
@@ -604,6 +630,8 @@ Example:
 
 ### `guidedReview`
 
+Type: string. Default: `auto`.
+
 `guidedReview` controls whether RunWield generates a Guided Review Explainer inside an already-open human code review.
 It never opens code review by itself; `codereview` remains the authoritative human-review gate.
 
@@ -630,6 +658,8 @@ Example:
 
 ### `mascot`
 
+Type: boolean. Default: `true`.
+
 The agent mascot is on by default in TUI and Workspace. Set `"mascot": false` to hide it on both surfaces. Only a
 literal `false` disables it; project settings override global settings. The TUI `/settings` menu has a **Mascot:
 on|off** toggle that writes the global setting and applies on the next render. A project override still wins. After
@@ -638,10 +668,16 @@ no mascot toggle UI.
 
 ### `notifications`
 
-`notifications` controls attention notifications. TUI sends alerts when an agent stops and returns control without an
-automated continuation, when `plan_written` starts plan review/approval, when `user_interview` starts a structured
-prompt, and when an interactive `/compact` command finishes. Workspace browser alerts use the same setting for live
-`agentStopped` Session events only.
+Type: object. Default: enabled.
+
+`notifications` controls the alerts RunWield sends when it needs your attention. The TUI alerts you when:
+
+- an Agent stops and hands control back to you;
+- a Plan is ready for your review;
+- an Agent asks you structured questions;
+- a `/compact` you ran finishes.
+
+Workspace sends a browser alert only when an Agent stops.
 
 Defaults:
 
@@ -656,12 +692,17 @@ Defaults:
 - `activation`: `tab`; TUI-only compatibility key. RunWield no longer executes activation commands. Native terminal OSC
   notifications own click-to-focus behavior where the terminal implements it.
 
-RunWield no longer shells out to `terminal-notifier`, `osascript`, or AppleScript activation helpers for TUI attention
-notifications. Native terminal support is selected conservatively: Kitty receives OSC 99 notifications with
-`o=unfocused`, WezTerm and Ghostty receive OSC 777 notifications, and iTerm2 receives OSC 9 notifications. Terminal.app,
-unknown terminals, and terminals behind multiplexers without OSC passthrough fall back to BEL only when `terminalBell`
-is enabled. tmux, screen, and zellij may require terminal passthrough configuration for OSC notifications. VS Code
-integrated-terminal notifications are out of scope for now.
+The TUI uses your terminal's own notifications where it supports them:
+
+| Terminal                               | Notification                              |
+| -------------------------------------- | ----------------------------------------- |
+| Kitty                                  | Native notification (OSC 99)              |
+| WezTerm, Ghostty                       | Native notification (OSC 777)             |
+| iTerm2                                 | Native notification (OSC 9)               |
+| Terminal.app, VS Code, other terminals | Bell only, when `terminalBell` is enabled |
+
+Inside tmux, screen, or zellij, native notifications need passthrough enabled in the multiplexer. Without it, you get
+the bell only.
 
 Example:
 
@@ -788,9 +829,8 @@ Nested Pi-backed objects such as `compaction`, `branchSummary`, `retry`, `termin
 For temporary Pi-backed model-service failures, the defaults allow one initial request and three retries. The waits
 before those retries are 2, 4, and 8 seconds. Set `retry.enabled` to `false` to disable these high-level retries, or
 adjust `retry.maxRetries` and `retry.baseDelayMs` to change the attempt count and waits. Cancellation stops retries.
-After retries run out, the current model attempt stops and the user can try again; this does not abandon a delivery
-workflow. See [Models and providers](prd/runwield-core-prd.md#models-and-providers) for the failure and notice
-requirements.
+After retries run out, the request stops and you can try again. A Plan that was running stays where it was, and you can
+continue it.
 
 Workflow Validation also uses `retry.enabled`, `retry.maxRetries`, `retry.baseDelayMs`, and
 `retry.validation.maxDelayMs` for operational retries. These retries do not spend CI repair rounds or Semantic Code
@@ -859,7 +899,7 @@ Object fields:
 
 - `source`: package source string.
 - `extensions`: extension files to load from the package.
-- `skills`: skill files or directories to load from the package.
+- `skills`: ignored. RunWield does not load package skills; see below.
 - `prompts`: prompt template files to load from the package.
 - `themes`: theme JSON files to load from the package.
 
@@ -909,36 +949,3 @@ RunWield and Pi migrate a few older key shapes while loading settings:
 - `websockets: true` becomes `transport: "websocket"`; `websockets: false` becomes `transport: "sse"`.
 - Old object-shaped `skills` settings become `enableSkillCommands` and/or a `skills` path array.
 - `retry.maxDelayMs` becomes `retry.provider.maxRetryDelayMs` when the provider field is not already set.
-
-## Antigravity CLI
-
-Install `agy` and sign in to Antigravity before selecting an Antigravity model. RunWield uses that CLI sign-in rather
-than requesting an API key. Supported model references are `agy-cli/gemini-3.8-flash` and `agy-cli/gemini-3.1-pro`.
-
-RunWield preserves the selected model and thinking level in the Session. It maps thinking to CLI effort for each turn:
-
-| Thinking level    | Flash effort | Pro effort |
-| ----------------- | ------------ | ---------- |
-| off, minimal, low | low          | low        |
-| medium            | medium       | high       |
-| high, xhigh, max  | high         | high       |
-
-Concrete CLI model names ending in `-low`, `-medium`, or `-high` are execution details, not selectable model references.
-This backend does not accept image attachments. Setup explains and requests approval before installing its global custom
-agent and MCP configuration. An existing `runwield` MCP entry remains valid when it points to another standalone `wld`
-binary with the same `mcp agy-cli` arguments; switching binaries does not rewrite that global entry. Replay includes
-assistant messages, RunWield tool results, backend status, and completed native tool steps that Antigravity reports in
-its stream. Live Sessions show native tool starts and completed results as they arrive. Tool titles show commands, file
-targets, and task actions when Antigravity supplies them. An unfinished native step does not appear as a still-running
-tool after reload; unreported CLI internals are not shown. RunWield declares the native tools (`run_command`,
-`write_to_file`, `replace_file_content`, `view_file`) corresponding to each Agent's declared tool capabilities (`bash`,
-`write`, `edit`, `read`) in its temporary Agent definition so only permitted actions are available. The RunWield MCP
-`multi_file_edit` tool only edits existing files.
-
-RunWield passes the Session's current working directory with `--add-dir`, including execution worktrees. It also passes
-`--dangerously-skip-permissions` for execution turns because Antigravity cannot request approval in noninteractive mode.
-This auto-approves all Antigravity tool requests, not only project file reads. Use this backend only when you trust the
-Agent to run commands and access files with your account's permissions. The `/agents` setup check does not use this
-flag. If Antigravity still denies an action, RunWield reports the blocked action and available file target with
-sensitive details redacted. See the
-[Antigravity headless permissions documentation](https://antigravity.google/docs/cli/headless/#permissions-in-headless-mode).

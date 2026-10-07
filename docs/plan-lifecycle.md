@@ -440,7 +440,7 @@ For worktree-backed plans:
     entry remains. The Plan itself stays `validated`; it is not dirtied by a second `published` transition. RunWield
     tells the user to update any local checkout that still points at an older target commit.
 
-Publication recovery is defined by [ADR-016](./adr/016-proof-bearing-publication-state-machine.md). RunWield does not
+Publication recovery is defined by [ADR-016](adr/016-proof-bearing-publication-state-machine.md). RunWield does not
 translate partial states from retired publication flows.
 
 Code review does not add a new primary Plan Status. While code review is pending, returning feedback, or canceled, the

@@ -49,12 +49,10 @@ wld install <source>
 - **git**: `wld install git:<url>` (e.g., `wld install git:https://github.com/user/themes.git`)
 - **local**: `wld install local:<path>` (e.g., `wld install local:./themes/my-theme-pack`)
 
-> [!IMPORTANT]
-> **Theme-only constraints**: RunWield only registers `.json` theme files found within these packages. Any other
-> resources (logic extensions, skills, prompts) are ignored; `wld install` reports the count so you know what was
-> skipped. Skills are handled by the wider skill ecosystem instead. RunWield checks project `.wld/skills`, project
-> `.agents/skills`, home `~/.wld/skills`, home `~/.agents/skills`, then bundled `src/skills`. External skills cannot use
-> bundled names or aliases.
+> [!NOTE]
+> A package can also contain prompt templates and code extensions. RunWield loads its prompt templates, and asks before
+> enabling code extensions. It doesn't load Skills from packages; see [Customization](customization.md#skills). For
+> details, see [Package sources](settings.md#package-sources).
 
 ### Removing Themes
 
@@ -78,6 +76,6 @@ Themes and their source packages are persisted in your global settings file (`~/
 
 ### Key: `packages`
 
-- **Type**: `string | object`
-- **Description**: A list of installed theme packages. This follows the Pi package schema, supporting simple strings for
-  npm packages or objects for local/git sources that map specific files.
+- **Type**: array of strings or objects
+- **Description**: The installed theme packages. `wld install` and `wld remove` manage this list for you. See
+  [Package sources](settings.md#package-sources) for its format.

@@ -34,26 +34,23 @@ fix the failing parser test
 
 ## Use RunWield
 
-- [Using RunWield](usage.md) — commands, routing, Agents, Plans, and TUI behavior.
-- [Plans and workflows](workflows.md) — triage, review, execution, validation, and recovery.
-- [Sessions](sessions.md) — resume work and manage Session history.
-- [Self-hosted collaboration](collaboration.md) — share Plans through a Shared Space Plan Server.
-- [Workspace containers](workspace-container.md) — run Workspace in its supported container setup.
+- [Using RunWield](usage.md) — commands, Agents, Work Records, and where RunWield keeps its data.
+- [Plans and workflows](workflows.md) — how requests are routed, reviewed, executed, and verified.
+- [Sessions](sessions.md) — resume work, name Sessions, and run background tasks.
+- [Self-hosted collaboration](collaboration.md) — share Plans for review through your own Plan Server.
 
 ## Configure RunWield
 
-- [Providers and models](providers.md) — credentials, model selection, and custom providers.
+- [Providers and models](providers.md) — credentials, model selection, and CLI backends.
 - [Settings reference](settings.md) — global and project settings.
-- [Customization](customization.md) — Agent overrides, prompts, Skills, and themes.
-- [Themes](themes.md) — select and create terminal themes.
+- [Customization](customization.md) — Agent overrides, prompt templates, and Skills.
+- [Themes](themes.md) — select and install terminal themes.
 - [MCP](mcp.md) — connect Model Context Protocol servers.
 
 ## Get help
 
 - [Troubleshooting](troubleshooting.md) — resolve common installation and runtime problems.
-- [Plan lifecycle](plan-lifecycle.md) — understand durable Plan states and recovery.
-- [Validation authority](validation-authority.md) — understand completion and review evidence.
-- [Contributing](contributing.md) — build RunWield and contribute changes.
 
-For terminal editing, keybindings, model providers, and other inherited behavior, use the
-[Pi documentation](https://pi.dev/docs/latest).
+For terminal editing, keybindings, and other inherited behavior, use the [Pi documentation](https://pi.dev/docs/latest).
+
+Want to change RunWield itself? See [Contributing](../contributing.md).

@@ -2,8 +2,8 @@
 
 Use this file for settings and model questions. Link to these docs for depth:
 
-- https://github.com/gandazgul/runwield/blob/main/docs/settings.md
-- https://github.com/gandazgul/runwield/blob/main/docs/providers.md
+- https://docs.runwield.dev/settings/
+- https://docs.runwield.dev/providers/
 - https://github.com/gandazgul/runwield/blob/main/docs/router-model-selection.md
 
 ## Files and merge behavior
@@ -13,7 +13,7 @@ global settings. RunWield merges custom object keys `agents` and `modelPresets` 
 replacing them wholesale.
 
 MCP servers use separate files, not settings: `~/.wld/mcp.json` and optional project `.wld/mcp.json`. The project MCP
-file must be local-only: regular file, untracked, not staged, and ignored by Git. See `docs/mcp.md`.
+file must be local-only: regular file, untracked, not staged, and ignored by Git. See https://docs.runwield.dev/mcp/.
 
 If a user asks what their setup does, read these files before answering.
 

@@ -140,6 +140,43 @@ tailscale serve --bg --https=443 off
 
 See the [Tailscale Serve command reference](https://tailscale.com/docs/reference/tailscale-cli/serve) for more options.
 
+## Manage paired browsers
+
+Open `/devices` in Workspace, for example `http://127.0.0.1:8787/devices`, to see every paired browser with its label
+and pairing date. **Revoke** signs a browser out. Revoking the browser you're using sends it back to pairing.
+
+## Keep Workspace private
+
+Pairing controls who can use Workspace, but it doesn't encrypt traffic. Plain `http://127.0.0.1` is fine on the same
+computer. For any other device, put Workspace behind HTTPS on a private network, as the Tailscale steps above do.
+WireGuard with your own HTTPS proxy works too. Never expose port 8787 directly.
+
+If your HTTPS proxy runs on another machine and must reach Workspace over the network, start it like this and firewall
+port 8787 so only the proxy can reach it:
+
+```bash
+wld workspace serve --bind 0.0.0.0 --port 8787 --trust-tls-terminator \
+  --public-origin https://workspace.example.test --no-open
+```
+
+Workspace refuses to listen on a non-local address without `--trust-tls-terminator` and an `https://` public origin.
+
+## What Workspace can do
+
+Workspace shows every linked project's Sessions and its Plan Board. From the browser you can continue conversations,
+answer an Agent's questions, review Plans and code, and steer or queue messages. Some actions that change your
+repository directly, such as running shell commands, still need the terminal.
+
+When a terminal Session is open on the same conversation, it picks up messages sent from Workspace automatically and
+keeps whatever you were typing. If both screens send at the same moment, RunWield refreshes the terminal and asks you to
+send again.
+
+For a quick Plan Board of the current checkout without linking a project or pairing, run `wld plans ui`.
+
+## Run Workspace in a container
+
+A container setup for running Workspace on a server is coming soon.
+
 ## If something does not work
 
 | What you see                  | What to check                                                                                                                     |
