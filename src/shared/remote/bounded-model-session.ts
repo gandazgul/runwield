@@ -23,7 +23,7 @@ import {
     getPackagePromptTemplatePaths,
     mappedRemotePackageSettings,
     resolveInstalledPackagePromptResources,
-} from "../package-resources.js";
+} from "../package-resources.ts";
 import { createRemoteModelRuntime, fetchRemoteModelCatalog, type RemoteModelConnection } from "./model-bridge.ts";
 import {
     assertPersonalResourcePath,

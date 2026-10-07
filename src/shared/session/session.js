@@ -122,7 +122,7 @@ import {
 } from "../remote/personal-resources.ts";
 import { getBundledAgentDefsPath } from "./agent-assets.ts";
 import { expandSkill, listSkills } from "./skill-catalog.ts";
-import { getPackagePromptTemplatePaths, resolveInstalledPackagePromptResources } from "../package-resources.js";
+import { getPackagePromptTemplatePaths, resolveInstalledPackagePromptResources } from "../package-resources.ts";
 import { getWldExtensionPaths, resolveInstalledWldExtensionResources } from "../extensions/wld-extension-manifest.js";
 import { recordToolCallFinished, recordToolCallStarted, recordWorkflowMetric } from "../workflow/metrics.js";
 import { ExecutionMetricsRecorder, SessionContextMetricsRecorder } from "../workflow/execution-metrics.ts";
@@ -389,7 +389,7 @@ async function parsePromptTemplateMeta(filePath) {
  * List all known prompt templates across bundled + home + local layers.
  * First name wins, based on priority local > home > bundled.
  *
- * @param {{ cwd?: string, packagePromptResources?: import("../package-resources.js").ResolvedResource[] }} [options]
+ * @param {{ cwd?: string, packagePromptResources?: import("../package-resources.ts").ResolvedResource[] }} [options]
  * @returns {Promise<PromptTemplateMeta[]>}
  */
 export async function listPromptTemplates(options = {}) {
