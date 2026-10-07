@@ -47,7 +47,7 @@ import { renderBootBanner } from "./boot-banner.ts";
 import { getSelectedDefaultModelAvailability, maybeShowModelWelcome } from "./model-welcome.ts";
 import { createChatFooterController } from "./chat-footer.ts";
 import { createChatView } from "./chat-view.ts";
-import { createChatInputController } from "./chat-input-controller.ts";
+import { type ChatInputController, createChatInputController } from "./chat-input-controller.ts";
 import {
     createInitialTutorialContext,
     ONBOARDING_DISCOVERY_EXPLANATION,
@@ -156,7 +156,7 @@ export async function startInteractiveSession(
     const disposables: Array<() => void | Promise<void>> = [];
     let uiAPIForDispose: UiAPI | null = null;
     let lifecycleDisposed = false;
-    let inputControllerForPause: { isProcessingSubmission(): boolean } | null = null;
+    let inputControllerForPause: ChatInputController | null = null;
     const lifecycleHandle: InteractiveLifecycleHandle = {
         isProcessingSubmission: () => inputControllerForPause?.isProcessingSubmission() || false,
         dispose: async () => {
@@ -299,6 +299,8 @@ export async function startInteractiveSession(
             notifyRunWieldEvent: notifyRunWieldEventQuietly,
             onSessionReplaced: ({ newSessionId }) => replaceRuntimeSession(newSessionId, { oldRetired: true }),
             pauseTutorialPresentation: sessionStartMode === "continue",
+            onSessionComplete: (completedSessionId) =>
+                inputControllerForPause?.offerSessionCompletion(completedSessionId),
         });
         disposables.push(() => tuiRuntimeAdapter.dispose());
         const managedSyncController = createManagedSessionSyncController({
@@ -365,6 +367,8 @@ export async function startInteractiveSession(
                 browser: options.browser,
                 notifyRunWieldEvent: notifyRunWieldEventQuietly,
                 onSessionReplaced: ({ newSessionId }) => replaceRuntimeSession(newSessionId, { oldRetired: true }),
+                onSessionComplete: (completedSessionId) =>
+                    inputControllerForPause?.offerSessionCompletion(completedSessionId),
             });
             subscribeCommandCatalog();
             view.resetForSessionReplacement();

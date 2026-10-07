@@ -159,6 +159,7 @@ function findFixturePlanLifecycle(directory, expectedStatus) {
  * @property {Array<import('./scenario-actor.js').GoldenScriptTurn>} [script]
  * @property {Array<{ interactionType: string, decision?: string }>} [interactions]
  * @property {Array<import('./scripted-review-surface.js').ScriptedRuntimeInteraction>} [scriptedInteractions]
+ * @property {string[]} [interactiveSelectPrompts] Prompt fragments driven by real terminal input even with other scripted interactions.
  * @property {Array<import('./scripted-review-surface.js').ScriptedReviewDecision>} [reviewDecisions]
  * @property {Array<import('./scripted-review-surface.js').ScriptedHumanReviewDecision>} [humanReviewDecisions]
  * @property {"new" | "continue"} [sessionStartMode]
@@ -938,7 +939,11 @@ async function runComposedTuiScenario(scenario, options) {
                 };
             }
             if (!interactionSurface) return;
-            uiAPI.promptSelect = (prompt, options) => {
+            const originalPromptSelect = uiAPI.promptSelect.bind(uiAPI);
+            uiAPI.promptSelect = (prompt, options, hooks) => {
+                if (scenario.interactiveSelectPrompts?.some((fragment) => prompt.includes(fragment))) {
+                    return originalPromptSelect(prompt, options, hooks);
+                }
                 const value = interactionSurface.next(activeScriptedInteractionType || "select", {
                     prompt,
                     options,
