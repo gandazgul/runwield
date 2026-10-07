@@ -1,15 +1,40 @@
 /** @module ui/workspace/server/owner-projects */
 
 import { basename, resolve } from "node:path";
+import type { RegisteredProject } from "../../../shared/owner-coordination/projects.js";
 
-/** @param {string} root */
-export function sanitizeRootLabel(root) {
+export interface OwnerProjectRecord {
+    projectId: string;
+    displayName?: string;
+    registeredRoot?: string;
+    currentRoot?: string;
+    lifecycle?: string;
+}
+
+export interface OwnerProjectHealth {
+    status: string;
+    evidence?: string[];
+}
+
+export interface OwnerProjectStore {
+    listProjects(): OwnerProjectRecord[];
+    getProjectHealth(projectId: string): OwnerProjectHealth;
+    requireEnabledProjectRoot(projectId: string): string;
+    getProjectById(projectId: string): Pick<RegisteredProject, "currentRoot"> | null;
+}
+
+export interface OwnerProjectSession {
+    transcriptCwd: string;
+}
+
+export type OwnerProjectView = ReturnType<typeof serializeOwnerProject>;
+
+export function sanitizeRootLabel(root: string | undefined) {
     const base = basename(String(root || ""));
     return base || "registered Project";
 }
 
-/** @param {string} evidence */
-function sanitizeHealthEvidence(evidence) {
+function sanitizeHealthEvidence(evidence: string) {
     const text = String(evidence || "");
     if (/resolves to .*expected /.test(text)) {
         return "Registered root resolves somewhere unexpected; relink this Project root.";
@@ -18,8 +43,7 @@ function sanitizeHealthEvidence(evidence) {
     return text;
 }
 
-/** @param {any} project @param {any} health */
-export function serializeOwnerProject(project, health) {
+export function serializeOwnerProject(project: OwnerProjectRecord, health: OwnerProjectHealth) {
     return {
         projectId: project.projectId,
         displayName: project.displayName,
@@ -31,27 +55,28 @@ export function serializeOwnerProject(project, health) {
     };
 }
 
-/** @param {any} store */
-export function listOwnerProjects(store) {
-    return store.listProjects().map((/** @type {any} */ project) =>
+export function listOwnerProjects(store: Pick<OwnerProjectStore, "listProjects" | "getProjectHealth">) {
+    return store.listProjects().map((project) =>
         serializeOwnerProject(project, store.getProjectHealth(project.projectId))
     );
 }
 
-/** @param {any} store @param {string} projectId */
-export function requireOwnerProjectRoot(store, projectId) {
+export function requireOwnerProjectRoot(
+    store: Pick<OwnerProjectStore, "requireEnabledProjectRoot">,
+    projectId: string,
+) {
     return store.requireEnabledProjectRoot(projectId);
 }
 
 /**
  * Workspace Project IDs and file-authoritative Session Project IDs belong to
  * different identity domains. Membership is the canonical Project root.
- *
- * @param {{ getProjectById: (projectId: string) => { currentRoot: string } | null }} store
- * @param {{ transcriptCwd: string }} session
- * @param {string} projectId
  */
-export function sessionBelongsToOwnerProject(store, session, projectId) {
+export function sessionBelongsToOwnerProject(
+    store: Pick<OwnerProjectStore, "getProjectById">,
+    session: OwnerProjectSession,
+    projectId: string,
+) {
     const project = store.getProjectById(projectId);
     if (!project) return false;
     try {

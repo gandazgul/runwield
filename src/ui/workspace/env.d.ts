@@ -3,6 +3,7 @@
 
 // Astro's checker does not load Deno's standard library declarations.
 declare namespace Deno {
+    function realPathSync(path: string | URL): string;
     interface WorkspaceFileInfo {
         isFile: boolean;
     }

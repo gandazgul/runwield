@@ -101,7 +101,7 @@ import {
     isStateChangingRequest,
     withOwnerSecurityHeaders,
 } from "./server/owner-origin.ts";
-import { requireOwnerProjectRoot, sessionBelongsToOwnerProject } from "./server/owner-projects.js";
+import { requireOwnerProjectRoot, sessionBelongsToOwnerProject } from "./server/owner-projects.ts";
 import { ownerProjectPlanSessionsApi } from "./server/owner-plan-sessions.ts";
 import { createOwnerConnectionRegistry } from "./server/owner-connections.ts";
 import { setAstroOwnerWorkspaceSessionContinuation, setAstroOwnerWorkspaceStore } from "./server/astro-owner-data.js";
