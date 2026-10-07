@@ -19,7 +19,7 @@ ideate -> plan -> execute -> record -> use records to plan better
 
 <p align="center"><img src="brand/workspace-session.png" width="900" alt="A RunWield Workspace session. Projects and their Plans are listed on the left, the Plan Engineer's conversation and activity are in the middle, and the Plan's workflow on the right shows Planning, Execution, Tests and CI, AI review, and Code Review completed." /></p>
 
-[![Watch the 90-second RunWield demo](brand/runwield-demo-poster.jpg)](https://youtu.be/IHplUpFZIuU)
+[![RunWield in action: plan review, execution, validation, and code review. Watch the full 90-second demo.](brand/runwield-promo.gif)](https://youtu.be/IHplUpFZIuU)
 
 [Website](https://runwield.dev) · [Install](#install-in-30-seconds) · [How it works](#the-problem) ·
 [Documentation](https://docs.runwield.dev)
@@ -50,7 +50,7 @@ run `/init` once to let it explore the repo and build project context, and just 
 macOS and Linux, installs to `~/.local/bin`, no root required.
 
 For setup details, including model provider authentication, runtime helpers, and running from source, see the
-[Quickstart Guide](docs/quickstart.md).
+[Quickstart Guide](https://docs.runwield.dev/quickstart/).
 
 > **I'm looking for five developers to try RunWield on one real, non-trivial change.** I'll personally help you get
 > running, fix anything that blocks you within a day, and give you a direct say in the roadmap.
@@ -204,9 +204,9 @@ _your project_ stays in your repo as plain markdown: `docs/plans/`, `.wld/`, `do
 database, all greppable.
 
 **Documentation:** [public manual](https://docs.runwield.dev) · [usage](https://docs.runwield.dev/usage/) ·
-[plans and workflows](https://docs.runwield.dev/workflows/) · [settings](docs/settings.md) ·
-[customization](docs/customization.md) · [collaboration](docs/collaboration.md) ·
-[troubleshooting](docs/troubleshooting.md)
+[plans and workflows](https://docs.runwield.dev/workflows/) · [settings](https://docs.runwield.dev/settings/) ·
+[customization](https://docs.runwield.dev/customization/) · [collaboration](https://docs.runwield.dev/collaboration/) ·
+[troubleshooting](https://docs.runwield.dev/troubleshooting/)
 
 ### Contributing
 

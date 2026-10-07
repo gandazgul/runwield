@@ -10,8 +10,8 @@ affectedPaths:
     - "src/ui/tui/chat-session.ts"
     - "src/ui/review/"
     - "src/ui/workspace/server.js"
-    - "src/ui/workspace/routes/api/review-file-handlers.js"
-    - "src/ui/workspace/routes/api/review-image-handlers.js"
+    - "src/ui/workspace/routes/api/review-file-handlers.ts"
+    - "src/ui/workspace/routes/api/review-image-handlers.ts"
     - "src/ui/workspace/react/ArtifactReadSurface.tsx"
     - "src/ui/workspace/react/review-types.ts"
     - "docs/usage.md"
@@ -105,9 +105,9 @@ shifts, migration or compatibility risk grows, or the Verification Plan no longe
 - `src/ui/workspace/server.js` and a focused reader route/helper — authenticate linked reads, hydrate the requested
   current Markdown, classify its reader presentation, and return safe not-found/forbidden responses without registering
   review decisions.
-- `src/ui/workspace/routes/api/review-file-handlers.js` — extract or reuse canonical real-path containment and safe text
+- `src/ui/workspace/routes/api/review-file-handlers.ts` — extract or reuse canonical real-path containment and safe text
   loading rather than creating a weaker second path resolver.
-- `src/ui/workspace/routes/api/review-image-handlers.js` — require final real-path containment for images used by linked
+- `src/ui/workspace/routes/api/review-image-handlers.ts` — require final real-path containment for images used by linked
   documents while preserving valid current review uploads and Project-local images.
 - `src/ui/workspace/react/ArtifactReadSurface.tsx` and `review-types.ts` — support the generic Document label and a
   linked-read Close mode that does not end the shared server.

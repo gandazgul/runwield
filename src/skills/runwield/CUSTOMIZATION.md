@@ -1,7 +1,6 @@
 # Customization
 
-Use this file for customization questions. Link to https://github.com/gandazgul/runwield/blob/main/docs/customization.md
-for depth.
+Use this file for customization questions. Link to https://docs.runwield.dev/customization/ for depth.
 
 ## Layering model
 

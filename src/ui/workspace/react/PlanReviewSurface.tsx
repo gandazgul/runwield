@@ -3,10 +3,10 @@ import { updateReviewInteractionUrl } from "../browser/review-navigation.ts";
 import { RunWieldMenu, RunWieldMenuItem } from "../../design-system/components/react/RunWieldMenu.tsx";
 import { RunWieldIconButton } from "../../design-system/components/react/RunWieldIconButton.tsx";
 import { animateSidebarUpdate } from "../../design-system/components/react/sidebar-motion.ts";
-import { RunWieldThinkingDots } from "../../design-system/components/react/RunWieldPrimitives.jsx";
+import { RunWieldThinkingDots } from "../../design-system/components/react/RunWieldPrimitives.tsx";
 
 import { RunWieldSegmentedControl } from "../../design-system/components/react/RunWieldSegmentedControl.tsx";
-import { RunWieldTabs } from "../../design-system/components/react/RunWieldPrimitives.jsx";
+import { RunWieldTabs } from "../../design-system/components/react/RunWieldPrimitives.tsx";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ThemeProvider } from "@plannotator/ui/components/ThemeProvider.tsx";
 import { Tooltip, TooltipProvider } from "@plannotator/ui/components/Tooltip.tsx";

@@ -1,7 +1,7 @@
 import { getCwd, getHomeDir } from "../../constants.js";
 import { assertEquals, assertRejects } from "@std/assert";
 import { join } from "@std/path";
-import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
+import { withProcessGlobalTestLock } from "../../testing/process-global-lock.ts";
 import {
     formatImageAttachmentMarker,
     getSessionImageDir,

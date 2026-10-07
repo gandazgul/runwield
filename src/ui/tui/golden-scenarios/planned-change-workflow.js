@@ -57,7 +57,7 @@ function assertRealPlanReviewRevisionAndApproval(result) {
     assertEventIncludes(result, "runtime:tool:start:task_completed");
     assertEventIncludes(result, "runtime:tool:start:review_complete");
     assertEventIncludes(result, "runtime:tool:start:review_complete");
-    assertScreenIncludes(result, "Validation passed");
+    assertScreenIncludes(result, "plan is on main.");
     assertEventIncludes(result, "runtime:tool:start:review_complete");
     assertScreenIncludes(result, "found no need for a fix");
     assertScreenIncludes(result, "Merging work into main");
@@ -112,6 +112,7 @@ export const plannedChangeReviewRepairValidationScenario = {
     // so it is sized for the contended case rather than the standalone one.
     timeoutMs: 420000,
     captureModelTurns: true,
+    interactiveSelectPrompts: ["What would you like to do next?"],
     coverage: [
         "workflow:PLANNED_CHANGE",
         "context:plan-engineer-identity",
@@ -318,6 +319,8 @@ export const plannedChangeReviewRepairValidationScenario = {
         { type: "waitForWorktreeRegistryStatus", planName: "plan", statuses: ["absent"], timeoutMs: 90000 },
         { type: "waitForIdle", timeoutMs: 90000 },
         { type: "assertWorkflowDurability" },
+        { type: "waitForScreen", text: "What would you like to do next?", timeoutMs: 15000 },
+        { type: "escape" },
         { type: "setNextModelResponse", text: "Post-publication follow-up accepted in the completed workflow." },
         { type: "type", text: "confirm the completed workflow is still interactive" },
         { type: "enter" },
@@ -353,7 +356,7 @@ export const plannedChangeReviewRepairValidationScenario = {
             assertScreenIncludes(result, "found no need for a fix");
         }),
         assertsGoldenCoverage("recovery:workflow-validation", (result) => {
-            assertScreenIncludes(result, "Validation passed");
+            assertScreenIncludes(result, "plan is on main.");
             assertEventIncludes(result, "workflow:durability:terminal-ready");
             const transcript = `${result.scrollbackText || ""}\n${result.screenText || ""}`;
             assertEquals(
@@ -393,11 +396,11 @@ export const plannedChangeReviewRepairValidationScenario = {
         // why the panel could disappear from every PLANNED_CHANGE run — the status
         // lines stopped carrying `validationProgress` — with the matrix still green.
         assertsGoldenCoverage("block:validation-handoff", (result) => {
-            // Both strings exist only inside the panel's own rendering. An earlier
+            // These strings exist only inside the live panel's own rendering. An earlier
             // attempt asserted "Workflow Validation", which the Engineer's handoff
             // line also contains — it passed with the panel fully disabled.
             const transcript = `${result.scrollbackText || ""}\n${result.screenText || ""}`;
-            assertStringIncludes(transcript, "Validation passed");
+            assertStringIncludes(transcript, "AI review running");
             assertStringIncludes(transcript, "reviewer latest AI review");
         }),
     ],
@@ -406,6 +409,9 @@ export const plannedChangeReviewRepairValidationScenario = {
 export const onboardingTutorialDeliveryScenario = {
     ...plannedChangeReviewRepairValidationScenario,
     name: "onboarding-tutorial-real-change-delivery",
+    // This interruption/reload journey can finish publication before its second
+    // restart. Dismiss live completion; replay must not reopen that selection.
+    interactiveSelectPrompts: [],
     slashCommands: ["onboard"],
     onboardingOfferHandled: false,
     committedProjectFiles: [
@@ -523,7 +529,7 @@ export const onboardingTutorialDeliveryScenario = {
         { type: "captureProjectState", planNames: ["plan"], key: "tutorialCompletedState" },
         { type: "restartTui", sessionStartMode: "continue" },
         { type: "captureProjectState", planNames: ["plan"], key: "tutorialReloadedCompletedState" },
-        ...plannedChangeReviewRepairValidationScenario.actions.slice(9),
+        ...plannedChangeReviewRepairValidationScenario.actions.slice(11),
         {
             type: "capturePublicationState",
             planName: "plan",

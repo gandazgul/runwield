@@ -91,7 +91,7 @@ The rest of Workspace should reuse that language through these implementation la
 - bundled website fonts: `src/ui/design-system/fonts.css`
 - shell and navigation: `src/ui/workspace/layouts/WorkspaceLayout.astro`
 - shared Plan Board page composition: `src/ui/workspace/components/PlanBoardPage.astro`
-- board patterns: `src/ui/workspace/components/BoardColumn.jsx`, `PlanCard.tsx`, and `EpicCard.tsx`
+- board patterns: `src/ui/workspace/components/BoardColumn.tsx`, `PlanCard.tsx`, and `EpicCard.tsx`
 - detail patterns: `src/ui/workspace/components/PlanDetail.jsx`
 - editor and action islands: `src/ui/workspace/islands/`
 
@@ -884,11 +884,17 @@ still frame.
 
 Use `src/ui/theme/theme.js` and its semantic theme helpers for terminal colors and Markdown, selection, and editor
 styling. Preserve the user's selected terminal theme; do not impose browser hex colors or CSS variables on ANSI output.
-See [Themes](themes.md). Shared intent does not require identical color values across renderers.
+See [Themes](user-documentation/themes.md). Shared intent does not require identical color values across renderers.
 
 Terminal fonts and cell sizes belong to the terminal. Express hierarchy through order, spacing, emphasis, labels, and
 selection markers rather than browser font sizes, radii, shadows, or pixel target sizes. Keep status understandable
 without color. Reuse the existing TUI symbols and loaders instead of importing a browser icon family.
+
+At Session completion, reuse `PromptSelectBlock` in the active prompt area for the outcome and next-step choices. Its
+selected surface, spacing, and keyboard focus keep the decision visible above the footer even after long scrollback. Use
+an explicit completion heading and “What would you like to do next?” with Start a new session, Load a Plan, and Quit.
+Explain that Load a Plan starts a fresh Session. Clear the pinned review/publishing panel on confirmed success; keep the
+outcome and reports in conversation history. Escape dismisses the selection and restores the composer.
 
 Check narrow and wide terminal layouts with real long paths, identifiers, multiline content, and live updates. Preserve
 readable wrapping, keyboard selection, input focus, and scroll position. Browser motion preferences do not configure

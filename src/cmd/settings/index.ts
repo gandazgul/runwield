@@ -310,7 +310,7 @@ export async function runSettingsCommand(argv: string[], options: SettingsComman
                 if (presetNames.length === 0) {
                     uiAPI.appendSystemMessage(
                         "No model presets defined. Add a `modelPresets` entry to your settings " +
-                            "(see docs/settings.md#modelpresets).",
+                            "(see https://docs.runwield.dev/settings/#modelpresets).",
                     );
                 }
                 const active = getActiveModelPreset(projectRoot);

@@ -11,7 +11,7 @@ import { getResolvedVisionFallbackModelSetting } from "../settings.js";
 import { getRunWieldSessionDir } from "./root-session.js";
 
 export const IMAGE_FALLBACK_BLOCK_MESSAGE =
-    "Cannot attach image: current model does not support vision and no visionFallback.model is configured.\nSee docs/settings.md#visionfallback to configure an image fallback model.";
+    "Cannot attach image: current model does not support vision and no visionFallback.model is configured.\nSee https://docs.runwield.dev/settings/#visionfallback to configure an image fallback model.";
 
 const MIME_TO_EXT = new Map([
     ["image/png", ".png"],

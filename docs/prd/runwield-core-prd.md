@@ -107,6 +107,13 @@ remains the active root Agent. This keeps follow-up messages in useful context.
 Accepted task completion settles the Agent turn and its transcript writes before Core releases the Session. The next
 user message must be accepted on its first submission without a recovery error caused by the completed turn.
 
+**Requirement: Make the next Session action prominent.** After confirmed Plan publication, the TUI removes the pinned
+review/publishing panel immediately and retains the outcome in the conversation. Once the workflow and any Tutorial
+recap settle, a focused selection at the input area asks what to do next: **Start a new session**, **Load a Plan**, or
+**Quit**. Load a Plan creates a fresh Session before opening `/load-plan`; Escape keeps the current Session available
+for follow-up. Failed or paused delivery must not offer this successful-completion menu. History replay and an Epic's
+automatic continuation must not interrupt the user with stale completion choices.
+
 **Requirement: Agent selection replaces active instructions.** Switching Agents preserves conversation history while
 replacing the model's system instructions and available tools with those of the selected Agent. Earlier Agents' system
 instructions remain historical evidence and must not govern subsequent requests, including after Session resume.
@@ -533,6 +540,11 @@ review judges that child's own correctness with the Epic as context; work a sibl
 not write general "unfinished" warnings. A reviewer can leave Integration Notes for the integration review in a managed
 subsection of the Epic's Verification Plan; when there is nothing to note, it leaves nothing.
 
+A separate registered planning worktree does not make an unstarted sibling unavailable for scope changes. Core
+synchronizes compatible edits into that sibling's authoritative Plan, preserves independent planning work, and resets
+outdated approval automatically. Only conflicting requirements or work that has actually started require a scope
+decision; worktree registration and metadata normalization do not.
+
 **Requirement: An Epic finishes through its integration gate.**
 
 Child status alone does not finish an Epic with its own branch. The Epic is implemented when every included child is
@@ -568,6 +580,9 @@ and siblings active. Listings keep held work distinct from active and finished w
   on the new head.
 - Given Planner moving scope from the child it is planning into an approved, unstarted sibling, when the child starts,
   the sibling's change is on the Epic branch with the child and the sibling is back in draft.
+- Given that sibling already has a planning worktree, when the child starts, compatible scope changes reach both Plan
+  copies automatically, including after a preparation retry. Independent edits survive; conflicting scope remains
+  preserved in both copies for a requirements decision. Metadata-only normalization does not invalidate sibling scope.
 - Given a child review that leaves Integration Notes, when the review finishes, the notes appear in the Epic's
   `### Integration Notes` subsection and the integration review receives them as places to look.
 - Given an approved Epic, when the user saves draft children, they remain drafts; finalizing decomposition enables child
@@ -809,6 +824,9 @@ Recovery requirements:
 - Given an approved child Plan whose reused planning worktree contains edits to its parent Epic, initial execution
   preparation and interrupted preparation retries preserve those edits and include the related Plans automatically.
   Execution starts without treating planning changes as post-validation edits or requiring manual Git cleanup.
+- Given an approved Plan's worktree also contains draft Plans or legacy Plan metadata updated during planning,
+  preparation preserves those documents in the input baseline and starts execution. It does not ask the user to clean up
+  planning residue, treat implementation changes as setup, or weaken the checks on a validated candidate.
 - Given a Workspace server that remains alive after abandoning a Plan lock, publication reclaims the abandoned file only
   after proving the operating-system lock is free. A live operation keeps its lock even if its heartbeat is late.
   Dashboard and search catalog reads do not acquire the catalog write lock; deliberate identity backfills still do.
@@ -937,6 +955,10 @@ can ask questions without resuming implementation, request a revision, continue,
 work preserved. TUI, Workspace, and ACP use their normal message composer; Pair does not require a checkpoint form.
 Iteration retains the same workflow owner, worktree, working directory, tools, attempt, and conversation.
 
+**Requirement: Readable Pair checkpoint reports.** Reports use Markdown with bold section titles and blank lines between
+sections. Summaries use short paragraphs or bullets, with evidence, diagnostics, and proposed next increments in
+separate sections when supplied. TUI renders checkpoint Markdown and shows the report expanded by default.
+
 A checkpoint report is not approval. Only a typed checkpoint resolution based on a later genuine user turn can resume
 implementation or authorize final completion. Final approval uses the same report-and-reply flow. Reload and transcript
 compaction preserve the active checkpoint and execution context. Stale, same-turn, generated, or quoted text cannot
@@ -951,6 +973,8 @@ cycles, completion, and checkpoint fatigue without collecting screenshots or fee
 
 - Given a Plan with Pair selected on TUI, Workspace, or ACP, when an observable increment is ready, its report ends the
   Agent turn and the normal conversation accepts questions, revisions, continuation, autonomous switching, or Stop.
+- Given a Pair report with evidence, diagnostics, and a next increment, the TUI shows bold section titles and blank
+  lines between sections without requiring expansion or displaying literal Markdown markers.
 - Given an open checkpoint, same-turn output, generated continuation, quoted approval, or stale checkpoint data cannot
   resolve it. A later accepted user turn can.
 - Given a final increment, the first completion attempt reports a final checkpoint. Workflow Validation starts only
@@ -968,7 +992,7 @@ cycles, completion, and checkpoint fatigue without collecting screenshots or fee
 Users can install or remove themes from npm, Git, or local packages, preview them live in `/theme`, and confirm a choice
 that persists across Sessions. Previewing does not overwrite the saved choice. The built-in `catppuccin-mocha` fallback
 remains available when a selected theme is missing or invalid. Installing a theme does not activate accompanying
-executable extensions. Public configuration is in the [theme reference](../themes.md).
+executable extensions. Public configuration is in the [theme reference](../user-documentation/themes.md).
 
 **Acceptance scenarios:**
 
@@ -1051,6 +1075,10 @@ and failures remain distinct.
 - Given a failed, paused, user-verified, closed-without-verification, or not-yet-verified workflow, the Tutorial does
   not show a verified recap. Given confirmed RunWield Verified publication, the recap uses the Plan, Work Record, and
   available review or QA artifacts.
+- Given a completed Tutorial with a long conversation, the review/publishing panel disappears and the focused next-step
+  selection remains visible at the input area. Selecting Start a new session opens a fresh Router Session; selecting
+  Load a Plan opens a fresh Session and its Plan picker automatically; Quit closes RunWield. Escape preserves the
+  completed Session for follow-up.
 
 **Target: concise project briefing.** Provide compressed project context where useful without flooding every prompt.
 
@@ -1118,7 +1146,7 @@ must not print worker-loading errors over the terminal interface or silently dis
 The Agent can ask `see_image` about a saved Session attachment or an explicitly referenced project image. Descriptions
 include readable text, relevant visual state, and uncertainty. Resuming retains attachment access; unrelated Sessions do
 not inherit it. Future Session deletion also removes its images. See
-[vision fallback settings](../settings.md#visionfallback).
+[vision fallback settings](../user-documentation/settings.md#visionfallback).
 
 **Acceptance scenarios:**
 
@@ -1139,11 +1167,12 @@ not inherit it. Future Session deletion also removes its images. See
 
 ### Image generation
 
-**Scope and maturity:** Implemented local Pi, Agy and official Codex App Server routes, plus an experimental OpenCode
-Responses adapter, with automated boundary coverage. Current live-provider acceptance remains pending as recorded in the
-[provider evidence](../research/image-generation-provider-proof.md). OpenCode hosted image output is unverified; model
-access was denied in the live probe. Dedicated Google SDK integration, graphical image settings, and bounded remote
-generation are deferred.
+**Scope and maturity:** Current working image generation through OpenRouter, Codex, and Antigravity CLI, confirmed by
+the owner on 2026-10-06. Pi is the implementation library behind the OpenRouter route, not a user-facing backend. The
+[provider notes](../research/image-generation-provider-proof.md) retain historical test results and their environment
+limitations; those earlier limitations do not describe current availability. The separate OpenCode Responses adapter
+remains experimental. Dedicated Google SDK integration, graphical image settings, and bounded remote generation are
+deferred.
 
 **Requirement: Generate images through a user-selected model independently of the conversation model.**
 
@@ -1326,7 +1355,7 @@ Effective role authority selects the read definition when a write request is red
 single-command check applies to RunWield-owned foreground bash and background shell starts; denied calls state the
 reason, allowed commands, and how to report a blocker rather than work around the restriction. It is not a security
 boundary and does not control external CLI Execution Backends' native shells. See
-[customization](../customization.md#agents) for selector syntax and limits.
+[customization](../user-documentation/customization.md#agents) for selector syntax and limits.
 
 **Acceptance scenarios:**
 
@@ -1390,7 +1419,7 @@ use the current client's structured question interface where supported, includin
 commands.
 
 CLI tools remain preferred for many integrations. MCP is optional and should not add unused prompt context.
-Configuration and loading details belong in [customization documentation](../customization.md).
+Configuration and loading details belong in [customization documentation](../user-documentation/customization.md).
 
 **Trusted MCP tools:** A user can configure optional stdio MCP servers once and call their tools from any root Agent,
 including after an Agent handoff or Session continuation. ACP-supplied servers remain Session-only. Delegated and
@@ -1507,12 +1536,12 @@ this is not confinement.
 **Requirement: Recover from temporary model-service failures.**
 
 For Pi-backed model requests, retry temporary connection, rate-limit, and server failures, including an interrupted
-response reported as `Unexpected EOF`. Use the existing [retry settings](../settings.md#retry): by default, three
-retries after the first request, with waits of 2, 4, and 8 seconds. Keep partial output and diagnostic evidence from a
-failed attempt, but do not repeat completed tools or include failed attempts in the next model request. Show clear
-notices for failures, scheduled retries, and exhausted retries without exposing raw response bodies or stack traces.
-Saved history shows a neutral failure notice, not a live countdown or a claim that the Session still failed. Do not
-automatically retry authentication, quota, invalid-request, or context-overflow failures. Cancellation stops retries
+response reported as `Unexpected EOF`. Use the existing [retry settings](../user-documentation/settings.md#retry): by
+default, three retries after the first request, with waits of 2, 4, and 8 seconds. Keep partial output and diagnostic
+evidence from a failed attempt, but do not repeat completed tools or include failed attempts in the next model request.
+Show clear notices for failures, scheduled retries, and exhausted retries without exposing raw response bodies or stack
+traces. Saved history shows a neutral failure notice, not a live countdown or a claim that the Session still failed. Do
+not automatically retry authentication, quota, invalid-request, or context-overflow failures. Cancellation stops retries
 without an API-failure or exhaustion notice.
 
 When automatic retries run out, state how many retries completed and how the user can try again. This stops the current
@@ -1538,16 +1567,16 @@ independently of unsent composer changes. Replay includes assistant messages, Ru
 Antigravity tools reported as indexed tool steps. RunWield shows native tool starts and completed results as they
 arrive. An unfinished native step is visible live but does not appear as a still-running tool after replay. Other CLI
 internals remain unavailable in RunWield history. Configuration details are in
-[Settings](../settings.md#antigravity-cli). An existing RunWield MCP entry for a standalone `wld` with the stable
-`mcp agy-cli` command remains usable when the user switches between installed binaries; no global config rewrite is
-needed. RunWield supplies the active working directory as the backend workspace so normal project file access does not
-fail because a noninteractive CLI opened without a workspace. RunWield declares native command and file tools in
-temporary Antigravity Agent frontmatter so an execution turn can run commands, create files, edit files, and read files.
-Execution turns auto-approve Antigravity tool permission requests in noninteractive mode, not only project file reads;
-this does not change Antigravity's global settings or override operating-system access controls. Genuine permission
-failures that remain identify the denied action and, when supplied by the CLI, the file target, with sensitive details
-redacted. The failure appears once in live Sessions and remains available in replay; it does not discard the pending
-request.
+[Providers and Models](../user-documentation/providers.md#antigravity-cli). An existing RunWield MCP entry for a
+standalone `wld` with the stable `mcp agy-cli` command remains usable when the user switches between installed binaries;
+no global config rewrite is needed. RunWield supplies the active working directory as the backend workspace so normal
+project file access does not fail because a noninteractive CLI opened without a workspace. RunWield declares native
+command and file tools in temporary Antigravity Agent frontmatter so an execution turn can run commands, create files,
+edit files, and read files. Execution turns auto-approve Antigravity tool permission requests in noninteractive mode,
+not only project file reads; this does not change Antigravity's global settings or override operating-system access
+controls. Genuine permission failures that remain identify the denied action and, when supplied by the CLI, the file
+target, with sensitive details redacted. The failure appears once in live Sessions and remains available in replay; it
+does not discard the pending request.
 
 Future/open requirements:
 

@@ -36,14 +36,14 @@ import { escapeReviewPayloadJson } from "./server/review-payload-json.ts";
 import { withAccessLogger } from "./server-access-logger.ts";
 import { SYSTEM_WORK_RECORD_MNEMOTECA_PORT } from "../../shared/work-records/mnemoteca-port.ts";
 import { renderRunWieldThemeCss } from "../design-system/theme-bridge.ts";
-import { reviewImageApi, reviewImageUploadApi } from "./routes/api/review-image-handlers.js";
+import { reviewImageApi, reviewImageUploadApi } from "./routes/api/review-image-handlers.ts";
 import {
     cleanupReviewAgentState,
     createReviewAgentState,
     reviewAgentApi,
     runConfiguredGuideCommand,
 } from "./routes/api/review-agent-handlers.js";
-import { reviewFileContentApi, reviewLocalConfigApi, reviewOpenInAppsApi } from "./routes/api/review-file-handlers.js";
+import { reviewFileContentApi, reviewLocalConfigApi, reviewOpenInAppsApi } from "./routes/api/review-file-handlers.ts";
 import { reviewWidgetApi } from "./routes/api/review-widget-handlers.js";
 import {
     devicesApi,
@@ -71,7 +71,7 @@ import {
     authorizeOwnerUpgradeRequest,
     isOwnerUpgradeRequest,
     renewDeviceCookies,
-} from "./server/owner-auth.js";
+} from "./server/owner-auth.ts";
 import { createWorkspaceSessionContinuationService } from "./server/session-continuation.js";
 import {
     ownerNotificationsStreamApi,

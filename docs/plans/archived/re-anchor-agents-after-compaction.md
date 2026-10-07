@@ -136,7 +136,7 @@ agent prompt, so the two cannot drift the way `buildEngineerRequest` drifted fro
 
 ## Reuse Opportunities
 
-- `src/extensions/mnemoteca/index.js` — the extension shape: default-export factory taking `pi`,
+- `src/extensions/mnemoteca/index.ts` — the extension shape: default-export factory taking `pi`,
   `pi.on("session_start")` to capture cwd and project identity, state held in factory closure.
 - `src/extensions/*/index.test.js` — the established pattern for testing an extension by driving its handlers directly.
 - `src/shared/workflow/workflow-prompts.js` — `buildEngineerRequest` and `buildTriageReport` as the builder pattern.

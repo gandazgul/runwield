@@ -181,7 +181,6 @@ async function buildRecap(
         if (artifact.kind !== "report" || !/(review|qa)/i.test(`${artifact.title} ${artifact.path}`)) continue;
         lines.push(`Review/QA Artifact: ${artifact.path}`);
     }
-    lines.push("Type an ordinary request to start your next RunWield task.");
     return lines.join("\n");
 }
 
