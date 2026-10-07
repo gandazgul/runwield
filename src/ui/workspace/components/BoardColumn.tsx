@@ -1,8 +1,26 @@
+import type { ProjectCardData } from "./EpicCard.tsx";
+import type { PlanCardData } from "./PlanCard.tsx";
 import { EpicCard } from "./EpicCard.tsx";
 import { PlanCard } from "./PlanCard.tsx";
 
-/** @param {{ column: any, url: URL | string, draggableCards?: boolean }} props */
-export function BoardColumn({ column, url, draggableCards = true }) {
+export interface BoardCardData extends PlanCardData, ProjectCardData {
+    isEpic?: boolean;
+}
+
+export interface BoardColumnData {
+    status: string;
+    label: string;
+    description: string;
+    count: number;
+    cards: BoardCardData[];
+}
+
+export interface BoardColumnProps {
+    column: BoardColumnData;
+    url: URL | string;
+    draggableCards?: boolean;
+}
+export function BoardColumn({ column, url, draggableCards = true }: BoardColumnProps) {
     return (
         <section
             className="board-column"
@@ -21,7 +39,7 @@ export function BoardColumn({ column, url, draggableCards = true }) {
                 <span className="column-count" data-column-count>{column.count}</span>
             </header>
             <div className="column-cards">
-                {column.cards.map(/** @param {any} plan */ (plan) => (
+                {column.cards.map((plan) => (
                     plan.isEpic
                         ? <EpicCard key={plan.planId} epic={plan} url={url} draggableCard={draggableCards} />
                         : (

@@ -97,8 +97,6 @@
     "src/ui/tui/testing/virtual-terminal.js",
     "src/ui/tui/types.js",
     "src/ui/workspace/astro.config.mjs",
-    "src/ui/workspace/components/Board.jsx",
-    "src/ui/workspace/components/BoardColumn.jsx",
 
     "src/ui/workspace/components/PlanDetail.jsx",
     "src/ui/workspace/components/SessionList.jsx",

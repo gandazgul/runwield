@@ -11,7 +11,7 @@ import {
     serializePlanSummary,
     workspaceMetadata as _workspaceMetadata,
 } from "./server/plan-adapter.js";
-import { buildPlanBoardSearchIndex } from "./components/Board.jsx";
+import { buildPlanBoardSearchIndex } from "./components/Board.tsx";
 
 import { renderMarkdown } from "./components/MarkdownView.tsx";
 
