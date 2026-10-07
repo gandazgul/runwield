@@ -488,8 +488,8 @@ These keys are read by RunWield outside the upstream Pi `SettingsManager` schema
 
 ### `workflowMetrics`
 
-`workflowMetrics` enables local-only workflow metrics recording. It is disabled by default; RunWield writes no metrics
-unless this setting is `true` or an object with `enabled: true`:
+`workflowMetrics` enables local-only workflow measurements. It is disabled by default; RunWield records measurements
+only when this setting is `true` or an object with `enabled: true`:
 
 ```jsonc
 {
@@ -545,9 +545,30 @@ distinguishes provider-reported cost from rate-calculated cost and unavailable c
 invoice. `coverage` and per-measurement `availability` use `complete`, `partial`, or `unavailable`; a partial bridge
 inventory is not a complete CLI tool inventory.
 
-Rows are best effort. Writes may be lost on interruption, I/O failure, or when an opt-out takes effect. There is no
-metrics-specific retention period or cleanup job: files stay until the owner deletes them. No upload or backfill occurs.
-The Owner HTTP command endpoint requires a registered Project and an authorized browser; it does not accept arbitrary
+#### Durability and collection boundaries
+
+The durability contract is defined in [Core local workflow metrics](prd/runwield-core-prd.md#local-workflow-metrics).
+The journal implementation provides a cross-process `proper-lockfile` lock with acquisition bounded to approximately one
+second. A successful persistence result requires a synchronous append and file sync. Lock timeout, compromised lock,
+storage failure, disabled collection, or a collection boundary must not claim persistence or interrupt delivery work. A
+failed observation is not queued for later replay.
+
+Collection epochs identify lazily observed enabled/disabled transitions, not exact setting-change times. A previously
+enabled history may receive a disabled `collection_epoch` control record when Core observes opt-out; no Usage
+measurements are recorded while disabled. An installation that has never enabled collection creates no journal while
+disabled. Intervals with no Core observation contain no recorded measurements; they do not establish disabled durations.
+Re-enabling does not replay missed observations or reconstruct them from Session Transcripts. A stale observation must
+not cross an observed collection boundary. `historyEpoch` identifies the local journal history; `collectionEpoch`
+identifies its observed collection state. Neither is a Session or Plan lifecycle state.
+
+Existing v1 rows remain unchanged. Under the lock, repair removes only an incomplete final line and appends an explicit
+`measurement_gap` with reason `incomplete_append`. Corrupt interior lines stay in the file and are surfaced by
+`measurement_gap` evidence with their line numbers; repair does not silently erase history or invent measurements.
+Persistence does not imply complete measurement coverage.
+
+There is no metrics-specific retention period or cleanup job: files stay until the owner deletes them. No upload,
+backfill, or replay occurs. Reporting, dashboards, and export (including Langfuse) remain target/deferred behavior. The
+Owner HTTP command endpoint requires a registered Project and an authorized browser; it does not accept arbitrary
 Session links or unknown submitted command text.
 
 #### Backend observation limits
