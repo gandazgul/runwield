@@ -4,6 +4,9 @@
  */
 
 import { DefaultPackageManager } from "@earendil-works/pi-coding-agent";
+import type { PackageSource, ResolvedPaths, ResolvedResource, SettingsManager } from "@earendil-works/pi-coding-agent";
+export type { PathMetadata, ResolvedPaths, ResolvedResource } from "@earendil-works/pi-coding-agent";
+
 import { isAbsolute, join, relative } from "@std/path";
 import { getCwd } from "../constants.js";
 import { getSettingsDir, getSettingsManager } from "./settings.js";
@@ -13,42 +16,20 @@ import {
     remotePersonalResourcesActive,
 } from "./remote/personal-resources.ts";
 
-/**
- * @typedef {Object} ConfiguredPackage
- * @property {string} source
- * @property {string[]} [prompts]
- * @property {boolean} [autoload]
- */
-/** @typedef {string | ConfiguredPackage} ConfiguredPackageEntry */
+export interface PackagePromptResourceOptions {
+    cwd?: string;
+    agentDir?: string;
+    settingsManager?: SettingsManager;
+}
 
-/**
- * @typedef {Object} PathMetadata
- * @property {string} source
- * @property {string} scope
- * @property {"package" | "top-level"} origin
- * @property {string | undefined} [baseDir]
- */
+export interface PackageResourceCounts {
+    themes: number;
+    prompts: number;
+    extensions: number;
+    skills: number;
+}
 
-/**
- * @typedef {Object} ResolvedResource
- * @property {string} path
- * @property {boolean} enabled
- * @property {PathMetadata} metadata
- */
-
-/**
- * @typedef {Object} ResolvedPaths
- * @property {ResolvedResource[]} extensions
- * @property {ResolvedResource[]} skills
- * @property {ResolvedResource[]} prompts
- * @property {ResolvedResource[]} themes
- */
-
-/**
- * @param {ResolvedResource} resource
- * @returns {boolean}
- */
-export function isEnabledPackageResource(resource) {
+export function isEnabledPackageResource(resource: ResolvedResource) {
     return resource.enabled === true && resource.metadata?.origin === "package";
 }
 
@@ -56,15 +37,10 @@ export function isEnabledPackageResource(resource) {
  * Resolve installed package prompt resources without installing missing packages.
  * Prompt templates are passive Markdown resources, so they do not require the
  * executable extension compatibility gate.
- *
- * @param {{
- *   cwd?: string,
- *   agentDir?: string,
- *   settingsManager?: any,
- * }} [options]
- * @returns {Promise<ResolvedResource[]>}
  */
-export async function resolveInstalledPackagePromptResources(options = {}) {
+export async function resolveInstalledPackagePromptResources(
+    options: PackagePromptResourceOptions = {},
+): Promise<ResolvedResource[]> {
     const settings = options.settingsManager || getSettingsManager(options.cwd);
     const remote = remotePersonalResourcesActive();
     const roots = personalPackageRoots();
@@ -76,14 +52,14 @@ export async function resolveInstalledPackagePromptResources(options = {}) {
             });
         }
     }
-    const originalSources = new Map();
+    const originalSources = new Map<string, string>();
     // Only the laptop-verified package inventory is eligible remotely. In
     // particular, Pi must never probe a remote account's legacy global npm root.
     const settingsManager = remote ? mappedRemotePackageSettings(settings, roots, originalSources) : settings;
     const packageManager = new DefaultPackageManager({
         cwd: options.cwd || getCwd(),
         agentDir: options.agentDir || getSettingsDir("global"),
-        settingsManager: /** @type {any} */ (settingsManager),
+        settingsManager: settingsManager,
     });
 
     const resolved = await packageManager.resolve(() => Promise.resolve("skip"));
@@ -112,18 +88,19 @@ export async function resolveInstalledPackagePromptResources(options = {}) {
 
 /**
  * Map only laptop-installed global packages. Pi's loader also resolves packages before applying resource flags.
- * @param {import('@earendil-works/pi-coding-agent').SettingsManager} settings
- * @param {Readonly<Record<string, string>>} [roots]
- * @param {Map<string, string>} [originalSources]
  */
-export function mappedRemotePackageSettings(settings, roots = personalPackageRoots(), originalSources = new Map()) {
+export function mappedRemotePackageSettings(
+    settings: SettingsManager,
+    roots: Readonly<Record<string, string>> = personalPackageRoots(),
+    originalSources: Map<string, string> = new Map(),
+) {
     return new Proxy(settings, {
         get(target, key) {
             if (key === "getGlobalSettings") {
                 return () => ({
                     ...target.getGlobalSettings(),
-                    packages: (/** @type {ConfiguredPackageEntry[]} */ (target.getGlobalSettings().packages ?? []))
-                        .flatMap((entry) => {
+                    packages: (target.getGlobalSettings().packages ?? [])
+                        .flatMap<PackageSource>((entry) => {
                             const source = typeof entry === "string" ? entry : entry.source;
                             const path = roots[source];
                             if (!path) return [];
@@ -139,26 +116,16 @@ export function mappedRemotePackageSettings(settings, roots = personalPackageRoo
     });
 }
 
-/** @param {ResolvedPaths} resolved @returns {ResolvedResource[]} */
-export function filterEnabledPackagePrompts(resolved) {
+export function filterEnabledPackagePrompts(resolved: ResolvedPaths) {
     return resolved.prompts.filter(isEnabledPackageResource);
 }
 
-/**
- * @param {ResolvedResource[]} resources
- * @returns {string[]}
- */
-export function getPackagePromptTemplatePaths(resources) {
+export function getPackagePromptTemplatePaths(resources: ResolvedResource[]) {
     return resources.map((resource) => resource.path);
 }
 
-/**
- * @param {ResolvedPaths} resolved
- * @param {string} source
- * @returns {{ themes: number, prompts: number, extensions: number, skills: number }}
- */
-export function countPackageResourcesForSource(resolved, source) {
-    const fromSource = (/** @type {ResolvedResource} */ resource) => resource.metadata?.source === source;
+export function countPackageResourcesForSource(resolved: ResolvedPaths, source: string): PackageResourceCounts {
+    const fromSource = (resource: ResolvedResource) => resource.metadata?.source === source;
     return {
         themes: resolved.themes.filter(fromSource).length,
         prompts: resolved.prompts.filter(fromSource).length,

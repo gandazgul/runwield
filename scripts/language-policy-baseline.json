@@ -27,7 +27,6 @@
     "src/shared/owner-coordination/schema.js",
     "src/shared/owner-coordination/session-activations.js",
     "src/shared/owner-coordination/sessions.js",
-    "src/shared/package-resources.js",
     "src/shared/remote/runtime.js",
     "src/shared/session/active-agent-session.js",
     "src/shared/session/agent-handler.js",
