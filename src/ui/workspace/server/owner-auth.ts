@@ -5,16 +5,32 @@ import {
     OWNER_DEVICE_COOKIE,
     OWNER_DEVICE_MAX_AGE_SECONDS,
 } from "../../../shared/owner-coordination/index.js";
+import type { OwnerCoordinationStore } from "../../../shared/owner-coordination/index.js";
+import type { OwnerConnectionRegistry, OwnerLiveConnection } from "./owner-connections.ts";
+import type { OwnerOriginPolicy } from "./owner-origin.ts";
 import { assertOwnerOrigin, isStateChangingRequest, parseOwnerOrigin } from "./owner-origin.ts";
 
-/** @param {string} value */
-function cookieValue(value) {
+export type OwnerCookieOrigin = Pick<OwnerOriginPolicy, "publicOrigin">;
+
+export interface DeviceCookieOptions extends OwnerCookieOrigin {
+    credential: string;
+    csrf: string;
+}
+
+export interface OwnerCookieState extends OwnerCookieOrigin {
+    store: Pick<OwnerCoordinationStore, "verifyDeviceCredential" | "verifyDeviceCsrf">;
+}
+
+export interface OwnerUpgradeState extends OwnerCookieState {
+    ownerConnections?: Partial<Pick<OwnerConnectionRegistry, "register">>;
+}
+
+function cookieValue(value: string) {
     return encodeURIComponent(value).replace(/[!'()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
 }
 
-/** @param {string} cookieHeader */
-export function parseCookies(cookieHeader) {
-    const cookies = new Map();
+export function parseCookies(cookieHeader: string) {
+    const cookies = new Map<string, string>();
     for (const part of String(cookieHeader || "").split(";")) {
         const index = part.indexOf("=");
         if (index < 0) continue;
@@ -23,15 +39,11 @@ export function parseCookies(cookieHeader) {
     return cookies;
 }
 
-/** @param {Request} request @param {string} name */
-export function getCookie(request, name) {
+export function getCookie(request: Request, name: string) {
     return parseCookies(request.headers.get("cookie") || "").get(name) || "";
 }
 
-/**
- * @param {{ credential: string, csrf: string, publicOrigin: string }} options
- */
-export function deviceCookieHeaders(options) {
+export function deviceCookieHeaders(options: DeviceCookieOptions) {
     const secure = parseOwnerOrigin(options.publicOrigin).protocol === "https:";
     const suffix = `Max-Age=${OWNER_DEVICE_MAX_AGE_SECONDS}; Path=/${secure ? "; Secure" : ""}`;
     return [
@@ -41,20 +53,10 @@ export function deviceCookieHeaders(options) {
 }
 
 /**
- * @typedef {Object} OwnerCookieState
- * @property {import('../../../shared/owner-coordination/index.js').OwnerCoordinationStore} store
- * @property {string} publicOrigin
- */
-
-/**
  * Renew existing pairing on document visits, including credentials issued before
  * app-launch cookies used SameSite=Lax. Keep credentials out of browser storage.
- * @param {Request} request
- * @param {Response} response
- * @param {OwnerCookieState} state
- * @param {string} deviceId
  */
-export function renewDeviceCookies(request, response, state, deviceId) {
+export function renewDeviceCookies(request: Request, response: Response, state: OwnerCookieState, deviceId: string) {
     const csrf = getCookie(request, OWNER_CSRF_COOKIE);
     if (!csrf || !state.store.verifyDeviceCsrf(deviceId, csrf)) return response;
     const headers = new Headers(response.headers);
@@ -68,8 +70,7 @@ export function renewDeviceCookies(request, response, state, deviceId) {
     return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
-/** @param {{ publicOrigin: string }} options */
-export function clearDeviceCookieHeaders(options) {
+export function clearDeviceCookieHeaders(options: OwnerCookieOrigin) {
     const secure = parseOwnerOrigin(options.publicOrigin).protocol === "https:";
     const suffix = `Max-Age=0; Path=/; SameSite=Strict${secure ? "; Secure" : ""}`;
     return [
@@ -78,25 +79,19 @@ export function clearDeviceCookieHeaders(options) {
     ];
 }
 
-/** @param {string} proof @param {{ publicOrigin: string }} options */
-export function bootstrapProofCookieHeader(proof, options) {
+export function bootstrapProofCookieHeader(proof: string, options: OwnerCookieOrigin) {
     const secure = parseOwnerOrigin(options.publicOrigin).protocol === "https:";
     return `rw_pairing_proof=${cookieValue(proof)}; Max-Age=300; Path=/; SameSite=Strict${
         secure ? "; Secure" : ""
     }; HttpOnly`;
 }
 
-/** @param {{ publicOrigin: string }} options */
-export function clearBootstrapProofCookieHeader(options) {
+export function clearBootstrapProofCookieHeader(options: OwnerCookieOrigin) {
     const secure = parseOwnerOrigin(options.publicOrigin).protocol === "https:";
     return `rw_pairing_proof=; Max-Age=0; Path=/; SameSite=Strict${secure ? "; Secure" : ""}; HttpOnly`;
 }
 
-/**
- * @param {Request} request
- * @param {{ store: any, publicOrigin: string }} state
- */
-export function authenticateOwnerRequest(request, state) {
+export function authenticateOwnerRequest(request: Request, state: OwnerCookieState) {
     const credential = getCookie(request, OWNER_DEVICE_COOKIE);
     const device = credential ? state.store.verifyDeviceCredential(credential) : null;
     if (!device) return null;
@@ -111,8 +106,7 @@ export function authenticateOwnerRequest(request, state) {
     return device;
 }
 
-/** @param {Request} request */
-export function isOwnerUpgradeRequest(request) {
+export function isOwnerUpgradeRequest(request: Request) {
     return request.headers.get("upgrade")?.toLowerCase() === "websocket";
 }
 
@@ -120,12 +114,12 @@ export function isOwnerUpgradeRequest(request) {
  * Authorize a future owner WebSocket upgrade using the same trusted device cookie
  * as HTTP APIs plus an exact Origin check. CSRF headers are unavailable on
  * browser WebSocket handshakes, so Origin is the CSRF-equivalent browser proof.
- *
- * @param {Request} request
- * @param {{ store: any, publicOrigin: string, ownerConnections?: { register?: (deviceId: string, connection: { close: () => void }) => () => void } }} state
- * @param {{ close: () => void }} [connection]
  */
-export function authorizeOwnerUpgradeRequest(request, state, connection) {
+export function authorizeOwnerUpgradeRequest(
+    request: Request,
+    state: OwnerUpgradeState,
+    connection?: OwnerLiveConnection,
+) {
     if (!isOwnerUpgradeRequest(request)) throw new Error("Owner Workspace upgrade request is required.");
     assertOwnerOrigin(request, { publicOrigin: state.publicOrigin });
     const credential = getCookie(request, OWNER_DEVICE_COOKIE);
