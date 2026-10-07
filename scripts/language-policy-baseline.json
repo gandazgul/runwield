@@ -4,7 +4,6 @@
     "src/acp/server.js",
     "src/cmd/agents/getArgumentCompletions.js",
     "src/cmd/command-helpers.js",
-    "src/cmd/export/index.js",
     "src/cmd/help/index.js",
     "src/cmd/registry.js",
     "src/cmd/session/index.js",
