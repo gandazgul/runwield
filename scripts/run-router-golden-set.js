@@ -262,7 +262,7 @@ async function runContextGit(cwd, args) {
  *   runAgentSession?: RouterAgentRunner,
  *   customTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[],
  * }} [options]
- * @returns {Promise<import('../src/shared/workflow/orchestrator.ts').TriageOutcome>}
+ * @returns {Promise<import('../src/shared/workflow/triage-outcome.ts').TriageOutcome>}
  */
 export async function runRouterForGoldenRequest(requestText, options = {}) {
     const agentOptions = /** @type {RouterAgentRunOptions} */ ({

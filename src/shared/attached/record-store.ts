@@ -1,0 +1,263 @@
+/**
+ * @module shared/attached/record-store
+ * Durable Attached Workflow Records under `~/.wld/attached/`.
+ *
+ * A record describes one host request, like a Session, so it lives in the user's home
+ * keyed by the primary checkout root, not in Project Runtime State. Reading or writing
+ * a record never touches the repository. With no home directory, records fall back to
+ * the primary checkout's internal runtime directory, as worktrees do.
+ *
+ * Every write holds a per-workflow lock file, checks the expected revision, and
+ * replaces the file atomically. A lock left by a dead process is reclaimed.
+ */
+
+import { basename, dirname, join, resolve } from "@std/path";
+import {
+    getHomeDir,
+    getRunWieldRuntimeDir,
+    PROJECT_INTERNAL_RUNTIME_DIR_NAME,
+    RUNWIELD_DIR_NAME,
+} from "../../constants.js";
+import { readLockFileSnapshot, removeLockFileIfSnapshotMatches } from "../lock-file-snapshot.ts";
+import { getLockHostname, isLockHolderGone, isLockHolderUnattributable } from "../process-liveness.ts";
+import { resolvePrimaryCheckoutRoot } from "../primary-checkout.ts";
+import { encodeCwdForSessionDir } from "../project-directory-key.ts";
+import type { TriageOutcome } from "../workflow/triage-outcome.ts";
+import type {
+    AttachedOperationResult,
+    AttachedWorkflowClosure,
+    AttachedWorkflowState,
+    PendingTriageAction,
+    RecordedEvidence,
+} from "./operations.ts";
+
+const ATTACHED_DIR_NAME = "attached";
+const WORKFLOWS_DIR_NAME = "workflows";
+const LOCK_WAIT_MS = 10_000;
+const LOCK_RETRY_MS = 20;
+/** A lock that names no checkable holder is a crash leftover once it is this old. */
+const UNATTRIBUTABLE_LOCK_STALE_MS = 30_000;
+
+export interface AcceptedOperation {
+    result: AttachedOperationResult;
+    evidence: RecordedEvidence;
+    acceptedAt: string;
+}
+
+export interface AttachedWorkflowRecord {
+    schemaVersion: 1;
+    workflowId: string;
+    revision: number;
+    /** Canonical primary checkout root: binding evidence, compared on every load. */
+    projectRoot: string;
+    request: { text: string; hostRequestId: string };
+    evidence: RecordedEvidence;
+    state: AttachedWorkflowState;
+    pendingAction: PendingTriageAction | null;
+    acceptedOperations: Record<string, AcceptedOperation>;
+    triageOutcome: TriageOutcome | null;
+    closure: AttachedWorkflowClosure | null;
+    createdAt: string;
+    updatedAt: string;
+}
+
+/** Where one project's records live. */
+export interface AttachedWorkflowLocation {
+    projectRoot: string;
+    workflowsDir: string;
+    /** `~/.wld/attached`, absent when records fall back into the project. */
+    homeBaseDir: string | null;
+}
+
+export type LoadedAttachedWorkflow =
+    | { status: "found"; record: AttachedWorkflowRecord }
+    | { status: "moved"; record: AttachedWorkflowRecord }
+    | { status: "missing" };
+
+export type AttachedRecordWriteResult =
+    | { status: "written" }
+    | { status: "conflict"; current: AttachedWorkflowRecord | null }
+    | { status: "busy" };
+
+function canonicalPath(path: string): string {
+    try {
+        return Deno.realPathSync(path);
+    } catch (error) {
+        if (error instanceof Deno.errors.NotFound) return resolve(path);
+        throw error;
+    }
+}
+
+export function locateAttachedWorkflows(projectRoot: string): AttachedWorkflowLocation {
+    const primaryRoot = canonicalPath(resolvePrimaryCheckoutRoot(canonicalPath(projectRoot)));
+    const homeDir = getHomeDir();
+    if (!homeDir) {
+        return {
+            projectRoot: primaryRoot,
+            workflowsDir: join(
+                getRunWieldRuntimeDir(primaryRoot),
+                PROJECT_INTERNAL_RUNTIME_DIR_NAME,
+                ATTACHED_DIR_NAME,
+                WORKFLOWS_DIR_NAME,
+            ),
+            homeBaseDir: null,
+        };
+    }
+    const homeBaseDir = join(homeDir, RUNWIELD_DIR_NAME, ATTACHED_DIR_NAME);
+    return {
+        projectRoot: primaryRoot,
+        workflowsDir: join(homeBaseDir, encodeCwdForSessionDir(primaryRoot), WORKFLOWS_DIR_NAME),
+        homeBaseDir,
+    };
+}
+
+function recordPath(workflowsDir: string, workflowId: string): string {
+    return join(workflowsDir, `${workflowId}.json`);
+}
+
+async function readRecordAt(path: string): Promise<AttachedWorkflowRecord | null> {
+    try {
+        const record: AttachedWorkflowRecord = JSON.parse(await Deno.readTextFile(path));
+        return record;
+    } catch (error) {
+        if (error instanceof Deno.errors.NotFound) return null;
+        throw error;
+    }
+}
+
+/** Find a record whose project folder moved: its key no longer matches this project. */
+async function findMovedRecord(
+    location: AttachedWorkflowLocation,
+    workflowId: string,
+): Promise<AttachedWorkflowRecord | null> {
+    if (!location.homeBaseDir) return null;
+    let entries: Deno.DirEntry[];
+    try {
+        entries = await Array.fromAsync(Deno.readDir(location.homeBaseDir));
+    } catch (error) {
+        if (error instanceof Deno.errors.NotFound) return null;
+        throw error;
+    }
+    for (const entry of entries) {
+        if (!entry.isDirectory) continue;
+        const workflowsDir = join(location.homeBaseDir, entry.name, WORKFLOWS_DIR_NAME);
+        if (workflowsDir === location.workflowsDir) continue;
+        const record = await readRecordAt(recordPath(workflowsDir, workflowId));
+        if (record) return record;
+    }
+    return null;
+}
+
+/** Load a record. Reports `moved` instead of matching a record to another project. */
+export async function loadAttachedWorkflowRecord(
+    location: AttachedWorkflowLocation,
+    workflowId: string,
+): Promise<LoadedAttachedWorkflow> {
+    const record = await readRecordAt(recordPath(location.workflowsDir, workflowId));
+    if (record) return { status: record.projectRoot === location.projectRoot ? "found" : "moved", record };
+    const moved = await findMovedRecord(location, workflowId);
+    return moved ? { status: "moved", record: moved } : { status: "missing" };
+}
+
+interface LockDocument {
+    pid: number;
+    hostname: string;
+    token: string;
+    createdAt: number;
+}
+
+async function isReclaimable(lockText: string, mtime: number): Promise<boolean> {
+    if (await isLockHolderGone(lockText)) return true;
+    return isLockHolderUnattributable(lockText) && Date.now() - mtime > UNATTRIBUTABLE_LOCK_STALE_MS;
+}
+
+/** Take the lock, or return null when a live holder keeps it past the wait limit. */
+async function acquireLock(lockPath: string): Promise<string | null> {
+    const deadline = Date.now() + LOCK_WAIT_MS;
+    const token = crypto.randomUUID();
+    const document: LockDocument = { pid: Deno.pid, hostname: getLockHostname(), token, createdAt: Date.now() };
+    while (true) {
+        try {
+            await Deno.writeTextFile(lockPath, JSON.stringify(document), { createNew: true });
+            return token;
+        } catch (error) {
+            if (!(error instanceof Deno.errors.AlreadyExists)) throw error;
+        }
+        const snapshot = await readLockFileSnapshot(lockPath);
+        if (snapshot && await isReclaimable(snapshot.text, snapshot.mtime)) {
+            await removeLockFileIfSnapshotMatches(lockPath, snapshot);
+            continue;
+        }
+        if (Date.now() > deadline) return null;
+        await new Promise((resolveDelay) => setTimeout(resolveDelay, LOCK_RETRY_MS));
+    }
+}
+
+async function releaseLock(lockPath: string, token: string): Promise<void> {
+    const snapshot = await readLockFileSnapshot(lockPath);
+    if (snapshot?.token === token) await removeLockFileIfSnapshotMatches(lockPath, snapshot);
+}
+
+/** Temporary files from a writer that died before its rename. Only safe to remove under the lock. */
+async function removeAbandonedTemporaryFiles(path: string): Promise<void> {
+    const prefix = `${basename(path)}.`;
+    for await (const entry of Deno.readDir(dirname(path))) {
+        if (entry.isFile && entry.name.startsWith(prefix) && entry.name.endsWith(".tmp")) {
+            await Deno.remove(join(dirname(path), entry.name)).catch((error) => {
+                if (!(error instanceof Deno.errors.NotFound)) throw error;
+            });
+        }
+    }
+}
+
+async function atomicWrite(path: string, record: AttachedWorkflowRecord): Promise<void> {
+    const temporary = `${path}.${crypto.randomUUID()}.tmp`;
+    const data = new TextEncoder().encode(`${JSON.stringify(record, null, 2)}\n`);
+    try {
+        const file = await Deno.open(temporary, { createNew: true, write: true });
+        try {
+            let offset = 0;
+            while (offset < data.length) offset += await file.write(data.subarray(offset));
+            await file.sync();
+        } finally {
+            file.close();
+        }
+        await Deno.rename(temporary, path);
+        const directory = await Deno.open(dirname(path), { read: true });
+        try {
+            await directory.sync();
+        } finally {
+            directory.close();
+        }
+    } finally {
+        await Deno.remove(temporary).catch((error) => {
+            if (!(error instanceof Deno.errors.NotFound)) throw error;
+        });
+    }
+}
+
+/**
+ * Replace a record when its saved revision still equals `expectedRevision`
+ * (`null`: no record may exist yet). A mismatch leaves the file unchanged and
+ * returns the current record.
+ */
+export async function writeAttachedWorkflowRecord(
+    location: AttachedWorkflowLocation,
+    record: AttachedWorkflowRecord,
+    expectedRevision: number | null,
+): Promise<AttachedRecordWriteResult> {
+    await Deno.mkdir(location.workflowsDir, { recursive: true });
+    const path = recordPath(location.workflowsDir, record.workflowId);
+    const lockPath = join(location.workflowsDir, `${record.workflowId}.lock`);
+    const token = await acquireLock(lockPath);
+    if (!token) return { status: "busy" };
+    try {
+        const current = await readRecordAt(path);
+        if ((current?.revision ?? null) !== expectedRevision) return { status: "conflict", current };
+        await removeAbandonedTemporaryFiles(path);
+        await atomicWrite(path, record);
+        return { status: "written" };
+    } finally {
+        await releaseLock(lockPath, token);
+    }
+}

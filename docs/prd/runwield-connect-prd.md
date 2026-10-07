@@ -104,7 +104,11 @@ compatibility, privacy at the host boundary, and host-specific continuation.
 
 ### Explicit per-request activation
 
-**Scope and maturity:** Target for the first Claude Code Preview and all later adapters.
+**Scope and maturity:** Target for the first Claude Code Preview and all later adapters. Current Core subset: activation
+steps 1, 3, and 4 below. `wld attached activate` identifies the Project root, binds one host request to one Attached
+Workflow Record, and returns a pending Triage action that names the Router role and a contract version. The same
+operations are available as MCP tools through `wld attached mcp`. Plugin installation, host and Core preflight (step 2),
+and the Claude Code adapter remain target scope.
 
 **Requirement: Leave ordinary host work unchanged outside explicit activation.**
 
@@ -290,7 +294,12 @@ uses the same guidance within each user project’s own PRD structure.
 
 ### Lazy project setup and recovery
 
-**Scope and maturity:** Target for the first Preview; no always-running service prerequisite.
+**Scope and maturity:** Target for the first Preview; no always-running service prerequisite. Current Core subset:
+continuation after process loss for activation and Triage. Each `wld attached` operation is a separate short process. A
+later process accepts the Triage outcome exactly once, a repeated operation returns its saved result, and status reads
+saved state only. Activation and Triage write nothing to the repository. A PLANNED_CHANGE outcome waits for planning;
+every other Routing Intent closes the workflow as unsupported in this Preview. The setup preview for material repo-local
+changes remains target scope; it first applies when an Attached Workflow submits a Plan.
 
 **Requirement: Start with necessary setup and preserve work after interruption.**
 
