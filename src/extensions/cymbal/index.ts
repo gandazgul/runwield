@@ -3,7 +3,8 @@
  * Cymbal code search extension for RunWield agent invocations.
  */
 
-import { createCymbalTools } from "./tools.ts";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { createCymbalTools, type CymbalToolHost } from "./tools.ts";
 export {
     codeBatchToolDef,
     codeImpactToolDef,
@@ -20,18 +21,11 @@ export {
 
 /**
  * Register Cymbal lifecycle hooks and tools.
- *
- * @param {import('@earendil-works/pi-coding-agent').ExtensionAPI} pi
  */
-export default function cymbalExtension(pi) {
-    const failedToolCalls = new Set();
-    const host = {
+export default function cymbalExtension(pi: ExtensionAPI): void {
+    const failedToolCalls = new Set<string>();
+    const host: CymbalToolHost = {
         cwd: Deno.cwd(),
-        /**
-         * @param {string} command
-         * @param {string[]} args
-         * @param {{ cwd: string, signal?: AbortSignal }} options
-         */
         exec(command, args, options) {
             return pi.exec(command, args, options);
         },
@@ -59,7 +53,7 @@ export default function cymbalExtension(pi) {
     // because RunWield does not ingest Claude Code's native tool loop.
     pi.on("tool_result", async (event, _ctx) => {
         if (failedToolCalls.delete(event.toolCallId)) return { isError: true };
-        let commandToInspect = null;
+        let commandToInspect: string | null = null;
         if (event.toolName === "bash" && event.input?.command) {
             commandToInspect = String(event.input.command);
         } else if (event.toolName === "grep" && event.input?.pattern) {

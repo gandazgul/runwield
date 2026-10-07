@@ -38,7 +38,7 @@ import {
     normalizeRuntimeUsage,
     RuntimeEventTypes,
 } from "./session-runtime-events.js";
-import mnemotecaExtension, { memoryToolDef } from "../../extensions/mnemoteca/index.js";
+import mnemotecaExtension, { memoryToolDef } from "../../extensions/mnemoteca/index.ts";
 import cymbalExtension, {
     codeBatchToolDef,
     codeImpactToolDef,
@@ -51,7 +51,7 @@ import cymbalExtension, {
     codeShowToolDef,
     codeStructureToolDef,
     codeTraceToolDef,
-} from "../../extensions/cymbal/index.js";
+} from "../../extensions/cymbal/index.ts";
 import ketchExtension, {
     webCodeSearchToolDef,
     webDocsSearchToolDef,
