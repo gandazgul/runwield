@@ -31,9 +31,8 @@ export const LOCK_DIR = join(LOCK_ROOT, `${LOCK_PREFIX}${Deno.pid}${LOCK_SUFFIX}
 export const HEARTBEAT_MS = 3_000;
 const STALE_LOCK_MS = 30_000;
 
-/** @param {number} ms */
-function delay(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+function delay(ms: number): Promise<void> {
+    return new Promise<void>((resolve) => setTimeout(resolve, ms));
 }
 
 function startLockHeartbeat() {
@@ -120,12 +119,7 @@ export function releaseProcessGlobalTestLockSync() {
     }
 }
 
-/**
- * @template T
- * @param {() => Promise<T>} fn
- * @returns {Promise<T>}
- */
-export async function withProcessGlobalTestLock(fn) {
+export async function withProcessGlobalTestLock<T>(fn: () => Promise<T>): Promise<T> {
     const heartbeat = await acquireProcessGlobalTestLock();
     try {
         return await fn();

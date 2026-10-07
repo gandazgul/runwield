@@ -5,7 +5,7 @@ import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { Client } from "@modelcontextprotocol/sdk/client";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp";
 import { getCwd, getHomeDir, SUBAGENTS } from "../constants.js";
-import { withProcessGlobalTestLock } from "../testing/process-global-lock.js";
+import { withProcessGlobalTestLock } from "../testing/process-global-lock.ts";
 import { __resetSettingsForTests, preserveRunWieldCustomSettingsForWrite } from "../shared/settings.js";
 import { createImage, encodeCreatedImage } from "../shared/image-generation.ts";
 import { persistImageAttachment } from "../shared/session/image-attachments.js";
