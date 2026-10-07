@@ -24,7 +24,6 @@
     "src/shared/owner-coordination/index.js",
     "src/shared/owner-coordination/pairing.js",
     "src/shared/owner-coordination/projects.js",
-    "src/shared/owner-coordination/schema.js",
     "src/shared/owner-coordination/session-activations.js",
     "src/shared/owner-coordination/sessions.js",
     "src/shared/package-resources.js",
