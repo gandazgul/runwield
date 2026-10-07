@@ -71,7 +71,7 @@ import {
     authorizeOwnerUpgradeRequest,
     isOwnerUpgradeRequest,
     renewDeviceCookies,
-} from "./server/owner-auth.js";
+} from "./server/owner-auth.ts";
 import { createWorkspaceSessionContinuationService } from "./server/session-continuation.js";
 import {
     ownerNotificationsStreamApi,

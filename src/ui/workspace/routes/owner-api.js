@@ -7,7 +7,7 @@ import {
     clearDeviceCookieHeaders,
     deviceCookieHeaders,
     getCookie,
-} from "../server/owner-auth.js";
+} from "../server/owner-auth.ts";
 import { loadBoard, loadWorkspaceDetail } from "../server/plan-adapter.js";
 import { runOwnerPlanAction } from "../server/owner-plan-actions.ts";
 import { loadOwnerPlanProgress } from "../server/owner-plan-progress.ts";
