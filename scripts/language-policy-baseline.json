@@ -27,7 +27,6 @@
     "src/shared/session/agent-handler.js",
     "src/shared/session/agent-switching.js",
     "src/shared/session/agents.js",
-    "src/shared/session/early-steering.js",
     "src/shared/session/execution-workflow-session.js",
     "src/shared/session/hosted-session.js",
     "src/shared/session/image-attachments.js",
