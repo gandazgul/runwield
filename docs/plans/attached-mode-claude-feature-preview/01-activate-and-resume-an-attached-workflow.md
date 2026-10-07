@@ -24,7 +24,8 @@ dependencies:
     []
 targetBranch: "epic/attached-mode-claude-feature-preview"
 userVerifiedAt: null
-status: "validated_reviewer"
+status: "validated"
+validatedCommit: "243afd4d031a74c2790ca8116c3ab0155f316153"
 ---
 
 # Activate and resume an Attached Workflow
