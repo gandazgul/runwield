@@ -14,7 +14,7 @@ import { readControllerRecord } from "../../../shared/workflow/controller-regist
 import { getCurrentSystemPrompt, getCurrentTools } from "@earendil-works/pi-ai";
 import { registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { findPlansByParent, loadPlan, parsePlanFrontMatter } from "../../../plan-store.js";
-import { withProcessGlobalTestLock } from "../../../testing/process-global-lock.js";
+import { withProcessGlobalTestLock } from "../../../testing/process-global-lock.ts";
 import { submitPlanForReview } from "../../review/plan-review.ts";
 import { createScriptedReviewBrowser } from "../../review/review-test-fixture.ts";
 import { createFauxMessageForTurn, GoldenScenarioActor } from "./scenario-actor.js";

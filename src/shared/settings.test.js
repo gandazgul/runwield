@@ -28,7 +28,7 @@ import {
     shouldAutoGenerateWorkRecordsOnPlanCompletion,
     shouldCleanupMergedWorktrees,
 } from "./settings.js";
-import { withProcessGlobalTestLock } from "../testing/process-global-lock.js";
+import { withProcessGlobalTestLock } from "../testing/process-global-lock.ts";
 import { defineGitFixture, git } from "./git-test-fixture.ts";
 
 // Use a temp dir for isolated file-based tests

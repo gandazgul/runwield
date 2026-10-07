@@ -12,7 +12,7 @@ import { PlanDetail } from "./components/PlanDetail.jsx";
 
 import { createWorkspaceApp } from "./server.js";
 import { createWorkRecordMnemotecaFixture } from "../../shared/work-records/test-fixtures/mnemoteca-port.ts";
-import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
+import { withProcessGlobalTestLock } from "../../testing/process-global-lock.ts";
 
 Deno.test("Workspace wrapper protects page routes and serves public assets without token", async () => {
     const cwd = await Deno.makeTempDir();

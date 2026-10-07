@@ -1,7 +1,7 @@
 import { assertEquals } from "@std/assert";
 import { join } from "@std/path";
 import { getHomeDir } from "../constants.js";
-import { withProcessGlobalTestLock } from "../testing/process-global-lock.js";
+import { withProcessGlobalTestLock } from "../testing/process-global-lock.ts";
 import { persistImageAttachment } from "../shared/session/image-attachments.js";
 import { createSeeImageTool, DEFAULT_SEE_IMAGE_PROMPT, extractAssistantText } from "./see-image.ts";
 

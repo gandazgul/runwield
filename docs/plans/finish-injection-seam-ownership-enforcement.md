@@ -219,7 +219,7 @@ compatibility constraint, not a document to revise.
   contract tests.
 - `src/shared/workflow/validation-test-helpers.js#makeValidationProjectRoot` and `attachRecorder` — isolated real Plans,
   project state, `HostedSession`, and Runtime events.
-- `src/testing/process-global-lock.js#withProcessGlobalTestLock` — safe `HOME`, `PATH`, and working-directory mutation.
+- `src/testing/process-global-lock.ts#withProcessGlobalTestLock` — safe `HOME`, `PATH`, and working-directory mutation.
 - `src/ui/tui/testing/interactive-composition-fixture.ts` and existing Golden TUI fixtures — real command-to-TUI
   composition without opening a browser or calling a model.
 - `src/shared/work-records/mnemoteca-port.ts#WorkRecordMnemotecaPort` — shared external Mnemoteca process execution for

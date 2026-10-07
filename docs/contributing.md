@@ -181,7 +181,7 @@ rewriting, and focused tests.
 - Resolve home and cwd through `getHomeDir()` and `getCwd()` from `src/constants.js` in `src/`. Do not read
   `Deno.env.get("HOME")` or `Deno.cwd()` directly in source, and do not cache process-global state at module scope.
 - Wrap tests that mutate `HOME` or the working directory in `withProcessGlobalTestLock` from
-  `src/testing/process-global-lock.js`.
+  `src/testing/process-global-lock.ts`.
 - Preserve the layered customization model: project `.wld/` overrides home `~/.wld/`, which overrides bundled defaults.
 - Keep docs, plans, ADRs, PRDs, and Work Records as Markdown.
 
