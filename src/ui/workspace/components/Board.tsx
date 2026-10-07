@@ -1,11 +1,36 @@
+import type { BoardColumnData } from "./BoardColumn.tsx";
+import type { PlanCardData } from "./PlanCard.tsx";
+import type { PlanBoardView } from "./PlanBoardToolbar.tsx";
 import { PlanBoardDragDrop } from "../islands/PlanBoardDragDrop.jsx";
-import { BoardColumn } from "./BoardColumn.jsx";
+import { BoardColumn } from "./BoardColumn.tsx";
 import { PlanCard } from "./PlanCard.tsx";
 
 export { buildPlanBoardSearchIndex } from "../plan-search.ts";
 
-/** @param {{ screen: any, url: URL | string }} props */
-function OrphanRepairSection({ screen, url }) {
+export interface PlanBoardScreen {
+    title: string;
+    columns: BoardColumnData[];
+    orphanChildren?: PlanCardData[];
+}
+
+export interface PlanBoardData {
+    screens: Record<PlanBoardView, PlanBoardScreen>;
+}
+
+export interface OrphanRepairSectionProps {
+    screen: PlanBoardScreen;
+    url: URL | string;
+}
+
+export interface PlanBoardProps {
+    board: PlanBoardData;
+    view: PlanBoardView;
+    url: URL | string;
+    staticRender?: boolean;
+    staticRenderNotice?: string;
+    draggableCards?: boolean;
+}
+function OrphanRepairSection({ screen, url }: OrphanRepairSectionProps) {
     if (!screen.orphanChildren?.length) return null;
     return (
         <section className="repair-lane" data-plan-search-repair>
@@ -18,7 +43,7 @@ function OrphanRepairSection({ screen, url }) {
                 </p>
             </header>
             <div className="repair-grid">
-                {screen.orphanChildren.map(/** @param {any} plan */ (plan) => (
+                {screen.orphanChildren.map((plan) => (
                     <PlanCard key={plan.planId} plan={plan} url={url} roleLabel="Orphan child" />
                 ))}
                 <p className="empty compact-empty filtered-empty" data-filtered-empty hidden>
@@ -29,8 +54,9 @@ function OrphanRepairSection({ screen, url }) {
     );
 }
 
-/** @param {{ board: any, view: "active"|"closed"|"onHold", url: URL | string, staticRender?: boolean, staticRenderNotice?: string, draggableCards?: boolean }} props */
-export function PlanBoard({ board, view, url, staticRender = false, staticRenderNotice, draggableCards = true }) {
+export function PlanBoard(
+    { board, view, url, staticRender = false, staticRenderNotice, draggableCards = true }: PlanBoardProps,
+) {
     const screen = board.screens[view];
     const boardId = `status-board-${view}`;
     return (
@@ -41,7 +67,7 @@ export function PlanBoard({ board, view, url, staticRender = false, staticRender
                 data-plan-board="true"
                 aria-label={`${screen.title} status columns`}
             >
-                {screen.columns.map(/** @param {any} column */ (column) => (
+                {screen.columns.map((column) => (
                     <BoardColumn key={column.status} column={column} url={url} draggableCards={draggableCards} />
                 ))}
             </div>
