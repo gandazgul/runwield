@@ -3,22 +3,16 @@
  * Mnemoteca memory extension for RunWield agent invocations.
  */
 
-import { createMnemotecaTools } from "./tools.ts";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { createMnemotecaTools, type MnemotecaToolHost } from "./tools.ts";
 export { memoryToolDef } from "./tools.ts";
 
 /**
  * Register Mnemoteca lifecycle hooks and memory tools.
- *
- * @param {import('@earendil-works/pi-coding-agent').ExtensionAPI} pi
  */
-export default function mnemotecaExtension(pi) {
-    const host = {
+export default function mnemotecaExtension(pi: ExtensionAPI): void {
+    const host: MnemotecaToolHost = {
         cwd: Deno.cwd(),
-        /**
-         * @param {string} command
-         * @param {string[]} args
-         * @param {{ cwd: string, signal?: AbortSignal }} options
-         */
         exec(command, args, options) {
             return pi.exec(command, args, options);
         },
