@@ -10,7 +10,7 @@ import {
     RunWieldLink,
     RunWieldPanelToggle,
     RunWieldThinkingDots,
-} from "../../design-system/components/react/RunWieldPrimitives.jsx";
+} from "../../design-system/components/react/RunWieldPrimitives.tsx";
 import { SessionList } from "../components/SessionList.jsx";
 import { deriveSessionAvailability } from "../components/SessionActivationStatus.tsx";
 import {

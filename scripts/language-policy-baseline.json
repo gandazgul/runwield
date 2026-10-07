@@ -71,7 +71,6 @@
     "src/tools/grep.js",
     "src/tools/read.js",
     "src/ui/design-system/components/Dialog.jsx",
-    "src/ui/design-system/components/react/RunWieldPrimitives.jsx",
     "src/ui/design-system/sidebar-motion.js",
     "src/ui/theme/theme-json.js",
     "src/ui/theme/theme.js",
