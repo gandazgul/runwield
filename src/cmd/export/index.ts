@@ -4,32 +4,21 @@
  */
 
 import { isAbsolute, join } from "@std/path";
+import type { CommandContext } from "../registry.js";
 
-/**
- * @param {string} value
- * @returns {string}
- */
-function sanitizeFilenameSegment(value) {
+function sanitizeFilenameSegment(value: string): string {
     return value.replace(/[\\/:*?"<>|]/g, "-");
 }
 
-/**
- * @param {string} projectRoot
- * @param {string} sessionStartIso
- * @returns {string}
- */
-function buildDefaultExportPath(projectRoot, sessionStartIso) {
+function buildDefaultExportPath(projectRoot: string, sessionStartIso: string): string {
     const safeIso = sanitizeFilenameSegment(sessionStartIso).replace(/\.\d{3}Z$/, "");
     return join(projectRoot, `session-${safeIso}.html`);
 }
 
 /**
  * Handle `/export` command (slash-only).
- *
- * @param {string[]} argv
- * @param {import('../registry.js').CommandContext} [options]
  */
-export async function runExportCommand(argv, options = {}) {
+export async function runExportCommand(argv: string[], options: CommandContext = {}): Promise<void | "failed"> {
     const { uiAPI, editor, sessionRuntime, sessionId, sessionStartedAt } = options;
     if (!uiAPI || !sessionRuntime || !sessionId) {
         return "failed";
