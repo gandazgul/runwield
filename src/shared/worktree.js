@@ -570,7 +570,13 @@ export async function checkpointExecutionPreparation({
     planRelativePath,
     relatedPlanPaths = [],
 }) {
-    const preparationPaths = [...new Set([planRelativePath, ...relatedPlanPaths])];
+    // Planning can leave new drafts and normalized legacy Plans outside the
+    // active Epic family. Use the same preparation boundary as resume detection;
+    // these files are the input baseline, never post-validation exceptions.
+    const dirtyPreparationPaths = (await gitStatusPaths(worktreePath)).filter((path) =>
+        isExecutionPreparationPath(path) && !isRunWieldOwnedRuntimePath(path)
+    );
+    const preparationPaths = [...new Set([planRelativePath, ...relatedPlanPaths, ...dirtyPreparationPaths])];
     if (await pathExists(join(worktreePath, ".gitignore"))) preparationPaths.push(".gitignore");
     const headBefore = (await runGit(worktreePath, ["rev-parse", "HEAD"])).trim();
     if (headBefore !== baseCommit) {
@@ -584,7 +590,7 @@ export async function checkpointExecutionPreparation({
             ? parseNameOnlyPaths(await runGit(worktreePath, ["diff", "--name-only", `${baseCommit}..${headBefore}`]))
             : [];
         const unexpectedPaths = baseIsAncestor.code === 0
-            ? filterUserDirtyPaths(committedPaths, new Set(preparationPaths))
+            ? committedPaths.filter((path) => !isExecutionPreparationPath(path))
             : ["branch history"];
         if (unexpectedPaths.length > 0) {
             throw new Error(

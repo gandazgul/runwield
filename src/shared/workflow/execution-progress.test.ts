@@ -484,6 +484,86 @@ Deno.test("reused child preparation does not require a local copy of its parent"
     }
 });
 
+Deno.test("execution starts with registered sibling scope moves and leftover planning documents", async () => {
+    const planName = "remote/03-writer";
+    const siblingName = "remote/04-history";
+    const projectRoot = await makeWorkflowProject([
+        { name: planName, attrs: { parentPlan: "remote" } },
+        { name: siblingName, status: "draft", attrs: { parentPlan: "remote" } },
+        { name: "legacy-plan" },
+    ]);
+    const hostedSession = makeHostedSession("planning-document-recovery", projectRoot, []);
+    const worktrees: string[] = [];
+    try {
+        await git(projectRoot, ["add", "docs/plans"]);
+        await git(projectRoot, ["commit", "-m", "Planning baseline"]);
+        const siblingWorktree = await settleWorktreeAttempt(
+            projectRoot,
+            await createWorktreeGitArtifacts({
+                projectRoot,
+                planName: siblingName,
+                planId: `${PLAN_ID}-1`,
+            }),
+        );
+        worktrees.push(siblingWorktree.path);
+        await updateWorktreeRegistryEntry(projectRoot, siblingWorktree.id, { status: "planning" });
+        const worktree = await settleWorktreeAttempt(
+            projectRoot,
+            await createWorktreeGitArtifacts({
+                projectRoot,
+                planName,
+                planId: PLAN_ID,
+            }),
+        );
+        worktrees.push(worktree.path);
+        await updateWorktreeRegistryEntry(projectRoot, worktree.id, { status: "planning" });
+        const sibling = await loadPlan(worktree.path, siblingName);
+        assert(sibling);
+        await Deno.writeTextFile(
+            sibling.path,
+            `${sibling.markdown}\nUse the laptop-owned save bridge from child 03.\n`,
+        );
+        const legacy = await loadPlan(worktree.path, "legacy-plan");
+        assert(legacy);
+        await updatePlanFrontMatter(worktree.path, "legacy-plan", { status: "feedback" }, {}, {
+            expectedRevision: legacy.revision,
+        });
+        await savePlan(worktree.path, "save-proof", "# Earlier planning proof\n", {
+            status: "ready_for_work",
+            planId: "earlier-proof",
+        });
+        // The reported attempt included both staged and unstaged Plan edits.
+        await git(worktree.path, ["add", `docs/plans/${siblingName}.md`]);
+
+        const workflow = await startActiveExecutionWorkflow({
+            planName,
+            triageMeta: { planId: PLAN_ID, classification: "PLANNED_CHANGE", parentPlan: "remote" },
+            currentStatus: "ready_for_work",
+            hostedSession,
+            ports: createExecutionStartPorts(),
+        });
+
+        assertEquals(workflow.executionStarted, true);
+        assertEquals(workflow.executionCwd, worktree.path);
+        assertEquals((await loadPlan(worktree.path, planName))?.attrs.status, "in_progress");
+        assertStringIncludes((await loadPlan(siblingWorktree.path, siblingName))!.body, "laptop-owned save bridge");
+        assertEquals((await loadPlan(siblingWorktree.path, siblingName))?.attrs.status, "draft");
+        assertEquals((await loadPlan(worktree.path, "legacy-plan"))?.attrs.status, "feedback");
+        assertStringIncludes(
+            await git(worktree.path, ["show", "HEAD:docs/plans/save-proof.md"]),
+            "Earlier planning proof",
+        );
+        assertEquals(await git(worktree.path, ["status", "--porcelain"]), "");
+        assertEquals((await loadPlan(projectRoot, "legacy-plan"))?.attrs.status, "ready_for_work");
+    } finally {
+        hostedSession.dispose();
+        for (const path of worktrees) {
+            await removeWorktreeGitArtifacts({ projectRoot, path, force: true }).catch(() => undefined);
+        }
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => undefined);
+    }
+});
+
 Deno.test("execution preparation progress reports non-Git in-place preparation without worktree creation", async () => {
     const projectRoot = await Deno.makeTempDir({ prefix: "runwield-non-git-progress-" });
     const events: RuntimeStatusEvent[] = [];

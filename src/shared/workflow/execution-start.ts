@@ -446,6 +446,11 @@ export async function startActiveExecutionWorkflow(
     const needsExecutionStartedEvent = authorityStatus !== "in_progress";
     /** @type {Extract<Awaited<ReturnType<typeof loadCanonicalExecutionPlanSource>>, {kind:"loaded"}> | undefined} */
     let lockedCanonicalPlanSource;
+    // Reconcile cross-worktree planning edits before acquiring the active Plan's
+    // transition lock, so simultaneous sibling starts cannot lock each other out.
+    const editedSiblingPaths = reusable && needsPreparationCheckpoint
+        ? await prepareEditedSiblingPlans(reusable.path, planName, preflightCanonicalPlanSource.relativePath)
+        : [];
     const transition = await runExecutionPreparationTransition({
         // Lock the approved source document. A fresh execution directory does
         // not exist yet; a reopened Plan can still live in its retired directory.
@@ -708,7 +713,9 @@ export async function startActiveExecutionWorkflow(
                 // Sibling drafts Planner reshaped while planning this child travel with it.
                 relatedPlanPaths = [
                     ...relatedPlanPaths,
-                    ...await prepareEditedSiblingPlans(worktree.path, planName, planFile.relativePath),
+                    ...(reusedWorktree
+                        ? editedSiblingPaths
+                        : await prepareEditedSiblingPlans(worktree.path, planName, planFile.relativePath)),
                 ];
                 const preparation = await checkpointExecutionPreparation({
                     worktreePath: worktree.path,
