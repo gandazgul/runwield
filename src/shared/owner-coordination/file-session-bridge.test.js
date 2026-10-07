@@ -2,7 +2,7 @@ import { assertEquals } from "@std/assert";
 import { join } from "@std/path";
 import { DatabaseSync } from "node:sqlite";
 import { openFileSessionStore } from "../session/file-session-store.ts";
-import { encodeCwdForSessionDir } from "../session/root-session.js";
+import { encodeCwdForSessionDir } from "../project-directory-key.ts";
 import { openOwnerCoordinationStore } from "./index.js";
 
 /** @param {DatabaseSync} database @param {string} table */
