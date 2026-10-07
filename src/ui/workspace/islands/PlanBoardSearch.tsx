@@ -1,15 +1,13 @@
 import Fuse from "fuse.js";
-import { useEffect, useMemo, useState } from "react";
+import { type SyntheticEvent, useEffect, useMemo, useState } from "react";
 import { PLAN_SEARCH_QUERY_PARAM } from "../constants.ts";
+import type { PlanSearchEntry } from "../plan-search.ts";
 
-/** @typedef {import('../plan-search.ts').PlanSearchEntry} PlanSearchEntry */
-
-/**
- * @typedef {Object} PlanBoardSearchProps
- * @property {string} boardId
- * @property {PlanSearchEntry[]} searchIndex
- * @property {string} [initialQuery]
- */
+export interface PlanBoardSearchProps {
+    boardId: string;
+    searchIndex: PlanSearchEntry[];
+    initialQuery?: string;
+}
 
 export { PLAN_SEARCH_QUERY_PARAM };
 
@@ -24,51 +22,31 @@ export const PLAN_SEARCH_OPTIONS = Object.freeze({
     includeScore: true,
 });
 
-/**
- * @param {unknown} value
- * @returns {string}
- */
-export function normalizePlanSearchQuery(value) {
+export function normalizePlanSearchQuery<T>(value: T): string {
     return String(value || "").trim().replace(/\s+/g, " ");
 }
 
-/**
- * @param {PlanSearchEntry[]} searchIndex
- * @param {string} query
- * @returns {Set<string>}
- */
-export function matchingPlanIds(searchIndex, query) {
+export function matchingPlanIds(searchIndex: PlanSearchEntry[], query: string): Set<string> {
     const normalizedQuery = normalizePlanSearchQuery(query);
     if (!normalizedQuery) return new Set(searchIndex.map((entry) => entry.planId));
     const fuse = new Fuse(searchIndex, PLAN_SEARCH_OPTIONS);
     return new Set(fuse.search(normalizedQuery).map((result) => result.item.planId));
 }
 
-/**
- * @param {PlanSearchEntry} plan
- * @param {string} query
- * @returns {boolean}
- */
-export function planMatchesSearch(plan, query) {
+export function planMatchesSearch(plan: PlanSearchEntry, query: string): boolean {
     return matchingPlanIds([plan], query).has(plan.planId);
 }
 
-/**
- * @param {string} query
- */
-function replaceQueryInUrl(query) {
+function replaceQueryInUrl(query: string) {
     const url = new URL(globalThis.location.href);
     if (query) url.searchParams.set(PLAN_SEARCH_QUERY_PARAM, query);
     else url.searchParams.delete(PLAN_SEARCH_QUERY_PARAM);
     globalThis.history.replaceState(globalThis.history.state, "", `${url.pathname}${url.search}${url.hash}`);
 }
 
-/**
- * @param {string} query
- */
-function syncQueryInWorkspaceLinks(query) {
-    for (const link of document.querySelectorAll("a[href]")) {
-        const anchor = /** @type {HTMLAnchorElement} */ (link);
+function syncQueryInWorkspaceLinks(query: string) {
+    for (const link of document.querySelectorAll<HTMLAnchorElement>("a[href]")) {
+        const anchor = link;
         const href = anchor.getAttribute("href") || "";
         if (!href || href.startsWith("#")) continue;
         const url = new URL(href, globalThis.location.href);
@@ -79,46 +57,40 @@ function syncQueryInWorkspaceLinks(query) {
     }
 }
 
-/**
- * @param {Element} scope
- * @param {Set<string>} visiblePlanIds
- * @param {boolean} hasQuery
- */
-export function applyPlanSearchDomState(scope, visiblePlanIds, hasQuery) {
-    const cards = [...scope.querySelectorAll("[data-plan-search-card]")];
+export function applyPlanSearchDomState(scope: Element, visiblePlanIds: Set<string>, hasQuery: boolean) {
+    const cards = [...scope.querySelectorAll<HTMLElement>("[data-plan-search-card]")];
     for (const card of cards) {
-        const planId = /** @type {HTMLElement} */ (card).dataset.planSearchCard || "";
+        const planId = card.dataset.planSearchCard || "";
         const visible = !hasQuery || visiblePlanIds.has(planId);
-        /** @type {HTMLElement} */ (card).hidden = !visible;
+        card.hidden = !visible;
     }
 
-    for (const column of scope.querySelectorAll("[data-plan-search-column]")) {
-        const columnElement = /** @type {HTMLElement} */ (column);
-        const columnCards = [...columnElement.querySelectorAll("[data-plan-search-card]")];
-        const columnVisibleCount = columnCards.filter((card) => !/** @type {HTMLElement} */ (card).hidden).length;
+    for (const column of scope.querySelectorAll<HTMLElement>("[data-plan-search-column]")) {
+        const columnElement = column;
+        const columnCards = [...columnElement.querySelectorAll<HTMLElement>("[data-plan-search-card]")];
+        const columnVisibleCount = columnCards.filter((card) => !card.hidden).length;
         const count = columnElement.querySelector("[data-column-count]");
         if (count) {
             count.textContent = hasQuery
                 ? String(columnVisibleCount)
                 : columnElement.dataset.columnOriginalCount || String(columnVisibleCount);
         }
-        const filteredEmpty = columnElement.querySelector("[data-filtered-empty]");
-        if (filteredEmpty) /** @type {HTMLElement} */ (filteredEmpty).hidden = !hasQuery || columnVisibleCount > 0;
-        const originalEmpty = columnElement.querySelector("[data-original-empty]");
-        if (originalEmpty) /** @type {HTMLElement} */ (originalEmpty).hidden = hasQuery;
+        const filteredEmpty = columnElement.querySelector<HTMLElement>("[data-filtered-empty]");
+        if (filteredEmpty) filteredEmpty.hidden = !hasQuery || columnVisibleCount > 0;
+        const originalEmpty = columnElement.querySelector<HTMLElement>("[data-original-empty]");
+        if (originalEmpty) originalEmpty.hidden = hasQuery;
     }
 
-    for (const repairLane of scope.querySelectorAll("[data-plan-search-repair]")) {
-        const laneElement = /** @type {HTMLElement} */ (repairLane);
-        const laneCards = [...laneElement.querySelectorAll("[data-plan-search-card]")];
-        const laneVisibleCount = laneCards.filter((card) => !/** @type {HTMLElement} */ (card).hidden).length;
-        const filteredEmpty = laneElement.querySelector("[data-filtered-empty]");
-        if (filteredEmpty) /** @type {HTMLElement} */ (filteredEmpty).hidden = !hasQuery || laneVisibleCount > 0;
+    for (const repairLane of scope.querySelectorAll<HTMLElement>("[data-plan-search-repair]")) {
+        const laneElement = repairLane;
+        const laneCards = [...laneElement.querySelectorAll<HTMLElement>("[data-plan-search-card]")];
+        const laneVisibleCount = laneCards.filter((card) => !card.hidden).length;
+        const filteredEmpty = laneElement.querySelector<HTMLElement>("[data-filtered-empty]");
+        if (filteredEmpty) filteredEmpty.hidden = !hasQuery || laneVisibleCount > 0;
     }
 }
 
-/** @param {PlanBoardSearchProps} props */
-export function PlanBoardSearch({ boardId, searchIndex, initialQuery = "" }) {
+export function PlanBoardSearch({ boardId, searchIndex, initialQuery = "" }: PlanBoardSearchProps) {
     const [query, setQuery] = useState(normalizePlanSearchQuery(initialQuery));
     const resultIds = useMemo(() => matchingPlanIds(searchIndex, query), [searchIndex, query]);
 
@@ -131,8 +103,7 @@ export function PlanBoardSearch({ boardId, searchIndex, initialQuery = "" }) {
         syncQueryInWorkspaceLinks(normalizedQuery);
     }, [boardId, query, resultIds]);
 
-    /** @param {{ currentTarget: HTMLInputElement }} event */
-    function handleInput(event) {
+    function handleInput(event: SyntheticEvent<HTMLInputElement>) {
         setQuery(event.currentTarget.value);
     }
 
