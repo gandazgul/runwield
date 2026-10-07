@@ -3,34 +3,18 @@ import { dirname, join } from "@std/path";
 import { WORK_KINDS } from "../../constants.js";
 import { git } from "../git-test-fixture.ts";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js";
-import { runAttachedOperation } from "./coordinator.ts";
-import type { AttachedJsonObject, AttachedOperationName, AttachedOperationResult } from "./operations.ts";
+import type { AttachedJsonObject } from "./operations.ts";
 import { loadAttachedWorkflowRecord, locateAttachedWorkflows, writeAttachedWorkflowRecord } from "./record-store.ts";
 import {
     activateInput,
     pendingTriage,
-    projectFixture,
     readRecordBytes,
-    submitInput,
-    type SubmitInputOptions,
+    rejectionCode,
+    runOperation as run,
+    triageReportInput,
+    type TriageReportInputOptions,
+    withProject,
 } from "./attached-test-fixture.ts";
-
-function run(name: AttachedOperationName, projectRoot: string, input: AttachedJsonObject) {
-    return runAttachedOperation(name, projectRoot, JSON.stringify(input));
-}
-
-function rejectionCode(result: AttachedOperationResult): string | null {
-    return result.ok ? null : result.rejection.code;
-}
-
-async function withProject(fn: (projectRoot: string) => Promise<void>): Promise<void> {
-    const projectRoot = await projectFixture.checkout({ prefix: "runwield-attached-" });
-    try {
-        await fn(projectRoot);
-    } finally {
-        await Deno.remove(projectRoot, { recursive: true }).catch(() => undefined);
-    }
-}
 
 async function activated(projectRoot: string) {
     const result = await run("activate", projectRoot, activateInput());
@@ -58,11 +42,17 @@ for (const workKind of WORK_KINDS) {
         await withProject(async (projectRoot) => {
             const triage = await activated(projectRoot);
             const outcome = { routingIntent: "PLANNED_CHANGE", workKind, complexity: "LOW", summary: "planned" };
-            const submitted = await run("submit", projectRoot, submitInput({ ...triage, outcome }));
+            const submitted = await run("triage_report", projectRoot, triageReportInput({ ...triage, outcome }));
             assert(submitted.ok, JSON.stringify(submitted));
             assertEquals(submitted.workflow.revision, 2);
             assertEquals(submitted.workflow.state, "awaiting_planning");
-            assertEquals(submitted.workflow.nextAction, { kind: "plan" });
+            const action = submitted.workflow.nextAction;
+            assert(action.kind === "plan", JSON.stringify(action));
+            assertEquals(action.role, "planner");
+            assertEquals(action.contractVersion, "runwield.attached.planner/1");
+            // The test sandbox keeps runtime state outside the repository, so only the
+            // managed .gitignore block is a repository change here.
+            assertEquals(action.projectSetup, [".gitignore"]);
             assertEquals(submitted.workflow.triageOutcome?.workKind, workKind);
             assertEquals(submitted.workflow.closure, null);
         });
@@ -74,7 +64,7 @@ for (const routingIntent of ["INQUIRY", "QUICK_FIX", "PROJECT"]) {
         await withProject(async (projectRoot) => {
             const triage = await activated(projectRoot);
             const outcome = { routingIntent, complexity: "LOW", summary: "not planned here" };
-            const submitted = await run("submit", projectRoot, submitInput({ ...triage, outcome }));
+            const submitted = await run("triage_report", projectRoot, triageReportInput({ ...triage, outcome }));
             assert(submitted.ok, JSON.stringify(submitted));
             assertEquals(submitted.workflow.state, "closed");
             assertEquals(submitted.workflow.closure, { reason: "unsupported_in_preview", routingIntent });
@@ -83,12 +73,12 @@ for (const routingIntent of ["INQUIRY", "QUICK_FIX", "PROJECT"]) {
     });
 }
 
-Deno.test("repeating an accepted submit returns the saved result and changes nothing", async () => {
+Deno.test("repeating an accepted triage_report returns the saved result and changes nothing", async () => {
     await withProject(async (projectRoot) => {
         const triage = await activated(projectRoot);
-        const first = await run("submit", projectRoot, submitInput(triage));
+        const first = await run("triage_report", projectRoot, triageReportInput(triage));
         const bytes = await readRecordBytes(projectRoot, triage.workflowId);
-        const repeated = await run("submit", projectRoot, submitInput(triage));
+        const repeated = await run("triage_report", projectRoot, triageReportInput(triage));
         assertEquals(repeated, first);
         assertEquals(await readRecordBytes(projectRoot, triage.workflowId), bytes);
     });
@@ -105,9 +95,9 @@ Deno.test("repeating an accepted activation returns the same workflow", async ()
 Deno.test("a different operation against an old revision is rejected", async () => {
     await withProject(async (projectRoot) => {
         const triage = await activated(projectRoot);
-        await run("submit", projectRoot, submitInput(triage));
+        await run("triage_report", projectRoot, triageReportInput(triage));
         const bytes = await readRecordBytes(projectRoot, triage.workflowId);
-        const late = await run("submit", projectRoot, submitInput({ ...triage, operationId: "op-late" }));
+        const late = await run("triage_report", projectRoot, triageReportInput({ ...triage, operationId: "op-late" }));
         assertEquals(rejectionCode(late), "revision_conflict");
         assertEquals(await readRecordBytes(projectRoot, triage.workflowId), bytes);
     });
@@ -116,25 +106,25 @@ Deno.test("a different operation against an old revision is rejected", async () 
 type RejectionCase = {
     name: string;
     code: string;
-    input: (triage: SubmitInputOptions) => AttachedJsonObject;
+    input: (triage: TriageReportInputOptions) => AttachedJsonObject;
 };
 
 const REJECTION_CASES: RejectionCase[] = [
     {
         name: "a wrong action ID",
         code: "action_superseded",
-        input: (triage) => submitInput({ ...triage, actionId: "not-the-pending-action" }),
+        input: (triage) => triageReportInput({ ...triage, actionId: "not-the-pending-action" }),
     },
     {
         name: "a mismatched revision",
         code: "revision_conflict",
-        input: (triage) => submitInput({ ...triage, expectedRevision: 2 }),
+        input: (triage) => triageReportInput({ ...triage, expectedRevision: 2 }),
     },
     {
         name: "a malformed outcome",
         code: "invalid_outcome",
         input: (triage) =>
-            submitInput({
+            triageReportInput({
                 ...triage,
                 outcome: { routingIntent: "PLANNED_CHANGE", complexity: "EXTREME", summary: "s" },
             }),
@@ -143,7 +133,7 @@ const REJECTION_CASES: RejectionCase[] = [
         name: "an oversized payload",
         code: "payload_too_large",
         input: (triage) =>
-            submitInput({
+            triageReportInput({
                 ...triage,
                 outcome: { routingIntent: "PLANNED_CHANGE", complexity: "LOW", summary: "x".repeat(70 * 1024) },
             }),
@@ -152,33 +142,33 @@ const REJECTION_CASES: RejectionCase[] = [
         name: "a transcript-shaped field",
         code: "transcript_field",
         input: (triage) => {
-            const input = submitInput(triage);
+            const input = triageReportInput(triage);
             return { ...input, payload: { actionId: triage.actionId, outcome: {}, messages: [{ role: "user" }] } };
         },
     },
     {
         name: "a path-escape workflow ID",
         code: "path_field",
-        input: (triage) => submitInput({ ...triage, workflowId: `../${triage.workflowId}` }),
+        input: (triage) => triageReportInput({ ...triage, workflowId: `../${triage.workflowId}` }),
     },
     {
         name: "a path-like field",
         code: "path_field",
-        input: (triage) => ({ ...submitInput(triage), projectRoot: "/somewhere/else" }),
+        input: (triage) => ({ ...triageReportInput(triage), projectRoot: "/somewhere/else" }),
     },
     {
         name: "an unknown field",
         code: "unknown_field",
-        input: (triage) => ({ ...submitInput(triage), force: true }),
+        input: (triage) => ({ ...triageReportInput(triage), force: true }),
     },
 ];
 
 for (const rejectionCase of REJECTION_CASES) {
-    Deno.test(`submit rejects ${rejectionCase.name} and leaves the record unchanged`, async () => {
+    Deno.test(`triage_report rejects ${rejectionCase.name} and leaves the record unchanged`, async () => {
         await withProject(async (projectRoot) => {
             const triage = await activated(projectRoot);
             const bytes = await readRecordBytes(projectRoot, triage.workflowId);
-            const result = await run("submit", projectRoot, rejectionCase.input(triage));
+            const result = await run("triage_report", projectRoot, rejectionCase.input(triage));
             assertEquals(rejectionCode(result), rejectionCase.code, JSON.stringify(result));
             assertEquals(await readRecordBytes(projectRoot, triage.workflowId), bytes);
         });
@@ -199,15 +189,15 @@ Deno.test("a record write with a stale expected revision is a conflict and leave
     });
 });
 
-Deno.test("concurrent submits in one process accept exactly one outcome", async () => {
+Deno.test("concurrent triage_report calls in one process accept exactly one outcome", async () => {
     await withProject(async (projectRoot) => {
         const triage = await activated(projectRoot);
         const results = await Promise.all(
             ["PLANNED_CHANGE", "INQUIRY"].map((routingIntent, index) =>
                 run(
-                    "submit",
+                    "triage_report",
                     projectRoot,
-                    submitInput({
+                    triageReportInput({
                         ...triage,
                         operationId: `op-concurrent-${index}`,
                         outcome: { routingIntent, complexity: "LOW", summary: routingIntent },
@@ -225,7 +215,7 @@ Deno.test("concurrent submits in one process accept exactly one outcome", async 
 Deno.test("activate and Triage write nothing to an uninitialized repository", async () => {
     await withProject(async (projectRoot) => {
         const triage = await activated(projectRoot);
-        await run("submit", projectRoot, submitInput(triage));
+        await run("triage_report", projectRoot, triageReportInput(triage));
         await run("status", projectRoot, { workflowId: triage.workflowId });
         assertEquals(await git(projectRoot, ["status", "--porcelain", "--ignored"]), "");
         assertEquals(await Deno.stat(join(projectRoot, ".wld")).then(() => true, () => false), false);
@@ -245,7 +235,7 @@ Deno.test("a lock from a dead process and a leftover temporary file do not block
 
         const before = await run("status", projectRoot, { workflowId: triage.workflowId });
         assertEquals(before.ok && before.workflow.revision, 1);
-        const submitted = await run("submit", projectRoot, submitInput(triage));
+        const submitted = await run("triage_report", projectRoot, triageReportInput(triage));
         assertEquals(submitted.ok && submitted.workflow.revision, 2, JSON.stringify(submitted));
         assertEquals(await Deno.stat(leftover).then(() => true, () => false), false);
     });
@@ -261,7 +251,7 @@ Deno.test("status reports a moved project folder instead of matching the record 
             assert(status.ok, JSON.stringify(status));
             assertEquals(status.workflow.recovery?.case, "project_moved");
             assertEquals(status.workflow.recovery?.currentProjectRoot, await Deno.realPath(movedRoot));
-            const submitted = await run("submit", movedRoot, submitInput(triage));
+            const submitted = await run("triage_report", movedRoot, triageReportInput(triage));
             assertEquals(rejectionCode(submitted), "project_moved");
         } finally {
             await Deno.rename(movedRoot, projectRoot);
@@ -291,7 +281,7 @@ Deno.test("without a home directory records fall back to the project internal ru
             await withProject(async (projectRoot) => {
                 assertEquals(locateAttachedWorkflows(projectRoot).homeBaseDir, null);
                 const triage = await activated(projectRoot);
-                const submitted = await run("submit", projectRoot, submitInput(triage));
+                const submitted = await run("triage_report", projectRoot, triageReportInput(triage));
                 assertEquals(submitted.ok && submitted.workflow.revision, 2);
             });
         } finally {
@@ -299,3 +289,16 @@ Deno.test("without a home directory records fall back to the project internal ru
         }
     });
 });
+
+for (const operationId of ["constructor", "toString"]) {
+    Deno.test(`triage_report accepts and replays the valid operation ID ${operationId}`, async () => {
+        await withProject(async (projectRoot) => {
+            const triage = await activated(projectRoot);
+            const input = triageReportInput({ ...triage, operationId });
+            const accepted = await run("triage_report", projectRoot, input);
+            assert(accepted.ok, JSON.stringify(accepted));
+            assertEquals(accepted.workflow.state, "awaiting_planning");
+            assertEquals(await run("triage_report", projectRoot, input), accepted);
+        });
+    });
+}

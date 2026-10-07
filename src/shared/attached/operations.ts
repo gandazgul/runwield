@@ -13,10 +13,13 @@ import { TRIAGE_COMPLEXITIES, type TriageOutcome, type TriageOutcomeInput } from
 export type AttachedJsonValue = string | number | boolean | null | AttachedJsonValue[] | AttachedJsonObject;
 export type AttachedJsonObject = { [key: string]: AttachedJsonValue };
 
-export type AttachedOperationName = "activate" | "submit" | "status";
+/** Lifecycle operations keep their Core tool names; `activate` and `status` have no Core equivalent. */
+export type AttachedOperationName = "activate" | "triage_report" | "status" | "plan_written";
 
 /** Version of the Triage role and outcome contract the host receives with a Triage action. */
 export const ATTACHED_TRIAGE_CONTRACT_VERSION = "runwield.attached.triage/1";
+/** Version of the Planner role and `plan_written` contract the host receives with a planning action. */
+export const ATTACHED_PLANNER_CONTRACT_VERSION = "runwield.attached.planner/1";
 
 export const MAX_ATTACHED_INPUT_BYTES = 64 * 1024;
 const MAX_REQUEST_TEXT_LENGTH = 32 * 1024;
@@ -68,35 +71,64 @@ export interface ActivatePayload {
     hostRequestId: string;
 }
 
-export interface SubmitPayload {
+export interface TriageReportPayload {
     actionId: string;
     outcome: TriageOutcomeInput;
 }
 
+/** The Core `plan_written` arguments. Values are checked by the Plan execution policy, not here. */
+export interface PlanWrittenPayload {
+    actionId: string;
+    planName: string;
+    executionAgent?: string;
+    collaborationRecommendation?: string;
+}
+
 export type ActivateEnvelope = AttachedOperationEnvelope<ActivatePayload>;
 
-export interface SubmitEnvelope extends AttachedOperationEnvelope<SubmitPayload> {
+/** An operation on an existing workflow, checked against its saved revision. */
+export interface WorkflowOperationEnvelope<Payload> extends AttachedOperationEnvelope<Payload> {
     workflowId: string;
     expectedRevision: number;
 }
+
+export type TriageReportEnvelope = WorkflowOperationEnvelope<TriageReportPayload>;
+export type PlanWrittenEnvelope = WorkflowOperationEnvelope<PlanWrittenPayload>;
 
 export interface StatusEnvelope {
     projectRoot: string;
     workflowId: string;
 }
 
-export type AttachedWorkflowState = "triaging" | "awaiting_planning" | "closed";
+export type AttachedWorkflowState = "triaging" | "awaiting_planning" | "plan_submitted" | "closed";
 
-export interface PendingTriageAction {
+/** The RunWield roles a host plays in Attached Mode. */
+export type AttachedHostRole = "router" | "planner";
+
+export interface PendingHostAction {
     actionId: string;
-    role: "router";
+    role: AttachedHostRole;
     contractVersion: string;
 }
 
 export type AttachedNextAction =
-    | ({ kind: "triage" } & PendingTriageAction)
-    | { kind: "plan" }
+    | ({ kind: "triage" } & PendingHostAction)
+    | ({ kind: "plan"; projectSetup: string[] } & PendingHostAction)
+    | { kind: "plan_submitted"; planName: string }
     | { kind: "return_to_host"; reason: "unsupported_in_preview" };
+
+/** The Plan a workflow submitted. The workflow references the Plan; it does not own it. */
+export interface AttachedPlanReference {
+    planId: string;
+    planName: string;
+}
+
+/** The effective role instructions Core returns with a pending host action. Never saved. */
+export interface AttachedRoleInstructions {
+    role: AttachedHostRole;
+    contractVersion: string;
+    text: string;
+}
 
 export interface AttachedWorkflowClosure {
     reason: "unsupported_in_preview";
@@ -115,13 +147,25 @@ export interface AttachedWorkflowView {
     state: AttachedWorkflowState;
     nextAction: AttachedNextAction;
     triageOutcome: TriageOutcome | null;
+    plan: AttachedPlanReference | null;
     closure: AttachedWorkflowClosure | null;
     recovery: ProjectMovedRecovery | null;
 }
 
 export type AttachedOperationResult =
-    | { ok: true; operation: AttachedOperationName; workflow: AttachedWorkflowView }
-    | { ok: false; operation: AttachedOperationName; rejection: AttachedRejection; workflow?: AttachedWorkflowView };
+    | {
+        ok: true;
+        operation: AttachedOperationName;
+        workflow: AttachedWorkflowView;
+        instructions?: AttachedRoleInstructions;
+    }
+    | {
+        ok: false;
+        operation: AttachedOperationName;
+        rejection: AttachedRejection;
+        workflow?: AttachedWorkflowView;
+        instructions?: AttachedRoleInstructions;
+    };
 
 export type ParsedInput<Envelope> = { ok: true; envelope: Envelope } | { ok: false; rejection: AttachedRejection };
 
@@ -247,22 +291,54 @@ export function parseActivateInput(projectRoot: string, input: AttachedJsonValue
     });
 }
 
-export function parseSubmitInput(projectRoot: string, input: AttachedJsonValue | undefined) {
-    return parse(input, (): SubmitEnvelope => {
-        const object = readObject(input, "", ["operationId", "workflowId", "expectedRevision", "evidence", "payload"]);
-        const payload = readObject(object.payload, "payload", ["actionId", "outcome"]);
-        return {
-            projectRoot,
-            operationId: readIdentifier(object, "operationId", "operationId"),
-            workflowId: readIdentifier(object, "workflowId", "workflowId"),
-            expectedRevision: readRevision(object, "expectedRevision"),
-            evidence: readEvidence(object),
-            payload: {
+function readWorkflowEnvelope<Payload>(
+    projectRoot: string,
+    input: AttachedJsonValue | undefined,
+    payloadKeys: readonly string[],
+    readPayload: (payload: AttachedJsonObject) => Payload,
+): WorkflowOperationEnvelope<Payload> {
+    const object = readObject(input, "", ["operationId", "workflowId", "expectedRevision", "evidence", "payload"]);
+    const payload = readObject(object.payload, "payload", payloadKeys);
+    return {
+        projectRoot,
+        operationId: readIdentifier(object, "operationId", "operationId"),
+        workflowId: readIdentifier(object, "workflowId", "workflowId"),
+        expectedRevision: readRevision(object, "expectedRevision"),
+        evidence: readEvidence(object),
+        payload: readPayload(payload),
+    };
+}
+
+export function parseTriageReportInput(projectRoot: string, input: AttachedJsonValue | undefined) {
+    return parse(
+        input,
+        (): TriageReportEnvelope =>
+            readWorkflowEnvelope(projectRoot, input, ["actionId", "outcome"], (payload) => ({
                 actionId: readIdentifier(payload, "actionId", "payload.actionId"),
                 outcome: readOutcome(payload.outcome),
-            },
-        };
-    });
+            })),
+    );
+}
+
+export function parsePlanWrittenInput(projectRoot: string, input: AttachedJsonValue | undefined) {
+    const keys = ["actionId", "planName", "executionAgent", "collaborationRecommendation"];
+    return parse(input, (): PlanWrittenEnvelope =>
+        readWorkflowEnvelope(projectRoot, input, keys, (payload) => ({
+            actionId: readIdentifier(payload, "actionId", "payload.actionId"),
+            planName: readText(payload, "planName", "payload.planName", MAX_SHORT_TEXT_LENGTH),
+            executionAgent: readOptionalText(
+                payload,
+                "executionAgent",
+                "payload.executionAgent",
+                MAX_SHORT_TEXT_LENGTH,
+            ),
+            collaborationRecommendation: readOptionalText(
+                payload,
+                "collaborationRecommendation",
+                "payload.collaborationRecommendation",
+                MAX_SHORT_TEXT_LENGTH,
+            ),
+        })));
 }
 
 export function parseStatusInput(projectRoot: string, input: AttachedJsonValue | undefined) {
@@ -284,10 +360,39 @@ const EVIDENCE_SCHEMA = {
     },
 };
 
+export interface AttachedInputSchema extends AttachedJsonObject {
+    type: "object";
+    required: string[];
+    properties: AttachedJsonObject;
+}
+
+function workflowOperationSchema(
+    payloadRequired: string[],
+    payloadProperties: AttachedJsonObject,
+): AttachedInputSchema {
+    return {
+        type: "object",
+        additionalProperties: false,
+        required: ["operationId", "workflowId", "expectedRevision", "evidence", "payload"],
+        properties: {
+            operationId: IDENTIFIER_SCHEMA,
+            workflowId: IDENTIFIER_SCHEMA,
+            expectedRevision: { type: "integer", minimum: 1 },
+            evidence: EVIDENCE_SCHEMA,
+            payload: {
+                type: "object",
+                additionalProperties: false,
+                required: payloadRequired,
+                properties: payloadProperties,
+            },
+        },
+    };
+}
+
 export interface AttachedOperationDescriptor {
     name: AttachedOperationName;
     description: string;
-    inputSchema: AttachedJsonObject;
+    inputSchema: AttachedInputSchema;
 }
 
 /** Host-facing descriptions and JSON Schemas. `parse*Input` above stays the authority. */
@@ -316,43 +421,27 @@ export const ATTACHED_OPERATIONS: readonly AttachedOperationDescriptor[] = [
         },
     },
     {
-        name: "submit",
+        name: "triage_report",
         description:
-            "Submit the Triage outcome for the pending Triage action. Repeating an accepted operationId returns the saved result.",
-        inputSchema: {
-            type: "object",
-            additionalProperties: false,
-            required: ["operationId", "workflowId", "expectedRevision", "evidence", "payload"],
-            properties: {
-                operationId: IDENTIFIER_SCHEMA,
-                workflowId: IDENTIFIER_SCHEMA,
-                expectedRevision: { type: "integer", minimum: 1 },
-                evidence: EVIDENCE_SCHEMA,
-                payload: {
-                    type: "object",
-                    additionalProperties: false,
-                    required: ["actionId", "outcome"],
-                    properties: {
-                        actionId: IDENTIFIER_SCHEMA,
-                        outcome: {
-                            type: "object",
-                            additionalProperties: false,
-                            required: ["routingIntent", "complexity", "summary"],
-                            properties: {
-                                routingIntent: {
-                                    type: "string",
-                                    enum: ROUTING_INTENTS.filter((intent) => intent !== "FEATURE"),
-                                },
-                                complexity: { type: "string", enum: [...TRIAGE_COMPLEXITIES] },
-                                summary: { type: "string", maxLength: MAX_SUMMARY_LENGTH },
-                                workKind: { type: "string", enum: WORK_KINDS },
-                                sessionName: { type: "string", maxLength: MAX_SHORT_TEXT_LENGTH },
-                            },
-                        },
+            "Report the Triage outcome for the pending Router action. Repeating an accepted operationId returns the saved result.",
+        inputSchema: workflowOperationSchema(["actionId", "outcome"], {
+            actionId: IDENTIFIER_SCHEMA,
+            outcome: {
+                type: "object",
+                additionalProperties: false,
+                required: ["routingIntent", "complexity", "summary"],
+                properties: {
+                    routingIntent: {
+                        type: "string",
+                        enum: ROUTING_INTENTS.filter((intent) => intent !== "FEATURE"),
                     },
+                    complexity: { type: "string", enum: [...TRIAGE_COMPLEXITIES] },
+                    summary: { type: "string", maxLength: MAX_SUMMARY_LENGTH },
+                    workKind: { type: "string", enum: WORK_KINDS },
+                    sessionName: { type: "string", maxLength: MAX_SHORT_TEXT_LENGTH },
                 },
             },
-        },
+        }),
     },
     {
         name: "status",
@@ -363,5 +452,21 @@ export const ATTACHED_OPERATIONS: readonly AttachedOperationDescriptor[] = [
             required: ["workflowId"],
             properties: { workflowId: IDENTIFIER_SCHEMA },
         },
+    },
+    {
+        name: "plan_written",
+        description:
+            "Submit the Plan written in docs/plans/ for the pending Planner action. RunWield gives it a Plan ID and " +
+            "Triage Front Matter, and sets up the project runtime. Repeating an accepted operationId returns the saved result.",
+        inputSchema: workflowOperationSchema(["actionId", "planName"], {
+            actionId: IDENTIFIER_SCHEMA,
+            planName: {
+                type: "string",
+                maxLength: MAX_SHORT_TEXT_LENGTH,
+                description: "Plan filename without extension, relative to docs/plans/.",
+            },
+            executionAgent: { type: "string", enum: ["engineer", "frontend-engineer"] },
+            collaborationRecommendation: { type: "string", enum: ["autonomous", "pair"] },
+        }),
     },
 ];

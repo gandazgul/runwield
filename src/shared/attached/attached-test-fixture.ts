@@ -5,6 +5,7 @@
 
 import { fromFileUrl, join } from "@std/path";
 import { defineCommittedGitFixture } from "../git-test-fixture.ts";
+import { runAttachedOperation } from "./coordinator.ts";
 import type { AttachedJsonObject, AttachedOperationName, AttachedOperationResult } from "./operations.ts";
 import { locateAttachedWorkflows } from "./record-store.ts";
 
@@ -25,7 +26,7 @@ export function activateInput(operationId = "op-activate"): AttachedJsonObject {
     };
 }
 
-export interface SubmitInputOptions {
+export interface TriageReportInputOptions {
     workflowId: string;
     actionId: string;
     expectedRevision?: number;
@@ -33,9 +34,9 @@ export interface SubmitInputOptions {
     outcome?: AttachedJsonObject;
 }
 
-export function submitInput(options: SubmitInputOptions): AttachedJsonObject {
+export function triageReportInput(options: TriageReportInputOptions): AttachedJsonObject {
     return {
-        operationId: options.operationId ?? "op-submit",
+        operationId: options.operationId ?? "op-triage-report",
         workflowId: options.workflowId,
         expectedRevision: options.expectedRevision ?? 1,
         evidence: EVIDENCE,
@@ -53,6 +54,74 @@ export function pendingTriage(result: AttachedOperationResult): { workflowId: st
         throw new Error(`Expected a pending Triage action, got ${JSON.stringify(result)}`);
     }
     return { workflowId: result.workflow.workflowId, actionId: result.workflow.nextAction.actionId };
+}
+
+export function rejectionCode(result: AttachedOperationResult): string | null {
+    return result.ok ? null : result.rejection.code;
+}
+
+/** Run one operation in-process through the same text entry the carriers use. */
+export function runOperation(name: AttachedOperationName, projectRoot: string, input: AttachedJsonObject) {
+    return runAttachedOperation(name, projectRoot, JSON.stringify(input));
+}
+
+export async function withProject(fn: (projectRoot: string) => Promise<void>): Promise<void> {
+    const projectRoot = await projectFixture.checkout({ prefix: "runwield-attached-" });
+    try {
+        await fn(projectRoot);
+    } finally {
+        await Deno.remove(projectRoot, { recursive: true }).catch(() => undefined);
+    }
+}
+
+export interface PendingPlanning {
+    workflowId: string;
+    actionId: string;
+    expectedRevision: number;
+}
+
+/** Activate and report a PLANNED_CHANGE FEATURE Triage outcome; returns the pending Planner action. */
+export async function reachPlanning(projectRoot: string, triageOperationId = "op-triage-report") {
+    const triage = pendingTriage(await runOperation("activate", projectRoot, activateInput()));
+    const result = await runOperation(
+        "triage_report",
+        projectRoot,
+        triageReportInput({ ...triage, operationId: triageOperationId }),
+    );
+    if (!result.ok || result.workflow.nextAction.kind !== "plan") {
+        throw new Error(`Expected a pending Planner action, got ${JSON.stringify(result)}`);
+    }
+    const planning: PendingPlanning = {
+        workflowId: result.workflow.workflowId,
+        actionId: result.workflow.nextAction.actionId,
+        expectedRevision: result.workflow.revision,
+    };
+    return { result, planning };
+}
+
+export interface PlanWrittenInputOptions extends PendingPlanning {
+    planName?: string;
+    operationId?: string;
+    executionAgent?: string;
+    collaborationRecommendation?: string;
+}
+
+export function planWrittenInput(options: PlanWrittenInputOptions): AttachedJsonObject {
+    const payload: AttachedJsonObject = {
+        actionId: options.actionId,
+        planName: options.planName ?? "dark-mode-toggle",
+    };
+    if (options.executionAgent !== undefined) payload.executionAgent = options.executionAgent;
+    if (options.collaborationRecommendation !== undefined) {
+        payload.collaborationRecommendation = options.collaborationRecommendation;
+    }
+    return {
+        operationId: options.operationId ?? "op-plan-written",
+        workflowId: options.workflowId,
+        expectedRevision: options.expectedRevision,
+        evidence: EVIDENCE,
+        payload,
+    };
 }
 
 export async function readRecordBytes(projectRoot: string, workflowId: string): Promise<string> {
