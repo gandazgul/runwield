@@ -2,15 +2,24 @@
 
 import { isAbsolute, relative, resolve } from "node:path";
 
+export interface ReviewFileContentOptions {
+    cwd?: string;
+}
+
+interface WorkspaceTextFile {
+    path: string;
+    contents: string;
+}
+
 /**
  * Return the current working-tree content when it is safely available.
  * The workflow diff's baseline tree is intentionally not guessed here, so
  * oldContent remains null instead of showing content from the wrong revision.
- *
- * @param {Request} request
- * @param {{ cwd?: string }} [options]
  */
-export async function reviewFileContentApi(request, options = {}) {
+export async function reviewFileContentApi(
+    request: Request,
+    options: ReviewFileContentOptions = {},
+): Promise<Response> {
     const url = new URL(request.url);
     const filePath = stripLineReference(url.searchParams.get("path")?.trim() || "");
     const oldPath = url.searchParams.get("oldPath")?.trim();
@@ -46,7 +55,7 @@ export async function reviewFileContentApi(request, options = {}) {
 }
 
 /** Plannotator hides its open-in control when the host reports unavailable. */
-export function reviewOpenInAppsApi() {
+export function reviewOpenInAppsApi(): Response {
     return Response.json({ available: false, apps: [] }, {
         headers: { "cache-control": "no-store" },
     });
@@ -57,25 +66,22 @@ export function reviewOpenInAppsApi() {
  * Acknowledge its optional server-sync request without introducing a second
  * RunWield settings source.
  */
-export function reviewLocalConfigApi() {
+export function reviewLocalConfigApi(): Response {
     return Response.json({ ok: true }, {
         headers: { "cache-control": "no-store" },
     });
 }
 
-/** @param {string} value */
-function stripLineReference(value) {
+function stripLineReference(value: string): string {
     return value.replace(/#.*$/, "").replace(/:\d+(?:-\d+)?$/, "");
 }
 
-/** @param {string} path @param {string} baseDir @param {string} cwd */
-function hasSafeCandidate(path, baseDir, cwd) {
+function hasSafeCandidate(path: string, baseDir: string, cwd: string): boolean {
     if (!path || path.includes("\0") || isAbsolute(path)) return false;
     return candidatePaths(cwd, path, baseDir).some((candidate) => isPathInside(candidate, cwd));
 }
 
-/** @param {string} cwd @param {string} filePath @param {string} baseDir */
-function candidatePaths(cwd, filePath, baseDir) {
+function candidatePaths(cwd: string, filePath: string, baseDir: string): string[] {
     const candidates = [resolve(cwd, filePath)];
     if (baseDir && !baseDir.includes("\0") && !isAbsolute(baseDir)) {
         candidates.push(resolve(cwd, baseDir, filePath));
@@ -83,8 +89,11 @@ function candidatePaths(cwd, filePath, baseDir) {
     return [...new Set(candidates)];
 }
 
-/** @param {string} cwd @param {string} filePath @param {string} baseDir */
-async function readWorkspaceTextFile(cwd, filePath, baseDir) {
+async function readWorkspaceTextFile(
+    cwd: string,
+    filePath: string,
+    baseDir: string,
+): Promise<WorkspaceTextFile | null> {
     const realCwd = await Deno.realPath(cwd);
     for (const candidate of candidatePaths(cwd, filePath, baseDir)) {
         if (!isPathInside(candidate, cwd)) continue;
@@ -94,8 +103,7 @@ async function readWorkspaceTextFile(cwd, filePath, baseDir) {
     return null;
 }
 
-/** @param {string} realCwd @param {string} candidate */
-async function readCandidate(realCwd, candidate) {
+async function readCandidate(realCwd: string, candidate: string): Promise<WorkspaceTextFile | null> {
     try {
         const realPath = await Deno.realPath(candidate);
         if (!isPathInside(realPath, realCwd)) throw new Deno.errors.PermissionDenied();
@@ -107,8 +115,7 @@ async function readCandidate(realCwd, candidate) {
     }
 }
 
-/** @param {string} path @param {string} root */
-function isPathInside(path, root) {
+function isPathInside(path: string, root: string): boolean {
     const rel = relative(resolve(root), resolve(path));
     return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }
