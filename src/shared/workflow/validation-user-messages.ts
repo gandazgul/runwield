@@ -46,6 +46,7 @@ export type ValidationMessageRequest =
     | { kind: "human_review_wait"; reviewUrl?: string }
     | { kind: "human_review_prompt"; planName: string }
     | { kind: "human_review_approved" }
+    | { kind: "human_review_skipped" }
     | { kind: "qa_prepare"; planName: string }
     | { kind: "qa_ready"; path?: string; existed?: boolean }
     | {
@@ -200,6 +201,8 @@ export function buildValidationUserMessage(request: ValidationMessageRequest): s
             return request.reviewUrl ? `Need your review: ${request.reviewUrl}` : "Need your review.";
         case "human_review_prompt":
             return `Read the changes for ${request.planName}.`;
+        case "human_review_skipped":
+            return "Code Review skipped";
         case "human_review_approved":
             return "Code review is done. You approved the work.";
         case "qa_prepare":

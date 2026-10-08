@@ -217,7 +217,10 @@ Replace the original feature with the implemented feature.
                 result.state.validationCiRuns.some((run) => !run.isError && run.output.includes("JOURNEY_CI_PASSED")),
                 "Real fixture CI must execute successfully, not merely display a passing status.",
             );
-            assert(visible.includes(`${planName} is on main`), "TUI must report confirmed delivery.");
+            assert(
+                visible.includes(`Plan: ${planName}`) && visible.includes("Published commit confirmed on main"),
+                "TUI must report the delivered Plan and confirmed publication.",
+            );
             assert(!visible.includes("Validation paused before it could finish"));
         },
     ],

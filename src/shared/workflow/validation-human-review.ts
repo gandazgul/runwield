@@ -83,7 +83,7 @@ export async function runHumanReviewPhase(
                 humanReviewDecision: "skipped",
                 humanReviewedAt: null,
             });
-            emitProgress(args, "Code Review skipped", "info", {
+            emitProgress(args, buildValidationUserMessage({ kind: "human_review_skipped" }), "info", {
                 stage: "cycle",
                 checks: { humanReview: "skipped" },
             });
