@@ -39,7 +39,7 @@ function fullEvidenceResult(id: ValidationWorkflowBranchId): ValidationWorkflowR
                 plans: [{
                     name: "plan",
                     attrs: {
-                        status: "verified",
+                        status: id === "human-review:ask-close" ? "validated_reviewer" : "verified",
                     },
                     controllerState: {
                         validationCiAttempts: 0,
@@ -57,7 +57,10 @@ function fullEvidenceResult(id: ValidationWorkflowBranchId): ValidationWorkflowR
                 { interaction: { value: "retry" } },
                 { interaction: { value: "validate" } },
                 ...Object.keys(VALIDATION_INTERACTION_OPTION_BRANCHES)
-                    .filter((value) => id !== "human-review:none" || (value !== "open" && value !== "skip"))
+                    .filter((value) =>
+                        (id !== "human-review:none" && id !== "human-review:ask-close") ||
+                        (value !== "open" && value !== "skip")
+                    )
                     .map((value) => ({ interaction: { value } })),
             ],
             humanReviews: {
