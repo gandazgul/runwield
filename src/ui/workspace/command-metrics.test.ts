@@ -105,7 +105,8 @@ Deno.test("Owner command observations require authentication, catalog names, and
             );
             await drainWorkflowMetrics();
             const contents = await Deno.readTextFile(getWorkflowMetricsFilePath(canonicalRoot));
-            const records = contents.trim().split("\n").map((line) => JSON.parse(line));
+            const records = contents.trim().split("\n").map((line) => JSON.parse(line))
+                .filter((record) => record.category === "command");
             assertEquals(records.length, 7);
             assertEquals(records[0].command, "settings");
             assertEquals(records[0].durationMs, 12);
