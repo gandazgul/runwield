@@ -21,7 +21,7 @@ import {
 } from "./workflow-context-session.js";
 import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "./session-runtime-events.js";
 import { clearPairCheckpoint } from "./pair-checkpoint-session.ts";
-import { recordExecutionWorkflowSnapshot } from "./execution-workflow-session.js";
+import { recordExecutionWorkflowSnapshot } from "./execution-workflow-session.ts";
 import { BackgroundTasks } from "./background-tasks.ts";
 import { clearBackgroundSteeringForCompletion } from "./runtime/turns.ts";
 import { PlanReviewConversationOwner } from "./plan-review-conversation.ts";
