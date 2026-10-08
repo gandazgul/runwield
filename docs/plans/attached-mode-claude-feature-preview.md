@@ -513,8 +513,8 @@ Left by the reviewers of individual children for the integration review. These a
 
 **attached-mode-claude-feature-preview/02-plan-one-feature-request-inside-claude-code**
 
-- Review continuation must read current Plan state. A submitted Plan can be opened and advanced by wld before Attached
-  review starts. (src/shared/attached/coordinator.ts planWritten; child 03 review continuation)
+- Plan review must read current Plan state, because users can run a submitted Plan with wld before Attached review
+  starts. (Child 03; src/shared/attached/coordinator.ts planWritten and the stored Plan reference.)
 
 <!-- runwield:integration-notes:end child="attached-mode-claude-feature-preview/02-plan-one-feature-request-inside-claude-code" -->
 

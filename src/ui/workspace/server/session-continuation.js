@@ -168,8 +168,14 @@ function safeCodeReviewReference(request) {
         ? meta.planName.trim()
         : "Workspace changes";
     const planTitle = typeof meta.planTitle === "string" && meta.planTitle.trim() ? meta.planTitle.trim() : planName;
+    const conversation = meta.reviewConversation;
+    const conversationEvents = conversation && typeof conversation === "object" && "events" in conversation &&
+            Array.isArray(conversation.events)
+        ? conversation.events
+        : [];
     return {
         rawPatch,
+        conversationEvents,
         gitRef: `RunWield workflow diff: ${planName}`,
         planName,
         planTitle,

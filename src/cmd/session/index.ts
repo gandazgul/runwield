@@ -3,15 +3,17 @@
  * Command to show current session information.
  */
 
+import type { SettingsManager } from "@earendil-works/pi-coding-agent";
+import type { CommandContext } from "../registry.js";
+
 import { theme } from "../../ui/theme/theme.js";
+
+type SessionCompactionSettings = ReturnType<SettingsManager["getCompactionSettings"]>;
 
 /**
  * Handle session info command.
- *
- * @param {string[]} _argv
- * @param {import('../registry.js').CommandContext} [options]
  */
-export async function runSessionCommand(_argv, options = {}) {
+export async function runSessionCommand(_argv: string[], options: CommandContext = {}): Promise<void> {
     if (!options?.uiAPI) {
         console.error("The /session command is only available inside an interactive session.");
         return;
@@ -46,8 +48,9 @@ export async function runSessionCommand(_argv, options = {}) {
     const sessionName = info.name;
     const sessionFile = info.file;
     const sessionId = info.persistedId;
-    const compactionSettings = /** @type {any} */ (info.compactionSettings);
-    const contextUsage = /** @type {any} */ (info.contextUsage);
+    // Runtime exposes only the enabled flag; the Pi settings include the token limits read below.
+    const compactionSettings = info.compactionSettings as SessionCompactionSettings | null | undefined;
+    const contextUsage = info.contextUsage;
     const contextWindow = contextUsage?.contextWindow;
     const autoThreshold = compactionSettings && typeof contextWindow === "number" && contextWindow > 0
         ? Math.max(0, contextWindow - compactionSettings.reserveTokens)
