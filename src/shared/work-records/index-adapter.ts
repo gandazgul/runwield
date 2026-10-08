@@ -5,20 +5,42 @@
 
 import { basename, dirname } from "@std/path";
 import { listWorkRecords } from "./store.js";
+import type { WorkRecordMnemotecaPort } from "./mnemoteca-port.ts";
+import type { WorkRecordResource } from "./schema.ts";
+
+export interface WorkRecordIndexOptions {
+    mnemotecaPort: WorkRecordMnemotecaPort;
+}
+
+interface PlainListOptions {
+    recordId?: string;
+    tolerateMalformed?: boolean;
+}
+
+export interface WorkRecordIndexSyncResult {
+    action: "added" | "updated";
+    recordId: string;
+    documentId?: number;
+}
+
+export interface WorkRecordIndexFailure {
+    recordId: string;
+    path: string;
+    error: string;
+}
+
+export interface WorkRecordIndexRebuildResult {
+    collection: string;
+    total: number;
+    added: number;
+    failed: number;
+    failures: WorkRecordIndexFailure[];
+}
 
 const LOCATOR_PREFIX = "work-record:";
 const REBUILD_GUIDANCE = "Run `wld wr index rebuild` to repair the derived Work Record index.";
 
-/**
- * @typedef {Object} WorkRecordIndexOptions
- * @property {import('./mnemoteca-port.ts').WorkRecordMnemotecaPort} mnemotecaPort
- */
-
-/**
- * @param {string} cwd
- * @returns {Promise<string>}
- */
-async function resolveGitCommonDir(cwd) {
+async function resolveGitCommonDir(cwd: string) {
     try {
         const command = new Deno.Command("git", {
             args: ["rev-parse", "--path-format=absolute", "--git-common-dir"],
@@ -34,33 +56,25 @@ async function resolveGitCommonDir(cwd) {
     }
 }
 
-/**
- * @param {string} cwd
- * @param {string} gitCommonDir
- */
-function resolveWorkRecordIndexProjectName(cwd, gitCommonDir) {
+function resolveWorkRecordIndexProjectName(cwd: string, gitCommonDir: string) {
     const rawName = gitCommonDir ? basename(dirname(gitCommonDir)) || basename(cwd) : basename(cwd);
     return rawName === "global" || !rawName ? "default" : rawName;
 }
 
-/** @param {string} cwd */
-export async function getWorkRecordIndexCollectionName(cwd) {
+export async function getWorkRecordIndexCollectionName(cwd: string) {
     return `${resolveWorkRecordIndexProjectName(cwd, await resolveGitCommonDir(cwd))}:work-records`;
 }
 
-/** @param {import('./schema.ts').WorkRecordResource} record */
-export function getWorkRecordLocatorTag(record) {
+export function getWorkRecordLocatorTag(record: WorkRecordResource) {
     return `${LOCATOR_PREFIX}${record.attrs.recordId}`;
 }
 
-/** @param {string[]} tags */
-export function recordIdFromTags(tags) {
+export function recordIdFromTags(tags: string[]) {
     const tag = tags.find((candidate) => candidate.startsWith(LOCATOR_PREFIX));
     return tag ? tag.slice(LOCATOR_PREFIX.length) : "";
 }
 
-/** @param {import('./schema.ts').WorkRecordResource} record */
-export function buildWorkRecordIndexTags(record) {
+export function buildWorkRecordIndexTags(record: WorkRecordResource) {
     const tags = [
         `status:${record.attrs.status}`,
         `scope:${record.attrs.scope}`,
@@ -74,8 +88,7 @@ export function buildWorkRecordIndexTags(record) {
     return [...new Set(tags)];
 }
 
-/** @param {import('./schema.ts').WorkRecordResource} record */
-export function buildWorkRecordIndexDocument(record) {
+export function buildWorkRecordIndexDocument(record: WorkRecordResource) {
     const sourcePlans = record.attrs.provenance?.sourcePlans || [];
     const ticketUrls = (record.attrs.tickets || []).map((ticket) => ticket.url).filter(Boolean);
     return [
@@ -95,17 +108,11 @@ export function buildWorkRecordIndexDocument(record) {
     ].join("\n").trim();
 }
 
-/** @param {Uint8Array} bytes */
-function decode(bytes) {
+function decode(bytes: Uint8Array) {
     return new TextDecoder().decode(bytes || new Uint8Array()).trim();
 }
 
-/**
- * @param {string} cwd
- * @param {string[]} args
- * @param {WorkRecordIndexOptions} options
- */
-export async function runMnemotecaWorkRecordCommand(cwd, args, options) {
+export async function runMnemotecaWorkRecordCommand(cwd: string, args: string[], options: WorkRecordIndexOptions) {
     const mnemotecaPort = options.mnemotecaPort;
     let result;
     try {
@@ -122,11 +129,7 @@ export async function runMnemotecaWorkRecordCommand(cwd, args, options) {
     return decode(result.stdout) || decode(result.stderr);
 }
 
-/**
- * @param {string} cwd
- * @param {WorkRecordIndexOptions} options
- */
-export async function verifyMnemotecaUpdateAvailable(cwd, options) {
+export async function verifyMnemotecaUpdateAvailable(cwd: string, options: WorkRecordIndexOptions) {
     const help = await runMnemotecaWorkRecordCommand(cwd, ["update", "--help"], options);
     if (!help.includes("update <id>") || !help.includes("--replace-tags")) {
         throw new Error("mnemoteca update prerequisite is unavailable or missing strict --replace-tags support.");
@@ -134,31 +137,20 @@ export async function verifyMnemotecaUpdateAvailable(cwd, options) {
     return true;
 }
 
-/**
- * @param {string} cwd
- * @param {WorkRecordIndexOptions} options
- */
-export async function initializeWorkRecordIndex(cwd, options) {
+export async function initializeWorkRecordIndex(cwd: string, options: WorkRecordIndexOptions) {
     await runMnemotecaWorkRecordCommand(cwd, ["init", "--name", await getWorkRecordIndexCollectionName(cwd)], options);
 }
 
-/** @param {string} output */
-function isEmptyPlainListOutput(output) {
+function isEmptyPlainListOutput(output: string) {
     const trimmed = String(output || "").trim();
     return !trimmed || /^no\s+documents\b/i.test(trimmed);
 }
 
-/** @param {string} line */
-function isPlainListFooterLine(line) {
+function isPlainListFooterLine(line: string) {
     return /^Showing\s+\d+\s+of\s+\d+\s+documents\b/i.test(line.trim());
 }
 
-/**
- * @param {string} output
- * @param {{ recordId?: string, tolerateMalformed?: boolean }} [options]
- * @returns {number[]}
- */
-function parsePlainListDocumentIds(output, options = {}) {
+function parsePlainListDocumentIds(output: string, options: PlainListOptions = {}) {
     if (isEmptyPlainListOutput(output)) return [];
     const ids = [];
     for (const line of String(output || "").split("\n")) {
@@ -175,12 +167,7 @@ function parsePlainListDocumentIds(output, options = {}) {
     return ids;
 }
 
-/**
- * @param {string} cwd
- * @param {string} recordId
- * @param {WorkRecordIndexOptions} options
- */
-export async function findIndexedDocumentIdsByRecordId(cwd, recordId, options) {
+export async function findIndexedDocumentIdsByRecordId(cwd: string, recordId: string, options: WorkRecordIndexOptions) {
     const out = await runMnemotecaWorkRecordCommand(cwd, [
         "list",
         "--name",
@@ -195,12 +182,11 @@ export async function findIndexedDocumentIdsByRecordId(cwd, recordId, options) {
     return parsePlainListDocumentIds(out, { recordId });
 }
 
-/**
- * @param {string} cwd
- * @param {import('./schema.ts').WorkRecordResource} record
- * @param {WorkRecordIndexOptions} options
- */
-export async function syncWorkRecordToIndex(cwd, record, options) {
+export async function syncWorkRecordToIndex(
+    cwd: string,
+    record: WorkRecordResource,
+    options: WorkRecordIndexOptions,
+): Promise<WorkRecordIndexSyncResult> {
     await verifyMnemotecaUpdateAvailable(cwd, options);
     await initializeWorkRecordIndex(cwd, options);
     const collection = await getWorkRecordIndexCollectionName(cwd);
@@ -229,11 +215,7 @@ export async function syncWorkRecordToIndex(cwd, record, options) {
     return { action: "updated", recordId: record.attrs.recordId, documentId: id };
 }
 
-/**
- * @param {string} cwd
- * @param {WorkRecordIndexOptions} options
- */
-export async function isWorkRecordIndexEmpty(cwd, options) {
+export async function isWorkRecordIndexEmpty(cwd: string, options: WorkRecordIndexOptions) {
     try {
         const out = await runMnemotecaWorkRecordCommand(cwd, [
             "list",
@@ -250,11 +232,10 @@ export async function isWorkRecordIndexEmpty(cwd, options) {
     }
 }
 
-/**
- * @param {string} cwd
- * @param {WorkRecordIndexOptions} options
- */
-export async function rebuildWorkRecordIndex(cwd, options) {
+export async function rebuildWorkRecordIndex(
+    cwd: string,
+    options: WorkRecordIndexOptions,
+): Promise<WorkRecordIndexRebuildResult> {
     await verifyMnemotecaUpdateAvailable(cwd, options);
     const collection = await getWorkRecordIndexCollectionName(cwd);
     try {
@@ -264,7 +245,7 @@ export async function rebuildWorkRecordIndex(cwd, options) {
     }
     await initializeWorkRecordIndex(cwd, options);
     const records = await listWorkRecords(cwd, { createDir: false });
-    const failures = [];
+    const failures: WorkRecordIndexFailure[] = [];
     let added = 0;
     for (const record of records) {
         try {

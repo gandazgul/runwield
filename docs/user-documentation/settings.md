@@ -142,8 +142,8 @@ Agent object values:
 
 Type: string.
 
-Names the active entry in `modelPresets`. If it is unset or names a preset that doesn't exist, RunWield uses the base
-`agents` overrides.
+Names a bundled or user-defined entry in `modelPresets`. If it is unset or names a preset that doesn't exist, RunWield
+uses the base `agents` overrides.
 
 A model you pick with `/model` overrides the preset for the current Agent. It stays in effect for follow-up messages and
 when you resume that Agent's Session. Switching Agents, with `/agent` or through a workflow handoff, uses the new
@@ -153,7 +153,37 @@ Agent's configured model. Switching back doesn't restore your earlier `/model` c
 
 Type: object.
 
-Defines named groups of agent overrides:
+Defines named groups of agent overrides. RunWield includes these presets without requiring a `modelPresets` setting:
+
+| Preset         | Model assignments                                                                                              | Required access                |
+| -------------- | -------------------------------------------------------------------------------------------------------------- | ------------------------------ |
+| `codex`        | GPT-6 Luna for Router/Operator; GPT-6.1 Sol for execution; GPT-6 Astra for planning/review                     | Codex account                  |
+| `agy`          | Gemini 3.8 Flash for execution; Gemini 3.1 Pro for Router, Slicer, planning/review                             | Antigravity CLI sign-in        |
+| `opencode`     | GPT-6 Luna for Router/Operator; GPT-6.1 Sol for execution; GLM 5.3 for Slicer/planning; GPT-6 Astra for review | OpenCode Zen API key           |
+| `claude-mixed` | Sonnet for Router/execution; Opus for planning/review                                                          | Claude Code sign-in            |
+| `claude-opus`  | Opus for every Agent, including Router                                                                         | Claude Code sign-in            |
+| `codex-claude` | Codex Luna/Sol for Router/execution; Claude Opus for planning/review                                           | Codex and Claude Code accounts |
+
+Planning means Ideator, Planner, and Architect; review means Reviewer. Execution includes Guide, Engineer, Frontend
+Engineer, and Init. Slicer uses Sol in the Codex presets and Sonnet in `claude-mixed`. Operator uses Flash in `agy`,
+Sonnet in `claude-mixed`, and Opus in `claude-opus`. Validation Repair Engineer inherits Engineer's model and thinking
+level unless separately configured.
+
+Select a preset in `/settings` → **Model Presets**, or set `activeModelPreset` to its name. Nothing is activated
+automatically. Configure the listed provider access before using its models; selecting a preset does not sign you in.
+These are starting configurations, not a claim that every model has passed RunWield's Router benchmark.
+
+Definitions ship in `src/model-presets/` and are unpacked to `~/.wld/bundled-model-presets/` on first preset access or
+`/init`. The unpacked files are a readable cache refreshed by each RunWield process; edit settings to customize a
+preset. Bundled definitions remain usable if the cache cannot be written.
+
+Presets resolve by name: project `modelPresets` override personal `modelPresets`, which override bundled presets. A
+same-name definition replaces the entire lower-priority preset, preserving existing settings behavior. To adjust one
+bundled assignment while keeping the others, copy its JSON into `modelPresets.<name>` in your settings and edit the
+desired Agent. Use a different name to keep both choices. RunWield updates its bundled copies without rewriting personal
+or project settings.
+
+You can also define your own preset:
 
 ```jsonc
 {

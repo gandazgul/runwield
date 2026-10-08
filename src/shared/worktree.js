@@ -6,6 +6,13 @@
 import { basename, dirname, join } from "@std/path";
 import { getHomeDir, RUNWIELD_DIR_NAME, WORKTREE_BRANCH_PREFIX } from "../constants.js";
 import { encodeCwdForSessionDir } from "./session/root-session.js";
+import {
+    captureWorktreeProjectContext,
+    isTransferredProjectContext,
+    materializeWorktreeProjectContext,
+    PROJECT_CONTEXT_PATHS,
+    recordedProjectContextPaths,
+} from "./worktree-project-context.ts";
 import { assertGitRepository, GitRepositoryRequiredError } from "./git.ts";
 import { getWorkflowDiff } from "./workflow/git-snapshot.ts";
 import { addEntry, listEntries, pruneStaleEntries, removeEntry } from "./worktree-registry.js";
@@ -147,7 +154,7 @@ function isExecutionPreparationPath(path) {
 
 /**
  * Detect evidence that an execution Agent already changed a reusable worktree.
- * Plan materialization, the owned ignore block, and runtime files are setup—not
+ * Plan materialization, project context, the owned ignore block, and runtime files are setup—not
  * implementation evidence.
  *
  * @param {Object} opts
@@ -169,7 +176,15 @@ export async function hasExecutionChangesSince({
     const dirty = includeWorkingTree
         ? parseStatusPaths(await runGit(worktreePath, ["status", "--porcelain", "--untracked-files=all"]))
         : [];
-    return [...new Set([...committed, ...dirty])].some((path) => !isExecutionPreparationPath(path));
+    const checks = [{ paths: committed, ref: targetRef }, { paths: dirty, ref: undefined }];
+    for (const { paths, ref } of checks) {
+        for (const path of paths) {
+            if (!isExecutionPreparationPath(path) && !await isTransferredProjectContext(worktreePath, path, ref)) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 /**
@@ -193,7 +208,12 @@ export async function hasOnlyExecutionPreparationChangesSince({
     const committed = parseNameOnlyPaths(
         await runGit(worktreePath, ["diff", "--name-only", `${baseRef}..${targetRef}`]),
     );
-    return committed.length > 0 && committed.every(isExecutionPreparationPath);
+    for (const path of committed) {
+        if (!isExecutionPreparationPath(path) && !await isTransferredProjectContext(worktreePath, path, targetRef)) {
+            return false;
+        }
+    }
+    return committed.length > 0;
 }
 
 /**
@@ -535,7 +555,15 @@ async function commitDirtyWorktreeState(
         if (allowedPathNeedsOwnedExclusion) {
             await stageDirtyPathsExceptOwnedRuntime(worktreePath);
         } else {
-            await runGit(worktreePath, ["add", "-A", "--", ...allowedDirtyPaths]);
+            const forcedPaths = new Set();
+            for (const path of await recordedProjectContextPaths(worktreePath)) {
+                if (allowedPathSet.has(path) && await isTransferredProjectContext(worktreePath, path)) {
+                    await runGit(worktreePath, ["add", "-f", "--", path]);
+                    forcedPaths.add(path);
+                }
+            }
+            const ordinaryPaths = allowedDirtyPaths.filter((path) => !forcedPaths.has(path));
+            if (ordinaryPaths.length > 0) await runGit(worktreePath, ["add", "-A", "--", ...ordinaryPaths]);
         }
     } else {
         await stageDirtyPathsExceptOwnedRuntime(worktreePath);
@@ -551,7 +579,7 @@ async function commitDirtyWorktreeState(
 /**
  * Commit only RunWield's execution-preparation files before an Agent can touch
  * the worktree. The target commit remains the attempt's immutable base; this
- * commit makes the materialized Plan ordinary tracked Git evidence.
+ * commit makes the materialized Plan and copied project context ordinary tracked Git evidence.
  *
  * @param {Object} opts
  * @param {string} opts.worktreePath
@@ -573,9 +601,13 @@ export async function checkpointExecutionPreparation({
     // Planning can leave new drafts and normalized legacy Plans outside the
     // active Epic family. Use the same preparation boundary as resume detection;
     // these files are the input baseline, never post-validation exceptions.
-    const dirtyPreparationPaths = (await gitStatusPaths(worktreePath)).filter((path) =>
-        isExecutionPreparationPath(path) && !isRunWieldOwnedRuntimePath(path)
-    );
+    const dirtyPreparationPaths = [];
+    for (const path of new Set([...await gitStatusPaths(worktreePath), ...PROJECT_CONTEXT_PATHS])) {
+        if (
+            !isRunWieldOwnedRuntimePath(path) &&
+            (isExecutionPreparationPath(path) || await isTransferredProjectContext(worktreePath, path))
+        ) dirtyPreparationPaths.push(path);
+    }
     const preparationPaths = [...new Set([planRelativePath, ...relatedPlanPaths, ...dirtyPreparationPaths])];
     if (await pathExists(join(worktreePath, ".gitignore"))) preparationPaths.push(".gitignore");
     const headBefore = (await runGit(worktreePath, ["rev-parse", "HEAD"])).trim();
@@ -589,9 +621,14 @@ export async function checkpointExecutionPreparation({
         const committedPaths = baseIsAncestor.code === 0
             ? parseNameOnlyPaths(await runGit(worktreePath, ["diff", "--name-only", `${baseCommit}..${headBefore}`]))
             : [];
-        const unexpectedPaths = baseIsAncestor.code === 0
-            ? committedPaths.filter((path) => !isExecutionPreparationPath(path))
-            : ["branch history"];
+        const unexpectedPaths = baseIsAncestor.code === 0 ? [] : ["branch history"];
+        for (const path of committedPaths) {
+            if (
+                !isExecutionPreparationPath(path) && !await isTransferredProjectContext(worktreePath, path, headBefore)
+            ) {
+                unexpectedPaths.push(path);
+            }
+        }
         if (unexpectedPaths.length > 0) {
             throw new Error(
                 `Cannot checkpoint execution preparation for ${planName}: branch ${branch} moved from ${baseCommit} to ${headBefore}.`,
@@ -792,10 +829,18 @@ export async function createWorktreeGitArtifacts(
     const now = new Date().toISOString();
     const resolvedBaseBranch = baseBranch || await resolveCurrentCheckoutBranch(projectRoot) || "HEAD";
     const baseCommit = (await runGit(projectRoot, ["rev-parse", baseRef])).trim();
-    const baseTree = (await runGit(projectRoot, ["rev-parse", `${baseRef}^{tree}`])).trim();
+    const baseTree = (await runGit(projectRoot, ["rev-parse", `${baseCommit}^{tree}`])).trim();
 
+    const projectContext = await captureWorktreeProjectContext(projectRoot, baseCommit);
     await Deno.mkdir(parent, { recursive: true });
-    await runGit(projectRoot, ["worktree", "add", "-b", branch, path, baseRef]);
+    await runGit(projectRoot, ["worktree", "add", "-b", branch, path, baseCommit]);
+    try {
+        await materializeWorktreeProjectContext(path, projectContext);
+    } catch (error) {
+        await runGit(projectRoot, ["worktree", "remove", "--force", path]);
+        await runGit(projectRoot, ["branch", "-D", branch]);
+        throw error;
+    }
     if (await pathExists(join(path, ".gitmodules"))) {
         await runGit(path, ["submodule", "update", "--init", "--recursive"]);
     }

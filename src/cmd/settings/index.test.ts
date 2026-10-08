@@ -308,6 +308,26 @@ Deno.test("runSettingsCommand applies a selected model preset to the active Sess
     });
 });
 
+Deno.test("runSettingsCommand activates a bundled preset without persisting its definition", async () => {
+    await withRuntimeCommandFixture("bundled-preset-selection-", async ({ projectRoot }) => {
+        const { runtime, sessionId } = await createPromptReadyRuntime(projectRoot);
+        const harness = makeUiHarness(["model-presets", "preset:claude-opus", "back", "done"]);
+        try {
+            await runSettingsCommand([], {
+                uiAPI: harness.uiAPI,
+                sessionRuntime: runtime,
+                sessionId,
+            });
+            assertEquals(getCustomSetting("activeModelPreset", "global", projectRoot), "claude-opus");
+            assertEquals(getCustomSetting("modelPresets", "global", projectRoot), undefined);
+            assertEquals(runtime.getSessionSnapshot(sessionId)?.activeModel, { provider: "claude-cli", model: "opus" });
+            assert(harness.messages.includes("Agent context reloaded with the new model preset."));
+        } finally {
+            runtime.closeAllSessions();
+        }
+    });
+});
+
 Deno.test("runSettingsCommand applies a model preset to a new in-memory Session", async () => {
     await withRuntimeCommandFixture(
         "runwield-settings-command-",
@@ -391,7 +411,7 @@ Deno.test("runSettingsCommand clears activeModelPreset via None", async () => {
     });
 });
 
-Deno.test("runSettingsCommand reports when no model presets are defined", async () => {
+Deno.test("runSettingsCommand offers bundled presets without personal preset settings", async () => {
     await withRuntimeCommandFixture("runwield-settings-command-", async ({ projectRoot }) => {
         const { runtime, sessionId } = await createPromptReadyRuntime(projectRoot);
         const harness = makeUiHarness(["model-presets", "back", "done"]);
@@ -403,7 +423,22 @@ Deno.test("runSettingsCommand reports when no model presets are defined", async 
                 sessionId,
             });
 
-            assert(harness.messages.some((message) => message.includes("No model presets defined")));
+            const menu = harness.selects.find((select) => select.title === "Model Presets");
+            assert(menu);
+            assertEquals(menu.options.filter((item) => item.value.startsWith("preset:")).map((item) => item.value), [
+                "preset:agy",
+                "preset:claude-mixed",
+                "preset:claude-opus",
+                "preset:codex",
+                "preset:codex-claude",
+                "preset:opencode",
+            ]);
+            assertStringIncludes(
+                menu.options.find((item) => item.value === "preset:claude-mixed")?.description ?? "",
+                "Sonnet",
+            );
+            assertEquals(getCustomSetting("modelPresets", "global", projectRoot), undefined);
+            assertEquals(getCustomSetting("activeModelPreset", "global", projectRoot), undefined);
         } finally {
             runtime.closeAllSessions();
         }

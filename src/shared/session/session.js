@@ -128,7 +128,7 @@ import { recordToolCallFinished, recordToolCallStarted, recordWorkflowMetric } f
 import { ExecutionMetricsRecorder, SessionContextMetricsRecorder } from "../workflow/execution-metrics.ts";
 import { describeRuntimeTool } from "./tool-event-title.js";
 import { createSessionContextProjection, estimateContextTextTokens } from "./session-context-report.ts";
-import { installEarlySteeringInterruption } from "./early-steering.js";
+import { installEarlySteeringInterruption } from "./early-steering.ts";
 import { loadSubAgentDefinition } from "./subagent-definitions.ts";
 import { formatGitPromptState, readGitPromptState } from "../git.ts";
 import { sanitizeSessionName } from "./session-name.ts";

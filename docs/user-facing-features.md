@@ -35,10 +35,14 @@ planning.
 ### Project context, memory, and code intelligence
 
 - Initialize project context with `wld init` or `/init`.
-- During initialization, report bounded advisory `Possible test-seam risks` when representative tests appear able to
-  replace product-owned behavior; this is not enforcement and not a clean bill of health.
+- Review and approve Init's settings, glossary, and managed ignore-file changes before the Agent starts. Declining or
+  canceling stops initialization and explains how to retry with `/init`.
 - Generate a project `docs/domain-language.md` during initialization.
 - Store durable project memories during initialization.
+- Carry uncommitted project settings and domain language into new Tutorial and Plan worktrees, together with RunWield's
+  managed ignore block, without requiring an initial user commit or copying unrelated changes.
+- Deliver Plans locally without unchanged Init output or managed ignore rules blocking the merge, preserving later user
+  edits and restoring setup files and staging if publication fails before merging.
 - Use Mnemoteca for project and global memory recall; Mnemoteca models download lazily on first semantic use.
 - Use Cymbal for code search, symbol lookup, references, impact analysis, and tracing.
 - Use Snip for compact command-output rewriting when available; Snip remains optional and fail-open.
@@ -282,6 +286,7 @@ Choose model access and give Agents the context and tools the work needs.
 - Configure providers and custom models through RunWield-owned config paths.
 - Use per-agent model overrides in settings.
 - Use named model presets in settings.
+- Start with bundled Codex, Antigravity, OpenCode, Claude mixed, Claude Opus, or Codex–Claude model presets.
 - Edit model presets from the interactive `/settings` flow.
 - Configure model thinking levels per agent.
 - Use a vision fallback model for pasted images when the active model is text-only.
@@ -345,6 +350,9 @@ Run locally and adapt the harness to your Project.
 - Override agent definitions with `.wld/agents/` or `~/.wld/agents/`.
 - Add project or home prompt templates with `.wld/prompts/` or `~/.wld/prompts/`.
 - Use prompt templates as slash commands when they do not collide with built-ins.
+- Run bundled `/commit` to group pending changes into commits and push, `/release` for a repository-guided release,
+  `/code-optimizer` for maintainability improvements, or `/test-seams` for an advisory audit of tests that replace
+  product-owned behavior. The seam audit runs only when requested, independently of initialization.
 - Load Skills from project `.wld`, project `.agents`, home `.wld`, home `.agents`, then bundled defaults.
 - Protect bundled Skill names from external `.agents` conflicts, while allowing intentional `.wld` overrides.
 - Disable both external Skill folders with `enableExternalSkills: false`.

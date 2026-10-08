@@ -52,6 +52,13 @@ macOS and Linux, installs to `~/.local/bin`, no root required.
 For setup details, including model provider authentication, runtime helpers, and running from source, see the
 [Quickstart Guide](https://docs.runwield.dev/quickstart/).
 
+Choose a bundled model preset in `/settings` → **Model Presets**: `codex`, `agy`, `opencode`, `claude-mixed`,
+`claude-opus`, or `codex-claude`. See the [preset reference](https://docs.runwield.dev/settings/#modelpresets) for model
+assignments and customization.
+
+We recommend Gemma4 31B through Ollama Cloud for Router; it is available on Ollama's free plan, whose allowance has been
+ample for our Router-only usage.
+
 > **I'm looking for five developers to try RunWield on one real, non-trivial change.** I'll personally help you get
 > running, fix anything that blocks you within a day, and give you a direct say in the roadmap.
 > [Try it with me →](https://runwield.dev/#beta)
