@@ -102,7 +102,7 @@ structured agent outcomes, calls Plan and execution services, and decides which 
 | Per-session ownership       | Project root, root and sub-agent sessions, active agent/model/thinking state, workflow state, active interactions    | `src/shared/session/hosted-session.js`                                                                                                                   |
 | Multi-session registry      | Adopt, find, list, and dispose hosted sessions                                                                       | `src/shared/session/session-host.ts`                                                                                                                     |
 | Pi integration              | Build configured `AgentSession` objects, assemble prompts, wire tools, translate Pi events, run prompts, reuse roots | `src/shared/session/session.js`                                                                                                                          |
-| Workflow application logic  | Interpret tool outcomes, route requests, choose post-planning and post-execution actions                             | `src/shared/session/agent-handler.js`, `src/shared/workflow/orchestrator.js`, `src/shared/workflow/decisions.js`                                         |
+| Workflow application logic  | Interpret tool outcomes, route requests, choose post-planning and post-execution actions                             | `src/shared/session/agent-handler.js`, `src/shared/workflow/orchestrator.js`, `src/shared/workflow/decisions.ts`                                         |
 | Plan domain                 | Canonical Markdown persistence, identities, hierarchy, lifecycle state machine, collaboration write lock             | `src/plan-store.js`, `src/shared/workflow/plan-lifecycle.js`                                                                                             |
 | Execution domain            | Worktree preparation, Engineer completion gate, local validation, repair, merge-back, recovery metadata              | `src/shared/workflow/workflow.js`, `src/shared/workflow/validation.ts`, `src/shared/worktree.js`                                                         |
 | Configuration and policy    | Layered agent definitions, settings, model resolution, protected tools, skills/prompts/extensions                    | `src/shared/session/agents.js`, `src/shared/settings.js`, `src/shared/models/`, `src/tools/registry.ts`                                                  |
@@ -666,7 +666,7 @@ The six routing intents have distinct ceremony:
   legacy classification value that normalizes to `PLANNED_CHANGE`.
 - `PROJECT` creates an Epic container. It is decomposed into child PLANNED_CHANGE Plans and is never executed directly.
 
-`workflow-results.js` extracts structured outcomes. `decisions.js` converts them into semantic actions such as
+`workflow-results.js` extracts structured outcomes. `decisions.ts` converts them into semantic actions such as
 `execute_plan`, `start_slicer`, `run_validation`, `stay_with_agent`, or `halt`. Callers retain responsibility for state
 mutation, user interaction, recovery, and agent switching.
 
@@ -1084,7 +1084,7 @@ The highest-value cross-boundary paths for later confidence analysis are visible
 | Agent switching                           | `src/shared/session/agent-switching.js`                                       |
 | Workflow-aware turn handling              | `src/shared/session/agent-handler.js`                                         |
 | Routing orchestration                     | `src/shared/workflow/orchestrator.js`                                         |
-| Workflow decisions and outcome parsing    | `src/shared/workflow/decisions.js`, `src/shared/workflow/workflow-results.js` |
+| Workflow decisions and outcome parsing    | `src/shared/workflow/decisions.ts`, `src/shared/workflow/workflow-results.js` |
 | Plan execution facade                     | `src/shared/workflow/workflow.js`                                             |
 | Validation and repair                     | `src/shared/workflow/validation.ts`                                           |
 | Plan lifecycle                            | `src/shared/workflow/plan-lifecycle.js`                                       |
