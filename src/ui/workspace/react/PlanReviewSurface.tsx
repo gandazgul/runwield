@@ -456,13 +456,13 @@ function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup,
         const waitForRevision = async () => {
             try {
                 while (!controller.signal.aborted) {
-                    const url = new URL(initialPayload.reviewRevisionUrl, window.location.href);
+                    const url = new URL(initialPayload.reviewRevisionUrl, globalThis.location.href);
                     url.searchParams.set("token", initialPayload.token);
                     const response = await fetch(url, { signal: controller.signal });
                     if (!response.ok) throw new Error("The review host stopped. Reopen the review in Claude.");
                     const current = await response.json();
                     if (current.revision > initialPayload.reviewRevision) {
-                        window.location.reload();
+                        globalThis.location.reload();
                         return;
                     }
                     await pause(750);

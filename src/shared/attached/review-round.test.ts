@@ -5,7 +5,6 @@ import { recordPlanEvent } from "../workflow/plan-lifecycle.js";
 import { openAttachedReviewRound } from "./coordinator.ts";
 import {
     planWrittenInput,
-    reachPlanning,
     readRecordBytes,
     runOperation,
     spawnAttachedCli,

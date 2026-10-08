@@ -52,8 +52,11 @@ Deno.test("a rejected decision offers stale-review reload and leaves the Core wa
             cwd,
             plan: "# Plan",
             browser: { open: () => Promise.resolve(false) },
-            async onDecision(decision) {
-                if (decision.feedback === "Stale") throw new Error("Plan changed after review opened.");
+            onDecision(decision) {
+                if (decision.feedback === "Stale") {
+                    return Promise.reject(new Error("Plan changed after review opened."));
+                }
+                return Promise.resolve();
             },
         });
         try {

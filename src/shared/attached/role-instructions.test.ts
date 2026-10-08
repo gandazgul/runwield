@@ -1,11 +1,14 @@
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
+import { applyAttachedReviewDecision, openAttachedReviewRound } from "./coordinator.ts";
 import {
     activateInput,
     pendingTriage,
+    planWrittenInput,
     reachPlanning,
     readRecordBytes,
     runOperation,
+    submitReview,
     triageReportInput,
     withProject,
 } from "./attached-test-fixture.ts";
@@ -42,6 +45,51 @@ Deno.test("after a PLANNED_CHANGE Triage, status returns the Planner action and 
         assertStringIncludes(status.instructions.text, BUNDLED_PLANNER_TEXT);
         assertStringIncludes(status.instructions.text, "- `write`, `write_docs` -> `Write`");
         assertEquals(status.instructions.text.includes("{{"), false, "No template placeholder may reach the host.");
+    });
+});
+
+Deno.test("Planner instructions keep initial submission and feedback review in Claude Code and the browser", async () => {
+    await withProject(async (projectRoot) => {
+        const workflow = await submitReview(projectRoot);
+        for (const round of [1, 2]) {
+            const handoff = round === 1
+                ? (await reachPlanning(projectRoot)).result
+                : await runOperation("status", projectRoot, { workflowId: workflow.workflowId });
+            assert(handoff.ok && handoff.instructions, JSON.stringify(handoff));
+            const text = handoff.instructions.text;
+            assertStringIncludes(text, "even when the result has no `instructions`");
+            assertStringIncludes(text, "show `review.url` and poll `status`");
+            assertStringIncludes(text, "read its feedback, image paths, and note");
+            assertStringIncludes(text, "Browser edits are already saved; do not apply them twice.");
+            assertStringIncludes(text, "Stay in Claude Code and the browser; use no RunWield CLI or TUI commands.");
+            assertEquals(text.includes("Plan review in the browser is not available"), false);
+            assertEquals(text.includes("`wld` can open and run it"), false);
+            assertEquals(text.includes("`instructions` ends the RunWield role"), false);
+
+            if (round === 1) {
+                const opened = await openAttachedReviewRound(projectRoot, workflow.workflowId);
+                assert(opened.kind === "opened");
+                await applyAttachedReviewDecision(projectRoot, workflow.workflowId, opened.basis, {
+                    feedback: "Use a selector.",
+                });
+            } else {
+                assert(handoff.workflow.nextAction.kind === "plan");
+                const submitted = await runOperation(
+                    "plan_written",
+                    projectRoot,
+                    planWrittenInput({
+                        workflowId: workflow.workflowId,
+                        actionId: handoff.workflow.nextAction.actionId,
+                        expectedRevision: handoff.workflow.revision,
+                        operationId: "resubmit",
+                    }),
+                );
+                assert(submitted.ok);
+                assertEquals(submitted.workflow.nextAction.kind, "review");
+                assertEquals(submitted.instructions, undefined);
+                assertEquals(submitted.workflow.review?.round, 2);
+            }
+        }
     });
 });
 
