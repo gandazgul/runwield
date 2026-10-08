@@ -613,9 +613,6 @@ for (const tutorial of [false, true]) {
         await withRuntimeCommandFixture("init-context-execution-", async ({ setModelMessages }) => {
             const projectRoot = await makeWorkflowProject([{ name: "init-context" }]);
             Deno.chdir(projectRoot);
-            await Deno.writeTextFile(join(projectRoot, ".gitignore"), ".wld/\nnode_modules/\n");
-            await git(projectRoot, ["add", ".gitignore"]);
-            await git(projectRoot, ["commit", "-m", "Existing broad ignore policy"]);
             const initialHead = await git(projectRoot, ["rev-parse", "HEAD"]);
             const glossary = "# Domain Language\n\n## Fixture\n\nCurrent fixture terminology.\n";
             setModelMessages([
@@ -647,7 +644,7 @@ for (const tutorial of [false, true]) {
                     sessionRuntime: runtime,
                     sessionId: created.sessionId,
                     sessionPort: { startInteractiveSession: () => Promise.reject(new Error("Unexpected model setup")) },
-                    uiAPI: { appendSystemMessage: (message, error) => assert(!error, message) },
+                    uiAPI: { appendSystemMessage: (_message, error) => assert(!error) },
                 });
                 await Deno.writeTextFile(join(projectRoot, "unrelated.txt"), "Keep in the original checkout.\n");
                 const status = await git(projectRoot, ["status", "--porcelain"]);

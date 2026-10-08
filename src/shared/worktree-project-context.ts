@@ -1,8 +1,6 @@
-import { parse as parseJsonc } from "@std/jsonc";
 import { basename, dirname, join } from "@std/path";
 import { enterProjectRuntime, resolveProjectRuntimeLayout } from "./project-runtime-layout.ts";
 import { ensureRunWieldOwnedGitignoreBlock, RUNWIELD_GITIGNORE_BLOCK } from "./runwield-owned-paths.ts";
-import { resolvePrimaryCheckoutRoot } from "./primary-checkout.ts";
 
 /** Versionable setup artifacts; these are not disposable .wld/internal runtime state. */
 export const PROJECT_CONTEXT_PATHS = [".wld/settings.json", "docs/domain-language.md"] as const;
@@ -91,11 +89,7 @@ export async function captureWorktreeProjectContext(root: string, targetRef: str
         const target = await readProjectContextRevision(root, targetRef, path);
         if (source === target) continue;
         const content = target === base ? source : await mergeContext(root, path, base ?? "", source, target ?? "");
-        files.push({
-            path,
-            content,
-            ...(await isOwnedProjectContext(root, path) ? { sourceDigest: await digest(source) } : {}),
-        });
+        files.push({ path, content, sourceDigest: await digest(source) });
     }
     const ignore = await readProjectContextFile(root, ".gitignore");
     return { files, ownedGitignore: ignore?.includes(RUNWIELD_GITIGNORE_BLOCK.split("\n")[0]) ?? false };
@@ -127,98 +121,8 @@ export async function materializeWorktreeProjectContext(root: string, context: W
     }
 }
 
-interface ContextReceiptFile {
-    path: string;
-    digest: string;
-    sourceDigest?: string;
-    owned?: boolean;
-}
-
 interface ContextReceipt {
-    files: ContextReceiptFile[];
-}
-
-async function readContextReceipt(root: string): Promise<ContextReceipt> {
-    try {
-        const receipt: ContextReceipt = JSON.parse(await Deno.readTextFile(receiptPath(root)));
-        return { files: Array.isArray(receipt?.files) ? receipt.files : [] };
-    } catch (error) {
-        if (error instanceof Deno.errors.NotFound || error instanceof SyntaxError) return { files: [] };
-        throw error;
-    }
-}
-
-/** Versionable receipt paths remain delivery inputs after their validated repair. */
-export async function recordedProjectContextPaths(root: string): Promise<string[]> {
-    const receipt = await readContextReceipt(root);
-    const paths: string[] = [];
-    for (const path of PROJECT_CONTEXT_PATHS) {
-        const file = receipt.files.find((entry) => entry?.path === path);
-        if (
-            typeof file?.digest === "string" && /^[a-f0-9]{64}$/.test(file.digest) &&
-            await readProjectContextFile(root, path) !== null
-        ) paths.push(path);
-    }
-    return paths;
-}
-
-export interface ValidationSettingsWrite {
-    primaryRoot: string;
-    executionRoot: string;
-    before: string | null;
-    ownedPrimary: boolean;
-}
-
-/** Snapshot ownership before the host writes, so existing user edits are not adopted. */
-export async function captureValidationSettingsWrite(executionRoot: string): Promise<ValidationSettingsWrite> {
-    const primaryRoot = resolvePrimaryCheckoutRoot(executionRoot);
-    const path = ".wld/settings.json";
-    const before = await readProjectContextFile(primaryRoot, path);
-    const head = await git(primaryRoot, ["rev-parse", "HEAD"]);
-    const ownedPrimary = head.code === 0 && (
-        before === await readProjectContextRevision(primaryRoot, "HEAD", path) ||
-        await isOwnedProjectContext(primaryRoot, path) ||
-        await isUnchangedTransferredSource(primaryRoot, executionRoot, path)
-    );
-    return { primaryRoot, executionRoot, before, ownedPrimary };
-}
-
-type SettingValue = string | number | boolean | null | SettingValue[] | SettingValues;
-interface SettingValues {
-    [key: string]: SettingValue;
-}
-
-function onlyCommandChanged(before: string | null, after: string, command: string): boolean {
-    const previous = parseJsonc(before ?? "{}") as SettingValues;
-    const current = parseJsonc(after) as SettingValues;
-    if (current.verification_command !== command) return false;
-    delete previous.verification_command;
-    delete current.verification_command;
-    return JSON.stringify(previous) === JSON.stringify(current);
-}
-
-/** Retain the host-written command's provenance without replacing other context receipts. */
-export async function recordValidationSettingsWrite(snapshot: ValidationSettingsWrite, command: string): Promise<void> {
-    const path = ".wld/settings.json";
-    const execution = await readProjectContextFile(snapshot.executionRoot, path);
-    if (execution === null) return;
-    const primary = await readProjectContextFile(snapshot.primaryRoot, path);
-    const sourceOwned = snapshot.ownedPrimary && primary !== null &&
-        onlyCommandChanged(snapshot.before, primary, command);
-    const receipt = await readContextReceipt(snapshot.executionRoot);
-    receipt.files = receipt.files.filter((file) => file?.path !== path);
-    receipt.files.push({
-        path,
-        digest: await digest(execution),
-        owned: sourceOwned,
-        ...(sourceOwned ? { sourceDigest: await digest(primary) } : {}),
-    });
-    await enterProjectRuntime(snapshot.executionRoot);
-    const target = receiptPath(snapshot.executionRoot);
-    await Deno.mkdir(dirname(target), { recursive: true });
-    const temporary = `${target}.${crypto.randomUUID()}.tmp`;
-    await Deno.writeTextFile(temporary, JSON.stringify(receipt) + "\n", { mode: 0o600 });
-    await Deno.rename(temporary, target);
+    files: Array<{ path: string; digest: string; sourceDigest?: string }>;
 }
 
 function receiptPath(root: string): string {
@@ -246,20 +150,13 @@ export async function isTransferredProjectContext(root: string, path: string, re
     return content !== null && await digest(content) === recorded.digest;
 }
 
-/** Transfer identity alone does not prove that RunWield authored the copied edits. */
-export async function isOwnedProjectContext(root: string, path: string): Promise<boolean> {
-    const receipt = await readContextReceipt(root);
-    const file = receipt.files.find((entry) => entry?.path === path);
-    return file?.owned === true && await isTransferredProjectContext(root, path);
-}
-
 /** Remember successful Init output without copying or changing the output files. */
 export async function recordInitializedProjectContext(root: string): Promise<void> {
     await enterProjectRuntime(root);
     const files = [];
     for (const path of PROJECT_CONTEXT_PATHS) {
         const content = await readProjectContextFile(root, path);
-        if (content !== null) files.push({ path, digest: await digest(content), owned: true });
+        if (content !== null) files.push({ path, digest: await digest(content) });
     }
     const receipt = receiptPath(root);
     await Deno.mkdir(dirname(receipt), { recursive: true });
@@ -281,7 +178,7 @@ export async function isUnchangedTransferredSource(
         throw error;
     }
     const file = Array.isArray(receipt?.files) ? receipt.files.find((file) => file?.path === path) : undefined;
-    const expected = file?.sourceDigest;
+    const expected = file?.sourceDigest ?? file?.digest;
     if (typeof expected !== "string") return false;
     const content = await readProjectContextFile(root, path);
     return content !== null && await digest(content) === expected;
