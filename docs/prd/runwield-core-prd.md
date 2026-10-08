@@ -717,11 +717,23 @@ Execution requirements:
 
 - work on the approved Plan in an isolated worktree;
 - preserve the user's existing checkout changes and a useful recovery point;
+- carry uncommitted versionable settings and glossary into newly created Tutorial and normal execution worktrees, while
+  recreating only managed ignore rules and preserving source staging and unrelated work. Copied context joins the
+  preparation checkpoint even when a committed broad ignore rule hides it. Reused worktrees keep their own repairs;
+- reconcile unchanged, recorded Init output and validation-time settings writes during local publication. Preserve
+  original bytes and staging durably until integration, restore them after failed publication, and retain validated
+  incoming versions on success. Later user edits and distinct staged versions remain protected;
 - distinguish implementation being finished from validation succeeding.
 
 Workflow Validation requirements:
 
 - run the project's configured checks and review the change against the approved Plan;
+- reuse the existing execution-checkout command or inherit the project command without prompting again. Save a newly
+  supplied validation command in both scopes and record the host-owned write so a validated checkout-specific command
+  repair can be delivered without asking the user to commit or stash RunWield's own settings. Recording that write must
+  not claim ownership of pre-existing or subsequent user edits. A context transfer receipt identifies copied bytes; only
+  recorded Init or validation writes establish ownership of the source changes. Cancellation during command setup
+  remains effective and must not start a validation process afterward;
 - offer human code review when enabled;
 - repair failed checks or review findings within the execution worktree;
 - give a repair Agent the relevant findings and instructions without unrelated earlier context;
@@ -786,6 +798,14 @@ Recovery requirements:
 - Given a managed repair, when the Agent completes focused verification, RunWield reloads the current configured command
   and runs full validation against the repair checkout. A failure still prevents progress; the Agent was not required to
   run that complete command immediately beforehand.
+- Given Init settings and a committed `.wld/` ignore rule, when Tutorial or normal execution begins, receipt-owned
+  settings enter the preparation commit. A later command repair reaches the delivered target; the existing ignore rules,
+  unrelated dirty or staged user work, and ignored runtime/private files remain protected.
+- Given no Init receipt and no configured command, when validation asks once and a repair updates the saved command,
+  publication delivers the repaired settings automatically. This applies both to new ignored settings and an already
+  tracked settings file, including supported JSONC comments and trailing commas. Unrelated user settings edits made
+  before worktree creation, before the host write, after it, or staged independently must not be overwritten or silently
+  committed.
 - Given a ready approved Plan and existing checkout edits, when execution starts, the approved work is isolated and the
   user’s edits remain preserved.
 - Given a worktree created from `main`, when the execution Plan is edited to target `release/next` after the Session
