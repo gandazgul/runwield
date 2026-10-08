@@ -27,7 +27,7 @@ for (const missing of [false, true]) {
                 await savePlan(root, "delivered", "# Delivered\n", {
                     planId: "delivered-id",
                     classification: "QUICK_FIX",
-                    status: "validated",
+                    status: "verified",
                 });
                 await git(root, ["add", "docs"]);
                 await git(root, ["commit", "-m", "sealed delivery"]);
@@ -44,6 +44,7 @@ for (const missing of [false, true]) {
                         validatedCommit: commit,
                         targetHeadAtSeal: commit,
                     }),
+                    phase: "publication_verified",
                     artifactCommit: commit,
                     publishedCommit: commit,
                     verifiedAt: "2026-10-08T10:00:00Z",

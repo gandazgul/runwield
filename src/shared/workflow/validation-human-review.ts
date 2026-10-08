@@ -66,6 +66,7 @@ export async function runHumanReviewPhase(
             options: [
                 { value: "open", label: "Open code review" },
                 { value: "skip", label: "Skip code review" },
+                { value: "close", label: "Close and come back later" },
             ],
         });
         if (response.outcome !== "selected" || (response.value !== "open" && response.value !== "skip")) {
@@ -74,7 +75,8 @@ export async function runHumanReviewPhase(
                 planName: args.planName,
                 projectRoot: context.projectRoot,
                 awaitingUserAction: true,
-                reason: "Code review is still waiting for your decision. Load this Plan to continue.",
+                reason:
+                    `Code review is still waiting for your decision. Resume with /load-plan ${args.planName} to choose again.`,
             };
         }
         if (response.value === "skip") {
