@@ -17,6 +17,8 @@ import {
     deleteRemotelyPublishedWorktreeBranch,
     removeWorktreeGitArtifacts,
 } from "../worktree.js";
+import { getWorkflowMetricsFilePath } from "./metrics.js";
+import { resolveCollectionEpoch } from "./metrics-journal.ts";
 import { recordWorkflowOutcome, workflowOutcomeEventId } from "./outcome-observations.ts";
 import { readControllerRecord, writeControllerState } from "./controller-registry.ts";
 import {
@@ -373,6 +375,14 @@ async function retainPublicationCompletion(projectRoot: string, attempt: Publica
     const identity = { planId: attempt.planId, planName: attempt.planName };
     const previous = await readControllerRecord(projectRoot, identity);
     const observed = previous?.state.publicationObservation;
+    let historyEpoch = observed?.attemptId === attempt.attemptId ? observed.historyEpoch : undefined;
+    if (!historyEpoch) {
+        try {
+            historyEpoch = resolveCollectionEpoch(getWorkflowMetricsFilePath(projectRoot)).historyEpoch;
+        } catch {
+            historyEpoch = "unavailable";
+        }
+    }
     await writeControllerState(projectRoot, identity, {
         verifiedAt: attempt.verifiedAt,
         updatedAt: attempt.verifiedAt,
@@ -381,6 +391,7 @@ async function retainPublicationCompletion(projectRoot: string, attempt: Publica
             : {
                 attemptId: attempt.attemptId,
                 eventId: workflowOutcomeEventId("publication_confirmed", attempt.attemptId),
+                historyEpoch,
                 coverage: "unverified",
             },
     });
@@ -392,8 +403,22 @@ async function observeConfirmedPublication(projectRoot: string, attempt: Publica
     const identity = { planId: attempt.planId, planName: attempt.planName };
     const deadline = Date.now() + 5000;
     const pending = async () => {
+        let planKind: string | undefined;
+        for (const path of attempt.planPaths || []) {
+            const artifact = await git(projectRoot, ["show", `${attempt.artifactCommit}:${path}`]);
+            if (artifact.code !== 0) continue;
+            const { attrs } = parsePlanFrontMatter(artifact.stdout);
+            if (attrs.planId === attempt.planId) {
+                planKind = attrs.classification;
+                break;
+            }
+        }
+        const original = await readControllerRecord(projectRoot, identity);
         const result = await recordWorkflowOutcome(projectRoot, {
             event: "publication_confirmed",
+            planId: attempt.planId,
+            planKind,
+            historyEpoch: original?.state.publicationObservation?.historyEpoch,
             category: "recovery",
             operationId: attempt.attemptId,
             attemptId: attempt.attemptId,
@@ -408,6 +433,7 @@ async function observeConfirmedPublication(projectRoot: string, attempt: Publica
             publicationObservation: {
                 attemptId: attempt.attemptId,
                 eventId,
+                historyEpoch: result.historyEpoch || retained?.state.publicationObservation?.historyEpoch,
                 coverage: result.persisted || retained.state.publicationObservation.coverage === "complete"
                     ? "complete"
                     : "incomplete",

@@ -5,6 +5,7 @@ import { setCustomSetting } from "../settings.js";
 import { findById } from "../worktree-registry.js";
 import { readControllerRecord } from "./controller-registry.ts";
 import { getWorkflowMetricsFilePath } from "./metrics.js";
+import { UsageReporter } from "./usage-reporting.ts";
 import { workflowOutcomeEventId } from "./outcome-observations.ts";
 import { advanceStoredPublication, cleanupStoredPublication } from "./publication-machine.ts";
 import { makePublicationOutcomeFixture } from "./testing/publication-outcome-fixture.ts";
@@ -175,6 +176,46 @@ Deno.test("a lost journal checkpoint recovers stable publication identity withou
             await Deno.remove(join(dirname(file), "state.json"));
             assert((await cleanupStoredPublication(metrics.projectRoot, cleanup.attempt)).complete);
             assertEquals(await Deno.readTextFile(file), before);
+        } finally {
+            await fixture.dispose();
+        }
+    });
+});
+
+Deno.test("restart cleanup cannot restore a publication removed by clear", async () => {
+    await withWorkflowMetricsFixture(async ({ projectRoot, homeDir }) => {
+        const fixture = await makePublicationOutcomeFixture(projectRoot);
+        try {
+            const cleanup = await cleanupStoredPublication(projectRoot, await fixture.confirm());
+            assert(cleanup.complete);
+            const reporter = new UsageReporter();
+            assert((await reporter.clear([projectRoot]))[0].persisted);
+            const path = getWorkflowMetricsFilePath(projectRoot);
+            const cleared = await Deno.readTextFile(path);
+            const script = join(projectRoot, "restart-cleanup.ts");
+            await Deno.writeTextFile(
+                script,
+                `import { cleanupStoredPublication } from ${
+                    JSON.stringify(new URL("./publication-machine.ts", import.meta.url).href)
+                };
+console.log(JSON.stringify(await cleanupStoredPublication(Deno.args[0], JSON.parse(Deno.args[1]))));`,
+            );
+            const restarted = await new Deno.Command(Deno.execPath(), {
+                args: [
+                    "run",
+                    "-A",
+                    "--config",
+                    new URL("../../../deno.json", import.meta.url).pathname,
+                    script,
+                    projectRoot,
+                    JSON.stringify(cleanup.attempt),
+                ],
+                env: { HOME: homeDir },
+                stdout: "piped",
+                stderr: "piped",
+            }).output();
+            assert(restarted.success, new TextDecoder().decode(restarted.stderr));
+            assertEquals(await Deno.readTextFile(path), cleared);
         } finally {
             await fixture.dispose();
         }

@@ -64,6 +64,7 @@ export interface ClaudeCliRunOptions {
     parentToolCallId?: string;
     taskId?: string;
     sourceSurface?: string;
+    userInitiated?: boolean;
 }
 
 interface ClaudeCliQueueUpdateEvent {
@@ -257,6 +258,7 @@ export class ClaudeCliExecutionSession {
             parentToolCallId: options.parentToolCallId,
             taskId: options.taskId,
             sourceSurface: options.sourceSurface || "cli",
+            userInitiated: options.userInitiated,
         });
         await recorder.recordExecutionStart();
         await recorder.recordToolExposure(bridgedTools, "partial");
