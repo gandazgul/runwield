@@ -11,6 +11,7 @@ import { attachTuiRuntimeAdapter } from "./runtime-adapter.js";
 import { notifyRunWieldEventQuietly } from "./system-notifications.ts";
 import { createManagedSessionSyncController, SYSTEM_MANAGED_SESSION_TIMER } from "./managed-session-sync.js";
 import { ensureCymbalBinary, ensureKetchBinary, ensureMnemotecaBinary } from "../../shared/runtime-preflight.ts";
+import { restoreVerifiedTutorialRecap } from "./tutorial-guidance.ts";
 import {
     COMMAND_NAMES,
     commandRegistry,
@@ -262,7 +263,7 @@ export async function startInteractiveSession(
                     ...(context?.status ? { status: context.status } : {}),
                 };
                 const status = String(triageMeta.status || "");
-                const validationStatus = ["implemented", "validated_ci", "validated_reviewer", "validated"].includes(
+                const validationStatus = ["implemented", "validated_ci", "reviewed", "validated"].includes(
                     status,
                 );
                 const result = validationStatus || action.kind === "recover"
@@ -299,8 +300,12 @@ export async function startInteractiveSession(
             notifyRunWieldEvent: notifyRunWieldEventQuietly,
             onSessionReplaced: ({ newSessionId }) => replaceRuntimeSession(newSessionId, { oldRetired: true }),
             pauseTutorialPresentation: sessionStartMode === "continue",
-            onSessionComplete: (completedSessionId, workRecordFailed) =>
-                inputControllerForPause?.offerSessionCompletion(completedSessionId, workRecordFailed),
+            onSessionComplete: (completedSessionId, workRecordFailed, workRecordPlanName) =>
+                inputControllerForPause?.offerSessionCompletion(
+                    completedSessionId,
+                    workRecordFailed,
+                    workRecordPlanName,
+                ),
         });
         disposables.push(() => tuiRuntimeAdapter.dispose());
         const managedSyncController = createManagedSessionSyncController({
@@ -367,8 +372,12 @@ export async function startInteractiveSession(
                 browser: options.browser,
                 notifyRunWieldEvent: notifyRunWieldEventQuietly,
                 onSessionReplaced: ({ newSessionId }) => replaceRuntimeSession(newSessionId, { oldRetired: true }),
-                onSessionComplete: (completedSessionId, workRecordFailed) =>
-                    inputControllerForPause?.offerSessionCompletion(completedSessionId, workRecordFailed),
+                onSessionComplete: (completedSessionId, workRecordFailed, workRecordPlanName) =>
+                    inputControllerForPause?.offerSessionCompletion(
+                        completedSessionId,
+                        workRecordFailed,
+                        workRecordPlanName,
+                    ),
             });
             subscribeCommandCatalog();
             view.resetForSessionReplacement();
@@ -684,6 +693,9 @@ export async function startInteractiveSession(
         if (shouldReplaySessionHistory(options.sessionStartMode)) {
             await sessionRuntime.replaySession(sessionId);
             const tutorialContext = runtimeSnapshot().tutorialContext;
+            if (tutorialContext?.recapShown) {
+                await restoreVerifiedTutorialRecap({ runtime: sessionRuntime, sessionId, uiAPI });
+            }
             if (tutorialContext?.guidanceEnabled && !tutorialContext.recapShown) {
                 const resumeChoice = await uiAPI.promptSelect(
                     "Resume tutorial guidance for this saved Session?",

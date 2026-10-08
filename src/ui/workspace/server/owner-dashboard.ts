@@ -164,7 +164,7 @@ const UNFINISHED_EXECUTION = new Set([
     "in_progress",
     "implemented",
     "validated_ci",
-    "validated_reviewer",
+    "reviewed",
     "failed",
     "ci_failed",
     "review_failed",

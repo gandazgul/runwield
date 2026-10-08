@@ -57,7 +57,7 @@ function assertRealPlanReviewRevisionAndApproval(result) {
     assertEventIncludes(result, "runtime:tool:start:task_completed");
     assertEventIncludes(result, "runtime:tool:start:review_complete");
     assertEventIncludes(result, "runtime:tool:start:review_complete");
-    assertScreenIncludes(result, "plan is on main.");
+    assertScreenIncludes(result, "Published commit confirmed on main.");
     assertEventIncludes(result, "runtime:tool:start:review_complete");
     assertScreenIncludes(result, "found no need for a fix");
     assertScreenIncludes(result, "Merging work into main");
@@ -103,6 +103,8 @@ function assertRealPlanReviewRevisionAndApproval(result) {
 }
 
 export const plannedChangeReviewRepairValidationScenario = {
+    // This scenario isolates automated delivery; human policy gates have dedicated journeys.
+    globalSettings: { defaultProvider: "golden", defaultModel: "faux", codereview: "none" },
     name: "planned-change-review-repair-validation-delivery",
     composedTui: true,
     initialAgentName: "planner",
@@ -315,7 +317,7 @@ export const plannedChangeReviewRepairValidationScenario = {
         // ceiling sized to the standalone run fails on contention rather than on defects.
         { type: "waitForIdle", timeoutMs: 240000 },
         { type: "waitForEvent", event: "runtime:tool:start:task_completed", timeoutMs: 60000 },
-        { type: "waitForRemotePlanStatus", planName: "plan", statuses: ["validated"], timeoutMs: 240000 },
+        { type: "waitForRemotePlanStatus", planName: "plan", statuses: ["verified"], timeoutMs: 240000 },
         { type: "waitForWorktreeRegistryStatus", planName: "plan", statuses: ["absent"], timeoutMs: 90000 },
         { type: "waitForIdle", timeoutMs: 90000 },
         { type: "assertWorkflowDurability" },
@@ -356,7 +358,7 @@ export const plannedChangeReviewRepairValidationScenario = {
             assertScreenIncludes(result, "found no need for a fix");
         }),
         assertsGoldenCoverage("recovery:workflow-validation", (result) => {
-            assertScreenIncludes(result, "plan is on main.");
+            assertScreenIncludes(result, "Published commit confirmed on main.");
             assertEventIncludes(result, "workflow:durability:terminal-ready");
             const transcript = `${result.scrollbackText || ""}\n${result.screenText || ""}`;
             assertEquals(
@@ -409,9 +411,9 @@ export const plannedChangeReviewRepairValidationScenario = {
 export const onboardingTutorialDeliveryScenario = {
     ...plannedChangeReviewRepairValidationScenario,
     name: "onboarding-tutorial-real-change-delivery",
-    // This interruption/reload journey can finish publication before its second
-    // restart. Dismiss live completion; replay must not reopen that selection.
-    interactiveSelectPrompts: [],
+    // Publication may finish before reload. Drive either the live completion
+    // prompt or the already-verified Plan menu through the real terminal.
+    interactiveSelectPrompts: ["What would you like to do next?", "What would you like to do?"],
     slashCommands: ["onboard"],
     onboardingOfferHandled: false,
     committedProjectFiles: [
@@ -433,7 +435,6 @@ export const onboardingTutorialDeliveryScenario = {
         { type: "select", promptIncludes: "were stopped before they finished", value: "stop" },
         { type: "select", promptIncludes: "Resume tutorial guidance", value: "resume" },
         { type: "select", promptIncludes: "Plan recovery", value: "validate" },
-        { type: "select", promptIncludes: "Resume tutorial guidance", value: "resume" },
     ],
     script: [
         {
@@ -506,9 +507,10 @@ export const onboardingTutorialDeliveryScenario = {
         { type: "type", text: "/load-plan plan" },
         { type: "enter" },
         { type: "enter" },
-        { type: "waitForIdle", timeoutMs: 240000 },
-        { type: "waitForRemotePlanStatus", planName: "plan", statuses: ["validated"], timeoutMs: 240000 },
+        { type: "waitForRemotePlanStatus", planName: "plan", statuses: ["verified"], timeoutMs: 240000 },
         { type: "waitForWorktreeRegistryStatus", planName: "plan", statuses: ["absent"], timeoutMs: 90000 },
+        { type: "waitForScreen", text: "What would you like to do", timeoutMs: 15000 },
+        { type: "escape" },
         { type: "waitForIdle", timeoutMs: 90000 },
         { type: "assertWorkflowDurability" },
         {
@@ -517,9 +519,8 @@ export const onboardingTutorialDeliveryScenario = {
             deliveredPath: "tutorial-behavior.ts",
             key: "tutorialPublicationBeforeReload",
         },
-        // Full tutorial completion requires the Plan's exact legacy `verified`
-        // status in addition to confirmed publication evidence.
-        { type: "setPrimaryPlanStatus", planName: "plan", status: "verified" },
+        // Confirmed publication and its retained receipt must supply verified
+        // completion even while the primary checkout still trails the remote.
         { type: "setNextModelResponse", text: "The verified tutorial Session remains interactive after reload." },
         { type: "type", text: "show the verified tutorial recap" },
         { type: "enter" },
@@ -580,7 +581,7 @@ export const onboardingTutorialDeliveryScenario = {
                 publicationBeforeReload?.remoteHead !== tutorialState.publicationBaseline?.head,
                 "The tutorial must publish a new remote commit.",
             );
-            assertEquals(publicationBeforeReload?.remotePlanStatus, "validated");
+            assertEquals(publicationBeforeReload?.remotePlanStatus, "verified");
             assertEquals(
                 publicationBeforeReload?.deliveredText,
                 'export function tutorialLabel() { return "ready"; }',
@@ -758,6 +759,7 @@ export const plannedChangeCiRepairReentryScenario = {
 
 /** @type {import('../testing/scenario-runner.js').GoldenScenario} */
 export const plannedChangeNonGitInPlaceScenario = {
+    globalSettings: { defaultProvider: "golden", defaultModel: "faux", codereview: "none" },
     name: "planned-change-non-git-in-place-delivery",
     composedTui: true,
     initialAgentName: "planner",
@@ -821,7 +823,7 @@ export const plannedChangeNonGitInPlaceScenario = {
         {
             type: "waitForPlanStatus",
             planName: "non-git-plan",
-            statuses: ["validated", "user_verified"],
+            statuses: ["verified", "user_verified"],
             timeoutMs: 70000,
         },
         { type: "assertProjectFile", path: "golden-non-git.txt", exists: true },
@@ -857,6 +859,7 @@ export const plannedChangeNonGitInPlaceScenario = {
 
 /** @type {import('../testing/scenario-runner.js').GoldenScenario} */
 export const plannedChangeValidationFailureRetryScenario = {
+    globalSettings: { defaultProvider: "golden", defaultModel: "faux", codereview: "none" },
     name: "planned-change-validation-ci-failure-repair-retry-success",
     composedTui: true,
     initialAgentName: "planner",
@@ -986,7 +989,7 @@ export const plannedChangeValidationFailureRetryScenario = {
             timeoutMs: 90000,
         },
         { type: "waitForEvent", event: "runtime:tool:start:task_completed", timeoutMs: 90000 },
-        { type: "waitForRemotePlanStatus", planName: "validation-retry", statuses: ["validated"], timeoutMs: 90000 },
+        { type: "waitForRemotePlanStatus", planName: "validation-retry", statuses: ["verified"], timeoutMs: 90000 },
         {
             type: "waitForWorktreeRegistryStatus",
             planName: "validation-retry",
@@ -1013,8 +1016,8 @@ export const plannedChangeValidationFailureRetryScenario = {
                 `Expected initial implementation and repair task_completed turns; saw ${completedTurns}.`,
             );
             assert(
-                attrs?.status === "validated",
-                `Expected retry scenario validated after repair; got ${attrs?.status}`,
+                attrs?.status === "verified",
+                `Expected retry scenario verified after repair; got ${attrs?.status}`,
             );
             assert(attrs?.planId, "Expected Plan identity to remain populated after validation retry.");
             assert(
@@ -1033,6 +1036,7 @@ export const plannedChangeValidationFailureRetryScenario = {
 
 /** @type {import('../testing/scenario-runner.js').GoldenScenario} */
 export const plannedChangeValidationExhaustedScenario = {
+    globalSettings: { defaultProvider: "golden", defaultModel: "faux", codereview: "none" },
     name: "planned-change-validation-ci-exhausted-recoverable",
     composedTui: true,
     initialAgentName: "planner",
@@ -1153,6 +1157,7 @@ export const plannedChangeValidationExhaustedScenario = {
 
 /** @type {import('../testing/scenario-runner.js').GoldenScenario} */
 export const plannedChangeFrontendIdentityScenario = {
+    globalSettings: { defaultProvider: "golden", defaultModel: "faux", codereview: "none" },
     name: "planned-change-frontend-engineer-context-identity",
     composedTui: true,
     initialAgentName: "planner",
@@ -1255,7 +1260,7 @@ export const plannedChangeFrontendIdentityScenario = {
         { type: "enter" },
         { type: "waitForEvent", event: "runtime:agent:frontend-engineer", timeoutMs: 90000 },
         { type: "waitForEvent", event: "runtime:tool:start:task_completed", timeoutMs: 90000 },
-        { type: "waitForRemotePlanStatus", planName: "frontend-identity", statuses: ["validated"], timeoutMs: 90000 },
+        { type: "waitForRemotePlanStatus", planName: "frontend-identity", statuses: ["verified"], timeoutMs: 90000 },
     ],
     assertions: [
         assertsGoldenCoverage("context:frontend-engineer-identity", (result) => {
