@@ -118,7 +118,17 @@ export async function readPublishedDeliverySources(
     // Child branches can contain only child Plans; the Epic document remains in the primary checkout.
     // Its absent recording evidence must not interrupt a confirmed child delivery.
     const parent = await readSource(root, attempt.artifactCommit, delivered.attrs.parentPlan || "").catch(() => null);
-    return { delivered, workRecordOwner: parent && isTerminalWorkRecordParent(parent.attrs) ? parent : undefined };
+    const preparedParentDelivered = parent &&
+        ["publication_verified", "cleanup_complete"].includes(attempt.phase) &&
+        ["reviewed", "validated"].includes(parent.attrs.status) &&
+        parent.attrs.epicCompletionMode === "done_enough" &&
+        Boolean(attempt.planPaths?.includes(`docs/plans/${parent.name}.md`));
+    return {
+        delivered,
+        workRecordOwner: parent && (isTerminalWorkRecordParent(parent.attrs) || preparedParentDelivered)
+            ? parent
+            : undefined,
+    };
 }
 
 /** The primary checkout may not contain a record created inside the delivered worktree. */

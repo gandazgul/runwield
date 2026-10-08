@@ -1,7 +1,7 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { defineGitFixture, git } from "../git-test-fixture.ts";
 import { readPublishedDeliverySources, readPublishedRecordMarkdown } from "./published-source.ts";
-import { createPublicationAttempt } from "../workflow/publication-attempt.ts";
+import { advancePublicationAttempt, createPublicationAttempt } from "../workflow/publication-attempt.ts";
 import {
     readDeliveryEvidence,
     recordDeliveryEvidence,
@@ -11,6 +11,7 @@ import {
 import { runPlanFrontMatterTransition } from "../workflow/state-transition.ts";
 import { savePlan } from "../../plan-store.js";
 import { resolveProjectRuntimeLayout } from "../project-runtime-layout.ts";
+import { buildDeliveryReport } from "../workflow/delivery-report.ts";
 
 const parent =
     "---\nplanId: parent-id\nclassification: PROJECT\nstatus: verified\nepicCompletionMode: done_enough\nworkRecord:\n  status: generated\n  path: docs/work-records/epic.md\n---\n# Parent\n";
@@ -122,5 +123,97 @@ Deno.test("delivery receipts use the primary runtime from an execution worktree"
     } finally {
         await Deno.remove(root, { recursive: true });
         await Deno.remove(worktree, { recursive: true }).catch(() => {});
+    }
+});
+
+Deno.test("confirmed child delivery keeps the prepared reviewed Epic Work Record in its report", async () => {
+    const root = await fixture.checkout();
+    try {
+        await Deno.writeTextFile(`${root}/docs/plans/epic.md`, parent.replace("status: verified", "status: reviewed"));
+        await git(root, ["add", "docs/plans/epic.md"]);
+        await git(root, ["commit", "-m", "prepare parent record before publication"]);
+        const commit = await git(root, ["rev-parse", "HEAD"]);
+        let publication = createPublicationAttempt({
+            attemptId: "prepared-parent",
+            planId: "child-id",
+            planName: "epic/one",
+            targetBranch: "main",
+            executionBranch: "feature",
+            executionCwd: root,
+            publicationRoot: root,
+            validatedCommit: commit,
+            targetHeadAtSeal: commit,
+        });
+        publication = advancePublicationAttempt(publication, "artifacts_committed", {
+            artifactCommit: commit,
+            planPaths: ["docs/plans/epic/one.md", "docs/plans/epic.md"],
+        });
+        publication = advancePublicationAttempt(publication, "target_integrated", {
+            targetBaseCommit: commit,
+            integrationCommit: commit,
+        });
+        publication = advancePublicationAttempt(publication, "target_published", {
+            publicationMode: "local",
+            publishedCommit: commit,
+        });
+        assertEquals((await readPublishedDeliverySources(root, publication)).workRecordOwner, undefined);
+        publication = advancePublicationAttempt(publication, "publication_verified", {
+            verifiedAt: "2026-10-08T10:00:00Z",
+        });
+        assertEquals(
+            (await readPublishedDeliverySources(root, {
+                ...publication,
+                planPaths: ["docs/plans/epic/one.md"],
+            })).workRecordOwner,
+            undefined,
+        );
+        for (const phase of ["publication_verified", "cleanup_complete"] as const) {
+            const confirmed = phase === "cleanup_complete"
+                ? advancePublicationAttempt(publication, phase, { cleanedAt: "2026-10-08T10:01:00Z" })
+                : publication;
+            const sources = await readPublishedDeliverySources(root, confirmed);
+            assertEquals(sources.delivered.planId, "child-id");
+            assertEquals(sources.workRecordOwner?.planId, "parent-id");
+            assertEquals(sources.workRecordOwner?.attrs.status, "reviewed");
+            const markdown = await readPublishedRecordMarkdown(
+                root,
+                confirmed,
+                sources.workRecordOwner?.attrs.workRecord?.path || "",
+            );
+            assertEquals(markdown, "# Delivered Epic Work Record\n");
+            const artifact = await saveDeliveredWorkRecordEvidence(root, confirmed, markdown || "");
+            const report = buildDeliveryReport({
+                planName: sources.delivered.name,
+                attrs: {
+                    ...sources.delivered.attrs,
+                    workRecord: { ...sources.workRecordOwner?.attrs.workRecord, path: artifact?.path },
+                },
+                publication: confirmed,
+                guidedReview: "auto",
+                codeReview: "none",
+                workRecordFailed: false,
+                semanticRequired: true,
+            });
+            assertEquals(report.planId, "child-id");
+            assertEquals(report.rows.find((row) => row.label === "Work Record")?.outcome, "Created");
+            assertEquals(report.artifacts.find((entry) => entry.kind === "work-record")?.path, artifact?.path);
+            assertEquals(await Deno.readTextFile(`${root}/${artifact?.path}`), markdown);
+        }
+        await Deno.writeTextFile(
+            `${root}/docs/plans/epic.md`,
+            parent
+                .replace("status: verified", "status: reviewed").replace("epicCompletionMode: done_enough\n", ""),
+        );
+        await git(root, ["add", "docs/plans/epic.md"]);
+        await git(root, ["commit", "-m", "parent remains unfinished"]);
+        assertEquals(
+            (await readPublishedDeliverySources(root, {
+                ...publication,
+                artifactCommit: await git(root, ["rev-parse", "HEAD"]),
+            })).workRecordOwner,
+            undefined,
+        );
+    } finally {
+        await Deno.remove(root, { recursive: true });
     }
 });

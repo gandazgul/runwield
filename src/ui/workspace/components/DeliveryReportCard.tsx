@@ -4,7 +4,7 @@ import {
     type DeliveryReportArtifact,
     deliveryRowArtifacts,
 } from "../../../shared/workflow/delivery-report.ts";
-import { RunWieldButton } from "../../design-system/components/react/RunWieldPrimitives.tsx";
+import { RunWieldButton, RunWieldThinkingDots } from "../../design-system/components/react/RunWieldPrimitives.tsx";
 
 /** A saved report in the owning Session timeline, never a new dashboard. */
 interface DeliveryReportCardProps {
@@ -87,6 +87,7 @@ export function DeliveryReportCard({ report, sessionPath, onRetryWorkRecord }: D
             {report.workRecordFailed && onRetryWorkRecord && report.planId
                 ? (
                     <RunWieldButton onClick={() => void retry()} disabled={pending}>
+                        {pending ? <RunWieldThinkingDots label="Retrying Work Record" showLabel={false} /> : null}
                         {pending ? "Retrying Work Record…" : "Retry Work Record"}
                     </RunWieldButton>
                 )
