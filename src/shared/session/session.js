@@ -2211,6 +2211,17 @@ export async function buildAgentSession({
             cwd: sessionCwd,
             sessionManager: effectiveSessionManager,
             completeSimpleFn: completeSimple,
+            onModelUsage: (observation) => {
+                const recorder = executionMetricsForSession.get(session) || new ExecutionMetricsRecorder({
+                    projectRoot: sessionCwd,
+                    sessionId: effectiveSessionManager.getSessionId(),
+                    managedSessionId: targetHostedSession?.getManagedMetadata()?.runwieldSessionId,
+                    segmentId: targetHostedSession?.getManagedMetadata()?.currentSegmentId,
+                    commandId: targetHostedSession?.activeCommandInvocationId || undefined,
+                    agentName,
+                });
+                return recorder.recordModelUsage(observation);
+            },
         }));
     }
 

@@ -3,10 +3,12 @@
  * Local-only workflow metrics recording helpers.
  */
 
-import { dirname, isAbsolute, join } from "@std/path";
+import { isAbsolute, join } from "@std/path";
 import { getHomeDir, RUNWIELD_DIR_NAME } from "../../constants.js";
 import { resolvePrimaryCheckoutRoot } from "../primary-checkout.ts";
 import { encodeCwdForSessionDir } from "../session/root-session.js";
+import { appendWorkflowMetric, isWorkflowMetricsEnabled, resolveCollectionEpoch } from "./metrics-journal.ts";
+export { isWorkflowMetricsEnabled } from "./metrics-journal.ts";
 
 /**
  * @typedef {"routing"|"planning"|"execution"|"validation"|"recovery"|"model_selection"|"tool_usage"|"command"|"model_usage"|"context"} WorkflowMetricCategory
@@ -71,19 +73,6 @@ const BROWSER_PREFLIGHT_OUTCOMES = new Set(["succeeded", "failed", "externally_b
 const cwdHashCache = new Map();
 /** @type {Map<string, { subUsage: string, startedAt: number }>} */
 const activeToolCalls = new Map();
-
-/**
- * @param {unknown} setting
- * @returns {boolean}
- */
-export function isWorkflowMetricsEnabled(setting) {
-    if (setting === true) return true;
-    if (setting === false || setting == null) return false;
-    if (typeof setting === "object" && !Array.isArray(setting)) {
-        return /** @type {{ enabled?: unknown }} */ (setting).enabled === true;
-    }
-    return false;
-}
 
 /**
  * @param {string} cwd
@@ -664,7 +653,9 @@ function sanitizeV2MetricRecord(metric, cwdHash) {
     const record = {
         v: 2,
         ts: new Date().toISOString(),
-        eventId: crypto.randomUUID(),
+        eventId: typeof metric.eventId === "string" && V2_IDENTIFIER.test(metric.eventId)
+            ? metric.eventId
+            : crypto.randomUUID(),
         recorderId: metric.recorderId,
         seq,
         event,
@@ -731,9 +722,11 @@ function sanitizeV2MetricRecord(metric, cwdHash) {
 }
 
 /**
+ * @typedef {import("./metrics-journal.ts").JournalResult & Pick<WorkflowMetricRecord, "details">} WorkflowMetricResult
+ *
  * @param {Record<string, unknown>} metric
  * @param {string} cwd
- * @returns {Promise<WorkflowMetricRecord | Record<string, unknown> | null>}
+ * @returns {Promise<WorkflowMetricResult>}
  */
 export async function recordWorkflowMetric(metric, cwd) {
     try {
@@ -743,15 +736,22 @@ export async function recordWorkflowMetric(metric, cwd) {
         // Actual metric writes still read the real settings and honor opt-out.
         const { getMergedCustomSetting } = await import("../settings.js");
         const resolvedSetting = getMergedCustomSetting("workflowMetrics", projectRoot);
-        if (!isWorkflowMetricsEnabled(resolvedSetting)) return null;
-
         const filePath = getWorkflowMetricsFilePath(projectRoot);
+        const invocation = {
+            enabled: metric.persisted === false && typeof metric.collectionEnabledAtCall === "boolean"
+                ? metric.collectionEnabledAtCall
+                : isWorkflowMetricsEnabled(resolvedSetting),
+            epoch: metric.persisted === false && typeof metric.collectionEpoch === "string"
+                ? metric.collectionEpoch
+                : resolveCollectionEpoch(filePath, isWorkflowMetricsEnabled(resolvedSetting)).collectionEpoch.id,
+            deadline: Date.now() + 1000,
+        };
         const cwdHash = await hashMetricCwd(projectRoot);
 
         let record;
         if (metric.v === 2) {
             record = sanitizeV2MetricRecord(metric, cwdHash);
-            if (!record) return null;
+            if (!record) return { persisted: false, reason: "invalid_record" };
         } else {
             const eventName = typeof metric.event === "string" ? metric.event : "";
             const categoryName = typeof metric.category === "string"
@@ -779,21 +779,11 @@ export async function recordWorkflowMetric(metric, cwd) {
             };
         }
 
-        const serialized = `${JSON.stringify(record)}\n`;
-        metricsWriteQueue = metricsWriteQueue.then(async () => {
-            try {
-                await Deno.mkdir(dirname(filePath), { recursive: true });
-                await Deno.writeTextFile(filePath, serialized, { append: true });
-            } catch {
-                // Fail-open: metric writes must never disrupt execution.
-            }
-        }).catch(() => {});
-
-        // v2 observations do not wait for a blocked disk write. Settlement uses the bounded drain.
-        if (metric.v !== 2) await waitForMetrics(metricsWriteQueue, 100);
-        return record;
+        const pending = metricsWriteQueue.then(() => appendWorkflowMetric(filePath, projectRoot, record, invocation));
+        metricsWriteQueue = pending.then(() => {}, () => {});
+        return await pending;
     } catch {
-        return null;
+        return { persisted: false, reason: "storage_failure" };
     }
 }
 
@@ -867,7 +857,7 @@ export function classifyToolSubUsage(toolName, args = undefined) {
  * @param {unknown} args
  * @param {string} cwd
  * @param {string} [agentName]
- * @returns {Promise<WorkflowMetricRecord | Record<string, unknown> | null>}
+ * @returns {Promise<import("./metrics-journal.ts").JournalResult>}
  */
 export function recordToolCallStarted(toolCallId, toolName, args, cwd, agentName) {
     const subUsage = classifyToolSubUsage(toolName, args);
@@ -886,7 +876,7 @@ export function recordToolCallStarted(toolCallId, toolName, args, cwd, agentName
  * @param {boolean} isError
  * @param {string} cwd
  * @param {string} [agentName]
- * @returns {Promise<WorkflowMetricRecord | Record<string, unknown> | null>}
+ * @returns {Promise<import("./metrics-journal.ts").JournalResult>}
  */
 export function recordToolCallFinished(toolCallId, toolName, isError, cwd, agentName) {
     const started = activeToolCalls.get(toolCallId);
