@@ -64,6 +64,7 @@ export async function runHumanReviewPhase(
             options: [
                 { value: "open", label: "Open code review" },
                 { value: "skip", label: "Skip code review" },
+                { value: "close", label: "Close and come back later" },
             ],
         });
         if (response.outcome !== "selected" || (response.value !== "open" && response.value !== "skip")) {
@@ -72,7 +73,8 @@ export async function runHumanReviewPhase(
                 planName: args.planName,
                 projectRoot: context.projectRoot,
                 awaitingUserAction: true,
-                reason: "Code review is still waiting for your decision. Load this Plan to continue.",
+                reason:
+                    `Code review is still waiting for your decision. Resume with /load-plan ${args.planName} to choose again.`,
             };
         }
         if (response.value === "skip") {
@@ -97,7 +99,8 @@ export async function runHumanReviewPhase(
     const planAttrs = getPlanAttrs(args.planContent);
     const planTitle = codeReviewPlanTitle(args.planContent, args.planName);
     const agentLabel = args.session.getAgentDisplayName(AGENTS.REVIEWER_FEEDBACK_ENGINEER, context.projectRoot);
-    const reviewConversation = {
+    const conversationState = args.codeReviewConversation || { history: [] };
+    const reviewConversation = conversationState.conversation ||= {
         id: crypto.randomUUID(),
         agentLabel,
         revision: 0,
@@ -108,7 +111,7 @@ export async function runHumanReviewPhase(
             agentName: string;
         }>,
     };
-    const conversationHistory: Array<{ role: "user" | "agent"; text: string }> = [];
+    const conversationHistory = conversationState.history;
     const guidedReview = {
         mode: getGuidedReviewMode(context.projectRoot),
         autoStart: false,

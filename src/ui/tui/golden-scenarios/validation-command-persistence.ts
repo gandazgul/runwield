@@ -43,7 +43,6 @@ interface ValidationSettings {
 interface CommandPublication {
     deliveredText: string;
 }
-
 function assertCommandPrompts(result: GoldenScenarioResult, expected: number) {
     const interactions = result.state.scriptedInteractions as ScriptedInteractionSurface["consumed"];
     assertEquals(
@@ -133,6 +132,7 @@ export const initTutorialValidationCommandScenario: GoldenScenario = {
     interactiveSelectPrompts: [],
     scriptedInteractions: [
         { type: "select", promptIncludes: "Would you like to run /init", value: "yes" },
+        { type: "select", promptIncludes: "Init will create or update these project files", value: "yes" },
         { type: "select", promptIncludes: "Which command should RunWield use to verify this project?", value: command },
         { type: "select", promptIncludes: "This tutorial makes a real change", value: "start" },
         { type: "select", promptIncludes: "Tutorial guidance", value: "continue" },
