@@ -61,6 +61,7 @@ import {
     cleanupStoredPublication,
     failStoredPublication,
     loadPublicationAttempt,
+    publishedWorkRecordFailed,
     reconcileStoredPublication,
     startPublicationAttempt,
 } from "./publication-machine.ts";
@@ -283,7 +284,7 @@ async function runLockedPublicationPhase(
             ...humanReviewMetadata,
         });
         await runPostVerificationHandoffs(args, context.executionCwd || context.projectRoot);
-        return { recorded: true, result: buildVerifiedResult(args, context.projectRoot) };
+        return { recorded: true, result: await buildVerifiedResult(args, context.projectRoot) };
     }
 
     // Review and artifact generation can outlive the phase's initial Plan read.
@@ -587,7 +588,13 @@ async function runLockedPublicationPhase(
                 }
                 return {
                     recorded: true,
-                    result: buildVerifiedResult(args, context.projectRoot, undefined, targetBranch),
+                    result: await buildVerifiedResult(
+                        args,
+                        context.projectRoot,
+                        undefined,
+                        targetBranch,
+                        publicationAttempt,
+                    ),
                 };
             }
         }
@@ -772,10 +779,25 @@ async function runLockedPublicationPhase(
             );
             return {
                 recorded: true,
-                result: buildVerifiedResult(args, context.projectRoot, epicResolution, targetBranch),
+                result: await buildVerifiedResult(
+                    args,
+                    context.projectRoot,
+                    epicResolution,
+                    targetBranch,
+                    publicationAttempt,
+                ),
             };
         }
-        return { recorded: true, result: buildVerifiedResult(args, context.projectRoot, epicResolution, targetBranch) };
+        return {
+            recorded: true,
+            result: await buildVerifiedResult(
+                args,
+                context.projectRoot,
+                epicResolution,
+                targetBranch,
+                publicationAttempt,
+            ),
+        };
     }
 }
 
@@ -789,12 +811,18 @@ export async function runPostVerificationHandoffs(args: ValidationLoopArgs, proj
     });
 }
 
-export function buildVerifiedResult(
+export async function buildVerifiedResult(
     args: ValidationLoopArgs,
     projectRoot: string,
     epicResolution?: import("./epic-continuation.ts").EpicContinuationResolution,
     targetBranch?: string,
-): ValidationPhaseResult {
+    publication?: PublicationAttempt,
+): Promise<ValidationPhaseResult> {
+    const workRecordFailed = publication
+        ? await publishedWorkRecordFailed(projectRoot, publication)
+        : (await loadPlan(projectRoot, args.planName))?.attrs.workRecord?.status === "failed";
+    const message = buildValidationUserMessage({ kind: "verified", planName: args.planName, targetBranch }) +
+        (workRecordFailed ? " Work Record failed. Retry with wld wr backfill." : "");
     // The run is over, so its position must not outlive it — a Plan reopened later
     // has to start from what the Plan durably says, not from where this one ended.
     args.session.clearPosition(args.planName);
@@ -804,13 +832,14 @@ export function buildVerifiedResult(
     if (current) {
         emitStatus(
             args,
-            buildValidationUserMessage({ kind: "verified", planName: args.planName, targetBranch }),
-            "success",
+            message,
+            workRecordFailed ? "warning" : "success",
             completeProgressRecord(
                 // This path is reached only after the durable validation gates
                 // and publication proof succeeded. Session display state can
                 // still describe an earlier failed or canceled attempt.
                 updateProgressRecord(current, {
+                    workRecordFailed,
                     checks: {
                         ci: "passed",
                         semanticReview: isPlannedChangeClassification(args.triageMeta.classification)
@@ -821,7 +850,7 @@ export function buildVerifiedResult(
                     },
                 }),
                 true,
-                buildValidationUserMessage({ kind: "verified", planName: args.planName, targetBranch }),
+                message,
             ),
         );
     }

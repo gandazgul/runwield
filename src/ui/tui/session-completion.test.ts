@@ -17,7 +17,7 @@ async function waitFor(predicate: () => boolean): Promise<void> {
 }
 
 for (const columns of [60, 140]) {
-    for (const choice of ["new", "load-plan", "escape"]) {
+    for (const choice of ["new", "load-plan", "escape", "record-failed"]) {
         Deno.test(`completion choices stay visible at ${columns} columns and ${choice} works`, async () => {
             await withSessionViewFixture(async ({ runtime, sessionId, session, projectRoot }) => {
                 await Deno.mkdir(`${projectRoot}/docs/plans`, { recursive: true });
@@ -42,7 +42,7 @@ for (const columns of [60, 140]) {
                         uiAPI: view.uiAPI,
                         browser: NO_OPEN_BROWSER_PORT,
                         notifyRunWieldEvent: () => {},
-                        onSessionComplete: (id) => controller.offerSessionCompletion(id),
+                        onSessionComplete: (id, failed) => controller.offerSessionCompletion(id, failed),
                     });
                 const controller = createChatInputController({
                     view,
@@ -106,6 +106,7 @@ for (const columns of [60, 140]) {
                             totalCycle: 1,
                             stage: "terminal",
                             outcome: "verified",
+                            workRecordFailed: choice === "record-failed",
                             checks: { ci: "passed", semanticReview: "passed", humanReview: "skipped", merge: "passed" },
                         },
                     });
@@ -115,13 +116,19 @@ for (const columns of [60, 140]) {
                     });
                     await waitFor(() => terminal.getScreenText().includes("What would you like to do next?"));
                     const screen = terminal.getScreenText();
-                    assertStringIncludes(screen, "Session complete");
+                    if (choice === "record-failed") {
+                        assertStringIncludes(screen, "Code delivered; Work Record failed.");
+                        assertStringIncludes(screen, "wld wr backfill");
+                        assert(!screen.includes("Session complete"));
+                    } else {
+                        assertStringIncludes(screen, "Session complete");
+                    }
                     assertStringIncludes(screen, "Start a new session");
                     assertStringIncludes(screen, "Load a Plan");
                     assertStringIncludes(screen, "Quit");
                     assert(!screen.includes("Publishing running"));
                     assert(!screen.includes("Validation passed"));
-                    if (choice === "escape") {
+                    if (choice === "escape" || choice === "record-failed") {
                         terminal.pressEscape();
                         await terminal.flush();
                         await waitFor(() => !controller.isProcessingSubmission());

@@ -544,21 +544,38 @@ export async function generateRecorderSections(
     const prompt = buildRecorderPrompt(source, successorRecordId, settledSupersedes);
     if (options.runRecorderStep) return normalizeRecorderOutput(await options.runRecorderStep(prompt));
     const hostedSession = new HostedSession({ id: crypto.randomUUID(), cwd });
+    const sessionManager = SessionManager.inMemory(cwd);
     try {
-        const { event } = await runValidationAgentUntilEvent(SYSTEM_SEMANTIC_REVIEW_PORT, {
-            hostedSession,
-            cwd,
-            agentName: AGENTS.RECORDER,
-            userRequest: prompt +
-                "\nSubmit the sections by calling work_record_completed. Plain text cannot complete this step.",
-            sessionManager: SessionManager.inMemory(cwd),
-            customTools: [createWorkRecordCompletedTool(hostedSession)],
-            includeEditFallback: false,
-        }, "work_record_completed");
-        if (!event) throw new Error("The Recorder did not submit a Work Record. Retry generation.");
-        const sections = normalizeRecorderOutput(event.payload);
-        settleWorkflowToolEvent(hostedSession, event);
-        return sections;
+        for (let attempt = 1; attempt <= 2; attempt++) {
+            const { event, messages } = await runValidationAgentUntilEvent(SYSTEM_SEMANTIC_REVIEW_PORT, {
+                hostedSession,
+                cwd,
+                agentName: AGENTS.RECORDER,
+                userRequest: attempt === 1
+                    ? prompt +
+                        "\nSubmit the sections by calling work_record_completed. Plain text cannot complete this step."
+                    : "No work_record_completed submission was accepted. Use the source already provided to call " +
+                        "work_record_completed now. Correct any rejected arguments; do not return JSON as text.",
+                sessionManager,
+                customTools: [createWorkRecordCompletedTool(hostedSession)],
+                includeEditFallback: false,
+            }, "work_record_completed");
+            if (event) {
+                const sections = normalizeRecorderOutput(event.payload);
+                settleWorkflowToolEvent(hostedSession, event);
+                return sections;
+            }
+            const lastAssistant = messages.findLast((message) => message.role === "assistant");
+            // Keep only protocol metadata, never provider text or private reasoning.
+            const stopped = lastAssistant?.role === "assistant" ? lastAssistant.stopReason : undefined;
+            const diagnostic = stopped === "error" || stopped === "aborted" || stopped === "length"
+                ? `turn ended with ${stopped}`
+                : "turn ended without an accepted work_record_completed call";
+            if (attempt === 2 || stopped === "error" || stopped === "aborted") {
+                throw new Error(`Recorder submission failed after ${attempt} attempt(s): ${diagnostic}.`);
+            }
+        }
+        throw new Error("Recorder submission attempts exhausted.");
     } finally {
         hostedSession.dispose();
     }

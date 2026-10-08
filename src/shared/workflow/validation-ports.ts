@@ -58,6 +58,7 @@ export type ValidationProgressRecord = {
     repairAttempt?: number;
     maxRepairAttempts?: number;
     message?: string;
+    workRecordFailed?: boolean;
 };
 
 /**

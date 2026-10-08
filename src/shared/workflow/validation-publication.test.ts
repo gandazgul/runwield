@@ -1,5 +1,16 @@
-import { assertEquals } from "@std/assert";
-import { PlanLockTimeoutError } from "../../plan-store.js";
+import { advancePublicationAttempt, createPublicationAttempt } from "./publication-attempt.ts";
+import { createTestWorktreeAttempt, git, makeRepo } from "../worktree-test-helpers.ts";
+import { removeWorktreeGitArtifacts } from "../worktree.js";
+import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
+import { HostedSession } from "../session/hosted-session.js";
+import type { RuntimeSystemStatusEvent, SessionRuntimeEvent } from "../session/session-runtime-events.js";
+import { createValidationSessionPort } from "./validation-session-adapter.ts";
+import { createProgressRecord } from "./validation-emit.ts";
+import { createGitPort } from "../git-port.ts";
+import { createWorkRecordMnemotecaFixture } from "../work-records/test-fixtures/mnemoteca-port.ts";
+import { buildVerifiedResult } from "./validation-publication.ts";
+import { assertEquals, assertStringIncludes } from "@std/assert";
+import { loadPlan, PlanLockTimeoutError, savePlan } from "../../plan-store.js";
 
 import { classifyValidationOperationalError, type GitPublicationErrorKind } from "./validation-operational-errors.ts";
 import { decideValidationRecovery, DEFAULT_VALIDATION_RETRY_POLICY } from "./validation-recovery.ts";
@@ -122,3 +133,88 @@ Deno.test("publication explains a busy Plan operation without prescribing a fail
     assertEquals(message.includes("/private/project"), false);
     assertEquals(message.includes("Load this Plan and run validation again"), false);
 });
+
+for (const remote of [false, true]) {
+    Deno.test(`verified completion retains recording failure after ${remote ? "remote" : "local"} delivery`, async () => {
+        await withRuntimeCommandFixture("record-completion-", async ({ projectRoot: fixtureRoot }) => {
+            const projectRoot = remote ? await makeRepo() : fixtureRoot;
+            const worktreeRoot = remote ? await Deno.makeTempDir({ prefix: "record-outcome-worktree-" }) : undefined;
+            const worktree = worktreeRoot
+                ? await createTestWorktreeAttempt({ projectRoot, planName: "completed", worktreeRoot })
+                : undefined;
+            const hostedSession = new HostedSession({ id: crypto.randomUUID(), cwd: projectRoot });
+            const events: RuntimeSystemStatusEvent[] = [];
+            hostedSession.setEventSink((event: SessionRuntimeEvent) => {
+                if (event.type === "system_status") events.push(event);
+            });
+            const session = createValidationSessionPort(hostedSession);
+            try {
+                await savePlan(worktree?.path || projectRoot, "completed", "# Completed\n", {
+                    planId: "completed-plan",
+                    classification: "PLANNED_CHANGE",
+                    status: "validated",
+                    workRecord: {
+                        status: "failed",
+                        error: "Recorder submission missing",
+                        lastAttemptAt: "2026-10-08T00:00:00Z",
+                    },
+                });
+                let publication;
+                if (worktree) {
+                    await git(worktree.path, ["add", "docs/plans/completed.md"]);
+                    await git(worktree.path, ["commit", "-m", "Seal failed recording outcome"]);
+                    const commit = await git(worktree.path, ["rev-parse", "HEAD"]);
+                    publication = advancePublicationAttempt(
+                        createPublicationAttempt({
+                            attemptId: worktree.id,
+                            planId: "completed-plan",
+                            planName: "completed",
+                            targetBranch: "main",
+                            executionBranch: worktree.branch,
+                            executionCwd: worktree.path,
+                            publicationRoot: worktree.path,
+                            validatedCommit: commit,
+                            targetHeadAtSeal: await git(projectRoot, ["rev-parse", "HEAD"]),
+                        }),
+                        "artifacts_committed",
+                        { artifactCommit: commit, planPaths: ["docs/plans/completed.md"] },
+                    );
+                    await removeWorktreeGitArtifacts({ projectRoot, path: worktree.path, force: true });
+                    assertEquals(await loadPlan(projectRoot, "completed"), null);
+                }
+                session.setCurrentProgress(createProgressRecord({ kind: "workflow", stage: "merge" }));
+                const result = await buildVerifiedResult(
+                    {
+                        planName: "completed",
+                        planContent: "# Completed",
+                        triageMeta: { classification: "PLANNED_CHANGE", status: "validated" },
+                        session,
+                        git: createGitPort(),
+                        localCI: {
+                            run: () => {
+                                throw new Error("Completion must not rerun CI");
+                            },
+                        },
+                        workRecordMnemotecaPort: createWorkRecordMnemotecaFixture(),
+                    },
+                    projectRoot,
+                    undefined,
+                    "main",
+                    publication,
+                );
+                assertEquals(result.kind, "verified");
+                const final = events.at(-1);
+                assertEquals(final?.level, "warning");
+                assertEquals(final?.validationProgress?.outcome, "verified");
+                assertEquals(final?.validationProgress?.checks.merge, "passed");
+                assertEquals(final?.validationProgress?.workRecordFailed, true);
+                assertStringIncludes(final?.message || "", "Work Record failed");
+                assertStringIncludes(final?.message || "", "wld wr backfill");
+            } finally {
+                hostedSession.dispose();
+                if (remote) await Deno.remove(projectRoot, { recursive: true });
+                if (worktreeRoot) await Deno.remove(worktreeRoot, { recursive: true });
+            }
+        });
+    });
+}

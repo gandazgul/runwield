@@ -57,7 +57,7 @@ export interface ChatInputController {
     restoreQueuedItemToEditor(item: QueuedInput): void;
     processSubmissions(initialItem?: QueuedInput | null): Promise<void>;
     submitTutorialRequest(request: string, context: TutorialContext): Promise<void>;
-    offerSessionCompletion(sessionId: string): void;
+    offerSessionCompletion(sessionId: string, workRecordFailed?: boolean): void;
     dispose(): Promise<void>;
 }
 
@@ -94,6 +94,7 @@ export function createChatInputController(options: ChatInputControllerOptions): 
     const pendingImagePastes = new WeakMap<ImageAttachment, Promise<ImageAttachment | null>>();
     let isProcessingSubmission = false;
     let completionSessionId: string | null = null;
+    let completionWorkRecordFailed = false;
     let completionPromptActive = false;
     let disposed = false;
     let shouldDrainQueuedAfterProcessing = false;
@@ -154,8 +155,9 @@ export function createChatInputController(options: ChatInputControllerOptions): 
         view.focusEditor();
         view.requestRender();
     }
-    function offerSessionCompletion(sessionId: string): void {
+    function offerSessionCompletion(sessionId: string, workRecordFailed = false): void {
         completionSessionId = sessionId;
+        completionWorkRecordFailed = workRecordFailed;
         void presentSessionCompletion();
     }
     async function presentSessionCompletion(): Promise<void> {
@@ -169,7 +171,9 @@ export function createChatInputController(options: ChatInputControllerOptions): 
         try {
             const choice = await uiAPI.promptSelect(
                 `${
-                    snapshot.tutorialContext?.recapShown
+                    completionWorkRecordFailed
+                        ? "Code delivered; Work Record failed.\nRetry with wld wr backfill."
+                        : snapshot.tutorialContext?.recapShown
                         ? "Tutorial complete"
                         : "Session complete"
                 }\nWhat would you like to do next?`,
