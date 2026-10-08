@@ -649,10 +649,14 @@ inside the review surface. Do not use it for destructive outcomes or low-emphasi
 Use the **Artifact conversation** pattern when the active workflow agent can discuss and revise the artifact without
 leaving its review surface. Render `ArtifactConversationSidebar` inside an existing review sidebar, keep its message and
 operation wiring in the owning surface, and use the shared `.rw-artifact-conversation-*` classes. Review context is
-attached explicitly as a removable chip; ordinary final feedback actions remain separate. Only one agent turn may be
-active at a time. When a revised artifact arrives, replace the readable artifact in place and open a before/after diff
-automatically. The component is artifact-neutral so Plan Review, Code Review, and later review surfaces can share the
-same transcript, composer, working, and error states.
+attached explicitly as a removable chip; attaching review notes enables Send without requiring message text. Removing
+the attachment disables Send again if the message is empty. Only one agent turn may be active at a time. Code Review's
+Send Annotations action uses this same repair conversation when available; approval remains explicit. When a revised
+Plan arrives, replace the readable artifact in place and open a before/after diff automatically. Code Review refreshes
+its existing diff while retaining the transcript, selected file, diff collapse choices, active Guided Review/diff view,
+and collapsed guide sections. Mark retained guide prose as belonging to an earlier revision and offer regeneration; do
+not replace the owner's navigation state during a repair. The component is artifact-neutral so Plan Review, Code Review,
+and later review surfaces can share the same transcript, composer, working, and error states.
 
 ### Boards and columns
 

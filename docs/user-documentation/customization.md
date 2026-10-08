@@ -54,9 +54,26 @@ Antigravity CLI use their own shell permissions, which this list doesn't change.
 A prompt template is a Markdown file that becomes a slash command. `.wld/prompts/commit.md` becomes `/commit`, and
 `/commit staged changes` sends the template with "staged changes" as its argument.
 
-RunWield looks for templates in `.wld/prompts/`, `~/.wld/prompts/`, the bundled templates, then installed packages.
-Bundled templates are `/commit`, `/release`, and `/code-optimizer`. A template can't replace a built-in command such as
-`/help`; RunWield warns you at startup if one tries.
+RunWield looks for templates in `.wld/prompts/`, `~/.wld/prompts/`, the bundled templates, then installed packages. A
+template can't replace a built-in command such as `/help`; RunWield warns you at startup if one tries.
+
+### Bundled prompts
+
+Run these in a Session as slash commands, or start one from your terminal with `wld /<name>`.
+
+| Prompt            | What it does                                                                                                                                                                                                                                                                             |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/commit`         | Inspects all pending changes, groups unrelated work into separate commits, writes commit messages, stages, commits, and pushes upstream. Its scope includes pending changes unrelated to the current conversation.                                                                       |
+| `/release`        | Runs with Engineer, asks whether to create a Candidate, promote a Candidate, or create Stable directly, then follows the repository's release policy and automation. Prepares release notes, confirms before publishing or other network-visible side effects, and monitors the release. |
+| `/code-optimizer` | Walks the codebase from its entry points and improves clarity, maintainability, types, and documentation. Offers a planned refactor when a change needs broader work.                                                                                                                    |
+| `/test-seams`     | Runs with Engineer and inspects representative code and tests for fakes that replace product-owned behavior. Reports evidence, uncertainty, and fixture-based alternatives; asks how to handle findings before persisting them.                                                          |
+
+`/test-seams` is an optional advisory audit. Initialization does not run it. It distinguishes internal machinery from
+legitimate external boundaries such as networks, clocks, and hosted services. It does not change code, add CI rules, or
+claim the project is clean when no candidates are found. Use it when you want to examine whether tests exercise real
+project behavior.
+
+### Template settings
 
 Front matter can set:
 

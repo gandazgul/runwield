@@ -65,8 +65,24 @@ Choose a subscription or API-key provider, then choose a default model. You can 
 wld init
 ```
 
-RunWield explores the repository, writes `docs/domain-language.md`, and saves core project memories. You can also run
-`/init` inside a Session.
+RunWield first asks permission to create or update three project files and explains each one:
+
+- `.wld/settings.json` stores project settings, including your chosen verification command.
+- `docs/domain-language.md` records the project's terms and concepts.
+- `.gitignore` keeps RunWield's internal runtime state out of Git while preserving your other ignore rules.
+
+After you accept, RunWield explores the repository, writes the glossary, and saves core project memories. Choosing No or
+canceling stops Init before it changes these files or starts the Agent. Run `/init` if you change your mind. You can
+also run `/init` inside a Session to begin initialization.
+
+You can start the Tutorial or a Plan without committing Init's files first. New RunWield worktrees carry uncommitted
+`.wld/settings.json` and `docs/domain-language.md` and recreate RunWield's managed `.gitignore` block. These files
+become part of the worktree's preparation checkpoint; your original checkout and staged changes stay intact. Unrelated
+edits are not copied. Resuming a worktree keeps its own settings and glossary.
+
+Those unchanged setup files also do not block local Plan delivery. RunWield reconciles its recorded output with the
+validated work and restores the original files and staging if publication fails before merging. Later edits you make to
+those files remain protected by the usual merge checks.
 
 ## Try the Tutorial
 

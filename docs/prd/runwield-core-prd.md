@@ -531,6 +531,14 @@ child drafts on it without changing the user's checkout. A missing branch never 
 branch keeps its own history and is never reset. An Epic whose children already started without a branch keeps its
 earlier behavior.
 
+**Requirement: Each child starts with the preceding children's published code.**
+
+Before continuation prepares the next child, Core fetches the latest remote Epic target. New planning worktrees start
+from that commit; an existing, unstarted planning worktree imports it before planning resumes, preserving saved Plan
+scope and the child's authoritative lifecycle state. RunWield's own status changes do not block synchronization or count
+as implementation. The refreshed commit becomes the planning baseline before execution starts. Fetch failure keeps
+continuation recoverable instead of silently starting from stale code. The user's primary checkout stays intact.
+
 **Requirement: Children are slices, and their boundaries can move.**
 
 A child moves the Epic forward; it does not need to be a finished feature by itself. Planner plans each child just
@@ -572,6 +580,11 @@ and siblings active. Listings keep held work distinct from active and finished w
   Plan.
 - Given an Epic whose last child validated but has not finished publishing, when the user opens the Epic, it is not
   implemented and the integration gate is not offered.
+- Given a child published from a separate checkout and stale local target refs, when continuation prepares the next
+  child, its worktree includes that publication, even if the primary checkout has uncommitted Plan status changes.
+- Given the next child already has a planning worktree with saved scope and status changes, when continuation resumes,
+  Core imports the preceding child's published code, retains those planning edits, and uses the refreshed baseline for
+  execution. Published sibling status updates reconcile automatically; incompatible scope edits remain preserved.
 - Given an Epic whose children are all delivered to the Epic branch, when the integration gate passes, the Epic is
   validated for that branch head and the primary branch is unchanged.
 - Given an integration gate with findings, when it finishes, the Epic report lists them and a draft repair child under
@@ -717,23 +730,28 @@ Execution requirements:
 
 - work on the approved Plan in an isolated worktree;
 - preserve the user's existing checkout changes and a useful recovery point;
-- carry uncommitted versionable settings and glossary into newly created Tutorial and normal execution worktrees, while
-  recreating only managed ignore rules and preserving source staging and unrelated work. Copied context joins the
-  preparation checkpoint even when a committed broad ignore rule hides it. Reused worktrees keep their own repairs;
-- reconcile unchanged, recorded Init output and validation-time settings writes during local publication. Preserve
-  original bytes and staging durably until integration, restore them after failed publication, and retain validated
-  incoming versions on success. Later user edits and distinct staged versions remain protected;
+- carry uncommitted `.wld/settings.json` and `docs/domain-language.md` into newly created planning and execution
+  worktrees, including Tutorial worktrees, and recreate only RunWield's managed `.gitignore` block. These versionable
+  setup files join the preparation checkpoint without requiring a user commit in the primary checkout, including when
+  committed broad ignore rules hide copied context. Keep unrelated edits and source staging untouched. Merge compatible
+  target-branch context changes; report conflicts before creating the worktree. Reused worktrees retain their local
+  settings and glossary. Record copied-context fingerprints so later edits count as implementation rather than setup;
+- reconcile unchanged, recorded Init output and validation-time settings writes, plus purely managed `.gitignore`
+  changes, during local publication, including staged setup files. These files must not block a validated Plan merge.
+  Preserve unrelated edits and distinct staged user versions. Save original bytes and staging durably before preparing
+  the merge; restore them after failure or interruption before integration, and retain validated incoming versions after
+  successful integration. Later user edits remain protected;
 - distinguish implementation being finished from validation succeeding.
 
 Workflow Validation requirements:
 
 - run the project's configured checks and review the change against the approved Plan;
-- reuse the existing execution-checkout command or inherit the project command without prompting again. Save a newly
-  supplied validation command in both scopes and record the host-owned write so a validated checkout-specific command
-  repair can be delivered without asking the user to commit or stash RunWield's own settings. Recording that write must
-  not claim ownership of pre-existing or subsequent user edits. A context transfer receipt identifies copied bytes; only
-  recorded Init or validation writes establish ownership of the source changes. Cancellation during command setup
-  remains effective and must not start a validation process afterward;
+- reuse the validation command confirmed during Init or an earlier validation attempt across execution worktrees,
+  repairs, and resumed Sessions. Ask only when neither the execution checkout nor the project has a configured command.
+  Save a new command as a project preference and in the execution checkout; record host-owned writes so validated
+  checkout-specific repairs can be delivered without asking users to commit or stash RunWield settings. Do not claim
+  ownership of existing or later user edits. Context receipts identify copied bytes; only recorded Init or validation
+  writes establish ownership of source changes. Cancellation during setup must prevent validation from starting;
 - offer human code review when enabled;
 - repair failed checks or review findings within the execution worktree;
 - give a repair Agent the relevant findings and instructions without unrelated earlier context;
@@ -798,14 +816,21 @@ Recovery requirements:
 - Given a managed repair, when the Agent completes focused verification, RunWield reloads the current configured command
   and runs full validation against the repair checkout. A failure still prevents progress; the Agent was not required to
   run that complete command immediately beforehand.
-- Given Init settings and a committed `.wld/` ignore rule, when Tutorial or normal execution begins, receipt-owned
-  settings enter the preparation commit. A later command repair reaches the delivered target; the existing ignore rules,
-  unrelated dirty or staged user work, and ignored runtime/private files remain protected.
-- Given no Init receipt and no configured command, when validation asks once and a repair updates the saved command,
-  publication delivers the repaired settings automatically. This applies both to new ignored settings and an already
-  tracked settings file, including supported JSONC comments and trailing commas. Unrelated user settings edits made
-  before worktree creation, before the host write, after it, or staged independently must not be overwritten or silently
-  committed.
+- Given completed Init with uncommitted settings, glossary, and managed ignore rules, when a Tutorial or ordinary
+  approved Plan starts execution, the new worktree contains that context before Engineer begins. Receipt-owned settings
+  enter the preparation checkpoint even when a committed `.wld/` ignore rule hides them; unrelated source edits, staging,
+  HEAD, ignored runtime files, and private files remain unchanged. Mechanical Validation reuses the confirmed command.
+- Given uncommitted or staged Init output in the primary checkout, when a Tutorial or Plan is delivered locally, settings,
+  glossary, and managed ignore rules do not block publication. Validated changes land with the Plan; unrelated user edits
+  stop an unsafe merge. Failed or interrupted preparation restores original setup bytes and staging for retry.
+- Given compatible context edits on the target branch, creating a worktree merges the uncommitted setup changes with
+  them. Conflicting edits stop creation without overwriting either version. Resuming an existing worktree preserves its
+  subsequent context edits instead of copying from the primary checkout again.
+- Given no Init receipt and no configured validation command, when validation asks once and the command fails, repair and
+  resumed validation reuse the saved command. The project preference remains after worktree removal, and a repair's
+  checkout-specific command takes effect. Publication delivers that repair for new ignored or tracked settings, including
+  supported JSONC comments and trailing commas. Unrelated settings edits before or after the host write, or independently
+  staged, are not overwritten or silently committed.
 - Given a ready approved Plan and existing checkout edits, when execution starts, the approved work is isolated and the
   user’s edits remain preserved.
 - Given a worktree created from `main`, when the execution Plan is edited to target `release/next` after the Session
@@ -936,6 +961,10 @@ Choosing human review transfers the decision to the user: feedback triggers repa
 No automatic round limit ends a human-driven review. A stalled Reviewer or repair Agent can be nudged in its existing
 conversation with progress preserved; every pause explains what continuing will do.
 
+When Code Review is offered, users can open it, skip it, or close the prompt to come back later. Closing keeps the
+review pending and preserves the Plan and its implementation without publishing. Loading the Plan again with `load-plan`
+and continuing validation offers the same choice again.
+
 The round limit bounds automatic review effort, not workflow life. The user can continue toward publication or
 deliberately abandon; an exhausted or stalled review cannot become an automatic terminal outcome. Internal dispatch,
 lock, and bookkeeping failures use [automatic workflow recovery](#execution-validation-and-recovery), not another review
@@ -961,6 +990,8 @@ convergence without more escaped defects, not approval rate alone.
   implementation obligation.
 - After the automatic-round boundary, when the user chooses human review, feedback leads to repair and checks and
   returns to that human review without an automatic round limit ending it.
+- Given the Code Review offer, when the user chooses Close and come back later, the Plan remains at `validated_reviewer`
+  with no review decision. A later `load-plan` continuation asks again before publication.
 
 <a id="frontend-engineer-and-pair-execution"></a>
 
@@ -1055,12 +1086,43 @@ connection does not start Init, project tools, an Agent, or a saved Session. Ful
 **Requirement: Preserve useful project facts and retrieve relevant context.**
 
 - **Mnemoteca:** project/global persistent memory for preferences, project facts, and critical context.
-- **Init:** `wld init` / `/init` explores the project, writes context, stores memories, and records initialization.
+- **Init:** `wld init` / `/init` explores the project, confirms verification setup, writes context, stores memories, and
+  records initialization. It does not search for fake test seams or require a test-seam risk report; that audit is an
+  explicit bundled `/test-seams` Prompt Template invocation.
 - **Sleep:** `wld sleep` / `/sleep` runs memory and context cleanup prompts.
 - **Cymbal:** external semantic/structural code intelligence for search, symbol lookup, impact analysis, tracing, and
   related code queries.
 - **Snip:** optional command-output filtering for compact diagnostics.
 - **Project context:** `docs/domain-language.md`, memories, settings, and Plan files provide durable project knowledge.
+
+**Requirement: Keep memory current and subordinate to project authority.**
+
+Agent memory preserves current durable decisions, preferences, constraints, rationale, and reusable lessons. It does not
+accumulate routine release dates, commit hashes, completed PR inventories, one-off test counts, or task-completion
+receipts. Agents extract a durable lesson when one exists and otherwise store nothing; task completion alone does not
+require a memory. Historical detail remains only when it explains a still-relevant decision. Proposed work and uncertain
+recollections must not be presented as implemented facts.
+
+Core Memories are strong guidance. Other Memories are useful, non-authoritative context. Neither overrides the user,
+current project documentation, the applicable Plan, or code as evidence of implemented behavior. The user decides
+intent; docs and Plans define applicable requirements and scope; code establishes what is implemented. Agents resolve
+memory conflicts against those authorities without treating current implementation as a veto on requested changes.
+
+Sleep applies the same policy: correct outdated guidance, remove routine bookkeeping, and preserve still-useful
+decisions and lessons. Replacements state the current rule directly instead of retaining an obsolete claim beside a
+correction. Cleanup retains a backup and deletion manifest, verifies replacements before removing source memories, and
+checks that unrelated memories remain unchanged. Memory-count reduction is not a target.
+
+**Acceptance scenarios:**
+
+- Given a routine release, commit, or successful test run, the Agent stores no receipt; a reusable lesson from that work
+  can be stored without its incidental delivery details.
+- Given a core or ordinary Memory that conflicts with the user, current docs, applicable Plan, or implemented code, the
+  Agent follows the relevant authority, distinguishes intent from implementation, and corrects the memory.
+- Given a superseded mechanism or mixed bookkeeping/lesson Memory, Sleep removes obsolete guidance and incidental
+  details while preserving a verified current lesson; the old record remains recoverable in the maintenance backup.
+- Given an unrelated durable Memory or useful core context, cleanup preserves the content and does not demote or delete
+  it merely to meet a count target.
 
 **Requirement: Offer an optional guided first change.**
 
@@ -1109,6 +1171,14 @@ and failures remain distinct.
 
 **Target: concise project briefing.** Provide compressed project context where useful without flooding every prompt.
 
+**Requirement: Confirm Init's project file changes mechanically.** Before starting the Init Agent or writing its project
+files, the command host asks permission and lists `.wld/settings.json` (project settings and verification command),
+`docs/domain-language.md` (project glossary), and `.gitignore` (managed runtime ignore rules that preserve unrelated
+rules). The prompt also discloses ignored internal state, indexing, and project memories. This confirmation applies to
+CLI Init, `/init`, startup, and Tutorial Init entry points. Choosing No, canceling, or lacking a supported confirmation
+surface stops Init without creating its project files or invoking the Agent. Explain that Init cannot proceed and that
+the user can run `/init` if they change their mind.
+
 **Requirement: Glossary layout does not prescribe architecture.** A project may keep one glossary covering several
 contexts or use a map linking separate glossaries where distinct terminology makes that useful. Agents discover model
 boundaries from behavior, terminology, and ownership, not file count. Separate glossaries may live with code or in
@@ -1134,6 +1204,9 @@ assessing change impact. Indexing technology belongs in architecture and impleme
 
 - Given an existing project, when Init completes, the project glossary and saved facts provide terminology and context
   for future work.
+- Given a fresh project, Init asks for permission with the three file paths and their purposes before project writes or
+  a model turn. Accepting proceeds; declining or canceling leaves those files and Init completion unchanged and tells
+  the user to run `/init` if they change their mind.
 - Given one glossary describing several contexts, Agents preserve their distinct meanings without assuming a single
   model or requiring separate files. Given a glossary map, Agents follow its links regardless of code layout.
 - When an Agent needs a symbol or related prior decision, it can retrieve relevant project code or memory without
@@ -1458,6 +1531,15 @@ Engineer can ask structured questions with `user_interview` and drives the bundl
 use the current client's structured question interface where supported, including Workspace, before any release
 commands.
 
+**Requirement: Offer explicit bundled maintenance prompts.**
+
+Bundled Prompt Templates include `/commit` for grouping, committing, and pushing pending changes; `/release` for the
+repository's release workflow; `/code-optimizer` for maintainability improvements; and `/test-seams` for advisory
+inspection of tests that replace product-owned behavior. `/test-seams` runs with Engineer, distinguishes product-owned
+machinery from genuine external boundaries, reports concrete locations, uncertainty, and fixture alternatives, and asks
+for the user's disposition before persisting findings. It does not edit production code or tests or introduce CI rules.
+No candidates found is a bounded observation, not a clean bill of health. Init does not invoke this audit.
+
 CLI tools remain preferred for many integrations. MCP is optional and should not add unused prompt context.
 Configuration and loading details belong in [customization documentation](../user-documentation/customization.md).
 
@@ -1513,6 +1595,10 @@ mount path is not confinement of trusted remote users. This target is not yet a 
   replace the bundled Skill.
 - When `enableExternalSkills` is false, neither `.agents` folder participates, while project and home `.wld` Skills and
   bundled Skills remain available.
+- Running Init gathers context and confirms verification setup without searching for fake test seams or requesting
+  disposition of test-seam risks.
+- Invoking `/test-seams` loads the bundled advisory audit with Engineer. Findings identify replaceable behavior,
+  ownership evidence, uncertainty, and real fixture alternatives; issues, Plans, and memories require the user's choice.
 - Invoking `wld /commit` without template front matter or explicit Session selections uses Operator's configured model
   and thinking level; ordinary follow-ups retain those settings.
 - Invoking a template with omitted settings in an existing Session retains its selected Agent/model/thinking level.
@@ -1541,6 +1627,16 @@ proof uses a synthetic HTTP provider through the laptop service.
 
 Users can choose models and providers without changing Session ownership or workflow behavior. The selected model and
 its requirements should be visible and consistent across RunWield clients.
+
+**Requirement: Start from curated model presets without hand-authoring settings.**
+
+Core bundles `codex`, `agy`, `opencode`, `claude-mixed`, `claude-opus`, and `codex-claude` presets with visible model
+assignments and provider access requirements. They are available in the existing preset selector and through
+`activeModelPreset`, without automatic activation or authentication changes. Definitions ship as source assets and
+unpack to a disposable home cache like other bundled resources. Updates preserve personal and project settings; project
+presets override personal presets, and personal presets override bundled presets by name, replacing the complete
+lower-priority definition. Users can copy a bundled definition into settings to customize it. Cache write failures do
+not prevent use of bundled definitions.
 
 Current requirements:
 
@@ -1627,6 +1723,12 @@ Future/open requirements:
 
 - When the user changes a model, the Session and workflow remain the same and the selected model is visible across
   clients.
+- Given no personal preset definitions, when the user opens Model Presets, all six bundled choices are available with
+  descriptions of their models and required access; choosing one uses the existing Session reload behavior.
+- Given a personal or project preset with a bundled name, when selected, the higher-priority definition takes effect
+  without inheriting missing assignments from the bundled preset; ordinary base-Agent fallback still applies.
+- Given an updated RunWield bundle, when presets are unpacked, bundled cache files refresh while personal definitions
+  and the selected preset remain unchanged; an unwritable cache still permits selecting bundled definitions.
 - Given a Pi-backed response interrupted by `Unexpected EOF`, when a later attempt succeeds, RunWield waits and retries
   under the configured policy. The user sees the interruption and retry progress, then the answer without repeating
   completed tools.
