@@ -4,7 +4,7 @@ import {
     type DeliveryReportArtifact,
     deliveryRowArtifacts,
 } from "../../../shared/workflow/delivery-report.ts";
-import { RunWieldButton } from "../../design-system/components/react/RunWieldPrimitives.tsx";
+import { RunWieldButton } from "../../design-system/components/react/RunWieldPrimitives.jsx";
 
 /** A saved report in the owning Session timeline, never a new dashboard. */
 interface DeliveryReportCardProps {

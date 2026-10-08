@@ -587,7 +587,7 @@ for (const answer of [{ outcome: "canceled" }, { outcome: "selected", value: "cl
         const { hostedSession, uiAPI } = makeValidationUi();
         hostedSession.setActiveExecutionWorkflow({
             planName: "p",
-            triageMeta: { classification: "QUICK_FIX", status: "validated_reviewer", humanReviewMode: "ask" },
+            triageMeta: { classification: "QUICK_FIX", status: "reviewed", humanReviewMode: "ask" },
             executionAgent: "engineer",
             projectRoot,
             executionCwd: projectRoot,
@@ -598,7 +598,7 @@ for (const answer of [{ outcome: "canceled" }, { outcome: "selected", value: "cl
             hostedSession,
             planName: "p",
             planContent: "# p",
-            triageMeta: { classification: "QUICK_FIX", status: "validated_reviewer", humanReviewMode: "ask" },
+            triageMeta: { classification: "QUICK_FIX", status: "reviewed", humanReviewMode: "ask" },
             semanticReviewPort: NO_ISOLATED_AGENT_PORT,
         });
         assertEquals(result.kind, "paused");
