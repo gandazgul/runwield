@@ -21,7 +21,7 @@ import {
     planDetailApi,
     plansApi,
     workspaceApi,
-} from "./routes/api/handlers.js";
+} from "./routes/api/handlers.ts";
 import { registerRemoteApiRoutes } from "./routes/remote-api.js";
 import {
     registerReviewDecisionPromise,
@@ -643,7 +643,12 @@ async function handleReviewApiRequest(request, state, pathname) {
     return jsonNotFound();
 }
 
-/** @param {Request} req @param {{ cwd: string }} state @param {Record<string, string>} [params] */
+/**
+ * @template {import('./routes/api/handlers.ts').WorkspaceApiState} State
+ * @param {Request} req
+ * @param {State} state
+ * @param {Record<string, string>} [params]
+ */
 function ctx(req, state, params = {}) {
     return { req, request: req, url: new URL(req.url), state, params };
 }

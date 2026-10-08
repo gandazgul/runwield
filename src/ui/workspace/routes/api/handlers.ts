@@ -1,3 +1,4 @@
+import type { WorkRecordMnemotecaPort } from "../../../../shared/work-records/mnemoteca-port.ts";
 import {
     applyWorkspaceLifecycleAction,
     loadBoard,
@@ -9,21 +10,49 @@ import {
     workspaceMetadata,
 } from "../../server/plan-adapter.js";
 
-/**
- * @param {unknown} data
- * @param {number} [status]
- */
-function json(data, status = 200) {
+export interface WorkspaceApiState {
+    cwd: string;
+    mnemotecaPort?: WorkRecordMnemotecaPort;
+}
+
+export interface WorkspaceApiContext {
+    state: WorkspaceApiState;
+    req: Request;
+    params: Record<string, string>;
+}
+
+export interface WorkspaceLifecycleApiContext extends WorkspaceApiContext {
+    state: WorkspaceLifecycleApiState;
+}
+
+export interface WorkspaceLifecycleApiState extends WorkspaceApiState {
+    mnemotecaPort: WorkRecordMnemotecaPort;
+}
+
+export interface WorkspacePlanBodyPayload {
+    body?: string;
+    expectedBodyHash?: string;
+    expectedRevision?: string;
+}
+
+export interface WorkspaceLifecyclePayload {
+    action?: string;
+    expectedRevision?: string;
+    targetStatus?: string;
+    acceptResumeWarnings?: boolean;
+    closedWithoutVerificationReason?: string;
+    userVerificationNote?: string;
+}
+
+function json<Data>(data: Data, status = 200) {
     return Response.json(data, { status, headers: { "cache-control": "no-store" } });
 }
 
-/** @param {any} ctx */
-export function workspaceApi(ctx) {
+export function workspaceApi(ctx: WorkspaceApiContext) {
     return json(workspaceMetadata(ctx.state.cwd));
 }
 
-/** @param {any} ctx */
-export async function plansApi(ctx) {
+export async function plansApi(ctx: WorkspaceApiContext) {
     try {
         return json({ plans: await loadPlanSummaries(ctx.state.cwd) });
     } catch (error) {
@@ -31,8 +60,7 @@ export async function plansApi(ctx) {
     }
 }
 
-/** @param {any} ctx */
-export async function boardApi(ctx) {
+export async function boardApi(ctx: WorkspaceApiContext) {
     try {
         return json(await loadBoard(ctx.state.cwd));
     } catch (error) {
@@ -40,8 +68,7 @@ export async function boardApi(ctx) {
     }
 }
 
-/** @param {any} ctx */
-export async function planDetailApi(ctx) {
+export async function planDetailApi(ctx: WorkspaceApiContext) {
     try {
         return json({ plan: await loadWorkspaceDetail(ctx.state.cwd, ctx.params.planId) });
     } catch (error) {
@@ -51,10 +78,8 @@ export async function planDetailApi(ctx) {
     }
 }
 
-/** @param {any} ctx */
-/** @param {any} ctx */
-export async function lifecycleActionApi(ctx) {
-    let payload;
+export async function lifecycleActionApi(ctx: WorkspaceLifecycleApiContext) {
+    let payload: WorkspaceLifecyclePayload | null;
     try {
         payload = await ctx.req.json();
     } catch {
@@ -79,9 +104,8 @@ export async function lifecycleActionApi(ctx) {
     }
 }
 
-/** @param {any} ctx */
-export async function planBodyApi(ctx) {
-    let payload;
+export async function planBodyApi(ctx: WorkspaceApiContext) {
+    let payload: WorkspacePlanBodyPayload | null;
     try {
         payload = await ctx.req.json();
     } catch {

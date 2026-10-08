@@ -113,7 +113,6 @@
     "src/ui/workspace/react/pierre-diffs-worker-shim.js",
     "src/ui/workspace/react/remote-review-payload.js",
     "src/ui/workspace/react/vite.config.js",
-    "src/ui/workspace/routes/api/handlers.js",
     "src/ui/workspace/routes/api/review-agent-handlers.js",
     "src/ui/workspace/routes/api/review-handlers.js",
     "src/ui/workspace/routes/api/review-widget-handlers.js",
