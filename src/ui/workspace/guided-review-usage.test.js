@@ -136,6 +136,21 @@ Deno.test("Guided Review marks aggregate coverage partial after an unmeasured fr
     });
 });
 
+Deno.test("Guided Review journals partial cost coverage even when token coverage is complete", async () => {
+    await withWorkflowMetricsFixture(async ({ projectRoot, readMetrics }) => {
+        const full = { inputTokens: 12, outputTokens: 3, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 1 };
+        const job = await runJob(projectRoot, { frames: [full, { ...full, costUsd: null }] });
+        assertEquals(job.usageAvailability.inputTokens, "complete");
+        assertEquals(job.usageAvailability.costUsd, "partial");
+        const usages = (await readMetrics()).filter((record) => record.event === "model_usage");
+        assertEquals(usages.length, 1);
+        assertEquals(usages[0].inputTokens, 24);
+        assertEquals(usages[0].costAmount, 1);
+        assertEquals(usages[0].costSource, "reported");
+        assertEquals(usages[0].measurementAvailability, "partial");
+    });
+});
+
 Deno.test("wld Guided Review keeps its outcome but does not duplicate runtime usage", async () => {
     await withWorkflowMetricsFixture(async ({ projectRoot, readMetrics }) => {
         await runJob(projectRoot, { frames: [{ ...absent, inputTokens: 12 }], internal: true });

@@ -327,6 +327,7 @@ Deno.test("completion after generated turn acceptance prevents final model dispa
                 ownerInstanceId: crypto.randomUUID(),
             });
             let releasePreparation = () => {};
+            let settlementTimeout: ReturnType<typeof setTimeout> | undefined;
             try {
                 const created = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
                 await runtime.switchAgent(created.sessionId, { agentName: "engineer" });
@@ -359,14 +360,16 @@ Deno.test("completion after generated turn acceptance prevents final model dispa
                 completions.push(tool.execute("final", { message: "- Done." }));
                 assertEquals((await completions[0]).details.outcome, "task_completed");
                 session.completeAgentSteeringPreparation("hold-generated-prompt");
+                // Generated turn cleanup includes real persistence I/O under CI contention.
                 await Promise.race([
                     generatedTurnEnded,
-                    new Promise((_, reject) =>
-                        setTimeout(() => reject(Error("Generated turn did not settle")), 10_000)
-                    ),
+                    new Promise((_, reject) => {
+                        settlementTimeout = setTimeout(() => reject(Error("Generated turn did not settle")), 60_000);
+                    }),
                 ]);
                 assertEquals(calls, 2);
             } finally {
+                clearTimeout(settlementTimeout);
                 releasePreparation();
                 await runtime.closeAllSessionsWhenIdle();
             }

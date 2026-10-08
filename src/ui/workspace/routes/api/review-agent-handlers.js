@@ -303,7 +303,9 @@ async function recordGuideJobMetric(state, entry) {
             sourceId: `guide_${info.id}`,
             usageKind: "turn",
             aggregationBasis: "turn",
-            measurementAvailability: entry.usageTotals.measurementAvailability,
+            measurementAvailability: entry.usageTotals.availability.costUsd === "partial"
+                ? "partial"
+                : entry.usageTotals.measurementAvailability,
             costSource: entry.usageTotals.usage.costUsd === null ? "unavailable" : "reported",
         });
     }
