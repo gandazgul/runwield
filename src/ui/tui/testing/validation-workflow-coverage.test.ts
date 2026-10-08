@@ -13,8 +13,16 @@ import {
 function fullEvidenceResult(id: ValidationWorkflowBranchId): ValidationWorkflowResultLike {
     const branch = VALIDATION_WORKFLOW_BRANCHES.find((entry) => entry.id === id);
     const owner = branch?.owner || "";
-    const humanReviewMode = id === "human-review:none" ? "none" : id === "human-review:ask-skip" ? "ask" : "always";
-    const humanReviewDecision = id === "human-review:none"
+    const humanReviewMode = id === "human-review:ask-close"
+        ? null
+        : id === "human-review:none"
+        ? "none"
+        : id === "human-review:ask-skip"
+        ? "ask"
+        : "always";
+    const humanReviewDecision = id === "human-review:ask-close"
+        ? null
+        : id === "human-review:none"
         ? "not_required"
         : id === "human-review:ask-skip"
         ? "skipped"
@@ -39,7 +47,7 @@ function fullEvidenceResult(id: ValidationWorkflowBranchId): ValidationWorkflowR
                 plans: [{
                     name: "plan",
                     attrs: {
-                        status: "verified",
+                        status: id === "human-review:ask-close" ? "reviewed" : "verified",
                     },
                     controllerState: {
                         validationCiAttempts: 0,
@@ -67,17 +75,17 @@ function fullEvidenceResult(id: ValidationWorkflowBranchId): ValidationWorkflowR
                 ],
             },
             publication: {
-                remotePlanStatus: "validated",
+                remotePlanStatus: "verified",
                 remotePlanAttrs: {},
                 registryEntries: [],
             },
             localPublication: {
-                planStatus: "validated",
+                planStatus: "verified",
                 registryEntries: [],
             },
             pendingPublication: {
                 registryStatus: "publication_failed",
-                executionPlanStatus: "validated",
+                executionPlanStatus: "reviewed",
             },
         },
         actor: { consumed: ["engineer:engineer", "reviewer:semantic_review"], remaining: [] },

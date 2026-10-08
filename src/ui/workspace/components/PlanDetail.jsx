@@ -543,10 +543,9 @@ function PlanWorkflowSummary({ plan, progress, projectId = "", runwieldSessionId
         intent: plan.classification,
         classification: plan.classification,
         projectPlanType: plan.type || plan.attrs?.type,
-        status: plan.status,
-        progressFacts: Array.isArray(progress?.stages)
-            ? progress.stages.map((stage) => ({ id: stage.id, state: stage.state, updatedAt: stage.updatedAt }))
-            : undefined,
+        status: progress?.plan?.status || plan.status,
+        validationPhase: progress?.plan?.validationPhase || plan.attrs?.validationPhase,
+        progressFacts: progress?.progressFacts,
         degradedMessage: typeof progress?.degraded?.message === "string" ? progress.degraded.message : "",
         sessionState: typeof progress?.session?.state === "string" ? progress.session.state : "",
         hasWorkingSession: Boolean(progress?.session?.runwieldSessionId || runwieldSessionId),

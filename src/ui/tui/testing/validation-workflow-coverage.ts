@@ -28,6 +28,7 @@ export type ValidationWorkflowBranchId =
     | "semantic:entry:empty-diff-skip"
     | "semantic:entry:plan-only-diff-fails"
     | "human-review:none"
+    | "human-review:ask-close"
     | "human-review:ask-skip"
     | "human-review:ask-open-approve"
     | "human-review:always-approve"
@@ -119,6 +120,7 @@ export const EXPECTED_VALIDATION_WORKFLOW_BRANCH_IDS: readonly ValidationWorkflo
     "semantic:entry:empty-diff-skip",
     "semantic:entry:plan-only-diff-fails",
     "human-review:none",
+    "human-review:ask-close",
     "human-review:ask-skip",
     "human-review:ask-open-approve",
     "human-review:always-approve",
@@ -178,6 +180,7 @@ const VALIDATION_BRANCH_OWNERS: Record<ValidationWorkflowBranchId, string> = {
     "semantic:entry:empty-diff-skip": "validation-tree-empty-diff-skip",
     "semantic:entry:plan-only-diff-fails": "validation-tree-plan-only-diff-fails",
     "human-review:none": "validation-tree-human-review-none",
+    "human-review:ask-close": "validation-tree-human-review-ask-close",
     "human-review:ask-skip": "validation-tree-human-review-ask-skip",
     "human-review:ask-open-approve": "validation-tree-human-review-ask-open-approve",
     "human-review:always-approve": "validation-tree-human-review-always-approve",
@@ -211,12 +214,12 @@ function transcriptRequirementFor(id: ValidationWorkflowBranchId): string[] {
     if (
         id === "lifecycle:resume-implemented" || id === "lifecycle:resume-validated-ci" ||
         id === "lifecycle:resume-validated-reviewer" || id === "lifecycle:ahead-status-keeps-canonical-progress"
-    ) return ["is on main."];
+    ) return ["Published commit confirmed on main."];
     if (id === "lifecycle:missing-execution-context-fails-closed") {
         return ["Validation blocked: RunWield cannot tell where"];
     }
     if (id === "lifecycle:registry-authority-ignores-stale-worktree-metadata") {
-        return ["is on main."];
+        return ["Published commit confirmed on main."];
     }
     if (id === "lifecycle:unsupported-status-fails-closed") return ["Plan has unknown status: sideways"];
     if (id.includes("plan-amendment")) return ["Plan amendment"];
@@ -228,13 +231,14 @@ function transcriptRequirementFor(id: ValidationWorkflowBranchId): string[] {
     if (id === "semantic:entry:empty-diff-skip") return ["AI review skipped"];
     if (id === "semantic:entry:plan-only-diff-fails") return ["No implementation changes detected"];
     if (id.startsWith("semantic:")) return ["AI review"];
-    if (id === "human-review:none") return ["is on main."];
-    if (id === "human-review:ask-skip") return ["is on main."];
+    if (id === "human-review:none") return ["Published commit confirmed on main."];
+    if (id === "human-review:ask-skip") return ["Published commit confirmed on main."];
+    if (id === "human-review:ask-close") return ["Code review is still waiting for your decision"];
     if (id === "human-review:no-answer-retry" || id === "human-review:no-answer-stop") {
         return ["Pick Retry to open it again"];
     }
     if (id.startsWith("human-review:")) return ["Need your review:"];
-    if (id === "publication:non-git-success") return ["is done"];
+    if (id === "publication:non-git-success") return ["Plan: non-git-plan", "Merge: Not applicable"];
     const successfulPublicationProgress = [
         "The commits are ready",
         "Checking main for new commits",
@@ -244,28 +248,28 @@ function transcriptRequirementFor(id: ValidationWorkflowBranchId): string[] {
         "Cleaning up the worktree",
     ];
     if (id === "publication:isolated-dirty-primary") {
-        return [...successfulPublicationProgress, "is on main"];
+        return [...successfulPublicationProgress, "Published commit confirmed on main"];
     }
     if (id === "publication:dirty-primary-retry") {
         return [
             "have not saved to git yet",
             "No remote is configured. Adding the commits to the local main",
             "Cleaning up the worktree",
-            "is on main",
+            "Published commit confirmed on main",
         ];
     }
     if (id === "publication:remote-target-advance") {
         return [
             ...successfulPublicationProgress,
             "Adding new commits from main",
-            "is on main",
+            "Published commit confirmed on main",
         ];
     }
     if (id === "publication:primary-plan-restored") {
         return [
             "Plan loaded: validation-tree-publication-primary-plan-restored",
             ...successfulPublicationProgress,
-            "is on main",
+            "Published commit confirmed on main",
         ];
     }
     if (id === "publication:missing-target-branch") return ["Target branch main is missing"];
@@ -308,6 +312,13 @@ function stateEqualsFor(id: ValidationWorkflowBranchId): Record<string, Validati
             "projectState.plans.0.controllerState.humanReviewDecision": "not_required",
         };
     }
+    if (id === "human-review:ask-close") {
+        return {
+            "projectState.plans.0.attrs.status": "reviewed",
+            "projectState.plans.0.controllerState.humanReviewMode": null,
+            "projectState.plans.0.controllerState.humanReviewDecision": null,
+        };
+    }
     if (id === "human-review:ask-skip") {
         return {
             "projectState.plans.0.controllerState.humanReviewMode": "ask",
@@ -323,6 +334,7 @@ function stateAbsentFor(): string[] {
 
 function interactionValuesFor(id: ValidationWorkflowBranchId): string[] {
     if (id === "publication:dirty-primary-retry") return ["retry"];
+    if (id === "human-review:ask-close") return ["close"];
     return id === "human-review:ask-skip" ? ["skip"] : [];
 }
 
@@ -370,6 +382,7 @@ export const VALIDATION_INTERACTION_OPTION_BRANCHES: Readonly<Record<string, rea
         reject: ["human-review:no-answer-stop"],
         open: ["human-review:ask-open-approve"],
         skip: ["human-review:ask-skip"],
+        close: ["human-review:ask-close"],
         continue: ["semantic:round-limit:continue"],
         code_review: ["semantic:round-limit:human-review"],
         confirm: ["human-review:feedback-repair-approve"],
