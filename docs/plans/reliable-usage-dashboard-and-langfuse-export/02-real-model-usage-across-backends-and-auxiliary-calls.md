@@ -30,7 +30,8 @@ dependencies:
     - "01-core-measurement-history-and-default-on-recording"
 userVerifiedAt: null
 targetBranch: "epic/reliable-usage-dashboard-and-langfuse-export"
-status: "validated_reviewer"
+status: "validated"
+validatedCommit: "e9672012744c7d12c4ec4e7a13a2054b2e95d196"
 ---
 
 # Real Model Usage Across Backends and Auxiliary Calls
