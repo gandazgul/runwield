@@ -298,7 +298,7 @@ export function buildValidationUserMessage(request: ValidationMessageRequest): s
         case "work_record_result":
             if (request.status === "generated" || request.status === "linked") return "The Work Record is ready.";
             if (request.status === "failed") {
-                return "RunWield could not make the Work Record. The finished Plan is safe. Retry with wld wr backfill.";
+                return "Work Record failed. Code is safe. Choose Retry Work Record. wld wr backfill makes missing or failed records again.";
             }
             if (request.reason === "parent_not_terminal") {
                 return "The Work Record will be made after the parent Epic is finished.";

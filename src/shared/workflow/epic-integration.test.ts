@@ -1,5 +1,6 @@
 import { assert, assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { dirname, join } from "@std/path";
+import { setCustomSetting } from "../settings.js";
 import { loadPlan } from "../../plan-store.js";
 import { defineGitFixture, git } from "../git-test-fixture.ts";
 import { executeWorkflowTestTools, type WorkflowTestToolCall } from "../../testing/workflow-agent-tools.ts";
@@ -189,6 +190,7 @@ Deno.test("delivering the last child to the Epic branch makes the Epic implement
 
 Deno.test("the integration gate validates the exact Epic branch head", async () => {
     const { repo } = await epicWithPendingSecondChild();
+    await setCustomSetting("codereview", "none", "project", repo);
     await deliverSecondChild(repo);
     const head = await git(repo, ["rev-parse", "epic/epic"]);
     const { hostedSession } = gateSession();

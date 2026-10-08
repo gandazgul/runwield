@@ -1,5 +1,6 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 
+import { setCustomSetting } from "../settings.js";
 import { loadPlan, parsePlanFrontMatter, savePlan } from "../../plan-store.js";
 import { defineGitFixture, git } from "../git-test-fixture.ts";
 import { createGitPort } from "../git-port.ts";
@@ -77,6 +78,7 @@ async function makeLifecycleRun(status, attrs = {}) {
 
 async function makePlannedReviewWorktree() {
     const projectRoot = await makeRepo();
+    await setCustomSetting("codereview", "none", "project", projectRoot);
     await savePlan(projectRoot, "p", "# p\n\nvalidation fixture\n", {
         classification: "FEATURE",
         status: "validated_ci",

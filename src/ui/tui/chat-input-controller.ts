@@ -57,7 +57,7 @@ export interface ChatInputController {
     restoreQueuedItemToEditor(item: QueuedInput): void;
     processSubmissions(initialItem?: QueuedInput | null): Promise<void>;
     submitTutorialRequest(request: string, context: TutorialContext): Promise<void>;
-    offerSessionCompletion(sessionId: string, workRecordFailed?: boolean): void;
+    offerSessionCompletion(sessionId: string, workRecordFailed?: boolean, workRecordPlanName?: string): void;
     dispose(): Promise<void>;
 }
 
@@ -95,6 +95,7 @@ export function createChatInputController(options: ChatInputControllerOptions): 
     let isProcessingSubmission = false;
     let completionSessionId: string | null = null;
     let completionWorkRecordFailed = false;
+    let completionWorkRecordPlanName = "";
     let completionPromptActive = false;
     let disposed = false;
     let shouldDrainQueuedAfterProcessing = false;
@@ -155,7 +156,8 @@ export function createChatInputController(options: ChatInputControllerOptions): 
         view.focusEditor();
         view.requestRender();
     }
-    function offerSessionCompletion(sessionId: string, workRecordFailed = false): void {
+    function offerSessionCompletion(sessionId: string, workRecordFailed = false, workRecordPlanName = ""): void {
+        completionWorkRecordPlanName = workRecordPlanName;
         completionSessionId = sessionId;
         completionWorkRecordFailed = workRecordFailed;
         void presentSessionCompletion();
@@ -172,12 +174,15 @@ export function createChatInputController(options: ChatInputControllerOptions): 
             const choice = await uiAPI.promptSelect(
                 `${
                     completionWorkRecordFailed
-                        ? "Code delivered; Work Record failed.\nRetry with wld wr backfill."
+                        ? "Code delivered; Work Record failed.\nRetry regenerates this record.\nwld wr backfill regenerates missing or failed records across completed Plans."
                         : snapshot.tutorialContext?.recapShown
                         ? "Tutorial complete"
                         : "Session complete"
                 }\nWhat would you like to do next?`,
                 [
+                    ...(completionWorkRecordFailed && completionWorkRecordPlanName
+                        ? [{ value: "retry-record", label: "Retry Work Record" }]
+                        : []),
                     { value: "new", label: "Start a new session" },
                     { value: "load-plan", label: "Load a Plan — starts a new session" },
                     { value: "quit", label: "Quit" },
@@ -185,6 +190,14 @@ export function createChatInputController(options: ChatInputControllerOptions): 
                 { hint: "↑/↓ choose · Enter select · Esc stay in this session", persistResult: false },
             );
             if (disposed || sessionId !== options.getSessionId() || !choice) return;
+            if (choice === "retry-record") {
+                const result = await runtime.retryWorkRecord(sessionId, completionWorkRecordPlanName);
+                uiAPI.appendSystemMessage(result.message, result.status === "failed", "RunWield");
+                completionWorkRecordFailed = result.status !== "generated" && result.status !== "linked" &&
+                    !(result.status === "skipped" && result.reason === "existing_backlink");
+                completionSessionId = sessionId;
+                return;
+            }
             if (choice === "quit") {
                 await executeUserRequest("/quit", []);
                 return;

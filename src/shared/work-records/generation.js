@@ -45,6 +45,7 @@ const USER_VERIFIED_TEXT = "The user attested verification; RunWield Workflow Va
  * @property {string} relativePath
  * @property {string} path
  * @property {string} planId
+ * @property {string} [documentRevision] - Expected local document revision when recording a published source
  * @property {import('../../plan-store.js').PlanFrontMatter} attrs
  * @property {import('../plan-deviations.ts').PlanDeviation[]} [planDeviations]
  * @property {string} body
@@ -70,6 +71,7 @@ const USER_VERIFIED_TEXT = "The user attested verification; RunWield Workflow Va
 
 /**
  * @typedef {Object} GenerationOptions
+ * @property {AbortSignal} [signal] - Cancellation of the recording operation
  * @property {() => string} [idGenerator]
  * @property {() => Date} [now]
  * @property {(prompt: string) => Promise<GeneratedWorkRecordSections>} [runRecorderStep]
@@ -377,6 +379,7 @@ async function updateSourceFrontMatter(cwd, source, updates) {
         projectRoot: cwd,
         planName: source.name,
         operation: "work_record_backlink",
+        expectedRevision: source.documentRevision,
         updates,
         recoveryAttrs: source.attrs || {},
     });
@@ -549,6 +552,7 @@ export async function generateRecorderSections(
         for (let attempt = 1; attempt <= 2; attempt++) {
             const { event, messages } = await runValidationAgentUntilEvent(SYSTEM_SEMANTIC_REVIEW_PORT, {
                 hostedSession,
+                signal: options.signal,
                 cwd,
                 agentName: AGENTS.RECORDER,
                 userRequest: attempt === 1

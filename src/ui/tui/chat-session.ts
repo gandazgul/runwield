@@ -299,8 +299,12 @@ export async function startInteractiveSession(
             notifyRunWieldEvent: notifyRunWieldEventQuietly,
             onSessionReplaced: ({ newSessionId }) => replaceRuntimeSession(newSessionId, { oldRetired: true }),
             pauseTutorialPresentation: sessionStartMode === "continue",
-            onSessionComplete: (completedSessionId, workRecordFailed) =>
-                inputControllerForPause?.offerSessionCompletion(completedSessionId, workRecordFailed),
+            onSessionComplete: (completedSessionId, workRecordFailed, workRecordPlanName) =>
+                inputControllerForPause?.offerSessionCompletion(
+                    completedSessionId,
+                    workRecordFailed,
+                    workRecordPlanName,
+                ),
         });
         disposables.push(() => tuiRuntimeAdapter.dispose());
         const managedSyncController = createManagedSessionSyncController({
@@ -367,8 +371,12 @@ export async function startInteractiveSession(
                 browser: options.browser,
                 notifyRunWieldEvent: notifyRunWieldEventQuietly,
                 onSessionReplaced: ({ newSessionId }) => replaceRuntimeSession(newSessionId, { oldRetired: true }),
-                onSessionComplete: (completedSessionId, workRecordFailed) =>
-                    inputControllerForPause?.offerSessionCompletion(completedSessionId, workRecordFailed),
+                onSessionComplete: (completedSessionId, workRecordFailed, workRecordPlanName) =>
+                    inputControllerForPause?.offerSessionCompletion(
+                        completedSessionId,
+                        workRecordFailed,
+                        workRecordPlanName,
+                    ),
             });
             subscribeCommandCatalog();
             view.resetForSessionReplacement();

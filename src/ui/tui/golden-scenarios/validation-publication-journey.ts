@@ -48,6 +48,8 @@ interface JourneyResult {
  * Model responses are the external boundary; they do not call workflow helpers.
  */
 export const validationPublicationJourneyScenario = {
+    // This scenario isolates automated delivery; human policy gates have dedicated journeys.
+    globalSettings: { defaultProvider: "golden", defaultModel: "faux", codereview: "none" },
     name: planName,
     composedTui: true,
     initialAgentName: "guide",

@@ -103,6 +103,8 @@ function assertRealPlanReviewRevisionAndApproval(result) {
 }
 
 export const plannedChangeReviewRepairValidationScenario = {
+    // This scenario isolates automated delivery; human policy gates have dedicated journeys.
+    globalSettings: { defaultProvider: "golden", defaultModel: "faux", codereview: "none" },
     name: "planned-change-review-repair-validation-delivery",
     composedTui: true,
     initialAgentName: "planner",
