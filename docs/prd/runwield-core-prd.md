@@ -1982,10 +1982,14 @@ they are not substitutes for Session Transcript or Plan Association evidence. A 
 transcript nor a billing charge. Missing measurements remain unavailable, not zero.
 
 **Requirement: Cross-process recording has bounded lock acquisition and truthful persistence.** All writers to the
-primary Project journal use the same `proper-lockfile` lock, including linked worktrees and separate Core processes.
-Each invocation bounds lock acquisition to approximately one second. A persistence success requires synchronous append
-and file sync; it does not promise complete coverage. Timeout, compromised lock, storage failure, disabled collection,
-and stale collection boundaries return non-persistence without blocking delivery or claiming saved data. Captured
+primary Project journal take an OS file lock before the same `proper-lockfile` lock, including linked worktrees and
+separate Core processes. The OS lock does not expire while a writer is paused. Current epoch checkpoints avoid scans of
+retained history. If a checkpoint is missing or behind, each locked call reads at most 256 KiB of new journal bytes and
+commits recovery progress. Calls report non-persistence while recovery is pending; later calls resume recording after
+the checkpoint reaches the journal tail. Recovery preserves retained rows and does not replay skipped observations. Each
+invocation bounds lock acquisition to approximately one second. A persistence success requires synchronous append and
+file sync; it does not promise complete coverage. Timeout, compromised lock, storage failure, disabled collection, and
+stale collection boundaries return non-persistence without blocking delivery or claiming saved data. Captured
 observation identity and epoch stay fixed during an acquisition retry. No failed observation is queued for replay.
 
 **Requirement: Collection epochs reflect observed boundaries, not inferred disabled durations.** Core observes settings

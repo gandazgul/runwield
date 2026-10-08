@@ -22,7 +22,7 @@ dependencies:
     []
 targetBranch: "epic/reliable-usage-dashboard-and-langfuse-export"
 userVerifiedAt: null
-status: "implemented"
+status: "validated_reviewer"
 ---
 
 # Core Measurement History and Durable Recording

@@ -369,7 +369,7 @@ Deno.test("Pi usage reconciliation excludes history and deduplicates entry IDs",
     });
 });
 
-Deno.test("parallel v2 observations leave complete JSONL rows with unique observation identities", async () => {
+Deno.test("parallel v2 observations preserve complete rows and unique identities for persisted observations", async () => {
     await withWorkflowMetricsFixture(async ({ projectRoot, readMetrics }) => {
         const recorder = new ExecutionMetricsRecorder({ projectRoot });
         await Promise.all(
@@ -380,10 +380,34 @@ Deno.test("parallel v2 observations leave complete JSONL rows with unique observ
         );
         await recorder.settleExecution();
         const records = await readMetrics();
-        assertEquals(records.filter((record) => record.event === "tool_call_started").length, 32);
+        const starts = records.filter((record) => record.event === "tool_call_started");
+        assert(starts.length > 0 && starts.length <= 32);
+        for (const record of starts) assertEquals(record.callId, `call-${record.seq}`);
         assertEquals(new Set(records.map((record) => record.eventId)).size, records.length);
         assertEquals(new Set(records.map((record) => record.seq)).size, records.length);
         assertEquals(JSON.stringify(records).includes("/private/"), false);
+    });
+});
+
+Deno.test("parallel v2 persistence results match saved rows and report budget skips", async () => {
+    await withWorkflowMetricsFixture(async ({ projectRoot, readMetrics }) => {
+        const results = await Promise.all(Array.from({ length: 32 }, (_, seq) =>
+            recordWorkflowMetric({
+                v: 2,
+                category: "tool_usage",
+                event: "tool_call_started",
+                recorderId: "parallel-writer",
+                seq,
+                callId: `call-${seq}`,
+                toolName: "read",
+            }, projectRoot)));
+        const saved = results.filter((result) => result.persisted);
+        assert(saved.length > 0);
+        for (const result of results.filter((result) => !result.persisted)) {
+            assertEquals(result.reason, "lock_timeout");
+        }
+        const records = await readMetrics();
+        assertEquals(records.map((record) => record.eventId).sort(), saved.map((result) => result.eventId).sort());
     });
 });
 

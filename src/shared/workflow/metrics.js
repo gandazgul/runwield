@@ -7,8 +7,8 @@ import { isAbsolute, join } from "@std/path";
 import { getHomeDir, RUNWIELD_DIR_NAME } from "../../constants.js";
 import { resolvePrimaryCheckoutRoot } from "../primary-checkout.ts";
 import { encodeCwdForSessionDir } from "../session/root-session.js";
-import { appendWorkflowMetric, isWorkflowMetricsEnabled, resolveCollectionEpoch } from "./metrics-journal.js";
-export { isWorkflowMetricsEnabled } from "./metrics-journal.js";
+import { appendWorkflowMetric, isWorkflowMetricsEnabled, resolveCollectionEpoch } from "./metrics-journal.ts";
+export { isWorkflowMetricsEnabled } from "./metrics-journal.ts";
 
 /**
  * @typedef {"routing"|"planning"|"execution"|"validation"|"recovery"|"model_selection"|"tool_usage"|"command"|"model_usage"|"context"} WorkflowMetricCategory
@@ -722,9 +722,11 @@ function sanitizeV2MetricRecord(metric, cwdHash) {
 }
 
 /**
+ * @typedef {import("./metrics-journal.ts").JournalResult & Pick<WorkflowMetricRecord, "details">} WorkflowMetricResult
+ *
  * @param {Record<string, unknown>} metric
  * @param {string} cwd
- * @returns {Promise<import("./metrics-journal.js").JournalResult>}
+ * @returns {Promise<WorkflowMetricResult>}
  */
 export async function recordWorkflowMetric(metric, cwd) {
     try {
@@ -741,7 +743,7 @@ export async function recordWorkflowMetric(metric, cwd) {
                 : isWorkflowMetricsEnabled(resolvedSetting),
             epoch: metric.persisted === false && typeof metric.collectionEpoch === "string"
                 ? metric.collectionEpoch
-                : resolveCollectionEpoch(filePath).collectionEpoch.id,
+                : resolveCollectionEpoch(filePath, isWorkflowMetricsEnabled(resolvedSetting)).collectionEpoch.id,
             deadline: Date.now() + 1000,
         };
         const cwdHash = await hashMetricCwd(projectRoot);
@@ -855,7 +857,7 @@ export function classifyToolSubUsage(toolName, args = undefined) {
  * @param {unknown} args
  * @param {string} cwd
  * @param {string} [agentName]
- * @returns {Promise<import("./metrics-journal.js").JournalResult>}
+ * @returns {Promise<import("./metrics-journal.ts").JournalResult>}
  */
 export function recordToolCallStarted(toolCallId, toolName, args, cwd, agentName) {
     const subUsage = classifyToolSubUsage(toolName, args);
@@ -874,7 +876,7 @@ export function recordToolCallStarted(toolCallId, toolName, args, cwd, agentName
  * @param {boolean} isError
  * @param {string} cwd
  * @param {string} [agentName]
- * @returns {Promise<import("./metrics-journal.js").JournalResult>}
+ * @returns {Promise<import("./metrics-journal.ts").JournalResult>}
  */
 export function recordToolCallFinished(toolCallId, toolName, isError, cwd, agentName) {
     const started = activeToolCalls.get(toolCallId);
