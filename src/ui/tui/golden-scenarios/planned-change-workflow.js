@@ -435,7 +435,6 @@ export const onboardingTutorialDeliveryScenario = {
         { type: "select", promptIncludes: "were stopped before they finished", value: "stop" },
         { type: "select", promptIncludes: "Resume tutorial guidance", value: "resume" },
         { type: "select", promptIncludes: "Plan recovery", value: "validate" },
-        { type: "select", promptIncludes: "Resume tutorial guidance", value: "resume" },
     ],
     script: [
         {
