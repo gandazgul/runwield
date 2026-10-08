@@ -1,3 +1,6 @@
+import { stageValidationPassedInExecutionWorktree } from "./plan-lifecycle.js";
+import { autoGenerateWorkRecordForCompletedPlan } from "../work-records/auto-generation.ts";
+import { publishExecutionWorktreeIsolated } from "../isolated-publication.ts";
 import { advancePublicationAttempt, createPublicationAttempt } from "./publication-attempt.ts";
 import { createTestWorktreeAttempt, git, makeRepo } from "../worktree-test-helpers.ts";
 import { removeWorktreeGitArtifacts } from "../worktree.js";
@@ -135,86 +138,168 @@ Deno.test("publication explains a busy Plan operation without prescribing a fail
 });
 
 for (const remote of [false, true]) {
-    Deno.test(`verified completion retains recording failure after ${remote ? "remote" : "local"} delivery`, async () => {
-        await withRuntimeCommandFixture("record-completion-", async ({ projectRoot: fixtureRoot }) => {
-            const projectRoot = remote ? await makeRepo() : fixtureRoot;
-            const worktreeRoot = remote ? await Deno.makeTempDir({ prefix: "record-outcome-worktree-" }) : undefined;
-            const worktree = worktreeRoot
-                ? await createTestWorktreeAttempt({ projectRoot, planName: "completed", worktreeRoot })
-                : undefined;
-            const hostedSession = new HostedSession({ id: crypto.randomUUID(), cwd: projectRoot });
-            const events: RuntimeSystemStatusEvent[] = [];
-            hostedSession.setEventSink((event: SessionRuntimeEvent) => {
-                if (event.type === "system_status") events.push(event);
-            });
-            const session = createValidationSessionPort(hostedSession);
-            try {
-                await savePlan(worktree?.path || projectRoot, "completed", "# Completed\n", {
-                    planId: "completed-plan",
-                    classification: "PLANNED_CHANGE",
-                    status: "validated",
-                    workRecord: {
-                        status: "failed",
-                        error: "Recorder submission missing",
-                        lastAttemptAt: "2026-10-08T00:00:00Z",
-                    },
-                });
-                let publication;
-                if (worktree) {
-                    await git(worktree.path, ["add", "docs/plans/completed.md"]);
-                    await git(worktree.path, ["commit", "-m", "Seal failed recording outcome"]);
-                    const commit = await git(worktree.path, ["rev-parse", "HEAD"]);
-                    publication = advancePublicationAttempt(
-                        createPublicationAttempt({
-                            attemptId: worktree.id,
-                            planId: "completed-plan",
-                            planName: "completed",
-                            targetBranch: "main",
-                            executionBranch: worktree.branch,
-                            executionCwd: worktree.path,
-                            publicationRoot: worktree.path,
-                            validatedCommit: commit,
-                            targetHeadAtSeal: await git(projectRoot, ["rev-parse", "HEAD"]),
-                        }),
-                        "artifacts_committed",
-                        { artifactCommit: commit, planPaths: ["docs/plans/completed.md"] },
-                    );
-                    await removeWorktreeGitArtifacts({ projectRoot, path: worktree.path, force: true });
-                    assertEquals(await loadPlan(projectRoot, "completed"), null);
+    for (const epic of [false, true]) {
+        Deno.test(`verified ${epic ? "Epic child" : "standalone"} completion retains preflight recording failure after ${remote ? "remote" : "local"} delivery`, async () => {
+            await withRuntimeCommandFixture("record-completion-", async ({ projectRoot: fixtureRoot }) => {
+                const projectRoot = remote ? await makeRepo() : fixtureRoot;
+                const planName = epic ? "epic/01-child" : "completed";
+                const ownerName = epic ? "epic" : planName;
+                const planPath = `docs/plans/${planName}.md`;
+                if (epic) {
+                    await savePlan(projectRoot, ownerName, "# Epic\n", {
+                        planId: "parent-plan",
+                        classification: "PROJECT",
+                        status: "ready_for_work",
+                    });
                 }
-                session.setCurrentProgress(createProgressRecord({ kind: "workflow", stage: "merge" }));
-                const result = await buildVerifiedResult(
-                    {
-                        planName: "completed",
-                        planContent: "# Completed",
-                        triageMeta: { classification: "PLANNED_CHANGE", status: "validated" },
-                        session,
-                        git: createGitPort(),
-                        localCI: {
-                            run: () => {
-                                throw new Error("Completion must not rerun CI");
+                if (remote) {
+                    await savePlan(projectRoot, planName, "# Completed\n", {
+                        planId: "completed-plan",
+                        classification: "PLANNED_CHANGE",
+                        status: "implemented",
+                        ...(epic ? { parentPlan: ownerName, order: 1 } : {}),
+                    });
+                    await git(projectRoot, ["add", ".gitignore", "docs/plans"]);
+                    await git(projectRoot, ["commit", "-m", "Save source Plan"]);
+                }
+                const worktreeRoot = remote
+                    ? await Deno.makeTempDir({ prefix: "record-outcome-worktree-" })
+                    : undefined;
+                const worktree = worktreeRoot
+                    ? await createTestWorktreeAttempt({
+                        projectRoot,
+                        planName,
+                        planId: "completed-plan",
+                        worktreeRoot,
+                    })
+                    : undefined;
+                const remoteRoot = remote ? await Deno.makeTempDir({ prefix: "record-outcome-remote-" }) : undefined;
+                const hostedSession = new HostedSession({ id: crypto.randomUUID(), cwd: projectRoot });
+                const events: RuntimeSystemStatusEvent[] = [];
+                hostedSession.setEventSink((event: SessionRuntimeEvent) => {
+                    if (event.type === "system_status") events.push(event);
+                });
+                const session = createValidationSessionPort(hostedSession);
+                try {
+                    const sourceRoot = worktree?.path || projectRoot;
+                    const existing = await loadPlan(sourceRoot, planName);
+                    await savePlan(sourceRoot, planName, "# Completed\n", {
+                        planId: "completed-plan",
+                        classification: "PLANNED_CHANGE",
+                        status: epic ? "validated_reviewer" : "verified",
+                        ...(epic ? { parentPlan: ownerName, order: 1 } : {}),
+                    }, { expectedRevision: existing?.revision });
+                    if (epic) {
+                        await stageValidationPassedInExecutionWorktree({
+                            projectRoot,
+                            executionCwd: sourceRoot,
+                            planName,
+                            details: {
+                                executionMode: "worktree",
+                                deliveryEvidence: {
+                                    version: 1,
+                                    mode: "worktree_merge",
+                                    executionCommit: "a".repeat(40),
+                                    targetBranch: "main",
+                                    targetHeadBeforeMerge: "b".repeat(40),
+                                },
                             },
+                        });
+                        assertEquals((await loadPlan(sourceRoot, ownerName))?.attrs.epicCompletionMode, "done_enough");
+                        assertEquals((await loadPlan(sourceRoot, planName))?.attrs.workRecord, undefined);
+                    }
+                    await Deno.mkdir(`${sourceRoot}/docs/work-records`, { recursive: true });
+                    const invalidRecord = "# Existing invalid record without front matter\n";
+                    await Deno.writeTextFile(`${sourceRoot}/docs/work-records/invalid.md`, invalidRecord);
+                    const recording = await autoGenerateWorkRecordForCompletedPlan({
+                        cwd: sourceRoot,
+                        planName,
+                        mnemotecaPort: createWorkRecordMnemotecaFixture(),
+                    });
+                    assertEquals(recording.status, "failed");
+                    assertStringIncludes(recording.error || "", "invalid.md");
+                    assertEquals(recording.targetPlanName, ownerName);
+                    const saved = await loadPlan(sourceRoot, ownerName);
+                    assertEquals(saved?.attrs.status, epic ? "validated" : "verified");
+                    assertEquals(saved?.attrs.workRecord?.status, "failed");
+                    assertStringIncludes(saved?.attrs.workRecord?.error || "", "invalid.md");
+                    assertEquals(await Deno.readTextFile(`${sourceRoot}/docs/work-records/invalid.md`), invalidRecord);
+                    let publication;
+                    if (worktree) {
+                        await git(worktree.path, ["add", ".gitignore", "docs"]);
+                        await git(worktree.path, ["commit", "-m", "Seal failed recording outcome"]);
+                        const commit = await git(worktree.path, ["rev-parse", "HEAD"]);
+                        publication = advancePublicationAttempt(
+                            createPublicationAttempt({
+                                attemptId: worktree.id,
+                                planId: "completed-plan",
+                                planName,
+                                targetBranch: "main",
+                                executionBranch: worktree.branch,
+                                executionCwd: worktree.path,
+                                publicationRoot: worktree.path,
+                                validatedCommit: commit,
+                                targetHeadAtSeal: await git(projectRoot, ["rev-parse", "HEAD"]),
+                            }),
+                            "artifacts_committed",
+                            { artifactCommit: commit, planPaths: [planPath] },
+                        );
+                        if (!remoteRoot) throw new Error("Remote fixture missing");
+                        await git(remoteRoot, ["init", "--bare"]);
+                        await git(projectRoot, ["remote", "add", "origin", remoteRoot]);
+                        await git(projectRoot, ["push", "-u", "origin", "main"]);
+                        const delivered = await publishExecutionWorktreeIsolated({
+                            projectRoot,
+                            executionCwd: worktree.path,
+                            executionBranch: worktree.branch,
+                            targetBranch: "main",
+                            planName,
+                            sealedExecutionCommit: commit,
+                            allowedPlanPaths: [planPath],
+                        });
+                        assertEquals(delivered.publicationMode, "remote");
+                        assertStringIncludes(
+                            await git(remoteRoot, ["show", `main:docs/plans/${ownerName}.md`]),
+                            "invalid.md",
+                        );
+                        await removeWorktreeGitArtifacts({ projectRoot, path: worktree.path, force: true });
+                        assertEquals((await loadPlan(projectRoot, ownerName))?.attrs.workRecord, undefined);
+                    }
+                    session.setCurrentProgress(createProgressRecord({ kind: "workflow", stage: "merge" }));
+                    const result = await buildVerifiedResult(
+                        {
+                            planName,
+                            planContent: "# Completed",
+                            triageMeta: { classification: "PLANNED_CHANGE", status: "validated" },
+                            session,
+                            git: createGitPort(),
+                            localCI: {
+                                run: () => {
+                                    throw new Error("Completion must not rerun CI");
+                                },
+                            },
+                            workRecordMnemotecaPort: createWorkRecordMnemotecaFixture(),
                         },
-                        workRecordMnemotecaPort: createWorkRecordMnemotecaFixture(),
-                    },
-                    projectRoot,
-                    undefined,
-                    "main",
-                    publication,
-                );
-                assertEquals(result.kind, "verified");
-                const final = events.at(-1);
-                assertEquals(final?.level, "warning");
-                assertEquals(final?.validationProgress?.outcome, "verified");
-                assertEquals(final?.validationProgress?.checks.merge, "passed");
-                assertEquals(final?.validationProgress?.workRecordFailed, true);
-                assertStringIncludes(final?.message || "", "Work Record failed");
-                assertStringIncludes(final?.message || "", "wld wr backfill");
-            } finally {
-                hostedSession.dispose();
-                if (remote) await Deno.remove(projectRoot, { recursive: true });
-                if (worktreeRoot) await Deno.remove(worktreeRoot, { recursive: true });
-            }
+                        projectRoot,
+                        undefined,
+                        "main",
+                        publication,
+                    );
+                    assertEquals(result.kind, "verified");
+                    const final = events.at(-1);
+                    assertEquals(final?.level, "warning");
+                    assertEquals(final?.validationProgress?.outcome, "verified");
+                    assertEquals(final?.validationProgress?.checks.merge, "passed");
+                    assertEquals(final?.validationProgress?.workRecordFailed, true);
+                    assertStringIncludes(final?.message || "", "Work Record failed");
+                    assertStringIncludes(final?.message || "", "wld wr backfill");
+                } finally {
+                    hostedSession.dispose();
+                    if (remote) await Deno.remove(projectRoot, { recursive: true });
+                    if (worktreeRoot) await Deno.remove(worktreeRoot, { recursive: true });
+                    if (remoteRoot) await Deno.remove(remoteRoot, { recursive: true });
+                }
+            });
         });
-    });
+    }
 }

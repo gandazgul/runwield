@@ -1279,7 +1279,9 @@ renaming; search can be rebuilt from the documents.
 **Acceptance scenario: Recorder recovery and partial completion.** Given a completed eligible Plan, when the Recorder
 returns text without submitting its tool event, one corrective turn can finish the record. If both turns omit the event,
 no record is fabricated; the Plan retains the failure reason and successful delivery is labeled with the remaining Work
-Record failure and retry command.
+Record failure and retry command. Failures while reading existing records are also retained on the source Plan before
+delivery; remote publication reports that outcome from the sealed Plan even after worktree cleanup. When the last child
+completes an Epic, final completion reports the parent Epic's recording outcome, including after remote cleanup.
 
 Core retrieval is Project-scoped. Cross-Project knowledge and browser navigation are Workspace requirements. Richer
 cross-artifact authorship, manual/imported record creation, and guidance for substantial retrospective edits remain

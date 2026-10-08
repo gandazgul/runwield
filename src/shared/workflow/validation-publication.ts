@@ -11,6 +11,7 @@
 import { AGENTS, isPlannedChangeClassification } from "../../constants.js";
 import { logValidationFailure } from "./validation-state-errors.ts";
 import { loadPlan, withPlanLock } from "../../plan-store.js";
+import { resolveTargetedWorkRecordSource } from "../work-records/auto-generation.ts";
 import { createQaChecklistGeneratedTool } from "../../tools/qa-checklist-generated.ts";
 import { findEpicManualQaSection } from "../epic-artifacts.ts";
 import { checkpointExecutionWorktree, resolveTargetBranchName } from "../worktree.js";
@@ -820,7 +821,8 @@ export async function buildVerifiedResult(
 ): Promise<ValidationPhaseResult> {
     const workRecordFailed = publication
         ? await publishedWorkRecordFailed(projectRoot, publication)
-        : (await loadPlan(projectRoot, args.planName))?.attrs.workRecord?.status === "failed";
+        : (await resolveTargetedWorkRecordSource(projectRoot, args.planName)).source?.attrs.workRecord?.status ===
+            "failed";
     const message = buildValidationUserMessage({ kind: "verified", planName: args.planName, targetBranch }) +
         (workRecordFailed ? " Work Record failed. Retry with wld wr backfill." : "");
     // The run is over, so its position must not outlive it — a Plan reopened later
