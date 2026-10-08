@@ -17,7 +17,7 @@ async function waitFor(predicate: () => boolean): Promise<void> {
 }
 
 for (const columns of [60, 140]) {
-    for (const choice of ["new", "load-plan", "escape", "record-failed"]) {
+    for (const choice of ["new", "load-plan", "escape", "record-failed", "record-retry"]) {
         Deno.test(`completion choices stay visible at ${columns} columns and ${choice} works`, async () => {
             await withSessionViewFixture(async ({ runtime, sessionId, session, projectRoot }) => {
                 await Deno.mkdir(`${projectRoot}/docs/plans`, { recursive: true });
@@ -25,6 +25,19 @@ for (const columns of [60, 140]) {
                     `${projectRoot}/docs/plans/next-change.md`,
                     "---\nstatus: draft\nclassification: PLANNED_CHANGE\nplanId: next-change\n---\n# Next change\n",
                 );
+                if (choice === "record-retry") {
+                    const { savePlan } = await import("../../plan-store.js");
+                    await savePlan(projectRoot, "record-retry", "# Delivered", {
+                        planId: "record-retry",
+                        classification: "PLANNED_CHANGE",
+                        status: "verified",
+                        workRecord: {
+                            status: "generated",
+                            recordId: "existing",
+                            path: "docs/work-records/existing.md",
+                        },
+                    });
+                }
                 const terminal = new VirtualTerminal({ columns, rows: 30 });
                 let activeId = sessionId;
                 const tui = new TuiAltScreen(terminal);
@@ -42,7 +55,7 @@ for (const columns of [60, 140]) {
                         uiAPI: view.uiAPI,
                         browser: NO_OPEN_BROWSER_PORT,
                         notifyRunWieldEvent: () => {},
-                        onSessionComplete: (id, failed) => controller.offerSessionCompletion(id, failed),
+                        onSessionComplete: (id, failed, name) => controller.offerSessionCompletion(id, failed, name),
                     });
                 const controller = createChatInputController({
                     view,
@@ -106,7 +119,8 @@ for (const columns of [60, 140]) {
                             totalCycle: 1,
                             stage: "terminal",
                             outcome: "verified",
-                            workRecordFailed: choice === "record-failed",
+                            workRecordFailed: choice.startsWith("record-"),
+                            workRecordPlanName: "record-retry",
                             checks: { ci: "passed", semanticReview: "passed", humanReview: "skipped", merge: "passed" },
                         },
                     });
@@ -116,9 +130,10 @@ for (const columns of [60, 140]) {
                     });
                     await waitFor(() => terminal.getScreenText().includes("What would you like to do next?"));
                     const screen = terminal.getScreenText();
-                    if (choice === "record-failed") {
+                    if (choice.startsWith("record-")) {
                         assertStringIncludes(screen, "Code delivered; Work Record failed.");
                         assertStringIncludes(screen, "wld wr backfill");
+                        assertStringIncludes(screen, "Retry Work Record");
                         assert(!screen.includes("Session complete"));
                     } else {
                         assertStringIncludes(screen, "Session complete");
@@ -128,7 +143,15 @@ for (const columns of [60, 140]) {
                     assertStringIncludes(screen, "Quit");
                     assert(!screen.includes("Publishing running"));
                     assert(!screen.includes("Validation passed"));
-                    if (choice === "escape" || choice === "record-failed") {
+                    if (choice === "record-retry") {
+                        terminal.pressEnter();
+                        await waitFor(() => terminal.getScreenText().includes("Session complete"));
+                        assertEquals(activeId, originalId);
+                        terminal.pressEscape();
+                        await waitFor(() => !controller.isProcessingSubmission());
+                        tui.renderNow(true);
+                        await terminal.flush();
+                    } else if (choice === "escape" || choice === "record-failed") {
                         terminal.pressEscape();
                         await terminal.flush();
                         await waitFor(() => !controller.isProcessingSubmission());

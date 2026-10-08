@@ -635,6 +635,8 @@ export const loadPlanImplementedFollowUpRepaintsScenario = {
 };
 
 export const loadPlanContinueUsesExecutionPlanAuthorityScenario = {
+    // This scenario isolates automated delivery; human policy gates have dedicated journeys.
+    globalSettings: { defaultProvider: "golden", defaultModel: "faux", codereview: "none" },
     name: "load-plan-continue-uses-execution-plan-authority",
     composedTui: true,
     initialAgentName: "guide",

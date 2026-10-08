@@ -13,8 +13,16 @@ import {
 function fullEvidenceResult(id: ValidationWorkflowBranchId): ValidationWorkflowResultLike {
     const branch = VALIDATION_WORKFLOW_BRANCHES.find((entry) => entry.id === id);
     const owner = branch?.owner || "";
-    const humanReviewMode = id === "human-review:none" ? "none" : id === "human-review:ask-skip" ? "ask" : "always";
-    const humanReviewDecision = id === "human-review:none"
+    const humanReviewMode = id === "human-review:ask-close"
+        ? null
+        : id === "human-review:none"
+        ? "none"
+        : id === "human-review:ask-skip"
+        ? "ask"
+        : "always";
+    const humanReviewDecision = id === "human-review:ask-close"
+        ? null
+        : id === "human-review:none"
         ? "not_required"
         : id === "human-review:ask-skip"
         ? "skipped"

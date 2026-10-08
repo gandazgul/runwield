@@ -306,7 +306,8 @@ Deno.test("automatic generation preserves terminal Plan state when Recorder fail
         });
 
         assertEquals(result.status, "failed");
-        assertStringIncludes(result.message, "run wld wr backfill");
+        assertStringIncludes(result.message, "wld wr retry");
+        assertStringIncludes(result.message, "wld wr backfill command regenerates");
         assertEquals(await listWorkRecords(projectRoot), []);
         const plan = await loadPlan(projectRoot, "standalone");
         assertEquals(plan?.attrs.status, "verified");

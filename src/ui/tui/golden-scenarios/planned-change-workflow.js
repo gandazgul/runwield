@@ -103,6 +103,8 @@ function assertRealPlanReviewRevisionAndApproval(result) {
 }
 
 export const plannedChangeReviewRepairValidationScenario = {
+    // This scenario isolates automated delivery; human policy gates have dedicated journeys.
+    globalSettings: { defaultProvider: "golden", defaultModel: "faux", codereview: "none" },
     name: "planned-change-review-repair-validation-delivery",
     composedTui: true,
     initialAgentName: "planner",
@@ -758,6 +760,7 @@ export const plannedChangeCiRepairReentryScenario = {
 
 /** @type {import('../testing/scenario-runner.js').GoldenScenario} */
 export const plannedChangeNonGitInPlaceScenario = {
+    globalSettings: { defaultProvider: "golden", defaultModel: "faux", codereview: "none" },
     name: "planned-change-non-git-in-place-delivery",
     composedTui: true,
     initialAgentName: "planner",
@@ -857,6 +860,7 @@ export const plannedChangeNonGitInPlaceScenario = {
 
 /** @type {import('../testing/scenario-runner.js').GoldenScenario} */
 export const plannedChangeValidationFailureRetryScenario = {
+    globalSettings: { defaultProvider: "golden", defaultModel: "faux", codereview: "none" },
     name: "planned-change-validation-ci-failure-repair-retry-success",
     composedTui: true,
     initialAgentName: "planner",
@@ -1033,6 +1037,7 @@ export const plannedChangeValidationFailureRetryScenario = {
 
 /** @type {import('../testing/scenario-runner.js').GoldenScenario} */
 export const plannedChangeValidationExhaustedScenario = {
+    globalSettings: { defaultProvider: "golden", defaultModel: "faux", codereview: "none" },
     name: "planned-change-validation-ci-exhausted-recoverable",
     composedTui: true,
     initialAgentName: "planner",
@@ -1153,6 +1158,7 @@ export const plannedChangeValidationExhaustedScenario = {
 
 /** @type {import('../testing/scenario-runner.js').GoldenScenario} */
 export const plannedChangeFrontendIdentityScenario = {
+    globalSettings: { defaultProvider: "golden", defaultModel: "faux", codereview: "none" },
     name: "planned-change-frontend-engineer-context-identity",
     composedTui: true,
     initialAgentName: "planner",

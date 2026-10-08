@@ -42,6 +42,7 @@ export interface AutoGenerateWorkRecordArgs {
     cwd: string;
     planName: string;
     mnemotecaPort: WorkRecordMnemotecaPort;
+    signal?: AbortSignal;
 }
 
 interface TargetedWorkRecordSource {
@@ -135,7 +136,9 @@ export function formatWorkRecordAutoGenerationResult(result: WorkRecordAutoGener
     if (result.status === "failed") {
         return `Work Record generation failed for ${result.targetPlanName || result.planName}: ${
             result.error || "unknown error"
-        }. The Plan terminal state was preserved; run wld wr backfill after repair.`;
+        }. Code delivery is unchanged. Retry this Plan with wld wr retry ${
+            result.targetPlanName || result.planName
+        }. The wld wr backfill command regenerates missing or failed records across completed Plans.`;
     }
     const verb = result.status === "linked" ? "linked" : "generated";
     const warning = result.indexWarning ? ` Warning: ${result.indexWarning}` : "";
@@ -148,17 +151,31 @@ export function formatWorkRecordAutoGenerationResult(result: WorkRecordAutoGener
 }
 
 /** Generate or reconcile a Work Record for the targeted terminal active Plan. */
-export async function autoGenerateWorkRecordForCompletedPlan({
-    cwd,
-    planName,
-    mnemotecaPort,
-}: AutoGenerateWorkRecordArgs): Promise<WorkRecordAutoGenerationResult> {
-    if (!shouldAutoGenerateWorkRecordsOnPlanCompletion(cwd)) {
+export function autoGenerateWorkRecordForCompletedPlan(
+    args: AutoGenerateWorkRecordArgs,
+): Promise<WorkRecordAutoGenerationResult> {
+    return generateTargetedWorkRecord(args, true);
+}
+
+/** Explicit retry regenerates only this source record; it never re-enters delivery. */
+export function retryWorkRecordForPlan(args: AutoGenerateWorkRecordArgs): Promise<WorkRecordAutoGenerationResult> {
+    return generateTargetedWorkRecord(args, false);
+}
+
+async function generateTargetedWorkRecord(
+    { cwd, planName, mnemotecaPort, signal }: AutoGenerateWorkRecordArgs,
+    automatic: boolean,
+): Promise<WorkRecordAutoGenerationResult> {
+    if (automatic && !shouldAutoGenerateWorkRecordsOnPlanCompletion(cwd)) {
         return withMessage({ status: "disabled", planName, message: "" });
     }
 
     try {
-        const resolved = await resolveTargetedWorkRecordSource(cwd, planName);
+        const { loadPublishedWorkRecordSource } = await import("./published-source.ts");
+        const published = automatic ? null : await loadPublishedWorkRecordSource(cwd, planName);
+        const resolved = published
+            ? { source: published, targetPlanName: published.name }
+            : await resolveTargetedWorkRecordSource(cwd, planName);
         if (!resolved.source) {
             return withMessage({
                 status: "skipped",
@@ -185,6 +202,7 @@ export async function autoGenerateWorkRecordForCompletedPlan({
 
         const outcome = await generateWorkRecordForSource(sourceRoot, evaluated, {
             mnemotecaPort,
+            signal,
         });
         const status = outcome.status === "generated" || outcome.status === "linked" ? outcome.status : "failed";
         return withMessage({

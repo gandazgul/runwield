@@ -741,7 +741,11 @@ Execution requirements:
   Preserve unrelated edits and distinct staged user versions. Save original bytes and staging durably before preparing
   the merge; restore them after failure or interruption before integration, and retain validated incoming versions after
   successful integration. Later user edits remain protected;
-- distinguish implementation being finished from validation succeeding.
+- distinguish implementation being finished from validation succeeding;
+- classify only the proven managed `.gitignore` delta as preparation in checkpoint, refresh, and resume paths. Never
+  adopt unrelated working-file or index changes, including partial staging, as an owned preparation commit;
+- have Planner and Architect inspect pending changes, incorporate relevant evidence, and silently omit unrelated edits
+  from discussion and Plans. A dirty checkout alone is neither a blocker nor a Plan risk.
 
 Workflow Validation requirements:
 
@@ -752,7 +756,10 @@ Workflow Validation requirements:
   checkout-specific repairs can be delivered without asking users to commit or stash RunWield settings. Do not claim
   ownership of existing or later user edits. Context receipts identify copied bytes; only recorded Init or validation
   writes establish ownership of source changes. Cancellation during setup must prevent validation from starting;
-- offer human code review when enabled;
+- retain an explicit full-project verification command during Plan submission even when Init was skipped or incomplete.
+  Discovery fills missing configuration only; a deliberate user selection can replace a saved command. Preserve exact
+  shell syntax and checkout-local repairs. Never infer authority from a diagnostic command or prose example;
+- offer human code review by default (`codereview: ask`), preserve explicit choices, and pause on canceled selection;
 - repair failed checks or review findings within the execution worktree;
 - give a repair Agent the relevant findings and instructions without unrelated earlier context;
 - keep publication-conflict repairs attached to the publication attempt, not CI or code-review repair checkpoints; an
@@ -818,19 +825,21 @@ Recovery requirements:
   run that complete command immediately beforehand.
 - Given completed Init with uncommitted settings, glossary, and managed ignore rules, when a Tutorial or ordinary
   approved Plan starts execution, the new worktree contains that context before Engineer begins. Receipt-owned settings
-  enter the preparation checkpoint even when a committed `.wld/` ignore rule hides them; unrelated source edits, staging,
-  HEAD, ignored runtime files, and private files remain unchanged. Mechanical Validation reuses the confirmed command.
-- Given uncommitted or staged Init output in the primary checkout, when a Tutorial or Plan is delivered locally, settings,
-  glossary, and managed ignore rules do not block publication. Validated changes land with the Plan; unrelated user edits
-  stop an unsafe merge. Failed or interrupted preparation restores original setup bytes and staging for retry.
+  enter the preparation checkpoint even when a committed `.wld/` ignore rule hides them; unrelated source edits,
+  staging, HEAD, ignored runtime files, and private files remain unchanged. Mechanical Validation reuses the confirmed
+  command.
+- Given uncommitted or staged Init output in the primary checkout, when a Tutorial or Plan is delivered locally,
+  settings, glossary, and managed ignore rules do not block publication. Validated changes land with the Plan; unrelated
+  user edits stop an unsafe merge. Failed or interrupted preparation restores original setup bytes and staging for
+  retry.
 - Given compatible context edits on the target branch, creating a worktree merges the uncommitted setup changes with
   them. Conflicting edits stop creation without overwriting either version. Resuming an existing worktree preserves its
   subsequent context edits instead of copying from the primary checkout again.
-- Given no Init receipt and no configured validation command, when validation asks once and the command fails, repair and
-  resumed validation reuse the saved command. The project preference remains after worktree removal, and a repair's
-  checkout-specific command takes effect. Publication delivers that repair for new ignored or tracked settings, including
-  supported JSONC comments and trailing commas. Unrelated settings edits before or after the host write, or independently
-  staged, are not overwritten or silently committed.
+- Given no Init receipt and no configured validation command, when validation asks once and the command fails, repair
+  and resumed validation reuse the saved command. The project preference remains after worktree removal, and a repair's
+  checkout-specific command takes effect. Publication delivers that repair for new ignored or tracked settings,
+  including supported JSONC comments and trailing commas. Unrelated settings edits before or after the host write, or
+  independently staged, are not overwritten or silently committed.
 - Given a ready approved Plan and existing checkout edits, when execution starts, the approved work is isolated and the
   user’s edits remain preserved.
 - Given a worktree created from `main`, when the execution Plan is edited to target `release/next` after the Session
@@ -893,6 +902,35 @@ Recovery requirements:
   and never reports an unproven rollback or publication.
 - When the user deliberately abandons, RunWield ends the workflow with that outcome and retains unmerged work unless
   loss-free cleanup is proven or deletion is explicitly authorized.
+
+**Requirement: Review policy preferences.**
+
+Code Review defaults to asking after automated validation and before merge. Existing explicit `none`, `ask`, or `always`
+settings and already-recorded review decisions remain authoritative. Closing or declining to answer the offer leaves
+publication paused; it does not grant approval.
+
+The interactive `/settings` menu exposes the supported Code Review and Guided Review policies with project/global
+persistence and clear project-override behavior. It also exposes the existing global-only default project trust
+preference. Guided Review retains its `auto` option; the UI labels stored review `none` as Never without changing the
+stored contract.
+
+Acceptance: a fresh project receives the code-review offer before publication; explicit skip may continue, no answer
+pauses, and explicit always still requires review. Policy edits survive reload, cancelling edits changes nothing, and a
+global edit does not replace an explicit project override.
+
+**Acceptance scenarios: Completion recovery and preparation.**
+
+- Given delivered code with a failed Work Record, the completion menu offers **Retry Work Record**. Retry regenerates
+  only that Plan's record (or its eligible parent Epic), keeps the current Session, and never repeats implementation,
+  validation, merge, or other Plans' recording. Repeating a successful retry does not duplicate the record.
+- Given a failed record, user-facing guidance explains that `wld wr backfill` regenerates missing or failed records
+  across completed Plans; `wld wr retry <plan-name>` targets one Plan. Recording failure does not undo delivery.
+- Given an explicit full verification command during direct planning, Plan submission retains it without Init, and
+  resumed validation runs it without asking again. A discovered alternative cannot overwrite a saved or repaired
+  command; a deliberate user replacement can. Focused diagnostics and quoted examples do not change the setting.
+- Given a reused worktree with unrelated staged or unstaged ignore rules, preparation preserves both versions and
+  classifies them as implementation rather than silently committing them. Ordinary and Tutorial execution share this
+  rule.
 
 ### Semantic review and repair
 

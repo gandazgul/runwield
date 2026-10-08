@@ -539,3 +539,37 @@ Deno.test("asking for changes makes you the reviewer, so the reviewer agent stan
     assertStringIncludes(result.reason || "", "Reopening your code review");
     assertEquals((await loadPlan(projectRoot, "p"))?.attrs.status, "validated_reviewer");
 });
+
+Deno.test("an unconfigured Plan offers human review and cancellation pauses before delivery", async () => {
+    const projectRoot = await makeValidationProjectRoot("default-review", {
+        classification: "QUICK_FIX",
+        status: "validated_reviewer",
+    });
+    const { hostedSession } = makeValidationUi();
+    hostedSession.setActiveExecutionWorkflow({
+        planName: "default-review",
+        triageMeta: { classification: "QUICK_FIX", status: "validated_reviewer" },
+        executionAgent: "engineer",
+        projectRoot,
+        executionCwd: projectRoot,
+        nonGitInPlace: true,
+    });
+    /** @type {import("../session/session-runtime-interactions.js").RuntimeInteractionRequest[]} */
+    const requests = [];
+    setInteraction(hostedSession, (request) => {
+        requests.push(request);
+        return Promise.resolve({ outcome: "canceled" });
+    });
+    const result = await runValidationPhase({
+        hostedSession,
+        planName: "default-review",
+        planContent: "# Default",
+        triageMeta: { classification: "QUICK_FIX", status: "validated_reviewer" },
+        semanticReviewPort: NO_ISOLATED_AGENT_PORT,
+    });
+    assertEquals(result.kind, "paused");
+    assertEquals(requests.length, 1);
+    assertEquals(requests[0].type, "select");
+    assertEquals(requests[0].options?.map((option) => option.value), ["open", "skip", "close"]);
+    assertEquals((await loadPlan(projectRoot, "default-review"))?.attrs.status, "validated_reviewer");
+});

@@ -133,3 +133,15 @@ skipped.
 
 When a Plan finishes, RunWield writes a Work Record summarizing what was done. See
 [Work Records](usage.md#work-records).
+
+### Retaining verification and retrying records
+
+When you give Planner the full project verification command, RunWield retains it through Plan approval and execution,
+including when you skipped Init. A command discovered during planning fills missing configuration; it does not replace
+an existing preference. Explicitly selecting a new full command replaces the saved choice. RunWield runs that command
+against the completed implementation even if it ran earlier during planning.
+
+If code is delivered but Work Record generation fails, choose **Retry Work Record** in the completion menu, or run
+`wld wr retry <plan-name>`. This regenerates only that Plan's record (or its eligible parent Epic) and does not rerun
+the implementation or merge. `wld wr backfill` regenerates missing or failed records across completed Plans; use
+`wld wr backfill --dry-run` to preview its scope.

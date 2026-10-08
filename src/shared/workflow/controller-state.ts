@@ -27,6 +27,7 @@ export type WorkflowControllerState = {
     implementedAt?: string | null;
     validatedAt?: string | null;
     verifiedAt?: string | null;
+    recordingSource?: { commit: string; planName: string; planId: string };
     executionReport?: string | null;
     humanReviewMode?: "none" | "ask" | "always" | null;
     humanReviewDecision?: "not_required" | "skipped" | "approved" | "changes_requested" | null;
@@ -53,6 +54,7 @@ export const CONTROLLER_STATE_FIELDS = [
     "implementedAt",
     "validatedAt",
     "verifiedAt",
+    "recordingSource",
     "executionReport",
     "humanReviewMode",
     "humanReviewDecision",

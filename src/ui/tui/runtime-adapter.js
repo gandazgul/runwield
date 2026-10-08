@@ -68,7 +68,7 @@ const activeAdapters = new WeakMap();
  * @property {typeof import('./system-notifications.ts').notifyRunWieldEventQuietly} notifyRunWieldEvent
  * @property {(replacement: { oldSessionId: string, newSessionId: string }) => void} [onSessionReplaced]
  * @property {boolean} [pauseTutorialPresentation]
- * @property {(sessionId: string, workRecordFailed?: boolean) => void} [onSessionComplete]
+ * @property {(sessionId: string, workRecordFailed?: boolean, workRecordPlanName?: string) => void} [onSessionComplete]
  */
 
 /**
@@ -122,6 +122,7 @@ export function attachTuiRuntimeAdapter({
     let hiddenValidationReportCached = false;
     let completionPending = false;
     let completionWorkRecordFailed = false;
+    let completionWorkRecordPlanName = "";
     let completionGeneration = 0;
     let disposed = false;
     /** @type {Set<string>} */
@@ -148,7 +149,7 @@ export function attachTuiRuntimeAdapter({
                     !disposed && completionPending && settlementGeneration === completionGeneration
                 ) {
                     completionPending = false;
-                    onSessionComplete?.(tutorialSessionId, completionWorkRecordFailed);
+                    onSessionComplete?.(tutorialSessionId, completionWorkRecordFailed, completionWorkRecordPlanName);
                 }
             })
             .catch((error) => console.error(`[RunWield] tutorial_presentation_failed ${error}`));
@@ -300,6 +301,7 @@ export function attachTuiRuntimeAdapter({
                             completionGeneration += 1;
                             completionPending = true;
                             completionWorkRecordFailed = value.validationProgress.workRecordFailed === true;
+                            completionWorkRecordPlanName = value.validationProgress.workRecordPlanName || "";
                         }
                     } else {
                         completionPending = false;

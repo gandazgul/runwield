@@ -1,3 +1,4 @@
+import { retainPublishedWorkRecordSource } from "../work-records/published-source.ts";
 /**
  * @module shared/workflow/validation-publication
  * The publication phase: merging the validated worktree into the target branch
@@ -823,8 +824,11 @@ export async function buildVerifiedResult(
         ? await publishedWorkRecordFailed(projectRoot, publication)
         : (await resolveTargetedWorkRecordSource(projectRoot, args.planName)).source?.attrs.workRecord?.status ===
             "failed";
+    if (workRecordFailed && publication) await retainPublishedWorkRecordSource(projectRoot, publication);
     const message = buildValidationUserMessage({ kind: "verified", planName: args.planName, targetBranch }) +
-        (workRecordFailed ? " Work Record failed. Retry with wld wr backfill." : "");
+        (workRecordFailed
+            ? " Work Record failed. Retry this Plan from the completion menu or use wld wr retry <plan-name>. The wld wr backfill command regenerates missing or failed records across completed Plans."
+            : "");
     // The run is over, so its position must not outlive it — a Plan reopened later
     // has to start from what the Plan durably says, not from where this one ended.
     args.session.clearPosition(args.planName);
@@ -842,6 +846,7 @@ export async function buildVerifiedResult(
                 // still describe an earlier failed or canceled attempt.
                 updateProgressRecord(current, {
                     workRecordFailed,
+                    workRecordPlanName: args.planName,
                     checks: {
                         ci: "passed",
                         semanticReview: isPlannedChangeClassification(args.triageMeta.classification)

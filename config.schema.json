@@ -40,6 +40,7 @@
         "codereview": {
             "type": "string",
             "enum": ["none", "ask", "always"],
+            "default": "ask",
             "description": "Optional Plannotator human code review gate after local validation and semantic review."
         },
         "guidedReview": {
