@@ -596,6 +596,13 @@ and siblings active. Listings keep held work distinct from active and finished w
 
 ### Execution, validation, and recovery
 
+**Requirement: Identify publication blockers.** When local publication pauses for tracked or staged user changes, the
+recovery notice lists the blocking paths and preserves those changes. The filenames survive failure classification and
+retries so the user can resolve the specific conflict before retrying.
+
+**Acceptance scenario:** Given a dirty tracked file in the primary checkout, when local publication pauses, the failure
+carries that file path to the recovery prompt; the file contents and target branch remain unchanged.
+
 **Scope and maturity:** Existing execution and validation baseline, with the owner's clarified completion and automatic
 recovery requirements below. These requirements do not certify that every current failure path already meets them.
 QUICK_FIX keeps its explicitly lighter behavior; answering a question does not require publication. The remote
