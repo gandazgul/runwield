@@ -1,3 +1,4 @@
+import { recordDeliveryEvidence } from "./delivery-evidence.ts";
 /**
  * @module shared/workflow/validation-semantic
  * The Semantic Review phase: reviewer rounds with ledger convergence, repair
@@ -58,6 +59,14 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
     if (phase.kind === "blocked") return phase.result;
     const context = phase.context;
     if (context.nonGitInPlace) {
+        await recordDeliveryEvidence(
+            context.projectRoot,
+            args.planName,
+            context.worktreeId || "in-place",
+            "ai-skip",
+            "Skipped",
+            "Non-Git in-place workflow has no implementation diff review.",
+        );
         emitStatus(args, buildValidationUserMessage({ kind: "semantic_skipped", reason: "non_git" }), "info");
         await recordLifecycleEvent(
             args,
@@ -114,6 +123,14 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
         return { kind: "failed", planName: args.planName, projectRoot: context.projectRoot, reason };
     }
     if (!hasImplementationDiff(diffText, args.planName)) {
+        await recordDeliveryEvidence(
+            context.projectRoot,
+            args.planName,
+            context.worktreeId || "in-place",
+            "ai-skip",
+            "Skipped",
+            "No implementation diff remained to review.",
+        );
         emitStatus(args, buildValidationUserMessage({ kind: "semantic_skipped", reason: "empty_diff" }), "info");
         await recordLifecycleEvent(
             args,
@@ -138,6 +155,14 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
             true,
         );
         if (action === "code_review") {
+            await recordDeliveryEvidence(
+                context.projectRoot,
+                args.planName,
+                context.worktreeId || "in-place",
+                "ai-skip",
+                "Human takeover",
+                "AI review reached its round limit; the user chose human Code Review. This is not AI approval.",
+            );
             await persistHumanReviewMetadata(args, context.executionCwd, {
                 humanReviewMode: "always",
                 humanReviewDecision: null,
@@ -271,6 +296,14 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
             };
         }
 
+        await recordDeliveryEvidence(
+            context.projectRoot,
+            args.planName,
+            context.worktreeId || "in-place",
+            "ai",
+            review.outcome.approved ? "Approved" : "Changes requested",
+            "````json\n" + JSON.stringify(review.outcome, null, 2) + "\n````",
+        );
         if (review.outcome.approved) {
             await recordMetric(args, context.projectRoot, {
                 category: "validation",
@@ -405,6 +438,13 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
                 reason: "The repair is complete. Running checks before another review.",
             };
         }
+        await recordDeliveryEvidence(
+            context.projectRoot,
+            args.planName,
+            context.worktreeId || "in-place",
+            "ai-repair",
+            "Started",
+        );
         emitStatus(args, buildValidationUserMessage({ kind: "review_repair", repairKind: "semantic" }), "warning");
         return {
             kind: "semantic_repair_handoff",
@@ -874,6 +914,13 @@ export async function dispatchReviewFeedbackRepair(
     context: PhaseContext,
     packet: ReviewFeedbackRepairPacket,
 ): Promise<{ completed: boolean; report: string; reason?: string }> {
+    await recordDeliveryEvidence(
+        context.projectRoot,
+        args.planName,
+        context.worktreeId || "in-place",
+        packet.repairKind === "semantic" ? "ai-repair" : "human-revision",
+        "Started",
+    );
     emitStatus(args, buildValidationUserMessage({ kind: "review_repair", repairKind: packet.repairKind }), "warning");
     try {
         const workflowState: ValidationWorkflowState = { ...context.workflowBase, ...packet.activeWorkflow };

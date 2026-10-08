@@ -60,6 +60,7 @@ export type ValidationProgressRecord = {
     message?: string;
     workRecordFailed?: boolean;
     workRecordPlanName?: string;
+    deliveryReport?: import("./delivery-report.ts").DeliveryReport;
 };
 
 /**

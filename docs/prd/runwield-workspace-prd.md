@@ -1536,3 +1536,17 @@ establish the proposed Project Evidence Graph.
 - [ADR-010: SessionRuntime sibling adapters and ACP](../adr/010-session-runtime-sibling-adapters-and-acp.md)
 - [ADR-015: File-Authoritative Session Bundles](../adr/015-file-authoritative-session-bundles.md)
 - [RunWield Design System](../design-system.md)
+
+### Session delivery evidence
+
+After confirmed delivery, the owning Session displays a compact evidence card in its timeline. It separates mechanical
+checks, semantic AI review, human code review, actual human verification, publication confirmation and Work Record
+creation. The same recorded facts feed the TUI summary above its existing continuation choices. Review policy does not
+imply review or verification occurred. Checked candidate and delivered commit remain distinct and inspectable. Recorded
+check receipts link to the shared Markdown reader; unavailable history stays explicit. Run and repair-start counts
+describe recorded receipts, not resettable retry budgets. Failed Work Records preserve delivery confirmation and expose
+Retry Work Record, with an explanation that backfill regenerates missing or failed records across completed Plans.
+
+Acceptance: reopening the Session preserves its report; a code-review approval with no verification attestation shows
+Human verification: Not recorded; codereview Never explains its stored none policy; a failed Work Record can be retried
+without re-executing or republishing the Plan. Narrow screens wrap identifiers and retain every action.
