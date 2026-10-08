@@ -2,7 +2,7 @@
 import { join } from "@std/path";
 import { mergeFrontMatterText, parsePlanFrontMatter } from "../plan-store.js";
 import { listWorkRecords } from "./work-records/store.js";
-import { syncWorkRecordToIndex } from "./work-records/index-adapter.js";
+import { syncWorkRecordToIndex } from "./work-records/index-adapter.ts";
 import type { WorkRecordMnemotecaPort } from "./work-records/mnemoteca-port.ts";
 import { formatWorkRecordMarkdown, parseWorkRecordMarkdown } from "./work-records/markdown.js";
 

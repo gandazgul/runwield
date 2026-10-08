@@ -4,7 +4,7 @@ import { loadPlan, parsePlanFrontMatter, savePlan } from "../../plan-store.js";
 import { defineGitFixture, git } from "../git-test-fixture.ts";
 import { publishExecutionWorktreeIsolated } from "../isolated-publication.ts";
 import { formatWorkRecordMarkdown, parseWorkRecordMarkdown } from "../work-records/markdown.js";
-import { syncWorkRecordToIndex } from "../work-records/index-adapter.js";
+import { syncWorkRecordToIndex } from "../work-records/index-adapter.ts";
 import { createWorkRecordMnemotecaFixture } from "../work-records/test-fixtures/mnemoteca-port.ts";
 import { createTestWorktreeAttempt } from "../worktree-test-helpers.ts";
 import {
