@@ -23,6 +23,7 @@ import { isProjectInitComplete, requireProjectInitArtifact } from "./init-comple
 import { createInitVerificationCommandOperation } from "../../tools/init-verification-command.ts";
 import type { InteractiveSessionPort } from "../../ui/tui/interactive-session-port.ts";
 import { enterProjectRuntime } from "../../shared/project-runtime-layout.ts";
+import { recordInitializedProjectContext } from "../../shared/worktree-project-context.ts";
 
 interface InitCommandBaseOptions {
     uiAPI?: Pick<import("../../ui/tui/types.js").UiAPI, "appendSystemMessage">;
@@ -149,6 +150,7 @@ export async function runInitCommand(argv: string[], options: InitCommandOptions
         }
         await requireProjectInitArtifact(projectRoot);
 
+        await recordInitializedProjectContext(projectRoot);
         await recordInitDone(projectRoot);
 
         if (options.uiAPI) {

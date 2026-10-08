@@ -1,6 +1,6 @@
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
-import { fauxAssistantMessage, fauxText } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { loadPlan, type PlanFrontMatter, savePlan, updatePlanFrontMatter } from "../../plan-store.js";
@@ -9,6 +9,7 @@ import { defineCommittedGitFixture, git } from "../git-test-fixture.ts";
 import {
     checkpointExecutionPreparation,
     createWorktreeGitArtifacts,
+    hasExecutionChangesSince,
     removeWorktreeGitArtifacts,
     settleWorktreeAttempt,
 } from "../worktree.js";
@@ -17,6 +18,12 @@ import { executePlan, startActiveExecutionWorkflow } from "./workflow.js";
 import { createExecutionStartPorts } from "./execution-start.ts";
 import { captureWorktreeTree } from "./git-snapshot.ts";
 import { getTransitionJournalDir } from "./state-transition.ts";
+import { runInitCommand } from "../../cmd/init/index.ts";
+import { createSessionRuntime } from "../session/session-runtime.ts";
+import { recordTutorialContext } from "../session/tutorial-context-session.ts";
+import { createInitialTutorialContext } from "../../ui/tui/onboarding-content.ts";
+import { publishExecutionWorktreeIsolated } from "../isolated-publication.ts";
+import { RUNWIELD_GITIGNORE_BLOCK } from "../runwield-owned-paths.ts";
 
 interface RuntimeStatusEvent {
     type?: string;
@@ -600,3 +607,133 @@ Deno.test("execution preparation progress reports non-Git in-place preparation w
         await Deno.remove(projectRoot, { recursive: true }).catch(() => undefined);
     }
 });
+
+for (const tutorial of [false, true]) {
+    Deno.test(`${tutorial ? "Tutorial" : "Plan"} execution carries uncommitted Init files and preserves them on resume`, async () => {
+        await withRuntimeCommandFixture("init-context-execution-", async ({ setModelMessages }) => {
+            const projectRoot = await makeWorkflowProject([{ name: "init-context" }]);
+            Deno.chdir(projectRoot);
+            await Deno.writeTextFile(join(projectRoot, ".gitignore"), ".wld/\nnode_modules/\n");
+            await git(projectRoot, ["add", ".gitignore"]);
+            await git(projectRoot, ["commit", "-m", "Existing broad ignore policy"]);
+            const initialHead = await git(projectRoot, ["rev-parse", "HEAD"]);
+            const glossary = "# Domain Language\n\n## Fixture\n\nCurrent fixture terminology.\n";
+            setModelMessages([
+                fauxAssistantMessage(
+                    fauxToolCall("init_save_verification_command", { command: "printf init-verified" }),
+                ),
+                fauxAssistantMessage(fauxToolCall("write", { path: "docs/domain-language.md", content: glossary })),
+                fauxAssistantMessage(fauxText("Init complete.")),
+                fauxAssistantMessage(fauxText("Execution remains paused in the fixture.")),
+            ]);
+            const runtime = createSessionRuntime();
+            const created = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
+            runtime.setInteractionAdapter(created.sessionId, {
+                supportsInteraction: () => true,
+                requestInteraction: () => ({ outcome: "selected", value: "yes" }),
+            });
+            const events: RuntimeStatusEvent[] = [];
+            const hostedSession = makeHostedSession("init-context", projectRoot, events);
+            if (tutorial) {
+                const manager = SessionManager.inMemory(projectRoot);
+                recordTutorialContext(manager, createInitialTutorialContext());
+                hostedSession.setRootSessionManager(manager);
+                assertEquals(hostedSession.getTutorialContext()?.guidanceEnabled, true);
+            }
+            let executionCwd = "";
+            try {
+                await runInitCommand([], {
+                    projectRoot,
+                    sessionRuntime: runtime,
+                    sessionId: created.sessionId,
+                    sessionPort: { startInteractiveSession: () => Promise.reject(new Error("Unexpected model setup")) },
+                    uiAPI: { appendSystemMessage: (message, error) => assert(!error, message) },
+                });
+                await Deno.writeTextFile(join(projectRoot, "unrelated.txt"), "Keep in the original checkout.\n");
+                const status = await git(projectRoot, ["status", "--porcelain"]);
+                const settings = await Deno.readTextFile(join(projectRoot, ".wld/settings.json"));
+                await executePlan({
+                    planName: "init-context",
+                    triageMeta: { planId: PLAN_ID, classification: "PLANNED_CHANGE" },
+                    hostedSession,
+                });
+                const workflow = hostedSession.getActiveExecutionWorkflow();
+                assert(workflow?.executionCwd, messagesFrom(events).join("\n"));
+                executionCwd = workflow.executionCwd;
+                assertEquals(await Deno.readTextFile(join(executionCwd, "docs/domain-language.md")), glossary);
+                assertEquals(await Deno.readTextFile(join(executionCwd, ".wld/settings.json")), settings);
+                assertStringIncludes(
+                    await Deno.readTextFile(join(executionCwd, ".gitignore")),
+                    RUNWIELD_GITIGNORE_BLOCK,
+                );
+                const preparationFiles = await git(executionCwd, ["diff", "--name-only", `${initialHead}..HEAD`]);
+                for (const path of [".wld/settings.json", "docs/domain-language.md", ".gitignore"]) {
+                    assertStringIncludes(preparationFiles, path);
+                }
+                assertEquals(await git(projectRoot, ["rev-parse", "HEAD"]), initialHead);
+                assertEquals(await git(projectRoot, ["status", "--porcelain"]), status);
+                assertEquals(await Deno.stat(join(executionCwd, "unrelated.txt")).catch(() => null), null);
+                await Deno.writeTextFile(join(executionCwd, "docs/domain-language.md"), "Repaired glossary\n");
+                await Deno.writeTextFile(
+                    join(executionCwd, ".wld/settings.json"),
+                    '{"verification_command":"printf repaired"}\n',
+                );
+                assertEquals(
+                    await hasExecutionChangesSince({
+                        worktreePath: executionCwd,
+                        baseRef: initialHead,
+                        includeWorkingTree: true,
+                    }),
+                    true,
+                );
+                const plan = await loadPlan(executionCwd, "init-context");
+                assert(plan);
+                await startActiveExecutionWorkflow({
+                    planName: "init-context",
+                    triageMeta: plan.attrs,
+                    currentStatus: "in_progress",
+                    hostedSession,
+                    ports: createExecutionStartPorts(),
+                });
+                assertEquals(
+                    await Deno.readTextFile(join(executionCwd, "docs/domain-language.md")),
+                    "Repaired glossary\n",
+                );
+                assertStringIncludes(
+                    await Deno.readTextFile(join(executionCwd, ".wld/settings.json")),
+                    "printf repaired",
+                );
+                assertEquals(await Deno.readTextFile(join(projectRoot, ".wld/settings.json")), settings);
+                await git(executionCwd, ["add", "."]);
+                await git(executionCwd, ["commit", "-m", "Validated context update"]);
+                await publishExecutionWorktreeIsolated({
+                    projectRoot,
+                    executionCwd,
+                    executionBranch: workflow.worktreeBranch!,
+                    targetBranch: "main",
+                    planName: "init-context",
+                    sealedExecutionCommit: await git(executionCwd, ["rev-parse", "HEAD"]),
+                    allowedPlanPaths: ["docs/plans/init-context.md"],
+                });
+                assertEquals(
+                    await Deno.readTextFile(join(projectRoot, "docs/domain-language.md")),
+                    "Repaired glossary\n",
+                );
+                assertStringIncludes(
+                    await Deno.readTextFile(join(projectRoot, ".wld/settings.json")),
+                    "printf repaired",
+                );
+                assertEquals(
+                    await Deno.readTextFile(join(projectRoot, "unrelated.txt")),
+                    "Keep in the original checkout.\n",
+                );
+            } finally {
+                await runtime.closeAllSessionsWhenIdle();
+                hostedSession.dispose();
+                if (executionCwd) await removeWorktreeGitArtifacts({ projectRoot, path: executionCwd, force: true });
+                Deno.chdir(projectRoot + "/..");
+                await Deno.remove(projectRoot, { recursive: true });
+            }
+        });
+    });
+}

@@ -4,9 +4,10 @@
  */
 
 import { basename, dirname, join } from "@std/path";
+import lockfile from "proper-lockfile";
 import { assertPreMergeCandidateUnchanged, mergeExecutionWorktree } from "./worktree.js";
-import { RUNWIELD_GITIGNORE_BLOCK } from "./runwield-owned-paths.ts";
-import { enterProjectRuntime } from "./project-runtime-layout.ts";
+import { prepareProjectContextPublication, settleProjectContextPublication } from "./project-context-publication.ts";
+import { enterProjectRuntime, resolveProjectRuntimeLayout } from "./project-runtime-layout.ts";
 import {
     assertNoRuntimePathsInNewHistory,
     assertNoTrackedOrIndexedRuntimePaths,
@@ -308,10 +309,7 @@ export async function isCommitPublishedToTarget(
     }
 }
 
-/**
- * Publish without checking out, resetting, staging, or updating a ref in the
- * user's primary project directory.
- */
+/** Publish through an isolated clone for a remote, or merge into the local target. */
 export async function publishExecutionWorktreeIsolated(
     args: IsolatedPublicationArgs,
 ): Promise<IsolatedPublicationResult> {
@@ -328,7 +326,17 @@ export async function publishExecutionWorktreeIsolated(
     const upstream = await resolveUpstream(args.projectRoot, args.targetBranch);
     if (!upstream) {
         args.onProgress?.("using_local_target");
-        return await publishToLocalTarget(args, executionMetadataCommit);
+        // The primary index and setup recovery record belong to one publication at a time.
+        const internalRoot = resolveProjectRuntimeLayout(args.projectRoot).selected.internalRoot;
+        const release = await lockfile.lock(args.projectRoot, {
+            lockfilePath: join(internalRoot, "local-publication.lock"),
+            retries: { retries: 60, factor: 1, minTimeout: 500, maxTimeout: 500 },
+        });
+        try {
+            return await publishToLocalTarget(args, executionMetadataCommit);
+        } finally {
+            await release();
+        }
     }
     const requestedPublicationRoot = args.repairedPublicationRoot || args.publicationRoot;
     const requestedRootExists = requestedPublicationRoot
@@ -651,21 +659,13 @@ async function publishToLocalTarget(
         );
     }
     const targetHeadBeforeMerge = await runGit(args.projectRoot, ["rev-parse", `refs/heads/${args.targetBranch}`]);
-    const gitignorePath = join(args.projectRoot, ".gitignore");
-    const trackedGitignore = await runGitResult(args.projectRoot, ["ls-files", "--error-unmatch", ".gitignore"]);
-    const currentGitignore = await Deno.readTextFile(gitignorePath).catch((error) => {
-        if (error instanceof Deno.errors.NotFound) return "";
-        throw error;
-    });
-    const hasOwnedGitignore = currentGitignore === RUNWIELD_GITIGNORE_BLOCK;
-    let savedOwnedGitignore: string | undefined;
     const savedAuthoritativePlans = new Map<string, Uint8Array>();
     try {
+        await prepareProjectContextPublication(args.projectRoot, args.executionCwd, args.sealedExecutionCommit);
         const trackedChanges = (await runGitRaw(args.projectRoot, ["diff", "--name-only", "-z", "HEAD", "--"]))
             .split("\0")
             .filter((path) => path.length > 0);
         const allowedPrimaryChanges = new Set(args.allowedPlanPaths);
-        if (hasOwnedGitignore) allowedPrimaryChanges.add(".gitignore");
         const blockingTrackedChanges = trackedChanges.filter((path) => !allowedPrimaryChanges.has(path));
         if (blockingTrackedChanges.length > 0) {
             throw new IsolatedPublicationError(
@@ -700,25 +700,6 @@ async function publishToLocalTarget(
                 await Deno.remove(path);
             }
         }
-        if (hasOwnedGitignore) {
-            const staged = await runGitResult(args.projectRoot, ["diff", "--cached", "--quiet", "--", ".gitignore"]);
-            if (staged.code !== 0) {
-                throw new IsolatedPublicationError(
-                    "The project folder has a staged change to .gitignore. Commit or unstage it before retrying.",
-                    { mergeFailureKind: "primary_checkout_dirty", blockingPaths: [".gitignore"] },
-                );
-            }
-            const changed = await runGitResult(args.projectRoot, ["diff", "--quiet", "--", ".gitignore"]);
-            if (trackedGitignore.code !== 0 || changed.code !== 0) {
-                savedOwnedGitignore = await Deno.makeTempFile({ prefix: "runwield-owned-gitignore-" });
-                await Deno.writeTextFile(savedOwnedGitignore, currentGitignore);
-                if (trackedGitignore.code === 0) {
-                    await runGit(args.projectRoot, ["restore", "--worktree", "--source=HEAD", "--", ".gitignore"]);
-                } else {
-                    await Deno.remove(gitignorePath);
-                }
-            }
-        }
         args.onProgress?.("combining_work");
         await assertNoRuntimePathsInNewHistory(args.projectRoot, targetHeadBeforeMerge, args.sealedExecutionCommit);
         await mergeExecutionWorktree({
@@ -735,6 +716,7 @@ async function publishToLocalTarget(
         args.onProgress?.("verifying");
         const publicationCommit = await runGit(args.projectRoot, ["rev-parse", `refs/heads/${args.targetBranch}`]);
         await assertNoRuntimePathsInNewHistory(args.projectRoot, targetHeadBeforeMerge, publicationCommit);
+        await settleProjectContextPublication(args.projectRoot);
         await args.onIntegrated?.({
             targetBaseCommit: targetHeadBeforeMerge,
             integrationCommit: publicationCommit,
@@ -759,7 +741,6 @@ async function publishToLocalTarget(
             );
         }
         await args.onVerified?.(publishedEvidence);
-        if (savedOwnedGitignore) await Deno.remove(savedOwnedGitignore).catch(() => {});
         return {
             publicationMode: "local",
             updatedPrimaryCheckout: true,
@@ -788,17 +769,10 @@ async function publishToLocalTarget(
                 }
             }
         }
-        if (savedOwnedGitignore) {
-            if (!targetMoved) {
-                try {
-                    await Deno.writeTextFile(gitignorePath, await Deno.readTextFile(savedOwnedGitignore));
-                    await Deno.remove(savedOwnedGitignore);
-                } catch (restoreError) {
-                    restorationError = restoreError instanceof Error ? restoreError : new Error(String(restoreError));
-                }
-            } else if (targetMoved) {
-                await Deno.remove(savedOwnedGitignore).catch(() => {});
-            }
+        try {
+            await settleProjectContextPublication(args.projectRoot);
+        } catch (restoreError) {
+            restorationError = restoreError instanceof Error ? restoreError : new Error(String(restoreError));
         }
         if (restorationError) throw restorationError;
         if (error instanceof IsolatedPublicationError || error instanceof Error) {
