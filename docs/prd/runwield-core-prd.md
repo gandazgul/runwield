@@ -596,6 +596,13 @@ and siblings active. Listings keep held work distinct from active and finished w
 
 ### Execution, validation, and recovery
 
+**Requirement: Identify publication blockers.** When local publication pauses for tracked or staged user changes, the
+recovery notice lists the blocking paths and preserves those changes. The filenames survive failure classification and
+retries so the user can resolve the specific conflict before retrying.
+
+**Acceptance scenario:** Given a dirty tracked file in the primary checkout, when local publication pauses, the failure
+carries that file path to the recovery prompt; the file contents and target branch remain unchanged.
+
 **Scope and maturity:** Existing execution and validation baseline, with the owner's clarified completion and automatic
 recovery requirements below. These requirements do not certify that every current failure path already meets them.
 QUICK_FIX keeps its explicitly lighter behavior; answering a question does not require publication. The remote
@@ -710,11 +717,23 @@ Execution requirements:
 
 - work on the approved Plan in an isolated worktree;
 - preserve the user's existing checkout changes and a useful recovery point;
+- carry uncommitted versionable settings and glossary into newly created Tutorial and normal execution worktrees, while
+  recreating only managed ignore rules and preserving source staging and unrelated work. Copied context joins the
+  preparation checkpoint even when a committed broad ignore rule hides it. Reused worktrees keep their own repairs;
+- reconcile unchanged, recorded Init output and validation-time settings writes during local publication. Preserve
+  original bytes and staging durably until integration, restore them after failed publication, and retain validated
+  incoming versions on success. Later user edits and distinct staged versions remain protected;
 - distinguish implementation being finished from validation succeeding.
 
 Workflow Validation requirements:
 
 - run the project's configured checks and review the change against the approved Plan;
+- reuse the existing execution-checkout command or inherit the project command without prompting again. Save a newly
+  supplied validation command in both scopes and record the host-owned write so a validated checkout-specific command
+  repair can be delivered without asking the user to commit or stash RunWield's own settings. Recording that write must
+  not claim ownership of pre-existing or subsequent user edits. A context transfer receipt identifies copied bytes; only
+  recorded Init or validation writes establish ownership of the source changes. Cancellation during command setup
+  remains effective and must not start a validation process afterward;
 - offer human code review when enabled;
 - repair failed checks or review findings within the execution worktree;
 - give a repair Agent the relevant findings and instructions without unrelated earlier context;
@@ -779,6 +798,14 @@ Recovery requirements:
 - Given a managed repair, when the Agent completes focused verification, RunWield reloads the current configured command
   and runs full validation against the repair checkout. A failure still prevents progress; the Agent was not required to
   run that complete command immediately beforehand.
+- Given Init settings and a committed `.wld/` ignore rule, when Tutorial or normal execution begins, receipt-owned
+  settings enter the preparation commit. A later command repair reaches the delivered target; the existing ignore rules,
+  unrelated dirty or staged user work, and ignored runtime/private files remain protected.
+- Given no Init receipt and no configured command, when validation asks once and a repair updates the saved command,
+  publication delivers the repaired settings automatically. This applies both to new ignored settings and an already
+  tracked settings file, including supported JSONC comments and trailing commas. Unrelated user settings edits made
+  before worktree creation, before the host write, after it, or staged independently must not be overwritten or silently
+  committed.
 - Given a ready approved Plan and existing checkout edits, when execution starts, the approved work is isolated and the
   user’s edits remain preserved.
 - Given a worktree created from `main`, when the execution Plan is edited to target `release/next` after the Session
@@ -1253,6 +1280,12 @@ renaming; search can be rebuilt from the documents.
   than blocking backfill. Records do not turn unverified work into verified work.
 - Generation is best effort. Failure reports a useful retry/backfill action and never reverses a completed Plan.
   Disabling automatic generation leaves listing, reading, search, and explicit backfill available.
+- Recorder completion requires an accepted `work_record_completed` submission. A turn ending without it receives one
+  corrective retry; provider errors and cancellation do not trigger that retry. Exhaustion retains a concise protocol
+  diagnostic on the Plan, without storing model text or private reasoning.
+- When code delivery succeeds but recording fails, the final completion notice keeps both outcomes visible and supplies
+  `wld wr backfill` as the recovery command. Recording failure does not undo delivery.
+
 - `wld wr` provides listing, search, reading, index rebuild, and backfill. Backfill previews missing records for
   eligible active and archived completed Plans and asks before generation. It avoids duplicating existing linked
   records.
@@ -1269,6 +1302,13 @@ renaming; search can be rebuilt from the documents.
 - No-plan QUICK_FIX and ordinary external merges do not generate records automatically. Explicit manual or external
   record creation remains separate scope and requires review before default retrieval; it cannot claim RunWield
   validation that did not occur.
+
+**Acceptance scenario: Recorder recovery and partial completion.** Given a completed eligible Plan, when the Recorder
+returns text without submitting its tool event, one corrective turn can finish the record. If both turns omit the event,
+no record is fabricated; the Plan retains the failure reason and successful delivery is labeled with the remaining Work
+Record failure and retry command. Failures while reading existing records are also retained on the source Plan before
+delivery; remote publication reports that outcome from the sealed Plan even after worktree cleanup. When the last child
+completes an Epic, final completion reports the parent Epic's recording outcome, including after remote cleanup.
 
 Core retrieval is Project-scoped. Cross-Project knowledge and browser navigation are Workspace requirements. Richer
 cross-artifact authorship, manual/imported record creation, and guidance for substantial retrospective edits remain
