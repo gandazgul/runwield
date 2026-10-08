@@ -215,7 +215,7 @@ export async function runHumanReviewPhase(
                 args,
                 context.projectRoot,
                 "validation_failed",
-                "validated_reviewer",
+                "reviewed",
                 feedbackText,
             );
             const repair = await dispatchReviewFeedbackRepair(args, context, {

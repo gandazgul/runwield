@@ -314,7 +314,7 @@ function stateEqualsFor(id: ValidationWorkflowBranchId): Record<string, Validati
     }
     if (id === "human-review:ask-close") {
         return {
-            "projectState.plans.0.attrs.status": "validated_reviewer",
+            "projectState.plans.0.attrs.status": "reviewed",
             "projectState.plans.0.controllerState.humanReviewMode": null,
             "projectState.plans.0.controllerState.humanReviewDecision": null,
         };

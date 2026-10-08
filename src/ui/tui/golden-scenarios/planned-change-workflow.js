@@ -317,7 +317,7 @@ export const plannedChangeReviewRepairValidationScenario = {
         // ceiling sized to the standalone run fails on contention rather than on defects.
         { type: "waitForIdle", timeoutMs: 240000 },
         { type: "waitForEvent", event: "runtime:tool:start:task_completed", timeoutMs: 60000 },
-        { type: "waitForRemotePlanStatus", planName: "plan", statuses: ["validated"], timeoutMs: 240000 },
+        { type: "waitForRemotePlanStatus", planName: "plan", statuses: ["verified"], timeoutMs: 240000 },
         { type: "waitForWorktreeRegistryStatus", planName: "plan", statuses: ["absent"], timeoutMs: 90000 },
         { type: "waitForIdle", timeoutMs: 90000 },
         { type: "assertWorkflowDurability" },
@@ -509,7 +509,7 @@ export const onboardingTutorialDeliveryScenario = {
         { type: "enter" },
         { type: "enter" },
         { type: "waitForIdle", timeoutMs: 240000 },
-        { type: "waitForRemotePlanStatus", planName: "plan", statuses: ["validated"], timeoutMs: 240000 },
+        { type: "waitForRemotePlanStatus", planName: "plan", statuses: ["verified"], timeoutMs: 240000 },
         { type: "waitForWorktreeRegistryStatus", planName: "plan", statuses: ["absent"], timeoutMs: 90000 },
         { type: "waitForIdle", timeoutMs: 90000 },
         { type: "assertWorkflowDurability" },
@@ -519,9 +519,8 @@ export const onboardingTutorialDeliveryScenario = {
             deliveredPath: "tutorial-behavior.ts",
             key: "tutorialPublicationBeforeReload",
         },
-        // Full tutorial completion requires the Plan's exact legacy `verified`
-        // status in addition to confirmed publication evidence.
-        { type: "setPrimaryPlanStatus", planName: "plan", status: "verified" },
+        // Confirmed publication and its retained receipt must supply verified
+        // completion even while the primary checkout still trails the remote.
         { type: "setNextModelResponse", text: "The verified tutorial Session remains interactive after reload." },
         { type: "type", text: "show the verified tutorial recap" },
         { type: "enter" },
@@ -582,7 +581,7 @@ export const onboardingTutorialDeliveryScenario = {
                 publicationBeforeReload?.remoteHead !== tutorialState.publicationBaseline?.head,
                 "The tutorial must publish a new remote commit.",
             );
-            assertEquals(publicationBeforeReload?.remotePlanStatus, "validated");
+            assertEquals(publicationBeforeReload?.remotePlanStatus, "verified");
             assertEquals(
                 publicationBeforeReload?.deliveredText,
                 'export function tutorialLabel() { return "ready"; }',
@@ -824,7 +823,7 @@ export const plannedChangeNonGitInPlaceScenario = {
         {
             type: "waitForPlanStatus",
             planName: "non-git-plan",
-            statuses: ["validated", "user_verified"],
+            statuses: ["verified", "user_verified"],
             timeoutMs: 70000,
         },
         { type: "assertProjectFile", path: "golden-non-git.txt", exists: true },
@@ -990,7 +989,7 @@ export const plannedChangeValidationFailureRetryScenario = {
             timeoutMs: 90000,
         },
         { type: "waitForEvent", event: "runtime:tool:start:task_completed", timeoutMs: 90000 },
-        { type: "waitForRemotePlanStatus", planName: "validation-retry", statuses: ["validated"], timeoutMs: 90000 },
+        { type: "waitForRemotePlanStatus", planName: "validation-retry", statuses: ["verified"], timeoutMs: 90000 },
         {
             type: "waitForWorktreeRegistryStatus",
             planName: "validation-retry",
@@ -1017,8 +1016,8 @@ export const plannedChangeValidationFailureRetryScenario = {
                 `Expected initial implementation and repair task_completed turns; saw ${completedTurns}.`,
             );
             assert(
-                attrs?.status === "validated",
-                `Expected retry scenario validated after repair; got ${attrs?.status}`,
+                attrs?.status === "verified",
+                `Expected retry scenario verified after repair; got ${attrs?.status}`,
             );
             assert(attrs?.planId, "Expected Plan identity to remain populated after validation retry.");
             assert(
@@ -1261,7 +1260,7 @@ export const plannedChangeFrontendIdentityScenario = {
         { type: "enter" },
         { type: "waitForEvent", event: "runtime:agent:frontend-engineer", timeoutMs: 90000 },
         { type: "waitForEvent", event: "runtime:tool:start:task_completed", timeoutMs: 90000 },
-        { type: "waitForRemotePlanStatus", planName: "frontend-identity", statuses: ["validated"], timeoutMs: 90000 },
+        { type: "waitForRemotePlanStatus", planName: "frontend-identity", statuses: ["verified"], timeoutMs: 90000 },
     ],
     assertions: [
         assertsGoldenCoverage("context:frontend-engineer-identity", (result) => {

@@ -47,7 +47,7 @@ function fullEvidenceResult(id: ValidationWorkflowBranchId): ValidationWorkflowR
                 plans: [{
                     name: "plan",
                     attrs: {
-                        status: id === "human-review:ask-close" ? "validated_reviewer" : "verified",
+                        status: id === "human-review:ask-close" ? "reviewed" : "verified",
                     },
                     controllerState: {
                         validationCiAttempts: 0,
@@ -75,17 +75,17 @@ function fullEvidenceResult(id: ValidationWorkflowBranchId): ValidationWorkflowR
                 ],
             },
             publication: {
-                remotePlanStatus: "validated",
+                remotePlanStatus: "verified",
                 remotePlanAttrs: {},
                 registryEntries: [],
             },
             localPublication: {
-                planStatus: "validated",
+                planStatus: "verified",
                 registryEntries: [],
             },
             pendingPublication: {
                 registryStatus: "publication_failed",
-                executionPlanStatus: "validated",
+                executionPlanStatus: "reviewed",
             },
         },
         actor: { consumed: ["engineer:engineer", "reviewer:semantic_review"], remaining: [] },

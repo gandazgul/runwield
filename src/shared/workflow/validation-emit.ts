@@ -145,8 +145,9 @@ export function clampCycle(cycle: number, maximum = SEMANTIC_REVIEW_CYCLES): num
  */
 export function seedProgressForStatus(args: ValidationLoopArgs): ValidationProgressRecord {
     const status = args.triageMeta.status;
-    const semanticDone = status === "validated_reviewer";
-    const ciDone = semanticDone || status === "validated_ci";
+    const semanticDone = status === "reviewed";
+    const ciDone = semanticDone || status === "validated_ci" ||
+        (status === "implemented" && args.triageMeta.validationPhase === "semantic");
     const rounds = readSemanticRound(args.triageMeta);
     return createProgressRecord({
         kind: "workflow",

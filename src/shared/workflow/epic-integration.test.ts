@@ -208,7 +208,7 @@ Deno.test("the integration gate validates the exact Epic branch head", async () 
 
     assertEquals(result, { kind: "passed", commit: head });
     const epic = await loadPlan(repo, "epic");
-    assertEquals(epic?.attrs.status, "validated");
+    assertEquals(epic?.attrs.status, "reviewed");
     assertEquals(epic?.attrs.validatedCommit, head);
     // Checks and review ran in the gate's own checkout of that commit, which is gone afterwards.
     assertEquals(checkCwds.length, 1);
@@ -355,4 +355,24 @@ Deno.test("review_complete carries an Epic child's Integration Notes without blo
 
     assertEquals(details.outcome, "approved");
     assertEquals(details.integrationNotes, [{ check: "Child 3 must read the new index", where: "index.ts" }]);
+});
+
+Deno.test("a reviewed Epic becomes verified only after its checked work reaches the final target", async () => {
+    const { repo } = await epicWithPendingSecondChild();
+    await setCustomSetting("codereview", "none", "project", repo);
+    await deliverSecondChild(repo);
+    const { hostedSession } = gateSession();
+    await runEpicIntegrationGate({
+        hostedSession,
+        projectRoot: repo,
+        epicPlanName: "epic",
+        semanticReviewPort: scriptedReviewer({ approved: true }),
+        workRecordMnemotecaPort: createWorkRecordMnemotecaFixture(),
+        localCIPort: scriptedChecks(PASSING_CHECKS),
+    });
+    assertEquals((await reconcileEpicDelivery(repo, "epic")).status, "reviewed");
+    // The user's external merge is the boundary; the integration gate never merges it.
+    await git(repo, ["merge", "--no-ff", "epic/epic", "-m", "Deliver Epic"]);
+    assertEquals((await reconcileEpicDelivery(repo, "epic")).status, "verified");
+    assertEquals((await loadPlan(repo, "epic"))?.attrs.status, "verified");
 });

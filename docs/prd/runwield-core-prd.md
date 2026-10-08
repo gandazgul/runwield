@@ -459,6 +459,14 @@ manual acceptance, failure, and hold. Validation and successful publication are 
 checks must not claim the change has reached its target. Technical status definitions live in the
 [Plan lifecycle reference](../plan-lifecycle.md).
 
+The ordinary public lifecycle is `draft → feedback/approved → ready_for_work → implemented → reviewed → verified`.
+Execution, failure, hold, Epic decomposition, and manual closure remain explicit intermediate or exceptional states.
+Passed mechanical checks advance durable controller progress while the Plan stays implemented. Reviewed means review
+passed and delivery is still pending. Verified means the reviewed implementation reached its target, or completed
+verification in place in a non-Git project. Legacy validated is a synonym for verified when delivery evidence supports
+it; legacy pending publication stays reviewed. UI, CLI, persisted documents, dependencies and Work Records agree on
+these meanings.
+
 Lifecycle requirements:
 
 - Planned Change Plans reach `ready_for_work` after approval and readiness.
@@ -468,7 +476,8 @@ Lifecycle requirements:
 - Child Plans execute and validate independently.
 - Planned work claims RunWield verification only when the applicable validation requirements pass. Delivery must also be
   confirmed before the workflow reports it as delivered.
-- Users can mark an Epic done enough when the delivered child work meets its goal.
+- Users can mark an Epic done enough when the delivered child work meets its goal; this is deliberate closure with a
+  done-enough completion mode, not a claim that the remaining Epic was verified.
 - `closed_without_verification` records deliberate user abandonment of remaining work, never an automatic response to
   failure or exhausted retries. It must not claim verification or publication.
 - `on_hold` pauses work and lets users resume from its previous stage.
@@ -558,10 +567,10 @@ decision; worktree registration and metadata normalization do not.
 Child status alone does not finish an Epic with its own branch. The Epic is implemented when every included child is
 delivered to the Epic branch; a child whose publication is still pending does not count. The integration gate then
 checks the exact branch head as one change: the project's checks, an integration review of the whole Epic diff against
-the Epic, and Code Review per the user's `codereview` setting. A pass marks the Epic validated for that commit. Findings
+the Epic, and Code Review per the user's `codereview` setting. A pass marks the Epic reviewed for that commit. Findings
 are written to an Epic report and become a draft repair child; Planner starts from them, the user reviews the repair
 like any child, and its delivery runs the gate again. A later commit on the Epic branch makes an earlier pass stale.
-RunWield stops at validated: the user merges the Epic branch or opens a pull request. Automatic Epic publication is
+RunWield stops at reviewed: the user merges the Epic branch or opens a pull request. Automatic Epic publication is
 deferred to [Epic Branch Publication Workflow](../plans/epic-branch-publication-workflow.md).
 
 **On hold** means paused and resumable, not completed or archived. Nonterminal Plans can retain their previous stage and
@@ -586,11 +595,11 @@ and siblings active. Listings keep held work distinct from active and finished w
   Core imports the preceding child's published code, retains those planning edits, and uses the refreshed baseline for
   execution. Published sibling status updates reconcile automatically; incompatible scope edits remain preserved.
 - Given an Epic whose children are all delivered to the Epic branch, when the integration gate passes, the Epic is
-  validated for that branch head and the primary branch is unchanged.
+  reviewed for that branch head and the primary branch is unchanged.
 - Given an integration gate with findings, when it finishes, the Epic report lists them and a draft repair child under
   the Epic opens in Planner; after the repair is delivered, the gate runs again.
-- Given a validated Epic, when a new commit lands on its branch, the Epic returns to implemented until the gate passes
-  on the new head.
+- Given a reviewed Epic, when an implementation change lands on its branch, the Epic returns to implemented until the
+  gate passes on the new head.
 - Given Planner moving scope from the child it is planning into an approved, unstarted sibling, when the child starts,
   the sibling's change is on the Epic branch with the child and the sibling is back in draft.
 - Given that sibling already has a planning worktree, when the child starts, compatible scope changes reach both Plan
@@ -851,6 +860,16 @@ Recovery requirements:
 - Given a Session that still displays failed or canceled checks from an earlier attempt, when a resumed delivery
   publishes and cleans up successfully, the Session reports delivery complete with the current check results and does
   not ask the user to repeat publication.
+- Given passed mechanical checks and a process restart, the Plan stays implemented and resumes semantic review without
+  repeating those checks. A code repair resets the mechanical phase.
+- Given a reviewed candidate and a failed push or interrupted merge, the source Plan remains reviewed. Only the
+  integrated target metadata becomes verified; recovery proves the finalized Plan and linked Work Record before cleanup.
+  Local metadata preparation preserves unrelated files and staging, including when the target is another branch.
+- Given a Recorder success before publication, its Work Record remains pending verification until the merge is
+  finalized. Restart reuses the same record. Confirmed publication settles approval, declared supersession and the
+  derived index; an index failure is reported separately from successful code delivery.
+- Given a reviewed Epic later merged by the user, a reload verifies its checked commit against the recorded final target
+  before persisting verified. Deliberate done-enough closure remains distinct from that proof.
 - Given a completed Plan without controller records, loading it recognizes delivery when Git proves its validated commit
   belongs to its target branch. A commit on an unrelated branch is not enough. A pending attempt offers continuation of
   publication or cleanup, rather than being treated as finished merely because validation passed.
@@ -1028,8 +1047,8 @@ convergence without more escaped defects, not approval rate alone.
   implementation obligation.
 - After the automatic-round boundary, when the user chooses human review, feedback leads to repair and checks and
   returns to that human review without an automatic round limit ending it.
-- Given the Code Review offer, when the user chooses Close and come back later, the Plan remains at `validated_reviewer`
-  with no review decision. A later `load-plan` continuation asks again before publication.
+- Given the Code Review offer, when the user chooses Close and come back later, the Plan remains at `reviewed` with no
+  review decision. A later `load-plan` continuation asks again before publication.
 
 <a id="frontend-engineer-and-pair-execution"></a>
 

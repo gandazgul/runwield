@@ -450,7 +450,7 @@ export async function ownerProjectPlanProgressApi(ctx) {
                     "ready_for_decomposition",
                     "implemented",
                     "validated_ci",
-                    "validated_reviewer",
+                    "reviewed",
                     "validated",
                 ].includes(progress.plan.status),
         );

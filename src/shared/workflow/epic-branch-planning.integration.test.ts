@@ -261,7 +261,7 @@ Deno.test("A published sequence keeps its parent open while a target-only child 
         planId: "plan-child-01",
         classification: "FEATURE",
         complexity: "MEDIUM",
-        status: "validated_reviewer",
+        status: "reviewed",
         parentPlan: "epic",
         order: 1,
         targetBranch: "epic-target",
@@ -272,7 +272,7 @@ Deno.test("A published sequence keeps its parent open while a target-only child 
         cwd: repo,
         planName: "epic/01-done",
         event: "validation_passed",
-        currentStatus: "validated_reviewer",
+        currentStatus: "reviewed",
         details: {
             executionMode: "worktree",
             deliveryEvidence: {
