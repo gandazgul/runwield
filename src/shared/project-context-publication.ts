@@ -2,7 +2,7 @@ import { dirname, join } from "@std/path";
 import { enterProjectRuntime, resolveProjectRuntimeLayout } from "./project-runtime-layout.ts";
 import { isRunWieldOwnedGitignoreChange } from "./runwield-owned-paths.ts";
 import {
-    isTransferredProjectContext,
+    isOwnedProjectContext,
     isUnchangedTransferredSource,
     PROJECT_CONTEXT_PATHS,
     readProjectContextFile,
@@ -50,6 +50,16 @@ async function restoreIndex(root: string, path: string, entry: IndexEntry | null
     else await git(root, ["update-index", "--force-remove", "--", path]);
 }
 
+function userContextConflict(path: string) {
+    return Object.assign(
+        new Error(`The project folder has user edits to ${path} that differ from the validated file.`),
+        {
+            mergeFailureKind: "primary_checkout_dirty",
+            blockingPaths: [path],
+        },
+    );
+}
+
 /**
  * Fold only known, unchanged setup output into the validated merge. Save both
  * bytes and staging durably before neutralizing these paths; never stash the repo.
@@ -72,11 +82,19 @@ export async function prepareProjectContextPublication(
         const incoming = await readProjectContextRevision(root, candidate, path);
         const owned = path === ".gitignore"
             ? isRunWieldOwnedGitignoreChange(headContent ?? "", content)
-            : await isTransferredProjectContext(root, path) ||
+            : await isOwnedProjectContext(root, path) ||
                 await isUnchangedTransferredSource(root, executionRoot, path);
-        if (!owned && content !== incoming) continue;
+        if (!owned) {
+            // Git may overwrite ignored untracked files without reporting a conflict.
+            // Protect these known paths explicitly before any merge preparation.
+            if (incoming !== headContent) throw userContextConflict(path);
+            continue;
+        }
         // A distinct staged version is user work, even when the working file is ours.
-        if (indexed !== headContent && indexed !== content) continue;
+        if (indexed !== headContent && indexed !== content) {
+            if (incoming !== headContent) throw userContextConflict(path);
+            continue;
+        }
         files.push({ path, content, headContent, index, mode: (await Deno.stat(join(root, path))).mode });
     }
     if (!files.length) return;

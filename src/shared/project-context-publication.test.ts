@@ -87,7 +87,7 @@ for (const path of [".wld/settings.json", "docs/domain-language.md", ".gitignore
             const before = await Deno.readTextFile(join(f.root, path));
             const head = await git(f.root, ["rev-parse", "HEAD"]);
             const index = await git(f.root, ["write-tree"]);
-            await assertRejects(() => publishExecutionWorktreeIsolated(f.args), Error, "unsaved tracked changes");
+            await assertRejects(() => publishExecutionWorktreeIsolated(f.args), Error, "project folder has user edits");
             assertEquals(await Deno.readTextFile(join(f.root, path)), before);
             assertEquals(await git(f.root, ["rev-parse", "HEAD"]), head);
             assertEquals(await git(f.root, ["write-tree"]), index);
@@ -124,6 +124,24 @@ Deno.test("failed publication restores generated files and their staging, then s
     }
 });
 
+Deno.test("publication never commits unrelated staged user work while reconciling setup", async () => {
+    const f = await fixture(false, true);
+    try {
+        await Deno.writeTextFile(join(f.root, "README.md"), "User work staged separately\n");
+        await git(f.root, ["add", "README.md"]);
+        const index = await git(f.root, ["write-tree"]);
+        const head = await git(f.root, ["rev-parse", "HEAD"]);
+        const settings = await Deno.readTextFile(join(f.root, ".wld/settings.json"));
+        await assertRejects(() => publishExecutionWorktreeIsolated(f.args), Error, "README.md");
+        assertEquals(await git(f.root, ["rev-parse", "HEAD"]), head);
+        assertEquals(await git(f.root, ["write-tree"]), index);
+        assertEquals(await Deno.readTextFile(join(f.root, "README.md")), "User work staged separately\n");
+        assertEquals(await Deno.readTextFile(join(f.root, ".wld/settings.json")), settings);
+    } finally {
+        await f.cleanup();
+    }
+});
+
 for (const stagedChange of ["edit", "deletion"] as const) {
     Deno.test(`publication preserves a distinct staged user ${stagedChange} beneath unchanged Init output`, async () => {
         const f = await fixture(true, false);
@@ -139,7 +157,7 @@ for (const stagedChange of ["edit", "deletion"] as const) {
             }
             const index = await git(f.root, ["write-tree"]);
             const head = await git(f.root, ["rev-parse", "HEAD"]);
-            await assertRejects(() => publishExecutionWorktreeIsolated(f.args), Error, "unsaved tracked changes");
+            await assertRejects(() => publishExecutionWorktreeIsolated(f.args), Error, "project folder has user edits");
             assertEquals(await Deno.readTextFile(join(f.root, path)), content);
             assertEquals(await git(f.root, ["write-tree"]), index);
             assertEquals(await git(f.root, ["rev-parse", "HEAD"]), head);

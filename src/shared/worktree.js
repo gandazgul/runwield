@@ -10,6 +10,8 @@ import {
     captureWorktreeProjectContext,
     isTransferredProjectContext,
     materializeWorktreeProjectContext,
+    PROJECT_CONTEXT_PATHS,
+    recordedProjectContextPaths,
 } from "./worktree-project-context.ts";
 import { assertGitRepository, GitRepositoryRequiredError } from "./git.js";
 import { getWorkflowDiff } from "./workflow/git-snapshot.ts";
@@ -553,7 +555,15 @@ async function commitDirtyWorktreeState(
         if (allowedPathNeedsOwnedExclusion) {
             await stageDirtyPathsExceptOwnedRuntime(worktreePath);
         } else {
-            await runGit(worktreePath, ["add", "-A", "--", ...allowedDirtyPaths]);
+            const forcedPaths = new Set();
+            for (const path of await recordedProjectContextPaths(worktreePath)) {
+                if (allowedPathSet.has(path) && await isTransferredProjectContext(worktreePath, path)) {
+                    await runGit(worktreePath, ["add", "-f", "--", path]);
+                    forcedPaths.add(path);
+                }
+            }
+            const ordinaryPaths = allowedDirtyPaths.filter((path) => !forcedPaths.has(path));
+            if (ordinaryPaths.length > 0) await runGit(worktreePath, ["add", "-A", "--", ...ordinaryPaths]);
         }
     } else {
         await stageDirtyPathsExceptOwnedRuntime(worktreePath);
@@ -592,7 +602,7 @@ export async function checkpointExecutionPreparation({
     // active Epic family. Use the same preparation boundary as resume detection;
     // these files are the input baseline, never post-validation exceptions.
     const dirtyPreparationPaths = [];
-    for (const path of await gitStatusPaths(worktreePath)) {
+    for (const path of new Set([...await gitStatusPaths(worktreePath), ...PROJECT_CONTEXT_PATHS])) {
         if (
             !isRunWieldOwnedRuntimePath(path) &&
             (isExecutionPreparationPath(path) || await isTransferredProjectContext(worktreePath, path))
