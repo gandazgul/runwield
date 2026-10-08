@@ -428,7 +428,7 @@ Deno.test("default review guide usage frames update a running job and remain aft
             await Deno.mkdir(binDir, { recursive: true });
             const firstFrame = `${GUIDE_EVENT_PREFIX}${
                 JSON.stringify({
-                    version: 1,
+                    version: 2,
                     type: "usage",
                     usage: {
                         inputTokens: 1200,
@@ -441,7 +441,7 @@ Deno.test("default review guide usage frames update a running job and remain aft
             }`;
             const secondFrame = `${GUIDE_EVENT_PREFIX}${
                 JSON.stringify({
-                    version: 1,
+                    version: 2,
                     type: "usage",
                     usage: {
                         inputTokens: 40,
@@ -637,7 +637,7 @@ Deno.test("failed default review guide commands report subprocess stderr and kee
             await Deno.mkdir(binDir, { recursive: true });
             const usageFrame = `${GUIDE_EVENT_PREFIX}${
                 JSON.stringify({
-                    version: 1,
+                    version: 2,
                     type: "usage",
                     usage: {
                         inputTokens: 5,
@@ -710,7 +710,7 @@ Deno.test("default review guide commands fail clearly on malformed usage frames"
                 [
                     "#!/bin/sh",
                     "cat >/dev/null",
-                    `echo '${GUIDE_EVENT_PREFIX}{"version":1,"type":"usage","usage":{"inputTokens":999}}' >&2`,
+                    `echo '${GUIDE_EVENT_PREFIX}{"version":2,"type":"usage","usage":{"inputTokens":999}}' >&2`,
                     "cat <<'JSON'",
                     makeGuideJson("Malformed frame guide"),
                     "JSON",

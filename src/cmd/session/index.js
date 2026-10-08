@@ -41,7 +41,6 @@ export async function runSessionCommand(_argv, options = {}) {
     } = info;
 
     const totalMessages = userMessages + assistantMessages;
-    const totalTokens = inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens;
 
     const sessionName = info.name;
     const sessionFile = info.file;
@@ -103,16 +102,51 @@ export async function runSessionCommand(_argv, options = {}) {
     }
     lines.push("");
 
-    lines.push(theme.bold("Tokens"));
-    lines.push(`${theme.fg("dim", "Input:")} ${inputTokens.toLocaleString()}`);
-    lines.push(`${theme.fg("dim", "Output:")} ${outputTokens.toLocaleString()}`);
-    if (cacheReadTokens > 0) {
-        lines.push(`${theme.fg("dim", "Cache Read:")} ${cacheReadTokens.toLocaleString()}`);
+    lines.push(theme.bold("Assistant Tokens"));
+    lines.push(`${theme.fg("dim", "Input:")} ${formatUsage(inputTokens, info.usageAvailability.inputTokens)}`);
+    lines.push(`${theme.fg("dim", "Output:")} ${formatUsage(outputTokens, info.usageAvailability.outputTokens)}`);
+    lines.push(
+        `${theme.fg("dim", "Cache Read:")} ${formatUsage(cacheReadTokens, info.usageAvailability.cacheReadTokens)}`,
+    );
+    lines.push(
+        `${theme.fg("dim", "Cache Write:")} ${formatUsage(cacheWriteTokens, info.usageAvailability.cacheWriteTokens)}`,
+    );
+    const tokenCategories = [inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens];
+    const total = tokenCategories.every((value) => value === null)
+        ? null
+        : tokenCategories.reduce((sum, value) => (sum ?? 0) + (value ?? 0), 0);
+    const totalAvailability =
+        Object.entries(info.usageAvailability).filter(([category]) => category !== "costUsd").every((
+                [, availability],
+            ) => availability === "complete"
+            )
+            ? "complete"
+            : "partial";
+    lines.push(`${theme.fg("dim", "Total:")} ${formatUsage(total, totalAvailability)}`);
+    if (compactionCount > 0) {
+        lines.push("");
+        lines.push(theme.bold("Compaction Usage (separate from assistant tokens)"));
+        const usage = info.compactionUsage;
+        lines.push(`${theme.fg("dim", "Input:")} ${formatUsage(usage.inputTokens, usage.availability.inputTokens)}`);
+        lines.push(`${theme.fg("dim", "Output:")} ${formatUsage(usage.outputTokens, usage.availability.outputTokens)}`);
+        lines.push(
+            `${theme.fg("dim", "Cache Read:")} ${
+                formatUsage(usage.cacheReadTokens, usage.availability.cacheReadTokens)
+            }`,
+        );
+        lines.push(
+            `${theme.fg("dim", "Cache Write:")} ${
+                formatUsage(usage.cacheWriteTokens, usage.availability.cacheWriteTokens)
+            }`,
+        );
+        lines.push(`${theme.fg("dim", "Cost (USD):")} ${formatUsage(usage.costUsd, usage.availability.costUsd)}`);
     }
-    if (cacheWriteTokens > 0) {
-        lines.push(`${theme.fg("dim", "Cache Write:")} ${cacheWriteTokens.toLocaleString()}`);
-    }
-    lines.push(`${theme.fg("dim", "Total:")} ${totalTokens.toLocaleString()}`);
 
     uiAPI.appendSystemMessage(lines.join("\n"));
+}
+
+/** @param {number | null} value @param {import('../../shared/session/runtime-usage-totals.ts').MeasurementAvailability} availability */
+function formatUsage(value, availability) {
+    if (value === null) return "unavailable";
+    return `${value.toLocaleString()}${availability === "partial" ? " (partial)" : ""}`;
 }
