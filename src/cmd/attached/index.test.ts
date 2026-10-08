@@ -85,7 +85,7 @@ Deno.test("CLI plan_written accepts the Plan and matches the coordinator replay"
         const input = planWrittenInput(planning);
         const cli = await spawnAttachedCli("plan_written", projectRoot, input);
         assertEquals(cli.code, 0, cli.stderr);
-        assertEquals(cli.result.ok && cli.result.workflow.state, "plan_submitted");
+        assertEquals(cli.result.ok && cli.result.workflow.state, "awaiting_review");
         assertEquals(cli.result, await runOperation("plan_written", projectRoot, input));
     });
 });

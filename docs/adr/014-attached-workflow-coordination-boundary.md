@@ -97,8 +97,12 @@ preserve existing Native and Managed behavior and is a hard prerequisite for Att
   cannot acquire an Attached-specific meaning.
 - The Attached coordinator needs its own durable request binding and external-action checkpoints, but these records must
   reference rather than duplicate Plan Status, Plan Events, worktree registry state, or validation evidence.
-- Process-per-call review requires durable pending-review decisions and status polling instead of relying solely on an
-  in-process `waitForDecision()` promise.
+- Attached Review Rounds persist identity and the actual reviewed revision before opening Plannotator. A browser
+  decision applies through Core and commits its Attached outcome before acknowledgment. The MCP process hosts the
+  surface, reuses its page across rounds, and stops it when the host transport closes. `status` rehosts a pending round
+  after process loss or returns its saved outcome; `/runwield:plan-review` can find the project's most recent open
+  workflow in a fresh host conversation. No host transcript enters the payload or record. Core's local
+  `waitForDecision()` promise remains a waiter, not Attached review authority.
 - The adapter needs a versioned compatibility matrix and black-box coverage for supported Claude Code versions, subagent
   isolation, cancellation, and worktree handoff.
 - The only runtime restriction on Attached code is that it never starts a model turn. Attached modules may import shared

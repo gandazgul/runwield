@@ -27,8 +27,10 @@ const ENVELOPE_ADDENDUM = [
     "  - `workflowId`: `workflow.workflowId` from the last RunWield result.",
     "  - `expectedRevision`: `workflow.revision` from the last RunWield result.",
     "  - `payload.actionId`: `workflow.nextAction.actionId` from the last RunWield result.",
-    "- After each call, follow `workflow.nextAction` and the `instructions` in the result. A result without " +
-    "`instructions` ends the RunWield role: tell the user the outcome and continue as ordinary Claude Code.",
+    "- After each call, follow `workflow.nextAction`, even when the result has no `instructions`. Follow role " +
+    "instructions when present. For `plan_ready`, report approval and readiness; execution handoff is a later " +
+    "Preview step. For `return_to_host`, tell the user the outcome and continue as ordinary Claude Code.",
+    "- Stay in Claude Code and the browser; use no RunWield CLI or TUI commands.",
 ].join("\n");
 
 const ROLE_ADDENDUM: Record<AttachedHostRole, string> = {
@@ -39,8 +41,13 @@ const ROLE_ADDENDUM: Record<AttachedHostRole, string> = {
         "creates them in the repository. When the list is empty, nothing new is created.",
         "- Submit with `plan_written`. Put `planName`, and optionally `executionAgent` and " +
         "`collaborationRecommendation`, in `payload` next to `actionId`.",
-        "- Plan review in the browser is not available in Claude Code yet. After `plan_written` succeeds, tell the " +
-        "user the Plan path and that `wld` can open and run it.",
+        "- When `workflow.nextAction.kind` is `review`, show `review.url` and poll `status` with a short shell sleep " +
+        "between calls while browser review is pending.",
+        "- When feedback returns a Planner action, read its feedback, image paths, and note, revise the Plan, then " +
+        "call `plan_written` with the new action ID and current revision. Browser edits are already saved; do not " +
+        "apply them twice. The live browser page is reused for the next round.",
+        "- After cancellation, tell the user that review was canceled and ask what to do next. The workflow remains " +
+        "open. `/runwield:plan-review` restores the last open workflow in a fresh conversation.",
     ].join("\n"),
 };
 

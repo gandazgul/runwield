@@ -26,6 +26,7 @@ import type { TriageOutcome } from "../workflow/triage-outcome.ts";
 import type {
     AttachedOperationResult,
     AttachedPlanReference,
+    AttachedReviewRound,
     AttachedWorkflowClosure,
     AttachedWorkflowState,
     PendingHostAction,
@@ -58,6 +59,7 @@ export interface AttachedWorkflowRecord {
     acceptedOperations: Record<string, AcceptedOperation>;
     triageOutcome: TriageOutcome | null;
     plan: AttachedPlanReference | null;
+    review: AttachedReviewRound | null;
     closure: AttachedWorkflowClosure | null;
     createdAt: string;
     updatedAt: string;
@@ -159,6 +161,27 @@ export async function loadAttachedWorkflowRecord(
     if (record) return { status: record.projectRoot === location.projectRoot ? "found" : "moved", record };
     const moved = await findMovedRecord(location, workflowId);
     return moved ? { status: "moved", record: moved } : { status: "missing" };
+}
+
+/** Select only this project's latest open workflow; do not scan other project bindings. */
+export async function loadLatestAttachedWorkflowRecord(
+    location: AttachedWorkflowLocation,
+): Promise<AttachedWorkflowRecord | null> {
+    let latest: AttachedWorkflowRecord | null = null;
+    try {
+        for await (const entry of Deno.readDir(location.workflowsDir)) {
+            if (!entry.isFile || !entry.name.endsWith(".json")) continue;
+            const record = await readRecordAt(join(location.workflowsDir, entry.name));
+            if (
+                record && record.projectRoot === location.projectRoot && record.state !== "closed" &&
+                (!latest || record.updatedAt > latest.updatedAt ||
+                    (record.updatedAt === latest.updatedAt && record.workflowId > latest.workflowId))
+            ) latest = record;
+        }
+    } catch (error) {
+        if (!(error instanceof Deno.errors.NotFound)) throw error;
+    }
+    return latest;
 }
 
 interface LockDocument {

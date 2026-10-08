@@ -31,3 +31,19 @@ Manual verification steps for attached-mode-claude-feature-preview/02-plan-one-f
 - [ ] Ask Claude an unrelated question after submission; confirm it answers normally.
 
 <!-- runwield:manual-qa:end child="attached-mode-claude-feature-preview/02-plan-one-feature-request-inside-claude-code" -->
+
+<!-- runwield:manual-qa:start child="attached-mode-claude-feature-preview/03-review-and-approve-plans-through-durable-plannotator-decisions" -->
+
+## Review and approve Plans through durable Plannotator decisions
+
+Manual verification steps for
+attached-mode-claude-feature-preview/03-review-and-approve-plans-through-durable-plannotator-decisions
+
+- [ ] In Claude Code, submit a plan and confirm the Plannotator review opens in the browser.
+- [ ] Submit feedback, confirm Claude receives it, revises the plan, and opens the next review round in the same browser
+      page.
+- [ ] Approve a reviewed plan and confirm its status becomes `ready_for_work`.
+- [ ] With a review pending, stop the MCP server; start a fresh Claude conversation and run `/runwield:plan-review`.
+      Confirm the review reopens and the old browser endpoint is no longer active.
+
+<!-- runwield:manual-qa:end child="attached-mode-claude-feature-preview/03-review-and-approve-plans-through-durable-plannotator-decisions" -->

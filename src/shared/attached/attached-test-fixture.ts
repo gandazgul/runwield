@@ -5,6 +5,7 @@
 
 import { fromFileUrl, join } from "@std/path";
 import { defineCommittedGitFixture } from "../git-test-fixture.ts";
+import { savePlan } from "../../plan-store.js";
 import { runAttachedOperation } from "./coordinator.ts";
 import type { AttachedJsonObject, AttachedOperationName, AttachedOperationResult } from "./operations.ts";
 import { locateAttachedWorkflows } from "./record-store.ts";
@@ -159,4 +160,17 @@ export async function spawnAttachedCli(
     } catch {
         throw new Error(`wld attached ${operation} printed no JSON result.\nstdout:\n${stdout}\nstderr:\n${stderr}`);
     }
+}
+
+/** Submit one FEATURE Plan through the real coordinator and return its pending review. */
+export async function submitReview(projectRoot: string) {
+    const { planning } = await reachPlanning(projectRoot);
+    await savePlan(projectRoot, "dark-mode-toggle", "# Toggle\n\nAdd a toggle.\n", {
+        classification: "PLANNED_CHANGE",
+        executionAgent: "engineer",
+        collaborationRecommendation: "pair",
+    });
+    const submitted = await runOperation("plan_written", projectRoot, planWrittenInput(planning));
+    if (!submitted.ok) throw new Error(JSON.stringify(submitted));
+    return submitted.workflow;
 }

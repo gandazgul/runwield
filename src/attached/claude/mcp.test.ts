@@ -94,11 +94,20 @@ Deno.test("MCP submits a Plan and records client and loaded plugin evidence with
     const pluginRoot = await Deno.makeTempDir({ prefix: "runwield-attached-plugin-" });
     await Deno.mkdir(join(pluginRoot, ".claude-plugin"));
     await Deno.writeTextFile(join(pluginRoot, ".claude-plugin", "plugin.json"), JSON.stringify({ version: "9.8.7" }));
+    const bin = join(pluginRoot, "bin");
+    await Deno.mkdir(bin);
+    for (const opener of ["open", "xdg-open"]) {
+        await Deno.writeTextFile(join(bin, opener), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    }
     const transport = new StdioClientTransport({
         command: Deno.execPath(),
         args: ["run", "-A", "--quiet", "--no-check", "--config", DENO_CONFIG_PATH, CLI_PATH, "attached", "mcp"],
         cwd: projectRoot,
-        env: { ...Deno.env.toObject(), RUNWIELD_ATTACHED_PLUGIN_ROOT: pluginRoot },
+        env: {
+            ...Deno.env.toObject(),
+            RUNWIELD_ATTACHED_PLUGIN_ROOT: pluginRoot,
+            PATH: `${bin}:${Deno.env.get("PATH")}`,
+        },
         stderr: "pipe",
     });
     const client = new Client({ name: "claude-code", version: "2.1.292" });
@@ -123,7 +132,7 @@ Deno.test("MCP submits a Plan and records client and loaded plugin evidence with
             }),
         );
         assert(result.ok);
-        assertEquals(result.workflow.state, "plan_submitted");
+        assertEquals(result.workflow.state, "awaiting_review");
         const record: AttachedWorkflowRecord = JSON.parse(await readRecordBytes(projectRoot, ids.workflowId));
         for (const accepted of Object.values(record.acceptedOperations)) {
             assertEquals(accepted.evidence.host, "claude-code");
