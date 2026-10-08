@@ -597,19 +597,25 @@ What RunWield can measure depends on the backend:
 
 ### `codereview`
 
-Type: string. Default: `none`.
+Type: string. Default: `ask`.
 
 `codereview` controls whether executable Plan validation includes a human Plannotator code review gate. The gate runs
 only after local validation and semantic review pass, and before merge-back or worktree cleanup.
 
 Values:
 
-- `none`: default. Keep the current fully automated validation behavior.
-- `ask`: prompt after semantic review passes. Choosing skip records the Plan as verified after merge-back without human
-  review.
+- `none`: skip the optional human gate and use automated validation.
+- `ask`: default. Prompt after semantic review passes. Choosing skip records the Plan as verified after merge-back
+  without human review.
 - `always`: open the Plannotator code review UI automatically after semantic review passes.
 
-RunWield trims and normalizes this value case-insensitively; invalid or missing values behave as `none`.
+RunWield trims and normalizes this value case-insensitively. A missing value uses `ask`; existing explicit `none`,
+`ask`, and `always` choices remain unchanged. Invalid values retain the legacy `none` behavior.
+
+Use `/settings` to change Code review and Guided review for this project or globally. The menu labels stored `none` as
+**Never** and preserves Guided review's additional **Auto** choice. Project overrides remain in effect when a global
+preference changes. The same menu exposes the existing global-only Default project trust preference (`ask`, `always`,
+`never`); changing it does not invent an additional execution permission gate.
 
 This setting governs the gate that runs _after_ semantic approval. It does not suppress the code review offered when
 automatic semantic rounds run out: if you choose to open code review there, it opens even under `none`, because nothing

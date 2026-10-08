@@ -49,6 +49,8 @@ function plans(result: GoldenScenarioResult): CapturedPlan[] {
 }
 
 export const concurrentPlansIdentityScenario = {
+    // This scenario isolates automated delivery; human policy gates have dedicated journeys.
+    globalSettings: { defaultProvider: "golden", defaultModel: "faux", codereview: "none" },
     name: "project-two-plans-preserve-identity-and-drain-registry",
     composedTui: true,
     initialAgentName: "engineer",

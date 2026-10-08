@@ -156,6 +156,8 @@ export const projectPlanReviewScenario = {
 };
 
 export const twoChildProjectContinuationScenario = {
+    // This scenario isolates automated delivery; human policy gates have dedicated journeys.
+    globalSettings: { defaultProvider: "golden", defaultModel: "faux", codereview: "none" },
     name: "project-two-child-continuation-epic-evidence",
     composedTui: true,
     initialAgentName: "planner",

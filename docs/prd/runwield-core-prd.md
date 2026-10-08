@@ -723,18 +723,26 @@ Execution requirements:
 - reconcile unchanged, recorded Init output and validation-time settings writes during local publication. Preserve
   original bytes and staging durably until integration, restore them after failed publication, and retain validated
   incoming versions on success. Later user edits and distinct staged versions remain protected;
-- distinguish implementation being finished from validation succeeding.
+- distinguish implementation being finished from validation succeeding;
+- classify only the proven managed `.gitignore` delta as preparation in checkpoint, refresh, and resume paths. Never
+  adopt unrelated working-file or index changes, including partial staging, as an owned preparation commit;
+- have Planner and Architect inspect pending changes, incorporate relevant evidence, and silently omit unrelated edits
+  from discussion and Plans. A dirty checkout alone is neither a blocker nor a Plan risk.
 
 Workflow Validation requirements:
 
 - run the project's configured checks and review the change against the approved Plan;
-- reuse the existing execution-checkout command or inherit the project command without prompting again. Save a newly
-  supplied validation command in both scopes and record the host-owned write so a validated checkout-specific command
-  repair can be delivered without asking the user to commit or stash RunWield's own settings. Recording that write must
-  not claim ownership of pre-existing or subsequent user edits. A context transfer receipt identifies copied bytes; only
-  recorded Init or validation writes establish ownership of the source changes. Cancellation during command setup
-  remains effective and must not start a validation process afterward;
-- offer human code review when enabled;
+- reuse the validation command confirmed during Init or an earlier validation attempt across execution worktrees,
+  repairs, and resumed Sessions. Ask only when neither the execution checkout nor the project has a configured command.
+  Save a new command as a project preference and in the execution checkout; record host-owned writes so validated
+  checkout-specific repairs can be delivered without asking users to commit or stash RunWield settings. Do not claim
+  ownership of existing or later user edits. Context receipts identify copied bytes; only recorded Init or validation
+  writes establish ownership of source changes. Cancellation during setup must prevent validation from starting;
+- retain an explicit full-project verification command during Plan submission even when Init was skipped or incomplete.
+  Discovery fills missing configuration only; a deliberate user selection can replace a saved command. Preserve exact
+  shell syntax and checkout-local repairs. Never infer authority from a diagnostic command or prose example;
+- offer human code review by default (`codereview: ask`), preserve explicit choices, and pause on canceled selection;
+
 - repair failed checks or review findings within the execution worktree;
 - give a repair Agent the relevant findings and instructions without unrelated earlier context;
 - keep publication-conflict repairs attached to the publication attempt, not CI or code-review repair checkpoints; an
@@ -806,6 +814,7 @@ Recovery requirements:
   tracked settings file, including supported JSONC comments and trailing commas. Unrelated user settings edits made
   before worktree creation, before the host write, after it, or staged independently must not be overwritten or silently
   committed.
+
 - Given a ready approved Plan and existing checkout edits, when execution starts, the approved work is isolated and the
   user’s edits remain preserved.
 - Given a worktree created from `main`, when the execution Plan is edited to target `release/next` after the Session
@@ -868,6 +877,35 @@ Recovery requirements:
   and never reports an unproven rollback or publication.
 - When the user deliberately abandons, RunWield ends the workflow with that outcome and retains unmerged work unless
   loss-free cleanup is proven or deletion is explicitly authorized.
+
+**Requirement: Review policy preferences.**
+
+Code Review defaults to asking after automated validation and before merge. Existing explicit `none`, `ask`, or `always`
+settings and already-recorded review decisions remain authoritative. Closing or declining to answer the offer leaves
+publication paused; it does not grant approval.
+
+The interactive `/settings` menu exposes the supported Code Review and Guided Review policies with project/global
+persistence and clear project-override behavior. It also exposes the existing global-only default project trust
+preference. Guided Review retains its `auto` option; the UI labels stored review `none` as Never without changing the
+stored contract.
+
+Acceptance: a fresh project receives the code-review offer before publication; explicit skip may continue, no answer
+pauses, and explicit always still requires review. Policy edits survive reload, cancelling edits changes nothing, and a
+global edit does not replace an explicit project override.
+
+**Acceptance scenarios: Completion recovery and preparation.**
+
+- Given delivered code with a failed Work Record, the completion menu offers **Retry Work Record**. Retry regenerates
+  only that Plan's record (or its eligible parent Epic), keeps the current Session, and never repeats implementation,
+  validation, merge, or other Plans' recording. Repeating a successful retry does not duplicate the record.
+- Given a failed record, user-facing guidance explains that `wld wr backfill` regenerates missing or failed records
+  across completed Plans; `wld wr retry <plan-name>` targets one Plan. Recording failure does not undo delivery.
+- Given an explicit full verification command during direct planning, Plan submission retains it without Init, and
+  resumed validation runs it without asking again. A discovered alternative cannot overwrite a saved or repaired
+  command; a deliberate user replacement can. Focused diagnostics and quoted examples do not change the setting.
+- Given a reused worktree with unrelated staged or unstaged ignore rules, preparation preserves both versions and
+  classifies them as implementation rather than silently committing them. Ordinary and Tutorial execution share this
+  rule.
 
 ### Semantic review and repair
 

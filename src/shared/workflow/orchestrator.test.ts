@@ -528,7 +528,7 @@ Deno.test("completed planned work runs the real validation lifecycle around exte
             await Deno.mkdir(`${projectRoot}/.wld`, { recursive: true });
             await Deno.writeTextFile(
                 `${projectRoot}/.wld/settings.json`,
-                JSON.stringify({ workRecords: { autoGenerateOnPlanCompletion: false } }),
+                JSON.stringify({ codereview: "none", workRecords: { autoGenerateOnPlanCompletion: false } }),
             );
             await savePlan(projectRoot, "feature-validated", "# Validated Feature", {
                 classification: "PLANNED_CHANGE",
