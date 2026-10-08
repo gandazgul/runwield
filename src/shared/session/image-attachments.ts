@@ -10,6 +10,52 @@ import { parseProviderModel } from "../models/model-validation.ts";
 import { getResolvedVisionFallbackModelSetting } from "../settings.js";
 import { getRunWieldSessionDir } from "./root-session.js";
 
+import type { SessionManager } from "@earendil-works/pi-coding-agent";
+import type { ImageContent } from "@earendil-works/pi-ai";
+import type { ImageAttachment } from "./types.js";
+import type { ModelDiscoveryNetworkPort, RunWieldModel, RunWieldModelRegistry } from "../models/model-registry.ts";
+
+export interface ImageInputModel {
+    input?: string[];
+}
+export interface ImageReferenceOptions {
+    sessionManager?: SessionManager;
+    cwd: string;
+}
+export interface ResolvedImageReference {
+    path: string;
+    mimeType: string;
+    refType: "attachment" | "local";
+}
+export interface ImageRoutingOptions {
+    activeModel?: ImageInputModel | null;
+    fallbackModelRef?: string;
+}
+export interface PrepareImagesOptions extends ImageRoutingOptions {
+    text: string;
+    images?: ImageAttachment[];
+}
+export type ImageRoutingMode = "direct" | "fallback" | "none";
+export interface PreparedImages {
+    ok: true;
+    text: string;
+    images: ImageContent[] | undefined;
+    mode: ImageRoutingMode;
+}
+export interface ImageRoutingFailure {
+    ok: false;
+    message: string;
+}
+export interface ImagePreflightSuccess {
+    ok: true;
+    warning?: string;
+    mode: ImageRoutingMode;
+}
+export interface VisionFallbackModel {
+    model: RunWieldModel;
+    modelRef: string;
+}
+
 export const IMAGE_FALLBACK_BLOCK_MESSAGE =
     "Cannot attach image: current model does not support vision and no visionFallback.model is configured.\nSee https://docs.runwield.dev/settings/#visionfallback to configure an image fallback model.";
 
@@ -29,51 +75,35 @@ const EXT_TO_MIME = new Map([
     [".webp", "image/webp"],
 ]);
 
-/** @param {unknown} model */
-export function modelSupportsImageInput(model) {
-    const input = /** @type {{ input?: unknown }} */ (model || {}).input;
+export function modelSupportsImageInput(model: ImageInputModel | null | undefined): boolean {
+    const input = (model || {}).input;
     return Array.isArray(input) && input.includes("image");
 }
 
-/**
- * @param {string} mimeType
- * @returns {string}
- */
-export function extensionForMimeType(mimeType) {
+export function extensionForMimeType(mimeType: string): string {
     const ext = MIME_TO_EXT.get(String(mimeType || "").toLowerCase());
     if (!ext) throw new Error(`Unsupported image MIME type: ${mimeType}`);
     return ext;
 }
 
-/**
- * @param {string} filePath
- * @returns {string}
- */
-export function mimeTypeForImagePath(filePath) {
+export function mimeTypeForImagePath(filePath: string): string {
     const mimeType = EXT_TO_MIME.get(extname(filePath).toLowerCase());
     if (!mimeType) throw new Error(`Unsupported image file type: ${filePath}`);
     return mimeType;
 }
 
-/**
- * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined} sessionManager
- * @param {string} cwd
- * @returns {string}
- */
-export function getSessionImageDir(sessionManager, cwd) {
+export function getSessionImageDir(sessionManager: SessionManager | undefined, cwd: string): string {
     if (!sessionManager || typeof sessionManager.getSessionId !== "function") {
         throw new Error("Cannot persist image attachment: no active session is available.");
     }
     return join(getRunWieldSessionDir(cwd), `${sessionManager.getSessionId()}_images`);
 }
 
-/**
- * @param {{ base64: string, mimeType: string }} image
- * @param {import('@earendil-works/pi-coding-agent').SessionManager | undefined} sessionManager
- * @param {string} cwd
- * @returns {Promise<import('./types.js').ImageAttachment>}
- */
-export async function persistImageAttachment(image, sessionManager, cwd) {
+export async function persistImageAttachment(
+    image: ImageAttachment,
+    sessionManager: SessionManager | undefined,
+    cwd: string,
+): Promise<ImageAttachment> {
     const ext = extensionForMimeType(image.mimeType);
     const uuid = crypto.randomUUID();
     const dir = getSessionImageDir(sessionManager, cwd);
@@ -84,21 +114,12 @@ export async function persistImageAttachment(image, sessionManager, cwd) {
     return { ...image, ref: `attachment:${uuid}`, path };
 }
 
-/**
- * @param {string} imageRef
- * @returns {string | null}
- */
-function parseAttachmentRef(imageRef) {
+function parseAttachmentRef(imageRef: string): string | null {
     const match = /^attachment:([0-9a-fA-F-]{32,36})$/.exec(imageRef.trim());
     return match ? match[1] : null;
 }
 
-/**
- * @param {string} imageRef
- * @param {{ sessionManager?: import('@earendil-works/pi-coding-agent').SessionManager, cwd: string }} opts
- * @returns {Promise<{ path: string, mimeType: string, refType: "attachment" | "local" }>}
- */
-export async function resolveImageRef(imageRef, opts) {
+export async function resolveImageRef(imageRef: string, opts: ImageReferenceOptions): Promise<ResolvedImageReference> {
     const ref = String(imageRef || "").trim();
     if (!ref) throw new Error("imageRef is required.");
 
@@ -136,17 +157,12 @@ export async function resolveImageRef(imageRef, opts) {
     return { path, mimeType: mimeTypeForImagePath(path), refType: "local" };
 }
 
-/** @param {import('./types.js').ImageAttachment} image */
-export function formatImageAttachmentMarker(image) {
+export function formatImageAttachmentMarker(image: ImageAttachment): string {
     const ref = image.ref || (image.path ? basename(image.path) : "unpersisted-image");
     return `[Image attached: ${ref} ${image.mimeType}]`;
 }
 
-/**
- * @param {{ text: string, images?: import('./types.js').ImageAttachment[], activeModel?: unknown, fallbackModelRef?: string }} opts
- * @returns {{ ok: true, text: string, images: Array<{ type: "image", data: string, mimeType: string }> | undefined, mode: "direct" | "fallback" | "none" } | { ok: false, message: string }}
- */
-export function prepareImagesForModel(opts) {
+export function prepareImagesForModel(opts: PrepareImagesOptions): PreparedImages | ImageRoutingFailure {
     const images = opts.images || [];
     if (images.length === 0) return { ok: true, text: opts.text, images: undefined, mode: "none" };
     if (modelSupportsImageInput(opts.activeModel)) {
@@ -164,12 +180,10 @@ export function prepareImagesForModel(opts) {
     return { ok: false, message: IMAGE_FALLBACK_BLOCK_MESSAGE };
 }
 
-/**
- * @param {import('./types.js').ImageAttachment[]} images
- * @param {{ activeModel?: unknown, fallbackModelRef?: string }} opts
- * @returns {{ ok: true, warning?: string, mode: "direct" | "fallback" | "none" } | { ok: false, message: string }}
- */
-export function preflightImageAttachments(images, opts) {
+export function preflightImageAttachments(
+    images: ImageAttachment[],
+    opts: ImageRoutingOptions,
+): ImagePreflightSuccess | ImageRoutingFailure {
     if (!images || images.length === 0) return { ok: true, mode: "none" };
     if (modelSupportsImageInput(opts.activeModel)) return { ok: true, mode: "direct" };
     if (opts.fallbackModelRef) {
@@ -183,13 +197,11 @@ export function preflightImageAttachments(images, opts) {
     return { ok: false, message: IMAGE_FALLBACK_BLOCK_MESSAGE };
 }
 
-/**
- * @param {any} modelRegistry
- * @param {import('../models/model-registry.ts').ModelDiscoveryNetworkPort} network
- * @param {string} projectRoot
- * @returns {Promise<{ model: any, modelRef: string } | undefined>}
- */
-export async function resolveVisionFallbackModel(modelRegistry, network, projectRoot) {
+export async function resolveVisionFallbackModel(
+    modelRegistry: RunWieldModelRegistry,
+    network: ModelDiscoveryNetworkPort,
+    projectRoot: string,
+): Promise<VisionFallbackModel | undefined> {
     const configured = getResolvedVisionFallbackModelSetting(projectRoot);
     if (!configured) return undefined;
 

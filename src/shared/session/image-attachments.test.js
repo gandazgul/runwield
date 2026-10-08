@@ -11,7 +11,7 @@ import {
     prepareImagesForModel,
     resolveImageRef,
     resolveVisionFallbackModel,
-} from "./image-attachments.js";
+} from "./image-attachments.ts";
 import { __resetSettingsForTests } from "../settings.js";
 
 const NO_MODEL_DISCOVERY_NETWORK = {
@@ -162,7 +162,10 @@ Deno.test("resolveVisionFallbackModel reports unknown, unauthenticated, and non-
             await assertRejects(
                 () =>
                     resolveVisionFallbackModel(
-                        { find: () => undefined, hasConfiguredAuth: () => true },
+                        /** @type {import("../models/model-registry.ts").RunWieldModelRegistry} */ (/** @type {unknown} */ ({
+                            find: () => undefined,
+                            hasConfiguredAuth: () => true,
+                        })),
                         NO_MODEL_DISCOVERY_NETWORK,
                         getCwd(),
                     ),
@@ -176,7 +179,10 @@ Deno.test("resolveVisionFallbackModel reports unknown, unauthenticated, and non-
             await assertRejects(
                 () =>
                     resolveVisionFallbackModel(
-                        { find: () => model, hasConfiguredAuth: () => false },
+                        /** @type {import("../models/model-registry.ts").RunWieldModelRegistry} */ (/** @type {unknown} */ ({
+                            find: () => model,
+                            hasConfiguredAuth: () => false,
+                        })),
                         NO_MODEL_DISCOVERY_NETWORK,
                         getCwd(),
                     ),
@@ -190,7 +196,10 @@ Deno.test("resolveVisionFallbackModel reports unknown, unauthenticated, and non-
             await assertRejects(
                 () =>
                     resolveVisionFallbackModel(
-                        { find: () => model, hasConfiguredAuth: () => true },
+                        /** @type {import("../models/model-registry.ts").RunWieldModelRegistry} */ (/** @type {unknown} */ ({
+                            find: () => model,
+                            hasConfiguredAuth: () => true,
+                        })),
                         NO_MODEL_DISCOVERY_NETWORK,
                         getCwd(),
                     ),

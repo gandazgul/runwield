@@ -2,7 +2,7 @@ import { assertEquals } from "@std/assert";
 import { join } from "@std/path";
 import { getHomeDir } from "../constants.js";
 import { withProcessGlobalTestLock } from "../testing/process-global-lock.ts";
-import { persistImageAttachment } from "../shared/session/image-attachments.js";
+import { persistImageAttachment } from "../shared/session/image-attachments.ts";
 import { createSeeImageTool, DEFAULT_SEE_IMAGE_PROMPT, extractAssistantText } from "./see-image.ts";
 
 const TEST_COST = Object.freeze({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 });

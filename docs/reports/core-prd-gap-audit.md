@@ -269,7 +269,7 @@ with review-round policy. Read it against the current PRD. `offer-semantic-revie
 **Required outcome:** Saved Session images remain available through execution, repair, and resume. Another Session must
 not inherit access. A continuous visible transcript is not sufficient if its attachment references no longer resolve.
 
-**Evidence:** `src/shared/session/image-attachments.js:62–66,104–116` stores and looks up images using the current Pi
+**Evidence:** `src/shared/session/image-attachments.ts:62–66,104–116` stores and looks up images using the current Pi
 session ID. `src/shared/session/segment-rollover.ts:98–113` creates a new Pi ID. The inspected rollover path has no
 image transfer or predecessor lookup. `src/tools/see-image.ts:94–98` supplies the current manager and cwd only.
 
@@ -332,7 +332,7 @@ scope; this local audit did not research current CLI APIs.
 Project settings and preset precedence, and preserve typed text and previews when setup needs correction.
 
 **Finding A:** `src/shared/session/session.js:2041–2044` eagerly resolves fallback for any text-only Pi Agent, without
-requiring an image. `image-attachments.js:194–224` throws for missing authentication, unknown models, or unsuitable
+requiring an image. `image-attachments.ts:194–224` throws for missing authentication, unknown models, or unsuitable
 models. Example: old fallback credentials expire; starting a text-only Agent fails even for a text-only request.
 
 **Finding B:** `src/shared/settings.js:617–629` resolves fallback without a Project root. The underlying reads default
