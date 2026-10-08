@@ -572,7 +572,7 @@ export async function generateRecorderSections(
                 ? `turn ended with ${stopped}`
                 : "turn ended without an accepted work_record_completed call";
             if (attempt === 2 || stopped === "error" || stopped === "aborted") {
-                throw new Error(`Recorder submission failed after ${attempt} attempt(s): ${diagnostic}.`);
+                throw new Error(`Recorder submission failed after ${attempt} attempt(s): ${diagnostic}`);
             }
         }
         throw new Error("Recorder submission attempts exhausted.");
