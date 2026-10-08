@@ -4,57 +4,77 @@
  * outcomes into semantic caller actions without mutating Plan Status.
  */
 
-/**
- * @typedef {"execute_plan"|"start_slicer"|"save_plan"|"run_validation"|"complete_session"|"stay_with_agent"|"halt"} WorkflowDecisionKind
- */
+import type { TriageMeta } from "../../tools/plan-written.ts";
+import type { PlanExecutionResult, PlanOutcomeResult } from "./workflow.js";
 
-/**
- * @typedef {"plan_feedback"|"plan_review_canceled"|"missing_plan_declaration"|"execution_incomplete"|"execution_paused"|"execution_canceled"|"missing_execution_result"|"unknown_plan_outcome"} WorkflowDecisionReason
- */
+export type WorkflowDecisionKind =
+    | "execute_plan"
+    | "start_slicer"
+    | "save_plan"
+    | "run_validation"
+    | "complete_session"
+    | "stay_with_agent"
+    | "halt";
+export type WorkflowDecisionReason =
+    | "plan_feedback"
+    | "plan_review_canceled"
+    | "missing_plan_declaration"
+    | "execution_incomplete"
+    | "execution_paused"
+    | "execution_canceled"
+    | "missing_execution_result"
+    | "unknown_plan_outcome";
 
-/**
- * @typedef {Object} WorkflowDecision
- * @property {WorkflowDecisionKind} kind
- * @property {Record<string, unknown>} payload
- */
+export interface WorkflowDecisionPayload {
+    planName?: string;
+    triageMeta?: Partial<TriageMeta>;
+    reviewFeedback?: string;
+    reviewImages?: PlanOutcomeResult["images"];
+    agentName?: string;
+    reason?: string;
+    message?: string;
+    error?: PlanExecutionResult["error"];
+    pauseReason?: PlanExecutionResult["pauseReason"];
+    checkpointId?: string;
+}
 
-/**
- * @param {WorkflowDecisionKind} kind
- * @param {Record<string, unknown>} payload
- * @returns {WorkflowDecision}
- */
-function decision(kind, payload = {}) {
+export interface WorkflowDecision {
+    kind: WorkflowDecisionKind;
+    payload: WorkflowDecisionPayload;
+}
+
+export interface PostPlanningOptions {
+    planningAgentName: string;
+    fallbackTriageMeta?: TriageMeta;
+}
+
+export interface PostExecutionOptions {
+    planName: string;
+    triageMeta: TriageMeta;
+    executionAgentName: string;
+}
+
+function decision(kind: WorkflowDecisionKind, payload: WorkflowDecisionPayload = {}): WorkflowDecision {
     return { kind, payload };
 }
 
-/**
- * Build a sanitized metric payload for workflow decisions.
- *
- * @param {WorkflowDecision} workflowDecision
- * @returns {Record<string, unknown>}
- */
-export function summarizeWorkflowDecision(workflowDecision) {
+/** Build a sanitized metric payload for workflow decisions. */
+export function summarizeWorkflowDecision(workflowDecision: WorkflowDecision) {
     const payload = workflowDecision.payload || {};
     return {
         kind: workflowDecision.kind,
         reason: payload.reason,
         planName: payload.planName,
-        classification: /** @type {{ classification?: unknown }} */ (payload.triageMeta || {}).classification,
+        classification: (payload.triageMeta || {}).classification,
         nextAgent: payload.agentName,
     };
 }
 
-/**
- * Normalize the planning phase's raw plan_written outcome into a Workflow
- * Decision for callers such as the Router Orchestrator and load-plan command.
- *
- * @param {import('./workflow.js').PlanOutcomeResult | null | undefined} planOutcome
- * @param {Object} opts
- * @param {string} opts.planningAgentName
- * @param {import('../../tools/plan-written.ts').TriageMeta} [opts.fallbackTriageMeta]
- * @returns {WorkflowDecision}
- */
-export function decidePostPlanning(planOutcome, { planningAgentName, fallbackTriageMeta }) {
+/** Normalize the planning phase outcome into a semantic decision for callers. */
+export function decidePostPlanning(
+    planOutcome: PlanOutcomeResult | null | undefined,
+    { planningAgentName, fallbackTriageMeta }: PostPlanningOptions,
+): WorkflowDecision {
     const outcome = planOutcome?.outcome || "no_call";
 
     if (outcome === "approved_execute") {
@@ -65,8 +85,7 @@ export function decidePostPlanning(planOutcome, { planningAgentName, fallbackTri
             });
         }
 
-        /** @type {Record<string, unknown>} */
-        const payload = {
+        const payload: WorkflowDecisionPayload = {
             planName: planOutcome.planName,
             triageMeta: planOutcome.triageMeta || fallbackTriageMeta || {},
         };
@@ -82,8 +101,8 @@ export function decidePostPlanning(planOutcome, { planningAgentName, fallbackTri
                 reason: "missing_plan_declaration",
             });
         }
-        /** @type {Record<string, unknown>} */
-        const payload = {
+
+        const payload: WorkflowDecisionPayload = {
             planName: planOutcome.planName,
             triageMeta: planOutcome.triageMeta || fallbackTriageMeta || {},
         };
@@ -128,17 +147,13 @@ export function decidePostPlanning(planOutcome, { planningAgentName, fallbackTri
 }
 
 /**
- * Normalize the execution phase result into a Workflow Decision. The caller
- * still owns validation, repair prompts, active-agent changes, and Plan Events.
- *
- * @param {import('./workflow.js').PlanExecutionResult | null | undefined} executionResult
- * @param {Object} opts
- * @param {string} opts.planName
- * @param {import('../../tools/plan-written.ts').TriageMeta} opts.triageMeta
- * @param {string} opts.executionAgentName
- * @returns {WorkflowDecision}
+ * Normalize execution results. The caller owns validation, repair prompts,
+ * active-agent changes, and Plan Events.
  */
-export function decidePostExecution(executionResult, { planName, triageMeta, executionAgentName }) {
+export function decidePostExecution(
+    executionResult: PlanExecutionResult | null | undefined,
+    { planName, triageMeta, executionAgentName }: PostExecutionOptions,
+): WorkflowDecision {
     if (!executionResult) {
         return decision("halt", { reason: "missing_execution_result" });
     }

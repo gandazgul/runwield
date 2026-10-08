@@ -15,7 +15,7 @@ import {
 import { AGENTS, isPlannedChangeClassification } from "../../constants.js";
 import { recordPlanEvent } from "./plan-lifecycle.js";
 import { executePlan, runPlanningAgent } from "./workflow.js";
-import { decidePostExecution, decidePostPlanning } from "./decisions.js";
+import { decidePostExecution, decidePostPlanning } from "./decisions.ts";
 import { buildTriageReport } from "./workflow-prompts.ts";
 import { SYSTEM_SEMANTIC_REVIEW_PORT } from "./validation.ts";
 import { continueWorkflowValidation } from "./validation-supervisor.ts";

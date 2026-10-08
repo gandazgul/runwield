@@ -127,7 +127,7 @@ These are different consumer paths, despite sharing the same tool.
 Sources: [plan_written](../src/tools/plan-written.ts),
 [shared review decision](../src/shared/workflow/plan-review-actions.ts),
 [planning runner](../src/shared/workflow/planning-agent.ts),
-[decision interpreter](../src/shared/workflow/decisions.js), [root handler](../src/shared/session/agent-handler.ts).
+[decision interpreter](../src/shared/workflow/decisions.ts), [root handler](../src/shared/session/agent-handler.ts).
 
 ## E — Execution preparation, implementation, and Pair checkpoints
 
