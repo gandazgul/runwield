@@ -156,6 +156,16 @@ Plan and Code Review share `ReviewCompletion` for successful decisions. Workspac
 Session in the same tab; standalone reviews retain the completion overlay and its auto-close preference. Workspace must
 never mount the standalone auto-close behavior.
 
+### Delivery evidence card
+
+Completed workflow evidence appears within the owning Session timeline as `.rw-delivery-report`, using semantic surface,
+border, status and spacing tokens. Its shared data model also supplies the compact TUI text above continuation choices;
+the TUI omits logos and breadcrumbs. Keep mechanical checks, semantic AI review, human code-review decisions, human
+verification attestations, merge confirmation and Work Record state separate. Settings describe policies, not outcomes.
+Show exact checked and delivered commits separately. Link recorded artifacts to the existing Markdown reader. Missing
+history is unavailable; resettable retry counters must not be presented as lifetime totals. The count labels identify
+recorded runs and repair cycles started. The card is saved completion evidence, not a live dashboard.
+
 ### Shared Markdown artifact reader
 
 `ArtifactReadSurface` is the single read-only Markdown reader for Plans, PRDs, ADRs, Work Records, Epic artifacts, and
@@ -1082,3 +1092,8 @@ toggles.
 Session history and live activity form one chronological timeline. Reconcile workflow/tool copies by call identity
 before grouping; accepted report times survive delayed tool results. Activity contains only consecutive completed tools
 and Thinking, ending at every message, special block, or system notice. Never move activity across a user message.
+
+Artifact links sit beside the corresponding evidence row (and the approved Plan beside the title), without a detached
+button group or “in browser” suffix. TUI mouse links open the same registered artifact reader; Esc then Alt+] remains
+the keyboard path. An explicitly skipped Code Review replaces its selection controls with the ordinary RunWield status
+“Code Review skipped”. Dismissed offers remain pending and do not claim a decision.

@@ -459,6 +459,14 @@ manual acceptance, failure, and hold. Validation and successful publication are 
 checks must not claim the change has reached its target. Technical status definitions live in the
 [Plan lifecycle reference](../plan-lifecycle.md).
 
+The ordinary public lifecycle is `draft → feedback/approved → ready_for_work → implemented → reviewed → verified`.
+Execution, failure, hold, Epic decomposition, and manual closure remain explicit intermediate or exceptional states.
+Passed mechanical checks advance durable controller progress while the Plan stays implemented. Reviewed means review
+passed and delivery is still pending. Verified means the reviewed implementation reached its target, or completed
+verification in place in a non-Git project. Legacy validated is a synonym for verified when delivery evidence supports
+it; legacy pending publication stays reviewed. UI, CLI, persisted documents, dependencies and Work Records agree on
+these meanings.
+
 Lifecycle requirements:
 
 - Planned Change Plans reach `ready_for_work` after approval and readiness.
@@ -468,7 +476,8 @@ Lifecycle requirements:
 - Child Plans execute and validate independently.
 - Planned work claims RunWield verification only when the applicable validation requirements pass. Delivery must also be
   confirmed before the workflow reports it as delivered.
-- Users can mark an Epic done enough when the delivered child work meets its goal.
+- Users can mark an Epic done enough when the delivered child work meets its goal; this is deliberate closure with a
+  done-enough completion mode, not a claim that the remaining Epic was verified.
 - `closed_without_verification` records deliberate user abandonment of remaining work, never an automatic response to
   failure or exhausted retries. It must not claim verification or publication.
 - `on_hold` pauses work and lets users resume from its previous stage.
@@ -558,10 +567,10 @@ decision; worktree registration and metadata normalization do not.
 Child status alone does not finish an Epic with its own branch. The Epic is implemented when every included child is
 delivered to the Epic branch; a child whose publication is still pending does not count. The integration gate then
 checks the exact branch head as one change: the project's checks, an integration review of the whole Epic diff against
-the Epic, and Code Review per the user's `codereview` setting. A pass marks the Epic validated for that commit. Findings
+the Epic, and Code Review per the user's `codereview` setting. A pass marks the Epic reviewed for that commit. Findings
 are written to an Epic report and become a draft repair child; Planner starts from them, the user reviews the repair
 like any child, and its delivery runs the gate again. A later commit on the Epic branch makes an earlier pass stale.
-RunWield stops at validated: the user merges the Epic branch or opens a pull request. Automatic Epic publication is
+RunWield stops at reviewed: the user merges the Epic branch or opens a pull request. Automatic Epic publication is
 deferred to [Epic Branch Publication Workflow](../plans/epic-branch-publication-workflow.md).
 
 **On hold** means paused and resumable, not completed or archived. Nonterminal Plans can retain their previous stage and
@@ -586,11 +595,11 @@ and siblings active. Listings keep held work distinct from active and finished w
   Core imports the preceding child's published code, retains those planning edits, and uses the refreshed baseline for
   execution. Published sibling status updates reconcile automatically; incompatible scope edits remain preserved.
 - Given an Epic whose children are all delivered to the Epic branch, when the integration gate passes, the Epic is
-  validated for that branch head and the primary branch is unchanged.
+  reviewed for that branch head and the primary branch is unchanged.
 - Given an integration gate with findings, when it finishes, the Epic report lists them and a draft repair child under
   the Epic opens in Planner; after the repair is delivered, the gate runs again.
-- Given a validated Epic, when a new commit lands on its branch, the Epic returns to implemented until the gate passes
-  on the new head.
+- Given a reviewed Epic, when an implementation change lands on its branch, the Epic returns to implemented until the
+  gate passes on the new head.
 - Given Planner moving scope from the child it is planning into an approved, unstarted sibling, when the child starts,
   the sibling's change is on the Epic branch with the child and the sibling is back in draft.
 - Given that sibling already has a planning worktree, when the child starts, compatible scope changes reach both Plan
@@ -741,7 +750,11 @@ Execution requirements:
   Preserve unrelated edits and distinct staged user versions. Save original bytes and staging durably before preparing
   the merge; restore them after failure or interruption before integration, and retain validated incoming versions after
   successful integration. Later user edits remain protected;
-- distinguish implementation being finished from validation succeeding.
+- distinguish implementation being finished from validation succeeding;
+- classify only the proven managed `.gitignore` delta as preparation in checkpoint, refresh, and resume paths. Never
+  adopt unrelated working-file or index changes, including partial staging, as an owned preparation commit;
+- have Planner and Architect inspect pending changes, incorporate relevant evidence, and silently omit unrelated edits
+  from discussion and Plans. A dirty checkout alone is neither a blocker nor a Plan risk.
 
 Workflow Validation requirements:
 
@@ -752,7 +765,10 @@ Workflow Validation requirements:
   checkout-specific repairs can be delivered without asking users to commit or stash RunWield settings. Do not claim
   ownership of existing or later user edits. Context receipts identify copied bytes; only recorded Init or validation
   writes establish ownership of source changes. Cancellation during setup must prevent validation from starting;
-- offer human code review when enabled;
+- retain an explicit full-project verification command during Plan submission even when Init was skipped or incomplete.
+  Discovery fills missing configuration only; a deliberate user selection can replace a saved command. Preserve exact
+  shell syntax and checkout-local repairs. Never infer authority from a diagnostic command or prose example;
+- offer human code review by default (`codereview: ask`), preserve explicit choices, and pause on canceled selection;
 - repair failed checks or review findings within the execution worktree;
 - give a repair Agent the relevant findings and instructions without unrelated earlier context;
 - keep publication-conflict repairs attached to the publication attempt, not CI or code-review repair checkpoints; an
@@ -774,7 +790,8 @@ Workflow Validation requirements:
   remain recognizable from Git after temporary workflow records are removed. In non-Git projects, the completed Plan
   status is sufficient;
 - after a normal Plan publication completes, keep follow-up messages with Engineer from the primary checkout, not from
-  the removed execution worktree;
+  the removed execution worktree. Restore that project context on Session restart from confirmed delivery and completed
+  cleanup, while retaining the transcript segment's original recording directory;
 - when a published child Plan has an active parent Epic continuation, first leave the child worktree context, then let
   the Epic continuation select its required Agent;
 - preserve a useful recovery path when execution, checks, review, or merge-back fails;
@@ -809,6 +826,9 @@ Recovery requirements:
 
 **Acceptance scenarios:**
 
+- Given a delivered Plan whose execution or repair worktree has been removed, restarting its Session restores the
+  registered project for follow-up messages without recreating the worktree or changing transcript origin metadata. An
+  unfinished or retained publication attempt continues to own its execution checkout.
 - Given an unpublished sealed candidate whose branch was rewritten, including a rewrite followed by an additional
   `.gitignore` commit, validation automatically checks the current files and then creates new publication evidence.
   Staged edits, untracked files, and saved merge repairs remain intact. A restart during recovery finishes the same
@@ -818,19 +838,21 @@ Recovery requirements:
   run that complete command immediately beforehand.
 - Given completed Init with uncommitted settings, glossary, and managed ignore rules, when a Tutorial or ordinary
   approved Plan starts execution, the new worktree contains that context before Engineer begins. Receipt-owned settings
-  enter the preparation checkpoint even when a committed `.wld/` ignore rule hides them; unrelated source edits, staging,
-  HEAD, ignored runtime files, and private files remain unchanged. Mechanical Validation reuses the confirmed command.
-- Given uncommitted or staged Init output in the primary checkout, when a Tutorial or Plan is delivered locally, settings,
-  glossary, and managed ignore rules do not block publication. Validated changes land with the Plan; unrelated user edits
-  stop an unsafe merge. Failed or interrupted preparation restores original setup bytes and staging for retry.
+  enter the preparation checkpoint even when a committed `.wld/` ignore rule hides them; unrelated source edits,
+  staging, HEAD, ignored runtime files, and private files remain unchanged. Mechanical Validation reuses the confirmed
+  command.
+- Given uncommitted or staged Init output in the primary checkout, when a Tutorial or Plan is delivered locally,
+  settings, glossary, and managed ignore rules do not block publication. Validated changes land with the Plan; unrelated
+  user edits stop an unsafe merge. Failed or interrupted preparation restores original setup bytes and staging for
+  retry.
 - Given compatible context edits on the target branch, creating a worktree merges the uncommitted setup changes with
   them. Conflicting edits stop creation without overwriting either version. Resuming an existing worktree preserves its
   subsequent context edits instead of copying from the primary checkout again.
-- Given no Init receipt and no configured validation command, when validation asks once and the command fails, repair and
-  resumed validation reuse the saved command. The project preference remains after worktree removal, and a repair's
-  checkout-specific command takes effect. Publication delivers that repair for new ignored or tracked settings, including
-  supported JSONC comments and trailing commas. Unrelated settings edits before or after the host write, or independently
-  staged, are not overwritten or silently committed.
+- Given no Init receipt and no configured validation command, when validation asks once and the command fails, repair
+  and resumed validation reuse the saved command. The project preference remains after worktree removal, and a repair's
+  checkout-specific command takes effect. Publication delivers that repair for new ignored or tracked settings,
+  including supported JSONC comments and trailing commas. Unrelated settings edits before or after the host write, or
+  independently staged, are not overwritten or silently committed.
 - Given a ready approved Plan and existing checkout edits, when execution starts, the approved work is isolated and the
   user’s edits remain preserved.
 - Given a worktree created from `main`, when the execution Plan is edited to target `release/next` after the Session
@@ -842,6 +864,16 @@ Recovery requirements:
 - Given a Session that still displays failed or canceled checks from an earlier attempt, when a resumed delivery
   publishes and cleans up successfully, the Session reports delivery complete with the current check results and does
   not ask the user to repeat publication.
+- Given passed mechanical checks and a process restart, the Plan stays implemented and resumes semantic review without
+  repeating those checks. A code repair resets the mechanical phase.
+- Given a reviewed candidate and a failed push or interrupted merge, the source Plan remains reviewed. Only the
+  integrated target metadata becomes verified; recovery proves the finalized Plan and linked Work Record before cleanup.
+  Local metadata preparation preserves unrelated files and staging, including when the target is another branch.
+- Given a Recorder success before publication, its Work Record remains pending verification until the merge is
+  finalized. Restart reuses the same record. Confirmed publication settles approval, declared supersession and the
+  derived index; an index failure is reported separately from successful code delivery.
+- Given a reviewed Epic later merged by the user, a reload verifies its checked commit against the recorded final target
+  before persisting verified. Deliberate done-enough closure remains distinct from that proof.
 - Given a completed Plan without controller records, loading it recognizes delivery when Git proves its validated commit
   belongs to its target branch. A commit on an unrelated branch is not enough. A pending attempt offers continuation of
   publication or cleanup, rather than being treated as finished merely because validation passed.
@@ -893,6 +925,35 @@ Recovery requirements:
   and never reports an unproven rollback or publication.
 - When the user deliberately abandons, RunWield ends the workflow with that outcome and retains unmerged work unless
   loss-free cleanup is proven or deletion is explicitly authorized.
+
+**Requirement: Review policy preferences.**
+
+Code Review defaults to asking after automated validation and before merge. Existing explicit `none`, `ask`, or `always`
+settings and already-recorded review decisions remain authoritative. Closing or declining to answer the offer leaves
+publication paused; it does not grant approval.
+
+The interactive `/settings` menu exposes the supported Code Review and Guided Review policies with project/global
+persistence and clear project-override behavior. It also exposes the existing global-only default project trust
+preference. Guided Review retains its `auto` option; the UI labels stored review `none` as Never without changing the
+stored contract.
+
+Acceptance: a fresh project receives the code-review offer before publication; explicit skip may continue, no answer
+pauses, and explicit always still requires review. Policy edits survive reload, cancelling edits changes nothing, and a
+global edit does not replace an explicit project override.
+
+**Acceptance scenarios: Completion recovery and preparation.**
+
+- Given delivered code with a failed Work Record, the completion menu offers **Retry Work Record**. Retry regenerates
+  only that Plan's record (or its eligible parent Epic), keeps the current Session, and never repeats implementation,
+  validation, merge, or other Plans' recording. Repeating a successful retry does not duplicate the record.
+- Given a failed record, user-facing guidance explains that `wld wr backfill` regenerates missing or failed records
+  across completed Plans; `wld wr retry <plan-name>` targets one Plan. Recording failure does not undo delivery.
+- Given an explicit full verification command during direct planning, Plan submission retains it without Init, and
+  resumed validation runs it without asking again. A discovered alternative cannot overwrite a saved or repaired
+  command; a deliberate user replacement can. Focused diagnostics and quoted examples do not change the setting.
+- Given a reused worktree with unrelated staged or unstaged ignore rules, preparation preserves both versions and
+  classifies them as implementation rather than silently committing them. Ordinary and Tutorial execution share this
+  rule.
 
 ### Semantic review and repair
 
@@ -990,8 +1051,8 @@ convergence without more escaped defects, not approval rate alone.
   implementation obligation.
 - After the automatic-round boundary, when the user chooses human review, feedback leads to repair and checks and
   returns to that human review without an automatic round limit ending it.
-- Given the Code Review offer, when the user chooses Close and come back later, the Plan remains at `validated_reviewer`
-  with no review decision. A later `load-plan` continuation asks again before publication.
+- Given the Code Review offer, when the user chooses Close and come back later, the Plan remains at `reviewed` with no
+  review decision. A later `load-plan` continuation asks again before publication.
 
 <a id="frontend-engineer-and-pair-execution"></a>
 
@@ -1164,6 +1225,9 @@ and failures remain distinct.
 - Given a failed, paused, user-verified, closed-without-verification, or not-yet-verified workflow, the Tutorial does
   not show a verified recap. Given confirmed RunWield Verified publication, the recap uses the Plan, Work Record, and
   available review or QA artifacts.
+- Given a completed Tutorial Session, reopening it restores the verified recap alongside conversation history from
+  current confirmed delivery evidence. Restoration does not replay workflow completion, reopen the next-step menu, or
+  change saved Tutorial progress. Without matching verification evidence, no verified recap is restored.
 - Given a completed Tutorial with a long conversation, the review/publishing panel disappears and the focused next-step
   selection remains visible at the input area. Selecting Start a new session opens a fresh Router Session; selecting
   Load a Plan opens a fresh Session and its Plan picker automatically; Quit closes RunWield. Escape preserves the

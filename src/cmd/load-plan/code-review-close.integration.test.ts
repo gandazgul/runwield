@@ -12,7 +12,7 @@ Deno.test("load-plan offers code review again after closing, including in a fres
         });
         await savePlan(projectRoot, "review-later", "# Review later\n", {
             classification: "PLANNED_CHANGE",
-            status: "validated_reviewer",
+            status: "reviewed",
             executionMode: "non_git_in_place",
             humanReviewMode: "ask",
             humanReviewDecision: null,
@@ -55,7 +55,7 @@ Deno.test("load-plan offers code review again after closing, including in a fres
                         appendAgentMessageStart: () => ({ appendText: () => {} }),
                         requestRender: () => {},
                         promptSelect: (prompt) => {
-                            assertStringIncludes(prompt, "Plan recovery (validated_reviewer)");
+                            assertStringIncludes(prompt, "Plan recovery (reviewed)");
                             return Promise.resolve("validate");
                         },
                         promptText: () => Promise.resolve(null),
@@ -69,7 +69,7 @@ Deno.test("load-plan offers code review again after closing, including in a fres
                     },
                 });
                 const plan = await loadPlan(projectRoot, "review-later");
-                assertEquals(plan?.attrs.status, "validated_reviewer", messages.join("\n"));
+                assertEquals(plan?.attrs.status, "reviewed", messages.join("\n"));
                 assertEquals(plan?.attrs.humanReviewDecision, null);
                 assertEquals(await Deno.readTextFile(implementationPath), "ready for review\n");
                 if (choice === "close") {

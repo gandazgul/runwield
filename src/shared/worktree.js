@@ -17,7 +17,11 @@ import { assertGitRepository, GitRepositoryRequiredError } from "./git.ts";
 import { getWorkflowDiff } from "./workflow/git-snapshot.ts";
 import { addEntry, listEntries, pruneStaleEntries, removeEntry } from "./worktree-registry.js";
 import { enterProjectRuntime, resolveProjectRoot, resolveProjectRuntimeLayout } from "./project-runtime-layout.ts";
-import { isRunWieldOwnedRuntimePath, RUNWIELD_OWNED_RUNTIME_PATHS } from "./runwield-owned-paths.ts";
+import {
+    isRunWieldOwnedGitignoreChange,
+    isRunWieldOwnedRuntimePath,
+    RUNWIELD_OWNED_RUNTIME_PATHS,
+} from "./runwield-owned-paths.ts";
 import {
     assertNoRuntimePathsInNewHistory,
     assertNoTrackedOrIndexedRuntimePaths,
@@ -148,8 +152,37 @@ function filterUserDirtyPaths(paths, allowed = new Set()) {
 
 /** @param {string} path */
 function isExecutionPreparationPath(path) {
-    return path === ".gitignore" || path === "docs/plans" || path.startsWith("docs/plans/") ||
+    return path === "docs/plans" || path.startsWith("docs/plans/") ||
         isRunWieldOwnedRuntimePath(path);
+}
+
+/**
+ * Preparation owns only the deterministic ignore-rule delta. Check the index as
+ * well as the working file so staging cannot silently adopt a user's partial edit.
+ * @param {string} root
+ * @param {string} path
+ * @param {string} baseRef
+ * @param {string} [targetRef]
+ */
+async function isPreparationChange(root, path, baseRef, targetRef) {
+    if (isExecutionPreparationPath(path)) return true;
+    if (path !== ".gitignore") return await isTransferredProjectContext(root, path, targetRef);
+    const before = await runGitResult(root, ["show", `${baseRef}:.gitignore`]);
+    if (targetRef) {
+        const after = await runGitResult(root, ["show", `${targetRef}:.gitignore`]);
+        return after.code === 0 && isRunWieldOwnedGitignoreChange(before.stdout, after.stdout);
+    }
+    try {
+        const stat = await Deno.lstat(join(root, path));
+        if (!stat.isFile || stat.isSymlink) return false;
+        const after = await Deno.readTextFile(join(root, path));
+        const staged = await runGitResult(root, ["show", ":.gitignore"]);
+        return isRunWieldOwnedGitignoreChange(before.stdout, after) &&
+            (staged.code === 0 ? isRunWieldOwnedGitignoreChange(before.stdout, staged.stdout) : before.code !== 0);
+    } catch (error) {
+        if (error instanceof Deno.errors.NotFound) return false;
+        throw error;
+    }
 }
 
 /**
@@ -179,7 +212,7 @@ export async function hasExecutionChangesSince({
     const checks = [{ paths: committed, ref: targetRef }, { paths: dirty, ref: undefined }];
     for (const { paths, ref } of checks) {
         for (const path of paths) {
-            if (!isExecutionPreparationPath(path) && !await isTransferredProjectContext(worktreePath, path, ref)) {
+            if (!await isPreparationChange(worktreePath, path, ref ? baseRef : "HEAD", ref)) {
                 return true;
             }
         }
@@ -209,7 +242,7 @@ export async function hasOnlyExecutionPreparationChangesSince({
         await runGit(worktreePath, ["diff", "--name-only", `${baseRef}..${targetRef}`]),
     );
     for (const path of committed) {
-        if (!isExecutionPreparationPath(path) && !await isTransferredProjectContext(worktreePath, path, targetRef)) {
+        if (!await isPreparationChange(worktreePath, path, baseRef, targetRef)) {
             return false;
         }
     }
@@ -605,11 +638,10 @@ export async function checkpointExecutionPreparation({
     for (const path of new Set([...await gitStatusPaths(worktreePath), ...PROJECT_CONTEXT_PATHS])) {
         if (
             !isRunWieldOwnedRuntimePath(path) &&
-            (isExecutionPreparationPath(path) || await isTransferredProjectContext(worktreePath, path))
+            await isPreparationChange(worktreePath, path, "HEAD")
         ) dirtyPreparationPaths.push(path);
     }
     const preparationPaths = [...new Set([planRelativePath, ...relatedPlanPaths, ...dirtyPreparationPaths])];
-    if (await pathExists(join(worktreePath, ".gitignore"))) preparationPaths.push(".gitignore");
     const headBefore = (await runGit(worktreePath, ["rev-parse", "HEAD"])).trim();
     if (headBefore !== baseCommit) {
         const baseIsAncestor = await runGitResult(worktreePath, [
@@ -624,7 +656,7 @@ export async function checkpointExecutionPreparation({
         const unexpectedPaths = baseIsAncestor.code === 0 ? [] : ["branch history"];
         for (const path of committedPaths) {
             if (
-                !isExecutionPreparationPath(path) && !await isTransferredProjectContext(worktreePath, path, headBefore)
+                !await isPreparationChange(worktreePath, path, baseCommit, headBefore)
             ) {
                 unexpectedPaths.push(path);
             }

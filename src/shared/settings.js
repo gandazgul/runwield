@@ -894,6 +894,7 @@ export function getPlanArchiveRetentionPolicy(projectRoot) {
 export function getCodeReviewMode(projectRoot) {
     if (!projectRoot) throw new Error("getCodeReviewMode: projectRoot is required");
     const mode = getMergedCustomSetting("codereview", projectRoot);
+    if (mode === undefined) return "ask";
     if (typeof mode !== "string") return "none";
 
     const normalized = mode.trim().toLowerCase();
