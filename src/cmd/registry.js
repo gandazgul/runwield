@@ -158,8 +158,9 @@ export const commandRegistry = {
         summary: "Start, continue, and inspect one Attached Workflow through bounded JSON operations.",
         usage: [
             `${bin("attached activate < input.json")}`,
-            `${bin("attached submit < input.json")}`,
+            `${bin("attached triage_report < input.json")}`,
             `${bin("attached status < input.json")}`,
+            `${bin("attached plan_written < input.json")}`,
             `${bin("attached mcp")}`,
         ],
         notes: [

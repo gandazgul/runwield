@@ -82,6 +82,8 @@ export async function generateCodexImage(request: CodexImageRequest): Promise<Im
     let nextId = 0;
     let threadId = "";
     let turnId = "";
+    let turnStartRequestId: number | undefined;
+    const turnStarted = Promise.withResolvers<void>();
     const events: RpcMessage[] = [];
     let protocolError: Error | undefined;
     const fail = (error: Error) => {
@@ -96,6 +98,7 @@ export async function generateCodexImage(request: CodexImageRequest): Promise<Im
         request.signal?.throwIfAborted();
         if (protocolError) throw protocolError;
         const id = ++nextId;
+        if (method === "turn/start") turnStartRequestId = id;
         const response = Promise.withResolvers<CodexResult>();
         pending.set(id, response);
         response.promise.catch(() => undefined);
@@ -142,6 +145,10 @@ export async function generateCodexImage(request: CodexImageRequest): Promise<Im
                                 "Codex requested additional permissions or a client tool. No image was saved.",
                             );
                         } else if (typeof message.id === "number") {
+                            if (message.id === turnStartRequestId) {
+                                turnId = message.result?.turn?.id || "";
+                                turnStarted.resolve();
+                            }
                             const waiter = pending.get(message.id);
                             if (message.error) waiter?.reject(new Error(`Codex ${message.error.message}`));
                             else waiter?.resolve(message.result || {});
@@ -269,6 +276,16 @@ export async function generateCodexImage(request: CodexImageRequest): Promise<Im
         };
     } finally {
         request.signal?.removeEventListener("abort", onAbort);
+        // Cancellation can precede the start reply. Keep reading briefly so an
+        // accepted turn can still be interrupted before its helper is terminated.
+        if (writer && request.signal?.aborted && turnStartRequestId !== undefined && !turnId) {
+            let timeout: ReturnType<typeof setTimeout> | undefined;
+            await Promise.race([
+                turnStarted.promise,
+                new Promise<void>((resolve) => timeout = setTimeout(resolve, 250)),
+            ]);
+            if (timeout !== undefined) clearTimeout(timeout);
+        }
         if (writer && request.signal?.aborted && threadId && turnId) {
             let timeout: ReturnType<typeof setTimeout> | undefined;
             const id = ++nextId;

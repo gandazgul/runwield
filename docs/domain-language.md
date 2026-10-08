@@ -44,7 +44,12 @@ adapter, attached Session, host bridge
 
 **Attached Workflow Record**: The durable file that holds one Attached Workflow's state, revision, pending host action,
 accepted operation results, and binding evidence. It lives under `~/.wld/attached/`, keyed by the primary checkout root.
-_Avoid_: Attached Session, host transcript, controller record
+It references its Plan but does not own it. The same Plan can be opened and run with `wld`. _Avoid_: Attached Session,
+host transcript, controller record
+
+**Attached Role Instructions**: The effective layered agent instructions Core returns with a pending host action. They
+are resolved for each response from project, home, and bundled definitions and are not saved in the Attached Workflow
+Record. _Avoid_: generated Skill, role contract copy
 
 **Headless Mode**: The non-interactive RunWield execution surface that emits machine-readable Agent Session events for
 external hosts. _Avoid_: TUI mode, batch wrapper, remote UI

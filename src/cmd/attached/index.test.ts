@@ -1,13 +1,19 @@
 import { assert, assertEquals } from "@std/assert";
+import { join } from "@std/path";
 import { git } from "../../shared/git-test-fixture.ts";
 import type { AttachedJsonObject } from "../../shared/attached/operations.ts";
 import {
     activateInput,
+    CLI_PATH,
+    DENO_CONFIG_PATH,
     pendingTriage,
+    planWrittenInput,
     projectFixture,
+    reachPlanning,
     readRecordBytes,
+    runOperation,
     spawnAttachedCli,
-    submitInput,
+    triageReportInput,
 } from "../../shared/attached/attached-test-fixture.ts";
 
 async function withProject(fn: (projectRoot: string) => Promise<void>): Promise<void> {
@@ -25,12 +31,12 @@ Deno.test("separate Core processes activate, accept Triage once, and replay the 
         assertEquals(a.code, 0, a.stderr);
         const triage = pendingTriage(a.result);
 
-        const b = await spawnAttachedCli("submit", projectRoot, submitInput(triage));
+        const b = await spawnAttachedCli("triage_report", projectRoot, triageReportInput(triage));
         assertEquals(b.code, 0, b.stderr);
         assertEquals(b.result.ok && b.result.workflow.revision, 2);
         const bytesAfterB = await readRecordBytes(projectRoot, triage.workflowId);
 
-        const c = await spawnAttachedCli("submit", projectRoot, submitInput(triage));
+        const c = await spawnAttachedCli("triage_report", projectRoot, triageReportInput(triage));
         assertEquals(c.result, b.result);
         assertEquals(await readRecordBytes(projectRoot, triage.workflowId), bytesAfterB);
 
@@ -51,9 +57,9 @@ Deno.test("two processes racing on one revision leave exactly one accepted outco
         const runs = await Promise.all(
             outcomes.map((outcome, index) =>
                 spawnAttachedCli(
-                    "submit",
+                    "triage_report",
                     projectRoot,
-                    submitInput({ ...triage, operationId: `op-race-${index}`, outcome }),
+                    triageReportInput({ ...triage, operationId: `op-race-${index}`, outcome }),
                 )
             ),
         );
@@ -68,5 +74,41 @@ Deno.test("two processes racing on one revision leave exactly one accepted outco
         assert(status.result.ok && accepted[0].result.ok);
         assertEquals(status.result.workflow.revision, 2);
         assertEquals(status.result.workflow.triageOutcome, accepted[0].result.workflow.triageOutcome);
+    });
+});
+
+Deno.test("CLI plan_written accepts the Plan and matches the coordinator replay", async () => {
+    await withProject(async (projectRoot) => {
+        const { planning } = await reachPlanning(projectRoot);
+        await Deno.mkdir(join(projectRoot, "docs", "plans"), { recursive: true });
+        await Deno.writeTextFile(join(projectRoot, "docs", "plans", "dark-mode-toggle.md"), "# Toggle\n");
+        const input = planWrittenInput(planning);
+        const cli = await spawnAttachedCli("plan_written", projectRoot, input);
+        assertEquals(cli.code, 0, cli.stderr);
+        assertEquals(cli.result.ok && cli.result.workflow.state, "plan_submitted");
+        assertEquals(cli.result, await runOperation("plan_written", projectRoot, input));
+    });
+});
+
+Deno.test("the removed submit CLI name prints a usage error", async () => {
+    await withProject(async (projectRoot) => {
+        const result = await new Deno.Command(Deno.execPath(), {
+            args: ["run", "-A", "--quiet", "--no-check", "--config", DENO_CONFIG_PATH, CLI_PATH, "attached", "submit"],
+            cwd: projectRoot,
+            stdout: "piped",
+            stderr: "piped",
+        }).output();
+        assertEquals(result.code, 1);
+        assert(new TextDecoder().decode(result.stderr).includes("Usage: wld attached"));
+    });
+});
+
+Deno.test("CLI activation still requires host evidence", async () => {
+    await withProject(async (projectRoot) => {
+        const { evidence: _evidence, ...input } = activateInput();
+        const result = await spawnAttachedCli("activate", projectRoot, input);
+        assertEquals(result.code, 1);
+        assertEquals(result.result.ok, false);
+        assert(!result.result.ok && result.result.rejection.field === "evidence");
     });
 });

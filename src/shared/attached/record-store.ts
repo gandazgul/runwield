@@ -25,9 +25,10 @@ import { encodeCwdForSessionDir } from "../project-directory-key.ts";
 import type { TriageOutcome } from "../workflow/triage-outcome.ts";
 import type {
     AttachedOperationResult,
+    AttachedPlanReference,
     AttachedWorkflowClosure,
     AttachedWorkflowState,
-    PendingTriageAction,
+    PendingHostAction,
     RecordedEvidence,
 } from "./operations.ts";
 
@@ -53,9 +54,10 @@ export interface AttachedWorkflowRecord {
     request: { text: string; hostRequestId: string };
     evidence: RecordedEvidence;
     state: AttachedWorkflowState;
-    pendingAction: PendingTriageAction | null;
+    pendingAction: PendingHostAction | null;
     acceptedOperations: Record<string, AcceptedOperation>;
     triageOutcome: TriageOutcome | null;
+    plan: AttachedPlanReference | null;
     closure: AttachedWorkflowClosure | null;
     createdAt: string;
     updatedAt: string;
@@ -246,17 +248,42 @@ export async function writeAttachedWorkflowRecord(
     record: AttachedWorkflowRecord,
     expectedRevision: number | null,
 ): Promise<AttachedRecordWriteResult> {
+    const transaction = await transactAttachedWorkflowRecord<AttachedRecordWriteResult>(
+        location,
+        record.workflowId,
+        (current) => {
+            if ((current?.revision ?? null) !== expectedRevision) {
+                return Promise.resolve({ result: { status: "conflict" as const, current } });
+            }
+            return Promise.resolve({ result: { status: "written" as const }, next: record });
+        },
+    );
+    return transaction.status === "busy" ? transaction : transaction.result;
+}
+
+export interface AttachedRecordDecision<Result> {
+    result: Result;
+    next?: AttachedWorkflowRecord;
+}
+
+/** Hold the workflow lock across domain checks, external document writes, and record acceptance. */
+export async function transactAttachedWorkflowRecord<Result>(
+    location: AttachedWorkflowLocation,
+    workflowId: string,
+    decide: (current: AttachedWorkflowRecord | null) => Promise<AttachedRecordDecision<Result>>,
+): Promise<{ status: "committed"; result: Result } | { status: "busy" }> {
     await Deno.mkdir(location.workflowsDir, { recursive: true });
-    const path = recordPath(location.workflowsDir, record.workflowId);
-    const lockPath = join(location.workflowsDir, `${record.workflowId}.lock`);
+    const path = recordPath(location.workflowsDir, workflowId);
+    const lockPath = join(location.workflowsDir, `${workflowId}.lock`);
     const token = await acquireLock(lockPath);
     if (!token) return { status: "busy" };
     try {
-        const current = await readRecordAt(path);
-        if ((current?.revision ?? null) !== expectedRevision) return { status: "conflict", current };
-        await removeAbandonedTemporaryFiles(path);
-        await atomicWrite(path, record);
-        return { status: "written" };
+        const decision = await decide(await readRecordAt(path));
+        if (decision.next) {
+            await removeAbandonedTemporaryFiles(path);
+            await atomicWrite(path, decision.next);
+        }
+        return { status: "committed", result: decision.result };
     } finally {
         await releaseLock(lockPath, token);
     }

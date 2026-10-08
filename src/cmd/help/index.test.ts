@@ -76,6 +76,19 @@ Deno.test("help formatters read the real command registry", async () => {
     assertStringIncludes(commandLogs.join("\n"), "Usage (model):");
 });
 
+Deno.test("attached help lists supported operations without a submit alias", async () => {
+    const logs = await captureLogs(() => {
+        printCommandHelp("attached");
+    });
+    const help = logs.join("\n");
+
+    for (const operation of ["activate", "triage_report", "status", "plan_written"]) {
+        assertStringIncludes(help, `attached ${operation} < input.json`);
+    }
+    assertStringIncludes(help, "attached mcp");
+    assertEquals(help.includes("attached submit"), false);
+});
+
 Deno.test("help command renders through the passed-in TUI surface", async () => {
     const messages: Array<{ message: string; isError: boolean }> = [];
     const uiAPI = {
