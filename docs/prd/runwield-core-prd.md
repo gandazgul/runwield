@@ -153,6 +153,18 @@ must not overwrite an unsent draft or change the active specialist.
 Returning focus to the terminal repaints the screen. Ctrl+L also forces a full redraw. Both preserve the unsent draft,
 conversation scroll position, active interaction, and running Agent turn.
 
+**Requirement: Open mentioned Project documents without changing Agent text.**
+
+In hyperlink-capable terminals, normal Agent messages link existing Project-relative Markdown files to the read-only
+Workspace reader. Plain paths, exact inline-code paths, and relative Markdown-link destinations retain their visible
+labels. User messages, tool/system output, code, images, external URLs, and non-Markdown paths stay unchanged. Without
+hyperlink support, paths remain readable without local URLs or tokens. Mentions do not register Session Artifacts.
+
+The TUI owns one lazy loopback reader for concurrent tabs. Each request checks canonical Project containment and reads
+current content, including local images. Session replacement rotates the token and Project together; old links fail
+closed. TUI disposal stops the host. Close affects only the linked tab, with manual-close guidance if the browser blocks
+closure. Known document types keep their labels and Work Record notices; other Markdown uses **Document**.
+
 **Requirement: Keep expanded tool output responsive.**
 
 Ctrl+O toggles only tool groups that intersect the current TUI viewport. Each expanded tool block shows at most 500
@@ -168,6 +180,12 @@ Session; events from the previous Session must no longer affect the view.
 
 **Acceptance scenarios:**
 
+- Given an Agent cites `(README.md)`, an exact backticked path, or a relative Markdown link to an existing file,
+  clicking opens that current file with Contents, title, type, and Project-relative path. Two tabs work independently;
+  reload shows edits, and Close does not end the TUI host. Replacing the Session rejects old links; exiting stops
+  service.
+- Given a missing file, an escaping symlink, or a terminal without hyperlink support, Agent text stays readable and no
+  local reader URL is printed.
 - Given a new conversation, when the user submits a request, Router handles initial triage; after a specialist handoff,
   follow-up messages stay with that specialist.
 - Given Router has handed off to Operator and Operator reports accepted task completion, when the user sends a
