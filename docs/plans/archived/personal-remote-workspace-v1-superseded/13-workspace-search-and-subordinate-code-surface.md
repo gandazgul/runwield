@@ -77,7 +77,7 @@ owner.
 Existing functions, modules, or patterns to reuse:
 
 - `src/shared/work-records/search.js` — reuse candidate-index plus canonical-hydration behavior.
-- `src/shared/work-records/index-adapter.js` — reuse index abstraction where applicable.
+- `src/shared/work-records/index-adapter.ts` — reuse index abstraction where applicable.
 - `src/extensions/cymbal/index.ts` — reuse installed Cymbal CLI and JSON contract.
 - Owner Project registry from slice 2 — determine eligible registered main checkouts and opt-outs.
 - `src/ui/design-system/` — use existing Workspace form, result, badge, and panel patterns.
