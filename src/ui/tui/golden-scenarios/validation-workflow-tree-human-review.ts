@@ -47,6 +47,38 @@ export const validationTreeHumanReviewAskSkipScenario = withValidationBranches(
     ["human-review:ask-skip"],
 );
 
+export const validationTreeHumanReviewAskCloseScenario = withValidationBranches(
+    {
+        ...plannedChangeReviewRepairValidationScenario,
+        committedProjectFiles: [
+            {
+                path: ".wld/settings.json",
+                text: humanReviewSettings("ask"),
+            },
+        ],
+        script: plannedChangeReviewRepairValidationScenario.script.map((turn: { id?: string }) =>
+            turn.id === "engineer-post-repair-turn-before-re-review" ? { ...turn, optional: true } : turn
+        ),
+        scriptedInteractions: [
+            { type: "select", promptIncludes: "code review before merge", value: "close" },
+        ],
+        actions: [
+            ...plannedChangeReviewRepairValidationScenario.actions.slice(0, 3),
+            {
+                type: "waitForScreen",
+                text: "Code review is still waiting for your decision",
+                timeoutMs: 240000,
+            },
+            { type: "sleep", ms: 500 },
+            { type: "captureProjectState", planNames: ["plan"] },
+        ],
+        assertions: [],
+    },
+    "validation-tree-human-review-ask-close",
+    ["plan"],
+    ["human-review:ask-close"],
+);
+
 export const validationTreeHumanReviewAskOpenApproveScenario = withValidationBranches(
     {
         ...plannedChangeReviewRepairValidationScenario,
@@ -201,6 +233,7 @@ export const validationTreeHumanReviewFeedbackRepairApproveScenario = withValida
 export const validationWorkflowHumanReviewScenarios = [
     validationTreeHumanReviewNoneScenario,
     validationTreeHumanReviewAskSkipScenario,
+    validationTreeHumanReviewAskCloseScenario,
     validationTreeHumanReviewAskOpenApproveScenario,
     validationTreeHumanReviewAlwaysApproveScenario,
     validationTreeHumanReviewFeedbackRepairApproveScenario,
