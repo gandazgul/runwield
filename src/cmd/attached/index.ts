@@ -12,7 +12,8 @@ import { runAttachedOperation } from "../../shared/attached/coordinator.ts";
 import { ATTACHED_OPERATIONS, MAX_ATTACHED_INPUT_BYTES } from "../../shared/attached/operations.ts";
 import { VERSION } from "../../shared/version.js";
 
-const USAGE = "Usage: wld attached <activate|triage_report|status|plan_written> < input.json\n       wld attached mcp";
+const USAGE =
+    'Usage: wld attached <activate|triage_report|status|plan_written> < input.json\n       wld attached mcp\nstatus input: {"workflowId": "..."} or {} for the latest open workflow';
 
 /** Read stdin, stopping one byte past the limit so oversized input is still rejected as too large. */
 async function readBoundedStdin(): Promise<string> {

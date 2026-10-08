@@ -4,6 +4,7 @@ import { withProcessGlobalTestLock } from "../../testing/process-global-lock.js"
 import { loadPlan } from "../../plan-store.js";
 import { resolveProjectRuntimeLayout } from "../project-runtime-layout.ts";
 import { RUNWIELD_GITIGNORE_BLOCK } from "../runwield-owned-paths.ts";
+import { loadAttachedWorkflowRecord, locateAttachedWorkflows } from "./record-store.ts";
 import {
     activateInput,
     type PendingPlanning,
@@ -14,6 +15,7 @@ import {
     readRecordBytes,
     rejectionCode,
     runOperation,
+    spawnAttachedCli,
     triageReportInput,
     withProject,
 } from "./attached-test-fixture.ts";
@@ -56,9 +58,9 @@ Deno.test("plan_written turns the written Plan into a draft RunWield Plan and re
                     collaborationRecommendation: "pair",
                 });
                 assert(result.ok, JSON.stringify(result));
-                assertEquals(result.workflow.state, "plan_submitted");
+                assertEquals(result.workflow.state, "awaiting_review");
                 assertEquals(result.workflow.revision, planning.expectedRevision + 1);
-                assertEquals(result.workflow.nextAction, { kind: "plan_submitted", planName: "dark-mode-toggle" });
+                assertEquals(result.workflow.nextAction, { kind: "review", round: 1, planName: "dark-mode-toggle" });
                 assertEquals(result.instructions, undefined);
 
                 const plan = await loadPlan(projectRoot, "dark-mode-toggle");
@@ -90,6 +92,37 @@ Deno.test("plan_written turns the written Plan into a draft RunWield Plan and re
             else Deno.env.set("HOME", home);
             await Deno.remove(temporaryHome, { recursive: true });
         }
+    });
+});
+
+Deno.test("a fresh process retrieves the durable pending review before a browser is opened", async () => {
+    await withProject(async (projectRoot) => {
+        const { planning } = await reachPlanning(projectRoot);
+        await writePlan(projectRoot);
+        const submitted = await submit(projectRoot, planning);
+        assert(submitted.ok);
+        const plan = await loadPlan(projectRoot, "dark-mode-toggle");
+        assert(plan);
+        const loaded = await loadAttachedWorkflowRecord(locateAttachedWorkflows(projectRoot), planning.workflowId);
+        assert(loaded.status === "found");
+        const review = loaded.record.review;
+        assert(review);
+        assertEquals(loaded.record.state, "awaiting_review");
+        assertEquals(loaded.record.pendingAction, null);
+        assertEquals(review.round, 1);
+        assert(review.actionId.length > 0);
+        assertEquals(review.planRevision, plan.revision);
+        assertEquals(review.waitingReason, "user_decision");
+        assertEquals(review.status, "pending");
+        assertEquals(review.outcome, undefined);
+
+        const recordBeforeStatus = await readRecordBytes(projectRoot, planning.workflowId);
+        const fresh = await spawnAttachedCli("status", projectRoot, { workflowId: planning.workflowId });
+        assertEquals(fresh.code, 0, fresh.stderr);
+        assert(fresh.result.ok);
+        assertEquals(fresh.result.workflow.review, review);
+        assertEquals(fresh.result.workflow.nextAction, { kind: "review", round: 1, planName: "dark-mode-toggle" });
+        assertEquals(await readRecordBytes(projectRoot, planning.workflowId), recordBeforeStatus);
     });
 });
 
@@ -190,7 +223,7 @@ Deno.test("after a rejected submission, the Planner fixes the Plan and submits a
         await writePlan(projectRoot);
         const accepted = await submit(projectRoot, { ...planning, operationId: "op-plan-written-2" });
         assert(accepted.ok, JSON.stringify(accepted));
-        assertEquals(accepted.workflow.state, "plan_submitted");
+        assertEquals(accepted.workflow.state, "awaiting_review");
     });
 });
 

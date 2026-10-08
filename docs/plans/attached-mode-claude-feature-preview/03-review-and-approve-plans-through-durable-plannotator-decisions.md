@@ -27,7 +27,7 @@ dependencies:
     - "02-plan-one-feature-request-inside-claude-code"
 targetBranch: "epic/attached-mode-claude-feature-preview"
 userVerifiedAt: null
-status: "in_progress"
+status: "implemented"
 ---
 
 # Review and approve Plans through durable Plannotator decisions

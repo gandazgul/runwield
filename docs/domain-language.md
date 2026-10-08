@@ -47,6 +47,11 @@ accepted operation results, and binding evidence. It lives under `~/.wld/attache
 It references its Plan but does not own it. The same Plan can be opened and run with `wld`. _Avoid_: Attached Session,
 host transcript, controller record
 
+**Attached Review Round**: The durable pending-review identity on an Attached Workflow Record: round, action ID, actual
+reviewed Plan revision, and waiting reason. It keeps a browser decision and its outcome recoverable across process loss.
+Core Plan review remains the authority for approval, Feedback, and readiness. _Avoid_: review promise, session-scoped
+review
+
 **Attached Role Instructions**: The effective layered agent instructions Core returns with a pending host action. They
 are resolved for each response from project, home, and bundled definitions and are not saved in the Attached Workflow
 Record. _Avoid_: generated Skill, role contract copy

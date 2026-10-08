@@ -97,10 +97,28 @@ export type PlanWrittenEnvelope = WorkflowOperationEnvelope<PlanWrittenPayload>;
 
 export interface StatusEnvelope {
     projectRoot: string;
-    workflowId: string;
+    workflowId?: string;
 }
 
-export type AttachedWorkflowState = "triaging" | "awaiting_planning" | "plan_submitted" | "closed";
+export type AttachedWorkflowState = "triaging" | "awaiting_planning" | "awaiting_review" | "plan_ready" | "closed";
+
+export interface AttachedReviewOutcome {
+    kind: "feedback" | "approved" | "canceled";
+    feedback?: string;
+    imagePaths?: string[];
+    approvalAction?: string;
+}
+
+/** The durable identity and accepted outcome of the current browser review round. */
+export interface AttachedReviewRound {
+    round: number;
+    actionId: string;
+    planRevision: string;
+    controllerRevision: number;
+    waitingReason: "user_decision";
+    status: "pending" | "applied";
+    outcome?: AttachedReviewOutcome;
+}
 
 /** The RunWield roles a host plays in Attached Mode. */
 export type AttachedHostRole = "router" | "planner";
@@ -109,13 +127,17 @@ export interface PendingHostAction {
     actionId: string;
     role: AttachedHostRole;
     contractVersion: string;
+    note?: string;
+    feedback?: string;
+    imagePaths?: string[];
 }
 
 export type AttachedNextAction =
     | ({ kind: "triage" } & PendingHostAction)
     | ({ kind: "plan"; projectSetup: string[] } & PendingHostAction)
-    | { kind: "plan_submitted"; planName: string }
-    | { kind: "return_to_host"; reason: "unsupported_in_preview" };
+    | { kind: "review"; round: number; planName: string }
+    | { kind: "plan_ready"; planName: string; guidance: string }
+    | { kind: "return_to_host"; reason: "unsupported_in_preview" | "plan_advanced_in_core"; message?: string };
 
 /** The Plan a workflow submitted. The workflow references the Plan; it does not own it. */
 export interface AttachedPlanReference {
@@ -130,10 +152,9 @@ export interface AttachedRoleInstructions {
     text: string;
 }
 
-export interface AttachedWorkflowClosure {
-    reason: "unsupported_in_preview";
-    routingIntent: string;
-}
+export type AttachedWorkflowClosure =
+    | { reason: "unsupported_in_preview"; routingIntent: string }
+    | { reason: "plan_advanced_in_core"; message: string };
 
 export interface ProjectMovedRecovery {
     case: "project_moved";
@@ -148,6 +169,7 @@ export interface AttachedWorkflowView {
     nextAction: AttachedNextAction;
     triageOutcome: TriageOutcome | null;
     plan: AttachedPlanReference | null;
+    review: AttachedReviewRound | null;
     closure: AttachedWorkflowClosure | null;
     recovery: ProjectMovedRecovery | null;
 }
@@ -344,7 +366,10 @@ export function parsePlanWrittenInput(projectRoot: string, input: AttachedJsonVa
 export function parseStatusInput(projectRoot: string, input: AttachedJsonValue | undefined) {
     return parse(input, (): StatusEnvelope => {
         const object = readObject(input, "", ["workflowId"]);
-        return { projectRoot, workflowId: readIdentifier(object, "workflowId", "workflowId") };
+        return {
+            projectRoot,
+            ...(object.workflowId !== undefined && { workflowId: readIdentifier(object, "workflowId", "workflowId") }),
+        };
     });
 }
 
@@ -445,11 +470,12 @@ export const ATTACHED_OPERATIONS: readonly AttachedOperationDescriptor[] = [
     },
     {
         name: "status",
-        description: "Read the saved state, revision, next action, and recovery information. Changes nothing.",
+        description:
+            "Read state, revision, next action, and recovery. Omit workflowId to restore the most recent open workflow in this project.",
         inputSchema: {
             type: "object",
             additionalProperties: false,
-            required: ["workflowId"],
+            required: [],
             properties: { workflowId: IDENTIFIER_SCHEMA },
         },
     },

@@ -17,6 +17,8 @@ import {
     canonicalizeStoredPlanName,
     ensurePlanIdentity,
     isHiddenPlanName,
+    loadArchivedPlan,
+    loadPlan,
     resolvePlanExecutionPolicy,
     updatePlanFrontMatter,
 } from "../../plan-store.js";
@@ -25,6 +27,11 @@ import { assertNotReservedEpicArtifactPlanName } from "../epic-artifacts.ts";
 import { enterProjectRuntime, resolveProjectRuntimeLayout } from "../project-runtime-layout.ts";
 import { runWieldGitignoreNeedsUpdate } from "../runwield-owned-paths.ts";
 import { VERSION } from "../version.js";
+import { recordPlanEvent } from "../workflow/plan-lifecycle.js";
+import { isAnsweredPlanReview } from "../workflow/plan-review-recovery.js";
+import { applySharedPlanReviewDecision } from "../workflow/plan-review-actions.ts";
+import { loadReviewFeedbackImagePaths } from "../workflow/review-feedback-images.ts";
+import type { ReviewDecision } from "../../ui/workspace/routes/api/review-handlers.js";
 import { resolveWorkflowPlanLocation } from "../workflow/plan-location.ts";
 import { normalizeTriageOutcome, type TriageOutcome } from "../workflow/triage-outcome.ts";
 import {
@@ -38,6 +45,7 @@ import {
     type AttachedPlanReference,
     type AttachedRejection,
     type AttachedRejectionCode,
+    type AttachedReviewOutcome,
     type AttachedWorkflowView,
     MAX_ATTACHED_INPUT_BYTES,
     parseActivateInput,
@@ -55,6 +63,7 @@ import {
     type AttachedWorkflowLocation,
     type AttachedWorkflowRecord,
     loadAttachedWorkflowRecord,
+    loadLatestAttachedWorkflowRecord,
     locateAttachedWorkflows,
     transactAttachedWorkflowRecord,
     writeAttachedWorkflowRecord,
@@ -83,16 +92,66 @@ async function nextActionFor(record: AttachedWorkflowRecord): Promise<AttachedNe
     if (record.state === "awaiting_planning" && pending) {
         return { kind: "plan", ...pending, projectSetup: await projectSetupFor(record.projectRoot) };
     }
-    if (record.state === "plan_submitted" && record.plan) {
-        return { kind: "plan_submitted", planName: record.plan.planName };
+    if (record.state === "awaiting_review" && record.plan && record.review) {
+        return { kind: "review", round: record.review.round, planName: record.plan.planName };
     }
-    return { kind: "return_to_host", reason: "unsupported_in_preview" };
+    if (record.state === "plan_ready" && record.plan) {
+        return {
+            kind: "plan_ready",
+            planName: record.plan.planName,
+            guidance: "The Plan is ready for work. Execution handoff is a later Preview step.",
+        };
+    }
+    return record.closure?.reason === "plan_advanced_in_core"
+        ? { kind: "return_to_host", ...record.closure }
+        : { kind: "return_to_host", reason: "unsupported_in_preview" };
+}
+
+/** Project the canonical Plan position without writing an Attached record. */
+async function reconcilePlanPosition(record: AttachedWorkflowRecord): Promise<AttachedWorkflowRecord> {
+    if (!record.plan || (record.state !== "awaiting_review" && record.state !== "plan_ready")) return record;
+    const { plan, archived } = await resolveWorkflowPlanLocation(record.projectRoot, record.plan.planName, {
+        migrateRegistry: false,
+        readOnly: true,
+    });
+    const archivedPlan = !plan && !archived ? await loadArchivedPlan(record.projectRoot, record.plan.planId) : null;
+    if (!plan && !archived && !archivedPlan) throw new Error(`Plan not found: ${record.plan.planName}`);
+    const status = archived || archivedPlan ? "archived" : plan?.attrs.status;
+    if (status === "approved" || status === "ready_for_work" || status === "ready_for_decomposition") {
+        return record.state === "plan_ready" ? record : { ...record, state: "plan_ready", pendingAction: null };
+    }
+    if (status === "draft" || status === "feedback") {
+        if (
+            record.state === "awaiting_review" &&
+            (status === "draft" || plan?.controllerRevision === record.review?.controllerRevision)
+        ) return record;
+        return {
+            ...record,
+            state: "awaiting_planning",
+            pendingAction: {
+                actionId: `${record.review?.actionId ?? record.workflowId}:core-feedback`,
+                role: "planner",
+                contractVersion: ATTACHED_PLANNER_CONTRACT_VERSION,
+                note: "The Plan changed in Core. Read the Plan Events before revising and submitting it again.",
+            },
+        };
+    }
+    return {
+        ...record,
+        state: "closed",
+        pendingAction: null,
+        closure: {
+            reason: "plan_advanced_in_core",
+            message: `The Plan advanced in Core to ${status}. No Attached browser review is pending.`,
+        },
+    };
 }
 
 async function viewOf(
     record: AttachedWorkflowRecord,
     recovery: ProjectMovedRecovery | null = null,
 ): Promise<AttachedWorkflowView> {
+    if (!recovery) record = await reconcilePlanPosition(record);
     return {
         workflowId: record.workflowId,
         revision: record.revision,
@@ -100,6 +159,7 @@ async function viewOf(
         nextAction: await nextActionFor(record),
         triageOutcome: record.triageOutcome,
         plan: record.plan,
+        review: record.review,
         closure: record.closure,
         recovery,
     };
@@ -177,7 +237,12 @@ async function checkWorkflowOperation(
         return {
             result: await rejected(
                 operation,
-                rejection("action_superseded", "This action is not the workflow's pending action."),
+                rejection(
+                    "action_superseded",
+                    current.state === "awaiting_review"
+                        ? "A browser review is pending. Wait for its decision before submitting another Plan."
+                        : "This action is not the workflow's pending action.",
+                ),
                 current,
             ),
         };
@@ -262,6 +327,7 @@ export async function activate(envelope: ActivateEnvelope): Promise<AttachedOper
         acceptedOperations: {},
         triageOutcome: null,
         plan: null,
+        review: null,
         closure: null,
         createdAt: now,
         updatedAt: now,
@@ -313,7 +379,9 @@ export async function triageReport(envelope: TriageReportEnvelope): Promise<Atta
     return await commit(location, "triage_report", loaded.record.revision, await decide(loaded.record), decide);
 }
 
-type PlanSubmission = { ok: true; plan: AttachedPlanReference } | { ok: false; message: string };
+type PlanSubmission =
+    | { ok: true; plan: AttachedPlanReference; revision: string; controllerRevision: number }
+    | { ok: false; message: string };
 
 /**
  * Make the written Plan a RunWield Plan: the Plan file steps of Core's `plan_written`
@@ -362,7 +430,14 @@ async function submitPlanDocument(
         expectedRevision: location.plan.revision,
     });
     const identified = await ensurePlanIdentity(location.documentRoot, planName);
-    return { ok: true, plan: { planId: identified.planId, planName } };
+    const submittedPlan = await loadPlan(location.documentRoot, planName);
+    if (!submittedPlan) throw new Error(`Plan not found: ${planName}`);
+    return {
+        ok: true,
+        plan: { planId: identified.planId, planName },
+        revision: identified.revision,
+        controllerRevision: submittedPlan.controllerRevision,
+    };
 }
 
 export async function planWritten(envelope: PlanWrittenEnvelope): Promise<AttachedOperationResult> {
@@ -381,6 +456,7 @@ export async function planWritten(envelope: PlanWrittenEnvelope): Promise<Attach
                     ),
                 };
             }
+            current = await reconcilePlanPosition(current);
             const checked = await checkWorkflowOperation("plan_written", envelope, current, "awaiting_planning");
             if (checked) return checked;
             if (!current.triageOutcome) {
@@ -399,9 +475,17 @@ export async function planWritten(envelope: PlanWrittenEnvelope): Promise<Attach
                 };
             }
             return await accept("plan_written", envelope, current, {
-                state: "plan_submitted",
+                state: "awaiting_review",
                 pendingAction: null,
                 plan: submitted.plan,
+                review: {
+                    round: (current.review?.round ?? 0) + 1,
+                    actionId: crypto.randomUUID(),
+                    planRevision: submitted.revision,
+                    controllerRevision: submitted.controllerRevision,
+                    waitingReason: "user_decision",
+                    status: "pending",
+                },
             });
         },
     );
@@ -413,9 +497,200 @@ export async function planWritten(envelope: PlanWrittenEnvelope): Promise<Attach
         : transaction.result;
 }
 
+/** The reviewed document and durable round identity a carrier must present together. */
+export interface AttachedReviewPayloadBasis {
+    review: NonNullable<AttachedWorkflowRecord["review"]>;
+    planName: string;
+    planPath: string;
+    documentRoot: string;
+    markdown: string;
+    attrs: PlanFrontMatter;
+    triageMeta: TriageOutcome | null;
+}
+
+export type AttachedReviewOpenResult =
+    | { kind: "opened"; basis: AttachedReviewPayloadBasis }
+    | { kind: "not_pending"; workflow: AttachedWorkflowView };
+
+/** Pin the actual document revision before any carrier opens or restores a review. */
+export async function openAttachedReviewRound(
+    projectRoot: string,
+    workflowId: string,
+): Promise<AttachedReviewOpenResult> {
+    const location = locateAttachedWorkflows(projectRoot);
+    const transaction = await transactAttachedWorkflowRecord<AttachedReviewOpenResult>(
+        location,
+        workflowId,
+        async (current) => {
+            if (!current) throw new Error("workflow_not_found: No Attached Workflow has this workflowId.");
+            if (current.projectRoot !== location.projectRoot) {
+                throw new Error("project_moved: This workflow belongs elsewhere.");
+            }
+            const reconciled = await reconcilePlanPosition(current);
+            const now = new Date().toISOString();
+            if (reconciled !== current) {
+                const next = { ...reconciled, revision: current.revision + 1, updatedAt: now };
+                return { result: { kind: "not_pending", workflow: await viewOf(next) }, next };
+            }
+            if (current.state !== "awaiting_review" || current.review?.status !== "pending" || !current.plan) {
+                return { result: { kind: "not_pending", workflow: await viewOf(current) } };
+            }
+            const { plan, documentRoot } = await resolveWorkflowPlanLocation(projectRoot, current.plan.planName, {
+                migrateRegistry: false,
+                readOnly: true,
+            });
+            if (!plan) throw new Error(`Plan not found: ${current.plan.planName}`);
+            const review = {
+                ...current.review,
+                planRevision: plan.revision,
+                controllerRevision: plan.controllerRevision,
+            };
+            const changed = review.planRevision !== current.review.planRevision ||
+                review.controllerRevision !== current.review.controllerRevision;
+            const next = changed ? { ...current, review, revision: current.revision + 1, updatedAt: now } : undefined;
+            return {
+                result: {
+                    kind: "opened",
+                    basis: {
+                        review,
+                        planName: current.plan.planName,
+                        planPath: plan.path,
+                        documentRoot,
+                        markdown: plan.markdown,
+                        attrs: plan.attrs,
+                        triageMeta: current.triageOutcome,
+                    },
+                },
+                ...(next && { next }),
+            };
+        },
+    );
+    if (transaction.status === "busy") {
+        throw new Error("workflow_busy: Another RunWield process holds this workflow. Retry.");
+    }
+    return transaction.result;
+}
+
+type AttachedReviewDecisionResult = { outcome: AttachedReviewOutcome } | { rejection: string };
+
+/** Apply a browser decision against its pinned payload, then commit before acknowledgment. */
+export async function applyAttachedReviewDecision(
+    projectRoot: string,
+    workflowId: string,
+    round: AttachedReviewPayloadBasis,
+    decision: ReviewDecision,
+): Promise<AttachedReviewOutcome> {
+    const location = locateAttachedWorkflows(projectRoot);
+    const transaction = await transactAttachedWorkflowRecord<AttachedReviewDecisionResult>(
+        location,
+        workflowId,
+        async (current) => {
+            if (!current) throw new Error("workflow_not_found: No Attached Workflow has this workflowId.");
+            if (current.projectRoot !== location.projectRoot) {
+                throw new Error("project_moved: This workflow belongs elsewhere.");
+            }
+            const saved = current.review;
+            if (saved?.round !== round.review.round || saved.actionId !== round.review.actionId) {
+                throw new Error("action_superseded: This review round is no longer pending.");
+            }
+            if (saved.status === "applied" && saved.outcome) return { result: { outcome: saved.outcome } };
+            if (current.state !== "awaiting_review" || saved.planRevision !== round.review.planRevision) {
+                throw new Error("action_superseded: This reviewed document is no longer pending. Reopen the review.");
+            }
+            const reconciled = await reconcilePlanPosition(current);
+            if (reconciled !== current) {
+                return {
+                    result: {
+                        rejection:
+                            "action_superseded: The Plan advanced in Core. Read status for its current position.",
+                    },
+                    next: { ...reconciled, revision: current.revision + 1, updatedAt: new Date().toISOString() },
+                };
+            }
+            const canceled = decision.canceled === true || decision.exit === true;
+            if (!canceled && !isAnsweredPlanReview(decision)) {
+                throw new Error(
+                    "invalid_outcome: Review has no decision.",
+                );
+            }
+            let outcome: AttachedReviewOutcome;
+            if (canceled) {
+                outcome = { kind: "canceled" };
+            } else {
+                const applied = await applySharedPlanReviewDecision({
+                    cwd: round.documentRoot,
+                    planName: round.planName,
+                    planPath: round.planPath,
+                    planWithFrontMatter: round.markdown,
+                    planRevision: saved.planRevision,
+                    originalAttrs: round.attrs,
+                    trustedClassification: current.triageOutcome?.classification,
+                    trustedWorkKind: current.triageOutcome?.workKind,
+                    decision,
+                });
+                if (applied.cancellationReason || applied.recoveryRequired) {
+                    throw new Error(applied.feedback || "The Plan changed. Reload this review.");
+                }
+                if (applied.approved) {
+                    await recordPlanEvent({
+                        cwd: round.documentRoot,
+                        planName: round.planName,
+                        event: "readiness_passed",
+                        currentStatus: "approved",
+                        expectedRevision: applied.revision,
+                    });
+                    outcome = {
+                        kind: "approved",
+                        ...(applied.approvalAction && { approvalAction: applied.approvalAction }),
+                    };
+                } else {
+                    outcome = {
+                        kind: "feedback",
+                        feedback: applied.feedback ?? "",
+                        imagePaths: await loadReviewFeedbackImagePaths(decision, round.documentRoot),
+                    };
+                }
+            }
+            const pendingAction = outcome.kind === "approved" ? null : {
+                actionId: crypto.randomUUID(),
+                role: "planner" as const,
+                contractVersion: ATTACHED_PLANNER_CONTRACT_VERSION,
+                ...(outcome.kind === "canceled"
+                    ? {
+                        note:
+                            "The user canceled the browser review. Return to the user in Claude; this workflow remains open.",
+                    }
+                    : {
+                        feedback: outcome.feedback,
+                        imagePaths: outcome.imagePaths,
+                        note:
+                            "Read the feedback before revising. Browser edits are already in the Plan; do not apply them twice.",
+                    }),
+            };
+            const next: AttachedWorkflowRecord = {
+                ...current,
+                state: outcome.kind === "approved" ? "plan_ready" : "awaiting_planning",
+                pendingAction,
+                review: { ...saved, status: "applied", outcome },
+                revision: current.revision + 1,
+                updatedAt: new Date().toISOString(),
+            };
+            return { result: { outcome }, next };
+        },
+    );
+    if (transaction.status === "busy") throw new Error("workflow_busy: Another process holds this workflow. Retry.");
+    if ("rejection" in transaction.result) throw new Error(transaction.result.rejection);
+    return transaction.result.outcome;
+}
+
 export async function readStatus(envelope: StatusEnvelope): Promise<AttachedOperationResult> {
     const location = locateAttachedWorkflows(envelope.projectRoot);
-    const loaded = await loadAttachedWorkflowRecord(location, envelope.workflowId);
+    const latest = envelope.workflowId ? null : await loadLatestAttachedWorkflowRecord(location);
+    const loaded = envelope.workflowId
+        ? await loadAttachedWorkflowRecord(location, envelope.workflowId)
+        : latest
+        ? { status: "found" as const, record: latest }
+        : { status: "missing" as const };
     if (loaded.status === "missing") {
         return await rejected("status", rejection("workflow_not_found", "No Attached Workflow has this workflowId."));
     }

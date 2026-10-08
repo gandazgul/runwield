@@ -196,7 +196,11 @@ Initialization is optional and may occur before or after the first Attached Work
 
 ### Shared Plan and verification outcomes
 
-**Scope and maturity:** Target; Core owns the shared requirements.
+**Scope and maturity:** The Claude FEATURE Preview delivers Plan review, Feedback, approval, and readiness through
+Plannotator and Core. Review decisions are durable before browser acknowledgment. Claude receives Feedback and image
+paths through `status`, revises the Plan, and submits the next round into the same browser page. Cancellation returns to
+Claude with a review-canceled note and leaves the workflow open. Execution, verification, code review, and publication
+remain target scope; Core owns their shared requirements.
 
 **Requirement: Keep Core approval and verification authoritative.**
 
@@ -235,8 +239,14 @@ the external host. The host continues to own its conversation and model calls.
 
 - Given a host message claiming completion, when required checks or delivery evidence are missing, the Plan does not
   become Verified.
-- When the user submits browser review feedback, it returns to the same attached planning flow; approval is recorded
-  through Core for the reviewed Plan.
+- When the user submits browser review feedback, Claude retrieves the durable Feedback and image paths, revises, and
+  submits the next round into the same Plannotator page. Browser edits are saved once, not repeated by the Planner.
+- Given an unchanged semantic Plan revision, approval records Core approval and readiness and leaves the Plan
+  `ready_for_work`. A meaningful edit rejects a stale decision; formatting-only changes do not discard approval.
+- Given process loss during review, `/runwield:plan-review` in a fresh Claude conversation restores the most recent open
+  workflow. A pending round reopens; an applied outcome is retrieved without repeating transitions.
+- When the user cancels or exits browser review, Claude receives a cancellation note. Closing a tab or losing the MCP
+  process does not fabricate cancellation or abandon the workflow.
 - When a host cannot satisfy a required verification condition, it exposes the limitation and a supported continuation
   or deliberate abandonment without weakening Verified or silently ending the workflow.
 
@@ -401,6 +411,8 @@ transports, role dispatch, tool contracts, and host-specific hooks; this PRD def
 **Requirement: Support users who choose to remain in their external host.**
 
 - RunWield Connect is a supported destination for users who never adopt another RunWield surface.
+- Connect journeys stay in the External Agent Host and its browser review surface. They must not require users to
+  operate the `wld` CLI or TUI. The Claude Preview restores review through `/runwield:plan-review` and host tools.
 - Primary product outcomes are successful verified work, retained use, and trustworthy recovery.
 - Movement to direct Core use or Workspace is a secondary organic outcome.
 - Product-family messaging may explain genuine integration and collaboration advantages but must not reserve feasible

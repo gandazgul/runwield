@@ -4,10 +4,12 @@
  * Claude Code. One tool per coordinator operation; framing only, no workflow rules.
  */
 
+import process from "node:process";
 import { Server } from "@modelcontextprotocol/sdk/server";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio";
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from "@modelcontextprotocol/sdk/types";
 import { runAttachedOperation } from "../../shared/attached/coordinator.ts";
+import { ensureReviewHosted, stopHostedAttachedReviews } from "../../shared/attached/review-host.ts";
 import { ATTACHED_OPERATIONS } from "../../shared/attached/operations.ts";
 import plugin from "./plugin/.claude-plugin/plugin.json" with { type: "json" };
 
@@ -21,6 +23,7 @@ export async function runAttachedMcpServer(projectRoot: string, version: string)
         throw new Error("RunWield plugin manifest must provide a version.");
     }
     const adapterVersion: string = manifest.version;
+    let closing = false;
     const server = new Server({ name: "runwield-attached", version }, { capabilities: { tools: {} } });
     server.setRequestHandler(ListToolsRequestSchema, () => ({
         tools: ATTACHED_OPERATIONS.map(({ name, description, inputSchema }) => ({
@@ -49,7 +52,24 @@ export async function runAttachedMcpServer(projectRoot: string, version: string)
             },
         };
         const inputText = JSON.stringify(argumentsWithEvidence);
-        const result = await runAttachedOperation(operation.name, projectRoot, inputText);
+        const coordinated = await runAttachedOperation(operation.name, projectRoot, inputText);
+        const canHost = !closing && (operation.name === "plan_written" || operation.name === "status");
+        const review = canHost && coordinated.workflow
+            ? await ensureReviewHosted(projectRoot, coordinated.workflow)
+            : null;
+        const refreshed = canHost && coordinated.workflow?.review?.status === "pending"
+            ? await runAttachedOperation(
+                "status",
+                projectRoot,
+                JSON.stringify({ workflowId: coordinated.workflow.workflowId }),
+            )
+            : null;
+        const result = {
+            ...coordinated,
+            ...(refreshed?.workflow && { workflow: refreshed.workflow }),
+            ...(refreshed?.instructions && { instructions: refreshed.instructions }),
+            ...(review && { review }),
+        };
         return {
             content: [{ type: "text" as const, text: JSON.stringify(result) }],
             structuredContent: result,
@@ -59,8 +79,19 @@ export async function runAttachedMcpServer(projectRoot: string, version: string)
 
     const transport = new StdioServerTransport();
     const closed = new Promise<void>((resolve) => {
-        transport.onclose = resolve;
+        transport.onclose = () => {
+            closing = true;
+            resolve();
+        };
     });
-    await server.connect(transport);
-    await closed;
+    // The SDK transport handles data/error, but does not close itself on stdin EOF.
+    const closeOnEnd = () => void transport.close();
+    process.stdin.once("end", closeOnEnd);
+    try {
+        await server.connect(transport);
+        await closed;
+    } finally {
+        process.stdin.off("end", closeOnEnd);
+        await stopHostedAttachedReviews();
+    }
 }
