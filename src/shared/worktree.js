@@ -13,7 +13,7 @@ import {
     PROJECT_CONTEXT_PATHS,
     recordedProjectContextPaths,
 } from "./worktree-project-context.ts";
-import { assertGitRepository, GitRepositoryRequiredError } from "./git.js";
+import { assertGitRepository, GitRepositoryRequiredError } from "./git.ts";
 import { getWorkflowDiff } from "./workflow/git-snapshot.ts";
 import { addEntry, listEntries, pruneStaleEntries, removeEntry } from "./worktree-registry.js";
 import { enterProjectRuntime, resolveProjectRoot, resolveProjectRuntimeLayout } from "./project-runtime-layout.ts";

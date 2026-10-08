@@ -9,7 +9,7 @@
 
 import { AGENTS, isPlannedChangeClassification } from "../../constants.js";
 import { loadPlan, resolvePlanExecutionPolicy } from "../../plan-store.js";
-import { isGitRepositoryRequiredError } from "../../shared/git.js";
+import { isGitRepositoryRequiredError } from "../../shared/git.ts";
 import { isProjectPlan, recordPlanEvent } from "../../shared/workflow/plan-lifecycle.js";
 import { decidePostExecution } from "../../shared/workflow/decisions.ts";
 import { finalizePlanImplementation } from "../../shared/workflow/workflow.js";

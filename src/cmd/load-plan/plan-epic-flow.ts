@@ -27,7 +27,7 @@ import {
     findTargetBranchPlansByParent,
     preparePlanningWorktreeForPlan,
 } from "../../shared/workflow/planning-worktree.ts";
-import { isGitRepository } from "../../shared/git.js";
+import { isGitRepository } from "../../shared/git.ts";
 import { ensureEpicBranch } from "../../shared/workflow/epic-branch.ts";
 import { reconcileEpicDelivery } from "../../shared/workflow/epic-integration.ts";
 import { archiveEpicWithChildren } from "./plan-epic-archive.ts";
