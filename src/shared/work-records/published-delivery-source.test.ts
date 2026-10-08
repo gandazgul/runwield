@@ -93,6 +93,14 @@ Deno.test("sealed delivery keeps child evidence and terminal parent record despi
         });
         assertEquals(unfinished.delivered.planId, "child-id");
         assertEquals(unfinished.workRecordOwner, undefined);
+        await git(root, ["rm", "docs/plans/epic.md"]);
+        await git(root, ["commit", "-m", "child branch without parent document"]);
+        const childOnly = await readPublishedDeliverySources(root, {
+            ...publication,
+            artifactCommit: await git(root, ["rev-parse", "HEAD"]),
+        });
+        assertEquals(childOnly.delivered.planId, "child-id");
+        assertEquals(childOnly.workRecordOwner, undefined);
     } finally {
         await Deno.remove(root, { recursive: true });
     }

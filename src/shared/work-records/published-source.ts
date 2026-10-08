@@ -115,8 +115,10 @@ export async function readPublishedDeliverySources(
         humanReviewedAt: controller.state.humanReviewedAt,
     };
     if (!isChildFeaturePlan(delivered)) return { delivered, workRecordOwner: delivered };
-    const parent = await readSource(root, attempt.artifactCommit, delivered.attrs.parentPlan || "");
-    return { delivered, workRecordOwner: isTerminalWorkRecordParent(parent.attrs) ? parent : undefined };
+    // Child branches can contain only child Plans; the Epic document remains in the primary checkout.
+    // Its absent recording evidence must not interrupt a confirmed child delivery.
+    const parent = await readSource(root, attempt.artifactCommit, delivered.attrs.parentPlan || "").catch(() => null);
+    return { delivered, workRecordOwner: parent && isTerminalWorkRecordParent(parent.attrs) ? parent : undefined };
 }
 
 /** The primary checkout may not contain a record created inside the delivered worktree. */
