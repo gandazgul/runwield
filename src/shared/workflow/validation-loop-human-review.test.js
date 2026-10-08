@@ -137,7 +137,7 @@ Deno.test("runValidationLoop ask mode can skip human review and merge", async ()
         humanReviewMode: "ask",
         humanReviewDecision: null,
     });
-    const { hostedSession } = makeValidationUi();
+    const { hostedSession, uiAPI } = makeValidationUi();
     hostedSession.setActiveExecutionWorkflow({
         planName: "p",
         triageMeta: { classification: "QUICK_FIX", status: "validated_reviewer", humanReviewMode: "ask" },
@@ -146,7 +146,10 @@ Deno.test("runValidationLoop ask mode can skip human review and merge", async ()
         executionCwd: projectRoot,
         nonGitInPlace: true,
     });
-    setInteraction(hostedSession, () => Promise.resolve({ outcome: "selected", value: "skip" }));
+    setInteraction(hostedSession, (request) => {
+        assertEquals(request._meta?.presentation, "code_review_offer");
+        return Promise.resolve({ outcome: "selected", value: "skip" });
+    });
 
     const result = await runValidationPhase({
         hostedSession,
@@ -160,6 +163,8 @@ Deno.test("runValidationLoop ask mode can skip human review and merge", async ()
     assertEquals(result.kind, "paused");
     assertEquals(plan?.attrs.status, "validated_reviewer");
     assertEquals(plan?.attrs.humanReviewDecision, "skipped");
+    assertEquals(uiAPI.messages.filter((/** @type {string} */ message) => message === "Code Review skipped").length, 1);
+    assertEquals(uiAPI.messages.some((/** @type {string} */ message) => message.includes("You approved")), false);
 });
 
 Deno.test("runValidationLoop ask mode opens code review before merge when approved", async () => {
@@ -573,3 +578,39 @@ Deno.test("an unconfigured Plan offers human review and cancellation pauses befo
     assertEquals(requests[0].options?.map((option) => option.value), ["open", "skip", "close"]);
     assertEquals((await loadPlan(projectRoot, "default-review"))?.attrs.status, "validated_reviewer");
 });
+
+for (const answer of [{ outcome: "canceled" }, { outcome: "selected", value: "close" }]) {
+    Deno.test(`Code Review offer ${answer.value || answer.outcome} stays pending without a skipped or approved outcome`, async () => {
+        const projectRoot = await makeValidationProjectRoot("p", {
+            classification: "QUICK_FIX",
+            status: "validated_reviewer",
+            humanReviewMode: "ask",
+            humanReviewDecision: null,
+        });
+        const { hostedSession, uiAPI } = makeValidationUi();
+        hostedSession.setActiveExecutionWorkflow({
+            planName: "p",
+            triageMeta: { classification: "QUICK_FIX", status: "validated_reviewer", humanReviewMode: "ask" },
+            executionAgent: "engineer",
+            projectRoot,
+            executionCwd: projectRoot,
+            nonGitInPlace: true,
+        });
+        setInteraction(hostedSession, () => Promise.resolve(answer));
+        const result = await runValidationPhase({
+            hostedSession,
+            planName: "p",
+            planContent: "# p",
+            triageMeta: { classification: "QUICK_FIX", status: "validated_reviewer", humanReviewMode: "ask" },
+            semanticReviewPort: NO_ISOLATED_AGENT_PORT,
+        });
+        assertEquals(result.kind, "paused");
+        assertEquals((await loadPlan(projectRoot, "p"))?.attrs.humanReviewDecision, null);
+        assertEquals(
+            uiAPI.messages.some((/** @type {string} */ message) =>
+                message.includes("Code Review skipped") || message.includes("You approved")
+            ),
+            false,
+        );
+    });
+}

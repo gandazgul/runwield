@@ -15,6 +15,7 @@ import {
 } from "../workflow/controller-registry.ts";
 import type { PublicationAttempt } from "../workflow/publication-attempt.ts";
 import { attachEpicChildren, buildActiveWorkRecordSource } from "./generation.js";
+import { isTerminalWorkRecordParent } from "./auto-generation.ts";
 
 type WorkRecordSource = import("./generation.js").WorkRecordSource;
 
@@ -87,4 +88,45 @@ export async function loadPublishedWorkRecordSource(root: string, planName: stri
         if (child.attrs.parentPlan === source.name) children.push(child);
     }
     return attachEpicChildren([source, ...children])[0];
+}
+
+export interface PublishedDeliverySources {
+    delivered: WorkRecordSource;
+    workRecordOwner?: WorkRecordSource;
+}
+
+/** Read-only delivery facts: keep child identity distinct from the Epic recording owner. */
+export async function readPublishedDeliverySources(
+    root: string,
+    attempt: PublicationAttempt,
+): Promise<PublishedDeliverySources> {
+    if (!attempt.artifactCommit) throw new Error("The delivered Plan artifact commit is missing.");
+    const delivered = await readSource(root, attempt.artifactCommit, attempt.planName);
+    if (delivered.planId !== attempt.planId) throw new Error("The delivered Plan identity changed.");
+    const controller = await inspectControllerView(root, { planName: attempt.planName, planId: attempt.planId }, {});
+    delivered.attrs = {
+        ...delivered.attrs,
+        humanReviewMode: controller.state.humanReviewMode,
+        humanReviewDecision: controller.state.humanReviewDecision,
+        humanReviewedAt: controller.state.humanReviewedAt,
+    };
+    if (!isChildFeaturePlan(delivered)) return { delivered, workRecordOwner: delivered };
+    const parent = await readSource(root, attempt.artifactCommit, delivered.attrs.parentPlan || "");
+    return { delivered, workRecordOwner: isTerminalWorkRecordParent(parent.attrs) ? parent : undefined };
+}
+
+/** The primary checkout may not contain a record created inside the delivered worktree. */
+export async function readPublishedRecordMarkdown(
+    root: string,
+    attempt: PublicationAttempt,
+    path: string,
+): Promise<string | null> {
+    if (!attempt.artifactCommit || !path.startsWith("docs/work-records/") || path.split("/").includes("..")) {
+        return null;
+    }
+    try {
+        return await git(root, ["show", `${attempt.artifactCommit}:${path}`]);
+    } catch {
+        return null;
+    }
 }

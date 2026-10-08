@@ -1,3 +1,4 @@
+import { DEV_DELIVERY_REPORT } from "../workspace/server/dev-delivery-fixture.ts";
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 import { TuiAltScreen } from "@earendil-works/pi-tui";
 import { withSessionViewFixture } from "./testing/session-view-fixture.ts";
@@ -38,7 +39,8 @@ for (const columns of [60, 140]) {
                         },
                     });
                 }
-                const terminal = new VirtualTerminal({ columns, rows: 30 });
+                const capture = Deno.env.get("RUNWIELD_DELIVERY_SCREENSHOT") && columns === 140 && choice === "new";
+                const terminal = new VirtualTerminal({ columns, rows: capture ? 54 : 30 });
                 let activeId = sessionId;
                 const tui = new TuiAltScreen(terminal);
                 const view = await createChatView({
@@ -121,6 +123,7 @@ for (const columns of [60, 140]) {
                             outcome: "verified",
                             workRecordFailed: choice.startsWith("record-"),
                             workRecordPlanName: "record-retry",
+                            deliveryReport: DEV_DELIVERY_REPORT,
                             checks: { ci: "passed", semanticReview: "passed", humanReview: "skipped", merge: "passed" },
                         },
                     });
@@ -130,6 +133,16 @@ for (const columns of [60, 140]) {
                     });
                     await waitFor(() => terminal.getScreenText().includes("What would you like to do next?"));
                     const screen = terminal.getScreenText();
+                    if (capture) {
+                        await Deno.writeTextFile(
+                            Deno.env.get("RUNWIELD_DELIVERY_SCREENSHOT") || "",
+                            JSON.stringify({
+                                columns,
+                                lines: terminal.getViewportLines(),
+                                ansi: terminal.writes,
+                            }),
+                        );
+                    }
                     if (choice.startsWith("record-")) {
                         assertStringIncludes(screen, "Code delivered; Work Record failed.");
                         assertStringIncludes(screen, "wld wr backfill");
@@ -189,4 +202,63 @@ for (const columns of [60, 140]) {
             });
         });
     }
+}
+
+for (const choice of ["skip", "open", "dismiss"]) {
+    Deno.test(`Code Review offer ${choice} removes selection controls without inventing an outcome`, async () => {
+        await withSessionViewFixture(async ({ runtime, sessionId }) => {
+            const terminal = new VirtualTerminal({ columns: 100, rows: 22 });
+            const tui = new TuiAltScreen(terminal);
+            const view = await createChatView({
+                tui,
+                sessionRuntime: runtime,
+                getSessionId: () => sessionId,
+                suppressStartupHeader: true,
+                setActiveModel: () => Promise.resolve({ status: "active" }),
+            });
+            const { createTuiInteractionAdapter } = await import("./runtime-interaction-adapter.js");
+            const adapter = createTuiInteractionAdapter(view.uiAPI, { browser: NO_OPEN_BROWSER_PORT });
+            tui.start();
+            try {
+                const response = adapter.requestInteraction({
+                    type: "select",
+                    prompt: "Would you like to review the code?",
+                    options: [{ value: "open", label: "Open code review" }, {
+                        value: "skip",
+                        label: "Skip code review",
+                    }],
+                    _meta: { presentation: "code_review_offer" },
+                });
+                await waitFor(() => terminal.getScreenText().includes("Skip code review"));
+                if (choice === "dismiss") terminal.pressEscape();
+                else {
+                    if (choice === "skip") terminal.input("\x1b[B");
+                    terminal.pressEnter();
+                }
+                const selected = await response;
+                if (choice === "skip") view.uiAPI.appendSystemMessage("Code Review skipped", false, "RunWield");
+                tui.renderNow(true);
+                await terminal.flush();
+                const text = terminal.getScreenText();
+                assertEquals(text.includes("Would you like to review the code?"), false);
+                assertEquals(text.includes("Skip code review"), false);
+                assertEquals(text.includes("Open code review"), false);
+                assertEquals(text.includes("Code Review skipped"), choice === "skip");
+                assertEquals(text.includes("approved"), false);
+                assertEquals(selected.outcome, choice === "dismiss" ? "canceled" : "selected");
+                if (choice === "skip") {
+                    assertEquals(text.split("Code Review skipped").length - 1, 1);
+                    if (Deno.env.get("RUNWIELD_SKIP_SCREENSHOT")) {
+                        await Deno.writeTextFile(
+                            Deno.env.get("RUNWIELD_SKIP_SCREENSHOT") || "",
+                            JSON.stringify({ columns: 100, lines: terminal.getViewportLines(), ansi: terminal.writes }),
+                        );
+                    }
+                }
+            } finally {
+                view.dispose();
+                tui.stop();
+            }
+        });
+    });
 }
