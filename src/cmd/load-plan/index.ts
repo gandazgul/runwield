@@ -19,7 +19,7 @@ import {
     resolveSiblingChildPlanDependencies,
 } from "../../plan-store.js";
 import { formatArchiveRetentionNudge } from "../../shared/plan-archive-retention.ts";
-import { decidePostPlanning } from "../../shared/workflow/decisions.js";
+import { decidePostPlanning } from "../../shared/workflow/decisions.ts";
 import { buildPlannerReReviewRequest, buildResumeRequest } from "./plan-presentation.ts";
 import { buildPlanSummary } from "../../shared/plan-presentation.ts";
 import { handlePlanRecovery, SYSTEM_RECOVERY_FLOW_PORTS } from "./plan-recovery-flow.ts";
