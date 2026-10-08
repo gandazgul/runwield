@@ -2361,7 +2361,7 @@ export class WorkspaceSessionContinuationService {
                 "ready_for_decomposition",
                 "implemented",
                 "validated_ci",
-                "validated_reviewer",
+                "reviewed",
                 "validated",
             ].includes(status)
         ) {

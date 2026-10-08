@@ -13,6 +13,11 @@ import {
     assertNoTrackedOrIndexedRuntimePaths,
     stageGitChangesExcludingRuntime,
 } from "./git-runtime-safety.ts";
+import {
+    finalizeLocalPublicationLifecycle,
+    finalizePublicationLifecycle,
+    recoverLocalPublicationLifecycle,
+} from "./publication-lifecycle.ts";
 import { recoverSealedPlanFormatting } from "./publication-plan-formatting.ts";
 
 interface CommandResult {
@@ -228,7 +233,13 @@ async function pushPublication(
     });
 }
 
-async function commitPublicationMetadata(publicationRoot: string, planName: string): Promise<string> {
+async function commitPublicationMetadata(
+    publicationRoot: string,
+    planName: string,
+    sealedCommit: string,
+    allowedPlanPaths: string[],
+): Promise<string> {
+    await finalizePublicationLifecycle(publicationRoot, planName, sealedCommit, allowedPlanPaths);
     await assertNoTrackedOrIndexedRuntimePaths(publicationRoot);
     await stageGitChangesExcludingRuntime(publicationRoot);
     await assertNoTrackedOrIndexedRuntimePaths(publicationRoot);
@@ -445,7 +456,12 @@ export async function publishExecutionWorktreeIsolated(
                 deliveryCommit,
             );
             preserveForRecovery = true;
-            const publicationCommit = await commitPublicationMetadata(publicationRoot, args.planName);
+            const publicationCommit = await commitPublicationMetadata(
+                publicationRoot,
+                args.planName,
+                args.sealedExecutionCommit,
+                args.allowedPlanPaths,
+            );
             await assertNoRuntimePathsInNewHistory(
                 publicationRoot,
                 publicationHistoryBase,
@@ -602,7 +618,12 @@ export async function publishExecutionWorktreeIsolated(
         const deliveryCommit = await runGit(publicationRoot, ["rev-parse", "HEAD"]);
         await assertNoRuntimePathsInNewHistory(publicationRoot, publicationHistoryBase, deliveryCommit);
         preserveForRecovery = true;
-        const publicationCommit = await commitPublicationMetadata(publicationRoot, args.planName);
+        const publicationCommit = await commitPublicationMetadata(
+            publicationRoot,
+            args.planName,
+            args.sealedExecutionCommit,
+            args.allowedPlanPaths,
+        );
         await assertNoRuntimePathsInNewHistory(publicationRoot, publicationHistoryBase, publicationCommit);
         await args.onIntegrated?.({
             targetBaseCommit: targetHeadBeforeMerge,
@@ -658,6 +679,7 @@ async function publishToLocalTarget(
             { mergeFailureKind: "publication_target_changed" },
         );
     }
+    await recoverLocalPublicationLifecycle(args.projectRoot, args.targetBranch, args.sealedExecutionCommit);
     const targetHeadBeforeMerge = await runGit(args.projectRoot, ["rev-parse", `refs/heads/${args.targetBranch}`]);
     const savedAuthoritativePlans = new Map<string, Uint8Array>();
     try {
@@ -714,7 +736,13 @@ async function publishToLocalTarget(
             planDescription: args.planDescription,
         });
         args.onProgress?.("verifying");
-        const publicationCommit = await runGit(args.projectRoot, ["rev-parse", `refs/heads/${args.targetBranch}`]);
+        const publicationCommit = await finalizeLocalPublicationLifecycle(
+            args.projectRoot,
+            args.targetBranch,
+            args.planName,
+            args.sealedExecutionCommit,
+            args.allowedPlanPaths,
+        );
         await assertNoRuntimePathsInNewHistory(args.projectRoot, targetHeadBeforeMerge, publicationCommit);
         await settleProjectContextPublication(args.projectRoot);
         await args.onIntegrated?.({

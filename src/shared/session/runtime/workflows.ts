@@ -81,7 +81,7 @@ function isValidationTriageMeta(
         "failed",
         "implemented",
         "validated_ci",
-        "validated_reviewer",
+        "reviewed",
         "validated",
         "blocked",
         "canceled",

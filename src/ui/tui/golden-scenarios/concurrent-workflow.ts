@@ -252,8 +252,8 @@ export const concurrentPlansIdentityScenario = {
             const captured = plans(result);
             const first = captured.find((entry) => entry.name === "concurrent-a")?.attrs;
             const second = captured.find((entry) => entry.name === "concurrent-b")?.attrs;
-            assert(first?.status === "validated", `Expected concurrent-a to validate; got ${first?.status}`);
-            assert(second?.status === "validated", `Expected concurrent-b to validate; got ${second?.status}`);
+            assert(first?.status === "verified", `Expected concurrent-a delivery to verify; got ${first?.status}`);
+            assert(second?.status === "verified", `Expected concurrent-b delivery to verify; got ${second?.status}`);
             assert(first?.planId === "concurrent-plan-a", `Unexpected concurrent-a planId ${first?.planId}`);
             assert(second?.planId === "concurrent-plan-b", `Unexpected concurrent-b planId ${second?.planId}`);
             const remoteTree = String(result.state.publication?.remoteTree || "");

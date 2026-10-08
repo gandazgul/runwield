@@ -280,7 +280,7 @@ async function runLockedPublicationPhase(
         const deliveryEvidence: DeliveryEvidence = context.nonGitInPlace
             ? { version: 1, mode: "non_git_in_place" }
             : null;
-        await recordLifecycleEvent(args, context.projectRoot, "validation_passed", "validated_reviewer", undefined, {
+        await recordLifecycleEvent(args, context.projectRoot, "validation_passed", "reviewed", undefined, {
             executionMode: context.nonGitInPlace ? "non_git_in_place" : undefined,
             deliveryEvidence,
             ...humanReviewMetadata,
@@ -578,7 +578,11 @@ async function runLockedPublicationPhase(
                 async () => await reconcileStoredPublication(context.projectRoot, publicationAttempt!),
             );
             if (publicationAttempt.phase === "cleanup_complete") {
-                const cleanup = await cleanupStoredPublication(context.projectRoot, publicationAttempt);
+                const cleanup = await cleanupStoredPublication(
+                    context.projectRoot,
+                    publicationAttempt,
+                    args.workRecordMnemotecaPort,
+                );
                 if (cleanup.preservedFiles) {
                     emitStatus(
                         args,
@@ -657,7 +661,7 @@ async function runLockedPublicationPhase(
             );
             await atStage(
                 "artifact_preparation",
-                async () => await runPostVerificationHandoffs(args, context.executionCwd),
+                async () => await runPostVerificationHandoffs(args, context.executionCwd, true),
             );
             const artifactCandidate = await atStage("candidate_sealing", async () =>
                 await checkpointExecutionWorktree({
@@ -759,7 +763,11 @@ async function runLockedPublicationPhase(
             buildValidationUserMessage({ kind: "publication_progress", phase: "cleanup", targetBranch }),
         );
         await args.session.handoffVerifiedPublication(context.projectRoot);
-        const cleanup = await cleanupStoredPublication(context.projectRoot, publicationAttempt);
+        const cleanup = await cleanupStoredPublication(
+            context.projectRoot,
+            publicationAttempt,
+            args.workRecordMnemotecaPort,
+        );
         publicationAttempt = cleanup.attempt;
         if (cleanup.preservedFiles) {
             emitStatus(
@@ -803,13 +811,18 @@ async function runLockedPublicationPhase(
     }
 }
 
-export async function runPostVerificationHandoffs(args: ValidationLoopArgs, projectRoot: string): Promise<void> {
+export async function runPostVerificationHandoffs(
+    args: ValidationLoopArgs,
+    projectRoot: string,
+    pendingPublication = false,
+): Promise<void> {
     if (!isPlannedChangeClassification(args.triageMeta?.classification)) return;
     await args.session.runPostVerificationHandoffs({
         planName: args.planName,
         planContent: args.planContent,
         projectRoot,
         mnemotecaPort: args.workRecordMnemotecaPort,
+        pendingPublication,
     });
 }
 

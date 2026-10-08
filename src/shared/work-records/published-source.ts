@@ -35,6 +35,9 @@ async function readSource(root: string, commit: string, name: string): Promise<W
 
 /** Called only after publication proof, before reporting completed delivery. */
 export async function retainPublishedWorkRecordSource(root: string, attempt: PublicationAttempt): Promise<void> {
+    if (!["publication_verified", "cleanup_complete"].includes(attempt.phase)) {
+        throw new Error("Recording source requires confirmed publication.");
+    }
     if (!attempt.artifactCommit) throw new Error("The delivered recording source has no artifact commit.");
     const delivered = await readSource(root, attempt.artifactCommit, attempt.planName);
     if (delivered.planId !== attempt.planId) throw new Error("The delivered Plan identity changed.");
@@ -63,6 +66,7 @@ export async function loadPublishedWorkRecordSource(root: string, planName: stri
         (!local ? (await findRecordingControllerByName(root, planName))?.state.recordingSource : undefined);
     if (!receipt) return null;
     const source = await readSource(root, receipt.commit, receipt.planName);
+    if (["reviewed", "validated"].includes(source.attrs.status)) source.attrs.status = "verified";
     if (source.planId !== receipt.planId) throw new Error("The saved recording source identity does not match.");
     const current = await loadPlan(root, source.name);
     if (current && current.attrs.planId !== source.planId) {

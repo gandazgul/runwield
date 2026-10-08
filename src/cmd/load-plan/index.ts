@@ -10,6 +10,7 @@ import { parseArgs } from "@std/cli/parse-args";
 import { AGENTS, CLI_BIN, getCwd } from "../../constants.js";
 import {
     archivePlan,
+    canonicalPlanStatus,
     ensurePlanIdentity,
     isRecoverableWorktreeStatus,
     listPlanDocuments,
@@ -50,7 +51,7 @@ import { resolvePrimaryCheckoutRoot } from "../../shared/primary-checkout.ts";
 import { confirmChildFeatureDependencies, formatTopLevelPlanOption } from "./plan-epic-children.ts";
 import { reopenPlanForReview, resolveRecoveryWorktree } from "./plan-recovery-worktree.ts";
 import { healSettledTransitionRecords } from "../../shared/workflow/transition-recovery.ts";
-import { isExecutablePlanStatus, isInValidation, PLAN_STATUSES } from "../../shared/workflow/plan-lifecycle.js";
+import { isExecutablePlanStatus, isInValidation } from "../../shared/workflow/plan-lifecycle.js";
 import { getPlanContentStatus } from "../../shared/workflow/validation-engine.ts";
 import { loadPlanActionEvidence } from "../../shared/workflow/plan-actions.ts";
 import { printCommandHelp } from "../help/index.js";
@@ -279,7 +280,7 @@ export async function runLoadPlanCommand(argv: string[], options: CommandContext
         }
         loadedPlanName = plan.planName;
         const rawStatus = getPlanContentStatus(plan.markdown);
-        if (rawStatus !== undefined && !PLAN_STATUSES.some((status) => status === rawStatus)) {
+        if (rawStatus !== undefined && !canonicalPlanStatus(rawStatus)) {
             uiAPI.appendSystemMessage(
                 `Plan has unknown status: ${rawStatus}. RunWield cannot safely continue until the Plan status is corrected.`,
                 true,

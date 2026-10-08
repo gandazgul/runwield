@@ -262,7 +262,7 @@ export async function startInteractiveSession(
                     ...(context?.status ? { status: context.status } : {}),
                 };
                 const status = String(triageMeta.status || "");
-                const validationStatus = ["implemented", "validated_ci", "validated_reviewer", "validated"].includes(
+                const validationStatus = ["implemented", "validated_ci", "reviewed", "validated"].includes(
                     status,
                 );
                 const result = validationStatus || action.kind === "recover"
