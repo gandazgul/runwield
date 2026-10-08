@@ -671,7 +671,7 @@ async function publishToLocalTarget(
             throw new IsolatedPublicationError(
                 `The checked-out ${args.targetBranch} branch has unsaved tracked changes. ` +
                     `Commit or discard them before retrying local publication: ${blockingTrackedChanges.join(", ")}.`,
-                { mergeFailureKind: "primary_checkout_dirty" },
+                { mergeFailureKind: "primary_checkout_dirty", blockingPaths: blockingTrackedChanges },
             );
         }
         for (const relativePath of args.allowedPlanPaths) {
@@ -679,7 +679,7 @@ async function publishToLocalTarget(
             if (staged.code !== 0) {
                 throw new IsolatedPublicationError(
                     `The project folder has a staged change to ${relativePath}. Commit or unstage it before retrying.`,
-                    { mergeFailureKind: "primary_checkout_dirty" },
+                    { mergeFailureKind: "primary_checkout_dirty", blockingPaths: [relativePath] },
                 );
             }
         }
@@ -705,7 +705,7 @@ async function publishToLocalTarget(
             if (staged.code !== 0) {
                 throw new IsolatedPublicationError(
                     "The project folder has a staged change to .gitignore. Commit or unstage it before retrying.",
-                    { mergeFailureKind: "primary_checkout_dirty" },
+                    { mergeFailureKind: "primary_checkout_dirty", blockingPaths: [".gitignore"] },
                 );
             }
             const changed = await runGitResult(args.projectRoot, ["diff", "--quiet", "--", ".gitignore"]);
