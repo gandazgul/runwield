@@ -130,7 +130,7 @@ import { describeRuntimeTool } from "./tool-event-title.js";
 import { createSessionContextProjection, estimateContextTextTokens } from "./session-context-report.ts";
 import { installEarlySteeringInterruption } from "./early-steering.js";
 import { loadSubAgentDefinition } from "./subagent-definitions.ts";
-import { formatGitPromptState, readGitPromptState } from "../git.js";
+import { formatGitPromptState, readGitPromptState } from "../git.ts";
 import { sanitizeSessionName } from "./session-name.ts";
 
 /** @returns {string | null} */

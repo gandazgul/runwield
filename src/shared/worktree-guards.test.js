@@ -12,7 +12,7 @@ async function savePlanForTest(cwd, planName, content, attrs) {
     const existing = await loadPlan(cwd, planName).catch(() => null);
     return await savePlan(cwd, planName, content, attrs, existing ? { expectedRevision: existing.revision } : {});
 }
-import { GitRepositoryRequiredError } from "./git.js";
+import { GitRepositoryRequiredError } from "./git.ts";
 
 import {
     checkpointExecutionPreparation,

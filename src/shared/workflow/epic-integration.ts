@@ -22,7 +22,7 @@ import {
 } from "../../plan-store.js";
 import type { PlanFrontMatter } from "../../plan-store.js";
 import { AGENTS, isPlannedChangeClassification } from "../../constants.js";
-import { isGitRepository } from "../git.js";
+import { isGitRepository } from "../git.ts";
 import { getCodeReviewMode } from "../settings.js";
 import { resolvePrimaryCheckoutRoot } from "../primary-checkout.ts";
 import { EPIC_INTEGRATION_REPORT_FILE_NAME, getEpicArtifactPath } from "../epic-artifacts.ts";

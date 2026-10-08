@@ -20,7 +20,7 @@ import {
 import type { PlanFrontMatter } from "../../plan-store.js";
 import { isPlannedChangeClassification } from "../../constants.js";
 import { projectPlanType } from "../project-plan.ts";
-import { isGitRepository } from "../git.js";
+import { isGitRepository } from "../git.ts";
 import { prepareTargetBranchRef, resolveTargetBranchName } from "../worktree.js";
 import { resolvePrimaryCheckoutRoot } from "../primary-checkout.ts";
 import { resolveWorkflowPlanLocation } from "./plan-location.ts";

@@ -64,7 +64,7 @@ import {
     buildPlanRecoveryUserMessage,
     buildValidationRecoveryNotice,
 } from "../../shared/workflow/validation-user-messages.ts";
-import { isGitRepository } from "../../shared/git.js";
+import { isGitRepository } from "../../shared/git.ts";
 import { openFileSessionStore } from "../../shared/session/file-session-store.ts";
 import { findPlanAssociatedSessions, verifyPlanAssociatedSession } from "../../shared/session/plan-session-lookup.ts";
 import { preparePlanningWorktreeForPlan } from "../../shared/workflow/planning-worktree.ts";

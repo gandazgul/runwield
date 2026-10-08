@@ -188,7 +188,7 @@ src/
 
     tools/                    ← src/tools/  (registry, policy, definitions/)
 
-    platform/                 git.js + git-port.ts, project-state, runtime-preflight, process-liveness,
+    platform/                 git.ts + git-port.ts, project-state, runtime-preflight, process-liveness,
                               foreground-process, snip-filters, update-check, browser-port,
                               helpers.js (directoryExists/fileExists)
       paths/                  ← src/constants.js  (getCwd, getHomeDir, bundled asset paths)

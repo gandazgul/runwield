@@ -3,30 +3,36 @@
  * Shared Git repository detection and non-Git execution consent helpers.
  */
 
-/**
- * @typedef {Object} GitPromptState
- * @property {string} branch
- * @property {boolean} dirty
- */
+export interface GitPromptState {
+    branch: string;
+    dirty: boolean;
+}
 
-/**
- * @typedef {"work_tree" | "git_missing" | "not_git" | "bare_or_unsupported" | "error"} GitRepositoryState
- */
+export type GitRepositoryState = "work_tree" | "git_missing" | "not_git" | "bare_or_unsupported" | "error";
 
-/**
- * @typedef {Object} GitRepositoryProbe
- * @property {GitRepositoryState} state
- * @property {boolean} ok
- * @property {string} cwd
- * @property {string} [message]
- */
+export interface GitRepositoryProbe {
+    state: GitRepositoryState;
+    ok: boolean;
+    cwd: string;
+    message?: string;
+}
+
+export interface GitRepositoryRequiredDetails {
+    cwd: string;
+    operation: string;
+    state?: GitRepositoryState;
+}
+
+interface NamedGitError {
+    name?: string;
+}
 
 export class GitRepositoryRequiredError extends Error {
-    /**
-     * @param {string} message
-     * @param {{ cwd: string, operation: string, state?: GitRepositoryState }} details
-     */
-    constructor(message, details) {
+    declare cwd: string;
+    declare operation: string;
+    declare state: GitRepositoryState;
+
+    constructor(message: string, details: GitRepositoryRequiredDetails) {
         super(message);
         this.name = "GitRepositoryRequiredError";
         this.cwd = details.cwd;
@@ -35,16 +41,11 @@ export class GitRepositoryRequiredError extends Error {
     }
 }
 
-/** @param {unknown} value */
-function decodeBytes(value) {
-    return new TextDecoder().decode(/** @type {Uint8Array} */ (value)).trim();
+function decodeBytes(value: Uint8Array): string {
+    return new TextDecoder().decode(value).trim();
 }
 
-/**
- * @param {string} cwd
- * @returns {Promise<GitRepositoryProbe>}
- */
-export async function probeGitRepository(cwd) {
+export async function probeGitRepository(cwd: string): Promise<GitRepositoryProbe> {
     try {
         const command = new Deno.Command("git", {
             args: ["rev-parse", "--is-inside-work-tree", "--is-bare-repository"],
@@ -86,20 +87,11 @@ export async function probeGitRepository(cwd) {
     }
 }
 
-/**
- * @param {string} cwd
- * @returns {Promise<boolean>}
- */
-export async function isGitRepository(cwd) {
+export async function isGitRepository(cwd: string): Promise<boolean> {
     return (await probeGitRepository(cwd)).ok;
 }
 
-/**
- * @param {string} cwd
- * @param {string[]} args
- * @returns {Promise<string | null>}
- */
-async function readGitOutput(cwd, args) {
+async function readGitOutput(cwd: string, args: string[]): Promise<string | null> {
     try {
         const command = new Deno.Command("git", { args, cwd, stdout: "piped", stderr: "piped" });
         const output = await command.output();
@@ -110,11 +102,7 @@ async function readGitOutput(cwd, args) {
     }
 }
 
-/**
- * @param {string} cwd
- * @returns {Promise<GitPromptState | null>}
- */
-export async function readGitPromptState(cwd) {
+export async function readGitPromptState(cwd: string): Promise<GitPromptState | null> {
     const probe = await probeGitRepository(cwd);
     if (!probe.ok) return null;
 
@@ -128,23 +116,14 @@ export async function readGitPromptState(cwd) {
     return { branch: head.trim(), dirty: status.trim().length > 0 };
 }
 
-/**
- * @param {GitPromptState} state
- * @returns {string}
- */
-export function formatGitPromptState(state) {
+export function formatGitPromptState(state: GitPromptState): string {
     return [
         `- Git Branch: ${state.branch}`,
         `- Git Work tree: ${state.dirty ? "dirty" : "clean"}`,
     ].join("\n");
 }
 
-/**
- * @param {string} operation
- * @param {GitRepositoryProbe} probe
- * @returns {string}
- */
-export function buildGitRequiredMessage(operation, probe) {
+export function buildGitRequiredMessage(operation: string, probe: GitRepositoryProbe): string {
     const reason = probe.state === "git_missing"
         ? "Git was not found."
         : probe.state === "bare_or_unsupported"
@@ -153,12 +132,7 @@ export function buildGitRequiredMessage(operation, probe) {
     return `${operation} requires a Git repository. ${reason} RunWield uses Git for worktree isolation, diffs, baseline recovery, and merge-back for this operation.`;
 }
 
-/**
- * @param {string} cwd
- * @param {string} operation
- * @returns {Promise<void>}
- */
-export async function assertGitRepository(cwd, operation) {
+export async function assertGitRepository(cwd: string, operation: string): Promise<void> {
     const probe = await probeGitRepository(cwd);
     if (probe.ok) return;
     throw new GitRepositoryRequiredError(buildGitRequiredMessage(operation, probe), {
@@ -168,17 +142,14 @@ export async function assertGitRepository(cwd, operation) {
     });
 }
 
-/** @param {unknown} error */
-export function isGitRepositoryRequiredError(error) {
+export function isGitRepositoryRequiredError<Value>(error: Value): boolean {
     return error instanceof GitRepositoryRequiredError ||
         Boolean(
-            error && typeof error === "object" && /** @type {{ name?: unknown }} */
-                (error).name === "GitRepositoryRequiredError",
+            error && typeof error === "object" && (error as NamedGitError).name === "GitRepositoryRequiredError",
         );
 }
 
-/** @param {unknown} error */
-export function formatGitRequiredMessage(error) {
+export function formatGitRequiredMessage<Value>(error: Value): string {
     if (isGitRepositoryRequiredError(error)) return error instanceof Error ? error.message : String(error);
     return error instanceof Error ? error.message : String(error);
 }

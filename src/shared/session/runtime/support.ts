@@ -4,7 +4,7 @@ import { resolveActiveWorkflowRuntimeAgent } from "../../workflow/execution-agen
 import { getModelRegistry } from "../../models/model-registry.ts";
 import { parseProviderModel } from "../../models/model-validation.ts";
 import { getSettingsManager } from "../../settings.js";
-import { isGitRepository } from "../../git.js";
+import { isGitRepository } from "../../git.ts";
 import { enterProjectRuntime } from "../../project-runtime-layout.ts";
 import { readPersistedWorkflowContext } from ".././workflow-context-session.js";
 import { createPairCheckpointTool } from "../../../tools/pair-checkpoint.ts";

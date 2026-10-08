@@ -6,7 +6,7 @@
 import { basename, dirname, join } from "@std/path";
 import { getHomeDir, RUNWIELD_DIR_NAME, WORKTREE_BRANCH_PREFIX } from "../constants.js";
 import { encodeCwdForSessionDir } from "./session/root-session.js";
-import { assertGitRepository, GitRepositoryRequiredError } from "./git.js";
+import { assertGitRepository, GitRepositoryRequiredError } from "./git.ts";
 import { getWorkflowDiff } from "./workflow/git-snapshot.ts";
 import { addEntry, listEntries, pruneStaleEntries, removeEntry } from "./worktree-registry.js";
 import { enterProjectRuntime, resolveProjectRoot, resolveProjectRuntimeLayout } from "./project-runtime-layout.ts";
