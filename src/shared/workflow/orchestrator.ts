@@ -39,7 +39,7 @@ import {
     RuntimeEventTypes,
 } from "../session/session-runtime-events.js";
 import { requestHostedSessionInteraction, RuntimeInteractionTypes } from "../session/session-runtime-interactions.js";
-import { decidePostExecution, decidePostPlanning, summarizeWorkflowDecision } from "./decisions.js";
+import { decidePostExecution, decidePostPlanning, summarizeWorkflowDecision } from "./decisions.ts";
 import { recordWorkflowMetric } from "./metrics.js";
 import { buildAgentHandoffRequest } from "./workflow-prompts.js";
 import {
