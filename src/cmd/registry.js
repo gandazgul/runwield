@@ -9,7 +9,7 @@ import { runQuitCommand } from "./quit/index.ts";
 import { runExportCommand } from "./export/index.ts";
 import { runNewCommand } from "./new/index.ts";
 import { runNameCommand } from "./name/index.ts";
-import { runSessionCommand } from "./session/index.js";
+import { runSessionCommand } from "./session/index.ts";
 import { runContextCommand } from "./context/index.ts";
 import { runShareCommand, SYSTEM_GITHUB_CLI_PORT } from "./share/index.ts";
 import { runResumeCommand } from "./resume/index.ts";

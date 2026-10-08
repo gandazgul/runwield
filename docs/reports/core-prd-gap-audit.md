@@ -362,7 +362,7 @@ required non-empty `## Summary`:
 **Evidence:** `src/shared/work-records/store.js:92` parses every record without isolating a failure. Search scans
 records before querying (`search.js:92`); read-by-ID also scans all (`store.js:106`). Validation throws at
 `markdown.js:349`. The draft therefore blocks even current-only queries before filtering. Listing, backfill, and
-rebuilding use the same scan. `index-adapter.js:261–266` deletes the existing index before parsing all records.
+rebuilding use the same scan. `index-adapter.ts:239–247` deletes the existing index before parsing all records.
 
 **Distinguish two deliveries:** Quick win 1 fixes today's two documents. This group addresses the failure behavior when
 another malformed document appears. Rebuilding alone cannot repair malformed Markdown.
@@ -387,7 +387,7 @@ found, but its full scope was not audited. Manual/external record creation remai
 because their directory names match. Preserve existing knowledge and intentional global-memory sharing.
 
 **Evidence:** `src/extensions/mnemoteca/tools.ts:86–96` resolves the primary repository and uses its basename for the
-memory collection. `src/shared/work-records/index-adapter.js:42–48` uses the same kind of basename identity.
+memory collection. `src/shared/work-records/index-adapter.ts:59–65` uses the same kind of basename identity.
 
 **Failure example:** `/client-a/app` and `/client-b/app` use the same memory collection name. Rebuilding one Work Record
 index replaces indexed candidates for the other. Canonical filtering prevents foreign Work Records from being returned,
