@@ -35,7 +35,8 @@ dependencies:
     - "01-activate-and-resume-an-attached-workflow"
 userVerifiedAt: null
 targetBranch: "epic/attached-mode-claude-feature-preview"
-status: "validated_reviewer"
+status: "validated"
+validatedCommit: "d107e5f81c0ebafaa2898512870e25dd1431f35d"
 ---
 
 # Plan one FEATURE request inside Claude Code

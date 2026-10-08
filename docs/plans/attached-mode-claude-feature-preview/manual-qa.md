@@ -17,3 +17,17 @@ Manual verification steps for attached-mode-claude-feature-preview/01-activate-a
 - [ ] Submit an unsupported Routing Intent and confirm the workflow closes with an unsupported-in-preview result.
 
 <!-- runwield:manual-qa:end child="attached-mode-claude-feature-preview/01-activate-and-resume-an-attached-workflow" -->
+
+<!-- runwield:manual-qa:start child="attached-mode-claude-feature-preview/02-plan-one-feature-request-inside-claude-code" -->
+
+## Plan one FEATURE request inside Claude Code
+
+Manual verification steps for attached-mode-claude-feature-preview/02-plan-one-feature-request-inside-claude-code
+
+- [ ] Load the plugin with `claude --plugin-dir src/attached/claude/plugin` and run
+      `/runwield:request add a dark-mode toggle`; confirm Claude shows the setup preview before it writes the Plan.
+- [ ] Confirm Claude writes the Plan under `docs/plans/` and submits it; run `wld` and confirm the Plan appears in
+      `draft` with a Plan ID.
+- [ ] Ask Claude an unrelated question after submission; confirm it answers normally.
+
+<!-- runwield:manual-qa:end child="attached-mode-claude-feature-preview/02-plan-one-feature-request-inside-claude-code" -->
