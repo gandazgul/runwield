@@ -222,7 +222,7 @@ Deno.test("Workspace progress uses the authoritative execution Plan and never mu
     }
 });
 
-Deno.test("Workspace progress shows publication states without treating validated work as complete", async () => {
+Deno.test("Workspace progress shows publication states without treating reviewed work as complete", async () => {
     const dir = await Deno.makeTempDir({ prefix: "runwield-progress-publication-" });
     const projectRoot = `${dir}/project`;
     const worktreeRoot = `${dir}/worktree`;
@@ -233,14 +233,14 @@ Deno.test("Workspace progress shows publication states without treating validate
         classification: "PLANNED_CHANGE",
         complexity: "LOW",
         summary: "Feature B",
-        status: "validated",
+        status: "reviewed",
     });
     await savePlan(worktreeRoot, "feature-b", "# Feature B\n\nBody", {
         planId: "feature-b-id",
         classification: "PLANNED_CHANGE",
         complexity: "LOW",
         summary: "Feature B",
-        status: "validated",
+        status: "reviewed",
     });
     const publication = recordPublicationFailure(
         createPublicationAttempt({

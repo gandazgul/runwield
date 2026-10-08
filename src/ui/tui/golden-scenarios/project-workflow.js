@@ -168,6 +168,7 @@ export const twoChildProjectContinuationScenario = {
     // clear the contended case or the inner budgets never apply.
     timeoutMs: 600000,
     coverage: ["durable:session-replaced", "durable:epic-evidence", "durable:work-record", "durable:epic-completion"],
+    interactiveSelectPrompts: ["What would you like to do next?"],
     scriptedInteractions: [{
         type: "select",
         promptIncludes: "What would you like to do with this Epic",
@@ -483,6 +484,9 @@ export const twoChildProjectContinuationScenario = {
         // Supply only the user's external Git effect; load-plan must prove delivery
         // and generate the Work Record through the actual lifecycle.
         { type: "mergeReviewedEpicToFinalTarget", planName: "epic" },
+        { type: "waitForScreen", text: "What would you like to do next?", timeoutMs: 15000 },
+        { type: "escape" },
+        { type: "restartTui", sessionStartMode: "new" },
         { type: "type", text: "/load-plan epic" },
         { type: "enter" },
         { type: "enter" },
