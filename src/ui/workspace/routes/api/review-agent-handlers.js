@@ -310,20 +310,19 @@ async function recordGuideJobMetric(state, entry) {
         });
     }
     await recordWorkflowMetric({
+        v: 2,
         category: "validation",
         event: "guided_review_generation_result",
-        details: {
-            status: info.status,
-            provider: info.providerName || info.engine,
-            model: info.model,
-            elapsedMs: info.elapsedMs,
-            tokensAvailable: entry.usageTotals.measurementAvailability !== "unavailable",
-            costAvailable: Boolean(info.cost),
-            costUnavailable: Boolean(info.costUnavailable),
-            sectionCount: entry.guide && Array.isArray(entry.guide.sections) ? entry.guide.sections.length : 0,
-            hasError: typeof info.error === "string" && info.error.length > 0,
-            errorKind: classifyGuideJobError(info.error),
-        },
+        recorderId: info.id,
+        seq: 0,
+        eventId: `guided_review_generation_result:${info.id}`,
+        operationId: info.id,
+        outcome: info.status === "done" ? "succeeded" : info.status === "killed" ? "interrupted" : "failed",
+        elapsedMs: info.elapsedMs,
+        provider: info.providerName || info.engine,
+        model: info.model,
+        sectionCount: entry.guide && Array.isArray(entry.guide.sections) ? entry.guide.sections.length : 0,
+        failureKind: classifyGuideJobError(info.error),
     }, state.cwd);
 }
 

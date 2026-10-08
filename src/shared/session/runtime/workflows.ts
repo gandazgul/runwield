@@ -769,6 +769,7 @@ export class RuntimeWorkflows {
                 planName: continuation.plan.planName,
                 repairGeneration: continuation.repair.repairGeneration,
                 report,
+                session: session.getManagedMetadata(),
             });
             return {
                 kind: "semantic_repair_completed",

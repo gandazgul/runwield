@@ -168,7 +168,7 @@ Deno.test("failed external Guided Review retains observed usage and its failure 
         assertEquals(records.filter((record) => record.event === "model_usage").length, 1);
         assertEquals(records.find((record) => record.event === "model_usage")?.inputTokens, 12);
         assertEquals(
-            records.find((record) => record.event === "guided_review_generation_result")?.details?.status,
+            records.find((record) => record.event === "guided_review_generation_result")?.outcome,
             "failed",
         );
     });
@@ -226,8 +226,8 @@ Deno.test("a Guided Review capacity hint does not make absent measurements avail
         const records = await readMetrics();
         assertEquals(records.find((record) => record.event === "model_usage")?.measurementAvailability, "unavailable");
         assertEquals(
-            records.find((record) => record.event === "guided_review_generation_result")?.details?.status,
-            "done",
+            records.find((record) => record.event === "guided_review_generation_result")?.outcome,
+            "succeeded",
         );
     });
 });
