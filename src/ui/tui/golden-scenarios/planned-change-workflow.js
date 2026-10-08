@@ -510,6 +510,7 @@ export const onboardingTutorialDeliveryScenario = {
         { type: "enter" },
         { type: "waitForRemotePlanStatus", planName: "plan", statuses: ["verified"], timeoutMs: 240000 },
         { type: "waitForWorktreeRegistryStatus", planName: "plan", statuses: ["absent"], timeoutMs: 90000 },
+        { type: "waitForScreen", text: "What would you like to do", timeoutMs: 15000 },
         { type: "escape" },
         { type: "waitForIdle", timeoutMs: 90000 },
         { type: "assertWorkflowDurability" },
