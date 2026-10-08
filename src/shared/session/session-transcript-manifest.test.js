@@ -118,6 +118,7 @@ Deno.test("aggregate projection adds safe segment context without exposing segme
         assertEquals(projected.events.map((event) => event.eventId), [
             `${fixture.firstSegment.segmentId}:duplicate:user_message:0`,
             `${fixture.secondSegment.segmentId}:duplicate:assistant_text_delta:0`,
+            `${fixture.secondSegment.segmentId}:duplicate:usage:0`,
         ]);
         assertEquals(projected.snapshot.name, null);
         assertEquals(projected.snapshot.sessionStats, {
@@ -128,6 +129,7 @@ Deno.test("aggregate projection adds safe segment context without exposing segme
         });
         assertEquals(projected.events.map((event) => [event.segmentOrdinal, event.segmentKind]), [
             [0, "planning"],
+            [1, "execution"],
             [1, "execution"],
         ]);
         assertEquals(projected.segments, [
@@ -214,6 +216,7 @@ Deno.test("aggregate projection reads segments from each segment transcript dire
         assertEquals(projected.events.map((event) => event.eventId), [
             "segment-1:first:user_message:0",
             "segment-2:second:assistant_text_delta:0",
+            "segment-2:second:usage:0",
         ]);
     } finally {
         await Deno.remove(dir, { recursive: true });
@@ -277,12 +280,14 @@ Deno.test("aggregate projection carries active Agent state across segment bounda
                     "first",
                     "Guide",
                 ],
+                ["usage", `${fixture.firstSegment.segmentId}:guide-reply:usage:0`, "", ""],
                 [
                     "assistant_text_delta",
                     `${fixture.secondSegment.segmentId}:pre-marker-reply:assistant_text_delta:0`,
                     "still guide",
                     "Guide",
                 ],
+                ["usage", `${fixture.secondSegment.segmentId}:pre-marker-reply:usage:0`, "", ""],
                 [
                     "system_status",
                     `${fixture.secondSegment.segmentId}:agent-operator:agent_switch:0`,
@@ -364,7 +369,7 @@ Deno.test("aggregate projection replays from start when a cursor is absent after
         });
         assert(projected.ok);
         assertEquals(projected.cursorReset, true);
-        assertEquals(projected.events.length, 2);
+        assertEquals(projected.events.length, 3);
     } finally {
         await cleanupFixture(fixture);
     }
@@ -414,6 +419,7 @@ Deno.test("aggregate projection resumes across a segment boundary", async () => 
         assert(projected.ok);
         assertEquals(projected.events.map((event) => event.eventId), [
             `${fixture.secondSegment.segmentId}:duplicate:assistant_text_delta:0`,
+            `${fixture.secondSegment.segmentId}:duplicate:usage:0`,
         ]);
     } finally {
         await cleanupFixture(fixture);

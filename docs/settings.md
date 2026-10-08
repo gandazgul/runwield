@@ -545,6 +545,25 @@ distinguishes provider-reported cost from rate-calculated cost and unavailable c
 invoice. `coverage` and per-measurement `availability` use `complete`, `partial`, or `unavailable`; a partial bridge
 inventory is not a complete CLI tool inventory.
 
+Completed `see_image` vision fallbacks record request-basis usage, including remote calls. Guided Review uses runtime
+observations for `wld guided-review` without another job total; external guide commands record one turn-basis aggregate.
+A command that supplies no measurements records unavailable usage. Guide generation outcomes remain separate events. The
+explicit remote model proof turn is not recorded, but its vision fallback calls are. agy CLI cost remains unavailable.
+Replay shows compaction usage separately from assistant totals. Historical zero-filled CLI transcripts cannot
+distinguish missing measurements from measured zeros.
+
+An external Guided Review command can report measurements on stderr with a line that starts with
+`RUNWIELD_GUIDED_REVIEW_EVENT` followed by a version-2 JSON usage frame. Keep the review JSON on stdout. Each usage
+frame requires `inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheWriteTokens`, and `costUsd`; each value is a
+nonnegative number or `null`. `contextWindow` is optional. For example:
+
+```text
+RUNWIELD_GUIDED_REVIEW_EVENT {"version":2,"type":"usage","usage":{"inputTokens":12,"outputTokens":0,"cacheReadTokens":null,"cacheWriteTokens":null,"costUsd":null}}
+```
+
+Other custom-command stderr remains diagnostic text, including legacy version-1 look-alike lines. The default `wld`
+command rejects stale usage frames. Legacy frames do not contribute new measurements.
+
 #### Recording and history
 
 Set `workflowMetrics` to `false` to stop recording new measurements. Existing measurements stay on your device until you

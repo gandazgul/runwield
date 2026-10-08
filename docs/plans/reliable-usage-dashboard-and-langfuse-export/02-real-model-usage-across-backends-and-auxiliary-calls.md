@@ -14,6 +14,12 @@ affectedPaths:
     - "src/cmd/guided-review/"
     - "src/ui/tui/chat-footer.ts"
     - "docs/prd/runwield-core-prd.md"
+planDeviations:
+    - id: "call_6a50a0d6f1b84a6f99bacd3781bcc0fb|fc_064d3cc08d2d7f42016ac7b94f9f30819588acbefccd3d94d1"
+      supersededRequirement: "Record one aggregated turn-level model_usage observation per Guided Review job, including jobs run through wld guided-review."
+      replacementRequirement: "Retain model_usage observations already recorded by the runtime for wld guided-review jobs, and record one aggregated turn-level model_usage observation only for external Guided Review commands. Preserve guided_review_generation_result for every settled job and do not duplicate runtime-recorded usage."
+      reason: "wld guided-review runs through runtime.promptSession, which already records usage; adding a job-level model_usage observation would double-count the same calls."
+      approvedAt: "2026-10-08T15:40:06.023Z"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-10-08T11:14:09-0400"
@@ -22,9 +28,9 @@ parentPlan: "reliable-usage-dashboard-and-langfuse-export"
 order: 2
 dependencies:
     - "01-core-measurement-history-and-default-on-recording"
-targetBranch: "epic/reliable-usage-dashboard-and-langfuse-export"
 userVerifiedAt: null
-status: "in_progress"
+targetBranch: "epic/reliable-usage-dashboard-and-langfuse-export"
+status: "implemented"
 ---
 
 # Real Model Usage Across Backends and Auxiliary Calls

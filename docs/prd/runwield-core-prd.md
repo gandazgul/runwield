@@ -1998,6 +1998,21 @@ belongs to one primary Project history and collection epoch. Session and Plan li
 they are not substitutes for Session Transcript or Plan Association evidence. A Usage observation is neither a
 transcript nor a billing charge. Missing measurements remain unavailable, not zero.
 
+**Requirement: Supported backends preserve their measurement detail and upstream limits.** Pi retains native per-request
+measurements linked to assistant turns. Claude CLI retains request measurements, turn totals, and per-model detail as
+alternatives where they overlap. agy CLI retains turn-cumulative tokens; USD cost stays unavailable because its upstream
+result supplies no cost. Runtime events, saved entries, replay totals, the terminal footer, and Guided Review
+distinguish supplied zero from absent measurements. Replay reports compaction usage separately from assistant-message
+totals and marks partial category coverage. Historical zero-filled CLI entries cannot be reconstructed as measured or
+unavailable.
+
+**Requirement: Auxiliary calls use the same opt-in measurement history without duplicate accounting.** A completed
+`see_image` vision fallback records one request-basis observation, locally or remotely, linked to its active execution
+or Session. Missing response usage records unavailable. Guided Review uses the existing runtime observations for
+`wld guided-review`; it does not add a second job total. External guide commands record one turn-basis aggregate per
+settled job, with unavailable categories when the command provides no usage. Every guide job keeps its generation
+outcome. The explicit remote model proof turn is not a Usage source; its vision fallback calls are.
+
 **Requirement: Cross-process recording has bounded lock acquisition and truthful persistence.** All writers to the
 primary Project journal take an OS file lock before the same `proper-lockfile` lock, including linked worktrees and
 separate Core processes. The OS lock does not expire while a writer is paused. Current epoch checkpoints avoid scans of
@@ -2038,6 +2053,16 @@ and is surfaced with corrupt line numbers; it is not silently deleted or convert
   missing end without turning it into a success. A failed turn keeps usage that its provider already reported.
 - Given absent usage, cost, truncation, or context occupancy measurements, RunWield marks each unavailable or partial;
   it does not replace missing values with zero or add overlapping turn and request costs.
+- Given Pi request usage, Claude request/turn/per-model fixtures, or agy turn-cumulative usage, when recorded, RunWield
+  retains the available detail without adding Claude alternative observations to a reported turn total. Absent cache
+  categories stay unavailable, supplied zeros stay measured, and agy cost stays unavailable.
+- Given assistant entries without usage and a compaction entry with usage, when a Session is replayed, assistant totals
+  show unavailable while the compaction component shows its own measured values.
+- Given a completed local or remote vision fallback, when usage is present, RunWield records it once. Missing usage
+  produces an unavailable observation; an errored completion produces no fabricated measurements.
+- Given a default `wld` guide job, when it settles, its existing runtime measurements and one generation outcome remain
+  without a duplicate job total. An external guide job records one aggregate and one outcome. Null categories yield
+  partial or unavailable coverage, not zero. Version-1 frames are not accepted as new measurements.
 - Given a template or Skill command that starts Agent work, its one invocation ID links to the execution. A command
   picker writes an `opened` observation, then a `dispatched` observation only when a choice starts work. Its final
   result is succeeded, failed, canceled, or rejected under the same invocation ID. Closing a picker without a choice
