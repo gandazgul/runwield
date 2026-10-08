@@ -101,6 +101,7 @@ interface ResolutionMetricOptions {
     reason: string;
     recovered?: boolean;
     planFileRestored?: boolean;
+    worktreeId?: string;
 }
 
 export interface ResolveValidationExecutionContextOptions {
@@ -188,6 +189,7 @@ async function recordResolutionMetric({
     reason,
     recovered = false,
     planFileRestored = false,
+    worktreeId,
 }: ResolutionMetricOptions): Promise<void> {
     if (planFileRestored) {
         await recordWorkflowOutcome(cwd, {
@@ -195,6 +197,7 @@ async function recordResolutionMetric({
             event: "execution_context_resolution",
             operationId: crypto.randomUUID(),
             planName,
+            attemptId: worktreeId,
             outcome: "succeeded",
         });
         return;
@@ -650,6 +653,7 @@ export async function resolveValidationExecutionContext({
         reason: selected.source,
         recovered: selected.source === "durable_recovery",
         planFileRestored: Boolean(restoredPlanFile),
+        worktreeId,
     });
     return {
         kind: "ok",

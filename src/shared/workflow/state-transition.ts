@@ -879,6 +879,7 @@ export async function runExecutionPreparationTransition<T>(
     return await runSemanticTransition({
         projectRoot,
         planName,
+        worktreeId,
         operation: "execution_preparation",
         resources,
         expectedRevision,
@@ -1121,6 +1122,7 @@ export async function runPlanLifecycleEventTransition<T>(
         return await runSemanticTransition({
             projectRoot: opts.projectRoot,
             planName: opts.planName,
+            worktreeId: opts.worktreeId,
             operation: `plan_event:${opts.event}`,
             resources: opts.resources,
             expectedRevision: opts.expectedRevision,
@@ -1134,6 +1136,7 @@ export async function runPlanLifecycleEventTransition<T>(
     return await runPlanTransition({
         projectRoot: opts.projectRoot,
         planName: opts.planName,
+        worktreeId: opts.worktreeId,
         operation: `plan_event:${opts.event}`,
         expectedRevision: opts.expectedRevision,
         apply: opts.record,
@@ -1183,6 +1186,7 @@ export async function runPlanReviewDecisionTransition<T>(
     return await runSemanticTransition({
         projectRoot: opts.projectRoot,
         planName: opts.planName,
+        worktreeId: opts.worktreeId,
         operation,
         resources: [{ kind: "plan", id: opts.planName }, { kind: "attempt", id: opts.worktreeId }],
         expectedRevision: opts.expectedRevision,
@@ -1204,6 +1208,7 @@ export async function runSequenceReviewTransition<T>(
     return await runSemanticTransition({
         projectRoot: opts.projectRoot,
         planName: opts.planName,
+        worktreeId: opts.worktreeId,
         operation: opts.approved ? "sequence_review_approved" : "sequence_review_feedback",
         resources: [{ kind: "catalog" }, ...opts.planNames.map((id) => ({ kind: "plan" as const, id }))],
         expectedEffects: ["sequence_review_prepared", "sequence_review_accepted"],
@@ -1220,6 +1225,7 @@ export async function runReviewReopenTransition<T>(
     return await runSemanticTransition({
         projectRoot: opts.projectRoot,
         planName: opts.planName,
+        worktreeId: opts.worktreeId,
         operation: "review_reopened",
         resources: [{ kind: "plan", id: opts.planName }, { kind: "attempt", id: opts.worktreeId }],
         expectedRevision: opts.expectedRevision,
@@ -1626,6 +1632,7 @@ export async function runImplementationCheckpointTransition<T>(
     return await runSemanticTransition({
         projectRoot: opts.projectRoot,
         planName: opts.planName,
+        worktreeId: opts.worktreeId,
         operation: "implementation_checkpoint",
         resources,
         expectedRevision: opts.expectedRevision,
@@ -1657,6 +1664,7 @@ export async function runValidationOutcomeTransition<T>(
     return await runSemanticTransition({
         projectRoot: opts.projectRoot,
         planName: opts.planName,
+        worktreeId: opts.worktreeId,
         operation: `validation_${opts.outcome}`,
         resources,
         expectedRevision: opts.expectedRevision,
@@ -1684,6 +1692,7 @@ export async function runEpicDecompositionFinalizeTransition<T>(
     return await runSemanticTransition({
         projectRoot: opts.projectRoot,
         planName: opts.planName,
+        worktreeId: opts.worktreeId,
         operation: "epic_decomposition_finalize",
         resources: opts.resources,
         expectedRevision: opts.expectedRevision,
@@ -1712,6 +1721,7 @@ export async function runRecoveryTransition<T>(
     return await runSemanticTransition({
         projectRoot: opts.projectRoot,
         planName: opts.planName,
+        worktreeId: opts.worktreeId,
         operation: `recovery_${opts.action}`,
         resources,
         supersedesUnresolved: true,
@@ -1737,6 +1747,7 @@ export async function runArchiveTransition<T>(
     return await runSemanticTransition({
         projectRoot,
         planName: opts.planName,
+        worktreeId: opts.worktreeId,
         operation: `plan_${opts.action}`,
         resources: [{ kind: "catalog" }, { kind: "plan", id: opts.planName }],
         expectedRevision: opts.expectedRevision,
