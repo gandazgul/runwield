@@ -29,6 +29,7 @@ export type ValidationWorkflowBranchId =
     | "semantic:entry:plan-only-diff-fails"
     | "human-review:none"
     | "human-review:ask-skip"
+    | "human-review:ask-close"
     | "human-review:ask-open-approve"
     | "human-review:always-approve"
     | "human-review:no-answer-retry"
@@ -120,6 +121,7 @@ export const EXPECTED_VALIDATION_WORKFLOW_BRANCH_IDS: readonly ValidationWorkflo
     "semantic:entry:plan-only-diff-fails",
     "human-review:none",
     "human-review:ask-skip",
+    "human-review:ask-close",
     "human-review:ask-open-approve",
     "human-review:always-approve",
     "human-review:no-answer-retry",
@@ -179,6 +181,7 @@ const VALIDATION_BRANCH_OWNERS: Record<ValidationWorkflowBranchId, string> = {
     "semantic:entry:plan-only-diff-fails": "validation-tree-plan-only-diff-fails",
     "human-review:none": "validation-tree-human-review-none",
     "human-review:ask-skip": "validation-tree-human-review-ask-skip",
+    "human-review:ask-close": "validation-tree-human-review-ask-close",
     "human-review:ask-open-approve": "validation-tree-human-review-ask-open-approve",
     "human-review:always-approve": "validation-tree-human-review-always-approve",
     "human-review:no-answer-retry": "validation-tree-human-review-no-answer-retry",
@@ -233,6 +236,7 @@ function transcriptRequirementFor(id: ValidationWorkflowBranchId): string[] {
     if (id === "human-review:no-answer-retry" || id === "human-review:no-answer-stop") {
         return ["Pick Retry to open it again"];
     }
+    if (id === "human-review:ask-close") return ["Code review is still waiting for your decision."];
     if (id.startsWith("human-review:")) return ["Need your review:"];
     if (id === "publication:non-git-success") return ["is done"];
     const successfulPublicationProgress = [
@@ -297,11 +301,16 @@ function statePathsFor(id: ValidationWorkflowBranchId): string[] {
     const paths = ["projectState.plans.0.attrs.status"];
     if (id.includes(":ci:")) paths.push("projectState.plans.0.controllerState.validationCiAttempts");
     if (id.startsWith("semantic:")) paths.push("projectState.plans.0.controllerState.validationSemanticRounds");
-    if (id.startsWith("human-review:")) paths.push("projectState.plans.0.controllerState.humanReviewDecision");
+    if (id.startsWith("human-review:") && id !== "human-review:ask-close") {
+        paths.push("projectState.plans.0.controllerState.humanReviewDecision");
+    }
     return paths;
 }
 
 function stateEqualsFor(id: ValidationWorkflowBranchId): Record<string, ValidationStateValue> {
+    if (id === "human-review:ask-close") {
+        return { "projectState.plans.0.attrs.status": "validated_reviewer" };
+    }
     if (id === "human-review:none") {
         return {
             "projectState.plans.0.controllerState.humanReviewMode": "none",
@@ -335,7 +344,8 @@ function transcriptExcludesFor(id: ValidationWorkflowBranchId): string[] {
 }
 
 function interactionAbsentValuesFor(id: ValidationWorkflowBranchId): string[] {
-    return id === "human-review:none" ? ["open", "skip"] : [];
+    if (id === "human-review:none") return ["open", "skip"];
+    return id === "human-review:ask-close" ? ["open", "skip"] : [];
 }
 
 function evidenceFor(id: ValidationWorkflowBranchId): ValidationEvidenceRequirement {
@@ -370,6 +380,7 @@ export const VALIDATION_INTERACTION_OPTION_BRANCHES: Readonly<Record<string, rea
         reject: ["human-review:no-answer-stop"],
         open: ["human-review:ask-open-approve"],
         skip: ["human-review:ask-skip"],
+        close: ["human-review:ask-close"],
         continue: ["semantic:round-limit:continue"],
         code_review: ["semantic:round-limit:human-review"],
         confirm: ["human-review:feedback-repair-approve"],
