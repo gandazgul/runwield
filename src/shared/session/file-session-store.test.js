@@ -1,7 +1,8 @@
 import { assert, assertEquals, assertFalse, assertThrows } from "@std/assert";
 import { dirname, join } from "@std/path";
 import { createHash } from "node:crypto";
-import { classifyRootSessionLocator, encodeCwdForSessionDir } from "./root-session.js";
+import { classifyRootSessionLocator } from "./root-session.js";
+import { encodeCwdForSessionDir } from "../project-directory-key.ts";
 import { openFileSessionStore } from "./file-session-store.ts";
 import { lockPath, manifestPath, sessionDirForRoot } from "./file-session-storage.ts";
 

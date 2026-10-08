@@ -50,6 +50,19 @@ Every operation loads durable state, validates the current workflow checkpoint a
 transition or reports the next required action, then exits. This preserves on-demand Core operation and makes process
 loss recoverable from artifacts rather than process memory.
 
+Store each Attached Workflow Record in the user's home, at
+`~/.wld/attached/<encoded primary checkout root>/workflows/<workflowId>.json`. The key uses the same encoding as
+Sessions and execution worktrees, so every linked worktree of a repository finds the same records. When no home
+directory exists, records fall back to the primary checkout's internal runtime directory, as worktrees do. The record
+keeps the canonical primary checkout root as binding evidence. When the key and that root disagree, for example after
+the project folder moves, the coordinator reports a recovery case and never matches the record to another project.
+
+Attached Workflow Records are not Project Runtime State under ADR-017. Like a Session, a record describes one host
+request, not Plan controller state. Keeping it in home means that activation and Triage write nothing to the repository:
+no `.wld/internal/` directory and no managed `.gitignore` block. The first repository write happens when an Attached
+Workflow submits a Plan. That step binds the record to Plan ownership through the controller registry and previews the
+repository setup it needs. A later Plan Store change moves these records together with Sessions.
+
 Provide MCP as a thin protocol adapter over the same coordinator operation surface for model-facing structured tools.
 The MCP adapter may translate framing and schemas but must not contain Plan Lifecycle, validation, worktree, or recovery
 logic. Claude hooks call the CLI boundary directly for deterministic activation and mutation gating; Claude Skills and
