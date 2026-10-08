@@ -135,6 +135,7 @@ export const RuntimeEventTypes = Object.freeze({
  * @property {number} [repairAttempt]
  * @property {number} [maxRepairAttempts]
  * @property {string} [message]
+ * @property {boolean} [workRecordFailed]
  */
 
 /**
@@ -424,6 +425,13 @@ function validateRuntimeValidationProgress(progress, type) {
             value.outcome === "verified" || value.outcome === "failed" || value.outcome === "paused",
             type,
             "terminal stage requires terminal or paused outcome",
+        );
+    }
+    if (value.workRecordFailed !== undefined) {
+        requireRuntimeEvent(
+            typeof value.workRecordFailed === "boolean",
+            type,
+            "validationProgress.workRecordFailed must be a boolean",
         );
     }
     if (value.message !== undefined) {

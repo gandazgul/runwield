@@ -7,6 +7,7 @@
  */
 
 import { join } from "@std/path";
+import { parsePlanFrontMatter } from "../../plan-store.js";
 import { enterProjectRuntime, resolveProjectRoot, resolveProjectRuntimeLayout } from "../project-runtime-layout.ts";
 import { findById, pruneEntry, updatePublication } from "../worktree-registry.js";
 import { existingPublicationSavedFiles, preserveUnregisteredPublicationFiles } from "./publication-leftover-files.ts";
@@ -481,4 +482,16 @@ export async function cleanupStoredPublication(
     });
     await pruneEntry(projectRoot, attempt.attemptId);
     return { complete: true, attempt, worktreeKept: false, branchKept: false, details: [], preservedFiles };
+}
+
+/** Read recording outcome from the sealed delivery, even after its worktree is removed. */
+export async function publishedWorkRecordFailed(projectRoot: string, attempt: PublicationAttempt): Promise<boolean> {
+    if (!attempt.artifactCommit) throw new Error("Published Plan artifact commit is missing.");
+    for (const path of attempt.planPaths || []) {
+        const result = await git(projectRoot, ["show", `${attempt.artifactCommit}:${path}`]);
+        if (result.code !== 0) continue;
+        const { attrs } = parsePlanFrontMatter(result.stdout);
+        if (attrs.planId === attempt.planId) return attrs.workRecord?.status === "failed";
+    }
+    throw new Error(`Published Plan ${attempt.planName} was not found in its artifact commit.`);
 }

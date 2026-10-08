@@ -153,6 +153,7 @@ export function createValidationProgress(values: ValidationProgressInput): Runti
         ...(values.repairAttempt ? { repairAttempt: values.repairAttempt } : {}),
         ...(values.maxRepairAttempts ? { maxRepairAttempts: values.maxRepairAttempts } : {}),
         ...(values.message ? { message: values.message } : {}),
+        ...(values.workRecordFailed !== undefined ? { workRecordFailed: values.workRecordFailed } : {}),
     };
 }
 
