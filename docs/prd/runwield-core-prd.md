@@ -1253,6 +1253,12 @@ renaming; search can be rebuilt from the documents.
   than blocking backfill. Records do not turn unverified work into verified work.
 - Generation is best effort. Failure reports a useful retry/backfill action and never reverses a completed Plan.
   Disabling automatic generation leaves listing, reading, search, and explicit backfill available.
+- Recorder completion requires an accepted `work_record_completed` submission. A turn ending without it receives one
+  corrective retry; provider errors and cancellation do not trigger that retry. Exhaustion retains a concise protocol
+  diagnostic on the Plan, without storing model text or private reasoning.
+- When code delivery succeeds but recording fails, the final completion notice keeps both outcomes visible and supplies
+  `wld wr backfill` as the recovery command. Recording failure does not undo delivery.
+
 - `wld wr` provides listing, search, reading, index rebuild, and backfill. Backfill previews missing records for
   eligible active and archived completed Plans and asks before generation. It avoids duplicating existing linked
   records.
@@ -1269,6 +1275,13 @@ renaming; search can be rebuilt from the documents.
 - No-plan QUICK_FIX and ordinary external merges do not generate records automatically. Explicit manual or external
   record creation remains separate scope and requires review before default retrieval; it cannot claim RunWield
   validation that did not occur.
+
+**Acceptance scenario: Recorder recovery and partial completion.** Given a completed eligible Plan, when the Recorder
+returns text without submitting its tool event, one corrective turn can finish the record. If both turns omit the event,
+no record is fabricated; the Plan retains the failure reason and successful delivery is labeled with the remaining Work
+Record failure and retry command. Failures while reading existing records are also retained on the source Plan before
+delivery; remote publication reports that outcome from the sealed Plan even after worktree cleanup. When the last child
+completes an Epic, final completion reports the parent Epic's recording outcome, including after remote cleanup.
 
 Core retrieval is Project-scoped. Cross-Project knowledge and browser navigation are Workspace requirements. Richer
 cross-artifact authorship, manual/imported record creation, and guidance for substantial retrospective edits remain

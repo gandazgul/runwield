@@ -68,7 +68,7 @@ const activeAdapters = new WeakMap();
  * @property {typeof import('./system-notifications.ts').notifyRunWieldEventQuietly} notifyRunWieldEvent
  * @property {(replacement: { oldSessionId: string, newSessionId: string }) => void} [onSessionReplaced]
  * @property {boolean} [pauseTutorialPresentation]
- * @property {(sessionId: string) => void} [onSessionComplete]
+ * @property {(sessionId: string, workRecordFailed?: boolean) => void} [onSessionComplete]
  */
 
 /**
@@ -121,6 +121,7 @@ export function attachTuiRuntimeAdapter({
     let terminalValidationPanelVisible = false;
     let hiddenValidationReportCached = false;
     let completionPending = false;
+    let completionWorkRecordFailed = false;
     let completionGeneration = 0;
     let disposed = false;
     /** @type {Set<string>} */
@@ -147,7 +148,7 @@ export function attachTuiRuntimeAdapter({
                     !disposed && completionPending && settlementGeneration === completionGeneration
                 ) {
                     completionPending = false;
-                    onSessionComplete?.(tutorialSessionId);
+                    onSessionComplete?.(tutorialSessionId, completionWorkRecordFailed);
                 }
             })
             .catch((error) => console.error(`[RunWield] tutorial_presentation_failed ${error}`));
@@ -298,6 +299,7 @@ export function attachTuiRuntimeAdapter({
                         if (!event._meta?.replay && value.validationProgress.kind === "workflow") {
                             completionGeneration += 1;
                             completionPending = true;
+                            completionWorkRecordFailed = value.validationProgress.workRecordFailed === true;
                         }
                     } else {
                         completionPending = false;
