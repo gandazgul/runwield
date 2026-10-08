@@ -104,13 +104,20 @@ compatibility, privacy at the host boundary, and host-specific continuation.
 
 ### Explicit per-request activation
 
-**Scope and maturity:** Target for the first Claude Code Preview and all later adapters.
+**Scope and maturity:** The Claude Code plugin delivers activation steps 1, 3, and 4 below and FEATURE Plan submission.
+For local development, load `src/attached/claude/plugin` with `claude --plugin-dir` and start
+`/runwield:request <request>`. `wld attached activate` identifies the Project root, binds one host request to one
+Attached Workflow Record, and returns a pending Router action with current role instructions. `triage_report` hands a
+FEATURE request to the Planner; `plan_written` gives the written Plan its ID and Triage front matter. The Plan stays in
+draft and can be opened and run with `wld`. The operations are also MCP tools through `wld attached mcp`. The plugin
+checks the role contract version. Review, execution, the install flow, and full host and Core preflight (step 2) remain
+target scope.
 
 **Requirement: Leave ordinary host work unchanged outside explicit activation.**
 
 - Installing a RunWield Connect plugin must not alter ordinary External Agent Host behavior.
-- A user explicitly starts one Attached Workflow for one User Request, conceptually through `/runwield <request>` or the
-  closest host-native equivalent.
+- A user explicitly starts one Attached Workflow for one User Request, conceptually through
+  `/runwield:request <request>` or the closest host-native equivalent.
 - RunWield prompts, restrictions, and lifecycle claims apply only within that Attached Workflow.
 - The host returns to ordinary behavior after the workflow reaches an outcome.
 - Existing RunWield closure and recovery choices govern an active workflow; Connect does not introduce a separate
@@ -132,7 +139,7 @@ After installation:
 The primary experience is conceptually:
 
 ```text
-/runwield <request>
+/runwield:request <request>
 ```
 
 The exact spelling may adapt to host command conventions. Activation should:
@@ -290,7 +297,12 @@ uses the same guidance within each user project’s own PRD structure.
 
 ### Lazy project setup and recovery
 
-**Scope and maturity:** Target for the first Preview; no always-running service prerequisite.
+**Scope and maturity:** Target for the first Preview; no always-running service prerequisite. Current Core subset:
+continuation after process loss for activation and Triage. Each `wld attached` operation is a separate short process. A
+later process accepts the Triage outcome exactly once, a repeated operation returns its saved result, and status reads
+saved state only. Activation and Triage write nothing to the repository. A PLANNED_CHANGE outcome waits for planning;
+every other Routing Intent closes the workflow as unsupported in this Preview. The setup preview for material repo-local
+changes remains target scope; it first applies when an Attached Workflow submits a Plan.
 
 **Requirement: Start with necessary setup and preserve work after interruption.**
 
@@ -347,15 +359,15 @@ Session. Users must understand which mode they are choosing.
 
 Before starting work, disclose whether the host can:
 
-- prevent implementation changes until planning and approval permit them;
 - run isolated implementation and independent review;
 - use the required tools and review interactions;
 - cancel and recover work reliably;
 - install, update, disable, and remove the integration cleanly.
 
-Do not claim a hard planning restriction when the host cannot enforce it, or independent verification when review lacks
-independence. Preserve the user's host permissions. A model's claim of completion cannot replace actual validation and
-delivery evidence.
+Role boundaries during an Attached Workflow come from RunWield's role instructions, as they do in Core. For example, the
+Planner is told to write only Plan files; neither Core nor Connect blocks its other tools. Do not describe these
+instructions as a hard restriction, and do not claim independent verification when review lacks independence. Preserve
+the user's host permissions. A model's claim of completion cannot replace actual validation and delivery evidence.
 
 Maintain tested host-version ranges and clear Preview or stable labels. Architecture and implementation Plans choose
 transports, role dispatch, tool contracts, and host-specific hooks; this PRD defines the outcomes those choices support.
@@ -364,8 +376,8 @@ transports, role dispatch, tool contracts, and host-specific hooks; this PRD def
   development and explain Connect, Core, and Workspace together.
 - RunWield Connect must appear as a distinct plugin ecosystem, with current Preview or stable availability shown per
   External Agent Host.
-- Host-specific guides must cover installation, `/runwield` activation, optional `/runwield:init`, review, permissions,
-  local artifacts, privacy boundaries, recovery, updates, disablement, and uninstall.
+- Host-specific guides must cover installation, `/runwield:request` activation, optional `/runwield:init`, review,
+  permissions, local artifacts, privacy boundaries, recovery, updates, disablement, and uninstall.
 - Documentation must distinguish available adapters from planned targets and must not imply parity based only on a
   host's listed APIs.
 - Core and Workspace comparisons may explain genuine workflow, integration, and collaboration advantages without
@@ -375,8 +387,8 @@ transports, role dispatch, tool contracts, and host-specific hooks; this PRD def
 
 - When a user chooses an adapter, its guide shows tested versions, Preview/stable availability, permission requirements,
   and unsupported interactions before they depend on them.
-- Given a host that cannot enforce planning restrictions or independent review, when compatibility is presented, prompt
-  guidance is not described as hard enforcement.
+- When compatibility is presented, role instructions such as the Planner's Plan-only writes are not described as hard
+  enforcement, and a host that cannot run independent review is not presented as providing it.
 - When the user compares Connect with Core execution backends or ACP clients, documentation identifies who owns the
   conversation and makes model calls.
 
@@ -409,7 +421,7 @@ The Claude Code Preview is complete only when a user can perform this bounded en
    flow.
 2. Start from a trusted but otherwise uninitialized Git repository.
 3. Invoke RunWield for a FEATURE-sized User Request in an existing Claude Code conversation.
-4. Have Claude perform RunWield Triage and enter the appropriate planning behavior without making implementation edits.
+4. Have Claude perform RunWield Triage and plan under the RunWield Planner instructions.
 5. Have Claude produce a canonical RunWield Plan and submit it through Core-owned lifecycle operations.
 6. Receive Plannotator Feedback, revise the Plan in the same user-facing flow, and resubmit it.
 7. Approve the Plan through Plannotator and pass the normal Readiness Gate.
@@ -462,9 +474,9 @@ product semantics. Later adapters must reuse the host-neutral Core contract rath
 ### Preview Acceptance
 
 - A user can install RunWield Connect for Claude Code without configuring a second model provider or RunWield account.
-- A normal Claude Code request made after installation but outside `/runwield` receives no RunWield prompt injection,
-  restriction, or workflow state.
-- A first `/runwield` FEATURE request works in an uninitialized trusted Git repository.
+- A normal Claude Code request made after installation but outside `/runwield:request` receives no RunWield prompt
+  injection, restriction, or workflow state.
+- A first `/runwield:request` FEATURE request works in an uninitialized trusted Git repository.
 - No LLM call in the journey is made outside Claude Code.
 - Plan review and Feedback use canonical RunWield artifacts and Plannotator.
 - Implementation occurs in a RunWield-owned worktree and does not begin before approval and readiness.
@@ -503,8 +515,9 @@ black-box adapter tests, explicit Preview labels, and fast-failing preflight dia
 
 ### False Enforcement Claims
 
-Some hosts expose tool paths that hooks cannot observe. Use capability-specific gates, baseline and working-tree checks,
-and fail visibly when an invariant cannot be proven. Do not equate a prompt instruction with enforcement.
+Role boundaries are instructions, not sandboxes, in Connect as in Core. Do not describe them as enforcement. The
+guarantees that matter are enforced where RunWield owns the fact: Plan Lifecycle guards, approval and readiness,
+RunWield-owned worktrees, validation evidence, and merge safeguards.
 
 ### Split-Brain Workflow State
 

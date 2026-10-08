@@ -37,6 +37,20 @@ product language. _Avoid_: Public product name, RunWield Execution Backend
 with RunWield governing durable workflow truth while the host performs agent reasoning and execution. _Avoid_: Attached
 Mode, Managed Mode, RunWield Session
 
+**Attached Workflow Coordinator**: The Core runtime that advances Attached Workflows through short `wld attached`
+operations. It is a sibling of `SessionRuntime`: it loads the Attached Workflow Record, checks it, makes at most one
+change, saves, and exits. It never creates a Session, calls a model, or stores a host transcript. _Avoid_: Attached
+adapter, attached Session, host bridge
+
+**Attached Workflow Record**: The durable file that holds one Attached Workflow's state, revision, pending host action,
+accepted operation results, and binding evidence. It lives under `~/.wld/attached/`, keyed by the primary checkout root.
+It references its Plan but does not own it. The same Plan can be opened and run with `wld`. _Avoid_: Attached Session,
+host transcript, controller record
+
+**Attached Role Instructions**: The effective layered agent instructions Core returns with a pending host action. They
+are resolved for each response from project, home, and bundled definitions and are not saved in the Attached Workflow
+Record. _Avoid_: generated Skill, role contract copy
+
 **Headless Mode**: The non-interactive RunWield execution surface that emits machine-readable Agent Session events for
 external hosts. _Avoid_: TUI mode, batch wrapper, remote UI
 
@@ -813,6 +827,9 @@ _Avoid_: Durable prompt, recoverable continuation, database interaction record
   truth, review, validation, recovery evidence, Work Records, and organizational memory.
 - An **Attached Workflow** persists structured evidence and durable artifacts without copying the host conversation into
   a **Session Transcript**.
+- One **Attached Workflow Record** exists for each **Attached Workflow**. It is not a **Session**. Only the **Attached
+  Workflow Coordinator** writes it.
+- An **Attached Workflow Record** references **Plan** and worktree truth and never copies it.
 - An **Aggregate Transcript Projection** emits no part of a generation until every included **Sealed Session Transcript
   Segment** and the current committed segment prefix have verified.
 - A **Verified Plan** has the same meaning in **RunWield Connect** and **RunWield Core**, regardless of which

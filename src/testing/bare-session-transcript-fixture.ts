@@ -1,5 +1,5 @@
 import { join } from "@std/path";
-import { encodeCwdForSessionDir } from "../shared/session/root-session.js";
+import { encodeCwdForSessionDir } from "../shared/project-directory-key.ts";
 
 /** Write a minimal Pi transcript in the Session store's project directory. */
 export async function writeBareSessionTranscript(

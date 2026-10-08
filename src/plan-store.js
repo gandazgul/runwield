@@ -3461,7 +3461,7 @@ export function compareChildPlansByOrder(a, b) {
  * @param {string} name
  * @returns {boolean}
  */
-function isHiddenPlanName(name) {
+export function isHiddenPlanName(name) {
     return HIDDEN_PLAN_DIRS.has(name.split("/")[0] || "");
 }
 

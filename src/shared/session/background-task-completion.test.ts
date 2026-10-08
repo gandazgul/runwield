@@ -335,6 +335,13 @@ Deno.test("completion after generated turn acceptance prevents final model dispa
                 const completions: Array<Promise<{ details: { outcome: string } }>> = [];
                 let armed = false;
                 let preparationHeld = false;
+                let enteredPreparationWait = () => {};
+                const preparationWaitEntered = new Promise<void>((resolve) => enteredPreparationWait = resolve);
+                const waitForPreparation = session.waitForAgentSteeringPreparations.bind(session);
+                session.waitForAgentSteeringPreparations = () => {
+                    if (preparationHeld) enteredPreparationWait();
+                    return waitForPreparation();
+                };
                 let endGeneratedTurn = () => {};
                 const generatedTurnEnded = new Promise<void>((resolve) => endGeneratedTurn = resolve);
                 runtime.subscribeSessionEvents(created.sessionId, (event) => {
@@ -352,8 +359,13 @@ Deno.test("completion after generated turn acceptance prevents final model dispa
                     await new Promise((resolve) => setTimeout(resolve, 10));
                 }
                 assert(preparationHeld, "Generated turn did not reach prompt preparation");
-                // Let the handler enter runPrompt's asynchronous steering preparation wait.
-                await new Promise((resolve) => setTimeout(resolve, 50));
+                // Observe the real wait instead of assuming prompt preparation finishes within a fixed delay.
+                await Promise.race([
+                    preparationWaitEntered,
+                    new Promise((_, reject) =>
+                        setTimeout(() => reject(Error("Generated turn did not enter preparation wait")), 10_000)
+                    ),
+                ]);
                 const tool = createTaskCompletedTool({ hostedSession: session, agentName: "engineer" });
                 // @ts-expect-error Direct execution ignores extension context.
                 completions.push(tool.execute("final", { message: "- Done." }));
