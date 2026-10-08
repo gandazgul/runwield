@@ -35,6 +35,9 @@ workRecord:
     recordId: "68c201f7-83de-479c-8a2a-bc8e5f259acb"
     path: "docs/work-records/2026-10-02-reversible-session-archive-across-acp-and-workspace.md"
     lastAttemptAt: "2026-10-02T23:07:17.255Z"
+archivedAt: "2026-10-08T20:38:58.525Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/archive-sessions-through-acp-and-workspace.md"
 ---
 
 # Archive Sessions Through ACP and Workspace

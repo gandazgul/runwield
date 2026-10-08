@@ -29,6 +29,10 @@ status: "validated"
 origin: "internal"
 userVerifiedAt: null
 targetBranch: "epic/consolidate-project-runtime-state"
+archivedAt: "2026-10-08T19:53:41.322Z"
+archiveReason: "Delivered to the runtime-state Epic and landed on main; archived at owner request."
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/record-pair-plan-deviations.md"
 ---
 
 # Record Pair Plan Deviations

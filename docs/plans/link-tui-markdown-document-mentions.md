@@ -1,4 +1,5 @@
 ---
+planId: "fb4da170-2416-48ca-b0e8-1936c74bc548"
 classification: "PLANNED_CHANGE"
 workKind: "FEATURE"
 complexity: "MEDIUM"
@@ -14,15 +15,13 @@ affectedPaths:
     - "src/ui/workspace/routes/api/review-image-handlers.ts"
     - "src/ui/workspace/react/ArtifactReadSurface.tsx"
     - "src/ui/workspace/react/review-types.ts"
-    - "docs/usage.md"
-devServerCommand: null
-devServerUrl: null
-devServerHmr: null
-createdAt: "2026-09-05T00:48:41-04:00"
-status: "draft"
+    - "docs/user-documentation/usage.md"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
-planId: "fb4da170-2416-48ca-b0e8-1936c74bc548"
+createdAt: "2026-09-05T00:48:41-04:00"
+origin: "internal"
+status: "ready_for_work"
+userVerifiedAt: null
 ---
 
 # Link TUI Markdown Document Mentions
@@ -113,8 +112,8 @@ shifts, migration or compatibility risk grows, or the Verification Plan no longe
   linked-read Close mode that does not end the shared server.
 - Focused TUI, reader-server, Workspace review, and lifecycle tests beside the changed modules — prove rendering,
   current-file hydration, containment, rebinding, and cleanup through real temporary Projects and a real loopback host.
-- `docs/usage.md` — document that Agent messages link existing Project-relative Markdown in capable terminals and state
-  the plain-text fallback.
+- `docs/user-documentation/usage.md` — document that Agent messages link existing Project-relative Markdown in capable
+  terminals and state the plain-text fallback.
 
 The planned Workspace unified-search work can later use the same generic document presentation, but this change does not
 add search, indexing, Workspace registration, or Session Artifact inference.
@@ -168,8 +167,8 @@ Existing functions, modules, or patterns to reuse:
 - Linked-document image requests allow only supported Project-local image files whose final canonical real path remains
   inside the Project. Existing valid review-upload image behavior remains available, while symlinks to outside files
   fail closed.
-- `docs/usage.md` describes the implemented Agent-message link scope, click behavior, security boundary, and
-  no-hyperlink fallback without claiming that a mention becomes a Session Artifact.
+- `docs/user-documentation/usage.md` describes the implemented Agent-message link scope, click behavior, security
+  boundary, and no-hyperlink fallback without claiming that a mention becomes a Session Artifact.
 
 ## Approval Confirmation
 
@@ -234,6 +233,3 @@ does not replace that record.
   Session replacement, no-store responses, and shutdown on TUI disposal limit its lifetime.
 - A fresh empty TUI Session can start the host without creating Session files, but lazy startup avoids even the loopback
   listener until an eligible Agent document mention is rendered.
-- Existing dirty changes in `src/shared/workflow/validation-mechanical.ts`,
-  `src/shared/workflow/validation-semantic.ts`, and the unrelated Workspace v2 child Plan are user work. This Plan must
-  not overwrite or attribute those changes.

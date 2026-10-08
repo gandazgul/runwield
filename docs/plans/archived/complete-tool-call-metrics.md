@@ -30,6 +30,9 @@ workRecord:
     recordId: "e24fc4b5-cf6e-488e-a977-b5f90016d8a2"
     path: "docs/work-records/2026-09-29-opt-in-local-workflow-metrics-across-execution-surfaces.md"
     lastAttemptAt: "2026-09-29T21:51:38.721Z"
+archivedAt: "2026-10-08T20:05:46.388Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/complete-tool-call-metrics.md"
 ---
 
 # Complete Tool-Call Metrics

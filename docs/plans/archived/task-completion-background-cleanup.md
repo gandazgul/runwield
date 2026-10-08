@@ -25,6 +25,9 @@ workRecord:
     recordId: "3307f365-4b4b-4dee-ba39-49fb7d3f7f06"
     path: "docs/work-records/2026-09-28-stopped-background-results-after-task-completion.md"
     lastAttemptAt: "2026-09-28T23:02:58.893Z"
+archivedAt: "2026-10-08T19:26:17.522Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/task-completion-background-cleanup.md"
 ---
 
 # Stop Background Results After Task Completion

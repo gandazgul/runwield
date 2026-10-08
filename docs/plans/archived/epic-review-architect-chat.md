@@ -29,6 +29,9 @@ workRecord:
     recordId: "72865c2d-85d1-47d1-91e4-91c0d2435a29"
     path: "docs/work-records/2026-09-28-architect-chat-delivered-in-epic-review.md"
     lastAttemptAt: "2026-09-28T04:56:57.634Z"
+archivedAt: "2026-10-08T19:57:14.773Z"
+archivedFromStatus: "validated"
+archivedFromPath: "docs/plans/epic-review-architect-chat.md"
 ---
 
 # Architect Chat in Epic Review

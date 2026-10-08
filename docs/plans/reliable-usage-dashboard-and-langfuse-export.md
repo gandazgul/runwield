@@ -487,6 +487,20 @@ Provider, Pi Agent extension, or RunWield Connect plugin. **Delivery unconfirmed
 Plan Status or a workflow failure. The changes that make collection/export real must add these terms and relationships
 to `docs/domain-language.md` in that same delivery, without renaming existing domain concepts.
 
+### Integration Notes
+
+Left by the reviewers of individual children for the integration review. These are places to look, not requirements.
+
+<!-- runwield:integration-notes:start child="reliable-usage-dashboard-and-langfuse-export/03-workflow-outcome-observations" -->
+
+**reliable-usage-dashboard-and-langfuse-export/03-workflow-outcome-observations**
+
+- Count repair_round once per round identity; treat repair_round_finished as its completion, not another repair. Keep
+  interrupted work separate from deliberate abandonment. (Child 04 reporting; validation-semantic.ts,
+  validation-session-adapter.ts, validation-supervisor.ts)
+
+<!-- runwield:integration-notes:end child="reliable-usage-dashboard-and-langfuse-export/03-workflow-outcome-observations" -->
+
 ## Edge Cases & Considerations
 
 ### Reviewable assumptions
