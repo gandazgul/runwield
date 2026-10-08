@@ -131,94 +131,98 @@ export async function runLocalCI(
 ): Promise<LocalCIResult> {
     if (!cwd) throw new Error("runLocalCI: cwd is required");
     if (!hostedSession) throw new Error("runLocalCI: hostedSession is required");
-    const cmdArgs = await getOrAskForValidationCommand(hostedSession, cwd, settingsPolicy);
-
-    if (!cmdArgs) {
-        const output =
-            "RunWield could not auto-detect a build or test command for this repository. Set a validation command and retry.";
-        return {
-            kind: "operational_failure",
-            output,
-            failure: classifyValidationOperationalError({
-                source: "local_process",
-                kind: "command_missing",
-                operation: "local_ci",
-                message: output,
-            }),
-        };
-    }
-
     const toolCallId = `validation-ci-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const interactionId = `validation-ci:${toolCallId}`;
     const abortController = new AbortController();
     hostedSession.addActiveInteraction(interactionId, { abortController });
-    const runtimeTool = describeRuntimeTool("bash", { command: cmdArgs });
-
-    emitHostedSessionRuntimeEvent(hostedSession, {
-        type: RuntimeEventTypes.TOOL_START,
-        toolCallId,
-        ...runtimeTool,
-        args: { command: cmdArgs },
-    });
-    const startTime = Date.now();
-
     try {
-        // The foreground-process module owns the wrapper shell's process group,
-        // so canceling this interaction terminates the whole CI tree — not only
-        // `sh -c` — and settles the inherited output pipes.
-        const shell = spawnForegroundShell({ command: cmdArgs, cwd, signal: abortController.signal });
-        const [outcome, stdout, stderr] = await Promise.all([
-            shell.done,
-            captureProcessStreamTail(shell.stdout, VALIDATION_STREAM_OUTPUT_LIMIT_BYTES),
-            captureProcessStreamTail(shell.stderr, VALIDATION_STREAM_OUTPUT_LIMIT_BYTES),
-        ]);
-        const canceled = outcome.terminatedBy !== null;
-        const output = canceled
-            ? `${formatCapturedProcessOutput(stdout, stderr)}\nValidation canceled.\n`
-            : formatCapturedProcessOutput(stdout, stderr);
-        const durationMs = Date.now() - startTime;
-        const isError = canceled || (outcome.exitCode ?? 1) !== 0;
+        const cmdArgs = await getOrAskForValidationCommand(hostedSession, cwd, settingsPolicy);
+        if (abortController.signal.aborted) return { kind: "canceled", output: "Validation canceled." };
+
+        if (!cmdArgs) {
+            const output =
+                "RunWield could not auto-detect a build or test command for this repository. Set a validation command and retry.";
+            return {
+                kind: "operational_failure",
+                output,
+                failure: classifyValidationOperationalError({
+                    source: "local_process",
+                    kind: "command_missing",
+                    operation: "local_ci",
+                    message: output,
+                }),
+            };
+        }
+
+        const runtimeTool = describeRuntimeTool("bash", { command: cmdArgs });
 
         emitHostedSessionRuntimeEvent(hostedSession, {
-            type: RuntimeEventTypes.TOOL_END,
+            type: RuntimeEventTypes.TOOL_START,
             toolCallId,
             ...runtimeTool,
-            ...normalizeRuntimeToolResult(output.trim() ? output : "(no output)\n"),
-            isError,
-            durationMs,
+            args: { command: cmdArgs },
         });
+        const startTime = Date.now();
 
-        if (canceled) return { kind: "canceled", output };
-        return {
-            kind: "completed",
-            exitCode: outcome.exitCode ?? 1,
-            output,
-        };
-    } catch (error) {
-        const canceled = abortController.signal.aborted;
-        const reason = error instanceof Error ? error.message : String(error);
-        const output = canceled ? "Validation canceled." : `Failed to spawn validation process: ${reason}`;
-        const durationMs = Date.now() - startTime;
-        emitHostedSessionRuntimeEvent(hostedSession, {
-            type: RuntimeEventTypes.TOOL_END,
-            toolCallId,
-            ...runtimeTool,
-            ...normalizeRuntimeToolResult(`${output}\n`),
-            isError: true,
-            durationMs,
-        });
-        if (canceled) return { kind: "canceled", output };
-        return {
-            kind: "operational_failure",
-            output,
-            failure: classifyValidationOperationalError({
-                source: "local_process",
-                kind: "process_start_failed",
-                operation: "local_ci",
-                message: output,
-            }),
-        };
+        try {
+            // The foreground-process module owns the wrapper shell's process group,
+            // so canceling this interaction terminates the whole CI tree — not only
+            // `sh -c` — and settles the inherited output pipes.
+            const shell = spawnForegroundShell({ command: cmdArgs, cwd, signal: abortController.signal });
+            const [outcome, stdout, stderr] = await Promise.all([
+                shell.done,
+                captureProcessStreamTail(shell.stdout, VALIDATION_STREAM_OUTPUT_LIMIT_BYTES),
+                captureProcessStreamTail(shell.stderr, VALIDATION_STREAM_OUTPUT_LIMIT_BYTES),
+            ]);
+            const canceled = outcome.terminatedBy !== null;
+            const output = canceled
+                ? `${formatCapturedProcessOutput(stdout, stderr)}\nValidation canceled.\n`
+                : formatCapturedProcessOutput(stdout, stderr);
+            const durationMs = Date.now() - startTime;
+            const isError = canceled || (outcome.exitCode ?? 1) !== 0;
+
+            emitHostedSessionRuntimeEvent(hostedSession, {
+                type: RuntimeEventTypes.TOOL_END,
+                toolCallId,
+                ...runtimeTool,
+                ...normalizeRuntimeToolResult(output.trim() ? output : "(no output)\n"),
+                isError,
+                durationMs,
+            });
+
+            if (canceled) return { kind: "canceled", output };
+            return {
+                kind: "completed",
+                exitCode: outcome.exitCode ?? 1,
+                output,
+            };
+        } catch (error) {
+            const canceled = abortController.signal.aborted;
+            const reason = error instanceof Error ? error.message : String(error);
+            const output = canceled ? "Validation canceled." : `Failed to spawn validation process: ${reason}`;
+            const durationMs = Date.now() - startTime;
+            emitHostedSessionRuntimeEvent(hostedSession, {
+                type: RuntimeEventTypes.TOOL_END,
+                toolCallId,
+                ...runtimeTool,
+                ...normalizeRuntimeToolResult(`${output}\n`),
+                isError: true,
+                durationMs,
+            });
+            if (canceled) return { kind: "canceled", output };
+            return {
+                kind: "operational_failure",
+                output,
+                failure: classifyValidationOperationalError({
+                    source: "local_process",
+                    kind: "process_start_failed",
+                    operation: "local_ci",
+                    message: output,
+                }),
+            };
+        }
     } finally {
+        // Covers command setup as well as the process tree and output streams.
         // Reached only after the process tree and both streams have settled, so
         // Escape cannot unregister the interaction while a descendant still runs.
         hostedSession.removeActiveInteraction(interactionId);

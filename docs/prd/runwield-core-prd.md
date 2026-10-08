@@ -732,7 +732,8 @@ Workflow Validation requirements:
   supplied validation command in both scopes and record the host-owned write so a validated checkout-specific command
   repair can be delivered without asking the user to commit or stash RunWield's own settings. Recording that write must
   not claim ownership of pre-existing or subsequent user edits. A context transfer receipt identifies copied bytes; only
-  recorded Init or validation writes establish ownership of the source changes;
+  recorded Init or validation writes establish ownership of the source changes. Cancellation during command setup
+  remains effective and must not start a validation process afterward;
 - offer human code review when enabled;
 - repair failed checks or review findings within the execution worktree;
 - give a repair Agent the relevant findings and instructions without unrelated earlier context;

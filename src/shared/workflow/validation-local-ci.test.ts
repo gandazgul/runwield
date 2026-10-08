@@ -241,3 +241,25 @@ Deno.test({
         }
     },
 });
+
+Deno.test("runLocalCI preserves cancellation while saving a newly answered command", async () => {
+    const cwd = await Deno.makeTempDir({ prefix: "runwield-local-ci-" });
+    const hostedSession = new HostedSession({ id: "command-save-cancel", cwd });
+    try {
+        hostedSession.setInteractionAdapter({
+            supportsInteraction: () => true,
+            requestInteraction: () => ({ outcome: "text", value: "touch should-not-run" }),
+        });
+        hostedSession.subscribeRuntimeEvents((event) => {
+            if (event.type === "interaction_resolved") hostedSession.cancelActiveInteractions();
+        });
+        const result = await runLocalCI({ hostedSession, cwd, settingsPolicy: "exact-project" });
+        assertEquals(result.kind, "canceled");
+        assertEquals(getExactProjectCustomSetting("verification_command", cwd), "touch should-not-run");
+        assertEquals(await Deno.stat(`${cwd}/should-not-run`).catch(() => null), null);
+        assertEquals(hostedSession.getActiveInteractions().size, 0);
+    } finally {
+        hostedSession.dispose();
+        await Deno.remove(cwd, { recursive: true });
+    }
+});
