@@ -16,6 +16,7 @@ import {
     setExactProjectCustomSetting,
 } from "../settings.js";
 import { spawnForegroundShell } from "../foreground-process.ts";
+import { captureValidationSettingsWrite, recordValidationSettingsWrite } from "../worktree-project-context.ts";
 import {
     captureProcessStreamTail,
     formatCapturedProcessOutput,
@@ -55,6 +56,19 @@ async function getOrAskForValidationCommand(
         return existingCommand;
     }
 
+    // Init and ordinary settings writes belong to the primary checkout. A fresh
+    // execution worktree may predate that write (or the settings are uncommitted).
+    // Seed only the command, keeping checkout-local repairs authoritative.
+    if (settingsPolicy === "exact-project") {
+        const projectCommand = getCustomSetting("verification_command", "project", projectRoot);
+        if (typeof projectCommand === "string" && projectCommand.trim()) {
+            const settingsWrite = await captureValidationSettingsWrite(projectRoot);
+            setExactProjectCustomSetting("verification_command", projectCommand, projectRoot);
+            await recordValidationSettingsWrite(settingsWrite, projectCommand);
+            return projectCommand;
+        }
+    }
+
     emitSystemStatus(hostedSession, buildValidationUserMessage({ kind: "validation_command_missing" }));
     const response = await requestHostedSessionInteraction(
         hostedSession,
@@ -73,11 +87,15 @@ async function getOrAskForValidationCommand(
     }
 
     const newCommand = userInput.trim();
+    const settingsWrite = await captureValidationSettingsWrite(projectRoot);
+    // The answer is a project preference, not just a temporary worktree setting.
+    // Save it in both places so repair/resume retains it and the repair Agent can
+    // inspect or correct the exact command that failed in its own checkout.
+    await setCustomSetting("verification_command", newCommand, "project", projectRoot);
     if (settingsPolicy === "exact-project") {
         setExactProjectCustomSetting("verification_command", newCommand, projectRoot);
-    } else {
-        await setCustomSetting("verification_command", newCommand, "project", projectRoot);
     }
+    await recordValidationSettingsWrite(settingsWrite, newCommand);
 
     emitSystemStatus(
         hostedSession,
