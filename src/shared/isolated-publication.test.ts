@@ -1,3 +1,4 @@
+import { mergeFrontMatterText } from "../plan-store.js";
 import { normalizePublicationFailure } from "./workflow/validation-merge-repair.ts";
 import { assert, assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import {
@@ -51,7 +52,10 @@ for (const change of ["formatting", "definition", "body", "staged", "committed"]
                 assertEquals(await git(worktree.path, ["write-tree"]), indexBefore);
             } else {
                 await publish();
-                assertEquals(await git(projectRoot, ["show", `main:${path}`]), sealed.trim());
+                assertEquals(
+                    await git(projectRoot, ["show", `main:${path}`]),
+                    mergeFrontMatterText(sealed, { status: "verified" }).trim(),
+                );
                 assertEquals(await Deno.readTextFile(`${worktree.path}/${path}`), sealed);
                 assertEquals(await git(worktree.path, ["status", "--porcelain"]), "");
             }
