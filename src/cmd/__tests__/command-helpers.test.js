@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import { resetTuiState } from "../command-helpers.js";
+import { resetTuiState } from "../command-helpers.ts";
 
 Deno.test("resetTuiState re-enables input and focus", () => {
     let busy = true;
