@@ -57,7 +57,7 @@ function assertRealPlanReviewRevisionAndApproval(result) {
     assertEventIncludes(result, "runtime:tool:start:task_completed");
     assertEventIncludes(result, "runtime:tool:start:review_complete");
     assertEventIncludes(result, "runtime:tool:start:review_complete");
-    assertScreenIncludes(result, "plan is on main.");
+    assertScreenIncludes(result, "Published commit confirmed on main.");
     assertEventIncludes(result, "runtime:tool:start:review_complete");
     assertScreenIncludes(result, "found no need for a fix");
     assertScreenIncludes(result, "Merging work into main");
@@ -358,7 +358,7 @@ export const plannedChangeReviewRepairValidationScenario = {
             assertScreenIncludes(result, "found no need for a fix");
         }),
         assertsGoldenCoverage("recovery:workflow-validation", (result) => {
-            assertScreenIncludes(result, "plan is on main.");
+            assertScreenIncludes(result, "Published commit confirmed on main.");
             assertEventIncludes(result, "workflow:durability:terminal-ready");
             const transcript = `${result.scrollbackText || ""}\n${result.screenText || ""}`;
             assertEquals(

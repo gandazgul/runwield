@@ -1,4 +1,17 @@
-import { retainPublishedWorkRecordSource } from "../work-records/published-source.ts";
+import {
+    readDeliveryEvidence,
+    saveDeliveredPlanEvidence,
+    saveDeliveredWorkRecordEvidence,
+    savePublicationEvidence,
+} from "./delivery-evidence.ts";
+import { relative } from "@std/path";
+import { buildDeliveryReport } from "./delivery-report.ts";
+import { getCodeReviewMode, getGuidedReviewMode } from "../settings.js";
+import {
+    readPublishedDeliverySources,
+    readPublishedRecordMarkdown,
+    retainPublishedWorkRecordSource,
+} from "../work-records/published-source.ts";
 /**
  * @module shared/workflow/validation-publication
  * The publication phase: merging the validated worktree into the target branch
@@ -835,6 +848,46 @@ export async function buildVerifiedResult(
     // Close the panel out on the way past. Without this the last thing the user
     // sees is a merge still "running", on a run that finished successfully.
     const current = args.session.getCurrentProgress();
+    const sealed = publication ? await readPublishedDeliverySources(projectRoot, publication) : undefined;
+    const local = sealed ? undefined : await loadPlan(projectRoot, args.planName);
+    const recordingOwner = sealed?.workRecordOwner ||
+        (!publication ? (await resolveTargetedWorkRecordSource(projectRoot, args.planName)).source : undefined);
+    const deliveredAttrs = sealed?.delivered.attrs || local?.attrs || args.triageMeta;
+    const evidence = await readDeliveryEvidence(
+        projectRoot,
+        args.planName,
+        publication?.attemptId || args.triageMeta.worktreeId || "in-place",
+    );
+    const publicationArtifact = publication ? await savePublicationEvidence(projectRoot, publication) : null;
+    if (publicationArtifact) evidence.artifacts.push(publicationArtifact);
+    const planArtifact = publication && sealed
+        ? await saveDeliveredPlanEvidence(projectRoot, publication, sealed.delivered.markdown)
+        : null;
+    if (planArtifact) evidence.artifacts.push(planArtifact);
+    const recordPath = recordingOwner?.attrs.workRecord?.path;
+    const recordMarkdown = publication && recordPath
+        ? await readPublishedRecordMarkdown(projectRoot, publication, recordPath)
+        : null;
+    const recordArtifact = publication && recordMarkdown
+        ? await saveDeliveredWorkRecordEvidence(projectRoot, publication, recordMarkdown)
+        : null;
+    if (recordArtifact) evidence.artifacts.push(recordArtifact);
+    const deliveryReport = buildDeliveryReport({
+        planName: args.planName,
+        attrs: {
+            ...deliveredAttrs,
+            workRecord: publication
+                ? (recordArtifact ? { ...recordingOwner?.attrs.workRecord, path: recordArtifact.path } : undefined)
+                : recordingOwner?.attrs.workRecord,
+        },
+        planPath: !publication && local?.path ? relative(projectRoot, local.path).replaceAll("\\", "/") : undefined,
+        publication,
+        evidence,
+        guidedReview: getGuidedReviewMode(projectRoot),
+        codeReview: getCodeReviewMode(projectRoot),
+        workRecordFailed,
+        semanticRequired: isPlannedChangeClassification(args.triageMeta.classification),
+    });
     if (current) {
         emitStatus(
             args,
@@ -845,6 +898,7 @@ export async function buildVerifiedResult(
                 // and publication proof succeeded. Session display state can
                 // still describe an earlier failed or canceled attempt.
                 updateProgressRecord(current, {
+                    deliveryReport,
                     workRecordFailed,
                     workRecordPlanName: args.planName,
                     checks: {

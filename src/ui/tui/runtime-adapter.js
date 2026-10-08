@@ -1,3 +1,4 @@
+import { deliveryReportText } from "./delivery-report-text.ts";
 /**
  * @module ui/tui/runtime-adapter
  * Renders one SessionRuntime event stream into the terminal UI.
@@ -309,7 +310,9 @@ export function attachTuiRuntimeAdapter({
                     }
                 }
                 uiAPI.appendSystemMessage(
-                    value.message,
+                    value.validationProgress?.deliveryReport
+                        ? deliveryReportText(value.validationProgress.deliveryReport, sessionId)
+                        : value.message,
                     value.level === "error",
                     value.header,
                 );
