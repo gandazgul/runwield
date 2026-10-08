@@ -26,7 +26,7 @@ import {
     requireEnabledProjectRoot,
     setProjectEnabled,
 } from "./projects.js";
-import { listDevices, revokeDevice, verifyDeviceCredential, verifyDeviceCsrf } from "./devices.js";
+import { listDevices, revokeDevice, verifyDeviceCredential, verifyDeviceCsrf } from "./devices.ts";
 import {
     approvePairingRequest,
     claimPairingRequest,
@@ -41,7 +41,7 @@ import {
 } from "./session-activations.js";
 
 export { getOwnerCoordinationDatabasePath, OWNER_COORDINATION_DB_FILENAME, OWNER_COORDINATION_SCHEMA_VERSION };
-export { OWNER_CSRF_COOKIE, OWNER_DEVICE_COOKIE, OWNER_DEVICE_MAX_AGE_SECONDS } from "./devices.js";
+export { OWNER_CSRF_COOKIE, OWNER_DEVICE_COOKIE, OWNER_DEVICE_MAX_AGE_SECONDS } from "./devices.ts";
 
 /**
  * @typedef {Object} OwnerCoordinationStore

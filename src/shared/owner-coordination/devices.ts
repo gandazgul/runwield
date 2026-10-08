@@ -3,43 +3,91 @@
  * Revocable paired browser device credentials for owner Workspace.
  */
 
+import type { SQLOutputValue } from "node:sqlite";
+import type { OwnerCoordinationDatabase } from "./database.js";
 import { hashSecret, randomBase64Url, timingSafeSecretEqual } from "./crypto.ts";
+
+export interface PairedDevice {
+    deviceId: string;
+    label: string;
+    createdAt: string;
+    lastSeenAt: string | null;
+    revokedAt: string | null;
+    revokedReason: string | null;
+}
+
+// node:sqlite does not infer selected columns; query assertions use the paired_devices schema.
+interface PairedDeviceRow extends Record<string, SQLOutputValue> {
+    id: string;
+    label: string;
+    credential_hash: string;
+    csrf_hash: string;
+    created_at: string;
+    last_seen_at: string | null;
+    revoked_at: string | null;
+    revoked_reason: string | null;
+}
+
+interface DeviceCsrfRow extends Record<string, SQLOutputValue> {
+    csrf_hash: string;
+    revoked_at: string | null;
+}
+
+export interface CreatePairedDeviceOptions {
+    label: string;
+    idFactory?: () => string;
+    now?: () => string;
+    credentialFactory?: () => string;
+    csrfFactory?: () => string;
+}
+
+export interface CreatedPairedDevice {
+    deviceId: string;
+    credential: string;
+    csrf: string;
+    device: PairedDevice | null;
+}
+
+export interface VerifyDeviceCredentialOptions {
+    now?: () => string;
+    touch?: boolean;
+    touchIntervalMs?: number;
+}
+
+export interface RevokeDeviceOptions {
+    now?: () => string;
+    reason?: string;
+}
 
 export const OWNER_DEVICE_COOKIE = "rw_owner_device";
 export const OWNER_CSRF_COOKIE = "rw_owner_csrf";
 export const OWNER_DEVICE_MAX_AGE_SECONDS = 365 * 24 * 60 * 60;
 export const OWNER_DEVICE_LAST_SEEN_TOUCH_INTERVAL_MS = 60_000;
 
-/** @param {unknown} value */
-function requireDatabase(value) {
+function requireDatabase(value: OwnerCoordinationDatabase) {
     if (!value || typeof value !== "object" || !("handle" in value)) throw new Error("Owner database is required");
-    return /** @type {import('./database.js').OwnerCoordinationDatabase} */ (value);
+    return value;
 }
 
-/** @param {() => string} [now] */
-function isoNow(now) {
+function isoNow(now?: () => string) {
     return now ? now() : new Date().toISOString();
 }
 
-/** @param {unknown} value */
-function timeMs(value) {
+function timeMs(value: string | null) {
     const time = Date.parse(String(value || ""));
     return Number.isFinite(time) ? time : 0;
 }
 
-/** @param {() => string} [idFactory] */
-function newId(idFactory) {
+function newId(idFactory?: () => string) {
     return idFactory ? idFactory() : crypto.randomUUID();
 }
 
-/** @param {string} label */
-export function normalizeDeviceLabel(label) {
+export function normalizeDeviceLabel(label: string) {
     const normalized = String(label || "").replace(/\s+/g, " ").trim();
     return normalized.slice(0, 80) || "Browser device";
 }
 
-/** @param {any} row */
-function deviceFromRow(row) {
+function deviceFromRow(row: PairedDeviceRow): PairedDevice {
     return {
         deviceId: row.id,
         label: row.label,
@@ -50,11 +98,10 @@ function deviceFromRow(row) {
     };
 }
 
-/**
- * @param {import('./database.js').OwnerCoordinationDatabase} database
- * @param {{ label: string, idFactory?: () => string, now?: () => string, credentialFactory?: () => string, csrfFactory?: () => string }} options
- */
-export function createPairedDevice(database, options) {
+export function createPairedDevice(
+    database: OwnerCoordinationDatabase,
+    options: CreatePairedDeviceOptions,
+): CreatedPairedDevice {
     const ownerDb = requireDatabase(database);
     const credential = options.credentialFactory ? options.credentialFactory() : randomBase64Url(32);
     const csrf = options.csrfFactory ? options.csrfFactory() : randomBase64Url(32);
@@ -66,31 +113,29 @@ export function createPairedDevice(database, options) {
     return { deviceId, credential, csrf, device: getDeviceById(ownerDb, deviceId) };
 }
 
-/**
- * @param {import('./database.js').OwnerCoordinationDatabase} database
- * @param {string} deviceId
- */
-export function getDeviceById(database, deviceId) {
-    const row = requireDatabase(database).handle.prepare("SELECT * FROM paired_devices WHERE id = ?").get(deviceId);
+export function getDeviceById(database: OwnerCoordinationDatabase, deviceId: string): PairedDevice | null {
+    const row = requireDatabase(database).handle.prepare("SELECT * FROM paired_devices WHERE id = ?").get(deviceId) as
+        | PairedDeviceRow
+        | undefined;
     return row ? deviceFromRow(row) : null;
 }
 
-/** @param {import('./database.js').OwnerCoordinationDatabase} database */
-export function listDevices(database) {
-    return requireDatabase(database).handle.prepare("SELECT * FROM paired_devices ORDER BY created_at DESC").all().map(
-        deviceFromRow,
-    );
+export function listDevices(database: OwnerCoordinationDatabase): PairedDevice[] {
+    return (requireDatabase(database).handle.prepare("SELECT * FROM paired_devices ORDER BY created_at DESC")
+        .all() as PairedDeviceRow[]).map(
+            deviceFromRow,
+        );
 }
 
-/**
- * @param {import('./database.js').OwnerCoordinationDatabase} database
- * @param {string} credential
- * @param {{ now?: () => string, touch?: boolean, touchIntervalMs?: number }} [options]
- */
-export function verifyDeviceCredential(database, credential, options = {}) {
+export function verifyDeviceCredential(
+    database: OwnerCoordinationDatabase,
+    credential: string,
+    options: VerifyDeviceCredentialOptions = {},
+): PairedDevice | null {
     const ownerDb = requireDatabase(database);
     const presentedHash = hashSecret(credential || "");
-    const rows = ownerDb.handle.prepare("SELECT * FROM paired_devices WHERE revoked_at IS NULL").all();
+    const rows = ownerDb.handle.prepare("SELECT * FROM paired_devices WHERE revoked_at IS NULL")
+        .all() as PairedDeviceRow[];
     const row = rows.find((candidate) => timingSafeSecretEqual(String(candidate.credential_hash), presentedHash));
     if (!row) return null;
     if (options.touch !== false) {
@@ -104,25 +149,15 @@ export function verifyDeviceCredential(database, credential, options = {}) {
     return deviceFromRow(row);
 }
 
-/**
- * @param {import('./database.js').OwnerCoordinationDatabase} database
- * @param {string} deviceId
- * @param {string} csrf
- */
-export function verifyDeviceCsrf(database, deviceId, csrf) {
+export function verifyDeviceCsrf(database: OwnerCoordinationDatabase, deviceId: string, csrf: string) {
     const row = requireDatabase(database).handle.prepare(
         "SELECT csrf_hash, revoked_at FROM paired_devices WHERE id = ?",
-    ).get(deviceId);
+    ).get(deviceId) as DeviceCsrfRow | undefined;
     if (!row || row.revoked_at) return false;
     return timingSafeSecretEqual(String(row.csrf_hash), hashSecret(csrf || ""));
 }
 
-/**
- * @param {import('./database.js').OwnerCoordinationDatabase} database
- * @param {string} deviceId
- * @param {{ now?: () => string, reason?: string }} [options]
- */
-export function revokeDevice(database, deviceId, options = {}) {
+export function revokeDevice(database: OwnerCoordinationDatabase, deviceId: string, options: RevokeDeviceOptions = {}) {
     const ownerDb = requireDatabase(database);
     const now = isoNow(options.now);
     ownerDb.handle.prepare(
