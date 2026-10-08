@@ -254,6 +254,34 @@ function sanitizeDedicatedFrontendMetricDetails(event, details) {
 // Each event owns its fields. Nothing from an unrecognized event is persisted.
 /** @type {Record<string, string[]>} */
 const V2_EVENTS = {
+    mechanical_validation_finished: ["outcome"],
+    operation_completed_observed: ["outcome"],
+    quick_fix_completed_observed: ["outcome"],
+    operational_recovery: ["outcome"],
+    validation_attempt: [
+        "attempt",
+        "outcome",
+        "phase",
+        "findingCount",
+        "advisoryCount",
+        "initialFindingCount",
+        "missedOriginalCount",
+        "repairRegressionCount",
+        "unclassifiedNewCount",
+        "existingStillOpenCount",
+        "fixConfirmedCount",
+    ],
+    repair_round: ["round", "outcome", "phase"],
+    repair_round_finished: ["outcome", "phase"],
+    publication_confirmed: ["outcome"],
+    workflow_transition_committed: ["outcome"],
+    implementation_finished: ["outcome"],
+    plan_execution_result: ["outcome"],
+    implementation_checkpoint_failed: ["outcome"],
+    execution_context_resolution: ["outcome"],
+    feature_project_outcome: ["outcome", "phase"],
+    review_complete: ["outcome", "findingCount", "advisoryCount"],
+    guided_review_generation_result: ["outcome", "elapsedMs", "sectionCount", "failureKind"],
     execution_started: ["sourceSurface"],
     execution_finished: ["outcome", "reason", "elapsedMs", "callCount", "coverage"],
     retry_started: ["retrySource", "attempt", "maxAttempts", "delayMs"],
@@ -366,6 +394,22 @@ const V2_EVENTS = {
 };
 /** @type {Record<string, string>} */
 const V2_EVENT_CATEGORIES = {
+    mechanical_validation_finished: "validation",
+    operation_completed_observed: "execution",
+    quick_fix_completed_observed: "execution",
+    operational_recovery: "recovery",
+    validation_attempt: "validation",
+    repair_round: "recovery",
+    repair_round_finished: "recovery",
+    publication_confirmed: "recovery",
+    workflow_transition_committed: "recovery",
+    implementation_finished: "execution",
+    plan_execution_result: "execution",
+    implementation_checkpoint_failed: "execution",
+    execution_context_resolution: "validation",
+    feature_project_outcome: "execution",
+    review_complete: "validation",
+    guided_review_generation_result: "validation",
     execution_started: "execution",
     execution_finished: "execution",
     retry_started: "execution",
@@ -387,7 +431,19 @@ const V2_EVENT_CATEGORIES = {
 };
 /** @type {Record<string, Set<string>>} */
 const V2_ENUMS = {
-    outcome: new Set(["succeeded", "failed", "canceled", "rejected", "interrupted", "success", "error", "incomplete"]),
+    outcome: new Set([
+        "succeeded",
+        "failed",
+        "canceled",
+        "rejected",
+        "interrupted",
+        "success",
+        "error",
+        "incomplete",
+        "ongoing",
+        "approved",
+        "feedback",
+    ]),
     reason: new Set([
         "completed",
         "returned_error",
@@ -412,6 +468,7 @@ const V2_ENUMS = {
         "unavailable",
         "not_found",
     ]),
+    failureKind: new Set(["invalid_json", "empty_output", "schema_invalid", "aborted", "provider_failed"]),
     errorReason: new Set(["failed", "canceled", "rejected", "unknown", "unavailable", "unknown_command"]),
     executionKind: new Set(["root", "isolated", "delegated"]),
     mode: new Set(["foreground", "background"]),
@@ -550,7 +607,17 @@ const V2_ENUMS = {
     basis: new Set(["backend_turn", "model_request"]),
     availability: new Set(["complete", "partial", "unavailable"]),
     kind: new Set(["builtin", "template", "skill"]),
-    phase: new Set(["start", "finish", "opened", "dispatched", "rejected"]),
+    phase: new Set([
+        "start",
+        "finish",
+        "opened",
+        "dispatched",
+        "rejected",
+        "mechanical",
+        "semantic",
+        "delivery",
+        "planning",
+    ]),
     sourceSurface: new Set(["tui", "workspace", "acp", "cli", "headless"]),
 };
 for (const manager of ["npm", "pnpm", "yarn", "bun"]) {
@@ -559,6 +626,10 @@ for (const manager of ["npm", "pnpm", "yarn", "bun"]) {
     }
 }
 const V2_LINKS = new Set([
+    "planId",
+    "transitionId",
+    "roundId",
+    "operationId",
     "sessionId",
     "managedSessionId",
     "segmentId",
@@ -577,6 +648,16 @@ const V2_LINKS = new Set([
     "sourceId",
 ]);
 const V2_NUMBERS = new Set([
+    "sectionCount",
+    "round",
+    "initialFindingCount",
+    "missedOriginalCount",
+    "repairRegressionCount",
+    "unclassifiedNewCount",
+    "existingStillOpenCount",
+    "fixConfirmedCount",
+    "findingCount",
+    "advisoryCount",
     "elapsedMs",
     "callCount",
     "toolCount",
@@ -652,7 +733,9 @@ function sanitizeV2MetricRecord(metric, cwdHash) {
     /** @type {Record<string, unknown>} */
     const record = {
         v: 2,
-        ts: new Date().toISOString(),
+        ts: typeof metric.ts === "string" && Number.isFinite(Date.parse(metric.ts))
+            ? new Date(metric.ts).toISOString()
+            : new Date().toISOString(),
         eventId: typeof metric.eventId === "string" && V2_IDENTIFIER.test(metric.eventId)
             ? metric.eventId
             : crypto.randomUUID(),
@@ -744,7 +827,9 @@ export async function recordWorkflowMetric(metric, cwd) {
             epoch: metric.persisted === false && typeof metric.collectionEpoch === "string"
                 ? metric.collectionEpoch
                 : resolveCollectionEpoch(filePath, isWorkflowMetricsEnabled(resolvedSetting)).collectionEpoch.id,
-            deadline: Date.now() + 1000,
+            deadline: typeof metric.persistenceDeadline === "number"
+                ? Math.min(Date.now() + 1000, metric.persistenceDeadline)
+                : Date.now() + 1000,
         };
         const cwdHash = await hashMetricCwd(projectRoot);
 

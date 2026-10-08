@@ -36,6 +36,7 @@ interface JournalEpochState {
     journalLines?: number;
     recoveryBytes?: number[];
     recoveryCorruptLines?: number[];
+    outcomeEventOffsets?: { [eventId: string]: number };
 }
 
 export function isWorkflowMetricsEnabled<T>(setting: T) {
@@ -64,9 +65,17 @@ function readJournalState(filePath: string): JournalEpochState {
 function scanJournalLines(bytes: Uint8Array, state: JournalEpochState): number[] {
     const corruptLines = [];
     const lines = new TextDecoder().decode(bytes).split("\n").slice(0, -1);
+    let offset = (state.journalBytes ?? 0) - (state.recoveryBytes?.length ?? 0);
     for (const [index, line] of lines.entries()) {
         try {
             const record = JSON.parse(line);
+            if (
+                record.v === 2 && typeof record.eventId === "string" &&
+                record.eventId.startsWith(`${record.event}:`)
+            ) {
+                state.outcomeEventOffsets ??= {};
+                state.outcomeEventOffsets[record.eventId] = offset;
+            }
             if (typeof record.historyEpoch === "string") state.historyEpoch = record.historyEpoch;
             if (
                 record.event === "collection_epoch" && typeof record.collectionEpoch === "string" &&
@@ -77,6 +86,7 @@ function scanJournalLines(bytes: Uint8Array, state: JournalEpochState): number[]
         } catch {
             corruptLines.push((state.journalLines ?? 0) + index + 1);
         }
+        offset += new TextEncoder().encode(line).length + 1;
     }
     state.journalLines = (state.journalLines ?? 0) + lines.length;
     return corruptLines;
@@ -321,10 +331,37 @@ export async function appendWorkflowMetric<T>(
         ) {
             return { ...failedRecord, persisted: false, reason: "collection_boundary" };
         }
+        const outcomeIdentity = record !== null && typeof record === "object" &&
+                "v" in record && record.v === 2 && "event" in record &&
+                "eventId" in record && typeof record.eventId === "string" &&
+                record.eventId.startsWith(`${record.event}:`)
+            ? record.eventId
+            : undefined;
+        const previousOffset = outcomeIdentity ? state.outcomeEventOffsets?.[outcomeIdentity] : undefined;
+        if (previousOffset !== undefined) {
+            const file = Deno.openSync(filePath, { read: true });
+            try {
+                file.seekSync(previousOffset, Deno.SeekMode.Start);
+                const bytes = new Uint8Array(MAX_RECOVERY_BYTES);
+                const size = file.readSync(bytes) || 0;
+                const end = bytes.subarray(0, size).indexOf(10);
+                if (end < 0) throw new Error("incomplete_saved_observation");
+                const previous = JSON.parse(new TextDecoder().decode(bytes.subarray(0, end)));
+                if (previous.eventId !== outcomeIdentity) throw new Error("observation_index_mismatch");
+                return { ...previous, persisted: true };
+            } finally {
+                file.close();
+            }
+        }
+        const observationOffset = state.journalBytes;
         const saved = { ...record, collectionEpoch: state.collectionEpoch.id, historyEpoch: state.historyEpoch };
         writeSynced(filePath, JSON.stringify(saved) + "\n", true);
         state.journalBytes = Deno.statSync(filePath).size;
         state.journalLines = (state.journalLines ?? 0) + 1;
+        if (outcomeIdentity && observationOffset !== undefined) {
+            state.outcomeEventOffsets ??= {};
+            state.outcomeEventOffsets[outcomeIdentity] = observationOffset;
+        }
         replaceSynced(join(directory, "state.json"), JSON.stringify(state) + "\n");
         return {
             ...saved,

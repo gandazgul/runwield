@@ -3,6 +3,7 @@
  * Repository CI and the repair loop that returns failures to the execution Agent.
  */
 
+import { recordWorkflowOutcome } from "./outcome-observations.ts";
 import { AGENTS } from "../../constants.js";
 import { loadPlan } from "../../plan-store.js";
 import type { AgentTurnOutcome, ValidationLocalCIResult } from "./validation-ports.ts";
@@ -11,9 +12,7 @@ import {
     getProjectRoot,
     preserveValidationContinuationState,
     readCiAttempts,
-    readSemanticRound,
     recordLifecycleEvent,
-    recordMetric,
     resolvePhaseContext,
 } from "./validation-context.ts";
 import { CI_REPAIR_CYCLES, type UserActionOption } from "./validation-types.ts";
@@ -152,7 +151,25 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
                 checks: { ci: "running" },
             },
         );
+        const operationId = crypto.randomUUID();
         const ciResult = await args.localCI.run({ cwd: phase.context.executionCwd });
+        await recordWorkflowOutcome(phase.context.projectRoot, {
+            category: "validation",
+            event: "validation_attempt",
+            operationId,
+            attemptId: phase.context.worktreeId,
+            planName: args.planName,
+            attempt: ciAttempts + 1,
+            phase: "mechanical",
+            outcome: ciResult.kind === "operational_failure"
+                ? "incomplete"
+                : ciResult.kind === "canceled"
+                ? "interrupted"
+                : ciResult.kind === "completed" && ciResult.exitCode === 0
+                ? "succeeded"
+                : "failed",
+            session: args.session.metricsSession,
+        });
         if (ciResult.kind === "operational_failure") {
             operationalAttempts += 1;
             const recovery = await handleMechanicalOperationalFailure(
@@ -165,18 +182,6 @@ export async function runMechanicalValidationPhase(args: ValidationLoopArgs): Pr
             return recovery.result;
         }
         operationalAttempts = 0;
-        await recordMetric(args, phase.context.projectRoot, {
-            category: "validation",
-            event: "ci_attempt",
-            planName: args.planName,
-            details: {
-                semanticRound: readSemanticRound(args.triageMeta) + 1,
-                mechanicalAttempt: ciAttempts + 1,
-                exitCode: ciResult.kind === "completed" ? ciResult.exitCode : 130,
-                passed: ciResult.kind === "completed" && ciResult.exitCode === 0,
-                canceled: ciResult.kind === "canceled",
-            },
-        });
 
         if (ciResult.kind === "canceled") {
             const pause: UserActionPause = {

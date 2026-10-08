@@ -1974,9 +1974,9 @@ retain delivery evidence. Scenarios guide verification but do not claim executab
 <a id="local-workflow-metrics"></a>
 
 **Scope and maturity:** Current local recording is opt-in and stays on the device. The v2 observation layer includes
-linked execution, usage, and command records. The journal writer implements bounded cross-process locking, sync, epoch
-control, and repair. Reporting, dashboards, and export (including Langfuse) remain target/deferred, not current
-capabilities.
+linked execution, usage, command, and workflow-outcome records. The journal writer implements bounded cross-process
+locking, sync, epoch control, and repair. Reporting, dashboards, and export (including Langfuse) remain target/deferred,
+not current capabilities.
 
 **Requirement: Record structured workflow observations locally with explicit opt-in, project isolation, and zero
 sensitive content leakage.**
@@ -2031,6 +2031,28 @@ interval contains no recorded measurements; it is not evidence of how long colle
 replays missed activity or reconstructs it from Session Transcripts. Stale observations cannot cross an observed
 boundary. History epochs identify local Project measurement histories independently of Session and Plan lifecycles.
 
+**Requirement: Workflow outcomes count observed operations, not inferred delivery.** Each validation attempt and repair
+round has its own operation identity. Attempt numbers and round numbers are labels, not deduplication keys. A confirmed
+publication observation uses a deterministic identity from the delivery attempt. Repeated cleanup does not count that
+publication twice. Committed transitions keep their transition identity; review findings remain observed findings, not
+claims of prevented defects. Tool fan-out is not model-request fan-out.
+
+**Requirement: Publication recording precedes removal of attempt evidence and cannot gate delivery.** Both cleanup paths
+await a bounded, non-fatal recording attempt before pruning. Confirmed publication is observed even when cleanup keeps
+user files or a branch. A retained controller marker distinguishes complete, incomplete, and unverified observation
+coverage. A recording failure does not block or reverse publication. A process interruption cannot invent an
+observation. Git evidence and Plan Front Matter remain delivery authority under
+[Execution, validation, and recovery](#execution-validation-and-recovery). Confirmed publication and deliberate user
+abandonment remain the only delivery conclusions. An interrupted Agent turn is ongoing work, not abandonment. An open
+Session without an observed delivery workflow is not an undelivered failure.
+
+**Requirement: Plan attribution uses committed, time-scoped associations.** A Session observation links to a Plan only
+when its committed Plan Association covers the observation time and transcript segment. A new association ends the
+previous scope in that segment; a sealed segment ends its scope. General discussion has no Plan link. A Session that
+touches multiple Plans does not assign each observation to every Plan. A delivery attempt's committed registry
+association identifies its Plan independently of Session ownership. Missing attribution stays absent. Outcome records
+retain operation, transition, or confirmed delivery identity and exclude free-form errors.
+
 **Requirement: Repair preserves history and makes measurement gaps explicit.** Existing v1 rows stay unchanged; absent
 v2 links or coverage are not inferred from adjacent rows. Locked repair truncates only an incomplete final line and
 appends explicit `measurement_gap` evidence with reason `incomplete_append`. Interior corruption remains in the journal
@@ -2038,6 +2060,17 @@ and is surfaced with corrupt line numbers; it is not silently deleted or convert
 
 **Acceptance scenarios:**
 
+- Given one Plan with a failed validation, a repair round, and confirmed publication, the journal records separate
+  validation and repair identities and one confirmed-delivery attempt, including after restart.
+- Given either full cleanup or an attempt already at `cleanup_complete`, when cleanup repeats, its stable publication
+  identity produces no second journal row. Keeping user files does not remove the confirmed-publication observation.
+- Given disabled collection or an unwritable journal, publication still completes and prunes. Where controller evidence
+  can be retained, coverage is incomplete. A process death before recording leaves unverified coverage and no invented
+  outcome; a death after recording and before prune leaves the durable observation for restart.
+- Given disjoint committed Plan Association time scopes in one Session, observations link only to the matching Plan at
+  that time. Unassigned discussion and uncommitted associations do not create Plan links.
+- Given an interrupted repair turn or a non-Plan Session, measurements do not label the workflow abandoned or count an
+  open Session as an undelivered failure. A parallel tool batch creates no model-request fan-out claim.
 - Given `workflowMetrics` disabled or unset with no prior enabled history, when turns, tool calls, or slash commands
   run, RunWield creates no metrics journal. With prior history, it may retain an observed disabled control transition,
   but writes no Usage measurements while disabled.

@@ -16,6 +16,7 @@ import {
 import { prepareExecutionPlanFile } from "./execution-plan-file.js";
 import { resolveTargetBranchName } from "../worktree.js";
 import { getWorkflowDiff } from "./git-snapshot.ts";
+import { recordWorkflowOutcome } from "./outcome-observations.ts";
 import { recordWorkflowMetric } from "./metrics.js";
 import { isInValidation } from "./plan-lifecycle.js";
 import { hasImplementationDiff, requiresImplementationDiff } from "./validation-scope.ts";
@@ -188,6 +189,16 @@ async function recordResolutionMetric({
     recovered = false,
     planFileRestored = false,
 }: ResolutionMetricOptions): Promise<void> {
+    if (planFileRestored) {
+        await recordWorkflowOutcome(cwd, {
+            category: "validation",
+            event: "execution_context_resolution",
+            operationId: crypto.randomUUID(),
+            planName,
+            outcome: "succeeded",
+        });
+        return;
+    }
     await recordWorkflowMetric({
         category: "validation",
         event: "execution_context_resolution",
