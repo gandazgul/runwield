@@ -68,6 +68,23 @@ it is not shared project knowledge or a source for cross-Session Agent retrieval
 interaction results as committed transcript history; a live unanswered interaction is not committed history until its
 result is written. _Avoid_: Work Record, planning memory, shared conversation
 
+**Usage observation**: A content-free measurement that RunWield Core observes while `workflowMetrics` is enabled. It
+records workflow activity, model tokens, measured or estimated costs, timing, or tool/context coverage, not user
+conversation content or a provider invoice. It belongs to one primary Project history and collection epoch. It may link
+to a Session and, when observed, a Plan; it does not replace Session Transcript or Plan Association authority. Missing
+measurements are unavailable, not zero. See
+[Core local workflow metrics](prd/runwield-core-prd.md#local-workflow-metrics). _Avoid_: Transcript, billing charge,
+invoice, complete activity history
+
+**Collection epoch**: The local journal identity for an enabled or disabled collection state lazily observed by Core. An
+observed disabled transition can be retained as control evidence for prior history, but is not a Usage observation.
+Unobserved intervals contain no recorded measurements and do not prove disabled durations. Collection epochs are not
+Session lifetimes or Plan statuses. _Avoid_: Setting-change timestamp, disabled duration, Session epoch
+
+**History epoch**: The identity of one local primary Project measurement history. Usage observations and collection
+control records link to it; Session and Plan links remain separate. It does not authorize replay or reconstruction from
+Session Transcripts. _Avoid_: Session history, Plan revision, billing period
+
 **Execution Backend**: The model-selected runtime that executes one RunWield Agent turn, such as Pi AgentSession, Claude
 CLI, or Antigravity CLI. It is distinct from a model provider and from an Agent Session object. Changing Execution
 Backend does not transfer Session Transcript, Workflow Tool Event, Plan Lifecycle, or replay authority away from

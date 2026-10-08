@@ -488,8 +488,8 @@ These keys are read by RunWield outside the upstream Pi `SettingsManager` schema
 
 ### `workflowMetrics`
 
-`workflowMetrics` enables local-only workflow metrics recording. It is disabled by default; RunWield writes no metrics
-unless this setting is `true` or an object with `enabled: true`:
+`workflowMetrics` enables local-only workflow measurements. It is disabled by default; RunWield records measurements
+only when this setting is `true` or an object with `enabled: true`:
 
 ```jsonc
 {
@@ -545,10 +545,18 @@ distinguishes provider-reported cost from rate-calculated cost and unavailable c
 invoice. `coverage` and per-measurement `availability` use `complete`, `partial`, or `unavailable`; a partial bridge
 inventory is not a complete CLI tool inventory.
 
-Rows are best effort. Writes may be lost on interruption, I/O failure, or when an opt-out takes effect. There is no
-metrics-specific retention period or cleanup job: files stay until the owner deletes them. No upload or backfill occurs.
-The Owner HTTP command endpoint requires a registered Project and an authorized browser; it does not accept arbitrary
-Session links or unknown submitted command text.
+#### Recording and history
+
+Set `workflowMetrics` to `false` to stop recording new measurements. Existing measurements stay on your device until you
+delete them. Re-enabling records new activity only; RunWield does not fill gaps from past activity or Session
+Transcripts. An empty period means no measurements were recorded, not zero usage.
+
+Recording failures do not stop your work. Measurements can be skipped if storage is unavailable, another process is
+writing, or history recovery is in progress. Skipped measurements are not retried. RunWield repairs incomplete writes
+and marks damaged records as measurement gaps, so saved history can still be incomplete.
+
+Metrics are not uploaded. Dashboards, usage reports, and export to services such as Langfuse are not available in this
+release.
 
 #### Backend observation limits
 
