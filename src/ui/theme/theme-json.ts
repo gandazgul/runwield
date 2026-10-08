@@ -6,11 +6,38 @@
 import process from "node:process";
 import { Theme } from "@earendil-works/pi-coding-agent";
 
-/** @typedef {import('@earendil-works/pi-coding-agent').Theme} ThemeInstance */
+export type ThemeInstance = Theme;
+export type ThemeColorValue = string | number;
+export type ThemeColors = Record<string, ThemeColorValue>;
+export type ThemeColorMode = ConstructorParameters<typeof Theme>[2];
 
-/** @typedef {string | number} ThemeColorValue */
+type PiForegroundColors = ConstructorParameters<typeof Theme>[0];
+type PiBackgroundColors = ConstructorParameters<typeof Theme>[1];
 
-/** @typedef {{ name?: string, vars?: Record<string, ThemeColorValue>, colors?: Record<string, ThemeColorValue>, export?: Record<string, ThemeColorValue> }} ThemeJson */
+export interface ThemeJson {
+    name?: string;
+    vars?: ThemeColors;
+    colors?: ThemeColors;
+    export?: ThemeColors;
+}
+
+export interface ResolvedThemeJson extends ThemeJson {
+    colors: ThemeColors;
+}
+
+export interface MergedThemeJson extends ThemeJson {
+    vars: ThemeColors;
+    colors: ThemeColors;
+}
+
+export interface ThemeColorMaps {
+    fgColors: ThemeColors;
+    bgColors: ThemeColors;
+}
+
+export interface CreateThemeOptions {
+    colorMode?: ThemeColorMode;
+}
 
 export const BG_TOKEN_NAMES = new Set([
     "selectedBg",
@@ -21,8 +48,7 @@ export const BG_TOKEN_NAMES = new Set([
     "toolErrorBg",
 ]);
 
-/** @returns {"truecolor" | "256color"} */
-export function detectColorMode() {
+export function detectColorMode(): ThemeColorMode {
     const colorterm = process.env.COLORTERM;
     if (colorterm === "truecolor" || colorterm === "24bit") return "truecolor";
     if (process.env.WT_SESSION) return "truecolor";
@@ -33,13 +59,7 @@ export function detectColorMode() {
     return "truecolor";
 }
 
-/**
- * @param {ThemeColorValue} value
- * @param {Record<string, ThemeColorValue>} vars
- * @param {Set<string>} [visited]
- * @returns {ThemeColorValue}
- */
-function resolveVarRef(value, vars, visited = new Set()) {
+function resolveVarRef(value: ThemeColorValue, vars: ThemeColors, visited: Set<string> = new Set()): ThemeColorValue {
     if (typeof value === "number" || value === "" || value.startsWith("#")) return value;
     if (visited.has(value)) throw new Error(`Circular variable reference: ${value}`);
     if (!(value in vars)) throw new Error(`Variable reference not found: ${value}`);
@@ -49,14 +69,11 @@ function resolveVarRef(value, vars, visited = new Set()) {
 
 /**
  * Resolve variable references in a theme JSON object's colors.
- * @param {ThemeJson} themeJson
- * @returns {ThemeJson & { colors: Record<string, ThemeColorValue> }}
  */
-export function resolveThemeVars(themeJson) {
+export function resolveThemeVars(themeJson: ThemeJson): ResolvedThemeJson {
     const vars = themeJson.vars || {};
     const colors = themeJson.colors || {};
-    /** @type {Record<string, ThemeColorValue>} */
-    const resolvedColors = {};
+    const resolvedColors: ThemeColors = {};
 
     for (const [key, value] of Object.entries(colors)) {
         resolvedColors[key] = resolveVarRef(value, vars);
@@ -71,11 +88,8 @@ export function resolveThemeVars(themeJson) {
 
 /**
  * Merge a partial external theme on top of a complete base theme.
- * @param {ThemeJson} baseThemeJson
- * @param {ThemeJson} overrideThemeJson
- * @returns {ThemeJson & { vars: Record<string, ThemeColorValue>, colors: Record<string, ThemeColorValue> }}
  */
-export function mergeThemeJson(baseThemeJson, overrideThemeJson) {
+export function mergeThemeJson(baseThemeJson: ThemeJson, overrideThemeJson: ThemeJson): MergedThemeJson {
     return {
         ...baseThemeJson,
         ...overrideThemeJson,
@@ -87,14 +101,10 @@ export function mergeThemeJson(baseThemeJson, overrideThemeJson) {
 
 /**
  * Split resolved color tokens into Pi Theme foreground/background maps.
- * @param {Record<string, ThemeColorValue>} colors
- * @returns {{ fgColors: Record<string, ThemeColorValue>, bgColors: Record<string, ThemeColorValue> }}
  */
-export function splitFgBgColors(colors) {
-    /** @type {Record<string, ThemeColorValue>} */
-    const fgColors = {};
-    /** @type {Record<string, ThemeColorValue>} */
-    const bgColors = {};
+export function splitFgBgColors(colors: ThemeColors): ThemeColorMaps {
+    const fgColors: ThemeColors = {};
+    const bgColors: ThemeColors = {};
 
     for (const [key, value] of Object.entries(colors)) {
         if (BG_TOKEN_NAMES.has(key)) {
@@ -109,16 +119,13 @@ export function splitFgBgColors(colors) {
 
 /**
  * Build a Pi Theme instance from a parsed theme JSON object.
- * @param {ThemeJson} themeJson
- * @param {{ colorMode?: "truecolor" | "256color" }} [options]
- * @returns {ThemeInstance}
  */
-export function createThemeFromJson(themeJson, options = {}) {
+export function createThemeFromJson(themeJson: ThemeJson, options: CreateThemeOptions = {}): ThemeInstance {
     const resolvedJson = resolveThemeVars(themeJson);
     const { fgColors, bgColors } = splitFgBgColors(resolvedJson.colors);
     return new Theme(
-        /** @type {any} */ (fgColors),
-        /** @type {any} */ (bgColors),
+        fgColors as PiForegroundColors,
+        bgColors as PiBackgroundColors,
         options.colorMode || detectColorMode(),
         { name: themeJson.name },
     );
