@@ -577,13 +577,16 @@ export function createValidationSessionPort(
                 forceRebuild: true,
             });
         },
-        runPostVerificationHandoffs: async ({ planName, planContent, projectRoot, mnemotecaPort }) => {
+        runPostVerificationHandoffs: async (
+            { planName, planContent, projectRoot, mnemotecaPort, pendingPublication },
+        ) => {
             await runFeaturePostVerificationHandoffs({
                 hostedSession,
                 planName,
                 planContent,
                 projectRoot,
                 mnemotecaPort,
+                pendingPublication,
             });
         },
     };

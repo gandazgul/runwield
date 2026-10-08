@@ -2402,6 +2402,7 @@ export function SessionSurface({ projectId, mode = "detail", runwieldSessionId =
         workflowClassification: typeof workflowProgress?.plan?.classification === "string"
             ? workflowProgress.plan.classification
             : "",
+        workflowValidationPhase: workflowProgress?.plan?.validationPhase,
         workflowProgressFacts: Array.isArray(workflowProgress?.progressFacts)
             ? workflowProgress.progressFacts
             : undefined,

@@ -274,6 +274,7 @@ export type SessionManagerHandle = { readonly __opaqueSessionManager: unique sym
 
 /** Post-verification handoffs the engine requests once a Plan is verified. */
 export type PostVerificationHandoffParams = {
+    pendingPublication?: boolean;
     planName: string;
     planContent: string;
     projectRoot: string;

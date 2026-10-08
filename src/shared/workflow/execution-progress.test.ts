@@ -701,8 +701,13 @@ for (const tutorial of [false, true]) {
                     "printf repaired",
                 );
                 assertEquals(await Deno.readTextFile(join(projectRoot, ".wld/settings.json")), settings);
+                const resumed = await loadPlan(executionCwd, "init-context");
+                assert(resumed);
+                await updatePlanFrontMatter(executionCwd, "init-context", { status: "reviewed" }, {}, {
+                    expectedRevision: resumed.revision,
+                });
                 await git(executionCwd, ["add", "."]);
-                await git(executionCwd, ["commit", "-m", "Validated context update"]);
+                await git(executionCwd, ["commit", "-m", "Reviewed context update"]);
                 await publishExecutionWorktreeIsolated({
                     projectRoot,
                     executionCwd,

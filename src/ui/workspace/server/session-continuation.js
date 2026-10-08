@@ -2373,7 +2373,7 @@ export class WorkspaceSessionContinuationService {
                 "implemented",
                 "reviewed",
                 "validated_ci",
-                "validated_reviewer",
+                "reviewed",
                 "validated",
             ].includes(status)
         ) {

@@ -60,7 +60,7 @@ export type ValidationPhaseResult = WorkflowValidationResult & {
 /** Triage metadata the engine reads Plan front matter through. */
 export type TriageMeta = import("../../tools/plan-written.ts").TriageMeta;
 
-type PlanStatus = "implemented" | "validated_ci" | "validated_reviewer" | "validated";
+type PlanStatus = "implemented" | "validated_ci" | "reviewed" | "validated";
 type PlanEvent = RecordPlanEventArgs["event"];
 type PlanEventStatus = RecordPlanEventArgs["currentStatus"];
 
@@ -192,13 +192,13 @@ export const SEMANTIC_REVIEW_CYCLES = 3;
 export const MAX_PHASES_PER_CALL = 12;
 
 /** Validation's three statuses in the order the loop passes through them. */
-export const VALIDATION_STATUS_ORDER = ["implemented", "validated_ci", "validated_reviewer", "validated"];
+export const VALIDATION_STATUS_ORDER = ["implemented", "validated_ci", "reviewed", "validated"];
 
 /** The status a phase expects to find on the Plan it is about to run. */
 export const PHASE_STATUS: Record<import("./validation-ports.ts").ValidationPhaseName, string> = {
     mechanical: "implemented",
     semantic: "validated_ci",
-    delivery: "validated_reviewer",
+    delivery: "reviewed",
 };
 
 /** How many times an Agent may be sent at the same merge before the user is asked. */

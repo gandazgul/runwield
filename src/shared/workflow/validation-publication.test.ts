@@ -1,7 +1,7 @@
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { retryWorkRecordForPlan } from "../work-records/auto-generation.ts";
 import { listWorkRecords } from "../work-records/index.ts";
-import { stageValidationPassedInExecutionWorktree } from "./plan-lifecycle.js";
+import { recordPlanEvent, stageValidationPassedInExecutionWorktree } from "./plan-lifecycle.js";
 import { autoGenerateWorkRecordForCompletedPlan } from "../work-records/auto-generation.ts";
 import { publishExecutionWorktreeIsolated } from "../isolated-publication.ts";
 import { advancePublicationAttempt, createPublicationAttempt } from "./publication-attempt.ts";
@@ -15,7 +15,7 @@ import { createProgressRecord } from "./validation-emit.ts";
 import { createGitPort } from "../git-port.ts";
 import { createWorkRecordMnemotecaFixture } from "../work-records/test-fixtures/mnemoteca-port.ts";
 import { buildVerifiedResult } from "./validation-publication.ts";
-import { assertEquals, assertStringIncludes } from "@std/assert";
+import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 import { loadPlan, PlanLockTimeoutError, savePlan } from "../../plan-store.js";
 
 import { classifyValidationOperationalError, type GitPublicationErrorKind } from "./validation-operational-errors.ts";
@@ -195,11 +195,12 @@ for (const primaryCopy of ["stale", "missing"] as const) {
                             await savePlan(sourceRoot, planName, "# Completed\n", {
                                 planId: "completed-plan",
                                 classification: "PLANNED_CHANGE",
-                                status: epic ? "validated_reviewer" : "verified",
+                                status: worktree || epic ? "reviewed" : "verified",
                                 ...(epic ? { parentPlan: ownerName, order: 1 } : {}),
                             }, { expectedRevision: existing?.revision });
-                            if (epic) {
-                                await stageValidationPassedInExecutionWorktree({
+                            let planPaths = [planPath];
+                            if (worktree) {
+                                const staged = await stageValidationPassedInExecutionWorktree({
                                     projectRoot,
                                     executionCwd: sourceRoot,
                                     planName,
@@ -208,12 +209,26 @@ for (const primaryCopy of ["stale", "missing"] as const) {
                                         deliveryEvidence: {
                                             version: 1,
                                             mode: "worktree_merge",
-                                            executionCommit: "a".repeat(40),
+                                            executionCommit: await git(sourceRoot, ["rev-parse", "HEAD"]),
                                             targetBranch: "main",
-                                            targetHeadBeforeMerge: "b".repeat(40),
+                                            targetHeadBeforeMerge: await git(projectRoot, ["rev-parse", "HEAD"]),
                                         },
                                     },
                                 });
+                                planPaths = staged.planPaths;
+                            } else if (epic) {
+                                await recordPlanEvent({
+                                    cwd: sourceRoot,
+                                    planName,
+                                    event: "validation_passed",
+                                    currentStatus: "reviewed",
+                                    details: {
+                                        executionMode: "non_git_in_place",
+                                        deliveryEvidence: { version: 1, mode: "non_git_in_place" },
+                                    },
+                                });
+                            }
+                            if (epic) {
                                 assertEquals(
                                     (await loadPlan(sourceRoot, ownerName))?.attrs.epicCompletionMode,
                                     "done_enough",
@@ -227,12 +242,13 @@ for (const primaryCopy of ["stale", "missing"] as const) {
                                 cwd: sourceRoot,
                                 planName,
                                 mnemotecaPort: createWorkRecordMnemotecaFixture(),
+                                pendingPublication: Boolean(worktree),
                             });
                             assertEquals(recording.status, "failed");
                             assertStringIncludes(recording.error || "", "invalid.md");
                             assertEquals(recording.targetPlanName, ownerName);
                             const saved = await loadPlan(sourceRoot, ownerName);
-                            assertEquals(saved?.attrs.status, epic ? "validated" : "verified");
+                            assertEquals(saved?.attrs.status, worktree ? "reviewed" : "verified");
                             assertEquals(saved?.attrs.workRecord?.status, "failed");
                             assertStringIncludes(saved?.attrs.workRecord?.error || "", "invalid.md");
                             assertEquals(
@@ -257,7 +273,7 @@ for (const primaryCopy of ["stale", "missing"] as const) {
                                         targetHeadAtSeal: await git(projectRoot, ["rev-parse", "HEAD"]),
                                     }),
                                     "artifacts_committed",
-                                    { artifactCommit: commit, planPaths: [planPath] },
+                                    { artifactCommit: commit, planPaths },
                                 );
                                 if (!remoteRoot) throw new Error("Remote fixture missing");
                                 await git(remoteRoot, ["init", "--bare"]);
@@ -270,9 +286,23 @@ for (const primaryCopy of ["stale", "missing"] as const) {
                                     targetBranch: "main",
                                     planName,
                                     sealedExecutionCommit: commit,
-                                    allowedPlanPaths: [planPath],
+                                    allowedPlanPaths: planPaths,
                                 });
-                                assertEquals(delivered.publicationMode, "remote");
+                                assert(delivered.publicationMode === "remote");
+                                publication = advancePublicationAttempt(publication, "target_integrated", {
+                                    targetBaseCommit: delivered.targetHeadBeforeMerge,
+                                    integrationCommit: delivered.publicationCommit,
+                                });
+                                publication = advancePublicationAttempt(publication, "target_published", {
+                                    publicationMode: delivered.publicationMode,
+                                    publishedCommit: delivered.publicationCommit,
+                                    upstreamRemote: delivered.upstreamRemote,
+                                    upstreamBranch: delivered.upstreamBranch,
+                                });
+                                assertEquals(await git(remoteRoot, ["rev-parse", "main"]), delivered.publicationCommit);
+                                publication = advancePublicationAttempt(publication, "publication_verified", {
+                                    verifiedAt: new Date().toISOString(),
+                                });
                                 assertStringIncludes(
                                     await git(remoteRoot, ["show", `main:docs/plans/${ownerName}.md`]),
                                     "invalid.md",
@@ -285,7 +315,7 @@ for (const primaryCopy of ["stale", "missing"] as const) {
                                 {
                                     planName,
                                     planContent: "# Completed",
-                                    triageMeta: { classification: "PLANNED_CHANGE", status: "validated" },
+                                    triageMeta: { classification: "PLANNED_CHANGE", status: "verified" },
                                     session,
                                     git: createGitPort(),
                                     localCI: {

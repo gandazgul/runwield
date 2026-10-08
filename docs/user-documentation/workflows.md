@@ -41,7 +41,8 @@ times. Quick fixes have no Plan, no AI review, and no separate worktree.
    - An AI reviewer compares the change with the Plan. Its findings are fixed and checked again, for a limited number of
      rounds.
    - If you turned on [`codereview`](settings.md#codereview), you review the code yourself before it's merged.
-5. **RunWield merges it** into the target branch and marks the Plan verified.
+5. **RunWield merges it** into the target branch, confirms delivery, and marks the Plan verified. Until delivery is
+   confirmed, the Plan stays reviewed and publication can be retried.
 
 If you change your mind about a requirement while Engineer is working, say so. Engineer records it as a **Plan
 Deviation**, and you confirm it before it's saved to the Plan. The AI reviewer then follows your replacement, and the
@@ -65,29 +66,35 @@ After one is verified, RunWield starts the next in a fresh Session automatically
 hold, needs recovery, or depends on a Plan that isn't done. Each verified Plan adds a Manual QA checklist to
 `docs/plans/<epic-name>/manual-qa.md`. The checklist is yours to use; it doesn't affect verification.
 
+An Epic with its own branch receives an integration check after its children are delivered. A passing Epic stays
+**reviewed** until you merge its checked work into the final target; loading the Epic reconciles that delivery.
+
 You can mark an Epic **done enough for now** from `wld load-plan <epic>` when the remaining Plans aren't worth doing.
+This closes it without verification and keeps the remaining child Plans visible; it does not claim a successful merge.
 
 ## Plan statuses
 
 You see a Plan's status in `wld plans` and on the Plan Board.
 
-| Status                        | Meaning                                                                |
-| ----------------------------- | ---------------------------------------------------------------------- |
-| `draft`                       | Written but not reviewed yet.                                          |
-| `feedback`                    | You sent feedback; the planning Agent is revising it.                  |
-| `approved`                    | You approved it; it isn't ready to run yet.                            |
-| `ready_for_decomposition`     | An approved Epic, waiting to be split up.                              |
-| `ready_for_work`              | Ready to build. For an Epic: its Plans are ready to pick.              |
-| `in_progress`                 | Being built.                                                           |
-| `failed`                      | The build stopped before finishing. Load the Plan to continue.         |
-| `implemented`                 | Built; validation hasn't passed yet.                                   |
-| `validated_ci`                | Your checks passed; AI review is next.                                 |
-| `validated_reviewer`          | AI review passed; code review and merging are next.                    |
-| `validated`                   | Validation passed and the change is being merged.                      |
-| `verified`                    | Done: validated and merged. For an Epic: marked done enough.           |
-| `user_verified`               | You marked it done yourself, with a note, without RunWield validation. |
-| `closed_without_verification` | You closed it without finishing.                                       |
-| `on_hold`                     | Paused. Resume it from `wld load-plan` or the Plan Board.              |
+| Status                        | Meaning                                                                   |
+| ----------------------------- | ------------------------------------------------------------------------- |
+| `draft`                       | Written but not reviewed yet.                                             |
+| `feedback`                    | You sent feedback; the planning Agent is revising it.                     |
+| `approved`                    | You approved it; it isn't ready to run yet.                               |
+| `ready_for_decomposition`     | An approved Epic, waiting to be split up.                                 |
+| `ready_for_work`              | Ready to build. For an Epic: its Plans are ready to pick.                 |
+| `in_progress`                 | Being built.                                                              |
+| `failed`                      | The build stopped before finishing. Load the Plan to continue.            |
+| `implemented`                 | Built; checks or AI review are next. Passed checks are saved for resume.  |
+| `reviewed`                    | AI review passed; code review and merging are next.                       |
+| `verified`                    | Checks and review passed, and delivery to the target was confirmed.       |
+| `user_verified`               | You marked it done yourself, with a note, without RunWield validation.    |
+| `closed_without_verification` | You closed it without verification, including an Epic marked done enough. |
+| `on_hold`                     | Paused. Resume it from `wld load-plan` or the Plan Board.                 |
+
+Older saved statuses such as `validated_ci`, `validated_reviewer`, and `validated` are read compatibly. RunWield uses
+saved checks and delivery evidence to show the current status; an unfinished publication stays reviewed. For projects
+without Git, verified means the in-place checks and review finished.
 
 To mark a Plan **User Verified**, load it with `wld load-plan` or open it in Workspace and add a note explaining how you
 checked it. User Verified Plans count as done for dependencies and Epic progress.
@@ -123,15 +130,18 @@ folders on its own; those need your explicit choice.
 If the Plan file in your checkout was deleted or damaged while its worktree run was active, load it by name
 (`wld load-plan <name>`). RunWield restores it from the worktree and backs up the damaged copy under `.wld/recovery/`.
 
-While a worktree run is active, don't edit or commit in that worktree with other tools. A later retry can include those
-changes without running the checks again.
+If you edit an execution worktree after its publication candidate was sealed, RunWield preserves the old attempt and
+runs checks and review again before publishing the changed source. An unchanged publication retry reuses completed
+checks.
 
 Projects without Git work too. Planned Changes run in your current checkout after you agree to it, and Git steps are
 skipped.
 
 ## Work Records
 
-When a Plan finishes, RunWield writes a Work Record summarizing what was done. See
+When enabled, RunWield prepares a Work Record summarizing the change before publication. It remains pending until
+delivery is confirmed. The published record is then approved and indexed; an interrupted index update retries from
+retained delivery evidence. Child Plans contribute to their eligible parent Epic's record. See
 [Work Records](usage.md#work-records).
 
 ### Retaining verification and retrying records
