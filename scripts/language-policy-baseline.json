@@ -104,7 +104,6 @@
 
     "src/ui/workspace/react/pierre-diffs-worker-shim.js",
     "src/ui/workspace/react/remote-review-payload.js",
-    "src/ui/workspace/react/vite.config.js",
     "src/ui/workspace/routes/api/review-agent-handlers.js",
     "src/ui/workspace/routes/api/review-handlers.js",
     "src/ui/workspace/routes/api/review-widget-handlers.js",
@@ -119,6 +118,5 @@
     "src/ui/workspace/server/remote-adapter.js",
     "src/ui/workspace/server/remote-dev-api.js",
     "src/ui/workspace/server/session-continuation.js",
-    "src/ui/workspace/vite.config.js",
     "src/ui/workspace/workspace-test-helpers.js"
 ]
