@@ -803,13 +803,13 @@ Deno.test("stageValidationPassedInExecutionWorktree validates only the execution
     }
 });
 
-Deno.test("stageValidationPassedInExecutionWorktree keeps validated evidence immutable on retry", async () => {
+Deno.test("stageValidationPassedInExecutionWorktree keeps reviewed evidence immutable on retry", async () => {
     const projectRoot = await Deno.makeTempDir();
     const executionCwd = await Deno.makeTempDir();
     try {
         await savePlan(projectRoot, "feature", "# Feature", { status: "implemented", classification: "FEATURE" });
         await savePlan(executionCwd, "feature", "# Feature", {
-            status: "validated",
+            status: "reviewed",
             validatedAt: "2026-01-03T00:00:00.000Z",
             classification: "FEATURE",
             executionMode: "worktree",
@@ -872,14 +872,16 @@ Deno.test("stageValidationPassedInExecutionWorktree preserves execution Plan hum
         assertEquals(result.attrs.humanReviewDecision, "approved");
         assertEquals(result.attrs.humanReviewedAt, "2026-01-02T00:00:00.000Z");
 
-        await savePlan(projectRoot, "legacy-staged", "# Legacy Staged", {
+        await savePlan(projectRoot, "staged-retry", "# Staged Retry", {
             status: "implemented",
             humanReviewMode: "always",
             humanReviewDecision: "approved",
             humanReviewedAt: "2026-01-02T00:00:00.000Z",
         });
-        await savePlan(executionCwd, "legacy-staged", "# Legacy Staged", {
-            status: "validated",
+        await savePlan(executionCwd, "staged-retry", "# Staged Retry", {
+            status: "reviewed",
+            executionMode: "worktree",
+            deliveryEvidence: TEST_DELIVERY_DETAILS.deliveryEvidence,
             validatedAt: "2026-01-03T00:00:00.000Z",
             humanReviewMode: "always",
             humanReviewDecision: "approved",
@@ -888,7 +890,7 @@ Deno.test("stageValidationPassedInExecutionWorktree preserves execution Plan hum
         const retried = await stageValidationPassedInExecutionWorktree({
             projectRoot,
             executionCwd,
-            planName: "legacy-staged",
+            planName: "staged-retry",
             details: { ...TEST_DELIVERY_DETAILS, now: () => new Date("2026-01-04T00:00:00.000Z") },
         });
         assertEquals(retried.attrs.validatedAt, "2026-01-03T00:00:00.000Z");

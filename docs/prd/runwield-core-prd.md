@@ -773,7 +773,8 @@ Workflow Validation requirements:
   remain recognizable from Git after temporary workflow records are removed. In non-Git projects, the completed Plan
   status is sufficient;
 - after a normal Plan publication completes, keep follow-up messages with Engineer from the primary checkout, not from
-  the removed execution worktree;
+  the removed execution worktree. Restore that project context on Session restart from confirmed delivery and completed
+  cleanup, while retaining the transcript segment's original recording directory;
 - when a published child Plan has an active parent Epic continuation, first leave the child worktree context, then let
   the Epic continuation select its required Agent;
 - preserve a useful recovery path when execution, checks, review, or merge-back fails;
@@ -808,6 +809,9 @@ Recovery requirements:
 
 **Acceptance scenarios:**
 
+- Given a delivered Plan whose execution or repair worktree has been removed, restarting its Session restores the
+  registered project for follow-up messages without recreating the worktree or changing transcript origin metadata. An
+  unfinished or retained publication attempt continues to own its execution checkout.
 - Given an unpublished sealed candidate whose branch was rewritten, including a rewrite followed by an additional
   `.gitignore` commit, validation automatically checks the current files and then creates new publication evidence.
   Staged edits, untracked files, and saved merge repairs remain intact. A restart during recovery finishes the same
