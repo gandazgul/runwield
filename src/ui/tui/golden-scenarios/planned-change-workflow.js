@@ -411,9 +411,9 @@ export const plannedChangeReviewRepairValidationScenario = {
 export const onboardingTutorialDeliveryScenario = {
     ...plannedChangeReviewRepairValidationScenario,
     name: "onboarding-tutorial-real-change-delivery",
-    // This interruption/reload journey can finish publication before its second
-    // restart. Dismiss live completion; replay must not reopen that selection.
-    interactiveSelectPrompts: [],
+    // Publication may finish before reload. Drive either the live completion
+    // prompt or the already-verified Plan menu through the real terminal.
+    interactiveSelectPrompts: ["What would you like to do next?", "What would you like to do?"],
     slashCommands: ["onboard"],
     onboardingOfferHandled: false,
     committedProjectFiles: [
@@ -508,9 +508,9 @@ export const onboardingTutorialDeliveryScenario = {
         { type: "type", text: "/load-plan plan" },
         { type: "enter" },
         { type: "enter" },
-        { type: "waitForIdle", timeoutMs: 240000 },
         { type: "waitForRemotePlanStatus", planName: "plan", statuses: ["verified"], timeoutMs: 240000 },
         { type: "waitForWorktreeRegistryStatus", planName: "plan", statuses: ["absent"], timeoutMs: 90000 },
+        { type: "escape" },
         { type: "waitForIdle", timeoutMs: 90000 },
         { type: "assertWorkflowDurability" },
         {
