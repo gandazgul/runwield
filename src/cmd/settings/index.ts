@@ -4,6 +4,7 @@
  */
 
 import type { SettingsManager } from "@earendil-works/pi-coding-agent";
+import type { ModelPreset, ModelPresetsMap } from "../../shared/model-presets.ts";
 import { getCwd } from "../../constants.js";
 import type { SessionRuntime } from "../../shared/session/session-runtime.ts";
 import {
@@ -67,20 +68,6 @@ interface SettingsCommandOptions {
     sessionRuntime?: SessionRuntime;
     uiAPI?: SettingsCommandUi;
 }
-
-interface ModelPresetAgentOverride {
-    model?: string;
-    thinkingLevel?: string;
-    temperature?: number;
-}
-
-interface ModelPreset {
-    agents?: Record<string, ModelPresetAgentOverride>;
-    visionFallback?: { model?: string };
-    imageGeneration?: import("../../shared/image-generation-settings.ts").ImageGenerationSettings;
-}
-
-type ModelPresetsMap = Record<string, ModelPreset>;
 
 const MODEL_PRESET_PREFIX = "preset:";
 
@@ -230,6 +217,7 @@ async function reloadActiveSessionForPresetChange(
 }
 
 function formatModelPresetDescription(preset: ModelPreset): string {
+    if (preset.description) return preset.description;
     const parts: string[] = [];
     const agentEntries = Object.entries(preset.agents ?? {});
     if (agentEntries.length > 0) {

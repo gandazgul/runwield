@@ -155,7 +155,7 @@ shifts, migration or compatibility risk grows, or the Verification Plan no longe
 - `src/shared/workflow/engineer-runner.ts`, `src/shared/workflow/validation-helpers.ts`, and execution/repair
   integration tests — supply `record_plan_deviation` wherever a real Pair execution owner receives `pair_checkpoint`,
   including resumed execution and Pair validation repair.
-- `src/shared/workflow/engineer-plan-projection.ts`, `src/shared/workflow/workflow-prompts.js`, and prompt tests — give
+- `src/shared/workflow/engineer-plan-projection.ts`, `src/shared/workflow/workflow-prompts.ts`, and prompt tests — give
   execution Agents the Plan body plus confirmed deviations while continuing to hide unrelated lifecycle Front Matter.
 - `src/agent-definitions/shared-practice/plan-execution.md` and Agent contract tests — require the execution Agent to
   use the guarded tool when an explicit user instruction conflicts with an effective Plan requirement, and forbid silent

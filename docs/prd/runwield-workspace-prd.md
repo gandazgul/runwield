@@ -897,6 +897,22 @@ Plan or its associated Session does not give that screen permanent control of th
 
 **Requirement: Keep Architect Epic review chat in the shared review.**
 
+Plan and Code Review chats accept attached annotations without a typed message. Adding annotations to chat enables Send
+and its keyboard shortcut; removing them disables Send when the message is empty. The Agent receives the notes as review
+context, and the conversation shows the annotation-only submission. Working or unavailable chats stay disabled.
+
+**Requirement: Repair code without replacing the open review.**
+
+A Code Review repair request keeps the same review screen and conversation through repair and the required CI rerun. The
+Agent response and refreshed changes appear in place. Preserve chat history, the selected file, diff collapse choices,
+Guided Review versus diff mode, and collapsed guide sections. Retained guide prose is marked as describing an earlier
+revision until regenerated; the inline diffs show current changes. A lengthy repair must not lose its refresh
+subscription merely because a short UI timeout expires.
+
+Acceptance: collapse a file diff and a guide section, request a repair, and verify that the reply and current diff
+arrive in the same standalone or Workspace review without opening another tab. Switch between Guided Review and diff and
+verify that both retain their collapse choices and all earlier chat messages.
+
 Workspace Plan Review keeps the Architect discussion on the page across review rounds and permits another message and
 reply while the Epic remains in review. It follows [Core Epic review chat semantics](runwield-core-prd.md#plan-review):
 opening a saved review starts no model turn, and chat does not replace explicit feedback, cancellation, or approval

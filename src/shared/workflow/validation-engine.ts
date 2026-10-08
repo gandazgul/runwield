@@ -112,7 +112,7 @@ function resolveNextPhase(
 export async function runValidationLoop(args: ValidationLoopArgs): Promise<WorkflowValidationResult> {
     const projectRoot = getProjectRoot(args);
     let result: ValidationPhaseResult | undefined;
-    let phaseArgs = args;
+    let phaseArgs: ValidationLoopArgs = { ...args, codeReviewConversation: { history: [] } };
     for (let phase = 0; phase < MAX_PHASES_PER_CALL; phase += 1) {
         result = await runValidationPhase(phaseArgs);
         if (result.kind !== "paused") {

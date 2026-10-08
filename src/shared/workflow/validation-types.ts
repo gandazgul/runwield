@@ -64,6 +64,30 @@ type PlanStatus = "implemented" | "validated_ci" | "validated_reviewer" | "valid
 type PlanEvent = RecordPlanEventArgs["event"];
 type PlanEventStatus = RecordPlanEventArgs["currentStatus"];
 
+export interface CodeReviewConversationEvent {
+    type: "assistant_text_delta";
+    delta: string;
+    messageId: string;
+    agentName: string;
+}
+
+export interface CodeReviewConversation {
+    id: string;
+    agentLabel: string;
+    revision: number;
+    events: CodeReviewConversationEvent[];
+}
+
+export interface CodeReviewConversationMessage {
+    role: "user" | "agent";
+    text: string;
+}
+
+export interface CodeReviewConversationState {
+    conversation?: CodeReviewConversation;
+    history: CodeReviewConversationMessage[];
+}
+
 /**
  * Everything one validation phase needs, assembled by the engine and the phase
  * modules. The session surface is the port; Plan Lifecycle, transitions, registry
@@ -73,6 +97,8 @@ export type ValidationLoopArgs = {
     planName: string;
     planContent: string;
     triageMeta: TriageMeta;
+    /** Presentation continuity across repair and CI; never validation authority. */
+    codeReviewConversation?: CodeReviewConversationState;
     session: ValidationSessionPort;
     finalAgentName?: string;
     executionContext?: ValidationWorkflowState;

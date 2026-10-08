@@ -4,22 +4,54 @@ import { isEpicPlan } from "../project-plan.ts";
 import { AGENTS, CLI_BIN, normalizePlanClassification } from "../../constants.js";
 import { redactSecrets } from "../collaboration/capabilities.ts";
 
-/**
- * @typedef {Object} PullReviewComment
- * @property {string} id
- * @property {string} createdAt
- * @property {boolean} resolved
- * @property {boolean} readable
- * @property {string} [displayName]
- * @property {string} [body]
- * @property {string} [type]
- * @property {string} [originalText]
- * @property {Record<string, unknown>} [anchor]
- * @property {string} [error]
- */
+import type { PlanFrontMatter } from "../../plan-store.js";
+import type { DecryptedReviewCommentPayload } from "../collaboration/protocol.js";
 
-/** @param {Record<string, unknown>} attrs */
-export function selectPullPlanningAgent(attrs = {}) {
+export interface PullReviewComment {
+    id: string;
+    createdAt: string;
+    resolved: boolean;
+    readable: boolean;
+    displayName?: string;
+    body?: string;
+    type?: string;
+    originalText?: string;
+    anchor?: DecryptedReviewCommentPayload["anchor"];
+    error?: string;
+}
+
+export interface PullPlanMetadata {
+    classification?: string;
+    type?: string;
+    title?: string;
+    summary?: PlanFrontMatter["summary"];
+    status?: PlanFrontMatter["status"];
+    affectedPaths?: PlanFrontMatter["affectedPaths"] | string;
+}
+
+export interface PullRemoteRevision {
+    serverUrl: string;
+    spaceId: string;
+    status?: string;
+    revision: number;
+}
+
+export interface PullRevisionRequest {
+    planName: string;
+    planPath?: string;
+    title?: string;
+    attrs: PullPlanMetadata;
+    remote: PullRemoteRevision;
+    comments: PullReviewComment[];
+    unreadableCommentCount?: number;
+    action?: string;
+}
+
+export interface PullPlanningOutcome {
+    outcome?: string;
+}
+
+export function selectPullPlanningAgent(attrs: PullPlanMetadata = {}) {
     return isEpicPlan({
             classification: String(attrs.classification || ""),
             type: typeof attrs.type === "string" ? attrs.type : undefined,
@@ -28,11 +60,7 @@ export function selectPullPlanningAgent(attrs = {}) {
         : AGENTS.PLANNER;
 }
 
-/**
- * @param {PullReviewComment[]} comments
- * @returns {string}
- */
-export function formatPullCommentsForPrompt(comments) {
+export function formatPullCommentsForPrompt(comments: PullReviewComment[]): string {
     if (!comments.length) return "No comments were returned for the latest remote revision.";
     return comments.map((comment, index) => {
         if (!comment.readable) {
@@ -57,18 +85,13 @@ export function formatPullCommentsForPrompt(comments) {
     }).join("\n\n");
 }
 
-/** @param {unknown} value */
-function formatListValue(value) {
+function formatListValue(value: PullPlanMetadata["affectedPaths"]): string {
     if (Array.isArray(value)) return value.length ? value.map(String).join(", ") : "(none)";
     if (typeof value === "string" && value.trim()) return value;
     return "(none)";
 }
 
-/**
- * @param {{ planName: string, planPath?: string, title?: string, attrs: Record<string, unknown>, remote: { serverUrl: string, spaceId: string, status?: string, revision: number }, comments: PullReviewComment[], unreadableCommentCount?: number, action?: string }} context
- * @returns {string}
- */
-export function buildPullRevisionRequest(context) {
+export function buildPullRevisionRequest(context: PullRevisionRequest): string {
     const title = String(context.title || context.attrs.title || context.attrs.summary || context.planName);
     const summary = context.attrs.summary ? String(context.attrs.summary) : "(not provided)";
     const localStatus = context.attrs.status ? String(context.attrs.status) : "draft";
@@ -107,14 +130,12 @@ export function buildPullRevisionRequest(context) {
     return redactSecrets(text);
 }
 
-/**
- * @param {unknown} outcome
- * @param {string} planName
- * @returns {string}
- */
-export function summarizePullPlanningOutcome(outcome, planName) {
+export function summarizePullPlanningOutcome(
+    outcome: PullPlanningOutcome | null | undefined,
+    planName: string,
+): string {
     if (outcome && typeof outcome === "object" && "outcome" in outcome) {
-        const value = String(/** @type {{ outcome: unknown }} */ (outcome).outcome || "unknown");
+        const value = String(outcome.outcome || "unknown");
         return `Planning agent finished with outcome "${value}". Review the local revision, then publish with: ${CLI_BIN} plans push ${planName}`;
     }
     return `Planning agent was launched. Review the local revision, then publish with: ${CLI_BIN} plans push ${planName}`;

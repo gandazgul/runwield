@@ -7,6 +7,8 @@
  */
 
 import { join } from "@std/path";
+import { canonicalizeStoredPlanName, isChildFeaturePlan, parsePlanFrontMatter } from "../../plan-store.js";
+import { isTerminalWorkRecordParent } from "../work-records/auto-generation.ts";
 import { enterProjectRuntime, resolveProjectRoot, resolveProjectRuntimeLayout } from "../project-runtime-layout.ts";
 import { findById, pruneEntry, updatePublication } from "../worktree-registry.js";
 import { existingPublicationSavedFiles, preserveUnregisteredPublicationFiles } from "./publication-leftover-files.ts";
@@ -481,4 +483,24 @@ export async function cleanupStoredPublication(
     });
     await pruneEntry(projectRoot, attempt.attemptId);
     return { complete: true, attempt, worktreeKept: false, branchKept: false, details: [], preservedFiles };
+}
+
+/** Read recording outcome from the sealed delivery, even after its worktree is removed. */
+export async function publishedWorkRecordFailed(projectRoot: string, attempt: PublicationAttempt): Promise<boolean> {
+    if (!attempt.artifactCommit) throw new Error("Published Plan artifact commit is missing.");
+    for (const path of attempt.planPaths || []) {
+        const result = await git(projectRoot, ["show", `${attempt.artifactCommit}:${path}`]);
+        if (result.code !== 0) continue;
+        const { attrs } = parsePlanFrontMatter(result.stdout);
+        if (attrs.planId !== attempt.planId) continue;
+        if (!isChildFeaturePlan({ attrs })) return attrs.workRecord?.status === "failed";
+        // Child completion records the terminal parent, which need not be listed
+        // among the child's lifecycle paths. Read it from the same sealed tree.
+        const parentName = canonicalizeStoredPlanName(attrs.parentPlan || "").name;
+        const parent = await git(projectRoot, ["show", `${attempt.artifactCommit}:docs/plans/${parentName}.md`]);
+        if (parent.code !== 0) return false;
+        const parentAttrs = parsePlanFrontMatter(parent.stdout).attrs;
+        return isTerminalWorkRecordParent(parentAttrs) && parentAttrs.workRecord?.status === "failed";
+    }
+    throw new Error(`Published Plan ${attempt.planName} was not found in its artifact commit.`);
 }

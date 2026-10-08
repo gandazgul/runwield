@@ -3,42 +3,74 @@
  * User prompts and agent request text used by workflow execution.
  */
 
+import type { PlanFrontMatter } from "../../plan-store.js";
+import type { TriageMeta } from "../../tools/plan-written.ts";
+import type { TicketReference } from "../ticket-references.js";
+
 import { AGENTS } from "../../constants.js";
 import { projectEngineerPlanBody } from "./engineer-plan-projection.ts";
 
-/**
- * @typedef {Object} TriageReportContext
- * @property {string} [routingIntent]
- * @property {string} [classification]
- * @property {string} [workKind]
- * @property {string} [sessionName]
- * @property {string} [complexity]
- * @property {string} [summary]
- * @property {string[]} [affectedPaths]
- */
+export interface TriageReportContext {
+    routingIntent?: string;
+    classification?: string;
+    workKind?: string;
+    sessionName?: string;
+    complexity?: string;
+    summary?: string;
+    affectedPaths?: string[];
+}
 
-/**
- * @typedef {Object} SlicerChildSummary
- * @property {string} name
- * @property {number} [order]
- * @property {string} [status]
- * @property {string} [summary]
- * @property {string} [workKind]
- * @property {string[]} [dependencies]
- * @property {string[]} [affectedPaths]
- * @property {import('../ticket-references.js').TicketReference[]} [tickets]
- */
+export interface TriageReportOptions {
+    plannedExecution?: boolean;
+}
+
+export interface SlicerChildSummary {
+    name: string;
+    order?: number;
+    status?: string;
+    summary?: string;
+    workKind?: string;
+    dependencies?: string[];
+    affectedPaths?: string[];
+    tickets?: TicketReference[];
+}
+
+export interface SlicerRequest {
+    planName?: string;
+    epicMarkdown?: string;
+    epicBody?: string;
+    epicAttrs?: Partial<PlanFrontMatter>;
+    triageMeta?: TriageMeta;
+    children?: SlicerChildSummary[];
+    reviewFeedback?: string;
+}
+
+interface ReAnchorArtifact {
+    label: string;
+    sections: string;
+}
+
+export interface ReAnchorContext {
+    agentName?: string;
+    /** Normalized Plan name: no docs/plans/ prefix or .md suffix. */
+    planName?: string;
+    /** Parsed Plan body for execution agents, without Front Matter. */
+    planBody?: string;
+    /** Rendered open Review Issue Ledger items for a repair turn. */
+    openReviewItems?: string;
+}
+
+export interface EngineerRequestOptions {
+    collaborationStyle?: "autonomous" | "pair";
+    routerMessage?: string;
+}
 
 /**
  * Build the structured Router-style triage context shared by specialist
  * handoffs. Planned execution can reconstruct the context from canonical Plan
  * front matter when the original Router Session is not available.
- *
- * @param {TriageReportContext} triage
- * @param {{ plannedExecution?: boolean }} [options]
- * @returns {string}
  */
-export function buildTriageReport(triage, options = {}) {
+export function buildTriageReport(triage: TriageReportContext, options: TriageReportOptions = {}): string {
     const inferredPlannedClassification = triage.classification === "PROJECT" ? "PROJECT" : "PLANNED_CHANGE";
     const routingIntent = triage.routingIntent ||
         (options.plannedExecution ? inferredPlannedClassification : undefined);
@@ -64,13 +96,12 @@ export function buildTriageReport(triage, options = {}) {
  * transcript can contain assistant reasoning from several RunWield Agents, so
  * name the newly active Agent explicitly instead of asking the model to infer
  * its role from the conversation history.
- *
- * @param {string} agentDisplayName
- * @param {string} userRequest
- * @param {TriageReportContext} triage
- * @returns {string}
  */
-export function buildAgentHandoffRequest(agentDisplayName, userRequest, triage) {
+export function buildAgentHandoffRequest(
+    agentDisplayName: string,
+    userRequest: string,
+    triage: TriageReportContext,
+): string {
     return [
         "## Active RunWield Agent",
         `You are now ${agentDisplayName}. Follow the ${agentDisplayName} instructions in the system prompt.`,
@@ -85,14 +116,9 @@ export function buildAgentHandoffRequest(agentDisplayName, userRequest, triage) 
 
 /**
  * Build the user-request text handed to the interactive Epic Slicer.
- *
- * @param {{ planName?: string, epicMarkdown?: string, epicBody?: string, epicAttrs?: Partial<import('../../plan-store.js').PlanFrontMatter>, triageMeta?: import('../../tools/plan-written.ts').TriageMeta, children?: SlicerChildSummary[], reviewFeedback?: string } | string} input
- * @param {import('../../tools/plan-written.ts').TriageMeta | undefined} [legacyTriageMeta]
- * @returns {string}
  */
-export function buildSlicerRequest(input, legacyTriageMeta) {
-    const request = /** @type {{ planName?: string, epicMarkdown?: string, epicBody?: string, epicAttrs?: Partial<import('../../plan-store.js').PlanFrontMatter>, triageMeta?: import('../../tools/plan-written.ts').TriageMeta, children?: SlicerChildSummary[], reviewFeedback?: string }} */
-        (typeof input === "string" ? { planName: input, triageMeta: legacyTriageMeta } : input);
+export function buildSlicerRequest(input: SlicerRequest | string, legacyTriageMeta?: TriageMeta): string {
+    const request = typeof input === "string" ? { planName: input, triageMeta: legacyTriageMeta } : input;
     const planName = request.planName || "unknown";
     const attrs = request.epicAttrs || {};
     const triageMeta = request.triageMeta;
@@ -182,12 +208,6 @@ export function buildSlicerRequest(input, legacyTriageMeta) {
 }
 
 /**
- * @typedef {Object} ReAnchorArtifact
- * @property {string} label - How the agent's own prompt refers to its durable artifact.
- * @property {string} sections - The sections worth rereading, in the artifact's own order.
- */
-
-/**
  * The durable artifact each agent must re-anchor on after compaction.
  *
  * The entry carries only the artifact's name and its sections. Why the reread
@@ -195,10 +215,8 @@ export function buildSlicerRequest(input, legacyTriageMeta) {
  * drift this table exists to avoid. An agent absent from the table has no
  * durable artifact — a Delegated Agent Session has a brief, a Reviewer has a
  * diff — so it is never re-anchored.
- *
- * @type {Readonly<Record<string, ReAnchorArtifact>>}
  */
-const RE_ANCHOR_ARTIFACTS = Object.freeze({
+const RE_ANCHOR_ARTIFACTS: Readonly<Record<string, ReAnchorArtifact>> = Object.freeze({
     [AGENTS.PLANNER]: {
         label: "draft Plan",
         sections: "Objective, Approach, Implementation Steps, and Verification Plan",
@@ -222,14 +240,6 @@ const RE_ANCHOR_ARTIFACTS = Object.freeze({
 });
 
 /**
- * @typedef {Object} ReAnchorContext
- * @property {string} [agentName]
- * @property {string} [planName] - Normalized Plan name: no `docs/plans/` prefix, no `.md` suffix.
- * @property {string} [planBody] - Parsed Plan body for execution agents. Never includes Front Matter.
- * @property {string} [openReviewItems] - Rendered open Review Issue Ledger items for a repair turn.
- */
-
-/**
  * Build the message injected into the first provider request after compaction,
  * pointing the active agent back at the artifact the discarded context was
  * about.
@@ -237,11 +247,8 @@ const RE_ANCHOR_ARTIFACTS = Object.freeze({
  * Returns null — and nothing is injected — when the agent has no durable
  * artifact or when no Plan pointer survived, because a re-anchor that names no
  * file is noise.
- *
- * @param {ReAnchorContext} [context]
- * @returns {string | null}
  */
-export function buildReAnchorMessage(context = {}) {
+export function buildReAnchorMessage(context: ReAnchorContext = {}): string | null {
     const agentName = typeof context.agentName === "string" ? context.agentName.trim() : "";
     const artifact = RE_ANCHOR_ARTIFACTS[agentName];
     if (!artifact) return null;
@@ -283,17 +290,12 @@ export function buildReAnchorMessage(context = {}) {
     return lines.join("\n");
 }
 
-/**
- * @param {string} planName
- * @param {string} planBody
- * @param {string} [reviewFeedback]
- * @param {{
- *   collaborationStyle?: "autonomous"|"pair",
- *   routerMessage?: string,
- * }} [options]
- * @returns {string}
- */
-export function buildEngineerRequest(planName, planBody, reviewFeedback, options = {}) {
+export function buildEngineerRequest(
+    planName: string,
+    planBody: string,
+    reviewFeedback?: string,
+    options: EngineerRequestOptions = {},
+): string {
     const lines = [`## Approved Plan: ${planName}`, ""];
 
     if (options.routerMessage) {

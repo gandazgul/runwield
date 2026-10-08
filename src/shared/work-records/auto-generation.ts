@@ -15,13 +15,11 @@ import {
 import { resolveWorkflowPlanLocation } from "../workflow/plan-location.ts";
 import { shouldAutoGenerateWorkRecordsOnPlanCompletion } from "../settings.js";
 import type { WorkRecordMnemotecaPort } from "./mnemoteca-port.ts";
-import { listWorkRecords } from "./store.js";
 import {
     attachEpicChildren,
     buildActiveWorkRecordSource,
     evaluateWorkRecordSource,
     generateWorkRecordForSource,
-    recordsBySourcePlanId,
 } from "./generation.js";
 
 type WorkRecordSource = import("./generation.js").WorkRecordSource;
@@ -50,6 +48,14 @@ interface TargetedWorkRecordSource {
     source?: WorkRecordSource;
     skipReason?: string;
     targetPlanName?: string;
+}
+
+type WorkRecordParentState = Pick<import("../../plan-store.js").PlanFrontMatter, "status" | "epicCompletionMode">;
+
+/** The parent must be terminal before a child completion can record its Epic. */
+export function isTerminalWorkRecordParent(attrs: WorkRecordParentState): boolean {
+    return (["validated", "verified"].includes(attrs.status) && attrs.epicCompletionMode === "done_enough") ||
+        attrs.status === "user_verified";
 }
 
 function conciseError(value: Error | string): string {
@@ -105,11 +111,7 @@ export async function resolveTargetedWorkRecordSource(
         const parent = parentName ? await loadActiveSource(cwd, parentName) : null;
         if (!parent) return { skipReason: "parent_not_found", targetPlanName: parentName || planName };
         const parentWithChildren = await withEpicChildren(cwd, parent);
-        if (
-            !((["validated", "verified"].includes(parentWithChildren.attrs.status) &&
-                parentWithChildren.attrs.epicCompletionMode === "done_enough") ||
-                parentWithChildren.attrs.status === "user_verified")
-        ) {
+        if (!isTerminalWorkRecordParent(parentWithChildren.attrs)) {
             return { skipReason: "parent_not_terminal", targetPlanName: parent.name };
         }
         return { source: parentWithChildren, targetPlanName: parentWithChildren.name };
@@ -168,8 +170,9 @@ export async function autoGenerateWorkRecordForCompletedPlan({
         }
 
         const sourceRoot = getPlanDocumentRoot(resolved.source.path);
-        const existingByPlanId = recordsBySourcePlanId(await listWorkRecords(sourceRoot, { createDir: false }));
-        const evaluated = evaluateWorkRecordSource(resolved.source, existingByPlanId);
+        // Store discovery belongs inside generation's failure-persistence boundary.
+        // Eligibility alone does not need existing records; generation reconciles them.
+        const evaluated = evaluateWorkRecordSource(resolved.source);
         if (evaluated.skipReason) {
             return withMessage({
                 status: "skipped",

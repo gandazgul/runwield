@@ -1,4 +1,4 @@
-import { assertEquals, assertStringIncludes } from "@std/assert";
+import { assertEquals, assertStrictEquals, assertStringIncludes } from "@std/assert";
 
 import { executeWorkflowTestTools } from "../../testing/workflow-agent-tools.ts";
 import { loadPlan, savePlan } from "../../plan-store.js";
@@ -414,6 +414,9 @@ Deno.test("Code Review chat repairs rerun CI before reopening the fresh diff", a
     assertStringIncludes(patches[0], "+export const label = 'first';");
     assertStringIncludes(patches[1], "+export const label = 'second';");
     assertEquals(ciRuns, 1);
+    assertStrictEquals(conversations[1], conversations[0]);
+    assertEquals(conversations[1].events.length, 1);
+    assertEquals(conversations[1].events[0].type, "assistant_text_delta");
     assertEquals(result.kind, "paused");
     assertEquals((await loadPlan(projectRoot, "p"))?.attrs.humanReviewDecision, "changes_requested");
 });
