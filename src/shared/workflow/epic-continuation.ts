@@ -28,7 +28,7 @@ import type { WorkflowValidationResult } from "./validation.ts";
 import { createGitPort } from "../git-port.ts";
 import { systemLocalCIPort } from "./validation-local-ci.ts";
 import { SYSTEM_WORK_RECORD_MNEMOTECA_PORT } from "../work-records/mnemoteca-port.ts";
-import { isGitRepository } from "../git.js";
+import { isGitRepository } from "../git.ts";
 import { findTargetBranchPlansByParent, preparePlanningWorktreeForPlan } from "./planning-worktree.ts";
 import { ensureEpicBranch } from "./epic-branch.ts";
 import { resolveWorkflowPlanLocation } from "./plan-location.ts";

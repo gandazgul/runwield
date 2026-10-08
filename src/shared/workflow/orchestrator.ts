@@ -27,7 +27,7 @@ import { AGENTS, isPlannedChangeClassification, normalizeRoutingIntent } from ".
 import type { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { ensurePlansDir, loadPlan } from "../../plan-store.js";
-import { probeGitRepository } from "../git.js";
+import { probeGitRepository } from "../git.ts";
 import { hasNonGitExecutionConsent, rememberNonGitExecutionConsent } from "../non-git-execution-consent.ts";
 import { switchActiveAgent } from "../session/agent-switching.js";
 import { runRootTurn } from "../session/session.js";
