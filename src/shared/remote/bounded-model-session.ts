@@ -16,7 +16,7 @@ import {
 import { loadAgentDef } from "../session/agents.js";
 import { assertModelExecutionBackendSupported } from "../models/model-execution.ts";
 import { parseProviderModel } from "../models/model-validation.ts";
-import { modelSupportsImageInput, resolveVisionFallbackModel } from "../session/image-attachments.js";
+import { modelSupportsImageInput, resolveVisionFallbackModel } from "../session/image-attachments.ts";
 import { getResolvedVisionFallbackModelSetting, getSettingsManager } from "../settings.js";
 import { createSeeImageTool } from "../../tools/see-image.ts";
 import {

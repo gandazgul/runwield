@@ -95,7 +95,7 @@ Plans and current uncommitted work before creating new ones. Explicit future PRD
 
 8. [ ] **Needs Plan — Retain image access across Session handoffs.** Planning attachments must remain available after
        execution, repair, and resume without exposing another Session's images. Evidence:
-       [image attachments](src/shared/session/image-attachments.js),
+       [image attachments](src/shared/session/image-attachments.ts),
        [segment rollover](src/shared/session/segment-rollover.ts).
 
 9. [ ] **Needs Plan — Preserve compaction across model backends.** Claude CLI and Antigravity must support useful

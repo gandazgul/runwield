@@ -5,7 +5,7 @@
 
 import { RuntimeEventTypes } from "../../shared/session/session-runtime-events.js";
 import { normalizeAgentInternalName } from "../../shared/session/agents.js";
-import { formatImageAttachmentMarker } from "../../shared/session/image-attachments.js";
+import { formatImageAttachmentMarker } from "../../shared/session/image-attachments.ts";
 import { createTuiInteractionAdapter } from "./runtime-interaction-adapter.js";
 import { setTerminalTitleForName } from "./terminal-title.ts";
 import { presentTutorialEvent } from "./tutorial-guidance.ts";
