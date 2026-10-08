@@ -1225,6 +1225,9 @@ and failures remain distinct.
 - Given a failed, paused, user-verified, closed-without-verification, or not-yet-verified workflow, the Tutorial does
   not show a verified recap. Given confirmed RunWield Verified publication, the recap uses the Plan, Work Record, and
   available review or QA artifacts.
+- Given a completed Tutorial Session, reopening it restores the verified recap alongside conversation history from
+  current confirmed delivery evidence. Restoration does not replay workflow completion, reopen the next-step menu, or
+  change saved Tutorial progress. Without matching verification evidence, no verified recap is restored.
 - Given a completed Tutorial with a long conversation, the review/publishing panel disappears and the focused next-step
   selection remains visible at the input area. Selecting Start a new session opens a fresh Router Session; selecting
   Load a Plan opens a fresh Session and its Plan picker automatically; Quit closes RunWield. Escape preserves the

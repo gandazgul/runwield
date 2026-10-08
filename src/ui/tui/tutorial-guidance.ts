@@ -184,6 +184,24 @@ async function buildRecap(
     return lines.join("\n");
 }
 
+/** Restore the completed outcome after history replay without replaying workflow events. */
+export async function restoreVerifiedTutorialRecap(
+    { runtime, sessionId, uiAPI }: Omit<PresentTutorialEventOptions, "event">,
+): Promise<void> {
+    const snapshot = runtime.getSessionSnapshot(sessionId);
+    const context = snapshot?.tutorialContext;
+    if (!snapshot || !context?.guidanceEnabled || !context.recapShown || !context.planId) return;
+    const projectRoot = runtime.getSessionProjectRoot(sessionId) || snapshot.cwd;
+    const verified = await readVerifiedTutorialPlan(snapshot, context.planId, projectRoot);
+    if (!verified) return;
+    const recap = await buildRecap(snapshot, context.planId, verified, projectRoot);
+    uiAPI.appendSystemMessage(
+        `The change passed Workflow Validation and publication was confirmed.\n\n${recap}`,
+        false,
+        "Tutorial complete · RunWield Verified",
+    );
+}
+
 export async function presentTutorialEvent(
     { runtime, sessionId, uiAPI, event }: PresentTutorialEventOptions,
 ): Promise<void> {
