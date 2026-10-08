@@ -51,7 +51,6 @@
     "src/shared/work-records/markdown.js",
     "src/shared/work-records/search.js",
     "src/shared/work-records/store.js",
-    "src/shared/workflow/collaboration-pull.js",
     "src/shared/workflow/decisions.js",
     "src/shared/workflow/execution-plan-file.js",
     "src/shared/workflow/guided-review.js",
