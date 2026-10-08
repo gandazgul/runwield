@@ -39,3 +39,17 @@ reliable-usage-dashboard-and-langfuse-export/02-real-model-usage-across-backends
       cost is never shown as zero.
 
 <!-- runwield:manual-qa:end child="reliable-usage-dashboard-and-langfuse-export/02-real-model-usage-across-backends-and-auxiliary-calls" -->
+
+<!-- runwield:manual-qa:start child="reliable-usage-dashboard-and-langfuse-export/03-workflow-outcome-observations" -->
+
+## Workflow Outcome Observations
+
+Manual verification steps for reliable-usage-dashboard-and-langfuse-export/03-workflow-outcome-observations
+
+- [ ] Complete a workflow with a failed validation, a repair round, and confirmed publication. Confirm the dashboard
+      shows separate validation-attempt, repair-round, and publication counts.
+- [ ] Repeat publication cleanup for the same attempt. Confirm the publication count does not increase.
+- [ ] Disable metric recording or make the metrics journal unavailable, then confirm publication still completes.
+- [ ] View observations for a workflow with no committed Plan association. Confirm they have no Plan attribution.
+
+<!-- runwield:manual-qa:end child="reliable-usage-dashboard-and-langfuse-export/03-workflow-outcome-observations" -->

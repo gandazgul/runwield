@@ -21,7 +21,8 @@ dependencies:
     - "02-real-model-usage-across-backends-and-auxiliary-calls"
 targetBranch: "epic/reliable-usage-dashboard-and-langfuse-export"
 userVerifiedAt: null
-status: "validated_reviewer"
+status: "validated"
+validatedCommit: "de5c375392ee3a750256319ad3575ed6354ea3f0"
 ---
 
 # Workflow Outcome Observations
