@@ -142,6 +142,11 @@ function projectIdentity(path: string): string {
     return createHash("sha256").update(dirname(path).split(/[\\/]/).at(-1)!).digest("hex");
 }
 
+/** Resolve an authorized root to the opaque identity used by report rows and links. */
+export function usageProjectIdentityForRoot(root: string): string {
+    return projectIdentity(journalPaths([root])[0]);
+}
+
 /** Resolve caller-authorized aliases without creating or reading another Project. */
 function journalPaths(roots: string[]): string[] {
     const paths = new Map<string, string>();

@@ -1,5 +1,6 @@
 import { join } from "@std/path";
-import { savePlan } from "../../../plan-store.js";
+import { mergeFrontMatterText, savePlan } from "../../../plan-store.js";
+import { finalizeLocalPublicationLifecycle } from "../../publication-lifecycle.ts";
 import { defineGitFixture, git } from "../../git-test-fixture.ts";
 import { addEntry } from "../../worktree-registry.js";
 import { advanceStoredPublication, startPublicationAttempt } from "../publication-machine.ts";
@@ -48,12 +49,25 @@ export async function makePublicationOutcomeFixture(projectRoot: string) {
         executionCwd,
         async confirm() {
             const validatedCommit = await git(executionCwd, ["rev-parse", "HEAD"]);
+            const planPath = join(executionCwd, "docs/plans/demo.md");
+            await Deno.writeTextFile(
+                planPath,
+                mergeFrontMatterText(await Deno.readTextFile(planPath), {
+                    status: "reviewed",
+                }),
+            );
             await Deno.writeTextFile(join(executionCwd, "feature.txt"), "delivered feature\n");
             await git(executionCwd, ["add", "."]);
             await git(executionCwd, ["commit", "-m", "Publication artifacts"]);
             const artifactCommit = await git(executionCwd, ["rev-parse", "HEAD"]);
             await git(projectRoot, ["merge", "--no-ff", "worktree/demo", "-m", "Publish"]);
-            const publishedCommit = await git(projectRoot, ["rev-parse", "HEAD"]);
+            const publishedCommit = await finalizeLocalPublicationLifecycle(
+                projectRoot,
+                "main",
+                "demo",
+                artifactCommit,
+                ["docs/plans/demo.md"],
+            );
             let attempt = await startPublicationAttempt({
                 projectRoot,
                 attemptId: "attempt-demo",

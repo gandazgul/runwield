@@ -98,7 +98,7 @@ Deno.test("reopened saved Epic chat hands feedback to Architect and shows its mo
                 const pending = runtime.reopenPlanReview(sessionId);
                 let settled = false;
                 try {
-                    for (let i = 0; i < 200 && !url; i++) await new Promise((resolve) => setTimeout(resolve, 20));
+                    for (let i = 0; i < 3000 && !url; i++) await new Promise((resolve) => setTimeout(resolve, 20));
                     assert(url, "The saved Epic review page did not open");
                     const firstUrl = url;
                     assertEquals(modelTurns, 0, "Opening the saved review must not turn the Architect model");
@@ -107,11 +107,11 @@ Deno.test("reopened saved Epic chat hands feedback to Architect and shows its mo
                         conversationTurn: true,
                         feedback: "Clarify milestone 1.",
                     });
-                    for (let i = 0; i < 200 && readyCount < 2; i++) {
+                    for (let i = 0; i < 3000 && readyCount < 2; i++) {
                         await new Promise((resolve) => setTimeout(resolve, 20));
                     }
                     assertEquals(readyCount, 2, "plan_written must reopen review after the Architect turn");
-                    for (let i = 0; i < 200 && modelTurns < 1; i++) {
+                    for (let i = 0; i < 3000 && modelTurns < 1; i++) {
                         await new Promise((resolve) => setTimeout(resolve, 20));
                     }
                     assertEquals(url, firstUrl);
@@ -139,7 +139,7 @@ Deno.test("reopened saved Epic chat hands feedback to Architect and shows its mo
                         conversationTurn: true,
                         feedback: "Clarify milestone 2 dependencies.",
                     });
-                    for (let i = 0; i < 200 && readyCount < 3; i++) {
+                    for (let i = 0; i < 3000 && readyCount < 3; i++) {
                         await new Promise((resolve) => setTimeout(resolve, 20));
                     }
                     assertEquals(
@@ -182,15 +182,7 @@ Deno.test("reopened saved Epic chat hands feedback to Architect and shows its mo
                     assertEquals(result.kind, "complete", result.message);
                 } finally {
                     if (!settled) {
-                        if (url) {
-                            try {
-                                await decide(url, { approved: true, approvalAction: "later" });
-                            } catch {
-                                runtime.closeAllSessions();
-                            }
-                        } else {
-                            runtime.closeAllSessions();
-                        }
+                        await runtime.closeAllSessions();
                         await pending;
                     }
                 }

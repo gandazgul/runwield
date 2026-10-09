@@ -5,6 +5,7 @@
 
 import type { SettingsManager } from "@earendil-works/pi-coding-agent";
 import type { CommandContext } from "../registry.js";
+import type { MeasurementAvailability } from "../../shared/session/runtime-usage-totals.ts";
 
 import { theme } from "../../ui/theme/theme.js";
 
@@ -148,8 +149,7 @@ export async function runSessionCommand(_argv: string[], options: CommandContext
     uiAPI.appendSystemMessage(lines.join("\n"));
 }
 
-/** @param {number | null} value @param {import('../../shared/session/runtime-usage-totals.ts').MeasurementAvailability} availability */
-function formatUsage(value, availability) {
+function formatUsage(value: number | null, availability: MeasurementAvailability) {
     if (value === null) return "unavailable";
     return `${value.toLocaleString()}${availability === "partial" ? " (partial)" : ""}`;
 }

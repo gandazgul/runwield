@@ -69,3 +69,23 @@ Manual verification steps for reliable-usage-dashboard-and-langfuse-export/04-co
       return after restart.
 
 <!-- runwield:manual-qa:end child="reliable-usage-dashboard-and-langfuse-export/04-core-usage-reporting-retention-and-clear" -->
+
+<!-- runwield:manual-qa:start child="reliable-usage-dashboard-and-langfuse-export/05-workspace-usage-page" -->
+
+## Workspace Usage Page
+
+Manual verification steps for reliable-usage-dashboard-and-langfuse-export/05-workspace-usage-page
+
+- [ ] Open `/usage` as a paired owner. Confirm the report shows totals, coverage notes, time zone, and recorded-through
+      date.
+- [ ] Change the period and Project filter. Confirm totals and day boundaries update, and excluded Projects are
+      identified.
+- [ ] Confirm a gap breaks the trend and a covered zero-activity day shows a zero point; check the trend’s table
+      equivalent.
+- [ ] Open Session and Plan links. Confirm they reach authorized pages, and a missing target does not remove the
+      measurement.
+- [ ] Check the page at phone and compact desktop widths, then use Tab to reach filters, links, and tables.
+- [ ] Confirm home and Session navigation remain available, and the page does not show recording-state, Settings, or
+      export controls.
+
+<!-- runwield:manual-qa:end child="reliable-usage-dashboard-and-langfuse-export/05-workspace-usage-page" -->
