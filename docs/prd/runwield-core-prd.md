@@ -1838,6 +1838,13 @@ controls. Genuine permission failures that remain identify the denied action and
 target, with sensitive details redacted. The failure appears once in live Sessions and remains available in replay; it
 does not discard the pending request.
 
+**Antigravity first-run setup:** Empty or whitespace-only Antigravity configuration files are treated as unconfigured
+state. Users can approve normal MCP setup without manually editing those files. Inspection and declined setup leave them
+unchanged; malformed nonempty configuration is preserved and reported instead of overwritten. When the CLI requests
+interactive authentication during a RunWield turn or preflight, RunWield stops that login wait and tells the user to run
+`agy` in a terminal, complete Google sign-in, and retry the request. Authentication failures use the same actionable
+guidance without exposing login URLs or codes in the Session. Retrying after sign-in remains available.
+
 Future/open requirements:
 
 - keep provider-specific prompt or temperature tuning only where it materially improves behavior
@@ -1874,6 +1881,12 @@ Future/open requirements:
   access without requiring a global permission bypass.
 - Given Antigravity's existing RunWield MCP entry points to another installed standalone `wld` with the same stable
   command arguments, a newly built `wld` can start an Antigravity turn without replacing the global entry.
+- Given Antigravity has created an empty or whitespace-only MCP configuration or CLI settings file, first-use setup
+  requests approval and initializes the RunWield server and permission after approval, without a JSON parsing error.
+  Declining leaves the files unchanged; invalid nonempty JSON remains unchanged and is reported.
+- Given a signed-out Antigravity CLI requests a login code during preflight or a turn, RunWield reports the terminal
+  sign-in action promptly instead of waiting for the CLI's authentication timeout or reporting user cancellation.
+  Session history contains the guidance without login URLs or codes, and the request can be retried after sign-in.
 - Given an Antigravity Engineer turn, its temporary Agent declares native `run_command`, `write_to_file`,
   `replace_file_content`, and `view_file` so it can run a test command and create a new file in the execution workspace.
 - Given Antigravity reports a native tool as active and then done, the Session shows one live tool start and one
