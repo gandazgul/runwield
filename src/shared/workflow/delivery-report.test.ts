@@ -13,8 +13,8 @@ Deno.test("delivery evidence separates review, human verification and merge proo
         workRecordFailed: false,
         semanticRequired: true,
     });
-    assertEquals(report.rows.find((row) => row.label === "Human code review")?.outcome, "Approved");
-    assertEquals(report.rows.find((row) => row.label === "Human verification")?.outcome, "Not recorded");
+    assertEquals(report.rows.find((row) => row.label === "Code Review")?.outcome, "Approved");
+    assertEquals(report.rows.find((row) => row.label === "User verification")?.outcome, "Not recorded");
     assertEquals(report.rows.find((row) => row.label === "Merge")?.outcome, "Evidence unavailable");
     assertEquals(report.deliveredCommit, undefined);
     assertStringIncludes(report.settings, "guidedReview = auto");

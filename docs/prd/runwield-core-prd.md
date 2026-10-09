@@ -636,6 +636,18 @@ and siblings active. Listings keep held work distinct from active and finished w
 
 ### Execution, validation, and recovery
 
+Delivery evidence must describe its stage accurately. Finalizing a prepared Work Record adds deterministic current
+metadata and preserves recorder prose as historical pre-publication notes; pending-publication and provisional test
+caveats must not remain the current Summary. Deferred work and confirmed deviations remain available. Publication
+receipts own confirmation of the destination, and test receipts own the scope of checks; metadata does not imply an
+additional test run or a merge from a Plan Branch into the target branch. After delivery or restart, the attached Work
+Record must use the exact confirmed published commit, retained independently of staging cleanup and later deliveries.
+
+Code Review must expose a clickable live review URL in the TUI while awaiting a decision, including resumed and direct
+reviews and when automatic browser opening is unavailable. The settled card removes that live link. Delivery cards label
+automatic review **AI Code Review**, the user's review **Code Review**, and separate manual exercise of the result
+**User verification**; one does not imply the other.
+
 **Requirement: Keep standalone Plan delivery separate from the onward merge.**
 
 `plans.autoMergeIntoTargetBranch` defaults to off. Project settings override global settings; only literal `true`

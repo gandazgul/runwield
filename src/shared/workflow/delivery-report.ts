@@ -73,11 +73,11 @@ export function buildDeliveryReport(input: DeliveryReportInput): DeliveryReport 
             }`,
         },
         {
-            label: "Semantic AI review",
+            label: "AI Code Review",
             outcome: !input.semanticRequired
                 ? "Not required"
                 : semantic?.kind === "ai-skip"
-                ? semantic.outcome === "Human takeover" ? "Handed to human" : "Skipped"
+                ? semantic.outcome === "Human takeover" ? "Handed to user" : "Skipped"
                 : semantic?.outcome === "Approved"
                 ? "Passed"
                 : "Evidence unavailable",
@@ -93,7 +93,7 @@ export function buildDeliveryReport(input: DeliveryReportInput): DeliveryReport 
                 : "This workflow does not require semantic review. Run and repair totals unavailable.",
         },
         {
-            label: "Human code review",
+            label: "Code Review",
             outcome: humanApproved ? "Approved" : skipped ? "Skipped" : "Not recorded",
             tone: humanApproved ? "success" : "warning",
             detail: humanApproved
@@ -104,10 +104,10 @@ export function buildDeliveryReport(input: DeliveryReportInput): DeliveryReport 
                 ? "Reason: codereview = Never (stored: none). Rounds and revisions unavailable."
                 : skipped
                 ? "Skipped by user. Rounds and revisions unavailable."
-                : "No recorded human approval. Rounds and revisions unavailable.",
+                : "No recorded user approval. Rounds and revisions unavailable.",
         },
         {
-            label: "Human verification",
+            label: "User verification",
             outcome: humanVerified ? "Attested by user" : "Not recorded",
             tone: humanVerified ? "success" : "warning",
             detail: humanVerified
@@ -166,8 +166,11 @@ export function buildDeliveryReport(input: DeliveryReportInput): DeliveryReport 
 export function deliveryRowArtifacts(report: DeliveryReport, label: string): DeliveryReportArtifact[] {
     const titles: Record<string, string[]> = {
         "Mechanical tests / CI": ["Test results"],
+        "AI Code Review": ["Reviewer findings"],
+        "Code Review": ["Review decisions", "Human decisions"],
+        // Saved delivery reports retain their original row labels.
+        "Human code review": ["Review decisions", "Human decisions"],
         "Semantic AI review": ["Reviewer findings"],
-        "Human code review": ["Human decisions"],
         "Merge": ["Merge confirmation"],
         "Work Record": ["Work Record"],
     };

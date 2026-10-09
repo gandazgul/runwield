@@ -143,11 +143,14 @@ export async function readPublishedRecordMarkdown(
     attempt: PublicationAttempt,
     path: string,
 ): Promise<string | null> {
-    if (!attempt.artifactCommit || !path.startsWith("docs/work-records/") || path.split("/").includes("..")) {
+    if (
+        !["publication_verified", "cleanup_complete"].includes(attempt.phase) ||
+        !attempt.publishedCommit || !/^docs\/work-records\/[^/]+\.md$/.test(path)
+    ) {
         return null;
     }
     try {
-        return await git(root, ["show", `${attempt.artifactCommit}:${path}`]);
+        return await git(root, ["show", `${attempt.publishedCommit}:${path}`]);
     } catch {
         return null;
     }

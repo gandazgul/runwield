@@ -238,8 +238,9 @@ async function commitPublicationMetadata(
     planName: string,
     sealedCommit: string,
     allowedPlanPaths: string[],
+    targetBranch: string,
 ): Promise<string> {
-    await finalizePublicationLifecycle(publicationRoot, planName, sealedCommit, allowedPlanPaths);
+    await finalizePublicationLifecycle(publicationRoot, planName, sealedCommit, allowedPlanPaths, targetBranch);
     await assertNoTrackedOrIndexedRuntimePaths(publicationRoot);
     await stageGitChangesExcludingRuntime(publicationRoot);
     await assertNoTrackedOrIndexedRuntimePaths(publicationRoot);
@@ -461,6 +462,7 @@ export async function publishExecutionWorktreeIsolated(
                 args.planName,
                 args.sealedExecutionCommit,
                 args.allowedPlanPaths,
+                upstream.branch,
             );
             await assertNoRuntimePathsInNewHistory(
                 publicationRoot,
@@ -623,6 +625,7 @@ export async function publishExecutionWorktreeIsolated(
             args.planName,
             args.sealedExecutionCommit,
             args.allowedPlanPaths,
+            upstream.branch,
         );
         await assertNoRuntimePathsInNewHistory(publicationRoot, publicationHistoryBase, publicationCommit);
         await args.onIntegrated?.({
