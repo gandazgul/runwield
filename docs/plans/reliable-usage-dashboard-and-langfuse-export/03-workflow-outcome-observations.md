@@ -49,8 +49,8 @@ confirmed publication and deliberate abandonment.
 
 Owning PRD: [Execution, validation, and recovery](../../prd/runwield-core-prd.md#execution-validation-and-recovery)
 stays authoritative for what concludes delivery. Following child 01's precedent, outcome-meaning requirements extend the
-existing **Local workflow metrics** capability (`docs/prd/runwield-core-prd.md#local-workflow-metrics`) and reference
-execution/validation/recovery rather than restating it.
+existing **Local workflow metrics** capability (`docs/prd/runwield-core-prd.md#usage-measurement-and-export`) and
+reference execution/validation/recovery rather than restating it.
 
 ## Objective
 

@@ -73,8 +73,17 @@ records workflow activity, model tokens, measured or estimated costs, timing, or
 conversation content or a provider invoice. It belongs to one primary Project history and collection epoch. It may link
 to a Session and, when observed, a Plan; it does not replace Session Transcript or Plan Association authority. Missing
 measurements are unavailable, not zero. See
-[Core local workflow metrics](prd/runwield-core-prd.md#local-workflow-metrics). _Avoid_: Transcript, billing charge,
-invoice, complete activity history
+[Core usage measurement and export](prd/runwield-core-prd.md#usage-measurement-and-export). _Avoid_: Transcript, billing
+charge, invoice, complete activity history
+
+**Active day**: A reporting-zone calendar day with accepted human input or an explicit user-started continuation,
+recorded through user-initiated execution or command provenance. An open window, automatic repair, or background result
+is not user activity. Usage can complete on a day that is not active. _Avoid_: Login day, model activity day, open tab
+
+**Usage gap**: A reporting interval without complete measurement coverage. Disabled, legacy, unavailable, incomplete,
+and not-yet-collected evidence are distinct gap reasons. A gap breaks the usage trend; it is not a measured zero. A
+known zero requires an enabled interval bounded by recorded evidence. _Avoid_: Zero usage, disabled duration, failed
+workflow
 
 **Collection epoch**: The local journal identity for an enabled or disabled collection state lazily observed by Core. An
 observed disabled transition can be retained as control evidence for prior history, but is not a Usage observation.

@@ -273,7 +273,8 @@ const V2_EVENTS = {
     ],
     repair_round: ["round", "outcome", "phase"],
     repair_round_finished: ["outcome", "phase"],
-    publication_confirmed: ["outcome"],
+    publication_confirmed: ["outcome", "planKind"],
+    workflow_abandoned: ["outcome"],
     workflow_transition_committed: ["outcome"],
     implementation_finished: ["outcome"],
     plan_execution_result: ["outcome"],
@@ -282,7 +283,7 @@ const V2_EVENTS = {
     feature_project_outcome: ["outcome", "phase"],
     review_complete: ["outcome", "findingCount", "advisoryCount"],
     guided_review_generation_result: ["outcome", "elapsedMs", "sectionCount", "failureKind"],
-    execution_started: ["sourceSurface"],
+    execution_started: ["sourceSurface", "userInitiated"],
     execution_finished: ["outcome", "reason", "elapsedMs", "callCount", "coverage"],
     retry_started: ["retrySource", "attempt", "maxAttempts", "delayMs"],
     retry_finished: ["retrySource", "attempt", "outcome", "reason"],
@@ -402,6 +403,7 @@ const V2_EVENT_CATEGORIES = {
     repair_round: "recovery",
     repair_round_finished: "recovery",
     publication_confirmed: "recovery",
+    workflow_abandoned: "recovery",
     workflow_transition_committed: "recovery",
     implementation_finished: "execution",
     plan_execution_result: "execution",
@@ -431,6 +433,7 @@ const V2_EVENT_CATEGORIES = {
 };
 /** @type {Record<string, Set<string>>} */
 const V2_ENUMS = {
+    planKind: new Set(["PLANNED_CHANGE", "PROJECT", "QUICK_FIX", "OPERATION"]),
     outcome: new Set([
         "succeeded",
         "failed",
@@ -776,7 +779,7 @@ function sanitizeV2MetricRecord(metric, cwdHash) {
         } else if (key === "costAmount") {
             if (value === null) record[key] = null;
             else if (typeof value === "number" && Number.isFinite(value) && value >= 0) record[key] = value;
-        } else if (key === "isError" || key === "truncated") {
+        } else if (key === "isError" || key === "truncated" || key === "userInitiated") {
             if (typeof value === "boolean" || value === null) record[key] = value;
         } else if (key === "coverage" && isPlainObject(value)) {
             record.coverage = Object.fromEntries(
@@ -820,13 +823,15 @@ export async function recordWorkflowMetric(metric, cwd) {
         const { getMergedCustomSetting } = await import("../settings.js");
         const resolvedSetting = getMergedCustomSetting("workflowMetrics", projectRoot);
         const filePath = getWorkflowMetricsFilePath(projectRoot);
+        const epochState = resolveCollectionEpoch(filePath, isWorkflowMetricsEnabled(resolvedSetting));
         const invocation = {
             enabled: metric.persisted === false && typeof metric.collectionEnabledAtCall === "boolean"
                 ? metric.collectionEnabledAtCall
                 : isWorkflowMetricsEnabled(resolvedSetting),
             epoch: metric.persisted === false && typeof metric.collectionEpoch === "string"
                 ? metric.collectionEpoch
-                : resolveCollectionEpoch(filePath, isWorkflowMetricsEnabled(resolvedSetting)).collectionEpoch.id,
+                : epochState.collectionEpoch.id,
+            historyEpoch: typeof metric.historyEpoch === "string" ? metric.historyEpoch : epochState.historyEpoch,
             deadline: typeof metric.persistenceDeadline === "number"
                 ? Math.min(Date.now() + 1000, metric.persistenceDeadline)
                 : Date.now() + 1000,
@@ -978,4 +983,32 @@ export function recordToolCallFinished(toolCallId, toolName, isError, cwd, agent
             durationMs: started ? now - started.startedAt : undefined,
         },
     }, cwd);
+}
+
+/**
+ * @typedef {Object} LegacyWorkflowMetricInput
+ * @property {number} v
+ * @property {string} ts
+ * @property {string} event
+ *
+ * @typedef {Object} LegacyWorkflowMetricReport
+ * @property {string} timestamp
+ * @property {string} event
+ * @property {"legacy/partial"} availability
+ */
+
+/** Read only understood v1 fields. Generic details and mutable Plan names are never report joins.
+ * @param {LegacyWorkflowMetricInput} record
+ * @returns {LegacyWorkflowMetricReport | null}
+ */
+export function readLegacyWorkflowMetric(record) {
+    if (
+        record.v !== 1 || !Number.isFinite(Date.parse(record.ts)) ||
+        ["collection_epoch", "history_epoch", "measurement_gap"].includes(record.event)
+    ) return null;
+    return {
+        timestamp: record.ts,
+        event: /^[a-z][a-z0-9_]{0,80}$/.test(record.event) ? record.event : "legacy",
+        availability: "legacy/partial",
+    };
 }

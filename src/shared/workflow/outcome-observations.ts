@@ -15,6 +15,9 @@ export interface WorkflowOutcome {
     category: "validation" | "recovery" | "execution";
     operationId: string;
     outcome: string;
+    planId?: string;
+    planKind?: string;
+    historyEpoch?: string;
     attemptId?: string;
     transitionId?: string;
     roundId?: string;
@@ -47,9 +50,9 @@ export function workflowOutcomeEventId(event: string, operationId: string): stri
 export async function recordWorkflowOutcome(cwd: string, observation: WorkflowOutcome) {
     const ts = observation.ts || new Date().toISOString();
     const { session, planName, ...fields } = observation;
-    let planId: string | undefined;
+    let planId: string | undefined = observation.planId;
     try {
-        if (session?.currentSegmentId) {
+        if (!planId && session?.currentSegmentId) {
             const store = openFileSessionStore();
             try {
                 planId = planAssociationAtTime(
@@ -60,7 +63,7 @@ export async function recordWorkflowOutcome(cwd: string, observation: WorkflowOu
             } finally {
                 store.close();
             }
-        } else if (observation.attemptId) {
+        } else if (!planId && observation.attemptId) {
             const entry = await findById(cwd, observation.attemptId, { migrate: false });
             if (entry && Date.parse(entry.createdAt) <= Date.parse(ts) && (!planName || entry.planName === planName)) {
                 planId = entry.planId;

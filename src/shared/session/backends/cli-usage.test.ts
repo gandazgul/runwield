@@ -2,7 +2,7 @@ import { assert, assertEquals } from "@std/assert";
 import { join } from "@std/path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { defineGitFixture, git } from "../../git-test-fixture.ts";
-import { withProcessGlobalTestLock } from "../../../testing/process-global-lock.js";
+import { withProcessGlobalTestLock } from "../../../testing/process-global-lock.ts";
 import { getModelRegistry } from "../../models/model-registry.ts";
 import { setCustomSetting } from "../../settings.js";
 import { getWorkflowMetricsFilePath } from "../../workflow/metrics.js";

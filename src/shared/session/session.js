@@ -4509,6 +4509,8 @@ export async function runRootTurn({
             ...(targetHostedSession.generatedTaskTurnId ? { taskId: targetHostedSession.generatedTaskTurnId } : {}),
             backend,
         });
+        const userInitiated = targetHostedSession.metricsHumanInputPending && !targetHostedSession.generatedTaskTurnId;
+        targetHostedSession.metricsHumanInputPending = false;
         meta.rootTurnCount += 1;
         const finalRequest = dispatch.promptMode === "continuation"
             ? dispatch.userRequest
@@ -4533,6 +4535,7 @@ export async function runRootTurn({
                 attemptId: dispatch.attemptId,
                 dispatchKind: targetHostedSession.generatedTaskTurnId ? "background_task_result" : dispatchKind,
                 executionKind: "root",
+                userInitiated,
                 mode: "foreground",
                 sourceSurface: targetHostedSession.localInputSurface || targetHostedSession.notificationSurface ||
                     "cli",
@@ -4554,6 +4557,7 @@ export async function runRootTurn({
                 backend: "pi",
                 dispatchKind: targetHostedSession.generatedTaskTurnId ? "background_task_result" : dispatchKind,
                 executionKind: "root",
+                userInitiated,
                 mode: "foreground",
                 sourceSurface: targetHostedSession.localInputSurface || targetHostedSession.notificationSurface ||
                     "cli",

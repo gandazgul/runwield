@@ -708,10 +708,10 @@ and committed through the typed checkpoint tool. Reloading the page preserves th
 Shared behavior: [Core TUI conversation](runwield-core-prd.md#tui-conversation),
 [models and providers](runwield-core-prd.md#models-and-providers),
 [Session continuity](runwield-core-prd.md#session-continuity), and
-[local workflow metrics](runwield-core-prd.md#local-workflow-metrics). Browser command controls use the shared command
-catalog and follow the same Agent defaults and override rules; switching Agents resets model and thinking choices to
-that Agent’s settings. Workspace hides `/theme`, `/quit`, and `/exit`, keeps existing navigation commands, and does not
-expose TUI-only process controls.
+[local workflow metrics](runwield-core-prd.md#usage-measurement-and-export). Browser command controls use the shared
+command catalog and follow the same Agent defaults and override rules; switching Agents resets model and thinking
+choices to that Agent’s settings. Workspace hides `/theme`, `/quit`, and `/exit`, keeps existing navigation commands,
+and does not expose TUI-only process controls.
 
 **Requirement: Keep repeated browser use memory-stable.**
 

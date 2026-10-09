@@ -34,6 +34,7 @@ export type WorkflowControllerState = {
     publicationObservation?: {
         attemptId: string;
         eventId: string;
+        historyEpoch?: string;
         coverage: "unverified" | "complete" | "incomplete";
     };
     executionReport?: string | null;

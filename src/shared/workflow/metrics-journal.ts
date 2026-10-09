@@ -5,6 +5,7 @@ import lockfile from "proper-lockfile";
 interface JournalInvocation {
     enabled: boolean;
     epoch: string;
+    historyEpoch?: string;
     deadline: number;
 }
 
@@ -32,6 +33,7 @@ interface JournalEpochState {
     v: number;
     collectionEpoch: { id: string; enabled: boolean };
     historyEpoch: string;
+    historyStartedAt?: string;
     journalBytes?: number;
     journalLines?: number;
     recoveryBytes?: number[];
@@ -77,8 +79,10 @@ function scanJournalLines(bytes: Uint8Array, state: JournalEpochState): number[]
                 state.outcomeEventOffsets[record.eventId] = offset;
             }
             if (typeof record.historyEpoch === "string") state.historyEpoch = record.historyEpoch;
+            if (record.event === "history_epoch" && typeof record.ts === "string") state.historyStartedAt = record.ts;
             if (
-                record.event === "collection_epoch" && typeof record.collectionEpoch === "string" &&
+                ["collection_epoch", "history_epoch"].includes(record.event) &&
+                typeof record.collectionEpoch === "string" &&
                 typeof record.enabled === "boolean"
             ) {
                 state.collectionEpoch = { id: record.collectionEpoch, enabled: record.enabled };
@@ -94,6 +98,12 @@ function scanJournalLines(bytes: Uint8Array, state: JournalEpochState): number[]
 
 /** Read the latest durable epoch, not a process-local settings cache. */
 export function resolveCollectionEpoch(filePath: string, enabledAtCall = false): JournalEpochState {
+    try {
+        const intent = JSON.parse(Deno.readTextFileSync(join(dirname(filePath), "clear.json")));
+        return intent.state;
+    } catch (error) {
+        if (!(error instanceof Deno.errors.NotFound)) throw error;
+    }
     const state = readJournalState(filePath);
     const tail = readUncheckedTail(filePath, state);
     // An incomplete rebuild cannot authorize an observation. The locked writer
@@ -233,24 +243,30 @@ function replaceSynced(path: string, content: string | Uint8Array) {
     }
 }
 
-/** The observation and its epoch are captured once by the caller and reused on retry. */
-export async function appendWorkflowMetric<T>(
-    filePath: string,
-    projectRoot: string,
-    record: T,
-    invocation: JournalInvocation,
-): Promise<T & JournalResult> {
-    // Failure metadata lets an explicit retry retain its original boundary and identity.
-    const failedRecord = { ...record, collectionEpoch: invocation.epoch, collectionEnabledAtCall: invocation.enabled };
+interface JournalClearIntent {
+    state: JournalEpochState;
+    marker: string;
+}
+
+interface JournalLock {
+    compromised: boolean;
+    close(): void;
+}
+
+/** Appends and clears share the same bounded OS guard and lease lock. */
+async function acquireJournalLock(filePath: string, deadline: number): Promise<JournalLock> {
     let release: (() => void) | undefined;
-    let compromised = false;
     let guard: Deno.FsFile | undefined;
+    const lock: JournalLock = {
+        compromised: false,
+        close() {
+            try {
+                release?.();
+            } catch { /* Do not throw into development work. */ }
+            guard?.close();
+        },
+    };
     try {
-        const { getMergedCustomSetting } = await import("../settings.js");
-        // Do not create a journal for an opt-out installation.
-        if (!invocation.enabled && invocation.epoch === "initial") {
-            return { ...failedRecord, persisted: false, reason: "disabled" };
-        }
         const directory = dirname(filePath);
         Deno.mkdirSync(directory, { recursive: true });
         const lockPath = join(directory, ".journal.lock");
@@ -259,23 +275,119 @@ export async function appendWorkflowMetric<T>(
         // lock for compatibility, but never mutate or release it without this guard.
         guard = Deno.openSync(join(directory, ".journal.guard"), { create: true, read: true, write: true });
         while (!guard.tryLockSync(true)) {
-            if (Date.now() >= invocation.deadline) return { ...failedRecord, persisted: false, reason: "lock_timeout" };
+            if (Date.now() >= deadline) throw new Error("lock_timeout");
             await new Promise((resolve) => setTimeout(resolve, 20));
         }
         while (!release) {
-            if (Date.now() >= invocation.deadline) return { ...failedRecord, persisted: false, reason: "lock_timeout" };
+            if (Date.now() >= deadline) throw new Error("lock_timeout");
             try {
                 release = lockfile.lockSync(lockPath, {
                     realpath: false,
                     onCompromised: () => {
-                        compromised = true;
+                        lock.compromised = true;
                     },
                 });
             } catch (error) {
                 if (!(error && typeof error === "object" && "code" in error && error.code === "ELOCKED")) throw error;
-                await new Promise((resolve) => setTimeout(resolve, Math.min(20, invocation.deadline - Date.now())));
+                await new Promise((resolve) => setTimeout(resolve, Math.min(20, deadline - Date.now())));
             }
         }
+        return lock;
+    } catch (error) {
+        lock.close();
+        throw error;
+    }
+}
+
+/** Complete a clear intent after a crash, before accepting any new observation. */
+function finishHistoryClear(filePath: string): void {
+    const directory = dirname(filePath);
+    const intentPath = join(directory, "clear.json");
+    let intent: JournalClearIntent;
+    try {
+        intent = JSON.parse(Deno.readTextFileSync(intentPath));
+    } catch (error) {
+        if (error instanceof Deno.errors.NotFound) return;
+        throw error;
+    }
+    writeSynced(filePath, intent.marker);
+    replaceSynced(join(directory, "state.json"), JSON.stringify(intent.state) + "\n");
+    try {
+        removeSynced(join(directory, "repair.json"));
+    } catch (error) {
+        if (!(error instanceof Deno.errors.NotFound)) throw error;
+    }
+    removeSynced(intentPath);
+}
+
+/** Remove only one Project's measurement history; failure is explicit and retryable. */
+export async function clearWorkflowMetricJournal(filePath: string): Promise<JournalResult> {
+    let lock: JournalLock | undefined;
+    try {
+        lock = await acquireJournalLock(filePath, Date.now() + 1000);
+        finishHistoryClear(filePath);
+        const previous = readJournalState(filePath);
+        repairJournalTail(filePath, previous);
+        if (previous.recoveryBytes) {
+            replaceSynced(join(dirname(filePath), "state.json"), JSON.stringify(previous) + "\n");
+            return { persisted: false, reason: "recovery_pending" };
+        }
+        const historyEpoch = crypto.randomUUID();
+        const historyStartedAt = new Date().toISOString();
+        const marker = JSON.stringify({
+            v: 1,
+            event: "history_epoch",
+            ts: historyStartedAt,
+            historyEpoch,
+            collectionEpoch: previous.collectionEpoch.id,
+            enabled: previous.collectionEpoch.enabled,
+        }) + "\n";
+        const state: JournalEpochState = {
+            v: 1,
+            historyEpoch,
+            historyStartedAt,
+            collectionEpoch: previous.collectionEpoch,
+            journalBytes: new TextEncoder().encode(marker).length,
+            journalLines: 1,
+        };
+        // Intent fences readers and stale writers even if truncation is interrupted.
+        replaceSynced(join(dirname(filePath), "clear.json"), JSON.stringify({ state, marker }));
+        finishHistoryClear(filePath);
+        return { persisted: true, historyEpoch };
+    } catch (error) {
+        return {
+            persisted: false,
+            reason: error instanceof Error && error.message === "lock_timeout" ? "lock_timeout" : "storage_failure",
+        };
+    } finally {
+        lock?.close();
+    }
+}
+
+/** The observation and its epoch are captured once by the caller and reused on retry. */
+export async function appendWorkflowMetric<T>(
+    filePath: string,
+    projectRoot: string,
+    record: T,
+    invocation: JournalInvocation,
+): Promise<T & JournalResult> {
+    // Failure metadata lets an explicit retry retain its original boundary and identity.
+    const failedRecord = {
+        ...record,
+        collectionEpoch: invocation.epoch,
+        collectionEnabledAtCall: invocation.enabled,
+        historyEpoch: invocation.historyEpoch,
+    };
+    let lock: JournalLock | undefined;
+    try {
+        const { getMergedCustomSetting } = await import("../settings.js");
+        // Do not create a journal for an opt-out installation.
+        if (!invocation.enabled && invocation.epoch === "initial") {
+            return { ...failedRecord, persisted: false, reason: "disabled" };
+        }
+        const directory = dirname(filePath);
+        lock = await acquireJournalLock(filePath, invocation.deadline);
+        finishHistoryClear(filePath);
         const enabled = isWorkflowMetricsEnabled(getMergedCustomSetting("workflowMetrics", projectRoot));
         const state = readJournalState(filePath);
         const entries = [];
@@ -323,13 +435,26 @@ export async function appendWorkflowMetric<T>(
         state.journalBytes = Deno.statSync(filePath).size;
         state.journalLines = (state.journalLines ?? 0) + entries.length;
         replaceSynced(join(directory, "state.json"), JSON.stringify(state) + "\n");
-        if (compromised) return { ...failedRecord, persisted: false, reason: "lock_compromised" };
+        if (lock.compromised) return { ...failedRecord, persisted: false, reason: "lock_compromised" };
         if (!invocation.enabled || !enabled) return { ...failedRecord, persisted: false, reason: "disabled" };
         if (
             invocation.epoch !== state.collectionEpoch.id &&
             !(invocation.epoch === "initial" && state.collectionEpoch.id === "initial-enabled")
         ) {
             return { ...failedRecord, persisted: false, reason: "collection_boundary" };
+        }
+        if (
+            invocation.historyEpoch && invocation.historyEpoch !== "initial" &&
+            invocation.historyEpoch !== state.historyEpoch
+        ) {
+            return { ...failedRecord, persisted: false, reason: "history_boundary" };
+        }
+        if (
+            invocation.historyEpoch !== "initial" && state.historyStartedAt && record !== null &&
+            typeof record === "object" && "ts" in record &&
+            typeof record.ts === "string" && Date.parse(record.ts) < Date.parse(state.historyStartedAt)
+        ) {
+            return { ...failedRecord, persisted: false, reason: "history_boundary" };
         }
         const outcomeIdentity = record !== null && typeof record === "object" &&
                 "v" in record && record.v === 2 && "event" in record &&
@@ -368,12 +493,13 @@ export async function appendWorkflowMetric<T>(
             persisted: true,
             ...(repair.tornBytes || repair.corruptLines.length ? { coverageGap: repair } : {}),
         };
-    } catch {
-        return { ...failedRecord, persisted: false, reason: "storage_failure" };
+    } catch (error) {
+        return {
+            ...failedRecord,
+            persisted: false,
+            reason: error instanceof Error && error.message === "lock_timeout" ? "lock_timeout" : "storage_failure",
+        };
     } finally {
-        try {
-            release?.();
-        } catch { /* Persistence result must not throw into delivery work. */ }
-        guard?.close();
+        lock?.close();
     }
 }

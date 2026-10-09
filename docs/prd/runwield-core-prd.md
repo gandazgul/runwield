@@ -2204,14 +2204,14 @@ retain delivery evidence. Scenarios guide verification but do not claim executab
 - Given an unimplemented proposal, when an Agent revises its PRD, the behavior stays labeled target rather than being
   presented as shipped.
 
-### Local workflow metrics
+### Usage measurement and export
 
-<a id="local-workflow-metrics"></a>
+<a id="usage-measurement-and-export"></a>
 
 **Scope and maturity:** Current local recording is opt-in and stays on the device. The v2 observation layer includes
 linked execution, usage, command, and workflow-outcome records. The journal writer implements bounded cross-process
-locking, sync, epoch control, and repair. Reporting, dashboards, and export (including Langfuse) remain target/deferred,
-not current capabilities.
+locking, sync, epoch control, and repair. Core reporting and history deletion are available. Workspace dashboards and
+export (including Langfuse) remain target/deferred.
 
 **Requirement: Record structured workflow observations locally with explicit opt-in, project isolation, and zero
 sensitive content leakage.**
@@ -2293,7 +2293,57 @@ v2 links or coverage are not inferred from adjacent rows. Locked repair truncate
 appends explicit `measurement_gap` evidence with reason `incomplete_append`. Interior corruption remains in the journal
 and is surfaced with corrupt line numbers; it is not silently deleted or converted into measured zero.
 
+**Requirement: Report collected usage with one Core query.** The caller provides authorized Project roots, a half-open
+local-date period, and the host reporting time zone. Core reads only journals, including safe legacy fields. It returns
+settled token subtotals, reported and estimated USD cost separately, latency, daily buckets, Project/backend/model
+breakdowns, and stable local Session/segment/Plan identifiers. The recorded-through marker names the latest durable
+included record, not the current clock. Worktree aliases count once. Queries do not read Plan contents or Session
+Transcripts, construct writable Session managers, or contact models. A disposable cache reads new journal suffixes;
+rebuilding it changes no source records.
+
+**Requirement: Active days require human input evidence.** An Active day has an execution start marked by the Runtime as
+user-initiated, or an explicit user command start. Automatic Plan dispatch, validation repair, generated background
+results, isolated calls, and open windows do not count. Older execution starts without input provenance do not prove an
+Active day. Usage belongs to the observation's completion day, whether or not that day is active. Incomplete operations
+appear separately and receive no invented spend or latency totals.
+
+**Requirement: Preserve delivery meaning in reports.** Published changes count distinct confirmed delivery attempts with
+executable Plan identity. Epic containers and observations without known executable classification are excluded; the
+report discloses those exclusions. Validation attempts and repair rounds remain separate counts. Ongoing workflows are
+labeled as of their latest observation; only an explicit committed abandonment observation counts as abandoned. An
+interrupted Agent turn is not abandonment. Delivery conclusions remain owned by
+[Execution, validation, and recovery](#execution-validation-and-recovery).
+
+**Requirement: Usage gaps differ from covered zero.** Disabled, legacy, unavailable, incomplete, and not-yet-collected
+intervals are Usage gaps. They break a trend rather than draw zero. A complete enabled day bounded by recorded evidence
+can show known zero. Absence alone proves neither enablement nor a disabled duration. Partial numeric fields retain
+known subtotals with adjacent exclusion counts; missing cost is not zero. Alternative CLI representations do not add
+usage twice. Local calendar boundaries remain correct across daylight saving transitions.
+
+**Requirement: Keep and clear measurement history without changing development artifacts.** Records have no age-based
+expiry and remain readable when collection is off or a Session is removed. Clear removes only selected Projects'
+measurement rows, including legacy rows. It preserves Sessions, Plans, worktrees, configuration, and collection state.
+Clear shares the writer lock, commits a fresh History epoch, and resets journal offsets and deduplication state. A
+durable clear intent prevents crash recovery from exposing old rows. Delayed observations captured in an older epoch are
+rejected across processes. Restart, cache rebuild, and legacy readers cannot restore deleted history. New activity
+records normally after clear. Export payload deletion and delivery fences remain target for export coordination.
+
 **Acceptance scenarios:**
+
+- Given known token, cost, and latency observations, a query returns their exact settled values and backend/model
+  breakdowns. An incomplete execution is listed separately and contributes no spend or latency total.
+- Given a disabled day, a legacy-only day, and a complete enabled day with no usage, only the covered day draws zero.
+  Missing token categories or USD cost disclose exclusions beside their subtotals.
+- Given the repeated hour at a daylight saving transition, each completed observation belongs to one local day. An
+  observation at midnight belongs only to the next half-open day. Phone and desktop receive the same zone and marker.
+- Given human input, an explicit command, and an automatic repair, only human input and the command make Active days.
+- Given an observed delivery attempt that is interrupted, the report labels it ongoing as of its last observation, not
+  abandoned. Explicit abandonment and confirmed publication are separate conclusions.
+- Given selected Project history and a paused second writer, clear changes only that history. On resume the old writer
+  is rejected. Restart shows no old or legacy rows; new observations persist and report. Other Projects and development
+  artifacts remain unchanged.
+- Given repeated queries and a growing retained journal, refresh parses only appended bytes. Cache rebuild leaves
+  transcripts, models, Plans, and the journal unchanged.
 
 - Given one Plan with a failed validation, a repair round, and confirmed publication, the journal records separate
   validation and repair identities and one confirmed-delivery attempt, including after restart.
