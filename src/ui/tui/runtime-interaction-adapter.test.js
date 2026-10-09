@@ -326,8 +326,8 @@ Deno.test("TUI review setup failure closes its block as an error", async () => {
         ended: /** @type {boolean[]} */ ([]),
     };
     const adapter = createAdapter(makeUi(null, state), { browser: NO_OPEN_BROWSER_PORT });
-    await assertRejects(() =>
-        adapter.requestInteraction({
+    await assertRejects(async () =>
+        await adapter.requestInteraction({
             type: RuntimeInteractionTypes.CODE_REVIEW,
             prompt: "Review",
             _meta: { planName: "feature", diffText: "", executionCwd: "" },
