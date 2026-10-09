@@ -24,7 +24,9 @@ import { resolvePrimaryCheckoutRoot } from "../primary-checkout.ts";
 import { encodeCwdForSessionDir } from "../project-directory-key.ts";
 import type { TriageOutcome } from "../workflow/triage-outcome.ts";
 import type {
+    AttachedExecution,
     AttachedOperationResult,
+    AttachedPendingConsent,
     AttachedPlanReference,
     AttachedReviewRound,
     AttachedWorkflowClosure,
@@ -60,6 +62,8 @@ export interface AttachedWorkflowRecord {
     triageOutcome: TriageOutcome | null;
     plan: AttachedPlanReference | null;
     review: AttachedReviewRound | null;
+    execution: AttachedExecution | null;
+    pendingConsent: AttachedPendingConsent | null;
     closure: AttachedWorkflowClosure | null;
     createdAt: string;
     updatedAt: string;
@@ -122,7 +126,7 @@ function recordPath(workflowsDir: string, workflowId: string): string {
 async function readRecordAt(path: string): Promise<AttachedWorkflowRecord | null> {
     try {
         const record: AttachedWorkflowRecord = JSON.parse(await Deno.readTextFile(path));
-        return record;
+        return { ...record, execution: record.execution ?? null, pendingConsent: record.pendingConsent ?? null };
     } catch (error) {
         if (error instanceof Deno.errors.NotFound) return null;
         throw error;

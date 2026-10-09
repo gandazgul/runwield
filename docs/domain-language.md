@@ -52,6 +52,12 @@ reviewed Plan revision, and waiting reason. It keeps a browser decision and its 
 Core Plan review remains the authority for approval, Feedback, and readiness. _Avoid_: review promise, session-scoped
 review
 
+**Attached Execution Handoff**: The durable handoff of a Core-prepared execution directory, Plan path, issued action,
+and current implementer role instructions to an External Agent Host worker. The Attached Workflow Record references
+RunWield's registry and baseline evidence; it does not own a second worktree lifecycle. The host worker returns a bullet
+report to the coordinating conversation, which submits Core's `task_completed` contract. With remembered non-Git
+consent, the directory is the current checkout rather than a worktree. _Avoid_: worker session, host worktree
+
 **Attached Role Instructions**: The effective layered agent instructions Core returns with a pending host action. They
 are resolved for each response from project, home, and bundled definitions and are not saved in the Attached Workflow
 Record. _Avoid_: generated Skill, role contract copy

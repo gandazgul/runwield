@@ -65,7 +65,14 @@ Deno.test("the CLI and the MCP server return equal result objects for the same i
     try {
         await client.connect(transport);
         const tools = await client.listTools();
-        assertEquals(tools.tools.map((tool) => tool.name), ["activate", "triage_report", "status", "plan_written"]);
+        assertEquals(tools.tools.map((tool) => tool.name), [
+            "activate",
+            "triage_report",
+            "status",
+            "plan_written",
+            "start_execution",
+            "task_completed",
+        ]);
         for (const tool of tools.tools) {
             assertEquals(tool.inputSchema.required?.includes("evidence"), false);
             assertEquals(Object.hasOwn(tool.inputSchema.properties ?? {}, "evidence"), false);

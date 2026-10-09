@@ -7,15 +7,26 @@
  * process continues where the last one stopped. The coordinator never starts a model
  * turn and never stores a host transcript.
  *
- * Operations cover activation, Triage, and Plan submission. A PLANNED_CHANGE outcome
- * hands the host the Planner role; any other Routing Intent closes the workflow.
+ * Operations cover activation, Triage, Plan submission, execution handoff, and completion.
+ * A PLANNED_CHANGE outcome hands the host the Planner role; other Routing Intents
+ * close the workflow as unsupported in this Preview.
  */
 
+import {
+    createExecutionStartPorts,
+    reconcileExecutionPreparationLocation,
+    startActiveExecutionWorkflow,
+} from "../workflow/execution-start.ts";
+import { finalizePlanImplementation } from "../workflow/implementation-checkpoint.ts";
+import { probeGitRepository } from "../git.js";
+import { hasNonGitExecutionConsent, rememberNonGitExecutionConsent } from "../non-git-execution-consent.ts";
+import { findById, listEntries } from "../worktree-registry.js";
 import { createHash } from "node:crypto";
 import { isAbsolute, join, relative } from "@std/path";
 import {
     canonicalizeStoredPlanName,
     ensurePlanIdentity,
+    getPlanRevisionForText,
     isHiddenPlanName,
     loadArchivedPlan,
     loadPlan,
@@ -36,8 +47,10 @@ import { resolveWorkflowPlanLocation } from "../workflow/plan-location.ts";
 import { normalizeTriageOutcome, type TriageOutcome } from "../workflow/triage-outcome.ts";
 import {
     type ActivateEnvelope,
+    ATTACHED_IMPLEMENTER_CONTRACT_VERSION,
     ATTACHED_PLANNER_CONTRACT_VERSION,
     ATTACHED_TRIAGE_CONTRACT_VERSION,
+    type AttachedExecution,
     type AttachedJsonValue,
     type AttachedNextAction,
     type AttachedOperationName,
@@ -50,12 +63,16 @@ import {
     MAX_ATTACHED_INPUT_BYTES,
     parseActivateInput,
     parsePlanWrittenInput,
+    parseStartExecutionInput,
     parseStatusInput,
+    parseTaskCompletedInput,
     parseTriageReportInput,
     type PlanWrittenEnvelope,
     type PlanWrittenPayload,
     type ProjectMovedRecovery,
+    type StartExecutionEnvelope,
     type StatusEnvelope,
+    type TaskCompletedEnvelope,
     type TriageReportEnvelope,
     type WorkflowOperationEnvelope,
 } from "./operations.ts";
@@ -99,7 +116,40 @@ async function nextActionFor(record: AttachedWorkflowRecord): Promise<AttachedNe
         return {
             kind: "plan_ready",
             planName: record.plan.planName,
-            guidance: "The Plan is ready for work. Execution handoff is a later Preview step.",
+            guidance: "The Plan is ready for work. Call start_execution now, then dispatch a fresh host worker.",
+        };
+    }
+    if (record.state === "awaiting_consent" && record.pendingConsent) {
+        return {
+            kind: "consent",
+            actionId: record.pendingConsent.actionId,
+            consentKind: record.pendingConsent.kind,
+            disclosure: record.pendingConsent.disclosure,
+        };
+    }
+    if (record.state === "implementing" && record.execution && record.plan && pending) {
+        const executionCwd = record.execution.executionCwd || record.projectRoot;
+        return {
+            kind: "implementation",
+            ...pending,
+            planName: record.plan.planName,
+            planPath: join(executionCwd, "docs/plans", `${record.plan.planName}.md`),
+            executionCwd,
+            executionMode: record.execution.executionMode || "worktree",
+            worktreeBranch: record.execution.worktreeBranch,
+            disclosure: record.execution.executionMode === "worktree"
+                ? "RunWield prepared this isolated worktree and branch. The invoking checkout is preserved except the RunWield-owned .gitignore block."
+                : "With recorded consent, implementation edits current files directly without Git isolation/recovery.",
+        };
+    }
+    if (record.state === "implemented" && record.plan) {
+        return {
+            kind: "implemented",
+            planName: record.plan.planName,
+            guidance: (record.execution?.executionMode === "worktree"
+                ? "Core saved the implementation Git checkpoint and completed the registry entry. "
+                : "Implementation is recorded in the consented current directory. ") +
+                "Validation is the next Preview step (child 05); publication is child 06. This is not Verified.",
         };
     }
     return record.closure?.reason === "plan_advanced_in_core"
@@ -109,15 +159,45 @@ async function nextActionFor(record: AttachedWorkflowRecord): Promise<AttachedNe
 
 /** Project the canonical Plan position without writing an Attached record. */
 async function reconcilePlanPosition(record: AttachedWorkflowRecord): Promise<AttachedWorkflowRecord> {
-    if (!record.plan || (record.state !== "awaiting_review" && record.state !== "plan_ready")) return record;
-    const { plan, archived } = await resolveWorkflowPlanLocation(record.projectRoot, record.plan.planName, {
-        migrateRegistry: false,
-        readOnly: true,
-    });
-    const archivedPlan = !plan && !archived ? await loadArchivedPlan(record.projectRoot, record.plan.planId) : null;
-    if (!plan && !archived && !archivedPlan) throw new Error(`Plan not found: ${record.plan.planName}`);
+    if (
+        !record.plan ||
+        !["awaiting_review", "plan_ready", "awaiting_consent", "implementing", "implemented"].includes(record.state)
+    ) return record;
+    // Execution evidence selects the document; the invoking Plan may still be ready_for_work.
+    const executionRoot = record.execution?.executionCwd;
+    const location = executionRoot
+        ? { plan: await loadPlan(executionRoot, record.plan.planName).catch(() => null), archived: false }
+        : await resolveWorkflowPlanLocation(record.projectRoot, record.plan.planName, {
+            migrateRegistry: false,
+            readOnly: true,
+        });
+    const { plan, archived } = location;
+    const archivedPlan = !plan && !archived
+        ? await loadArchivedPlan(executionRoot || record.projectRoot, record.plan.planId)
+        : null;
+    // Missing execution documents are restored by the completion authority, not this projection.
+    if (!plan && !archived && !archivedPlan) {
+        if (record.execution) return record;
+        throw new Error(`Plan not found: ${record.plan.planName}`);
+    }
     const status = archived || archivedPlan ? "archived" : plan?.attrs.status;
+    if (
+        status === "in_progress" &&
+        (record.execution || record.state === "plan_ready" || record.state === "awaiting_consent")
+    ) return record;
+    if (status === "implemented" && record.execution) {
+        // A lifecycle event alone is not acceptance: Core may still owe the Git
+        // checkpoint and registry settlement. Keep the issued action for retry.
+        if (record.execution.executionMode === "worktree") {
+            const entry = record.execution.worktreeId
+                ? await findById(record.projectRoot, record.execution.worktreeId, { migrate: false })
+                : null;
+            if (entry?.status !== "completed") return record;
+        }
+        return record.state === "implemented" ? record : { ...record, state: "implemented", pendingAction: null };
+    }
     if (status === "approved" || status === "ready_for_work" || status === "ready_for_decomposition") {
+        if (record.state === "awaiting_consent" || record.state === "implementing") return record;
         return record.state === "plan_ready" ? record : { ...record, state: "plan_ready", pendingAction: null };
     }
     if (status === "draft" || status === "feedback") {
@@ -136,6 +216,18 @@ async function reconcilePlanPosition(record: AttachedWorkflowRecord): Promise<At
             },
         };
     }
+    if (
+        record.state === "implementing" &&
+        ![
+            "validated_ci",
+            "validated_reviewer",
+            "validated",
+            "verified",
+            "user_verified",
+            "closed_without_verification",
+            "archived",
+        ].includes(status || "")
+    ) return record;
     return {
         ...record,
         state: "closed",
@@ -160,6 +252,8 @@ async function viewOf(
         triageOutcome: record.triageOutcome,
         plan: record.plan,
         review: record.review,
+        execution: record.execution,
+        pendingConsent: record.pendingConsent,
         closure: record.closure,
         recovery,
     };
@@ -253,7 +347,7 @@ async function checkWorkflowOperation(
 /** The next revision with `changes` applied and this operation's result saved for replay. */
 async function accept(
     operation: AttachedOperationName,
-    envelope: WorkflowOperationEnvelope<{ actionId: string }>,
+    envelope: WorkflowOperationEnvelope<{ actionId?: string }>,
     current: AttachedWorkflowRecord,
     changes: RecordChanges,
 ): Promise<Decision> {
@@ -328,6 +422,8 @@ export async function activate(envelope: ActivateEnvelope): Promise<AttachedOper
         triageOutcome: null,
         plan: null,
         review: null,
+        execution: null,
+        pendingConsent: null,
         closure: null,
         createdAt: now,
         updatedAt: now,
@@ -494,6 +590,278 @@ export async function planWritten(envelope: PlanWrittenEnvelope): Promise<Attach
             "plan_written",
             rejection("workflow_busy", "Another RunWield process holds this workflow. Retry."),
         )
+        : transaction.result;
+}
+
+const NON_GIT_DISCLOSURE =
+    "Git is not available for this project. RunWield recommends Git for isolated worktree execution and diff-based review and merge-back. Proceeding edits current files directly and skips Git-only isolation/recovery. Proceed and remember consent for planned Plan work, or decline?";
+
+/** Prepare through the same Core authority as Session execution; no host model turn. */
+export async function startExecution(envelope: StartExecutionEnvelope): Promise<AttachedOperationResult> {
+    const location = locateAttachedWorkflows(envelope.projectRoot);
+    const loaded = await loadForOperation("start_execution", location, envelope.workflowId);
+    if ("result" in loaded) return loaded.result;
+    const transaction = await transactAttachedWorkflowRecord<AttachedOperationResult>(
+        location,
+        envelope.workflowId,
+        async (current): Promise<Decision> => {
+            if (!current) {
+                return {
+                    result: await rejected(
+                        "start_execution",
+                        rejection("workflow_not_found", "The workflow no longer exists."),
+                    ),
+                };
+            }
+            const saved = Object.hasOwn(current.acceptedOperations, envelope.operationId)
+                ? current.acceptedOperations[envelope.operationId]
+                : undefined;
+            if (saved) return { result: saved.result };
+            if (current.revision !== envelope.expectedRevision) {
+                return {
+                    result: await rejected(
+                        "start_execution",
+                        rejection("revision_conflict", `The workflow is at revision ${current.revision}.`),
+                        current,
+                    ),
+                };
+            }
+            let preparationSource: Awaited<ReturnType<typeof reconcileExecutionPreparationLocation>> | undefined;
+            try {
+                if (current.plan) {
+                    preparationSource = await reconcileExecutionPreparationLocation(
+                        location.projectRoot,
+                        current.plan.planName,
+                        { migrateRegistry: false, readOnly: true },
+                    );
+                }
+                if (preparationSource?.plan?.attrs.status !== "ready_for_work") {
+                    current = await reconcilePlanPosition(current);
+                }
+            } catch (error) {
+                return {
+                    result: await rejected(
+                        "start_execution",
+                        rejection("invalid_outcome", error instanceof Error ? error.message : String(error)),
+                        current,
+                    ),
+                };
+            }
+            if (current.state !== "plan_ready" && current.state !== "awaiting_consent") {
+                return {
+                    result: await rejected(
+                        "start_execution",
+                        rejection(
+                            "action_superseded",
+                            "Execution requires a ready Plan. Use status to restore an implementing handoff.",
+                        ),
+                        current,
+                    ),
+                };
+            }
+            if (current.state === "awaiting_consent") {
+                if (current.pendingConsent?.actionId !== envelope.payload.actionId || !envelope.payload.consent) {
+                    return {
+                        result: await rejected(
+                            "start_execution",
+                            rejection("action_superseded", "This consent action is no longer pending."),
+                            current,
+                        ),
+                    };
+                }
+                if (envelope.payload.consent === "decline") {
+                    return await accept("start_execution", envelope, current, {
+                        state: "plan_ready",
+                        pendingAction: null,
+                        pendingConsent: null,
+                    });
+                }
+            } else if (envelope.payload.actionId || envelope.payload.consent) {
+                return {
+                    result: await rejected(
+                        "start_execution",
+                        rejection("action_superseded", "No consent action is pending."),
+                        current,
+                    ),
+                };
+            }
+            try {
+                if (!current.plan) throw new Error("This workflow has no Plan.");
+                const source = preparationSource ||
+                    await reconcileExecutionPreparationLocation(location.projectRoot, current.plan.planName, {
+                        migrateRegistry: false,
+                        readOnly: true,
+                    });
+                if (!source.plan || source.plan.attrs.planId !== current.plan.planId) {
+                    throw new Error(
+                        "The Plan identity no longer matches this workflow.",
+                    );
+                }
+                const status = source.plan.attrs.status;
+                // If preparation committed before the Attached write, Core can adopt its existing live attempt.
+                const recoveredAttempt = status === "in_progress" &&
+                    (await listEntries(location.projectRoot, { migrate: false })).some((entry) =>
+                        entry.planId === current.plan?.planId && entry.path === source.documentRoot &&
+                        entry.status === "active"
+                    );
+                const recoveredInPlace = status === "in_progress" &&
+                    source.plan.attrs.executionMode === "non_git_in_place" &&
+                    hasNonGitExecutionConsent("featurePlan", location.projectRoot);
+                if (status !== "ready_for_work" && !recoveredAttempt && !recoveredInPlace) {
+                    throw new Error(
+                        "Execution requires ready_for_work approval/readiness.",
+                    );
+                }
+                const git = await probeGitRepository(location.projectRoot);
+                if (!["work_tree", "not_git", "git_missing"].includes(git.state)) {
+                    throw new Error(
+                        git.message || "Git execution is not available.",
+                    );
+                }
+                if (git.state !== "work_tree" && !hasNonGitExecutionConsent("featurePlan", location.projectRoot)) {
+                    if (current.state === "awaiting_consent" && envelope.payload.consent === "proceed") {
+                        await rememberNonGitExecutionConsent("featurePlan", location.projectRoot);
+                    } else {
+                        return await accept("start_execution", envelope, current, {
+                            state: "awaiting_consent",
+                            pendingAction: null,
+                            pendingConsent: {
+                                actionId: crypto.randomUUID(),
+                                kind: "non_git_in_place",
+                                disclosure: NON_GIT_DISCLOSURE,
+                            },
+                        });
+                    }
+                }
+                const ports = createExecutionStartPorts();
+                const prepared = await startActiveExecutionWorkflow({
+                    cwd: location.projectRoot,
+                    planName: current.plan.planName,
+                    triageMeta: source.plan.attrs,
+                    currentStatus: status,
+                    existingExecution: current.execution,
+                    ports,
+                });
+                const issuedPlan = await loadPlan(prepared.executionCwd || location.projectRoot, current.plan.planName);
+                if (!issuedPlan || issuedPlan.attrs.planId !== current.plan.planId) {
+                    throw new Error(
+                        "The prepared execution Plan identity is missing or changed.",
+                    );
+                }
+                const actionId = crypto.randomUUID();
+                const execution: AttachedExecution = {
+                    ...prepared,
+                    actionId,
+                    planRevision: issuedPlan.revision,
+                    planBodyRevision: await getPlanRevisionForText(issuedPlan.body),
+                };
+                return await accept("start_execution", envelope, current, {
+                    state: "implementing",
+                    execution,
+                    pendingConsent: null,
+                    pendingAction: {
+                        actionId,
+                        role: prepared.executionAgent,
+                        contractVersion: ATTACHED_IMPLEMENTER_CONTRACT_VERSION,
+                    },
+                });
+            } catch (error) {
+                return {
+                    result: await rejected(
+                        "start_execution",
+                        rejection("invalid_outcome", error instanceof Error ? error.message : String(error)),
+                        current,
+                    ),
+                };
+            }
+        },
+    );
+    return transaction.status === "busy"
+        ? await rejected("start_execution", rejection("workflow_busy", "Another process holds this workflow. Retry."))
+        : transaction.result;
+}
+
+/** Accept only the issued action and live execution evidence, then call Core completion. */
+export async function taskCompleted(envelope: TaskCompletedEnvelope): Promise<AttachedOperationResult> {
+    const location = locateAttachedWorkflows(envelope.projectRoot);
+    const loaded = await loadForOperation("task_completed", location, envelope.workflowId);
+    if ("result" in loaded) return loaded.result;
+    const transaction = await transactAttachedWorkflowRecord<AttachedOperationResult>(
+        location,
+        envelope.workflowId,
+        async (current): Promise<Decision> => {
+            if (!current) {
+                return {
+                    result: await rejected(
+                        "task_completed",
+                        rejection("workflow_not_found", "The workflow no longer exists."),
+                    ),
+                };
+            }
+            const checked = await checkWorkflowOperation("task_completed", envelope, current, "implementing");
+            if (checked) return checked;
+            try {
+                const execution = current.execution;
+                if (!execution || !current.plan || execution.actionId !== envelope.payload.actionId) {
+                    throw new Error(
+                        "Durable execution authority is missing or superseded.",
+                    );
+                }
+                if (execution.executionMode === "worktree") {
+                    if (!execution.worktreeId || !execution.executionCwd || !execution.worktreeBranch) {
+                        throw new Error(
+                            "Execution worktree authority is incomplete.",
+                        );
+                    }
+                    const entry = await findById(location.projectRoot, execution.worktreeId, { migrate: false });
+                    if (
+                        !entry || entry.planId !== current.plan.planId || entry.path !== execution.executionCwd ||
+                        entry.branch !== execution.worktreeBranch || !["active", "completed"].includes(entry.status)
+                    ) throw new Error("The live execution registry no longer matches the issued worktree.");
+                    if (!(await Deno.stat(execution.executionCwd)).isDirectory) {
+                        throw new Error(
+                            "The execution worktree is missing.",
+                        );
+                    }
+                    const liveGit = await probeGitRepository(execution.executionCwd);
+                    if (liveGit.state !== "work_tree") {
+                        throw new Error(
+                            "The execution worktree is no longer a Git checkout.",
+                        );
+                    }
+                    const branch = await new Deno.Command("git", {
+                        args: ["symbolic-ref", "--short", "HEAD"],
+                        cwd: execution.executionCwd,
+                        stdout: "piped",
+                        stderr: "piped",
+                    }).output();
+                    if (
+                        !branch.success || new TextDecoder().decode(branch.stdout).trim() !== execution.worktreeBranch
+                    ) throw new Error("The live execution branch no longer matches the issued worktree.");
+                }
+                await finalizePlanImplementation({
+                    projectRoot: location.projectRoot,
+                    planName: current.plan.planName,
+                    triageMeta: { ...execution.triageMeta, planId: current.plan.planId },
+                    executionContext: execution,
+                    executionReport: envelope.payload.message,
+                    expectedPlanRevision: execution.planRevision,
+                    expectedPlanBodyRevision: execution.planBodyRevision,
+                });
+                return await accept("task_completed", envelope, current, { state: "implemented", pendingAction: null });
+            } catch (error) {
+                return {
+                    result: await rejected(
+                        "task_completed",
+                        rejection("invalid_outcome", error instanceof Error ? error.message : String(error)),
+                        current,
+                    ),
+                };
+            }
+        },
+    );
+    return transaction.status === "busy"
+        ? await rejected("task_completed", rejection("workflow_busy", "Another process holds this workflow. Retry."))
         : transaction.result;
 }
 
@@ -715,6 +1083,14 @@ async function runParsedOperation(
         const parsed = parsePlanWrittenInput(projectRoot, input);
         return parsed.ok ? await planWritten(parsed.envelope) : await rejected(name, parsed.rejection);
     }
+    if (name === "start_execution") {
+        const parsed = parseStartExecutionInput(projectRoot, input);
+        return parsed.ok ? await startExecution(parsed.envelope) : await rejected(name, parsed.rejection);
+    }
+    if (name === "task_completed") {
+        const parsed = parseTaskCompletedInput(projectRoot, input);
+        return parsed.ok ? await taskCompleted(parsed.envelope) : await rejected(name, parsed.rejection);
+    }
     const parsed = parseStatusInput(projectRoot, input);
     return parsed.ok ? await readStatus(parsed.envelope) : await rejected(name, parsed.rejection);
 }
@@ -729,7 +1105,7 @@ async function withRoleInstructions(
     result: AttachedOperationResult,
 ): Promise<AttachedOperationResult> {
     const action = result.workflow?.nextAction;
-    if (action?.kind !== "triage" && action?.kind !== "plan") return result;
+    if (action?.kind !== "triage" && action?.kind !== "plan" && action?.kind !== "implementation") return result;
     const text = await resolveAttachedRoleInstructions(projectRoot, action.role);
     return { ...result, instructions: { role: action.role, contractVersion: action.contractVersion, text } };
 }

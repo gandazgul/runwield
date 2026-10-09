@@ -79,7 +79,7 @@ export async function ensureReviewHosted(
             url: surface.url,
             round: basis.review.round,
             guidance:
-                "The browser review is open. Poll status for the durable outcome. Follow Planner instructions after feedback or cancellation; execution handoff is a later Preview step.",
+                "The browser review is open. Poll status for the durable outcome. Follow Planner instructions after feedback or cancellation; on plan_ready call start_execution immediately and dispatch the host worker.",
         };
         hosted.set(workflow.workflowId, { actionId: basis.review.actionId, review, surface });
         return review;

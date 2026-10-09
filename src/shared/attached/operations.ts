@@ -7,19 +7,33 @@
  * coordinator reads or writes a record, so the CLI and MCP carriers hold no rules.
  */
 
+import {
+    ENGINEER_MESSAGE_DESCRIPTION,
+    IMPLEMENTATION_REPORT_MIN_LENGTH,
+    normalizeImplementationReport,
+} from "../workflow/implementation-report.ts";
+import type { ActiveExecutionWorkflow } from "../session/hosted-session.js";
 import { ROUTING_INTENTS, WORK_KINDS } from "../../constants.js";
 import { TRIAGE_COMPLEXITIES, type TriageOutcome, type TriageOutcomeInput } from "../workflow/triage-outcome.ts";
 
 export type AttachedJsonValue = string | number | boolean | null | AttachedJsonValue[] | AttachedJsonObject;
 export type AttachedJsonObject = { [key: string]: AttachedJsonValue };
 
-/** Lifecycle operations keep their Core tool names; `activate` and `status` have no Core equivalent. */
-export type AttachedOperationName = "activate" | "triage_report" | "status" | "plan_written";
+/** Lifecycle operations keep their Core tool names; `activate`, `status`, and `start_execution` have no Core tool equivalent. */
+export type AttachedOperationName =
+    | "activate"
+    | "triage_report"
+    | "status"
+    | "plan_written"
+    | "start_execution"
+    | "task_completed";
 
 /** Version of the Triage role and outcome contract the host receives with a Triage action. */
 export const ATTACHED_TRIAGE_CONTRACT_VERSION = "runwield.attached.triage/1";
 /** Version of the Planner role and `plan_written` contract the host receives with a planning action. */
 export const ATTACHED_PLANNER_CONTRACT_VERSION = "runwield.attached.planner/1";
+
+export const ATTACHED_IMPLEMENTER_CONTRACT_VERSION = "runwield.attached.implementation/1";
 
 export const MAX_ATTACHED_INPUT_BYTES = 64 * 1024;
 const MAX_REQUEST_TEXT_LENGTH = 32 * 1024;
@@ -84,6 +98,28 @@ export interface PlanWrittenPayload {
     collaborationRecommendation?: string;
 }
 
+export interface StartExecutionPayload {
+    actionId?: string;
+    consent?: "proceed" | "decline";
+}
+export interface TaskCompletedPayload {
+    actionId: string;
+    message: string;
+}
+/** Durable execution authority returned by shared preparation, plus the issued Plan revision. */
+export interface AttachedExecution extends ActiveExecutionWorkflow {
+    actionId: string;
+    planRevision: string;
+    planBodyRevision: string;
+}
+export interface AttachedPendingConsent {
+    actionId: string;
+    kind: "non_git_in_place";
+    disclosure: string;
+}
+export type StartExecutionEnvelope = WorkflowOperationEnvelope<StartExecutionPayload>;
+export type TaskCompletedEnvelope = WorkflowOperationEnvelope<TaskCompletedPayload>;
+
 export type ActivateEnvelope = AttachedOperationEnvelope<ActivatePayload>;
 
 /** An operation on an existing workflow, checked against its saved revision. */
@@ -100,7 +136,15 @@ export interface StatusEnvelope {
     workflowId?: string;
 }
 
-export type AttachedWorkflowState = "triaging" | "awaiting_planning" | "awaiting_review" | "plan_ready" | "closed";
+export type AttachedWorkflowState =
+    | "triaging"
+    | "awaiting_planning"
+    | "awaiting_review"
+    | "plan_ready"
+    | "awaiting_consent"
+    | "implementing"
+    | "implemented"
+    | "closed";
 
 export interface AttachedReviewOutcome {
     kind: "feedback" | "approved" | "canceled";
@@ -121,7 +165,7 @@ export interface AttachedReviewRound {
 }
 
 /** The RunWield roles a host plays in Attached Mode. */
-export type AttachedHostRole = "router" | "planner";
+export type AttachedHostRole = "router" | "planner" | "engineer" | "frontend-engineer";
 
 export interface PendingHostAction {
     actionId: string;
@@ -137,6 +181,17 @@ export type AttachedNextAction =
     | ({ kind: "plan"; projectSetup: string[] } & PendingHostAction)
     | { kind: "review"; round: number; planName: string }
     | { kind: "plan_ready"; planName: string; guidance: string }
+    | { kind: "consent"; actionId: string; consentKind: "non_git_in_place"; disclosure: string }
+    | ({
+        kind: "implementation";
+        planName: string;
+        planPath: string;
+        executionCwd: string;
+        executionMode: string;
+        worktreeBranch?: string;
+        disclosure: string;
+    } & PendingHostAction)
+    | { kind: "implemented"; planName: string; guidance: string }
     | { kind: "return_to_host"; reason: "unsupported_in_preview" | "plan_advanced_in_core"; message?: string };
 
 /** The Plan a workflow submitted. The workflow references the Plan; it does not own it. */
@@ -170,6 +225,8 @@ export interface AttachedWorkflowView {
     triageOutcome: TriageOutcome | null;
     plan: AttachedPlanReference | null;
     review: AttachedReviewRound | null;
+    execution: AttachedExecution | null;
+    pendingConsent: AttachedPendingConsent | null;
     closure: AttachedWorkflowClosure | null;
     recovery: ProjectMovedRecovery | null;
 }
@@ -363,6 +420,36 @@ export function parsePlanWrittenInput(projectRoot: string, input: AttachedJsonVa
         })));
 }
 
+export function parseStartExecutionInput(projectRoot: string, input: AttachedJsonValue | undefined) {
+    return parse(
+        input,
+        (): StartExecutionEnvelope =>
+            readWorkflowEnvelope(projectRoot, input, ["actionId", "consent"], (payload) => {
+                if (payload.consent === undefined && payload.actionId === undefined) return {};
+                if (payload.consent !== "proceed" && payload.consent !== "decline") {
+                    reject("invalid_input", "payload.consent", "Consent must be proceed or decline.");
+                }
+                return { actionId: readIdentifier(payload, "actionId", "payload.actionId"), consent: payload.consent };
+            }),
+    );
+}
+
+export function parseTaskCompletedInput(projectRoot: string, input: AttachedJsonValue | undefined) {
+    return parse(
+        input,
+        (): TaskCompletedEnvelope =>
+            readWorkflowEnvelope(projectRoot, input, ["actionId", "message"], (payload) => {
+                if (typeof payload.message !== "string" || payload.message.length < IMPLEMENTATION_REPORT_MIN_LENGTH) {
+                    reject("invalid_input", "payload.message", "task_completed.message must be a non-empty string.");
+                }
+                return {
+                    actionId: readIdentifier(payload, "actionId", "payload.actionId"),
+                    message: normalizeImplementationReport(payload.message),
+                };
+            }),
+    );
+}
+
 export function parseStatusInput(projectRoot: string, input: AttachedJsonValue | undefined) {
     return parse(input, (): StatusEnvelope => {
         const object = readObject(input, "", ["workflowId"]);
@@ -493,6 +580,27 @@ export const ATTACHED_OPERATIONS: readonly AttachedOperationDescriptor[] = [
             },
             executionAgent: { type: "string", enum: ["engineer", "frontend-engineer"] },
             collaborationRecommendation: { type: "string", enum: ["autonomous", "pair"] },
+        }),
+    },
+    {
+        name: "start_execution",
+        description:
+            "Start the approved ready Plan through Core preparation. For a consent action, ask the user and resubmit actionId and consent: proceed or decline. Use status to restore an implementing handoff.",
+        inputSchema: workflowOperationSchema([], {
+            actionId: IDENTIFIER_SCHEMA,
+            consent: { type: "string", enum: ["proceed", "decline"] },
+        }),
+    },
+    {
+        name: "task_completed",
+        description: "Accept the worker report for the issued implementation action through Core completion guards.",
+        inputSchema: workflowOperationSchema(["actionId", "message"], {
+            actionId: IDENTIFIER_SCHEMA,
+            message: {
+                type: "string",
+                minLength: IMPLEMENTATION_REPORT_MIN_LENGTH,
+                description: ENGINEER_MESSAGE_DESCRIPTION,
+            },
         }),
     },
 ];

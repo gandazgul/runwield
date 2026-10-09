@@ -22,12 +22,13 @@ import { emitTaskCompletedMessage } from "../shared/session/workflow-messages.js
 import { recordWorkflowMetric } from "../shared/workflow/metrics.js";
 import { resolveActiveWorkflowRuntimeAgent } from "../shared/workflow/execution-agent.ts";
 
+import {
+    ENGINEER_MESSAGE_DESCRIPTION,
+    IMPLEMENTATION_REPORT_MIN_LENGTH,
+    normalizeImplementationReport,
+} from "../shared/workflow/implementation-report.ts";
+
 const DEFAULT_MESSAGE_DESCRIPTION = "Concise summary of the task you completed and what you verified.";
-const ENGINEER_MESSAGE_DESCRIPTION =
-    "Concise Markdown bullet-point report of the work you completed. Use one bullet per major outcome, review " +
-    "feedback item or related group, verification result, or frontend browser check; directly " +
-    "state each feedback item's disposition when repairing validation/review feedback; do not submit a prose paragraph. " +
-    "This report is for finished work: if something blocked you, do not call this tool at all.";
 const FRONTEND_ENGINEER_MESSAGE_DESCRIPTION = ENGINEER_MESSAGE_DESCRIPTION +
     " Include final URL/route, headed-browser checks, relevant viewports/states, diagnostics, and visible evidence; Pair checkpoint acceptance is not verification evidence.";
 
@@ -89,7 +90,7 @@ function buildToolParams(agentName: string) {
     return Type.Object({
         message: Type.String({
             description: messageDescription,
-            minLength: 1,
+            minLength: IMPLEMENTATION_REPORT_MIN_LENGTH,
         }),
         ...(normalized === "frontend-engineer"
             ? {
@@ -193,7 +194,7 @@ export function createTaskCompletedTool(
                     terminate: false,
                 };
             }
-            const report = typeof params.message === "string" ? params.message : "";
+            const report = normalizeImplementationReport(params.message);
             if (
                 isInitialPairCompletionCheckpoint(activeWorkflow) &&
                 !hasFinalPairAssent(targetHostedSession, activeWorkflow)
