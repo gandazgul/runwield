@@ -480,10 +480,10 @@ checks must not claim the change has reached its target. Technical status defini
 The ordinary public lifecycle is `draft → feedback/approved → ready_for_work → implemented → reviewed → verified`.
 Execution, failure, hold, Epic decomposition, and manual closure remain explicit intermediate or exceptional states.
 Passed mechanical checks advance durable controller progress while the Plan stays implemented. Reviewed means review
-passed and delivery is still pending. Verified means the reviewed implementation reached its target, or completed
-verification in place in a non-Git project. Legacy validated is a synonym for verified when delivery evidence supports
-it; legacy pending publication stays reviewed. UI, CLI, persisted documents, dependencies and Work Records agree on
-these meanings.
+passed and delivery is still pending. Verified means the reviewed implementation reached its recorded landing branch, or
+completed verification in place in a non-Git project. Legacy validated is a synonym for verified when delivery evidence
+supports it; legacy pending publication stays reviewed. UI, CLI, persisted documents, dependencies and Work Records
+agree on these meanings.
 
 Lifecycle requirements:
 
@@ -635,6 +635,35 @@ and siblings active. Listings keep held work distinct from active and finished w
 <a id="36-execution-worktrees-validation-and-recovery"></a>
 
 ### Execution, validation, and recovery
+
+**Requirement: Keep standalone Plan delivery separate from the onward merge.**
+
+`plans.autoMergeIntoTargetBranch` defaults to off. Project settings override global settings; only literal `true`
+enables it. Users can choose Off or On in `wld settings`. For standalone PLANNED_CHANGE Plans (including legacy
+FEATURE), `targetBranch` remains the source and intended destination. When absent, execution records the repository
+default branch, not the current checkout. Off creates or reuses `plan/<full-plan-name-slug>` and records it as
+`deliveryBranch`; the worktree starts there and publishes back there. On skips automatic Plan Branch creation and
+records `targetBranch` as its landing. Recorded attempts retain that landing through setting changes and retries.
+Existing branches are not reset. Epic and Sequence children, PROJECT, QUICK_FIX, and non-Git execution keep their
+existing behavior.
+
+Confirmed publication to the landing branch makes the Plan Verified and settles its Work Record and worktree cleanup.
+The source branch is not merged onward when the setting is off. Existing remote publication publishes the landing
+branch; local publication to an unchecked-out branch leaves primary-checkout files and staging intact. The completion
+report says **Ready for your merge/PR**, names the landing branch, and guides the merge or PR to the retained intended
+target.
+
+**Acceptance scenarios:**
+
+- Given an untargeted standalone Plan and a checkout on an unrelated branch, setting Off records the repository default
+  as `targetBranch`, creates a Plan Branch from that default, and delivers there without advancing the source branch.
+  The Plan is Verified on the landing branch; the report names that branch and the intended onward destination.
+- Given the same Plan with setting On, execution records the repository default, creates no automatic Plan Branch, and
+  delivers to that default. An explicit `targetBranch` takes precedence with either setting value.
+- Given a resumed attempt and a changed setting, execution and publication retain the recorded landing branch.
+- Given an untracked canonical Plan and dirty unrelated files in the primary checkout, publication to an unchecked-out
+  Plan Branch preserves those files, confirms delivery, generates the Work Record, and cleans up the execution worktree.
+- Given an Epic or Sequence child, delivery still reaches its parent's branch without an extra Plan Branch.
 
 **Requirement: Identify publication blockers.** When local publication pauses for tracked or staged user changes, the
 recovery notice lists the blocking paths and preserves those changes. The filenames survive failure classification and
@@ -802,8 +831,9 @@ Workflow Validation requirements:
   previous attempt must not turn successful publication and cleanup into a reported merge failure;
 - deliver validated work to its configured target and confirm that outcome before reporting delivery complete;
 - reread the active execution Plan before every validation phase and immediately before publication; its current
-  `targetBranch` takes precedence over the Session snapshot and the branch recorded at worktree creation. If no target
-  is specified, retain the recorded branch. A saved publication with a different target must not silently continue;
+  `deliveryBranch` takes precedence over the Session snapshot and the branch recorded at worktree creation. For legacy
+  Plans without that field, `targetBranch` remains authoritative; absent both, retain the recorded branch. A saved
+  publication with a different landing must not silently continue;
 - retain the validated implementation commit and actual target branch in the committed Plan; completed delivery must
   remain recognizable from Git after temporary workflow records are removed. In non-Git projects, the completed Plan
   status is sufficient;
@@ -873,10 +903,10 @@ Recovery requirements:
   independently staged, are not overwritten or silently committed.
 - Given a ready approved Plan and existing checkout edits, when execution starts, the approved work is isolated and the
   user’s edits remain preserved.
-- Given a worktree created from `main`, when the execution Plan is edited to target `release/next` after the Session
-  loaded it, validation and publication use `release/next`, leave `main` unchanged, and record the actual delivery
-  target. Cleanup proves the source commits are on `release/next` before removing the source branch; it does not require
-  those commits to be on the current checkout's branch.
+- Given a legacy worktree created from `main` with no recorded `deliveryBranch`, when the execution Plan is edited to
+  target `release/next` after the Session loaded it, validation and publication use `release/next`, leave `main`
+  unchanged, and record the actual delivery target. Cleanup proves the source commits are on `release/next` before
+  removing the source branch; it does not require those commits to be on the current checkout's branch.
 - Given a Plan targeting `main` and a checkout on an Epic branch, when Git config points `branch.main.merge` to the Epic
   branch, publication updates remote `main` only. Verification must inspect remote `main`, not the configured upstream.
 - Given a Session that still displays failed or canceled checks from an earlier attempt, when a resumed delivery
