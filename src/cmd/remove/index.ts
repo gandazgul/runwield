@@ -5,6 +5,8 @@
 
 import { DefaultPackageManager } from "@earendil-works/pi-coding-agent";
 import { getCwd } from "../../constants.js";
+import { removeMetricsExporterApprovals } from "../../shared/extensions/metrics-exporter.ts";
+import { resolveConfiguredUserPackageSource } from "../../shared/package-resources.ts";
 import { getSettingsDir, getSettingsManager } from "../../shared/settings.js";
 import { discoverAndRegisterThemes, getAvailableThemes, setTheme } from "../../ui/theme/theme.js";
 
@@ -26,12 +28,17 @@ export async function runRemoveCommand(argv: string[]): Promise<void> {
             settingsManager: settings,
         });
 
-        const success = await packageManager.removeAndPersist(source);
+        const configuredSource = resolveConfiguredUserPackageSource(source, { settingsManager: settings });
+        const success = await packageManager.removeAndPersist(configuredSource);
         if (!success) {
             console.log(`Package "${source}" is not currently installed — nothing to remove.`);
             return;
         }
 
+        await settings.flush();
+        const errors = settings.drainErrors();
+        if (errors.length) throw new Error(errors.map((entry) => entry.error.message).join("; "));
+        await removeMetricsExporterApprovals(configuredSource);
         await discoverAndRegisterThemes();
 
         const activeTheme = settings.getTheme();

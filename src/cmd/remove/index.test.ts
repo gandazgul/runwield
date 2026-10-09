@@ -1,7 +1,17 @@
 import { DefaultPackageManager } from "@earendil-works/pi-coding-agent";
 import { assert, assertEquals } from "@std/assert";
 import { join } from "@std/path";
-import { __resetSettingsForTests, getSettingsDir, getSettingsManager } from "../../shared/settings.js";
+import {
+    approveMetricsExporter,
+    listInstalledMetricsExporters,
+    type MetricsExporterApproval,
+} from "../../shared/extensions/metrics-exporter.ts";
+import {
+    __resetSettingsForTests,
+    getCustomSetting,
+    getSettingsDir,
+    getSettingsManager,
+} from "../../shared/settings.js";
 import { withProcessGlobalTestLock } from "../../testing/process-global-lock.ts";
 import { discoverAndRegisterThemes, getAvailableThemes, initRunWieldTheme, setTheme } from "../../ui/theme/theme.js";
 import { runRemoveCommand } from "./index.ts";
@@ -141,5 +151,31 @@ Deno.test("runRemoveCommand reports usage without terminating the test process",
         assertEquals(output.logs, []);
         assertEquals(output.errors, ["Usage: wld remove <source>"]);
         assertEquals(Deno.exitCode, 1);
+    });
+});
+
+Deno.test("runRemoveCommand deletes only the removed source's exporter approvals", async () => {
+    await withRemoveCommandFixture(async ({ packageDir, projectRoot, source }) => {
+        const manifestPath = join(packageDir, "package.json");
+        const manifest = JSON.parse(await Deno.readTextFile(manifestPath));
+        manifest.wld = { metricsExporter: { contract: 1, id: "fixture", entry: "./exporter.js" } };
+        await Deno.writeTextFile(manifestPath, JSON.stringify(manifest));
+        await Deno.writeTextFile(join(packageDir, "exporter.js"), "export default () => {};\n");
+        await installFixturePackage(projectRoot, source);
+        const other = join(projectRoot, "other-package");
+        await Deno.mkdir(other);
+        await Deno.writeTextFile(join(other, "package.json"), JSON.stringify(manifest));
+        await Deno.writeTextFile(join(other, "exporter.js"), "export default () => {};\n");
+        await installFixturePackage(projectRoot, other);
+        await getSettingsManager().flush();
+        for (const exporter of await listInstalledMetricsExporters()) await approveMetricsExporter(exporter);
+        const before: MetricsExporterApproval[] = getCustomSetting("metricsExporterApprovals", "global");
+        assertEquals(before.length, 2);
+        const output = await captureConsole(() => runRemoveCommand([source]));
+        assertEquals(output.errors, []);
+        assertEquals(
+            getCustomSetting("metricsExporterApprovals", "global"),
+            before.filter((record) => record.installedPath === other),
+        );
     });
 });

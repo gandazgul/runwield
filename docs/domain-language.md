@@ -76,6 +76,11 @@ measurements are unavailable, not zero. See
 [Core usage measurement and export](prd/runwield-core-prd.md#usage-measurement-and-export). _Avoid_: Transcript, billing
 charge, invoice, complete activity history
 
+**Metrics exporter**: An optional, destination-specific package entry point that receives approved Core observations.
+Core owns its host-global approval and binds it to its installed identity: exporter ID, configured user-scope source,
+real installed path, and version. Approval permits entry resolution, not Session extension loading. Export delivery
+remains target behavior. _Avoid_: model Provider, Pi Agent extension, RunWield Connect plugin
+
 **Active day**: A reporting-zone calendar day with accepted human input or an explicit user-started continuation,
 recorded through user-initiated execution or command provenance. An open window, automatic repair, or background result
 is not user activity. Usage can complete on a day that is not active. _Avoid_: Login day, model activity day, open tab

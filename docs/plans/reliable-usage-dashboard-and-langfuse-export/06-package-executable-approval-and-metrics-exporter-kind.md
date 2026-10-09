@@ -14,6 +14,12 @@ affectedPaths:
     - "docs/user-documentation/themes.md"
     - "docs/prd/runwield-core-prd.md"
     - "docs/domain-language.md"
+planDeviations:
+    - id: "call_569527187c2a49eab6bad8981331b265|fc_0abfbc5803202b36016ac936d599788197ac8259ce84911485"
+      supersededRequirement: "The active Plan Context links to [Protect New Package Extension Consent](../protect-new-package-extension-consent.md) while the retirement step requires deleting that file and leaving no document links to it."
+      replacementRequirement: "Replace only the active Plan Context's link to Protect New Package Extension Consent with plain text, keep its findings intact, delete the absorbed Plan, and require no remaining document links to it."
+      reason: "The owner approved this narrow active Plan edit so deletion can pass doc-links:check."
+      approvedAt: "2026-10-09T19:18:26.831Z"
 executionAgent: "engineer"
 collaborationRecommendation: "autonomous"
 createdAt: "2026-09-21T19:28:55.042Z"
@@ -22,9 +28,9 @@ parentPlan: "reliable-usage-dashboard-and-langfuse-export"
 order: 6
 dependencies:
     - "05-workspace-usage-page"
-targetBranch: "epic/reliable-usage-dashboard-and-langfuse-export"
 userVerifiedAt: null
-status: "in_progress"
+targetBranch: "epic/reliable-usage-dashboard-and-langfuse-export"
+status: "implemented"
 ---
 
 # Package Executable Approval and Metrics-Exporter Kind
@@ -39,8 +45,8 @@ There are two gaps today.
 **1. Code extensions are enabled before consent.** `runInstallCommand` (`src/cmd/install/index.ts`) calls
 `installAndPersist`, which saves an unrestricted registration. Only after that does it ask. A refusal disables the
 extensions later, but an interruption or a prompt failure leaves the unrestricted entry for the next Session. The Plan
-[Protect New Package Extension Consent](../protect-new-package-extension-consent.md) (`ready_for_work`) describes this
-fix. The owner chose to absorb it here. Its findings were checked again against the current pinned Pi 1.0.0:
+Protect New Package Extension Consent (`ready_for_work`) describes this fix. The owner chose to absorb it here. Its
+findings were checked again against the current pinned Pi 1.0.0:
 
 - `SettingsManager.save()` still queues each snapshot separately (`enqueueWrite`). Disabling right after registration
   still leaves an unrestricted write in the queue.
