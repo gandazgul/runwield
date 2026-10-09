@@ -70,7 +70,7 @@ export async function runHumanReviewPhase(
             ],
         });
         if (response.outcome !== "selected" || (response.value !== "open" && response.value !== "skip")) {
-            emitProgress(args, "Code Review is still pending. No review decision was recorded.", "info", {
+            emitProgress(args, buildValidationUserMessage({ kind: "human_review_pending" }), "info", {
                 outcome: "paused",
                 stage: "terminal",
                 checks: { humanReview: "pending" },
