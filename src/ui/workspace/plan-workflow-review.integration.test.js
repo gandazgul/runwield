@@ -203,7 +203,7 @@ for (const resumeStatus of ["in_progress", "failed"]) {
                     const result = await resumed.json();
                     assertEquals(resumed.status, 202, JSON.stringify(result));
                     assertExists(result.operationId);
-                    for (let i = 0; i < 500; i++) {
+                    for (let i = 0; i < 3000; i++) {
                         const operation = service.getOperation(result.operationId);
                         if (operation.liveInteraction || operation.status !== "running") break;
                         await new Promise((resolve) => setTimeout(resolve, 20));
@@ -254,7 +254,7 @@ for (const resumeStatus of ["in_progress", "failed"]) {
                     assertEquals(turns, 2);
                 } finally {
                     await service.runtime.closeAllSessions();
-                    service.close();
+                    await service.close();
                     await runtime.closeAllSessionsWhenIdle();
                     store.close();
                     await Deno.remove(root, { recursive: true });

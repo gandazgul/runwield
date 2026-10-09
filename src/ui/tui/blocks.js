@@ -342,8 +342,11 @@ export class ThinkingBlock {
  * Renders without a background, matching the upstream Pi style.
  */
 export class AgentMessageBlock {
-    /** @param {string} agentName */
-    constructor(agentName) {
+    /**
+     * @param {string} agentName
+     * @param {import('../review/document-link-host.ts').DocumentLinkHost | null} documentLinks
+     */
+    constructor(agentName, documentLinks) {
         this.container = new Container();
 
         if (agentName) {
@@ -352,6 +355,7 @@ export class AgentMessageBlock {
 
         this.currentText = "";
         this.markdown = new MermaidMarkdown("", 0, 0, getMarkdownTheme());
+        this.markdown.setDocumentLinks(documentLinks);
         this.container.addChild(
             /** @type {import('@earendil-works/pi-tui').Component} */ (/** @type {unknown} */ (this.markdown)),
         );
