@@ -174,7 +174,7 @@ export const validationTreeHumanReviewAskCloseScenario = withValidationBranches(
         scriptedInteractions: [{ type: "select", promptIncludes: "code review before merge", value: "close" }],
         actions: [
             ...plannedChangeReviewRepairValidationScenario.actions.slice(0, 3),
-            { type: "waitForScreen", text: "Code review is still waiting for your decision", timeoutMs: 240000 },
+            { type: "waitForScreen", text: "Code Review is still pending", timeoutMs: 240000 },
             { type: "waitForIdle", timeoutMs: 60000 },
             { type: "captureProjectState", planNames: ["plan"] },
         ],

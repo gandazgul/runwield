@@ -47,7 +47,7 @@ export type ValidationMessageRequest =
     | { kind: "human_review_prompt"; planName: string }
     | { kind: "human_review_approved" }
     | { kind: "human_review_skipped" }
-    | { kind: "human_review_pending" }
+    | { kind: "human_review_pending"; planName: string }
     | { kind: "qa_prepare"; planName: string }
     | { kind: "qa_ready"; path?: string; existed?: boolean }
     | {
@@ -205,7 +205,7 @@ export function buildValidationUserMessage(request: ValidationMessageRequest): s
         case "human_review_skipped":
             return "Code Review skipped";
         case "human_review_pending":
-            return "Code Review is still pending. No choice was saved.";
+            return `Code Review is still pending. No choice was saved. Use /load-plan ${request.planName} to return.`;
         case "human_review_approved":
             return "Code review is done. You approved the work.";
         case "qa_prepare":

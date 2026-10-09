@@ -70,11 +70,16 @@ export async function runHumanReviewPhase(
             ],
         });
         if (response.outcome !== "selected" || (response.value !== "open" && response.value !== "skip")) {
-            emitProgress(args, buildValidationUserMessage({ kind: "human_review_pending" }), "info", {
-                outcome: "paused",
-                stage: "terminal",
-                checks: { humanReview: "pending" },
-            });
+            emitProgress(
+                args,
+                buildValidationUserMessage({ kind: "human_review_pending", planName: args.planName }),
+                "info",
+                {
+                    outcome: "paused",
+                    stage: "terminal",
+                    checks: { humanReview: "pending" },
+                },
+            );
             return {
                 kind: "paused",
                 planName: args.planName,
