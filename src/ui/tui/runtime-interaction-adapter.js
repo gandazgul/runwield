@@ -210,7 +210,7 @@ export function createTuiInteractionAdapter(uiAPI, ports) {
                         },
                     });
                     status = result.canceled || result.exit
-                        ? "Code Review canceled."
+                        ? `Code Review canceled; approval is still pending. Retry or /load-plan ${meta.planName} to reopen it.`
                         : result.approved
                         ? "Code Review approved."
                         : "Code Review feedback received.";
