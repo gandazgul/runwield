@@ -1,4 +1,5 @@
 ---
+planId: "f323ab7f-e2de-4d65-9beb-4cb29cb76c10"
 classification: "PLANNED_CHANGE"
 workKind: "FEATURE"
 complexity: "MEDIUM"
@@ -21,16 +22,17 @@ parentPlan: "reliable-usage-dashboard-and-langfuse-export"
 order: 9
 dependencies:
     - "08-langfuse-exporter-package"
+userVerifiedAt: null
 targetBranch: "epic/reliable-usage-dashboard-and-langfuse-export"
-planId: "f323ab7f-e2de-4d65-9beb-4cb29cb76c10"
 ---
 
 # Workspace Export Settings and Delivery Status
 
 ## Context
 
-Child 05 shipped `/usage` showing local recording on and export off. Children 06–08 made export real. The owner now
-needs to see and control it from the browser.
+Child 05 shipped `/usage` showing local measurements with coverage notes from the report. Children 06–08 made export
+real. The owner now needs to see and control recording and export from the browser — including the effective local
+recording-state indicator and the Settings affordance on `/usage` that this child adds.
 
 The Epic bounds this surface deliberately: local collection state, installed exporter status, destination URL,
 host-secret references, approved Projects, and delivery status. No extension marketplace and no browser package
