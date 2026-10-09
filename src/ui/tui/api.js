@@ -612,7 +612,7 @@ export function createUiApi(
                 block.setExpanded(true);
                 appendMessageListChild(block);
                 appendMessageListChild(new Spacer(1));
-            } else if (WORKFLOW_TOOL_NAME_SET.has(toolName)) {
+            } else if ((WORKFLOW_TOOL_NAME_SET.has(toolName) || toolName === "code_review")) {
                 closeCurrentToolGroup();
                 appendMessageListChild(block);
                 appendMessageListChild(new Spacer(1));

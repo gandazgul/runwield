@@ -766,7 +766,7 @@ export class ToolExecutionBlock {
             return;
         }
         const renderedText = shown.map((line) => {
-            if (!this.isError && line.startsWith("Review Plan:")) {
+            if (!this.isError && (line.startsWith("Review Plan:") || line.startsWith("Review Code:"))) {
                 return theme.fg("success", theme.bold(line));
             }
             return this.isError ? theme.fg("text", line) : theme.fg("toolOutput", line);
