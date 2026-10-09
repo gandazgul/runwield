@@ -450,7 +450,8 @@ export async function appendWorkflowMetric<T>(
             return { ...failedRecord, persisted: false, reason: "history_boundary" };
         }
         if (
-            state.historyStartedAt && record !== null && typeof record === "object" && "ts" in record &&
+            invocation.historyEpoch !== "initial" && state.historyStartedAt && record !== null &&
+            typeof record === "object" && "ts" in record &&
             typeof record.ts === "string" && Date.parse(record.ts) < Date.parse(state.historyStartedAt)
         ) {
             return { ...failedRecord, persisted: false, reason: "history_boundary" };

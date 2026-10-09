@@ -39,8 +39,8 @@ recording layer this child originally assumed was missing:
 
 - v2 records already carry stable identity — `eventId`, `recorderId`, `seq` — assigned in `sanitizeV2MetricRecord`.
 - Appends already serialize through the in-process `metricsWriteQueue`, and `drainWorkflowMetrics` bounds settlement.
-- The PRD gained a **Local workflow metrics** capability (`docs/prd/runwield-core-prd.md#local-workflow-metrics`) with
-  detailed recording requirements, and `docs/settings.md` documents the expanded event coverage.
+- The PRD gained a **Local workflow metrics** capability (`docs/prd/runwield-core-prd.md#usage-measurement-and-export`)
+  with detailed recording requirements, and `docs/settings.md` documents the expanded event coverage.
 
 What remains missing is the durability foundation:
 
@@ -66,7 +66,7 @@ the metrics.
   source.
 
 Owning PRD: this change extends the existing **Local workflow metrics** capability
-(`docs/prd/runwield-core-prd.md#local-workflow-metrics`) with durability, boundary, and gap-honesty requirements.
+(`docs/prd/runwield-core-prd.md#usage-measurement-and-export`) with durability, boundary, and gap-honesty requirements.
 [Execution, validation, and recovery](../../prd/runwield-core-prd.md#execution-validation-and-recovery) stays
 authoritative for delivery conclusions; measurement reports outcomes and never creates a third one.
 

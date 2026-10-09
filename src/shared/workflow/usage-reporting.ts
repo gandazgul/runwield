@@ -202,6 +202,7 @@ function sumTotals(target: UsageTotals, source: UsageTotals): void {
     }
     for (
         const key of [
+            "activeDaysExclusions",
             "publishedChanges",
             "publishedChangesExclusions",
             "validationAttempts",
@@ -267,7 +268,9 @@ function link(projectId: string, row: JournalRow): UsageLink {
 function addUsage(target: UsageTotals, row: JournalRow): void {
     for (const key of ["inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens"] as const) {
         if (finite(row[key])) target[key].value += row[key];
-        else target[key].exclusions++;
+        if (!finite(row[key]) || ["partial", "unavailable"].includes(row.measurementAvailability || "")) {
+            target[key].exclusions++;
+        }
     }
     // Input with included cache already counts those tokens. Unknown bases keep a known subtotal only.
     target.tokens.value += (finite(row.inputTokens) ? row.inputTokens : 0) +
@@ -277,6 +280,7 @@ function addUsage(target: UsageTotals, row: JournalRow): void {
             (finite(row.cacheWriteTokens) ? row.cacheWriteTokens : 0);
     }
     if (
+        ["partial", "unavailable"].includes(row.measurementAvailability || "") ||
         ![row.inputTokens, row.outputTokens, row.cacheReadTokens, row.cacheWriteTokens].every(finite) ||
         !["includes_cache", "excludes_cache"].includes(row.inputCacheBasis || "")
     ) target.tokens.exclusions++;
@@ -519,6 +523,16 @@ export class UsageReporter {
                         continue;
                     }
                     seenUsage.add(identity);
+                }
+                const targets = [day.totals];
+                if (["model_usage", "response_latency"].includes(row.event)) {
+                    const backend = row.backend || "unavailable";
+                    const model = `${row.provider || "unavailable"}/${row.model || "unavailable"}`;
+                    if (!backends.has(backend)) backends.set(backend, totals());
+                    if (!models.has(model)) models.set(model, totals());
+                    targets.push(backends.get(backend)!, models.get(model)!);
+                }
+                if (row.event === "model_usage") {
                     const finish = row.executionId ? finishes.get(row.executionId) : undefined;
                     if (
                         row.executionId &&
@@ -534,17 +548,13 @@ export class UsageReporter {
                                 "reportedCostUsd",
                                 "estimatedCostUsd",
                             ] as const
-                        ) day.totals[key].exclusions++;
+                        ) {
+                            for (const target of targets) target[key].exclusions++;
+                        }
                         day.gaps.push("incomplete");
                         continue;
                     }
-                    addUsage(day.totals, row);
-                    const backend = row.backend || "unavailable";
-                    const model = `${row.provider || "unavailable"}/${row.model || "unavailable"}`;
-                    if (!backends.has(backend)) backends.set(backend, totals());
-                    if (!models.has(model)) models.set(model, totals());
-                    addUsage(backends.get(backend)!, row);
-                    addUsage(models.get(model)!, row);
+                    for (const target of targets) addUsage(target, row);
                     if (
                         day.totals.tokens.exclusions || day.totals.reportedCostUsd.exclusions ||
                         day.totals.estimatedCostUsd.exclusions
@@ -560,19 +570,11 @@ export class UsageReporter {
                         day.totals.estimatedCostUsd.exclusions++;
                     }
                 }
-                if (row.event === "response_latency" && incompleteExecutions.has(row.executionId || "")) {
-                    day.totals.latencyMs.exclusions++;
-                }
-                if (row.event === "response_latency" && !incompleteExecutions.has(row.executionId || "")) {
-                    if (finite(row.totalLatencyMs)) day.totals.latencyMs.value += row.totalLatencyMs;
-                    else day.totals.latencyMs.exclusions++;
-                    const backend = row.backend || "unavailable";
-                    const model = `${row.provider || "unavailable"}/${row.model || "unavailable"}`;
-                    if (!backends.has(backend)) backends.set(backend, totals());
-                    if (!models.has(model)) models.set(model, totals());
-                    for (const target of [backends.get(backend)!, models.get(model)!]) {
-                        if (finite(row.totalLatencyMs)) target.latencyMs.value += row.totalLatencyMs;
-                        else target.latencyMs.exclusions++;
+                if (row.event === "response_latency") {
+                    for (const target of targets) {
+                        if (!incompleteExecutions.has(row.executionId || "") && finite(row.totalLatencyMs)) {
+                            target.latencyMs.value += row.totalLatencyMs;
+                        } else target.latencyMs.exclusions++;
                     }
                 }
                 if (

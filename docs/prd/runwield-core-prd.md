@@ -2146,10 +2146,6 @@ retain delivery evidence. Scenarios guide verification but do not claim executab
 
 <a id="usage-measurement-and-export"></a>
 
-#### Local workflow metrics
-
-Local recording is the source for this capability. This heading preserves links from earlier delivery Plans.
-
 **Scope and maturity:** Current local recording is opt-in and stays on the device. The v2 observation layer includes
 linked execution, usage, command, and workflow-outcome records. The journal writer implements bounded cross-process
 locking, sync, epoch control, and repair. Core reporting and history deletion are available. Workspace dashboards and

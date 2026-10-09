@@ -28,6 +28,7 @@ export type ValidationWorkflowBranchId =
     | "semantic:entry:empty-diff-skip"
     | "semantic:entry:plan-only-diff-fails"
     | "human-review:none"
+    | "human-review:ask-close"
     | "human-review:ask-skip"
     | "human-review:ask-open-approve"
     | "human-review:always-approve"
@@ -119,6 +120,7 @@ export const EXPECTED_VALIDATION_WORKFLOW_BRANCH_IDS: readonly ValidationWorkflo
     "semantic:entry:empty-diff-skip",
     "semantic:entry:plan-only-diff-fails",
     "human-review:none",
+    "human-review:ask-close",
     "human-review:ask-skip",
     "human-review:ask-open-approve",
     "human-review:always-approve",
@@ -178,6 +180,7 @@ const VALIDATION_BRANCH_OWNERS: Record<ValidationWorkflowBranchId, string> = {
     "semantic:entry:empty-diff-skip": "validation-tree-empty-diff-skip",
     "semantic:entry:plan-only-diff-fails": "validation-tree-plan-only-diff-fails",
     "human-review:none": "validation-tree-human-review-none",
+    "human-review:ask-close": "validation-tree-human-review-ask-close",
     "human-review:ask-skip": "validation-tree-human-review-ask-skip",
     "human-review:ask-open-approve": "validation-tree-human-review-ask-open-approve",
     "human-review:always-approve": "validation-tree-human-review-always-approve",
@@ -230,6 +233,7 @@ function transcriptRequirementFor(id: ValidationWorkflowBranchId): string[] {
     if (id.startsWith("semantic:")) return ["AI review"];
     if (id === "human-review:none") return ["is on main."];
     if (id === "human-review:ask-skip") return ["is on main."];
+    if (id === "human-review:ask-close") return ["Code review is still waiting for your decision."];
     if (id === "human-review:no-answer-retry" || id === "human-review:no-answer-stop") {
         return ["Pick Retry to open it again"];
     }
@@ -308,6 +312,9 @@ function stateEqualsFor(id: ValidationWorkflowBranchId): Record<string, Validati
             "projectState.plans.0.controllerState.humanReviewDecision": "not_required",
         };
     }
+    if (id === "human-review:ask-close") {
+        return { "projectState.plans.0.attrs.status": "validated_reviewer" };
+    }
     if (id === "human-review:ask-skip") {
         return {
             "projectState.plans.0.controllerState.humanReviewMode": "ask",
@@ -323,6 +330,7 @@ function stateAbsentFor(): string[] {
 
 function interactionValuesFor(id: ValidationWorkflowBranchId): string[] {
     if (id === "publication:dirty-primary-retry") return ["retry"];
+    if (id === "human-review:ask-close") return ["close"];
     return id === "human-review:ask-skip" ? ["skip"] : [];
 }
 
@@ -370,6 +378,7 @@ export const VALIDATION_INTERACTION_OPTION_BRANCHES: Readonly<Record<string, rea
         reject: ["human-review:no-answer-stop"],
         open: ["human-review:ask-open-approve"],
         skip: ["human-review:ask-skip"],
+        close: ["human-review:ask-close"],
         continue: ["semantic:round-limit:continue"],
         code_review: ["semantic:round-limit:human-review"],
         confirm: ["human-review:feedback-repair-approve"],

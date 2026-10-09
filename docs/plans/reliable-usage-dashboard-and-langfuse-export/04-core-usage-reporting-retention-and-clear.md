@@ -19,7 +19,7 @@ dependencies:
     - "03-workflow-outcome-observations"
 targetBranch: "epic/reliable-usage-dashboard-and-langfuse-export"
 userVerifiedAt: null
-status: "implemented"
+status: "validated_reviewer"
 ---
 
 # Core Usage Reporting, Retention, and Clear
@@ -49,7 +49,7 @@ src/shared/workflow/
 - `execution_started` rows carry `dispatchKind` (`interactive` | `plan_execution` | `quick_fix` | `validation_repair` |
   `background_task_result`) and `sourceSurface` — the journal evidence for what started a turn.
 - Child 01 deliberately kept the PRD heading **Local workflow metrics**
-  (`docs/prd/runwield-core-prd.md#local-workflow-metrics`) and deferred the retitle to this child, which adds the
+  (`docs/prd/runwield-core-prd.md#usage-measurement-and-export`) and deferred the retitle to this child, which adds the
   reporting and retention requirements to the same capability.
 
 Sibling boundaries: child 05 wires the Workspace page and owner routes to this query; child 07 extends the clear path

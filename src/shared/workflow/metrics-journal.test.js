@@ -4,7 +4,7 @@ import lockfile from "proper-lockfile";
 import { setCustomSetting } from "../settings.js";
 import { withWorkflowMetricsFixture } from "../../testing/workflow-metrics-fixture.ts";
 import { getWorkflowMetricsFilePath, recordWorkflowMetric } from "./metrics.js";
-import { appendWorkflowMetric, resolveCollectionEpoch } from "./metrics-journal.ts";
+import { appendWorkflowMetric, clearWorkflowMetricJournal, resolveCollectionEpoch } from "./metrics-journal.ts";
 
 const metric = { v: 2, category: "command", event: "command_started", recorderId: "test", seq: 0, command: "help" };
 
@@ -489,5 +489,25 @@ Deno.test("interrupted tail repair retains its gap and earlier observations", as
         assertEquals(rows.filter((row) => row.eventId === first.eventId).length, 1);
         assertEquals(rows.filter((row) => row.event === "measurement_gap").length, 1);
         assertEquals(rows.filter((row) => row.v === 2).length, 2);
+    });
+});
+
+Deno.test("first-ever pending append with an earlier timestamp survives empty-history clear", async () => {
+    await withWorkflowMetricsFixture(async ({ projectRoot }) => {
+        const path = getWorkflowMetricsFilePath(projectRoot);
+        const state = resolveCollectionEpoch(path, true);
+        assertEquals(state.historyEpoch, "initial");
+        const pending = { ...metric, ts: "2020-01-01T00:00:00Z", eventId: "command_started:first" };
+        const cleared = await clearWorkflowMetricJournal(path);
+        assertEquals(cleared.persisted, true);
+        const result = await appendWorkflowMetric(path, projectRoot, pending, {
+            enabled: true,
+            epoch: state.collectionEpoch.id,
+            historyEpoch: state.historyEpoch,
+            deadline: Date.now() + 1000,
+        });
+        assertEquals(result.persisted, true);
+        assertEquals(result.historyEpoch, cleared.historyEpoch);
+        assertEquals((await readJournal(path)).filter((row) => row.eventId === pending.eventId).length, 1);
     });
 });

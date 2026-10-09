@@ -704,3 +704,100 @@ Deno.test("old measurements remain readable after recording is off and targets a
         assertEquals(new UsageReporter().query([projectRoot], oldPeriod, "UTC").totals.tokens.value, 19);
     });
 });
+
+Deno.test("older interactive starts disclose active-day exclusions at every aggregation level", async () => {
+    await withWorkflowMetricsFixture(async ({ projectRoot }) => {
+        await journal(projectRoot, [
+            enabled,
+            row("execution_started", "2026-11-01T16:00:00Z", {
+                dispatchKind: "interactive",
+            }),
+            watermark,
+        ]);
+        const report = new UsageReporter().query([projectRoot], period, zone);
+        for (
+            const total of [
+                report.projects[0].daily[0].totals,
+                report.projects[0].totals,
+                report.daily[0].totals,
+                report.totals,
+            ]
+        ) {
+            assertEquals(total.activeDays, 0);
+            assertEquals(total.activeDaysExclusions, 1);
+        }
+    });
+});
+
+Deno.test("partial numeric token observations retain subtotals with exclusions", async () => {
+    await withWorkflowMetricsFixture(async ({ projectRoot }) => {
+        await journal(projectRoot, [
+            enabled,
+            usage("2026-11-01T16:00:00Z", {
+                measurementAvailability: "partial",
+            }),
+            watermark,
+        ]);
+        const report = new UsageReporter().query([projectRoot], period, zone);
+        for (
+            const total of [
+                report.totals,
+                report.projects[0].totals,
+                report.daily[0].totals,
+                report.backends[0].totals,
+                report.models[0].totals,
+            ]
+        ) {
+            assertEquals(total.inputTokens, { value: 10, exclusions: 1 });
+            assertEquals(total.outputTokens, { value: 2, exclusions: 1 });
+            assertEquals(total.cacheReadTokens, { value: 3, exclusions: 1 });
+            assertEquals(total.cacheWriteTokens, { value: 4, exclusions: 1 });
+            assertEquals(total.tokens, { value: 19, exclusions: 1 });
+        }
+        assertEquals(report.daily[0].tokens, null);
+    });
+});
+
+Deno.test("backend and model subtotals disclose incomplete usage and latency exclusions", async () => {
+    await withWorkflowMetricsFixture(async ({ projectRoot }) => {
+        await journal(projectRoot, [
+            enabled,
+            usage("2026-11-01T16:00:00Z"),
+            row("response_latency", "2026-11-01T16:00:00Z", {
+                backend: "pi",
+                provider: "test",
+                model: "model",
+                totalLatencyMs: 50,
+            }),
+            row("execution_started", "2026-11-01T16:01:00Z", { executionId: "open" }),
+            usage("2026-11-01T16:02:00Z", { executionId: "open" }),
+            row("response_latency", "2026-11-01T16:02:00Z", {
+                executionId: "open",
+                backend: "pi",
+                provider: "test",
+                model: "model",
+                totalLatencyMs: 99,
+            }),
+            watermark,
+        ]);
+        const report = new UsageReporter().query([projectRoot], period, zone);
+        for (
+            const total of [
+                report.totals,
+                report.projects[0].backends[0].totals,
+                report.projects[0].models[0].totals,
+                report.backends[0].totals,
+                report.models[0].totals,
+            ]
+        ) {
+            assertEquals(total.tokens, { value: 19, exclusions: 1 });
+            assertEquals(total.inputTokens, { value: 10, exclusions: 1 });
+            assertEquals(total.outputTokens, { value: 2, exclusions: 1 });
+            assertEquals(total.cacheReadTokens, { value: 3, exclusions: 1 });
+            assertEquals(total.cacheWriteTokens, { value: 4, exclusions: 1 });
+            assertEquals(total.estimatedCostUsd, { value: 0.5, exclusions: 1 });
+            assertEquals(total.reportedCostUsd, { value: 0, exclusions: 1 });
+            assertEquals(total.latencyMs, { value: 50, exclusions: 1 });
+        }
+    });
+});

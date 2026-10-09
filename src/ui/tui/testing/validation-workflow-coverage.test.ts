@@ -39,7 +39,7 @@ function fullEvidenceResult(id: ValidationWorkflowBranchId): ValidationWorkflowR
                 plans: [{
                     name: "plan",
                     attrs: {
-                        status: "verified",
+                        status: id === "human-review:ask-close" ? "validated_reviewer" : "verified",
                     },
                     controllerState: {
                         validationCiAttempts: 0,
