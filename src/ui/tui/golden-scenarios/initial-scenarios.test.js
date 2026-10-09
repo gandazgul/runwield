@@ -10,7 +10,7 @@ import {
     startupNoProvidersOpensLoginScenario,
     startupProviderWithoutModelsOpensModelScenario,
 } from "./initial-scenarios.js";
-import { GoldenScenarioActor, runGoldenScenario } from "../testing/mod.js";
+import { GoldenScenarioActor, runGoldenScenario } from "../testing/mod.ts";
 import { NO_OPEN_BROWSER_PORT } from "../../../shared/browser-port.ts";
 
 /**
