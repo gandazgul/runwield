@@ -27,13 +27,13 @@ origin: "internal"
 userVerifiedAt: null
 targetBranch: "main"
 routingIntent: "PLANNED_CHANGE"
-status: "reviewed"
 validatedCommit: "566ae990661a165f56a5dfa7c7ed726c7dbbb693"
 workRecord:
     status: "generated"
     recordId: "335cc883-ce2f-4fec-9bf9-ca9fc792868a"
     path: "docs/work-records/2026-10-09-default-off-plan-branch-delivery-implemented.md"
     lastAttemptAt: "2026-10-09T17:17:12.873Z"
+status: "verified"
 ---
 
 # Plan Branch Delivery Setting

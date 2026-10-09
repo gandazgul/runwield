@@ -1,7 +1,7 @@
 ---
 kind: "work_record"
 recordId: "335cc883-ce2f-4fec-9bf9-ca9fc792868a"
-status: "pending_verification"
+status: "approved"
 scope: "planned_change"
 workKind: "FEATURE"
 origin: "internal"
@@ -11,7 +11,6 @@ provenance:
     sourcePlans:
         - "e1c5b772-69c8-472d-b739-9f110cd81fcd"
 ---
-
 # Default-off Plan Branch delivery implemented
 
 ## Summary
