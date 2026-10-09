@@ -26,7 +26,7 @@ dependencies:
     - "04-core-usage-reporting-retention-and-clear"
 targetBranch: "epic/reliable-usage-dashboard-and-langfuse-export"
 userVerifiedAt: null
-status: "in_progress"
+status: "implemented"
 ---
 
 # Workspace Usage Page
