@@ -311,7 +311,10 @@ Deno.test("TUI code review closes the live link and restores progress on cancell
             },
         }, controller.signal);
         assertEquals(response.outcome, "canceled");
-        assertEquals(state.outputs.at(-1), "Code Review canceled.");
+        assertEquals(
+            state.outputs.at(-1),
+            "Code Review canceled; approval is still pending. Retry or /load-plan feature to reopen it.",
+        );
         assertEquals(state.busyValues, [false, true]);
         assertEquals(state.ended, [false]);
     } finally {

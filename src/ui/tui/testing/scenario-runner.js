@@ -81,6 +81,7 @@ function createGoldenReviewBrowser(
             if (url.includes("/review/code")) {
                 if (!humanReviewSurface) throw new Error("Unexpected Code Review interaction.");
                 const response = humanReviewSurface.submit({ url });
+                if (response.manual) return false;
                 const opened = await createScriptedReviewBrowser(response.approved ? "decision" : "feedback", {
                     approved: response.approved,
                     feedback: response.feedback,
