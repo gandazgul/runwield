@@ -115,8 +115,8 @@ Plan commands are covered in [Plans and workflows](workflows.md#working-with-pla
 ## Document links in Agent messages
 
 In terminals that support hyperlinks, an Agent's mention of an existing Project-relative `.md` file is clickable.
-Examples include `(docs/guide.md)`, `README.md`, an exact backticked path, and `[Guide](docs/guide.md)`. The visible
-text stays the same. Click the link to open the read-only Workspace reader in your browser.
+Examples include `(docs/guide.md)`, `README.md`, an exact backticked path, and a labeled Markdown link. The visible text
+stays the same. Click the link to open the read-only Workspace reader in your browser.
 
 Each tab reads the current file. Reload after an edit to see the change. Close affects only that tab; other links stay
 available while the TUI is open. Links are limited to the active Session's Project, including checks that block symlinks

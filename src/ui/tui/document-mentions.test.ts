@@ -126,6 +126,45 @@ Deno.test("code, images, external and incomplete paths never gain local reader t
     });
 });
 
+for (const markers of ["**", "*", "~~", "***", "**~~"]) {
+    const closing = markers === "**~~" ? "~~**" : markers;
+    Deno.test(`Agent mentions respect visible word boundaries across ${markers} formatting`, async () => {
+        await withDocuments((host) => {
+            for (
+                const source of [
+                    `${markers}README.md${closing}.txt`,
+                    `prefix${markers}README.md${closing}`,
+                    `${markers}README.md${closing}backup`,
+                    `${markers}README.md.${closing}txt`,
+                    `${markers}README.md${closing}.${markers}txt${closing}`,
+                ]
+            ) {
+                const block = new AgentMessageBlock("", host);
+                const baseline = new AgentMessageBlock("", null);
+                block.appendText(source);
+                baseline.appendText(source);
+                assertEquals(block.render(120), baseline.render(120), source);
+                assertEquals(targets(block.render(120).join("\n")), [], source);
+            }
+            for (
+                const source of [
+                    `(${markers}README.md${closing}).`,
+                    `Read ${markers}README.md${closing}. Next`,
+                    `prefix${markers} read README.md please${closing}suffix`,
+                ]
+            ) {
+                const block = new AgentMessageBlock("", host);
+                const baseline = new AgentMessageBlock("", null);
+                block.appendText(source);
+                baseline.appendText(source);
+                const rendered = block.render(120).join("\n");
+                assertEquals(stripAnsi(rendered), stripAnsi(baseline.render(120).join("\n")), source);
+                assertEquals(targets(rendered).length, 1, source);
+            }
+        });
+    });
+}
+
 Deno.test("no-hyperlink capability preserves fallback without starting reader URL output", async () => {
     await withDocuments((host) => {
         setCapabilities({ ...getCapabilities(), hyperlinks: false });

@@ -352,8 +352,12 @@ Deno.test("completion after generated turn acceptance prevents final model dispa
                     await new Promise((resolve) => setTimeout(resolve, 10));
                 }
                 assert(preparationHeld, "Generated turn did not reach prompt preparation");
-                // Let the handler enter runPrompt's asynchronous steering preparation wait.
-                await new Promise((resolve) => setTimeout(resolve, 50));
+                // TURN_START also marks managed acquisition. Wait for the accepted
+                // generated turn before completing work, while preparation blocks dispatch.
+                for (let attempt = 0; attempt < 300 && !session.generatedTaskTurnId; attempt++) {
+                    await new Promise((resolve) => setTimeout(resolve, 10));
+                }
+                assert(session.generatedTaskTurnId, "Generated turn was not accepted");
                 const tool = createTaskCompletedTool({ hostedSession: session, agentName: "engineer" });
                 // @ts-expect-error Direct execution ignores extension context.
                 completions.push(tool.execute("final", { message: "- Done." }));

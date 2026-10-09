@@ -19,6 +19,12 @@ const MERMAID_RENDER_OPTIONS = Object.freeze({
  */
 
 /**
+ * @typedef {Object} InlineBoundaries
+ * @property {string} previousText
+ * @property {string} nextText
+ */
+
+/**
  * @typedef {Object} MermaidMarkdownOptions
  * @property {(source: string) => string} [renderMermaid]
  */
@@ -80,6 +86,7 @@ function normalizeOsc8Terminators(line) {
  */
 function inlineBoundaryText(token) {
     if (token?.type === "br") return "\n";
+    if (token && "tokens" in token && token.tokens?.length) return token.tokens.map(inlineBoundaryText).join("");
     return token && "text" in token ? token.text || token.raw : token?.raw || "";
 }
 
@@ -107,6 +114,8 @@ export class MermaidMarkdown extends RuntimeMarkdown {
         /** @type {import('../review/document-link-host.ts').DocumentLinkHost | null} */
         this.documentLinks = null;
         this.insideLink = false;
+        /** @type {InlineBoundaries} */
+        this.inlineBoundaries = { previousText: "", nextText: "" };
         /** @type {Map<string, CachedMermaidResult>} */
         this.mermaidCache = new Map();
         this.renderMermaid = mermaidOptions.renderMermaid ||
@@ -137,7 +146,11 @@ export class MermaidMarkdown extends RuntimeMarkdown {
             super.renderInlineTokens(values, styleContext);
         const host = this.documentLinks;
         if (!host || this.insideLink || !getCapabilities().hyperlinks) return upstream(tokens);
+        const outerBoundaries = this.inlineBoundaries;
         return tokens.map((token, tokenIndex) => {
+            const previousText = outerBoundaries.previousText +
+                tokens.slice(0, tokenIndex).map(inlineBoundaryText).join("");
+            const nextText = tokens.slice(tokenIndex + 1).map(inlineBoundaryText).join("") + outerBoundaries.nextText;
             if (token.type === "link" || token.type === "image") {
                 const url = token.type === "link" ? host.resolve(token.href) : null;
                 this.insideLink = true;
@@ -152,7 +165,15 @@ export class MermaidMarkdown extends RuntimeMarkdown {
                 const label = upstream([token]);
                 return url ? hyperlink(label, url) : label;
             }
-            if (token.type !== "text" || token.tokens?.length) return upstream([token]);
+            if (token.type !== "text" || token.tokens?.length) {
+                // Upstream recurses through this adapter for formatted child tokens.
+                this.inlineBoundaries = { previousText, nextText };
+                try {
+                    return upstream([token]);
+                } finally {
+                    this.inlineBoundaries = outerBoundaries;
+                }
+            }
             // Unquoted paths cannot contain whitespace, URL schemes, or delimiters.
             // Require a complete token: file.md.txt and file.md:12 are not mentions.
             const pattern =
@@ -162,13 +183,12 @@ export class MermaidMarkdown extends RuntimeMarkdown {
             for (const match of token.text.matchAll(pattern)) {
                 const index = match.index + match[1].length;
                 const path = match[2];
-                const previousText = inlineBoundaryText(tokens[tokenIndex - 1]);
-                const nextText = tokens.slice(tokenIndex + 1).map(inlineBoundaryText).join("").slice(0, 2);
+                const followingText = (token.text.slice(index + path.length) + nextText).slice(0, 2);
                 // Escapes and formatting can split one visible word across tokens.
                 if (index === 0 && previousText && !/[\s([{"'“‘]$/u.test(previousText)) continue;
                 if (
-                    index + path.length === token.text.length && nextText &&
-                    !/^(?:[\s)\]}"'”’,;!]|[.?](?![\p{L}\p{N}_./%=-]))/u.test(nextText)
+                    followingText &&
+                    !/^(?:[\s)\]}"'”’,;!]|[.?](?![\p{L}\p{N}_./%=-]))/u.test(followingText)
                 ) continue;
                 const url = host.resolve(path);
                 if (!url) continue;

@@ -22,7 +22,7 @@ createdAt: "2026-09-05T00:48:41-04:00"
 origin: "internal"
 userVerifiedAt: null
 targetBranch: "main"
-status: "implemented"
+status: "reviewed"
 ---
 
 # Link TUI Markdown Document Mentions
