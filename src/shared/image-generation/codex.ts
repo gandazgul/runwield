@@ -82,6 +82,8 @@ export async function generateCodexImage(request: CodexImageRequest): Promise<Im
     let nextId = 0;
     let threadId = "";
     let turnId = "";
+    let turnStartRequestId = 0;
+    const turnStarted = Promise.withResolvers<CodexResult>();
     const events: RpcMessage[] = [];
     let protocolError: Error | undefined;
     const fail = (error: Error) => {
@@ -96,6 +98,7 @@ export async function generateCodexImage(request: CodexImageRequest): Promise<Im
         request.signal?.throwIfAborted();
         if (protocolError) throw protocolError;
         const id = ++nextId;
+        if (method === "turn/start") turnStartRequestId = id;
         const response = Promise.withResolvers<CodexResult>();
         pending.set(id, response);
         response.promise.catch(() => undefined);
@@ -142,6 +145,7 @@ export async function generateCodexImage(request: CodexImageRequest): Promise<Im
                                 "Codex requested additional permissions or a client tool. No image was saved.",
                             );
                         } else if (typeof message.id === "number") {
+                            if (message.id === turnStartRequestId) turnStarted.resolve(message.result || {});
                             const waiter = pending.get(message.id);
                             if (message.error) waiter?.reject(new Error(`Codex ${message.error.message}`));
                             else waiter?.resolve(message.result || {});
@@ -269,20 +273,28 @@ export async function generateCodexImage(request: CodexImageRequest): Promise<Im
         };
     } finally {
         request.signal?.removeEventListener("abort", onAbort);
-        if (writer && request.signal?.aborted && threadId && turnId) {
+        if (writer && request.signal?.aborted && threadId && turnStartRequestId) {
             let timeout: ReturnType<typeof setTimeout> | undefined;
             const id = ++nextId;
-            const interrupted = Promise.withResolvers<CodexResult>();
-            pending.set(id, interrupted);
-            await Promise.race([
-                Promise.all([
+            const interrupt = (async () => {
+                // Cancellation can arrive after dispatch but before turn/start acknowledges.
+                if (!turnId) turnId = (await turnStarted.promise).turn?.id || "";
+                if (!turnId) return;
+                const interrupted = Promise.withResolvers<CodexResult>();
+                pending.set(id, interrupted);
+                await Promise.all([
                     send({ id, method: "turn/interrupt", params: { threadId, turnId } }),
                     interrupted.promise,
-                ]).catch(() => undefined),
+                ]);
+            })().catch(() => undefined);
+            await Promise.race([
+                interrupt,
                 new Promise<void>((resolve) => {
                     timeout = setTimeout(resolve, 250);
                 }),
             ]);
+            // Release a pending acknowledgement wait when the cleanup budget expires.
+            turnStarted.resolve({});
             pending.delete(id);
             if (timeout !== undefined) clearTimeout(timeout);
         }

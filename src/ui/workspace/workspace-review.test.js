@@ -34,6 +34,10 @@ const TEST_PROJECT_ROOT = RUNWIELD_ROOT;
 const REVIEW_AGENT_PROJECT_ROOT = makeToolProjectFixture("runwield-workspace-review-agent-");
 const GUIDE_EVENT_PREFIX = "RUNWIELD_GUIDED_REVIEW_EVENT ";
 
+const UNUSED_MNEMOTECA_PORT = { run: () => Promise.reject(new Error("Fixture Mnemoteca command should not run.")) };
+
+/** @typedef {{ id: string }} GuideJobIdentity */
+
 const UNUSED_GUIDE_COMMAND = () => Promise.reject(new Error("Fixture guide command should not run."));
 
 function makeGuideJson(title = "Fixture guide") {
@@ -56,10 +60,12 @@ function makeGuideReviewPayload() {
     };
 }
 
+/** @param {string} value */
 function shellQuote(value) {
     return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
+/** @param {ReturnType<typeof createReviewAgentState>} state */
 async function runReviewGuideJob(state) {
     const launch = await reviewAgentApi(
         new Request("http://localhost/api/agents/jobs", {
@@ -86,7 +92,8 @@ Deno.test("workspace token accepts query or header and rejects missing tokens", 
 });
 
 Deno.test("workspace static assets bypass token checks for tokenized pages", async () => {
-    const app = createWorkspaceApp({ cwd: Deno.cwd(), token: "secret" }).handler();
+    const app = createWorkspaceApp({ cwd: Deno.cwd(), token: "secret", mnemotecaPort: UNUSED_MNEMOTECA_PORT })
+        .handler();
     for (const path of ["/tokens.css", "/components.css", "/workspace.css", "/theme.css", "/brand/logo.svg"]) {
         const response = await app(new Request(`http://localhost${path}`));
         assertEquals(response.status, 200);
@@ -428,7 +435,7 @@ Deno.test("default review guide usage frames update a running job and remain aft
             await Deno.mkdir(binDir, { recursive: true });
             const firstFrame = `${GUIDE_EVENT_PREFIX}${
                 JSON.stringify({
-                    version: 1,
+                    version: 2,
                     type: "usage",
                     usage: {
                         inputTokens: 1200,
@@ -441,7 +448,7 @@ Deno.test("default review guide usage frames update a running job and remain aft
             }`;
             const secondFrame = `${GUIDE_EVENT_PREFIX}${
                 JSON.stringify({
-                    version: 1,
+                    version: 2,
                     type: "usage",
                     usage: {
                         inputTokens: 40,
@@ -504,7 +511,7 @@ Deno.test("default review guide usage frames update a running job and remain aft
                     state,
                 );
                 const jobs = await jobsResponse?.json();
-                runningJob = jobs.jobs.find((candidate) => candidate.id === job.id);
+                runningJob = jobs.jobs.find((/** @type {GuideJobIdentity} */ candidate) => candidate.id === job.id);
                 if (runningJob?.cost?.usd === 0.125) break;
                 await new Promise((resolve) => setTimeout(resolve, 20));
             }
@@ -637,7 +644,7 @@ Deno.test("failed default review guide commands report subprocess stderr and kee
             await Deno.mkdir(binDir, { recursive: true });
             const usageFrame = `${GUIDE_EVENT_PREFIX}${
                 JSON.stringify({
-                    version: 1,
+                    version: 2,
                     type: "usage",
                     usage: {
                         inputTokens: 5,
@@ -710,7 +717,7 @@ Deno.test("default review guide commands fail clearly on malformed usage frames"
                 [
                     "#!/bin/sh",
                     "cat >/dev/null",
-                    `echo '${GUIDE_EVENT_PREFIX}{"version":1,"type":"usage","usage":{"inputTokens":999}}' >&2`,
+                    `echo '${GUIDE_EVENT_PREFIX}{"version":2,"type":"usage","usage":{"inputTokens":999}}' >&2`,
                     "cat <<'JSON'",
                     makeGuideJson("Malformed frame guide"),
                     "JSON",
@@ -845,8 +852,9 @@ Deno.test("review guide jobs record generation result metrics", async () => {
         assertEquals(metrics.length, 1);
         assertEquals(metrics[0].category, "validation");
         assertEquals(metrics[0].event, "guided_review_generation_result");
-        assertEquals(metrics[0].details?.status, "done");
-        assertEquals(metrics[0].details?.sectionCount, 1);
+        assertEquals(metrics[0].v, 2);
+        assertEquals(metrics[0].outcome, "succeeded");
+        assertEquals(metrics[0].sectionCount, 1);
         await state.widgets.cleanup();
     });
 });
@@ -888,12 +896,12 @@ Deno.test("review guide failure metrics redact provider error details", async ()
         await state.jobs.get(job.id)?.done;
 
         const [metric] = await readMetrics();
-        const details = metric.details || {};
-        assertEquals(details.status, "failed");
-        assertEquals(details.hasError, true);
-        assertEquals(details.errorKind, "schema_invalid");
-        assertEquals("error" in details, false);
-        assertEquals(JSON.stringify(details).includes("/Users/example/secret.js"), false);
+        assertEquals(metric.v, 2);
+        assertEquals(metric.outcome, "failed");
+        assertEquals(metric.failureKind, "schema_invalid");
+        assertEquals("error" in metric, false);
+        assertEquals(metric.details, undefined);
+        assertEquals(JSON.stringify(metric).includes("/Users/example/secret.js"), false);
         await state.widgets.cleanup();
     });
 });
