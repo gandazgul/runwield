@@ -718,7 +718,8 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
             updates.worktreeBaseBranch = null;
             updates.worktreeStatus = null;
         } else {
-            updates.targetBranch = details.worktreeBaseBranch;
+            if (details.triageMeta?.deliveryBranch) updates.deliveryBranch = details.worktreeBaseBranch;
+            else updates.targetBranch = details.worktreeBaseBranch;
             updates.documentWorktreeId = details.worktreeId;
             updates.executionBaselineTree = details.executionBaselineTree;
             updates.worktreeId = details.worktreeId;
@@ -855,7 +856,10 @@ export function buildPlanEventUpdates(event, currentStatus, details = {}) {
         updates.executionMode = executionMode;
         updates.deliveryEvidence = deliveryEvidence;
         updates.validatedCommit = deliveryEvidence?.mode === "worktree_merge" ? deliveryEvidence.executionCommit : null;
-        if (deliveryEvidence?.mode === "worktree_merge") updates.targetBranch = deliveryEvidence.targetBranch;
+        if (deliveryEvidence?.mode === "worktree_merge") {
+            if (details.triageMeta?.deliveryBranch) updates.deliveryBranch = deliveryEvidence.targetBranch;
+            else updates.targetBranch = deliveryEvidence.targetBranch;
+        }
         // The registry remains the publication/recovery authority until the push is
         // confirmed. The validated Plan is immutable and must not retain a pointer
         // that would require another front-matter rewrite after publication.

@@ -42,6 +42,10 @@ export interface DeliveryReportInput {
 export function buildDeliveryReport(input: DeliveryReportInput): DeliveryReport {
     const { attrs, publication } = input;
     const confirmed = Boolean(publication?.verifiedAt && publication.publishedCommit);
+    const landingBranch = publication?.targetBranch || attrs.deliveryBranch || attrs.targetBranch;
+    const intendedTarget = attrs.targetBranch?.trim();
+    const readyForMerge = confirmed && !attrs.parentPlan && Boolean(attrs.deliveryBranch) &&
+        Boolean(intendedTarget) && landingBranch !== intendedTarget?.replace(/^origin\//, "");
     const humanApproved = attrs.humanReviewDecision === "approved" && Boolean(attrs.humanReviewedAt);
     const mode = attrs.humanReviewMode || input.codeReview;
     const skipped = attrs.humanReviewDecision === "skipped" || attrs.humanReviewDecision === "not_required";
@@ -119,7 +123,10 @@ export function buildDeliveryReport(input: DeliveryReportInput): DeliveryReport 
                 : "Evidence unavailable",
             tone: confirmed ? "success" : "neutral",
             detail: confirmed
-                ? `Published commit confirmed on ${publication?.targetBranch}.`
+                ? `Published commit confirmed on ${landingBranch}.` +
+                    (readyForMerge
+                        ? ` Merge ${landingBranch} into ${intendedTarget}, or open a PR to ${intendedTarget}.`
+                        : "")
                 : "A completed status alone is not proof of a merge.",
         },
         {
@@ -137,10 +144,10 @@ export function buildDeliveryReport(input: DeliveryReportInput): DeliveryReport 
         version: 1,
         planName: input.planName,
         planId: attrs.planId,
-        heading: confirmed ? "Code delivered" : "Workflow complete",
+        heading: readyForMerge ? "Ready for your merge/PR" : confirmed ? "Code delivered" : "Workflow complete",
         checkedCommit: publication?.validatedCommit || attrs.validatedCommit || undefined,
         deliveredCommit: confirmed ? publication?.publishedCommit : undefined,
-        targetBranch: publication?.targetBranch || attrs.targetBranch,
+        targetBranch: landingBranch,
         rows,
         artifacts: [
             ...(input.evidence?.artifacts || []),
