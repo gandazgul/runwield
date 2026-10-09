@@ -1110,6 +1110,12 @@ When Code Review is offered, users can open it, skip it, or close the prompt to 
 review pending and preserves the Plan and its implementation without publishing. Loading the Plan again with `load-plan`
 and continuing validation offers the same choice again.
 
+Canceling an open Code Review, including Escape in the terminal, leaves approval pending. Cancellation status text and
+unsubmitted draft fields never become revision feedback, approval, or counted review/revision receipts. The UI clearly
+states that review is pending and offers Retry or Plan resume; reopening presents a current working review link.
+Previously completed checks and the implementation remain available. Explicitly submitted feedback still starts repair
+and records the corresponding review decision and revision, followed by checks and another Code Review.
+
 The round limit bounds automatic review effort, not workflow life. The user can continue toward publication or
 deliberately abandon; an exhausted or stalled review cannot become an automatic terminal outcome. Internal dispatch,
 lock, and bookkeeping failures use [automatic workflow recovery](#execution-validation-and-recovery), not another review
@@ -1137,6 +1143,9 @@ convergence without more escaped defects, not approval rate alone.
   returns to that human review without an automatic round limit ending it.
 - Given the Code Review offer, when the user chooses Close and come back later, the Plan remains at `reviewed` with no
   review decision. A later `load-plan` continuation asks again before publication.
+- Given an open Code Review, repeated terminal cancellation preserves `reviewed`, records no decision or revision, and
+  never dispatches repair. Retry or a fresh Session's Plan resume presents a working review link; approval then records
+  exactly one approved decision. Real submitted revision feedback still records a revision and starts repair.
 
 <a id="frontend-engineer-and-pair-execution"></a>
 
