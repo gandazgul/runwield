@@ -28,18 +28,20 @@ Deno.test("a producer lost after a flushed call start leaves no fabricated termi
     });
 });
 
-Deno.test("two local producers leave complete JSONL and unique observation IDs", async () => {
+Deno.test("two local producers preserve saved observations and report lock budget skips", async () => {
     await withWorkflowMetricsFixture(async ({ projectRoot, readMetrics }) => {
         const metricsModule = new URL("./metrics.js", import.meta.url).href;
         const script = `const { recordWorkflowMetric, drainWorkflowMetrics } = await import(${
             JSON.stringify(metricsModule)
         });
+            const outcomes = [];
             for (let seq = 0; seq < 15; seq++) {
-                await recordWorkflowMetric({ v: 2, category: "command", event: "command_started",
+                outcomes.push(await recordWorkflowMetric({ v: 2, category: "command", event: "command_started",
                     recorderId: Deno.args[1], commandId: Deno.args[1], seq, command: "help",
-                    kind: "builtin", sourceSurface: "tui" }, Deno.args[0]);
+                    kind: "builtin", sourceSurface: "tui" }, Deno.args[0]));
             }
-            await drainWorkflowMetrics();`;
+            await drainWorkflowMetrics();
+            console.log(JSON.stringify(outcomes));`;
         const run = (id: string) =>
             new Deno.Command(Deno.execPath(), {
                 args: ["run", "-A", "--no-check", "-", projectRoot, id],
@@ -55,15 +57,23 @@ Deno.test("two local producers leave complete JSONL and unique observation IDs",
             return child.output();
         }));
         for (const result of results) assertEquals(result.success, true, new TextDecoder().decode(result.stderr));
+        const outcomes = results.flatMap((result, index) => {
+            const reported = JSON.parse(new TextDecoder().decode(result.stdout));
+            assertEquals(reported.length, 15);
+            for (const [seq, outcome] of reported.entries()) {
+                assertEquals(outcome.recorderId, index === 0 ? "producer_one" : "producer_two");
+                assertEquals(outcome.seq, seq);
+                assertEquals(typeof outcome.persisted, "boolean");
+                assertEquals(typeof outcome.eventId, "string");
+                if (!outcome.persisted) assertEquals(outcome.reason, "lock_timeout");
+            }
+            return reported;
+        });
+        assertEquals(new Set(outcomes.map((outcome) => outcome.eventId)).size, 30);
+        const saved = outcomes.filter((outcome) => outcome.persisted).map(({ persisted: _persisted, ...row }) => row);
+        assertEquals(saved.length > 0, true);
         const rows = await readMetrics();
-        assertEquals(rows.length, 30);
-        assertEquals(new Set(rows.map((row) => row.eventId)).size, 30);
-        for (const id of ["producer_one", "producer_two"]) {
-            assertEquals(
-                rows.filter((row) => row.recorderId === id).map((row) => typeof row.seq === "number" ? row.seq : -1)
-                    .sort((a, b) => a - b),
-                Array.from({ length: 15 }, (_, index) => index),
-            );
-        }
+        assertEquals(rows.length, saved.length);
+        for (const row of saved) assertEquals(rows.find((record) => record.eventId === row.eventId), row);
     });
 });

@@ -412,9 +412,6 @@ function createLocalWorkspaceApp({ cwd, token, skipTokenCheck = false, mnemoteca
 }
 
 /**
- * @param {{ cwd: string, token: string, reviewPayload: Record<string, unknown>, reviewType: "plan" | "code", reviewConversation?: { id: string, agentLabel: string, revision: number, events: Array<{ type: string, delta: string, messageId: string, agentName: string }> } }} options
- */
-/**
  * @param {{ cwd: string, token: string, questionPayload: Record<string, unknown>, answerQuestion: (request: Request) => Promise<Response>|Response }} options
  */
 export function createSessionQuestionWorkspaceApp({ cwd, token, questionPayload, answerQuestion }) {
@@ -445,6 +442,9 @@ export function createSessionQuestionWorkspaceApp({ cwd, token, questionPayload,
     };
 }
 
+/**
+ * @param {{ cwd: string, token: string, reviewPayload: Record<string, unknown>, reviewType: "plan" | "code", reviewConversation?: { id: string, agentLabel: string, revision: number, events: Array<{ type: string, delta: string, messageId: string, agentName: string }> } }} options
+ */
 export function createReviewWorkspaceApp({ cwd, token, reviewPayload, reviewType, reviewConversation }) {
     const reviewAgentState = reviewType === "code"
         ? createReviewAgentState({ cwd, token, reviewPayload, runGuideCommand: runConfiguredGuideCommand })

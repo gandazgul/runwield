@@ -306,7 +306,7 @@ Deno.test("completion after generated turn acceptance prevents final model dispa
                     calls++;
                     return fauxAssistantMessage(fauxToolCall("background_task", {
                         action: "start",
-                        command: "sleep 0.3; printf 'stale output'",
+                        command: "while [ ! -f release-background-result ]; do sleep 0.01; done; printf 'stale output'",
                     }));
                 },
                 () => {
@@ -327,19 +327,28 @@ Deno.test("completion after generated turn acceptance prevents final model dispa
                 ownerInstanceId: crypto.randomUUID(),
             });
             let releasePreparation = () => {};
+            let settlementTimeout: ReturnType<typeof setTimeout> | undefined;
             try {
                 const created = await runtime.createInteractiveSession({ cwd: projectRoot, mode: "new" });
                 await runtime.switchAgent(created.sessionId, { agentName: "engineer" });
                 const session = host.requireSession(created.sessionId);
                 releasePreparation = () => session.completeAgentSteeringPreparation("hold-generated-prompt");
                 const completions: Array<Promise<{ details: { outcome: string } }>> = [];
-                let armed = false;
+                let generatedTurnId = "";
                 let preparationHeld = false;
-                let endGeneratedTurn = () => {};
-                const generatedTurnEnded = new Promise<void>((resolve) => endGeneratedTurn = resolve);
+                let settleGeneratedOperation = () => {};
+                const generatedOperationSettled = new Promise<void>((resolve) => settleGeneratedOperation = resolve);
                 runtime.subscribeSessionEvents(created.sessionId, (event) => {
-                    if (event.type === RuntimeEventTypes.TURN_END && armed && preparationHeld) endGeneratedTurn();
-                    if (event.type !== RuntimeEventTypes.TURN_START || !armed || preparationHeld) return;
+                    if (event.type === RuntimeEventTypes.USER_MESSAGE && event.origin === "background_task_result") {
+                        generatedTurnId = event.turnId || "";
+                    }
+                    if (event.type === RuntimeEventTypes.BUSY_CHANGED && !event.busy && preparationHeld) {
+                        settleGeneratedOperation();
+                    }
+                    if (
+                        event.type !== RuntimeEventTypes.TURN_START || !generatedTurnId ||
+                        event.turnId !== generatedTurnId || preparationHeld
+                    ) return;
                     preparationHeld = true;
                     session.beginAgentSteeringPreparation("hold-generated-prompt");
                 });
@@ -347,26 +356,27 @@ Deno.test("completion after generated turn acceptance prevents final model dispa
                     (await runtime.promptUserTurn(created.sessionId, { initialRequest: "Start work." })).ok,
                     true,
                 );
-                armed = true;
+                await Deno.writeTextFile(`${projectRoot}/release-background-result`, "");
                 for (let attempt = 0; attempt < 300 && !preparationHeld; attempt++) {
                     await new Promise((resolve) => setTimeout(resolve, 10));
                 }
                 assert(preparationHeld, "Generated turn did not reach prompt preparation");
-                // Let the handler enter runPrompt's asynchronous steering preparation wait.
-                await new Promise((resolve) => setTimeout(resolve, 50));
                 const tool = createTaskCompletedTool({ hostedSession: session, agentName: "engineer" });
                 // @ts-expect-error Direct execution ignores extension context.
                 completions.push(tool.execute("final", { message: "- Done." }));
                 assertEquals((await completions[0]).details.outcome, "task_completed");
                 session.completeAgentSteeringPreparation("hold-generated-prompt");
+                // Completion can reject the accepted operation before a prompt turn starts.
+                // Wait for operation settlement, not a prompt-only TURN_END event.
                 await Promise.race([
-                    generatedTurnEnded,
-                    new Promise((_, reject) =>
-                        setTimeout(() => reject(Error("Generated turn did not settle")), 10_000)
-                    ),
+                    generatedOperationSettled,
+                    new Promise((_, reject) => {
+                        settlementTimeout = setTimeout(() => reject(Error("Generated turn did not settle")), 60_000);
+                    }),
                 ]);
                 assertEquals(calls, 2);
             } finally {
+                clearTimeout(settlementTimeout);
                 releasePreparation();
                 await runtime.closeAllSessionsWhenIdle();
             }

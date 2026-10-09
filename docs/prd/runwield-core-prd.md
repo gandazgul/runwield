@@ -2208,8 +2208,10 @@ retain delivery evidence. Scenarios guide verification but do not claim executab
 
 <a id="local-workflow-metrics"></a>
 
-**Scope and maturity:** Current local recording is opt-in and stays on the device. The target v2 observation layer adds
-linked execution, usage, and command records. Reporting, dashboards, and export remain deferred.
+**Scope and maturity:** Current local recording is opt-in and stays on the device. The v2 observation layer includes
+linked execution, usage, command, and workflow-outcome records. The journal writer implements bounded cross-process
+locking, sync, epoch control, and repair. Reporting, dashboards, and export (including Langfuse) remain target/deferred,
+not current capabilities.
 
 **Requirement: Record structured workflow observations locally with explicit opt-in, project isolation, and zero
 sensitive content leakage.**
@@ -2226,10 +2228,87 @@ scope. Model usage records preserve exact numeric token counts, cache reads and 
 emits an exposure inventory of available tools to permit accurate denominator analysis. Background tasks and delegated
 agents maintain explicit parent linkage without altering execution dispatch.
 
+**Requirement: Usage observations describe only content-free Core activity observed while enabled.** A Usage observation
+belongs to one primary Project history and collection epoch. Session and Plan links identify observed relationships;
+they are not substitutes for Session Transcript or Plan Association evidence. A Usage observation is neither a
+transcript nor a billing charge. Missing measurements remain unavailable, not zero.
+
+**Requirement: Supported backends preserve their measurement detail and upstream limits.** Pi retains native per-request
+measurements linked to assistant turns. Claude CLI retains request measurements, turn totals, and per-model detail as
+alternatives where they overlap. agy CLI retains turn-cumulative tokens; USD cost stays unavailable because its upstream
+result supplies no cost. Runtime events, saved entries, replay totals, the terminal footer, and Guided Review
+distinguish supplied zero from absent measurements. Replay reports compaction usage separately from assistant-message
+totals and marks partial category coverage. Historical zero-filled CLI entries cannot be reconstructed as measured or
+unavailable.
+
+**Requirement: Auxiliary calls use the same opt-in measurement history without duplicate accounting.** A completed
+`see_image` vision fallback records one request-basis observation, locally or remotely, linked to its active execution
+or Session. Missing response usage records unavailable. Guided Review uses the existing runtime observations for
+`wld guided-review`; it does not add a second job total. External guide commands record one turn-basis aggregate per
+settled job, with unavailable categories when the command provides no usage. Every guide job keeps its generation
+outcome. The explicit remote model proof turn is not a Usage source; its vision fallback calls are.
+
+**Requirement: Cross-process recording has bounded lock acquisition and truthful persistence.** All writers to the
+primary Project journal take an OS file lock before the same `proper-lockfile` lock, including linked worktrees and
+separate Core processes. The OS lock does not expire while a writer is paused. Current epoch checkpoints avoid scans of
+retained history. If a checkpoint is missing or behind, each locked call reads at most 256 KiB of new journal bytes and
+commits recovery progress. Calls report non-persistence while recovery is pending; later calls resume recording after
+the checkpoint reaches the journal tail. Recovery preserves retained rows and does not replay skipped observations. Each
+invocation bounds lock acquisition to approximately one second. A persistence success requires synchronous append and
+file sync; it does not promise complete coverage. Timeout, compromised lock, storage failure, disabled collection, and
+stale collection boundaries return non-persistence without blocking delivery or claiming saved data. Captured
+observation identity and epoch stay fixed during an acquisition retry. No failed observation is queued for replay.
+
+**Requirement: Collection epochs reflect observed boundaries, not inferred disabled durations.** Core observes settings
+lazily when recording and resolves durable epoch state under the journal lock. A previously enabled history may retain
+an observed disabled `collection_epoch` control transition without recording a disabled Usage measurement. An unobserved
+interval contains no recorded measurements; it is not evidence of how long collection was disabled. Re-enablement never
+replays missed activity or reconstructs it from Session Transcripts. Stale observations cannot cross an observed
+boundary. History epochs identify local Project measurement histories independently of Session and Plan lifecycles.
+
+**Requirement: Workflow outcomes count observed operations, not inferred delivery.** Each validation attempt and repair
+round has its own operation identity. Attempt numbers and round numbers are labels, not deduplication keys. A confirmed
+publication observation uses a deterministic identity from the delivery attempt. Repeated cleanup does not count that
+publication twice. Committed transitions keep their transition identity; review findings remain observed findings, not
+claims of prevented defects. Tool fan-out is not model-request fan-out.
+
+**Requirement: Publication recording precedes removal of attempt evidence and cannot gate delivery.** Both cleanup paths
+await a bounded, non-fatal recording attempt before pruning. Confirmed publication is observed even when cleanup keeps
+user files or a branch. A retained controller marker distinguishes complete, incomplete, and unverified observation
+coverage. A recording failure does not block or reverse publication. A process interruption cannot invent an
+observation. Git evidence and Plan Front Matter remain delivery authority under
+[Execution, validation, and recovery](#execution-validation-and-recovery). Confirmed publication and deliberate user
+abandonment remain the only delivery conclusions. An interrupted Agent turn is ongoing work, not abandonment. An open
+Session without an observed delivery workflow is not an undelivered failure.
+
+**Requirement: Plan attribution uses committed, time-scoped associations.** A Session observation links to a Plan only
+when its committed Plan Association covers the observation time and transcript segment. A new association ends the
+previous scope in that segment; a sealed segment ends its scope. General discussion has no Plan link. A Session that
+touches multiple Plans does not assign each observation to every Plan. A delivery attempt's committed registry
+association identifies its Plan independently of Session ownership. Missing attribution stays absent. Outcome records
+retain operation, transition, or confirmed delivery identity and exclude free-form errors.
+
+**Requirement: Repair preserves history and makes measurement gaps explicit.** Existing v1 rows stay unchanged; absent
+v2 links or coverage are not inferred from adjacent rows. Locked repair truncates only an incomplete final line and
+appends explicit `measurement_gap` evidence with reason `incomplete_append`. Interior corruption remains in the journal
+and is surfaced with corrupt line numbers; it is not silently deleted or converted into measured zero.
+
 **Acceptance scenarios:**
 
-- Given `workflowMetrics` disabled or unset, when turns, tool calls, or slash commands run, RunWield writes no metrics
-  records to disk.
+- Given one Plan with a failed validation, a repair round, and confirmed publication, the journal records separate
+  validation and repair identities and one confirmed-delivery attempt, including after restart.
+- Given either full cleanup or an attempt already at `cleanup_complete`, when cleanup repeats, its stable publication
+  identity produces no second journal row. Keeping user files does not remove the confirmed-publication observation.
+- Given disabled collection or an unwritable journal, publication still completes and prunes. Where controller evidence
+  can be retained, coverage is incomplete. A process death before recording leaves unverified coverage and no invented
+  outcome; a death after recording and before prune leaves the durable observation for restart.
+- Given disjoint committed Plan Association time scopes in one Session, observations link only to the matching Plan at
+  that time. Unassigned discussion and uncommitted associations do not create Plan links.
+- Given an interrupted repair turn or a non-Plan Session, measurements do not label the workflow abandoned or count an
+  open Session as an undelivered failure. A parallel tool batch creates no model-request fan-out claim.
+- Given `workflowMetrics` disabled or unset with no prior enabled history, when turns, tool calls, or slash commands
+  run, RunWield creates no metrics journal. With prior history, it may retain an observed disabled control transition,
+  but writes no Usage measurements while disabled.
 - Given `workflowMetrics` enabled in project or global settings, when an agent turn executes, RunWield records ordered
   events with monotonic sequences, tool exposures, tool durations, model usage, and latency.
 - Given a bash command with flags, arguments, or pipelines, when recorded, RunWield stores only coarse safe command
@@ -2242,12 +2321,36 @@ agents maintain explicit parent linkage without altering execution dispatch.
   missing end without turning it into a success. A failed turn keeps usage that its provider already reported.
 - Given absent usage, cost, truncation, or context occupancy measurements, RunWield marks each unavailable or partial;
   it does not replace missing values with zero or add overlapping turn and request costs.
+- Given Pi request usage, Claude request/turn/per-model fixtures, or agy turn-cumulative usage, when recorded, RunWield
+  retains the available detail without adding Claude alternative observations to a reported turn total. Absent cache
+  categories stay unavailable, supplied zeros stay measured, and agy cost stays unavailable.
+- Given assistant entries without usage and a compaction entry with usage, when a Session is replayed, assistant totals
+  show unavailable while the compaction component shows its own measured values.
+- Given a completed local or remote vision fallback, when usage is present, RunWield records it once. Missing usage
+  produces an unavailable observation; an errored completion produces no fabricated measurements.
+- Given a default `wld` guide job, when it settles, its existing runtime measurements and one generation outcome remain
+  without a duplicate job total. An external guide job records one aggregate and one outcome. Null categories yield
+  partial or unavailable coverage, not zero. Version-1 frames are not accepted as new measurements.
 - Given a template or Skill command that starts Agent work, its one invocation ID links to the execution. A command
   picker writes an `opened` observation, then a `dispatched` observation only when a choice starts work. Its final
   result is succeeded, failed, canceled, or rejected under the same invocation ID. Closing a picker without a choice
   records cancellation, not a completed model change.
 - Given manual `/compact` outside an Agent turn, RunWield records its observed compaction and context under the Session
   and command without assigning a fictitious execution ID.
+- Given separate Core processes and a linked worktree writing the same Project history, when observations overlap, the
+  shared lock serializes journal mutation; contention ends within approximately one second with a truthful
+  non-persistence result if the lock is not acquired.
+- Given a synchronous append or sync failure, or a compromised lock, when recording settles, it does not claim
+  persistence, stop delivery, or enqueue the observation for replay.
+- Given prior enabled history, when Core observes disabled collection, it records only the disabled control transition.
+  When Core later observes enablement, it starts an observed collection epoch without backfilling missed measurements.
+- Given settings changed during an interval without Core observations, when recording resumes, the interval has no
+  recorded measurements and no inferred disabled duration. An observation from a stale epoch is not relabeled into the
+  new observed epoch.
+- Given a journal with v1 rows and a torn final append, when repair runs under the lock, the v1 rows remain unchanged,
+  only the incomplete tail is removed, and an explicit `measurement_gap` records the lost bytes.
+- Given corrupt interior lines, when repair runs, those lines remain and gap evidence surfaces their line numbers;
+  successful persistence of a later observation does not claim complete historical coverage.
 
 <a id="4-current-local-workspace-surface"></a>
 <a id="5-current-collaborative-planning-surface"></a>

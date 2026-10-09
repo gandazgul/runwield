@@ -31,6 +31,11 @@ export type WorkflowControllerState = {
     verifiedAt?: string | null;
     publicationReceipt?: { validatedCommit: string; publishedCommit: string; targetBranch: string } | null;
     recordingSource?: { commit: string; planName: string; planId: string };
+    publicationObservation?: {
+        attemptId: string;
+        eventId: string;
+        coverage: "unverified" | "complete" | "incomplete";
+    };
     executionReport?: string | null;
     humanReviewMode?: "none" | "ask" | "always" | null;
     humanReviewDecision?: "not_required" | "skipped" | "approved" | "changes_requested" | null;
@@ -60,6 +65,7 @@ export const CONTROLLER_STATE_FIELDS = [
     "verifiedAt",
     "publicationReceipt",
     "recordingSource",
+    "publicationObservation",
     "executionReport",
     "humanReviewMode",
     "humanReviewDecision",

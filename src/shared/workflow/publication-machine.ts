@@ -19,7 +19,8 @@ import {
     deleteRemotelyPublishedWorktreeBranch,
     removeWorktreeGitArtifacts,
 } from "../worktree.js";
-import { writeControllerState } from "./controller-registry.ts";
+import { recordWorkflowOutcome, workflowOutcomeEventId } from "./outcome-observations.ts";
+import { readControllerRecord, writeControllerState } from "./controller-registry.ts";
 import {
     advancePublicationAttempt,
     assertPublicationAttempt,
@@ -405,7 +406,10 @@ export type PublicationCleanupResult = {
 
 async function retainPublicationCompletion(projectRoot: string, attempt: PublicationAttempt): Promise<void> {
     if (!attempt.verifiedAt) return;
-    await writeControllerState(projectRoot, { planId: attempt.planId, planName: attempt.planName }, {
+    const identity = { planId: attempt.planId, planName: attempt.planName };
+    const previous = await readControllerRecord(projectRoot, identity);
+    const observed = previous?.state.publicationObservation;
+    await writeControllerState(projectRoot, identity, {
         verifiedAt: attempt.verifiedAt,
         publicationReceipt: attempt.publishedCommit
             ? {
@@ -415,6 +419,13 @@ async function retainPublicationCompletion(projectRoot: string, attempt: Publica
             }
             : null,
         updatedAt: attempt.verifiedAt,
+        publicationObservation: observed?.attemptId === attempt.attemptId && observed.coverage === "complete"
+            ? observed
+            : {
+                attemptId: attempt.attemptId,
+                eventId: workflowOutcomeEventId("publication_confirmed", attempt.attemptId),
+                coverage: "unverified",
+            },
     });
 }
 
@@ -463,6 +474,47 @@ async function settlePublicationIndex(
     }
 }
 
+/** Recording and coverage retention cannot hold confirmed delivery open. */
+async function observeConfirmedPublication(projectRoot: string, attempt: PublicationAttempt): Promise<void> {
+    const eventId = workflowOutcomeEventId("publication_confirmed", attempt.attemptId);
+    const identity = { planId: attempt.planId, planName: attempt.planName };
+    const deadline = Date.now() + 5000;
+    const pending = async () => {
+        const result = await recordWorkflowOutcome(projectRoot, {
+            event: "publication_confirmed",
+            category: "recovery",
+            operationId: attempt.attemptId,
+            attemptId: attempt.attemptId,
+            planName: attempt.planName,
+            outcome: "succeeded",
+            ts: attempt.verifiedAt,
+            persistenceDeadline: deadline,
+        });
+        const retained = await readControllerRecord(projectRoot, identity);
+        if (Date.now() >= deadline || retained?.state.publicationObservation?.attemptId !== attempt.attemptId) return;
+        await writeControllerState(projectRoot, identity, {
+            publicationObservation: {
+                attemptId: attempt.attemptId,
+                eventId,
+                coverage: result.persisted || retained.state.publicationObservation.coverage === "complete"
+                    ? "complete"
+                    : "incomplete",
+            },
+        }, { expectedRevision: retained.revision }).catch(() => {});
+    };
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+        await Promise.race([
+            pending().catch(() => {}),
+            new Promise<void>((resolve) => {
+                timer = setTimeout(resolve, 5000);
+            }),
+        ]);
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
 /**
  * Finish verified publication cleanup without requiring the execution worktree
  * to still exist. This is the restart path for a process that died after deleting
@@ -497,6 +549,7 @@ export async function cleanupStoredPublication(
         }
     }
     if (attempt.phase === "cleanup_complete") {
+        await observeConfirmedPublication(projectRoot, attempt);
         await pruneEntry(projectRoot, attempt.attemptId);
         return { complete: true, attempt, worktreeKept: false, branchKept: false, details: [], preservedFiles };
     }
@@ -522,6 +575,7 @@ export async function cleanupStoredPublication(
             details: [`Could not confirm that ${attempt.targetBranch} still contains the published commits.`],
         };
     }
+    await observeConfirmedPublication(projectRoot, attempt);
     const details: string[] = [];
     let worktreeKept = false;
     let branchKept = false;
