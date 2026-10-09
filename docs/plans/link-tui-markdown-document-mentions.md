@@ -22,13 +22,13 @@ createdAt: "2026-09-05T00:48:41-04:00"
 origin: "internal"
 userVerifiedAt: null
 targetBranch: "main"
-status: "reviewed"
 validatedCommit: "19ad9f657520f568c63b5a022e39a161f98785f0"
 workRecord:
     status: "generated"
     recordId: "9bd185a2-7497-48fc-b694-1fce976c02d5"
     path: "docs/work-records/2026-10-09-clickable-tui-markdown-document-mentions.md"
     lastAttemptAt: "2026-10-09T13:57:46.087Z"
+status: "verified"
 ---
 
 # Link TUI Markdown Document Mentions

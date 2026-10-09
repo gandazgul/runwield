@@ -1,7 +1,7 @@
 ---
 kind: "work_record"
 recordId: "9bd185a2-7497-48fc-b694-1fce976c02d5"
-status: "pending_verification"
+status: "approved"
 scope: "planned_change"
 workKind: "FEATURE"
 origin: "internal"
@@ -11,7 +11,6 @@ provenance:
     sourcePlans:
         - "fb4da170-2416-48ca-b0e8-1936c74bc548"
 ---
-
 # Clickable TUI Markdown document mentions
 
 ## Summary
