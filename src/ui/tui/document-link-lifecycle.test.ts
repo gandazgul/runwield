@@ -1,10 +1,26 @@
 import { assert, assertEquals, assertNotEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
+import { getCapabilities, setCapabilities } from "@earendil-works/pi-tui";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
+import type { RuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { NO_OPEN_BROWSER_PORT } from "../../shared/browser-port.ts";
 import { createInteractiveTuiComposition } from "./interactive-tui-composition.ts";
 import { VirtualTerminal } from "./testing/virtual-terminal.js";
 import { getTUI } from "./tui.ts";
+
+type DocumentLinkFixtureRun = (fixture: RuntimeCommandFixture) => Promise<void>;
+
+async function withDocumentLinkFixture(prefix: string, run: DocumentLinkFixtureRun): Promise<void> {
+    await withRuntimeCommandFixture(prefix, async (fixture) => {
+        const capabilities = getCapabilities();
+        setCapabilities({ ...capabilities, hyperlinks: true });
+        try {
+            await run(fixture);
+        } finally {
+            setCapabilities(capabilities);
+        }
+    });
+}
 
 interface ReaderPayload {
     markdown: string;
@@ -55,7 +71,7 @@ function captureCurrentRender(terminal: VirtualTerminal): string {
 }
 
 Deno.test("Agent document links serve the Session Project without changing saved transcript text", async () => {
-    await withRuntimeCommandFixture("document-links-agent-", async ({ projectRoot, setModelResponse }) => {
+    await withDocumentLinkFixture("document-links-agent-", async ({ projectRoot, setModelResponse }) => {
         Deno.chdir(projectRoot);
         const markdown = "# Project document\nOriginal content.\n";
         await Deno.writeTextFile(join(projectRoot, "README.md"), markdown);
@@ -94,7 +110,7 @@ Deno.test("Agent document links serve the Session Project without changing saved
 
 for (const role of ["user", "system"] as const) {
     Deno.test(`${role} document mentions remain plain text in the composed TUI`, async () => {
-        await withRuntimeCommandFixture(`document-links-${role}-`, async ({ projectRoot }) => {
+        await withDocumentLinkFixture(`document-links-${role}-`, async ({ projectRoot }) => {
             Deno.chdir(projectRoot);
             await Deno.writeTextFile(join(projectRoot, "README.md"), "# Document\n");
             const terminal = new VirtualTerminal({ columns: 100, rows: 30 });
@@ -123,7 +139,7 @@ for (const role of ["user", "system"] as const) {
 }
 
 Deno.test("Session replacement revokes old links and binds the new Project before replacement output", async () => {
-    await withRuntimeCommandFixture(
+    await withDocumentLinkFixture(
         "document-links-replacement-",
         async ({ projectRoot, alternateRoot, setModelResponse }) => {
             Deno.chdir(projectRoot);
@@ -190,7 +206,7 @@ Deno.test("Session replacement revokes old links and binds the new Project befor
 });
 
 Deno.test("disposing the composed TUI closes its document listener and is safe to repeat", async () => {
-    await withRuntimeCommandFixture("document-links-dispose-", async ({ projectRoot }) => {
+    await withDocumentLinkFixture("document-links-dispose-", async ({ projectRoot }) => {
         Deno.chdir(projectRoot);
         await Deno.writeTextFile(join(projectRoot, "README.md"), "# Document\n");
         const terminal = new VirtualTerminal({ columns: 100, rows: 30 });
@@ -216,7 +232,7 @@ Deno.test("disposing the composed TUI closes its document listener and is safe t
 });
 
 Deno.test("startup failure closes a document listener started by the renderer", async () => {
-    await withRuntimeCommandFixture("document-links-startup-failure-", async ({ projectRoot }) => {
+    await withDocumentLinkFixture("document-links-startup-failure-", async ({ projectRoot }) => {
         Deno.chdir(projectRoot);
         await Deno.writeTextFile(join(projectRoot, "README.md"), "# Document\n");
         const terminal = new VirtualTerminal({ columns: 100, rows: 30 });
