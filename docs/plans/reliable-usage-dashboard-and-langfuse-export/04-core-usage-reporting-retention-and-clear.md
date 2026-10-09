@@ -19,7 +19,8 @@ dependencies:
     - "03-workflow-outcome-observations"
 targetBranch: "epic/reliable-usage-dashboard-and-langfuse-export"
 userVerifiedAt: null
-status: "validated_reviewer"
+status: "validated"
+validatedCommit: "86219401563ceffe74954bad1a4009fd738b7158"
 ---
 
 # Core Usage Reporting, Retention, and Clear

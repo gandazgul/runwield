@@ -53,3 +53,19 @@ Manual verification steps for reliable-usage-dashboard-and-langfuse-export/03-wo
 - [ ] View observations for a workflow with no committed Plan association. Confirm they have no Plan attribution.
 
 <!-- runwield:manual-qa:end child="reliable-usage-dashboard-and-langfuse-export/03-workflow-outcome-observations" -->
+
+<!-- runwield:manual-qa:start child="reliable-usage-dashboard-and-langfuse-export/04-core-usage-reporting-retention-and-clear" -->
+
+## Core Usage Reporting, Retention, and Clear
+
+Manual verification steps for reliable-usage-dashboard-and-langfuse-export/04-core-usage-reporting-retention-and-clear
+
+- [ ] Review a report for a known period and confirm token, cost, and latency totals match its recorded observations.
+- [ ] Confirm the report distinguishes a covered zero-activity day from disabled or legacy-only gaps, and assigns
+      activity to the correct local day across a daylight-saving change.
+- [ ] Clear one Project's measurement history; confirm another Project's history and the selected Project's Sessions,
+      Plans, worktrees, and configuration remain intact.
+- [ ] Record a new observation after clearing and confirm it appears in the report, while cleared history does not
+      return after restart.
+
+<!-- runwield:manual-qa:end child="reliable-usage-dashboard-and-langfuse-export/04-core-usage-reporting-retention-and-clear" -->
