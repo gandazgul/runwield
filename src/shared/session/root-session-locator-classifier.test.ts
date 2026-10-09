@@ -1,5 +1,6 @@
 import { assertEquals } from "@std/assert";
 import { join } from "@std/path";
+import { createHash } from "node:crypto";
 import { openFileSessionStore } from "./file-session-store.ts";
 import { classifyRootSessionLocator, getRunWieldSessionDir } from "./root-session.js";
 
@@ -181,4 +182,61 @@ Deno.test("classifyRootSessionLocator blocks only when no Session store was comp
     const result = await classifyRootSessionLocator({ cwd: root, ownerCoordinationStore: null });
     assertEquals(result.kind, "blocked");
     assertEquals(result.reason, "session_store_unavailable");
+});
+
+Deno.test("classifyRootSessionLocator resumes a cataloged repair segment from the Project root", async () => {
+    const root = await makeRoot("classifier-repair-root");
+    const worktree = await makeRoot("classifier-repair-worktree");
+    const store = openFileSessionStore();
+    try {
+        const project = store.ensureRuntimeProject({ root });
+        const planningPath = await writeTranscript(root, "planning-pi");
+        const session = await store.ensureSessionCatalogRecord({
+            projectId: project.projectId,
+            piSessionId: "planning-pi",
+            transcriptPath: planningPath,
+            transcriptCwd: root,
+            source: "created",
+        });
+        const current = store.getCurrentSessionSegment(session.runwieldSessionId)!;
+        const bytes = await Deno.readFile(planningPath);
+        store.sealSessionTranscriptSegment({
+            runwieldSessionId: session.runwieldSessionId,
+            segmentId: current.segmentId,
+            evidence: {
+                byteLength: bytes.byteLength,
+                digestHex: createHash("sha256").update(bytes).digest("hex"),
+                terminalEntryId: null,
+            },
+        });
+        const sessionPath = await writeTranscript(worktree, "repair-pi");
+        await store.appendSessionTranscriptSegment({
+            runwieldSessionId: session.runwieldSessionId,
+            projectId: project.projectId,
+            piSessionId: "repair-pi",
+            transcriptPath: sessionPath,
+            transcriptCwd: worktree,
+            kind: "semantic_repair",
+        });
+        const result = await classifyRootSessionLocator({
+            cwd: root,
+            sessionId: "repair-pi",
+            sessionPath,
+            ownerCoordinationStore: store,
+        });
+        assertEquals(result.kind, "managed");
+        assertEquals(result.session?.runwieldSessionId, session.runwieldSessionId);
+
+        const uncatalogedPath = await writeTranscript(worktree, "uncataloged-pi");
+        const uncataloged = await classifyRootSessionLocator({
+            cwd: root,
+            sessionId: "uncataloged-pi",
+            sessionPath: uncatalogedPath,
+            ownerCoordinationStore: store,
+        });
+        assertEquals(uncataloged.kind, "blocked");
+        assertEquals(uncataloged.reason, "invalid_transcript_locator");
+    } finally {
+        store.close();
+    }
 });

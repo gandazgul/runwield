@@ -2163,6 +2163,13 @@ The file storage, operation-scoped writer lock, transcript segments, and synchro
 [ADR-015](../adr/015-file-authoritative-session-bundles.md). These mechanisms implement the outcomes above; they do not
 create additional product restrictions on which screen the owner may use.
 
+**Acceptance scenario: Resume a repair transcript from the Project root.**
+
+Given a saved Session whose current repair segment is stored under its execution worktree's Session directory, resuming
+that segment by its Pi transcript ID from the primary Project root continues the same stable Session. The file catalog
+must prove the segment belongs to that Project before accepting a cross-root transcript path. An uncataloged transcript
+in another root's Session directory remains rejected.
+
 **Acceptance scenario: Choose a planning Session by its title.**
 
 When a Plan has multiple resumable planning Sessions, `/load-plan` shows their titles from committed history. An unnamed
