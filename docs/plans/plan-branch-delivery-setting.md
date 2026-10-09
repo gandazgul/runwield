@@ -27,7 +27,7 @@ origin: "internal"
 userVerifiedAt: null
 targetBranch: "main"
 routingIntent: "PLANNED_CHANGE"
-status: "implemented"
+status: "reviewed"
 ---
 
 # Plan Branch Delivery Setting
