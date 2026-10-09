@@ -1,6 +1,6 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { createElement } from "react";
-import { renderToStaticMarkup } from "npm:react-dom@^19.3.0/server";
+import { renderToStaticMarkup } from "react-dom/server";
 import { UsageTrend } from "../design-system/components/react/UsageTrend.tsx";
 
 Deno.test("usage trend breaks at a gap and draws covered zero as a baseline point", () => {

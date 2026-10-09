@@ -122,10 +122,11 @@ for (const resumeStatus of ["in_progress", "failed"]) {
                             },
                         });
                         assertEquals(decision.status, "accepted");
-                        for (
-                            let i = 0;
-                            i < 500 && service.getOperation(started.operationId).status === "running";
-                            i++
+                        // Run prepares a real worktree before completion; allow for CI contention.
+                        const approvalDeadline = Date.now() + 60_000;
+                        while (
+                            Date.now() < approvalDeadline &&
+                            service.getOperation(started.operationId).status === "running"
                         ) {
                             await new Promise((resolve) => setTimeout(resolve, 20));
                         }
