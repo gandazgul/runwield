@@ -107,9 +107,20 @@ export const validationTreeHumanReviewNoAnswerRetryScenario = withValidationBran
         scriptedInteractions: [
             { type: "select", promptIncludes: "Pick Retry to open it again", value: "retry" },
         ],
-        actions: plannedChangeReviewRepairValidationScenario.actions.filter((action: { type?: string }) =>
-            action.type !== "assertWorkflowDurability"
-        ),
+        interactiveSelectPrompts: [
+            ...plannedChangeReviewRepairValidationScenario.interactiveSelectPrompts || [],
+            "Pick Retry to open it again",
+        ],
+        actions: [
+            ...plannedChangeReviewRepairValidationScenario.actions.slice(0, 3),
+            // Keep the real question mounted until its visible text has been observed.
+            { type: "waitForScreen", text: "Pick Retry to open it again", timeoutMs: 240000 },
+            { type: "type", text: "Retry" },
+            { type: "enter" },
+            ...plannedChangeReviewRepairValidationScenario.actions.slice(3).filter((action: { type?: string }) =>
+                action.type !== "assertWorkflowDurability"
+            ),
+        ],
         assertions: [],
     },
     "validation-tree-human-review-no-answer-retry",
