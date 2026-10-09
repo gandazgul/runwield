@@ -44,6 +44,7 @@ async function main() {
                     respond({ thread: { id: "thread-fixture" } });
                     break;
                 case "turn/start": {
+                    if (mode === "wait") await new Promise((resolve) => setTimeout(resolve, 100));
                     respond({ turn: { id: "turn-fixture", status: "inProgress" } });
                     if (mode === "wait") break;
                     if (mode === "approval") {

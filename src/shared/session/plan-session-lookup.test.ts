@@ -3,7 +3,7 @@ import { join } from "@std/path";
 import { createHash } from "node:crypto";
 import { openFileSessionStore } from "./file-session-store.ts";
 import { findPlanAssociatedSessions } from "./plan-session-lookup.ts";
-import { encodeCwdForSessionDir } from "./root-session.js";
+import { encodeCwdForSessionDir } from "../project-directory-key.ts";
 
 const TIMESTAMP = "2026-01-01T00:00:00.000Z";
 

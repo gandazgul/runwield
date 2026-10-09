@@ -465,7 +465,7 @@ Deno.test("Plan reviews recover unfinished work and send direct edits as feedbac
     assertStringIncludes(surface, "persistReviewDraftLocally");
     assertStringIncludes(surface, "directEdits={directEditPanel}");
     assertStringIncludes(surface, "disabled={!hasGroupFeedback || submitting !== null ||");
-    assertStringIncludes(surface, "plannerWorking || reviewGroup?.busy}");
+    assertMatch(surface, /plannerWorking \|\| waitingForRevision \|\|\s*reviewGroup\?\.busy\}/);
     assertStringIncludes(surface, "buildPlanReviewFeedback");
 });
 

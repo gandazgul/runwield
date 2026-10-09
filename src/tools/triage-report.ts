@@ -3,17 +3,15 @@
  * Custom tool for emitting a structured Triage Report.
  */
 
-import { type Static, StringEnum, Type } from "@earendil-works/pi-ai";
+import { StringEnum, Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import type { HostedSession } from "../shared/session/hosted-session.js";
-import { normalizeRoutingIntent, normalizeWorkKind, ROUTING_INTENTS, WORK_KINDS } from "../constants.js";
+import { ROUTING_INTENTS, WORK_KINDS } from "../constants.js";
 import { emitSystemStatus } from "../shared/session/session-runtime-events.js";
-import { sanitizeSessionName } from "../shared/session/session-name.ts";
 import { recordWorkflowMetric } from "../shared/workflow/metrics.js";
 import { publishWorkflowToolEvent } from "../shared/workflow/workflow-tool-events.ts";
-
-const TRIAGE_COMPLEXITIES = ["LOW", "MEDIUM", "HIGH"] as const;
+import { normalizeTriageOutcome, TRIAGE_COMPLEXITIES, type TriageOutcome } from "../shared/workflow/triage-outcome.ts";
 
 const PARAMETERS = Type.Object({
     routingIntent: Type.Optional(StringEnum(ROUTING_INTENTS, {
@@ -40,69 +38,16 @@ const PARAMETERS = Type.Object({
     })),
 });
 
-type TriageParameters = Static<typeof PARAMETERS>;
-
-export type TriageRoutingIntent = NonNullable<ReturnType<typeof normalizeRoutingIntent>>;
-export type TriageWorkKind = NonNullable<ReturnType<typeof normalizeWorkKind>>;
-export type TriageComplexity = typeof TRIAGE_COMPLEXITIES[number];
-export type TriageClassification = Extract<TriageRoutingIntent, "PLANNED_CHANGE" | "PROJECT">;
-
-export interface TriageReportDetails {
-    routingIntent: TriageRoutingIntent;
-    classification?: TriageClassification;
-    complexity: TriageComplexity;
-    summary: string;
-    sessionName?: string;
-    workKind?: TriageWorkKind;
-}
-
-type TriageReportResult = AgentToolResult<TriageReportDetails> & { terminate: boolean };
+type TriageReportResult = AgentToolResult<TriageOutcome> & { terminate: boolean };
 
 interface TriageReportToolOptions {
     hostedSession?: HostedSession | null;
 }
 
-function normalizeSessionName(params: TriageParameters): string | undefined {
-    return sanitizeSessionName(params.sessionName || "") || undefined;
-}
-
-function normalizeTriageComplexity(value: string): TriageComplexity {
-    if (value === "LOW" || value === "MEDIUM" || value === "HIGH") return value;
-    throw new TypeError("triage_report requires a valid complexity");
-}
-
-function normalizeTriageParams(params: TriageParameters): TriageReportDetails {
-    const routingIntent = normalizeRoutingIntent(params.routingIntent) || normalizeRoutingIntent(params.classification);
-    if (!routingIntent) {
-        throw new TypeError("triage_report requires a valid canonical routingIntent");
-    }
-
-    const details: TriageReportDetails = {
-        routingIntent,
-        complexity: normalizeTriageComplexity(params.complexity),
-        summary: params.summary,
-    };
-    const sessionName = normalizeSessionName(params);
-    if (sessionName) details.sessionName = sessionName;
-
-    if (routingIntent === "PLANNED_CHANGE") {
-        details.classification = "PLANNED_CHANGE";
-    } else if (routingIntent === "PROJECT") {
-        details.classification = "PROJECT";
-    }
-
-    const workKind = normalizeWorkKind(params.workKind);
-    if (workKind && routingIntent === "PLANNED_CHANGE") {
-        details.workKind = workKind;
-    }
-
-    return details;
-}
-
 export function createTriageReportTool(
     { hostedSession }: TriageReportToolOptions = {},
 ) {
-    return defineTool<typeof PARAMETERS, TriageReportDetails>({
+    return defineTool<typeof PARAMETERS, TriageOutcome>({
         name: "triage_report",
         label: "Routing Intent Report",
         description: "Submit your Routing Intent for the user's request. " +
@@ -111,7 +56,10 @@ export function createTriageReportTool(
             "Do not output the Routing Intent as freeform text — use this tool.",
         parameters: PARAMETERS,
         async execute(toolCallId, params): Promise<TriageReportResult> {
-            const details = normalizeTriageParams(params);
+            const details = normalizeTriageOutcome(params);
+            if (!details) {
+                throw new TypeError("triage_report requires a valid canonical routingIntent, complexity, and summary");
+            }
             const { routingIntent, complexity, summary, workKind } = details;
 
             try {

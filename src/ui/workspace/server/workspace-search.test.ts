@@ -624,7 +624,15 @@ Deno.test("Workspace search skips a Plan without an ID and keeps other results",
         const markdown = "---\nclassification: PLANNED_CHANGE\nstatus: draft\n---\n# Missing ID\n\nShared needle.\n";
         await Deno.writeTextFile(path, markdown);
         await fixture.search.refresh();
-        const payload = await fixture.search.search({ query: "Shared needle" });
+        let payload;
+        // A background refresh can start while the query hydrates Plan evidence.
+        assertEquals(
+            await waitFor(async () => {
+                payload = await fixture.search.search({ query: "Shared needle" });
+                return payload.states[0].state === "ready";
+            }),
+            true,
+        );
         assertEquals(payload.results.map((result) => result.sourceId), ["valid-id"]);
         assertEquals(payload.states[0].state, "ready");
         assertEquals(await Deno.readTextFile(path), markdown);

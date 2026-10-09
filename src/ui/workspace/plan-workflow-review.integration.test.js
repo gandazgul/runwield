@@ -122,9 +122,10 @@ for (const resumeStatus of ["in_progress", "failed"]) {
                             },
                         });
                         assertEquals(decision.status, "accepted");
+                        // Worktree setup and the Engineer turn can exceed 10 seconds under CI load.
                         for (
                             let i = 0;
-                            i < 500 && service.getOperation(started.operationId).status === "running";
+                            i < 3000 && service.getOperation(started.operationId).status === "running";
                             i++
                         ) {
                             await new Promise((resolve) => setTimeout(resolve, 20));
@@ -203,6 +204,7 @@ for (const resumeStatus of ["in_progress", "failed"]) {
                     const result = await resumed.json();
                     assertEquals(resumed.status, 202, JSON.stringify(result));
                     assertExists(result.operationId);
+                    // Git-backed resume and validation can exceed 10 seconds under CI load.
                     for (let i = 0; i < 3000; i++) {
                         const operation = service.getOperation(result.operationId);
                         if (operation.liveInteraction || operation.status !== "running") break;
