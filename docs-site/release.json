@@ -1,5 +1,5 @@
 {
-    "version": "Preview",
-    "sourceRef": "main",
-    "releaseUrl": "https://github.com/gandazgul/runwield/releases/latest"
+  "version": "v0.11.5",
+  "sourceRef": "e921d0ae940072a2f8ef95c0b509143c692609c4",
+  "releaseUrl": "https://github.com/gandazgul/runwield/releases/tag/v0.11.5"
 }
