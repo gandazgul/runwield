@@ -25,7 +25,8 @@ dependencies:
     - "03-review-and-approve-plans-through-durable-plannotator-decisions"
 targetBranch: "epic/attached-mode-claude-feature-preview"
 userVerifiedAt: null
-status: "validated_reviewer"
+status: "validated"
+validatedCommit: "d9eba56c57394f476de431e1118072b7a9a42104"
 ---
 
 # Implement approved Plans in RunWield worktrees
