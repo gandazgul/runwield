@@ -6,7 +6,18 @@
 import { assert } from "@std/assert";
 import { VALIDATION_WORKFLOW_BRANCHES } from "./validation-workflow-coverage.ts";
 
-/** @typedef {import('./scenario-runner.js').GoldenScenario & { validationBranches?: string[] }} GoldenScenario */
+import type { GoldenScenario } from "./scenario-runner.js";
+
+export interface GoldenAssertionSource {
+    goldenAssertionSource?: string;
+}
+
+export type GoldenCoverageAssertion = NonNullable<GoldenScenario["assertions"]>[number] & GoldenAssertionSource;
+
+export interface GoldenCoverageScenario extends GoldenScenario {
+    assertions?: GoldenCoverageAssertion[];
+    validationBranches?: string[];
+}
 
 const VALIDATION_WORKFLOW_REQUIRED_CAPABILITIES = Object.freeze(
     VALIDATION_WORKFLOW_BRANCHES.map((branch) => `validation:${branch.id}`),
@@ -98,12 +109,8 @@ const GOLDEN_TUI_LEGACY_VALIDATION_CAPABILITY_IDS = Object.freeze([
     "recovery:validation-exhausted",
 ]);
 
-/**
- * @param {GoldenScenario[]} scenarios
- * @returns {Map<string, string[]>}
- */
-export function collectGoldenScenarioCoverage(scenarios) {
-    const owners = new Map();
+export function collectGoldenScenarioCoverage(scenarios: GoldenCoverageScenario[]): Map<string, string[]> {
+    const owners = new Map<string, string[]>();
     for (const scenario of scenarios) {
         for (const capability of scenario.coverage || []) {
             const list = owners.get(capability) || [];
@@ -120,8 +127,7 @@ export function collectGoldenScenarioCoverage(scenarios) {
     return owners;
 }
 
-/** @param {GoldenScenario[]} scenarios */
-export function assertGoldenScenarioCoverage(scenarios) {
+export function assertGoldenScenarioCoverage(scenarios: GoldenCoverageScenario[]): void {
     const known = new Set([...GOLDEN_TUI_REQUIRED_CAPABILITY_IDS, ...GOLDEN_TUI_LEGACY_VALIDATION_CAPABILITY_IDS]);
     const owners = collectGoldenScenarioCoverage(scenarios);
     const missing = GOLDEN_TUI_REQUIRED_CAPABILITY_IDS.filter((capability) => !owners.has(capability));
@@ -139,11 +145,11 @@ export function assertGoldenScenarioCoverage(scenarios) {
         }
         const declared = scenario.coverage || [];
         const asserted = new Set((scenario.assertions || []).flatMap((assertion) => assertion.goldenCoverage || []));
-        const assertionSources = new Map();
+        const assertionSources = new Map<string, Set<string>>();
         for (const assertion of scenario.assertions || []) {
-            const source = /** @type {{ goldenAssertionSource?: unknown }} */ (assertion).goldenAssertionSource;
+            const source = assertion.goldenAssertionSource;
             if (typeof source !== "string") continue;
-            const capabilities = assertionSources.get(source) || new Set();
+            const capabilities = assertionSources.get(source) || new Set<string>();
             for (const capability of assertion.goldenCoverage || []) capabilities.add(capability);
             assertionSources.set(source, capabilities);
         }
