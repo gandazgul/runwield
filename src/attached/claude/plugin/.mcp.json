@@ -1,0 +1,14 @@
+{
+    "mcpServers": {
+        "runwield": {
+            "command": "wld",
+            "args": [
+                "attached",
+                "mcp"
+            ],
+            "env": {
+                "RUNWIELD_ATTACHED_PLUGIN_ROOT": "${CLAUDE_PLUGIN_ROOT}"
+            }
+        }
+    }
+}

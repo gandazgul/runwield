@@ -5,7 +5,7 @@
 
 import { basename, dirname, isAbsolute, join, resolve } from "@std/path";
 import { createHash } from "node:crypto";
-import { encodeCwdForSessionDir } from "./root-session.js";
+import { encodeCwdForSessionDir } from "../project-directory-key.ts";
 import type { FileSessionManifest, FileSessionProject } from "./file-session-store-types.ts";
 
 export const FILE_SESSION_STORE_VERSION = 1;

@@ -1,0 +1,51 @@
+/**
+ * @module cmd/attached
+ * `wld attached activate|triage_report|status|plan_written|mcp`: the CLI carrier for the Attached Workflow
+ * Coordinator. Each operation reads one JSON object from stdin and prints one JSON
+ * result. A rejected operation exits with code 1.
+ *
+ * Exits explicitly: modules loaded with the command registry reset `Deno.exitCode`.
+ */
+
+import { getCwd } from "../../constants.js";
+import { runAttachedOperation } from "../../shared/attached/coordinator.ts";
+import { ATTACHED_OPERATIONS, MAX_ATTACHED_INPUT_BYTES } from "../../shared/attached/operations.ts";
+import { VERSION } from "../../shared/version.js";
+
+const USAGE =
+    'Usage: wld attached <activate|triage_report|status|plan_written> < input.json\n       wld attached mcp\nstatus input: {"workflowId": "..."} or {} for the latest open workflow';
+
+/** Read stdin, stopping one byte past the limit so oversized input is still rejected as too large. */
+async function readBoundedStdin(): Promise<string> {
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    for await (const chunk of Deno.stdin.readable) {
+        chunks.push(chunk);
+        size += chunk.length;
+        if (size > MAX_ATTACHED_INPUT_BYTES) break;
+    }
+    const bytes = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) {
+        bytes.set(chunk, offset);
+        offset += chunk.length;
+    }
+    return new TextDecoder().decode(bytes);
+}
+
+export async function runAttachedCommand(argv: string[]): Promise<void> {
+    const [subcommand, ...rest] = argv;
+    if (subcommand === "mcp" && rest.length === 0) {
+        const { runAttachedMcpServer } = await import("../../attached/claude/mcp.ts");
+        await runAttachedMcpServer(getCwd(), VERSION);
+        return;
+    }
+    const operation = ATTACHED_OPERATIONS.find((entry) => entry.name === subcommand);
+    if (!operation || rest.length > 0) {
+        console.error(USAGE);
+        Deno.exit(1);
+    }
+    const result = await runAttachedOperation(operation.name, getCwd(), await readBoundedStdin());
+    console.log(JSON.stringify(result));
+    if (!result.ok) Deno.exit(1);
+}

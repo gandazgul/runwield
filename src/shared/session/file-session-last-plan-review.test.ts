@@ -1,7 +1,7 @@
 import { assertEquals, assertThrows } from "@std/assert";
 import { join } from "@std/path";
 import { openFileSessionStore } from "./file-session-store.ts";
-import { encodeCwdForSessionDir } from "./root-session.js";
+import { encodeCwdForSessionDir } from "../project-directory-key.ts";
 
 Deno.test("the latest Plan review is readable from another store before the writer settles", async () => {
     const root = await Deno.makeTempDir();

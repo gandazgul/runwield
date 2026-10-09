@@ -3,7 +3,7 @@ import { join } from "@std/path";
 import { AGENTS } from "../constants.js";
 import { ACTIVE_AGENT_CUSTOM_TYPE } from "../shared/session/active-agent-session.js";
 import { openOwnerCoordinationStore } from "../shared/owner-coordination/index.js";
-import { encodeCwdForSessionDir } from "../shared/session/root-session.js";
+import { encodeCwdForSessionDir } from "../shared/project-directory-key.ts";
 import { createSessionRuntime } from "../shared/session/session-runtime.ts";
 
 export type ManagedSessionFixture = Awaited<ReturnType<typeof makeManagedSessionFixture>>;

@@ -583,7 +583,7 @@ export async function composeSharedPracticePrompt(value, agentName, projectRoot)
  * @param {string} agentName - the file name to load (without .md)
  * @param {string[]} filePaths - Paths to attempt, ordered low → high priority
  * @param {string | undefined} projectRoot
- * @returns {Promise<import('./types.js').AgentDefinition>}
+ * @returns {Promise<import('./types.js').LoadedAgentDefinition>}
  */
 async function loadAgentDefFromPaths(agentName, filePaths, projectRoot) {
     /** @type {{ name?: string, model?: string, description?: string, contextContract?: unknown, promptOverride?: boolean, thinkingLevel?: string, temperature?: unknown, tools?: unknown[], busyLines?: unknown, [key: string]: unknown }} */
@@ -687,12 +687,13 @@ async function loadAgentDefFromPaths(agentName, filePaths, projectRoot) {
         workflowOnly,
         busyLines,
         systemPrompt,
+        rolePrompt: mergedPromptBody,
     };
 }
 
 /**
- * @param {import('./types.js').AgentDefinition} agentDef
- * @returns {import('./types.js').AgentDefinition}
+ * @param {import('./types.js').LoadedAgentDefinition} agentDef
+ * @returns {import('./types.js').LoadedAgentDefinition}
  */
 function addUniversalAgentTools(agentDef) {
     const tools = [...agentDef.tools];
@@ -710,7 +711,7 @@ function addUniversalAgentTools(agentDef) {
  *
  * @param {string} agentName
  * @param {string} [projectRoot]
- * @returns {Promise<import('./types.js').AgentDefinition>}
+ * @returns {Promise<import('./types.js').LoadedAgentDefinition>}
  */
 export async function loadAgentDef(agentName, projectRoot) {
     const canonicalName = normalizeAgentInternalName(agentName);
@@ -730,7 +731,7 @@ export async function loadAgentDef(agentName, projectRoot) {
  * @param {string} filePath - Absolute path to the agent .md file
  * @param {{ agentName?: string }} [options] - Override the internal name used as the cache key
  *   (defaults to the file's basename without `.md`).
- * @returns {Promise<import('./types.js').AgentDefinition>}
+ * @returns {Promise<import('./types.js').LoadedAgentDefinition>}
  */
 export function loadAgentDefFromPath(filePath, options) {
     const agentName = normalizeAgentInternalName(options?.agentName || basename(filePath, ".md"));

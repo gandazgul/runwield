@@ -169,6 +169,17 @@ export async function inspectRunWieldGitignore(projectRoot: string): Promise<Run
     }
 }
 
+/** True when `ensureRunWieldOwnedGitignoreBlock` would add or rewrite the managed block. Reads only. */
+export async function runWieldGitignoreNeedsUpdate(projectRoot: string): Promise<boolean> {
+    let existing = "";
+    try {
+        existing = await Deno.readTextFile(join(projectRoot, ".gitignore"));
+    } catch (error) {
+        if (!(error instanceof Deno.errors.NotFound)) throw error;
+    }
+    return reconcileGitignore(existing).content !== existing;
+}
+
 function reconcileGitignore(
     existing: string,
     retainedLegacyDirectories: string[] = [],

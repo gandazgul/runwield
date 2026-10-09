@@ -4,7 +4,7 @@ import { type Static, Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import type { HostedSession } from "../shared/session/hosted-session.js";
-import { sanitizeSessionName } from "../shared/session/session-name.ts";
+import { sanitizeSessionName } from "../shared/session-name.ts";
 import { emitHostedSessionRuntimeEvent, RuntimeEventTypes } from "../shared/session/session-runtime-events.js";
 
 export const SET_SESSION_NAME_TOOL_NAME = "set_session_name";
