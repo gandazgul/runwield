@@ -1,6 +1,6 @@
 /**
  * @module shared/attached/role-instructions
- * Attached Role Instructions: the effective Router or Planner prompt Core returns with a
+ * Attached Role Instructions: the effective Router, Planner, or implementer prompt Core returns with a
  * pending host action.
  *
  * The text is resolved on every response from the project, home, and bundled agent
@@ -28,12 +28,22 @@ const ENVELOPE_ADDENDUM = [
     "  - `expectedRevision`: `workflow.revision` from the last RunWield result.",
     "  - `payload.actionId`: `workflow.nextAction.actionId` from the last RunWield result.",
     "- After each call, follow `workflow.nextAction`, even when the result has no `instructions`. Follow role " +
-    "instructions when present. For `plan_ready`, report approval and readiness; execution handoff is a later " +
-    "Preview step. For `return_to_host`, tell the user the outcome and continue as ordinary Claude Code.",
+    "instructions when present. For `plan_ready`, immediately call `start_execution` and dispatch a fresh host worker, unless consent was declined; then stop. For `return_to_host`, tell the user the outcome and continue as ordinary Claude Code.",
     "- Stay in Claude Code and the browser; use no RunWield CLI or TUI commands.",
 ].join("\n");
 
+const WORKER_ADDENDUM = [
+    "## Attached implementation worker — overrides Core lifecycle instructions above",
+    "- You are a fresh Claude-hosted worker. All model calls belong to Claude Code.",
+    "- Use only the handed-off execution directory and Plan path. Follow that Plan. Never edit, clean, stash, reset, or relocate the invoking checkout. With recorded non-Git consent, the execution directory is the current checkout.",
+    "- Do not create host worktree isolation or another worktree. RunWield owns execution isolation.",
+    "- Do not call any RunWield lifecycle tool, MCP operation, CLI, or TUI, including task_completed. This overrides all Core lifecycle and completion-tool instructions above.",
+    "- Return a concise Markdown bullet-point implementation report to the coordinating conversation, with outcomes and verification results. The coordinator submits task_completed.message. If blocked, return the blocker; do not claim completion.",
+].join("\n");
+
 const ROLE_ADDENDUM: Record<AttachedHostRole, string> = {
+    engineer: WORKER_ADDENDUM,
+    "frontend-engineer": WORKER_ADDENDUM,
     router: "- Report Triage with `triage_report`. Put the Core `triage_report` arguments (`routingIntent`, " +
         "`complexity`, `summary`, `workKind`, `sessionName`) in `payload.outcome`.",
     planner: [
@@ -58,7 +68,7 @@ export async function resolveAttachedRoleInstructions(projectRoot: string, role:
     return [
         agent.rolePrompt.replaceAll("{{BUNDLED_AGENT_DEFS_DIR}}", bundledAgentDefsPath),
         buildBridgedToolPromptAppendix([], "Claude Code", agent.tools).trim(),
-        ENVELOPE_ADDENDUM,
+        ...(role === "engineer" || role === "frontend-engineer" ? [] : [ENVELOPE_ADDENDUM]),
         ROLE_ADDENDUM[role],
     ].join("\n\n");
 }

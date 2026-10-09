@@ -1,6 +1,6 @@
 /**
  * @module cmd/attached
- * `wld attached activate|triage_report|status|plan_written|mcp`: the CLI carrier for the Attached Workflow
+ * `wld attached activate|triage_report|status|plan_written|start_execution|task_completed|mcp`: the CLI carrier for the Attached Workflow
  * Coordinator. Each operation reads one JSON object from stdin and prints one JSON
  * result. A rejected operation exits with code 1.
  *
@@ -13,7 +13,7 @@ import { ATTACHED_OPERATIONS, MAX_ATTACHED_INPUT_BYTES } from "../../shared/atta
 import { VERSION } from "../../shared/version.js";
 
 const USAGE =
-    'Usage: wld attached <activate|triage_report|status|plan_written> < input.json\n       wld attached mcp\nstatus input: {"workflowId": "..."} or {} for the latest open workflow';
+    'Usage: wld attached <activate|triage_report|status|plan_written|start_execution|task_completed> < input.json\n       wld attached mcp\nstatus input: {"workflowId": "..."} or {} for the latest open workflow';
 
 /** Read stdin, stopping one byte past the limit so oversized input is still rejected as too large. */
 async function readBoundedStdin(): Promise<string> {

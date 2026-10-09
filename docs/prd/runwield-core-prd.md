@@ -638,6 +638,30 @@ Automatic repair preserves user content, truthful validation, and real permissio
 published, overwrite user decisions, repeat uncertain external side effects, or destroy work to make internal state
 consistent. A broken internal state never removes the obligation to retain and recover the workflow.
 
+**Requirement: Settle implementation effects before accepting completion.**
+
+Shared completion holds the Plan and attempt locks while it checks issued document evidence, restores a missing
+execution Plan from its recorded baseline, and settles lifecycle, Git checkpoint, journal, and registry effects. A
+recorded `implementation_finished` event alone does not prove that checkpoint settlement finished. Retry completes
+remaining effects without repeating the lifecycle event. Carriers may require the issued Plan revision and body;
+ordinary Session completion does not acquire that extra requirement.
+
+**Acceptance scenarios (current shared execution preparation and completion):**
+
+- Given remembered planned-work consent in a non-Git project and process loss after preparation, when preparation is
+  retried against the same `in_progress` Plan, Core continues in the same files without repeating the execution-start
+  lifecycle transition. It reconciles proven settled preparation journals before retry. The Attached carrier uses this
+  same authority; its host journey is owned by
+  [Connect isolated implementation](runwield-connect-prd.md#isolated-implementation).
+- Given process loss after a first Git worktree is registered but before its Plan is materialized, retry reconciles the
+  original source preparation evidence before document selection and continues the same attempt. It still requires the
+  approved source revision and the existing worktree safety checks.
+- Given process loss after `implementation_finished` but before the Git checkpoint or registry settlement, completion
+  retry saves the worker changes, settles the journal and registry, and only then accepts implementation.
+- Given completion bound to an issued Plan and a body edit while completion waits for the Plan lock, Core rejects the
+  stale completion without recording implementation. Baseline restoration and replay after complete Core settlement
+  still work when the issued body is unchanged.
+
 **Requirement: Ask only for an outcome-level decision or a genuine external prerequisite.**
 
 When the user genuinely must act, explain what happened, what RunWield is protecting, the specific missing evidence or

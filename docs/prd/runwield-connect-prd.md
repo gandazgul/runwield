@@ -199,8 +199,9 @@ Initialization is optional and may occur before or after the first Attached Work
 **Scope and maturity:** The Claude FEATURE Preview delivers Plan review, Feedback, approval, and readiness through
 Plannotator and Core. Review decisions are durable before browser acknowledgment. Claude receives Feedback and image
 paths through `status`, revises the Plan, and submits the next round into the same browser page. Cancellation returns to
-Claude with a review-canceled note and leaves the workflow open. Execution, verification, code review, and publication
-remain target scope; Core owns their shared requirements.
+Claude with a review-canceled note and leaves the workflow open. The Preview also implements the guarded execution
+handoff and implementation checkpoint below. Verification, code review, and publication remain target scope (children 05
+and 06); Core owns their shared requirements.
 
 **Requirement: Keep Core approval and verification authoritative.**
 
@@ -254,25 +255,64 @@ the external host. The host continues to own its conversation and model calls.
 
 ### Isolated implementation
 
-**Scope and maturity:** Target for planned attached work; QUICK_FIX retains Core’s lighter path.
+**Scope and maturity:** The Claude FEATURE Preview implements approved execution handoff, durable non-Git consent,
+worker recovery, and guarded implementation completion through Core. Automated real-Git and fresh-process tests cover
+these coordination guarantees. Host-native worker dispatch is instructed by the plugin, not sandboxed. Live acceptance
+on Claude Code 2.1.293 confirms automatic handoff after browser approval, coordinator-owned completion, and fresh-host
+restoration of the same worker action and worktree. No wider host-version range is declared. Validation and publication
+remain later Preview scope (children 05 and 06). Other hosts, QUICK_FIX, and safe-handoff fallback beyond non-Git
+consent remain targets.
 
-**Requirement: Execute planned work within its approved isolation.**
+**Requirement: Automatically hand approved work to its isolated implementer.**
 
-- Planned FEATURE execution remains isolated in a RunWield-owned worktree by default.
-- The invoking host conversation may supervise a host-native implementation worker operating in that worktree.
-- All worker model calls still come from the External Agent Host.
-- QUICK_FIX retains its existing in-place, no-Plan behavior.
-- When a host cannot support a safe worktree handoff, RunWield may use its existing explicit in-place consent path and
-  must disclose the reduced recovery assurance.
-- External hosts must not create an independent worktree lifecycle that competes with RunWield's registry, baseline,
-  validation, or recovery state.
+- After approval and readiness, Claude immediately starts execution; no separate execution confirmation is required.
+- Core prepares a RunWield-owned worktree, branch, baseline, and registered execution attempt through the same authority
+  used by Core Sessions. Claude discloses the directory, branch, and RunWield-owned `.gitignore` block.
+- The invoking checkout is preserved, including dirty and untracked user work, except that disclosed `.gitignore` block.
+- The coordinating conversation dispatches a fresh host-native worker with the Plan path, execution directory, and
+  current engineer or frontend-engineer instructions. All worker model calls belong to Claude. RunWield starts no model
+  Session or execution backend.
+- The worker uses the execution directory, not the invoking checkout. It returns a Markdown bullet report to the
+  coordinator and makes no RunWield lifecycle calls. Role instructions are guidance, not a host tool sandbox.
+- External hosts must not create competing worktree isolation. RunWield's registry owns the one-live-attempt invariant.
+
+**Requirement: Obtain durable conversational consent for non-Git execution.**
+
+- Without remembered Core consent, Claude asks the durable disclosure question in plain text. Proceeding edits current
+  files directly and skips Git-only isolation and recovery. Core remembers explicit consent for planned Plan work.
+- Declining leaves the Plan ready and the workflow open; Claude must not automatically restart or ask again.
+- A Git handoff failure does not silently select in-place execution. Other fallback capabilities remain targets.
+
+**Requirement: Accept only the issued structured implementation outcome.**
+
+- The coordinating conversation submits `task_completed` with `actionId` and the Core bullet-point `message` report.
+- Core checks workflow revision, action identity, live registry identity/path/branch, and the issued Plan identity and
+  revision. A changed Plan body, missing worktree, stale action, or prose claim outside the operation cannot advance
+  work.
+- Shared Core finalization restores a deleted execution Plan from its recorded baseline, checkpoints implementation, and
+  records `implemented`. Accepted operations replay without repeating effects.
+- `implemented` means implementation is recorded, not validated, Verified, or published. The workflow stays open for
+  later validation and publication, under [Core recovery](runwield-core-prd.md#execution-validation-and-recovery).
 
 **Acceptance scenarios:**
 
-- Given an approved ready Plan, when a host implementation worker starts, it works in the RunWield-owned execution
-  worktree and preserves the invoking checkout.
-- When safe worktree handoff is unavailable, only an existing explicit in-place consent path may proceed, with reduced
-  recovery assurance disclosed.
+- Given an approved ready Plan, Claude automatically starts execution, reports the isolation disclosure, and dispatches
+  a fresh host worker with its role and Plan path. The invoking checkout stays intact except the managed ignore block.
+- Given a non-Git project without remembered consent, a fresh conversation retrieves the same question. Proceed uses
+  Core's consent memory and in-place preparation; decline makes no implementation handoff and does not trigger a
+  restart.
+- Given a returned worker report against the issued action and unchanged Plan, Core records implementation and a Git
+  checkpoint. A repeated accepted operation advances nothing twice; changed authority rejects completion.
+- Given a deleted execution Plan with a recorded baseline, Core restores it and completes through its shared guards.
+- Given worker or process loss, `/runwield:implement` restores the same directory, action, and current role
+  instructions. A lost Attached write after preparation adopts the same Core attempt; a lost write after completion
+  settles the result on retry. Proven settled preparation journals heal without a second live worktree.
+- Given process loss before first Plan materialization or during completion settlement, retry uses
+  [Core's shared preparation and completion authority](runwield-core-prd.md#execution-validation-and-recovery). A
+  partial completion retains its issued action until Core saves the checkpoint and completes registry settlement.
+- Given a Plan body edit while completion waits for Core's lock, the issued completion is rejected; it cannot accept a
+  newer scope. Given Core archives the execution Plan, Attached status returns `plan_advanced_in_core`, not a worker
+  handoff to a missing document.
 
 <a id="structured-evidence-not-transcript-import"></a>
 
@@ -307,12 +347,11 @@ uses the same guidance within each user project’s own PRD structure.
 
 ### Lazy project setup and recovery
 
-**Scope and maturity:** Target for the first Preview; no always-running service prerequisite. Current Core subset:
-continuation after process loss for activation and Triage. Each `wld attached` operation is a separate short process. A
-later process accepts the Triage outcome exactly once, a repeated operation returns its saved result, and status reads
-saved state only. Activation and Triage write nothing to the repository. A PLANNED_CHANGE outcome waits for planning;
-every other Routing Intent closes the workflow as unsupported in this Preview. The setup preview for material repo-local
-changes remains target scope; it first applies when an Attached Workflow submits a Plan.
+**Scope and maturity:** The Preview uses short Core operations for activation, Triage, planning, durable browser review,
+and execution handoff. Activation and Triage write nothing to the repository. Plan submission previews required runtime
+and ignore setup; execution discloses its worktree and branch. Fresh processes restore review decisions, consent
+questions, implementation actions, and accepted results. No always-running service is required. Validation and
+publication recovery remain later Preview scope, with Core requirements authoritative.
 
 **Requirement: Start with necessary setup and preserve work after interruption.**
 
@@ -346,6 +385,8 @@ changes remains target scope; it first applies when an Attached Workflow submits
 - Given a trusted uninitialized repository, when the user starts their first attached change, full `wld init` is
   optional and material required repository changes are previewed.
 - When host or Core processes stop, saved Plans and work remain available for useful continuation or explicit retry.
+  `/runwield:plan-review` restores browser review; `/runwield:implement` restores the execution handoff described in
+  [Isolated implementation](#isolated-implementation), including the same registered worktree after worker loss.
 - When an interrupted command may already have changed external state, recovery reconciles available evidence and asks
   for a user decision only if external uncertainty remains; it never blindly replays the command.
 
