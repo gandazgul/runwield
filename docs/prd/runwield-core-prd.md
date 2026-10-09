@@ -1574,6 +1574,10 @@ Agent definitions are markdown files with YAML front matter. Definitions are lay
 
 Scalar front matter overrides by precedence. Prompt bodies append by default unless `promptOverride: true` is set.
 
+**Agent display names.** User-facing Agent labels use the effective front matter `name`, not the definition filename.
+The filename without `.md` is an internal ID for selection, routing, and persistence. This distinction applies to all
+Execution Backends, live message headers, restored messages, and the TUI footer.
+
 **Required tools.**
 
 Users can customize Agent tools, while required workflow capabilities remain available so customization does not break
@@ -1596,6 +1600,8 @@ boundary and does not control external CLI Execution Backends' native shells. Se
 
 **Acceptance scenarios:**
 
+- Given `planner.md` with the effective front matter name `Plan Designer`, when any Execution Backend emits Agent
+  messages, the message headers and footer show `Plan Designer`; routing and saved Agent identity remain `planner`.
 - Given layered Agent definitions, when a higher layer omits `bashAllowedCommands`, its lower list remains; when it
   supplies a list it replaces the lower list, `[]` denies all commands, and `null` resets the definition to unrestricted
   bash. Invalid values fail with source-specific guidance instead of removing a limit silently.
