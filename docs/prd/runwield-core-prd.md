@@ -141,6 +141,15 @@ Users can:
 - use `/resume` for chat-session resume
 - use `/load-plan <plan>` for Plan workflow resume
 
+**Requirement: Restore complete saved conversation history.** Resuming a Session renders its committed history through
+the final saved message in order, even when history spans multiple replay pages or startup refreshes Project context.
+Each saved event appears once per replay. Replay preserves the transcript and does not execute saved requests or tools.
+Closing the Session or canceling its replay stops delivery; history from that Session must not appear in a replacement
+Session or Project.
+
+- Given more than 200 saved events, terminal resume shows the final response without requiring an export or reimport.
+- Given a Session closes while history is loading, a replacement Session receives only its own history.
+
 A fully typed `/load-plan <plan>` submits with one Enter, regardless of autocomplete lookup timing. Partial Plan names
 remain discoverable through completion; an exact Plan name must not select a longer matching name.
 
