@@ -2,11 +2,9 @@ import { assertEquals } from "@std/assert";
 import { join } from "@std/path";
 import { isEmptyProjectDirectory } from "./project-state.ts";
 
-/**
- * @param {string} prefix
- * @param {(dir: string) => Promise<void>} fn
- */
-async function withTempProject(prefix, fn) {
+type TempProjectCheck = (dir: string) => Promise<void>;
+
+async function withTempProject(prefix: string, fn: TempProjectCheck): Promise<void> {
     const dir = await Deno.makeTempDir({ prefix });
     try {
         await fn(dir);
