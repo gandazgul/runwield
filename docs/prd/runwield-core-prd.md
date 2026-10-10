@@ -1983,6 +1983,8 @@ bounded job duration. A timeout blocks publication; it does not waive installati
 **Acceptance scenarios:**
 
 - Given a package check fails for a new Candidate or Stable, no GitHub Release is created.
+- Given a native Windows package check, the packaged Agent Bash tool creates a Git branch and the authenticated
+  Dashboard stream completes all four sections without reader errors, including a known finished Plan.
 - Given a native Homebrew check serves Candidate or Stable assets from localhost before publication, the formula and
   installed ownership metadata retain the release version, not a number inferred from the archive architecture.
 - Given a slow Homebrew command, its output is visible before it exits. If the job reaches its time limit, publication
@@ -1992,6 +1994,14 @@ bounded job duration. A timeout blocks publication; it does not waive installati
 - Given duplicate asset names, missing required assets, or checksum disagreement, publication stops before upload.
 
 **Requirement: Install required local runtime pieces without hiding package ownership.**
+
+Native Windows Agent Bash commands honor an explicit `shellPath` in RunWield settings. Without an override, discovery
+includes system-wide and per-user Git for Windows installations, custom Git installations exposed through their `cmd`
+directory on `PATH`, and Bash executables on `PATH`. Git being available must not leave its bundled Bash undiscovered. A
+genuinely missing Bash remains an external installation prerequisite.
+
+**Acceptance scenario:** With Git installed under `%LOCALAPPDATA%/Programs/Git` or a custom location whose `cmd`
+directory is on `PATH`, an Agent can create a branch through its Bash tool without configuring `shellPath`.
 
 Users can install RunWield as a standalone binary with the shell installer or, after owner publication, with the
 `gandazgul/homebrew-tap` macOS tap and the `Gandazgul.RunWield` WinGet package for Windows x64. A package-managed

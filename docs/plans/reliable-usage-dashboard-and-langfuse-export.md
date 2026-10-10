@@ -516,6 +516,19 @@ Left by the reviewers of individual children for the integration review. These a
 
 <!-- runwield:integration-notes:end child="reliable-usage-dashboard-and-langfuse-export/05-workspace-usage-page" -->
 
+<!-- runwield:integration-notes:start child="reliable-usage-dashboard-and-langfuse-export/06-package-executable-approval-and-metrics-exporter-kind" -->
+
+**reliable-usage-dashboard-and-langfuse-export/06-package-executable-approval-and-metrics-exporter-kind**
+
+- Confirm that child 07's worker imports only entryPath from resolveApprovedMetricsExporters and never resolves
+  exporters through packageManager.resolve(), so Project precedence cannot replace approved code.
+  (src/shared/extensions/metrics-exporter.ts; child 07 export coordination)
+- Confirm that child 09's settings surface maps listInstalledMetricsExporters results to the three states (not
+  installed, installed unapproved, approved) and does not write metricsExporterApprovals outside approveMetricsExporter.
+  (src/shared/extensions/metrics-exporter.ts; child 09 Workspace settings)
+
+<!-- runwield:integration-notes:end child="reliable-usage-dashboard-and-langfuse-export/06-package-executable-approval-and-metrics-exporter-kind" -->
+
 ## Edge Cases & Considerations
 
 ### Reviewable assumptions

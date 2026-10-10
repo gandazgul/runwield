@@ -250,12 +250,33 @@ async function checkProviderSetupLaunch(exe, env) {
     }
 }
 
+/** @typedef {{ planId?: string }} DashboardSmokeItem */
+/** @typedef {{ key: string, items: DashboardSmokeItem[] }} DashboardSmokeSection */
+/** @typedef {{ pending: boolean, failed: boolean }} DashboardSmokeSectionProgress */
+/** @typedef {{ pending: boolean, totalProjects: number }} DashboardSmokeProgress */
+/** @typedef {{ source: string, message: string }} DashboardSmokeDiagnostic */
+/**
+ * @typedef {Object} DashboardSmokeFrame
+ * @property {string} type
+ * @property {DashboardSmokeProgress} [progress]
+ * @property {DashboardSmokeSection[]} [sections]
+ * @property {DashboardSmokeDiagnostic[]} [diagnostics]
+ * @property {Record<string, DashboardSmokeSectionProgress>} [sectionProgress]
+ */
+
 /** @param {string} exe @param {Record<string, string>} env */
 async function checkWorkspacePairingAndArtifacts(exe, env) {
     const home = env.USERPROFILE;
     const projectRoot = join(home, "workspace-artifact-project");
     const fixture = await makeManagedSessionFixture({ home, projectRoot });
     try {
+        await Deno.mkdir(join(projectRoot, "docs", "plans"), { recursive: true });
+        await Deno.writeTextFile(
+            join(projectRoot, "docs", "plans", "dashboard-smoke.md"),
+            `---\nplanId: windows-dashboard-smoke\nclassification: FEATURE\nstatus: user_verified\nuserVerifiedAt: "${
+                new Date().toISOString()
+            }"\n---\n# Windows Dashboard smoke\n`,
+        );
         await Deno.writeTextFile(
             join(projectRoot, "artifact.md"),
             "# Windows package artifact\n\nWorkspace artifact smoke.\n",
@@ -292,6 +313,30 @@ async function checkWorkspacePairingAndArtifacts(exe, env) {
             if (claim.status !== 201) throw new Error(`Workspace pairing claim failed with ${claim.status}.`);
             const deviceCookie = claim.headers.get("set-cookie")?.match(/rw_owner_device=([^;]+)/)?.[1];
             if (!deviceCookie) throw new Error("Workspace pairing did not issue an owner device cookie.");
+            const dashboardResponse = await fetch(`${origin}/api/owner/dashboard/stream`, {
+                headers: { cookie: `rw_owner_device=${deviceCookie}` },
+                signal: AbortSignal.timeout(30_000),
+            });
+            const dashboardText = await dashboardResponse.text();
+            const frames = dashboardText.trim().split("\n").filter(Boolean).map(
+                /** @returns {DashboardSmokeFrame} */ (line) => JSON.parse(line),
+            );
+            const completed = frames.at(-1);
+            if (
+                dashboardResponse.status !== 200 || completed?.type !== "complete" ||
+                completed.progress?.pending !== false || !((completed.progress?.totalProjects ?? 0) >= 1) ||
+                completed.sections?.length !== 4 || completed.diagnostics?.length !== 0 ||
+                ["needs-you", "ready", "in-progress", "recently-finished"].some((key) =>
+                    completed.sectionProgress?.[key]?.failed !== false ||
+                    completed.sectionProgress?.[key]?.pending !== false
+                ) ||
+                !completed.sections.some((section) =>
+                    section.key === "recently-finished" &&
+                    section.items.some((item) => item.planId === "windows-dashboard-smoke")
+                )
+            ) {
+                throw new Error(`Packaged Dashboard did not load successfully:\n${dashboardText}`);
+            }
             const artifactResponse = await fetch(
                 `${origin}/projects/${fixture.project.projectId}/sessions/${fixture.session.runwieldSessionId}/artifacts/${artifact.artifactId}`,
                 { headers: { cookie: `rw_owner_device=${deviceCookie}` } },
