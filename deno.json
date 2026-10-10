@@ -93,7 +93,7 @@
         "@codemirror/view": "npm:@codemirror/view@^6.43.11",
         "@lezer/common": "npm:@lezer/common@^1.5.2",
         "@lezer/highlight": "npm:@lezer/highlight@^1.2.3",
-        "@pierre/diffs/worker/worker.js": "./src/ui/workspace/react/pierre-diffs-worker-shim.js",
+        "@pierre/diffs/worker/worker.js": "./src/ui/workspace/react/pierre-diffs-worker-shim.ts",
         "@pierre/diffs/edit": "npm:@pierre/diffs@1.4.2/edit",
         "@pierre/diffs/react": "npm:@pierre/diffs@1.4.2/react",
         "@pierre/diffs": "npm:@pierre/diffs@1.4.2",
