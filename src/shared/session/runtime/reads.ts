@@ -67,6 +67,12 @@ interface ManagedProjectionFailure {
     staticTokens?: number;
     activeMessageTokens?: number;
 }
+interface ReplayOptions {
+    signal?: AbortSignal;
+}
+interface CommittedProjectionOptions extends ReplayOptions {
+    completeHistory?: boolean;
+}
 type ProjectedSessionInfo =
     & Omit<
         ReturnType<typeof buildProjectedSessionInfo>,
@@ -333,6 +339,7 @@ export class RuntimeReads {
 
     async readManagedCommittedProjection(
         sessionId: string,
+        options: CommittedProjectionOptions = {},
     ): Promise<ManagedCommittedProjection | ManagedProjectionFailure> {
         const session = this.services.sessionHost.getSession(sessionId);
         const managed = session?.getManagedMetadata?.() || null;
@@ -351,15 +358,35 @@ export class RuntimeReads {
         }
         try {
             const segments = this.services.sessionStore.listSessionTranscriptSegments(managed.runwieldSessionId);
-            const projection = await projectAggregateTranscript({
+            const projectionOptions = {
                 cwd: session.cwd,
                 sessionDir: dirname(managed.transcriptPath),
                 runwieldSessionId: managed.runwieldSessionId,
                 runtimeSessionId: sessionId,
                 generation: inspected.generation,
                 segments,
-            });
+            };
+            let projection = await projectAggregateTranscript(projectionOptions);
             if (!projection.ok) return { ok: false, error: projection.code, message: projection.message };
+            // Pin generation and segments for the entire replay. Never mix pages from
+            // a newer writer, or emit a partial history if a later page fails validation.
+            const events = [...projection.events];
+            while (options.completeHistory && !projection.complete) {
+                if (
+                    options.signal?.aborted || session.disposed ||
+                    this.services.sessionHost.getSession(sessionId) !== session
+                ) {
+                    return { ok: false, error: "replay_canceled", message: "Session replay was canceled." };
+                }
+                projection = await projectAggregateTranscript({
+                    ...projectionOptions,
+                    cursorEventId: projection.nextCursor,
+                    cursorEventOrdinal: projection.nextCursorOrdinal,
+                });
+                if (!projection.ok) return { ok: false, error: projection.code, message: projection.message };
+                events.push(...projection.events);
+            }
+            projection = { ...projection, events };
             const evidence = await captureTranscriptEvidence({
                 transcriptPath: managed.transcriptPath,
                 transcriptCwd: session.cwd,
@@ -372,26 +399,38 @@ export class RuntimeReads {
         }
     }
 
-    async replaySession(sessionId: string) {
+    async replaySession(sessionId: string, options: ReplayOptions = {}) {
         const session = this.services.sessionHost.getSession(sessionId);
         if (!session) return { ok: false, replayed: 0, error: "not_found" };
+        const canceled = () =>
+            options.signal?.aborted || session.disposed ||
+            this.services.sessionHost.getSession(sessionId) !== session;
+        if (canceled()) return { ok: false, replayed: 0, error: "replay_canceled" };
+        const emit = (events: Parameters<RuntimeEvents["emitSessionEvent"]>[1][]) => {
+            let replayed = 0;
+            for (const event of events) {
+                if (canceled()) return { ok: false, replayed, error: "replay_canceled" };
+                this.events.emitSessionEvent(sessionId, event);
+                replayed += 1;
+            }
+            return { ok: true, replayed };
+        };
         const pendingEvents = this.events.consumePendingReplayEvents(sessionId);
         if (pendingEvents.length > 0) {
-            for (const event of pendingEvents) this.events.emitSessionEvent(sessionId, event);
-            return { ok: true, replayed: pendingEvents.length };
+            return emit(pendingEvents);
         }
         const managed = session.getManagedMetadata?.() || null;
         const manager = session.getRootSessionManager();
         if (managed && !manager) {
-            const projected = await this.readManagedCommittedProjection(sessionId);
+            const projected = await this.readManagedCommittedProjection(sessionId, {
+                ...options,
+                completeHistory: true,
+            });
             if (!projected.ok) return { ok: false, replayed: 0, error: projected.error };
-            const events = projected.projection.events || [];
-            for (const event of events) this.events.emitSessionEvent(sessionId, event);
-            return { ok: true, replayed: events.length };
+            return emit(projected.projection.events);
         }
         const events = createProjectedReplayEvents(sessionId, manager ? getRootSessionBranchEntries(manager) : []);
-        for (const event of events) this.events.emitSessionEvent(sessionId, event);
-        return { ok: true, replayed: events.length };
+        return emit(events);
     }
 
     async getLastAssistantText(sessionId: string) {

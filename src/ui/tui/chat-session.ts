@@ -158,12 +158,14 @@ export async function startInteractiveSession(
     const disposables: Array<() => void | Promise<void>> = [];
     let uiAPIForDispose: UiAPI | null = null;
     let lifecycleDisposed = false;
+    const historyReplay = new AbortController();
     let inputControllerForPause: ChatInputController | null = null;
     const lifecycleHandle: InteractiveLifecycleHandle = {
         isProcessingSubmission: () => inputControllerForPause?.isProcessingSubmission() || false,
         dispose: async () => {
             if (lifecycleDisposed) return;
             lifecycleDisposed = true;
+            historyReplay.abort();
             const cleanupErrors: Error[] = [];
             const recordCleanupError = (error: Error): void => {
                 cleanupErrors.push(error);
@@ -218,7 +220,7 @@ export async function startInteractiveSession(
         } catch {
             sessionStartedEmptyProjectDirectory = false;
         }
-        sessionRuntime.setProjectStateContext(
+        await sessionRuntime.setProjectStateContext(
             sessionId,
             sessionStartedEmptyProjectDirectory ? EMPTY_PROJECT_DIRECTORY_PROMPT_NOTE : "",
         );
@@ -696,7 +698,7 @@ export async function startInteractiveSession(
             });
         }
         if (shouldReplaySessionHistory(options.sessionStartMode)) {
-            await sessionRuntime.replaySession(sessionId);
+            await sessionRuntime.replaySession(sessionId, { signal: historyReplay.signal });
             const tutorialContext = runtimeSnapshot().tutorialContext;
             if (tutorialContext?.recapShown) {
                 await restoreVerifiedTutorialRecap({ runtime: sessionRuntime, sessionId, uiAPI });
