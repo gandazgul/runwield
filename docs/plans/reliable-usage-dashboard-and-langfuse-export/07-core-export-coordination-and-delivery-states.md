@@ -21,6 +21,7 @@ dependencies:
 targetBranch: "epic/reliable-usage-dashboard-and-langfuse-export"
 userVerifiedAt: null
 status: "reviewed"
+validatedCommit: "9d2a42ad5947fd8f5a4ea78c0118a6225b699eaa"
 ---
 
 # Core Export Coordination and Delivery States
