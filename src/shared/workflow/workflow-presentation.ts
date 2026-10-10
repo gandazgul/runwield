@@ -584,7 +584,7 @@ export function buildWorkflowPresentation(input: WorkflowPresentationInput): Wor
         plan: epic && plan.startsWith(`${epic}/`) ? plan.slice(epic.length + 1) : plan || "No active Plan",
         intent: intent || (isProject(input) ? "Container workflow" : "Plan workflow"),
         stages,
-        connections: connectionDefinitions(definitions, repairReturnTarget(input)),
+        connections: connectionDefinitions(stages, repairReturnTarget(input)),
         currentStage,
         blocker,
         action: currentStage ? actionFor(currentStage, input) : null,

@@ -93,6 +93,7 @@ Deno.test("terminal verified progress completes Plan and Quick Fix", () => {
             true,
         );
         assertEquals(result.action, null);
+        assertEquals(result.connections.some((edge) => edge.kind === "repair_return"), false);
     }
 });
 
