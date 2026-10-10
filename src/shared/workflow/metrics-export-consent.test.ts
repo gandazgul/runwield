@@ -190,14 +190,32 @@ Deno.test("queued Project edit uses the current destination rather than overwrit
     });
 });
 
-Deno.test("first grant in an empty journal does not export executions without a post-grant start", async () => {
+Deno.test("post-grant usage without a recorded execution start is pending and exported", async () => {
     await withMetricsExportFixture(async (f) => {
+        await f.record("model_usage", "auxiliary-before-grant");
         await f.grant();
-        await f.record("model_usage", "started-while-recording-off");
-        await f.record("execution_started", "eligible");
-        await f.record("model_usage", "eligible");
+        await f.record("model_usage", "vision-fallback");
+        assertEquals((await readMetricsExportStatus())[0].counts.pending, 1);
         await runMetricsExportCycle();
-        assertEquals(f.requests.length, 1);
+        assertEquals(f.requests.map((o) => o.kind), ["model_usage"]);
+        await f.record("model_usage", "external-guided-review");
+        assertEquals((await readMetricsExportStatus())[0].counts.pending, 1);
+        await runMetricsExportCycle();
+        assertEquals(f.requests.map((o) => o.kind), ["model_usage", "model_usage"]);
+        assertEquals((await readMetricsExportStatus())[0].counts.pending, 0);
+    });
+});
+
+Deno.test("recorded pre-grant execution starts remain excluded across export cycles", async () => {
+    await withMetricsExportFixture(async (f) => {
+        await f.record("execution_started", "old");
+        await f.grant();
+        await runMetricsExportCycle();
+        await f.record("model_usage", "old");
+        await f.record("execution_finished", "old");
+        assertEquals((await readMetricsExportStatus())[0].counts.pending, 0);
+        await runMetricsExportCycle();
+        assertEquals(f.requests, []);
     });
 });
 

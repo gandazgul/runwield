@@ -20,7 +20,7 @@ dependencies:
     - "06-package-executable-approval-and-metrics-exporter-kind"
 targetBranch: "epic/reliable-usage-dashboard-and-langfuse-export"
 userVerifiedAt: null
-status: "implemented"
+status: "reviewed"
 ---
 
 # Core Export Coordination and Delivery States

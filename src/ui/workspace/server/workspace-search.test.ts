@@ -595,6 +595,49 @@ Deno.test("Workspace search returns a large Plan result set", async () => {
     }
 });
 
+Deno.test("Workspace refresh includes edits made during an earlier scan", async () => {
+    const fixture = await searchFixture("refresh-during-scan");
+    const readTextFile = Deno.readTextFile;
+    let releaseRead;
+    const heldRead = new Promise((resolve) => releaseRead = resolve);
+    let reachedRead;
+    const reading = new Promise((resolve) => reachedRead = resolve);
+    let firstScan;
+    try {
+        await savePlan(fixture.root, "changing", "# Before\n", {
+            planId: "changing-id",
+            classification: "PLANNED_CHANGE",
+            status: "draft",
+        });
+        const path = join(fixture.root, "docs", "plans", "changing.md");
+        const original = await readTextFile(path);
+        await Deno.mkdir(join(fixture.root, "docs", "prd"), { recursive: true });
+        await Deno.writeTextFile(join(fixture.root, "docs", "prd", "gate.md"), "# Scan gate\n");
+        let held = false;
+        Deno.readTextFile = async (file, options) => {
+            const text = await readTextFile(file, options);
+            if (String(file).endsWith("/docs/prd/gate.md") && !held) {
+                held = true;
+                reachedRead();
+                await heldRead;
+            }
+            return text;
+        };
+        firstScan = fixture.search.refresh();
+        await reading;
+        await Deno.writeTextFile(path, original.replace("# Before", "# After\n\nConcurrent refresh needle."));
+        const refreshed = fixture.search.refresh();
+        releaseRead();
+        await Promise.all([firstScan, refreshed]);
+        assertEquals((await fixture.search.search({ query: "Concurrent refresh needle" })).total, 1);
+    } finally {
+        releaseRead();
+        await firstScan;
+        Deno.readTextFile = readTextFile;
+        await fixture.close();
+    }
+});
+
 Deno.test("Workspace search leaves a lone Plan without an ID unchanged", async () => {
     const fixture = await searchFixture("plan-identity-diagnostics");
     try {

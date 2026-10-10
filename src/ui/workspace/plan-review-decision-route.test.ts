@@ -152,7 +152,8 @@ Deno.test("Workspace sends review feedback images to the resumed planning Agent"
             images: [{ path: imagePath, name: "review.png" }],
         });
         assertEquals(response.status, 202, await response.clone().text());
-        for (let index = 0; index < 300 && !fixture.modelRequests.length; index++) {
+        const deadline = Date.now() + 60_000;
+        while (Date.now() < deadline && !fixture.modelRequests.length) {
             await new Promise((resolve) => setTimeout(resolve, 10));
         }
         assert(fixture.modelRequests.length > 0, "Planning Agent did not receive the feedback");

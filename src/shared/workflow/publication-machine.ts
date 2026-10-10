@@ -470,6 +470,7 @@ async function settlePublicationIndex(
         }
         const fetched = await git(inspection, [
             "fetch",
+            "--no-auto-maintenance",
             "--no-tags",
             remoteUrl.stdout,
             `refs/heads/${attempt.upstreamBranch}`,

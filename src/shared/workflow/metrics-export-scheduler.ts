@@ -48,7 +48,7 @@ interface ProjectCursor {
     startOffset: number;
     historyEpoch: string;
     offset: number;
-    executions: string[];
+    excludedExecutions?: string[];
     pending: PendingPosition[];
 }
 interface CursorFile {
@@ -78,7 +78,7 @@ function readCursor(destinationId: string): CursorFile {
         throw error;
     }
 }
-function readRows(path: string, offset: number, firstOnly = false): PositionedRow[] {
+function readRows(path: string, offset: number, firstOnly = false, endOffset?: number): PositionedRow[] {
     let file;
     try {
         file = Deno.openSync(path, { read: true });
@@ -88,7 +88,7 @@ function readRows(path: string, offset: number, firstOnly = false): PositionedRo
     }
     let bytes;
     try {
-        const size = file.statSync().size;
+        const size = Math.min(file.statSync().size, endOffset ?? Infinity);
         bytes = new Uint8Array(Math.max(0, firstOnly ? Math.min(16_384, size - offset) : size - offset));
         file.seekSync(offset, Deno.SeekMode.Start);
         let read = 0;
@@ -123,33 +123,37 @@ function scanProject(
     previous: ProjectCursor | undefined,
     epoch: string,
 ): ProjectCursor {
-    const cursor = previous && previous.grantId === grant.grantId && previous.startEpoch === project.historyEpoch &&
-            previous.startOffset === project.offset && previous.historyEpoch === epoch
-        ? structuredClone(previous)
-        : {
-            grantId: grant.grantId,
-            startEpoch: project.historyEpoch,
-            startOffset: project.offset,
-            historyEpoch: epoch,
-            offset: epoch === project.historyEpoch ? project.offset : 0,
-            executions: [],
-            pending: [],
-        };
-    const executions = new Set(cursor.executions);
+    const cursor: ProjectCursor =
+        previous && previous.grantId === grant.grantId && previous.startEpoch === project.historyEpoch &&
+            previous.startOffset === project.offset && previous.historyEpoch === epoch && previous.excludedExecutions
+            ? structuredClone(previous)
+            : {
+                grantId: grant.grantId,
+                startEpoch: project.historyEpoch,
+                startOffset: project.offset,
+                historyEpoch: epoch,
+                offset: epoch === project.historyEpoch ? project.offset : 0,
+                pending: [],
+            };
+    // Only a recorded start before consent excludes an execution. Auxiliary
+    // recorders without starts use the row offset, like rows without execution IDs.
+    cursor.excludedExecutions ??= epoch === project.historyEpoch
+        ? readRows(getWorkflowMetricsFilePath(project.projectRoot), 0, false, project.offset)
+            .filter(({ row }) => row.v === 2 && row.historyEpoch === epoch && row.event === "execution_started")
+            .flatMap(({ row }) => row.executionId ? [row.executionId] : [])
+        : [];
+    const excludedExecutions = new Set(cursor.excludedExecutions);
     for (const positioned of readRows(getWorkflowMetricsFilePath(project.projectRoot), cursor.offset)) {
         cursor.offset = positioned.end;
         const row = positioned.row;
         if (row.v !== 2 || row.historyEpoch !== epoch) continue;
-        if (row.event === "execution_started" && row.executionId) executions.add(row.executionId);
         if (
             isExportableMetric(row) &&
-            (epoch !== project.historyEpoch || !row.executionId || executions.has(row.executionId))
+            (!row.executionId || !excludedExecutions.has(row.executionId))
         ) {
             cursor.pending.push({ offset: positioned.offset, eventId: row.eventId });
         }
-        if (row.event === "execution_finished" && row.executionId) executions.delete(row.executionId);
     }
-    cursor.executions = [...executions];
     return cursor;
 }
 function rowAt(path: string, position: PendingPosition, epoch: string): MetricsJournalRow | null {
