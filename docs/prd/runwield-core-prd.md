@@ -128,7 +128,9 @@ sidebar; any onward merge or PR to main is the owner's responsibility unless ano
 
 Acceptance: answer and settle a clarification without a sidebar answer shortcut; reopen a saved Plan review without a
 live URL; cancel Code Review and resume it; observe repair return to verification; finish delivery, dismiss the panel,
-and reopen the Session with completion intact. Starting another Plan shows that Plan's current stage.
+and reopen the Session with completion intact. For older Sessions without saved validation progress, read the same
+Plan's confirmed completion from current Plan authority without changing history; missing or ambiguous Plan evidence
+must not manufacture completion. Starting another Plan shows that Plan's current stage.
 
 **Requirement: Agent selection replaces active instructions.** Switching Agents preserves conversation history while
 replacing the model's system instructions and available tools with those of the selected Agent. Earlier Agents' system

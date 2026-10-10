@@ -374,9 +374,10 @@ Deno.test("TUI adapter clears successful validation immediately without waiting 
     });
     runtime.emitSessionEvent(sessionId, { type: RuntimeEventTypes.USER_MESSAGE, text: "next", images: [] });
 
-    assertEquals(validationProgressUpdates.length, 0);
+    assertEquals(validationProgressUpdates.length, 1);
     assertEquals(transcript, [
         "system:info:OPERATION status without validation",
+        "validation:verified:terminal",
         "validation:clear",
         "system:info:Validation complete",
         "user:next",

@@ -3,6 +3,7 @@ import { fauxAssistantMessage, fauxText } from "@earendil-works/pi-ai";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { TuiAltScreen } from "@earendil-works/pi-tui";
 import { NO_OPEN_BROWSER_PORT } from "../../shared/browser-port.ts";
+import { emitSystemStatus } from "../../shared/session/session-runtime-events.js";
 import { HostedSession } from "../../shared/session/hosted-session.js";
 import {
     createValidationProgress,
@@ -59,63 +60,70 @@ Deno.test("accepted validation progress survives a cold Session and clears for a
     }
 });
 
-Deno.test("real runtime progress completes the sidebar after the adapter clears its validation panel", async () => {
-    await withSessionViewFixture(async ({ runtime, sessionId, session }) => {
-        session.setWorkflowExecutionContext({ planName: "sample", triageMeta: { status: "implemented" } });
-        const terminal = new VirtualTerminal({ columns: 150, rows: 45 });
-        const tui = new TuiAltScreen(terminal);
-        const view = await createChatView({
-            documentLinks: null,
-            tui,
-            suppressStartupHeader: true,
-            getSessionId: () => sessionId,
-            sessionRuntime: runtime,
-            setActiveModel: () => Promise.resolve({ status: "active" }),
-        });
-        const detach = attachTuiRuntimeAdapter({
-            runtime,
-            sessionId,
-            uiAPI: view.uiAPI,
-            browser: NO_OPEN_BROWSER_PORT,
-            notifyRunWieldEvent: () => {},
-        });
-        try {
-            tui.start();
-            const progress = createValidationProgress({
-                kind: "workflow",
-                stage: "terminal",
-                outcome: "verified",
-                cycle: 1,
-                maxCycles: 3,
-                checks: { ci: "passed", semanticReview: "passed", humanReview: "passed", merge: "passed" },
+for (const legacy of [false, true]) {
+    Deno.test(`runtime completion survives panel clearing (legacy event: ${legacy})`, async () => {
+        await withSessionViewFixture(async ({ runtime, sessionId, session }) => {
+            session.setWorkflowExecutionContext({ planName: "sample", triageMeta: { status: "implemented" } });
+            const terminal = new VirtualTerminal({ columns: 150, rows: 45 });
+            const tui = new TuiAltScreen(terminal);
+            const view = await createChatView({
+                documentLinks: null,
+                tui,
+                suppressStartupHeader: true,
+                getSessionId: () => sessionId,
+                sessionRuntime: runtime,
+                setActiveModel: () => Promise.resolve({ status: "active" }),
             });
-            emitRunWieldSystemStatus(session, "Delivered to the Plan branch.", "success", progress);
-            session.clearActiveExecutionWorkflow();
-            tui.renderNow(true);
-            await terminal.flush();
-            const screen = terminal.getScreenText();
-            assertStringIncludes(screen, "✓ Planning");
-            assertStringIncludes(screen, "✓ Publication");
-            assertEquals(screen.includes("ctrl+enter"), false);
-            const capture = Deno.env.get("WLD_SIDEBAR_CAPTURE");
-            if (capture) {
-                await Deno.writeTextFile(
-                    capture,
-                    JSON.stringify({
-                        columns: 150,
-                        rows: 45,
-                        lines: terminal.getViewportLines(),
-                        output: terminal.writes,
-                    }),
-                );
+            const detach = attachTuiRuntimeAdapter({
+                runtime,
+                sessionId,
+                uiAPI: view.uiAPI,
+                browser: NO_OPEN_BROWSER_PORT,
+                notifyRunWieldEvent: () => {},
+            });
+            try {
+                tui.start();
+                const progress = createValidationProgress({
+                    kind: "workflow",
+                    stage: "terminal",
+                    outcome: "verified",
+                    cycle: 1,
+                    maxCycles: 3,
+                    checks: { ci: "passed", semanticReview: "passed", humanReview: "passed", merge: "passed" },
+                });
+                if (legacy) {
+                    emitSystemStatus(session, "Delivered to the Plan branch.", {
+                        level: "success",
+                        validationProgress: progress,
+                    });
+                } else emitRunWieldSystemStatus(session, "Delivered to the Plan branch.", "success", progress);
+                session.clearActiveExecutionWorkflow();
+                tui.renderNow(true);
+                await terminal.flush();
+                const screen = terminal.getScreenText();
+                assertStringIncludes(screen, "✓ Planning");
+                assertStringIncludes(screen, "✓ Publication");
+                assertEquals(screen.includes("ctrl+enter"), false);
+                const capture = Deno.env.get("WLD_SIDEBAR_CAPTURE");
+                if (capture) {
+                    await Deno.writeTextFile(
+                        capture,
+                        JSON.stringify({
+                            columns: 150,
+                            rows: 45,
+                            lines: terminal.getViewportLines(),
+                            output: terminal.writes,
+                        }),
+                    );
+                }
+            } finally {
+                detach.dispose();
+                view.dispose();
+                tui.stop();
             }
-        } finally {
-            detach.dispose();
-            view.dispose();
-            tui.stop();
-        }
+        });
     });
-});
+}
 
 Deno.test("runtime resumes saved Code Review from its name without stale Plan content", async () => {
     await withSessionViewFixture(async ({ runtime, sessionId, session, projectRoot }) => {

@@ -22,6 +22,7 @@ import { logValidationFailure, ValidationStateError } from "./validation-state-e
 import type { WorkflowValidationResult } from "./validation-types.ts";
 import { validationUserMessage } from "./validation-user-messages.ts";
 import { emitProgress, emitStatus } from "./validation-emit.ts";
+import { getCurrentValidationProgress } from "./validation-progress.ts";
 import { resolvePhaseContext } from "./validation-context.ts";
 import { getWorktreeReviewDiff } from "./git-snapshot.ts";
 import { claimReviewFixes, renderOpenItems } from "./review-ledger.ts";
@@ -188,10 +189,10 @@ async function settleValidation(
                 plan.attrs,
                 { expectedRevision: plan.revision, expectedControllerRevision: plan.controllerRevision },
             );
+            const progress = getCurrentValidationProgress(args.hostedSession);
             const active = args.hostedSession.getActiveExecutionWorkflow();
             const triageMeta = { ...plan.attrs, validationCheckpoint };
             if (active) args.hostedSession.setActiveExecutionWorkflow({ ...active, triageMeta });
-            const progress = args.hostedSession.getWorkflowContext?.()?.validationProgress;
             args.hostedSession.setWorkflowExecutionContext?.({ planName: args.planName, triageMeta });
             if (progress) {
                 args.hostedSession.replaceWorkflowContext?.({

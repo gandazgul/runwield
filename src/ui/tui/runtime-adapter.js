@@ -297,7 +297,9 @@ export function attachTuiRuntimeAdapter({
                     validationSessionActive = !completed;
                     terminalValidationPanelVisible = value.validationProgress.outcome === "failed";
                     if (completed) {
-                        uiAPI.clearValidationPanel?.();
+                        // Older transcripts have completion events but no saved sidebar progress.
+                        uiAPI.updateValidationProgress?.(value.validationProgress);
+                        uiAPI.clearValidationPanel?.(true);
                         if (!event._meta?.replay && value.validationProgress.kind === "workflow") {
                             completionGeneration += 1;
                             completionPending = true;
