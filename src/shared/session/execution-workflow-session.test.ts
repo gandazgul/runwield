@@ -3,7 +3,7 @@ import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { HostedSession } from "./hosted-session.js";
 import { restoreExecutionWorkflow } from "./execution-workflow-recovery.ts";
-import { recordExecutionWorkflowSnapshot } from "./execution-workflow-session.js";
+import { recordExecutionWorkflowSnapshot } from "./execution-workflow-session.ts";
 import type { ActiveExecutionWorkflow } from "../types.js";
 
 type SnapshotCase = "active" | "paused" | "stopped" | "cleared";

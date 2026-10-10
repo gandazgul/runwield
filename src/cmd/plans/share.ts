@@ -21,7 +21,7 @@ import {
 } from "../../shared/collaboration/capabilities.ts";
 import { createCollaborationClient, SYSTEM_COLLABORATION_FETCH } from "../../shared/collaboration/client.js";
 import { encryptJsonPayload, exportContentKey, generateContentKey } from "../../shared/collaboration/crypto.ts";
-import { COLLABORATION_LOCK_BYPASS, COLLABORATION_STATE_REMOTE_CANONICAL } from "../../shared/collaboration/lock.js";
+import { COLLABORATION_LOCK_BYPASS, COLLABORATION_STATE_REMOTE_CANONICAL } from "../../shared/collaboration/lock.ts";
 import { normalizeSharedSpaceMetadata } from "../../shared/collaboration/protocol.js";
 import {
     deleteSecretRecord,

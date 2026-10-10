@@ -3,8 +3,8 @@ import {
     assertGoldenScenarioCoverage,
     collectGoldenScenarioCoverage,
     GOLDEN_TUI_REQUIRED_CAPABILITY_IDS,
-} from "../testing/mod.js";
-import { goldenTuiPortfolioScenarios } from "./catalog.js";
+} from "../testing/mod.ts";
+import { goldenTuiPortfolioScenarios } from "./catalog.ts";
 
 Deno.test("golden TUI portfolio declares asserted coverage for every required capability", () => {
     const scenarios =

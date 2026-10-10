@@ -12,7 +12,7 @@ import {
     updatePlanFrontMatter,
     withPlanLock,
 } from "../../plan-store.js";
-import { COLLABORATION_LOCK_BYPASS } from "../collaboration/lock.js";
+import { COLLABORATION_LOCK_BYPASS } from "../collaboration/lock.ts";
 import { defineCommittedGitFixture, git } from "../git-test-fixture.ts";
 import { addEntry } from "../worktree-registry.js";
 import { getCwd } from "../../constants.js";

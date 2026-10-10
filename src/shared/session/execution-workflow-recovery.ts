@@ -1,7 +1,7 @@
 import type { HostedSession } from "./hosted-session.js";
 import type { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { ActiveExecutionWorkflow } from "../types.js";
-import { readExecutionWorkflowSnapshot } from "./execution-workflow-session.js";
+import { readExecutionWorkflowSnapshot } from "./execution-workflow-session.ts";
 import { readPersistedActiveAgentName } from "./active-agent-session.js";
 import { readPersistedWorkflowContext } from "./workflow-context-session.js";
 import { readPlanAssociations } from "./plan-association.ts";

@@ -12,7 +12,7 @@ import { resolveProjectRuntimeLayout } from "../../shared/project-runtime-layout
 import { generateBearerCapability, hashCapability, MAINTAINER_SCOPE } from "../../shared/collaboration/capabilities.ts";
 import { createCollaborationClient, SYSTEM_COLLABORATION_FETCH } from "../../shared/collaboration/client.js";
 import { encryptJsonPayload, generateContentKeyString, importContentKey } from "../../shared/collaboration/crypto.ts";
-import { COLLABORATION_LOCK_BYPASS } from "../../shared/collaboration/lock.js";
+import { COLLABORATION_LOCK_BYPASS } from "../../shared/collaboration/lock.ts";
 import {
     getGlobalSecretStoreLocation,
     getGlobalSecretStorePath,
