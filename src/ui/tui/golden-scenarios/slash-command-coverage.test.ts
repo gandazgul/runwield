@@ -1,6 +1,6 @@
 import { assertEquals } from "@std/assert";
 import { getSlashCommandDefinitions } from "../../../cmd/registry.js";
-import { goldenTuiPortfolioScenarios } from "./catalog.js";
+import { goldenTuiPortfolioScenarios } from "./catalog.ts";
 
 const EXPECTED_SLASH_COMMANDS = [
     "agent",

@@ -8,7 +8,7 @@ import {
     normalizeCollaborationFrontMatter,
     SHARED_PLAN_LOCK_REPAIR,
     SharedPlanLockError,
-} from "./lock.js";
+} from "./lock.ts";
 
 const lockedAttrs = {
     collaborationState: COLLABORATION_STATE_REMOTE_CANONICAL,

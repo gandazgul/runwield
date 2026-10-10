@@ -16,7 +16,7 @@ import {
     writePlanMarkdownWithRevision,
 } from "../../plan-store.js";
 import type { PlanFrontMatter } from "../../plan-store.js";
-import { assertSharedPlanWriteAllowed } from "../collaboration/lock.js";
+import { assertSharedPlanWriteAllowed } from "../collaboration/lock.ts";
 import { stripRuntimeFields } from "./controller-state.ts";
 import { isSequencePlan } from "../project-plan.ts";
 import { buildPlanEventUpdates } from "./plan-lifecycle.js";

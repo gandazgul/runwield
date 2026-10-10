@@ -1,3 +1,4 @@
+import { effectiveDeliveryBranch } from "./plan-branch.ts";
 import {
     readDeliveryEvidence,
     saveDeliveredPlanEvidence,
@@ -306,7 +307,7 @@ async function runLockedPublicationPhase(
     // Reload the execution document under the publication lock before selecting
     // a target or sealing commits.
     const executionPlan = await loadPlan(context.executionCwd, args.planName);
-    const requestedTarget = executionPlan?.attrs.targetBranch?.trim();
+    const requestedTarget = executionPlan ? effectiveDeliveryBranch(executionPlan.attrs) : undefined;
     const worktreeBaseBranch = requestedTarget
         ? await resolveTargetBranchName(context.projectRoot, requestedTarget)
         : context.worktreeBaseBranch;

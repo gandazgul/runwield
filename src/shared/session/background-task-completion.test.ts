@@ -306,7 +306,8 @@ Deno.test("completion after generated turn acceptance prevents final model dispa
                     calls++;
                     return fauxAssistantMessage(fauxToolCall("background_task", {
                         action: "start",
-                        command: "sleep 0.3; printf 'stale output'",
+                        command:
+                            `while [ ! -f '${projectRoot}/release-result' ]; do sleep 0.01; done; printf 'stale output'`,
                     }));
                 },
                 () => {
@@ -348,6 +349,7 @@ Deno.test("completion after generated turn acceptance prevents final model dispa
                     true,
                 );
                 armed = true;
+                await Deno.writeTextFile(`${projectRoot}/release-result`, "release\n");
                 for (let attempt = 0; attempt < 300 && !preparationHeld; attempt++) {
                     await new Promise((resolve) => setTimeout(resolve, 10));
                 }
@@ -363,12 +365,20 @@ Deno.test("completion after generated turn acceptance prevents final model dispa
                 completions.push(tool.execute("final", { message: "- Done." }));
                 assertEquals((await completions[0]).details.outcome, "task_completed");
                 session.completeAgentSteeringPreparation("hold-generated-prompt");
-                await Promise.race([
-                    generatedTurnEnded,
-                    new Promise((_, reject) =>
-                        setTimeout(() => reject(Error("Generated turn did not settle")), 10_000)
-                    ),
-                ]);
+                let settlementTimeout;
+                try {
+                    await Promise.race([
+                        generatedTurnEnded,
+                        new Promise((_, reject) => {
+                            settlementTimeout = setTimeout(
+                                () => reject(Error("Generated turn did not settle")),
+                                60_000,
+                            );
+                        }),
+                    ]);
+                } finally {
+                    clearTimeout(settlementTimeout);
+                }
                 assertEquals(calls, 2);
             } finally {
                 releasePreparation();

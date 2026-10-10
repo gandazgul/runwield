@@ -21,7 +21,7 @@ import {
 } from "./islands/PlanLifecycleActions.jsx";
 
 import { createWorkspaceApp } from "./server.js";
-import { COLLABORATION_STATE_REMOTE_CANONICAL } from "../../shared/collaboration/lock.js";
+import { COLLABORATION_STATE_REMOTE_CANONICAL } from "../../shared/collaboration/lock.ts";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { listWorkRecords } from "../../shared/work-records/store.js";
 import { createWorkRecordMnemotecaFixture } from "../../shared/work-records/test-fixtures/mnemoteca-port.ts";

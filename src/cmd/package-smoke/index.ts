@@ -7,6 +7,7 @@ import { WORK_RECORDS_DIR_NAME } from "../../constants.js";
 import { publishExecutionWorktreeIsolated } from "../../shared/isolated-publication.ts";
 import { RUNWIELD_GITIGNORE_BLOCK } from "../../shared/runwield-owned-paths.ts";
 import { checkPackagedImageResize } from "./image-resize.ts";
+import { createRunWieldBashToolDefinition } from "../../tools/bash.ts";
 
 /** @param {string} name */
 function requiredEnv(name: string): string {
@@ -69,6 +70,21 @@ async function checkCoreHelperFlows(env: Record<string, string>): Promise<void> 
     await Deno.mkdir(join(project, "src"), { recursive: true });
     await Deno.mkdir(join(project, WORK_RECORDS_DIR_NAME), { recursive: true });
     await run("git", ["init", "-b", "main"], { cwd: project, env });
+    const bash = createRunWieldBashToolDefinition(project);
+    // Pi supports standalone execution without a Session context, as in createBashTool.
+    const result = await bash.execute(
+        "package-bash",
+        { command: "git checkout -b runwield/bash-smoke && git branch --show-current", timeout: 15 },
+        undefined,
+        undefined,
+        undefined as never,
+    );
+    const output = result.content.filter((item) => item.type === "text").map((item) => item.text).join("\n");
+    if (!output.includes("runwield/bash-smoke") || output.includes("Command exited with code")) {
+        throw new Error(`Packaged Bash could not create a Git branch:\n${output}`);
+    }
+    const branch = await run("git", ["branch", "--show-current"], { cwd: project, env });
+    if (branch.stdout.trim() !== "runwield/bash-smoke") throw new Error("Packaged Bash did not switch Git branches.");
     await Deno.writeTextFile(
         join(project, "src", "smoke.ts"),
         "export function runwieldWindowsPackageSmoke() { return 1; }\n",

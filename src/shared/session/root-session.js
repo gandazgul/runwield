@@ -355,7 +355,20 @@ export async function classifyRootSessionLocator(options) {
     const requestedSessionPath = resolve(String(options.sessionPath));
     const projectRoot = store.requireSessionProjectRoot(project.projectId);
     const projectSessionDir = join(store.path, encodeCwdForSessionDir(canonicalizeCwd(projectRoot)));
-    const locatorSessionDir = isPathInside(requestedSessionPath, projectSessionDir) ? projectSessionDir : undefined;
+    const catalogedByPath = store.findSessionByLocator({
+        projectId: project.projectId,
+        transcriptPath: requestedSessionPath,
+    });
+    const catalogedSegment = catalogedByPath
+        ? store.listSessionTranscriptSegments(catalogedByPath.runwieldSessionId).find((segment) =>
+            resolve(segment.transcriptPath) === requestedSessionPath
+        )
+        : null;
+    const locatorSessionDir = isPathInside(requestedSessionPath, projectSessionDir)
+        ? projectSessionDir
+        : catalogedSegment
+        ? getRunWieldSessionDir(catalogedSegment.transcriptCwd)
+        : undefined;
     let locator;
     try {
         locator = await readCatalogSafeRootSessionLocator({

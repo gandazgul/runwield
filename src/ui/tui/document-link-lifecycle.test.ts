@@ -1,21 +1,23 @@
 import { assert, assertEquals, assertNotEquals, assertRejects, assertStringIncludes } from "@std/assert";
-import { join } from "@std/path";
 import { getCapabilities, setCapabilities } from "@earendil-works/pi-tui";
-import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
-import type { RuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
+import { join } from "@std/path";
+import { type RuntimeCommandFixture, withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
 import { NO_OPEN_BROWSER_PORT } from "../../shared/browser-port.ts";
 import { createInteractiveTuiComposition } from "./interactive-tui-composition.ts";
 import { VirtualTerminal } from "./testing/virtual-terminal.js";
 import { getTUI } from "./tui.ts";
 
-type DocumentLinkFixtureRun = (fixture: RuntimeCommandFixture) => Promise<void>;
-
-async function withDocumentLinkFixture(prefix: string, run: DocumentLinkFixtureRun): Promise<void> {
-    await withRuntimeCommandFixture(prefix, async (fixture) => {
+/** Exercise a hyperlink-capable terminal independently of the developer's terminal. */
+async function withDocumentLinkFixture<T>(
+    prefix: string,
+    run: (fixture: RuntimeCommandFixture) => Promise<T>,
+): Promise<T> {
+    return await withRuntimeCommandFixture(prefix, async (fixture) => {
+        // The runtime fixture already holds the process-global test lock.
         const capabilities = getCapabilities();
         setCapabilities({ ...capabilities, hyperlinks: true });
         try {
-            await run(fixture);
+            return await run(fixture);
         } finally {
             setCapabilities(capabilities);
         }
