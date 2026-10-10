@@ -31,6 +31,7 @@ dependencies:
 userVerifiedAt: null
 targetBranch: "epic/reliable-usage-dashboard-and-langfuse-export"
 status: "reviewed"
+validatedCommit: "061801f43001903ead918ae905c0b5818a580a8e"
 ---
 
 # Package Executable Approval and Metrics-Exporter Kind
