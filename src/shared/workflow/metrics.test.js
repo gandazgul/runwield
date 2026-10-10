@@ -49,7 +49,8 @@ Deno.test("recordWorkflowMetric writes worktree events under the primary project
             await recordWorkflowMetric({ category: "execution", event: "task_completed" }, worktreePath);
 
             const contents = await Deno.readTextFile(getWorkflowMetricsFilePath(primaryRoot));
-            const metrics = contents.trim().split("\n").map((line) => JSON.parse(line));
+            const metrics = contents.trim().split("\n").map((line) => JSON.parse(line))
+                .filter((record) => record.event !== "collection_epoch");
             assertEquals(metrics.length, 1);
             assertEquals(metrics[0].category, "execution");
         } finally {
@@ -91,7 +92,7 @@ Deno.test("recordWorkflowMetric writes sanitized JSONL when enabled", async () =
     });
 });
 
-Deno.test("recordWorkflowMetric swallows write failures", async () => {
+Deno.test("recordWorkflowMetric reports write failures without throwing", async () => {
     await withWorkflowMetricsFixture(async ({ homeDir, projectRoot, readMetrics }) => {
         const runwieldPath = join(homeDir, ".wld");
         await Deno.remove(runwieldPath, { recursive: true }).catch(() => {});
@@ -102,7 +103,8 @@ Deno.test("recordWorkflowMetric swallows write failures", async () => {
             projectRoot,
         );
 
-        assertExists(record);
+        assertEquals(record.persisted, false);
+        assertEquals(record.reason, "storage_failure");
         assertEquals(await readMetrics(), []);
     });
 });

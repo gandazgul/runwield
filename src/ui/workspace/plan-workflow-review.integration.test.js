@@ -122,10 +122,11 @@ for (const resumeStatus of ["in_progress", "failed"]) {
                             },
                         });
                         assertEquals(decision.status, "accepted");
-                        for (
-                            let i = 0;
-                            i < 500 && service.getOperation(started.operationId).status === "running";
-                            i++
+                        // Run prepares a real worktree before completion; allow for CI contention.
+                        const approvalDeadline = Date.now() + 60_000;
+                        while (
+                            Date.now() < approvalDeadline &&
+                            service.getOperation(started.operationId).status === "running"
                         ) {
                             await new Promise((resolve) => setTimeout(resolve, 20));
                         }
@@ -203,7 +204,9 @@ for (const resumeStatus of ["in_progress", "failed"]) {
                     const result = await resumed.json();
                     assertEquals(resumed.status, 202, JSON.stringify(result));
                     assertExists(result.operationId);
-                    for (let i = 0; i < 500; i++) {
+                    // Real worktree and checkpoint I/O can exceed ten seconds under CI contention.
+                    const resumeDeadline = Date.now() + 60_000;
+                    while (Date.now() < resumeDeadline) {
                         const operation = service.getOperation(result.operationId);
                         if (operation.liveInteraction || operation.status !== "running") break;
                         await new Promise((resolve) => setTimeout(resolve, 20));
